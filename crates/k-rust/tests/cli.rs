@@ -9221,6 +9221,46 @@ fn kcompile_names_a_pair_of_anywhere_rules_that_does_not_join_at_its_first_rule(
     );
 }
 
+const OVERLOADED_TEST: &str = r#"
+module TEST
+  imports DOMAINS
+  syntax Foo ::= "foo"
+  syntax Bar ::= Foo | "bar"
+  syntax Bool ::= test(Foo) [function, overload(test)]
+                | test(Bar) [function, overload(test)]
+  rule test(foo) => true
+  rule test(_)   => false
+endmodule
+"#;
+
+/// The compiler makes the overload axiom `test(inj(X:Foo)) = inj(test(X))` of the two `test`
+/// productions; it has no label, no unique id and no written position. Applied at `test(foo)` it
+/// reaches `true` and the written `test(_) => false` reaches `false`, so the pair does not join.
+/// The warning names the generated equation by the overloaded pair, and the diagnostic is
+/// located at the written equation, the one of the two that has a position.
+#[test]
+fn kcompile_names_a_generated_overload_axiom_by_its_pair_and_locates_it_at_the_written_equation() {
+    let (root, definition) = fixture();
+    fs::write(&definition, OVERLOADED_TEST).unwrap();
+    let options = ["--main-module", "TEST", "--syntax-module", "TEST"];
+    let compiled = kcompile_for_krun(&definition, &options, &root.join("compiled"));
+    let stderr = String::from_utf8(compiled.stderr).unwrap();
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.contains("[UnjoinedCriticalPair]"))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "{stderr}");
+    let warning = warnings[0];
+    let written = format!("{}:9:3", definition.display());
+    assert!(
+        warning.starts_with(&format!(
+            "{written}: Warning[UnjoinedCriticalPair]: the equations overload axiom of test(_)_TEST_Bool_Bar over test(_)_TEST_Bool_Foo and "
+        )) && warning.contains(&format!(" at {written} overlap at ")),
+        "{warning}"
+    );
+    assert!(!warning.contains("UNKNOWN"), "{warning}");
+}
+
 const ANYWHERE_ARGUMENTS: &str = r#"
 module AA
   imports DOMAINS

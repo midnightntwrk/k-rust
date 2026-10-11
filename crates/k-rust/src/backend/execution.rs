@@ -183,32 +183,6 @@ pub fn run(
     execute_with_solver(definition, initial, options, solver)
 }
 
-/// The written position of an equation, `path:line:column`, from its KORE `Source` and
-/// `Location` attributes; `None` when the KORE carries neither.
-fn written_position(origin: &RuleOrigin) -> Option<String> {
-    let source = origin.source.as_deref().map(|source| {
-        source
-            .strip_prefix("Source(")
-            .and_then(|path| path.strip_suffix(')'))
-            .unwrap_or(source)
-    });
-    let location = origin.location.as_deref().map(|location| {
-        let inner = location
-            .strip_prefix("Location(")
-            .and_then(|inner| inner.strip_suffix(')'));
-        match inner.map(|inner| inner.split(',').take(2).collect::<Vec<_>>()) {
-            Some(parts) if parts.len() == 2 => format!("{}:{}", parts[0], parts[1]),
-            _ => location.to_owned(),
-        }
-    });
-    match (source, location) {
-        (Some(source), Some(location)) => Some(format!("{source}:{location}")),
-        (Some(source), None) => Some(source.to_owned()),
-        (None, Some(location)) => Some(location),
-        (None, None) => None,
-    }
-}
-
 /// What the author is told when an equation of a symbol declared `total` (or `functional`)
 /// reduced an application of it to bottom (`ContradictedTotal`): the symbol by its K label, the
 /// equation with
@@ -222,19 +196,10 @@ pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
         KorePrinter::compact().print_pattern(&externalize::term(&contradicted.application));
     let undefined =
         KorePrinter::compact().print_pattern(&externalize::term(&contradicted.undefined_term));
-    let equation = contradicted
-        .label
-        .as_deref()
-        .unwrap_or(&contradicted.rule_id);
-    let position = contradicted
-        .origin
-        .as_ref()
-        .and_then(written_position)
-        .map(|position| format!(" at {position}"))
-        .unwrap_or_default();
     format!(
-        "the `total` attribute of {symbol} is contradicted on this input: its equation {equation}{position} reduces {application} to bottom (undefined at {undefined}); the attribute is trusted, so the definition is inconsistent here",
+        "the `total` attribute of {symbol} is contradicted on this input: its equation {equation} reduces {application} to bottom (undefined at {undefined}); the attribute is trusted, so the definition is inconsistent here",
         symbol = k_label(contradicted.symbol()),
+        equation = contradicted.attributes.diagnostic_name(k_label),
     )
 }
 
@@ -272,11 +237,13 @@ impl ValueClaimFindingCode {
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ValueClaimFinding {
     pub code: ValueClaimFindingCode,
-    /// The unique id of the equation the finding is located at: the pair's first equation, or
-    /// the equation of a precondition row (none for a row about two overloads).
+    /// The unique id of the pair's first equation, or of the equation of a precondition row
+    /// (none for a row about two overloads); none for an equation without a unique id of its
+    /// own ([`RuleAttributes::identifier`](k_rust_backend::rule::RuleAttributes::identifier)),
+    /// such as a compiler-generated overload axiom.
     pub first: Option<String>,
     /// The unique id of the pair's second equation (the first again for an equation paired with
-    /// itself or not paired); none for a precondition row.
+    /// itself or not paired), none as for `first`; none for a precondition row.
     pub second: Option<String>,
     /// Why the pair does not join, or which precondition the row violates, as the check states
     /// it.
@@ -305,18 +272,10 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
     /// The characters of the overlapped term a warning prints before it cuts it short.
     const OVERLAP_CHARACTERS: usize = 240;
     let claims = definition.value_claims();
-    let equation = |rule: &k_rust_backend::rule::RewriteRule| {
-        let name = rule
-            .attributes
-            .label
-            .clone()
-            .unwrap_or_else(|| rule.attributes.unique_id.clone());
-        match rule.attributes.origins.first().and_then(written_position) {
-            Some(position) => format!("{name} at {position}"),
-            None => name,
-        }
-    };
-    let unique_id = |rule: &k_rust_backend::rule::RewriteRule| rule.attributes.unique_id.clone();
+    let equation =
+        |rule: &k_rust_backend::rule::RewriteRule| rule.attributes.diagnostic_name(k_label);
+    let unique_id =
+        |rule: &k_rust_backend::rule::RewriteRule| rule.attributes.identifier().map(str::to_owned);
     let mut findings = claims
         .violations()
         .iter()
@@ -332,7 +291,7 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
             };
             ValueClaimFinding {
                 code: ValueClaimFindingCode::ValueClaimPrecondition,
-                first: violation.rule.as_deref().map(unique_id),
+                first: violation.rule.as_deref().and_then(unique_id),
                 second: None,
                 reason: violation.kind.to_string(),
                 withdrawn: Vec::new(),
@@ -430,8 +389,8 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
         withdrawn.sort();
         findings.push(ValueClaimFinding {
             code: ValueClaimFindingCode::UnjoinedCriticalPair,
-            first: Some(unique_id(&pair.first)),
-            second: Some(unique_id(&pair.second)),
+            first: unique_id(&pair.first),
+            second: unique_id(&pair.second),
             reason: pair.reason.to_string(),
             withdrawn,
             message,
@@ -456,8 +415,8 @@ pub fn value_claim_warning(finding: &ValueClaimFinding) -> String {
 
 /// The located diagnostics `kompile` reports for the findings of the load-time critical-pair
 /// check ([`value_claim_findings`]): each at the written position of its first equation in
-/// `definition`, with the input addresses the compiler recorded for that equation in
-/// `provenance`.
+/// `definition`, or of its second when the first has no unique id of its own, with the input
+/// addresses the compiler recorded for that equation in `provenance`.
 pub fn value_claim_diagnostics(
     definition: &BackendDefinition,
     provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
@@ -472,10 +431,10 @@ pub fn value_claim_diagnostics(
         .values()
         .flat_map(|priorities| priorities.values().flatten())
         .filter_map(|rule| {
-            rule.attributes
-                .origins
-                .first()
-                .map(|origin| (rule.attributes.unique_id.as_str(), origin))
+            Some((
+                rule.attributes.identifier()?,
+                rule.attributes.origins.first()?,
+            ))
         })
         .collect::<std::collections::BTreeMap<_, _>>();
     findings
@@ -491,9 +450,8 @@ fn value_claim_diagnostic(
     provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
 ) -> crate::diagnostic::Diagnostic {
     use crate::diagnostic::{Diagnostic, Severity};
-    let (source, location) = finding
-        .first
-        .as_deref()
+    let located = finding.first.as_deref().or(finding.second.as_deref());
+    let (source, location) = located
         .and_then(|id| origins.get(id))
         .map_or((None, None), |origin| written_location(origin));
     Diagnostic {
@@ -502,9 +460,7 @@ fn value_claim_diagnostic(
         message: finding.message.clone(),
         source,
         location,
-        input_addresses: finding
-            .first
-            .as_ref()
+        input_addresses: located
             .and_then(|id| provenance.get(id))
             .map(|entry| entry.input_addresses.clone())
             .unwrap_or_default(),
@@ -578,7 +534,7 @@ fn rule_description(definition: &BackendDefinition, rule_id: &str) -> String {
         .unwrap_or(rule_id);
     let position = attributes
         .and_then(|attributes| attributes.origins.first())
-        .and_then(written_position)
+        .and_then(RuleOrigin::written_position)
         .map(|position| format!(" at {position}"))
         .unwrap_or_default();
     format!("{name}{position}")
