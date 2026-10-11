@@ -666,14 +666,7 @@ impl Backend {
                     executable: attributes.executable,
                     label: attributes.label.clone(),
                     priority: attributes.priority,
-                    origins: attributes
-                        .origins
-                        .iter()
-                        .map(|origin| CompiledRuleOriginOutput {
-                            source: origin.source.clone(),
-                            location: origin.location.clone(),
-                        })
-                        .collect(),
+                    origins: attributes.origins.iter().map(Into::into).collect(),
                     shared_identity: identity_counts[attributes.unique_id.as_str()] > 1,
                 }
             })

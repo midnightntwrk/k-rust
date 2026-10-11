@@ -15,6 +15,7 @@ use k_rust_backend::{
     diagnostic::{self, BackendDiagnostic},
     externalize,
     rewrite::{AppliedRule, HaltReason, IndeterminateReason, RemainderBranch},
+    rule::RuleOrigin,
     search::{
         IncompleteSearch, PathSearchResult as BackendPathSearchResult, PathWitness,
         PatternPathSearchResult as BackendPatternPathSearchResult,
@@ -57,6 +58,15 @@ pub struct CompiledRuleOriginOutput {
     pub location: Option<String>,
 }
 
+impl From<&RuleOrigin> for CompiledRuleOriginOutput {
+    fn from(origin: &RuleOrigin) -> Self {
+        Self {
+            source: origin.source.clone(),
+            location: origin.location.clone(),
+        }
+    }
+}
+
 /// An application of a symbol declared `total` (or `functional`) that one of its equations
 /// reduced to bottom (`k_rust_backend::simplify::ContradictedTotal`).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -92,13 +102,7 @@ fn contradicted_total_output<K: WireKore>(
             .filter(|label| label != contradicted.symbol()),
         rule_id: contradicted.rule_id.clone(),
         rule_label: contradicted.label.clone(),
-        origin: contradicted
-            .origin
-            .as_ref()
-            .map(|origin| CompiledRuleOriginOutput {
-                source: origin.source.clone(),
-                location: origin.location.clone(),
-            }),
+        origin: contradicted.origin.as_ref().map(Into::into),
         application: encode_term(&contradicted.application)?,
         undefined: encode_term(&contradicted.undefined_term)?,
     })
@@ -483,9 +487,18 @@ pub enum BackendDiagnosticOutput<K = Value> {
     /// that another equation superseded, one whose subject a later part of the same
     /// simplification dropped, and one made while simplifying the condition of an enclosing
     /// attempt that was itself refuted, superseded or dropped report nothing.
+    ///
+    /// `rule_id` is the equation's compiled id and `origin` the `Source` and `Location` of the
+    /// first written sentence of its axiom, as the rule catalog lists them: the first of that
+    /// entry's `origins`. Axioms that carry neither a label nor a `UNIQUE_ID` all have the id
+    /// `UNKNOWN`, so the id alone does not say which of them the condition belongs to; the
+    /// origin does wherever their sentences carry distinct positions. Omitted only when the
+    /// backend has no sentence for the equation.
     UndecidedCondition {
         #[serde(rename = "ruleId")]
         rule_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<CompiledRuleOriginOutput>,
         reason: ConditionIndeterminacyOutput<K>,
         predicates: Vec<K>,
         #[serde(rename = "ruleVariables", default)]
@@ -1242,7 +1255,7 @@ fn diagnostic_output<K: WireKore>(
     Ok(match diagnostic {
         BackendDiagnostic::UndecidedCondition {
             rule_id,
-            origin: _,
+            origin,
             reason,
             predicates,
             rule_variables,
@@ -1251,6 +1264,7 @@ fn diagnostic_output<K: WireKore>(
                 diagnostic::printable_condition(&predicates, &rule_variables);
             BackendDiagnosticOutput::UndecidedCondition {
                 rule_id,
+                origin: origin.as_ref().map(Into::into),
                 reason: condition_indeterminacy_output(reason, result_sort)?,
                 predicates: predicates
                     .iter()
@@ -2101,6 +2115,7 @@ mod tests {
             variants.push(serde_json::json!({"kind":"undecided-predicate","reason":reason,"predicate":predicate}));
         }
         variants.push(serde_json::json!({"kind":"undecided-condition","ruleId":"r","reason":{"kind":"no-solver"},"predicates":[predicate],"ruleVariables":[{"name":"Eq-hY","definitionName":"Y"}]}));
+        variants.push(serde_json::json!({"kind":"undecided-condition","ruleId":"UNKNOWN","origin":{"source":"Source(test.k)","location":"Location(3,3,3,20)"},"reason":{"kind":"no-solver"},"predicates":[predicate],"ruleVariables":[]}));
         for expected in variants {
             let decoded: BackendDiagnosticOutput =
                 serde_json::from_value(expected.clone()).unwrap();
@@ -2275,6 +2290,50 @@ mod tests {
             "BackendDiagnostic",
             "undecided-condition",
             &["ruleId", "reason", "predicates", "ruleVariables"],
+        );
+    }
+
+    /// An undecided condition names its equation's first written sentence as the rule catalog
+    /// lists it, so equations that share the id `UNKNOWN` are told apart; the field is omitted
+    /// when the backend has no sentence for the equation.
+    #[test]
+    fn undecided_condition_names_its_equations_first_sentence_on_the_wire() {
+        use k_rust_backend::rule::{Predicate, RuleOrigin};
+
+        let sort = Sort::simple("SortS");
+        let condition = |origin| {
+            diagnostic_output::<Value>(
+                BackendDiagnostic::UndecidedCondition {
+                    rule_id: "UNKNOWN".into(),
+                    origin,
+                    reason: ConditionIndeterminacy::NoSolver,
+                    predicates: vec![Predicate::True],
+                    rule_variables: Vec::new(),
+                },
+                &sort,
+            )
+            .unwrap()
+        };
+        let located = condition(Some(RuleOrigin {
+            source: Some("Source(test.k)".into()),
+            location: Some("Location(7,3,7,20)".into()),
+            sentence: Some(("MAIN".into(), 4)),
+        }));
+        let value = serde_json::to_value(&located).unwrap();
+        assert_eq!(
+            value["origin"],
+            serde_json::json!({"source": "Source(test.k)", "location": "Location(7,3,7,20)"})
+        );
+        assert_eq!(
+            serde_json::from_value::<BackendDiagnosticOutput>(value).unwrap(),
+            located
+        );
+        let unlocated = serde_json::to_value(condition(None)).unwrap();
+        assert!(unlocated.get("origin").is_none(), "{unlocated}");
+        assert_typescript_variant_fields(
+            "BackendDiagnostic",
+            "undecided-condition",
+            &["ruleId", "origin?", "reason", "predicates", "ruleVariables"],
         );
     }
 

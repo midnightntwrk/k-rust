@@ -474,6 +474,8 @@ export type BackendDiagnostic =
       /** Reported only for an attempt whose outcome the simplification kept: the equation applied, or no other equation rewrote the subject and the simplification's result still holds it. An attempt whose `requires` was refuted, one that another equation superseded, one whose subject a later part of the same simplification dropped, and one made while simplifying the condition of an enclosing attempt that was itself refuted, superseded or dropped report nothing. */
       kind: 'undecided-condition'
       ruleId: string
+      /** The first written sentence of the equation's axiom, the first of its ruleCatalog entry's `origins`; with `ruleId` it names an equation whose id is 'UNKNOWN'. */
+      origin?: RuleOrigin
       reason: ConditionIndeterminacy
       /** The equation's instantiated `requires` (the equation was not used), or, once it held, the definedness of the terms the match bound (the result carries them). */
       predicates: Kore[]

@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, CompiledRuleKind, ExecuteRequest, ObservationEventOutput,
-        ObservedRequest,
+        Backend, BackendDiagnosticOutput, BackendOptions, CompiledRuleKind, ExecuteRequest,
+        ObservationEventOutput, ObservedRequest,
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
@@ -215,4 +215,64 @@ fn catalog_rewrite_identities_install_as_observation_filters() {
         .collect();
     assert!(!applied.is_empty());
     assert!(applied.iter().all(|id| ids.contains(id)));
+}
+
+/// Equations that carry neither a label nor a `UNIQUE_ID` all have the id `UNKNOWN`, so a
+/// condition reported for one of them names it by its id and by the first written sentence of
+/// its axiom, which is the first of its catalog entry's origins: a client tells the two
+/// equations apart and finds each one's entry.
+#[test]
+fn an_undecided_condition_of_an_unnamed_equation_names_its_catalog_entry() {
+    let definition = r#"[] module MAIN
+        sort SortS{} []
+        symbol a{}() : SortS{} [constructor{}(), functional{}()]
+        symbol c{}(SortS{}, SortS{}) : SortS{} [constructor{}(), functional{}()]
+        symbol f{}(SortS{}) : SortS{} [function{}()]
+        symbol g{}(SortS{}) : SortS{} [function{}()]
+        axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+            f{}(X:SortS{}), \and{SortS{}}(Y:SortS{}, \top{SortS{}}())))
+            [simplification{}(),
+             org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(test.k)"),
+             org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,3,20)")]
+        axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+            g{}(X:SortS{}), \and{SortS{}}(Y:SortS{}, \top{SortS{}}())))
+            [simplification{}(),
+             org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(test.k)"),
+             org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,20)")]
+    endmodule []"#;
+    let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+    let catalog = backend.rule_catalog(None).unwrap();
+    let state = parse_pattern("c{}(f{}(a{}()), g{}(a{}()))").unwrap();
+    let leaves = backend.execute(ExecuteRequest::new(state)).unwrap().leaves;
+    let named: Vec<_> = leaves
+        .iter()
+        .flat_map(|leaf| &leaf.diagnostics)
+        .filter_map(|diagnostic| match diagnostic {
+            BackendDiagnosticOutput::UndecidedCondition {
+                rule_id, origin, ..
+            } => Some((rule_id.clone(), origin.clone().expect("an origin"))),
+            _ => None,
+        })
+        .collect();
+    let locations: BTreeSet<_> = named
+        .iter()
+        .map(|(_, origin)| origin.location.clone().unwrap())
+        .collect();
+    assert_eq!(
+        locations,
+        BTreeSet::from([
+            "Location(3,3,3,20)".to_owned(),
+            "Location(4,3,4,20)".to_owned()
+        ]),
+        "{named:?}"
+    );
+    for (rule_id, origin) in &named {
+        assert_eq!(rule_id, "UNKNOWN");
+        let entries: Vec<_> = catalog
+            .iter()
+            .filter(|entry| &entry.id == rule_id && entry.origins.first() == Some(origin))
+            .collect();
+        assert_eq!(entries.len(), 1, "{origin:?} in {catalog:?}");
+        assert!(entries[0].shared_identity);
+    }
 }
