@@ -1677,6 +1677,89 @@ endmodule
         );
     }
 
+    /// The structural preference chooses before inference, so where it keeps only ill-sorted
+    /// readings sorts decide among every reading (`Grammar::infer_without_structural_preference`).
+    /// Whatever the outcome, a parse is never a term the per-position choice among well-sorted
+    /// readings would not keep, and a rejection other than an ambiguity means no reading is well
+    /// sorted. Checked against that choice computed on trees (`Grammar::exact_structural_choice`)
+    /// for every sequence of up to three items over a user `=>` building a `Foo` that the
+    /// rewrite also reads, where `f` and `h` take a `Foo` and `g` a sort the user's `=>` takes
+    /// but the rewrite at `f` cannot.
+    #[test]
+    fn a_rule_body_parse_is_one_the_choice_among_well_sorted_readings_keeps() {
+        // The sides of the user's `=>` are of a sort unrelated to `Foo`, or above it, so that a
+        // reading through it can have a greater typing than the rewrite's.
+        let unrelated = r#"
+  syntax Bar ::= "bar" [symbol(bar)]
+  syntax Foo ::= Bar "=>" Bar [symbol(arrowfoo)]
+  syntax KItem ::= f(Foo) [symbol(f)] | g(Bar) [symbol(g)] | h(Foo) [symbol(h)]"#;
+        let above = r#"
+  syntax Qux ::= "qux" [symbol(qux)]
+  syntax Baz ::= Foo | Qux
+  syntax Foo ::= Baz "=>" Baz [symbol(arrowfoo)]
+  syntax KItem ::= f(Foo) [symbol(f)] | g(Qux) [symbol(g)] | h(Foo) [symbol(h)]"#;
+        let items = [
+            "f(X => Y)",
+            "f(Y => X)",
+            "f(Z => W)",
+            "g(X)",
+            "g(Y)",
+            "g(W)",
+            "h(X)",
+            "h(Y)",
+            "X => Y",
+        ];
+        let mut longest: Vec<String> = items.iter().map(|item| (*item).to_owned()).collect();
+        let mut bodies = longest.clone();
+        for _ in 1..3 {
+            longest = longest
+                .iter()
+                .flat_map(|body| items.iter().map(move |item| format!("{body} ~> {item}")))
+                .collect();
+            bodies.extend(longest.iter().cloned());
+        }
+        let start = Sort::new("#RuleContent");
+        for syntax in [unrelated, above] {
+            let loaded = load_with_prelude(&format!("module MAIN{syntax}\nendmodule\n"));
+            let grammar = module_rule_grammar_of(loaded.resolved(), "MAIN");
+            let (mut accepted, mut decided, mut ambiguous, mut kept_one, mut rejected) =
+                (0, 0, 0, 0, 0);
+            for body in &bodies {
+                let exact = grammar.exact_structural_choice(&start, body);
+                match grammar.parse(&start, body) {
+                    Ok(term) => {
+                        accepted += 1;
+                        decided += usize::from(exact.kept.len() < exact.well_sorted);
+                        assert!(
+                            exact.kept.iter().any(|kept| kept.identical(&term)),
+                            "{syntax}\n{body}: parsed {term}, kept {:?}",
+                            exact
+                                .kept
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                        );
+                    }
+                    Err(ParseError::Ambiguous { .. }) => {
+                        ambiguous += 1;
+                        kept_one += usize::from(exact.kept.len() == 1);
+                    }
+                    Err(error) => {
+                        rejected += 1;
+                        assert_eq!(exact.well_sorted, 0, "{syntax}\n{body}: {error}");
+                    }
+                }
+            }
+            println!(
+                "{} bodies: {accepted} parsed ({decided} where the choice drops a well-sorted \
+                 term), {ambiguous} ambiguous ({kept_one} where it keeps one term), \
+                 {rejected} rejected",
+                bodies.len()
+            );
+            assert!(decided > 0 && kept_one > 0 && rejected > 0);
+        }
+    }
+
     /// The rule grammar of `module`, as a rule of that module is parsed with it.
     fn module_rule_grammar_of(resolved: &ResolvedDefinition, module: &str) -> Grammar {
         let module = resolved.module_id(module).expect("the module is resolved");

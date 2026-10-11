@@ -1147,6 +1147,97 @@ endmodule
     }
 }
 
+/// The rule bodies of a module over a match-arm-like `Foo ::= Bar "=>" Bar` whose `=>` the
+/// rule's rewrite also reads, with `f` taking a `Foo`, `g` a `Bar` and cells `<k>` and `<c>`,
+/// or the load's error.
+fn bodies_over_a_user_arrow(rule: &str) -> Result<Vec<String>, String> {
+    let source = format!(
+        r#"module MAIN
+  syntax Bar ::= "bar" [symbol(bar)]
+  syntax Foo ::= Bar "=>" Bar [symbol(arrowfoo)]
+  syntax KItem ::= f(Foo) [symbol(f)] | g(Bar) [symbol(g)] | h(Foo) [symbol(h)]
+  configuration <k> .K </k> <c> .K </c>
+  rule {rule}
+  syntax K
+endmodule
+"#
+    );
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new("arrow.k", &source),
+        "MAIN",
+        &mut resolver,
+    )
+    .map_err(|error| format!("{error:?}"))?;
+    Ok(loaded
+        .definition()
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .filter(|body| !body.starts_with("init"))
+        .collect())
+}
+
+/// The preference chooses before inference, from the sorts written in a reading, so it can keep
+/// only readings inference rejects: at `f`'s argument it prefers the rewrite `X => Y`, of sort at
+/// most `Foo`, though `g(X)` makes `X` a `Bar`. Then sorts decide among every reading: the one
+/// well-sorted reading reads the user's `=>` (an arm) there, as it does with `X:Bar` written,
+/// where the preferred readings already are well sorted. Where a preferred reading is well
+/// sorted it is the parse even when another is too (`f(X => X)` alone rewrites).
+#[test]
+fn sorts_decide_among_every_reading_when_no_preferred_one_is_well_sorted() {
+    for (rule, expected) in [
+        (
+            "<k> f(X => Y) ... </k> <c> g(X) => .K ... </c>",
+            "f(arrowfoo(#SemanticCastToBar(X),#SemanticCastToBar(Y)))",
+        ),
+        (
+            "<k> f(X:Bar => Y) ... </k> <c> g(X) => .K ... </c>",
+            "f(arrowfoo(#SemanticCastToBar(X),#SemanticCastToBar(Y)))",
+        ),
+        (
+            "<k> f(X => X) ... </k>",
+            "f(#SemanticCastToFoo(X)=>#SemanticCastToFoo(X))",
+        ),
+    ] {
+        let bodies =
+            bodies_over_a_user_arrow(rule).unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert!(
+            bodies.iter().any(|body| body.contains(expected)),
+            "{rule}: {bodies:?}"
+        );
+    }
+}
+
+/// When sorts decide among every reading, well-sorted readings that rank differently where they
+/// first differ are reported as an ambiguity, not chosen between: with `D` a `Bar` (from
+/// `g(D)`), `f(C => D)` can only be an arm, and `f(A => B)` is well sorted both as a rewrite and
+/// as an arm. Where no reading at all is well sorted, the error is the preferred readings' own.
+#[test]
+fn sorts_deciding_among_every_reading_report_readings_of_different_ranks_as_ambiguous() {
+    let ambiguous =
+        bodies_over_a_user_arrow("<k> f(A => B) ~> f(C => D) ... </k> <c> g(D) => .K ... </c>")
+            .unwrap_err();
+    for reading in [
+        "Ambiguous",
+        "#SemanticCastToFoo(A)=>#SemanticCastToFoo(B)",
+        "arrowfoo(#SemanticCastToBar(A),#SemanticCastToBar(B))",
+    ] {
+        assert!(ambiguous.contains(reading), "{ambiguous}");
+    }
+    let error =
+        bodies_over_a_user_arrow("<k> f(X => Y) ... </k> <c> g(X) => h(X) ... </c>").unwrap_err();
+    assert!(
+        error.contains("SortInference") && error.contains("variable has incompatible sort bounds"),
+        "{error}"
+    );
+}
+
 /// Each reading of a body is judged by itself. With user syntax that reuses `=>` twice
 /// (`A "=>" A "=>" A`), `a => (b => a) + a => a` has readings rooted at either of the rule's
 /// unparenthesized `=>`, and each puts one rewrite directly below the other, which the rewrite's
