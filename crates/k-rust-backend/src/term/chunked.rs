@@ -9,11 +9,13 @@
 //!
 //! The tree has nodes, the fill invariant, bulk loading, length, double-ended iteration, access
 //! by position, ordered search, equality, order, a hash independent of the tree's shape, a drop
-//! that needs only constant stack, and the persistent edits of [`edit`]: inserting and removing
-//! one item by path copy, splitting at a position or a key, joining, and the union of two
-//! ordered sequences. Seeks and `rebuild_where` come in a later part. Nothing outside this module
-//! and its tests uses it until terms move to it, so its declaration in `term.rs` allows dead code
-//! outside test builds; test builds keep the lint, so every item here is at least tested.
+//! that needs only constant stack, the persistent edits of [`edit`] (inserting and removing one
+//! item by path copy, splitting at a position or a key, joining, and the union of two ordered
+//! sequences), the per-node summaries of [`summary`] and the group summaries kept by difference
+//! ([`Group`], [`multiset`]), and the seeks, ranges and item-wise rebuilds of [`seek`]. Nothing
+//! outside this module and its tests uses it until terms move to it, so its declaration in
+//! `term.rs` allows dead code outside test builds; test builds keep the lint, so every item here
+//! is at least tested.
 //!
 //! # Items
 //!
@@ -22,16 +24,23 @@
 //! the tree, three item types implement it:
 //!
 //! - `Term`, the element of a set and the item of a list. Its key is the term itself (a set is
-//!   ordered by `Term`'s `Ord`; a list is ordered by position and never searched by key), its
-//!   hash is the hash the term stores, and its summary carries the per-item fields the term
-//!   attributes need (counts of items failing each attribute flag, the variable multiset).
+//!   ordered by `Term`'s `Ord`; a list is ordered by position and never searched by key), and
+//!   its hash is the hash the term stores. Its summary is a tuple of the generic summaries of
+//!   [`summary`]: a [`Failing`](summary::Failing) over the attribute flags (`evaluated`,
+//!   `value_claimed`, `constructor_like`, `concrete_after_normalization`, `can_be_evaluated`,
+//!   `ceil_free`), a [`Uniform`](summary::Uniform) key header, an [`Any`](summary::Any) for
+//!   `has_macro_or_alias`, a [`Saturating`](summary::Saturating) count of `k` cells at 2, and a
+//!   [`Count`](summary::Count) of symbolic keys (not `constructor_like`). Its group summary is
+//!   the [`Multiset`](multiset::Multiset) of the variables it mentions, empty for a ground term.
+//!   [`NodeSummary`] adds the repeated-key flag (`collision`) for every item type.
 //! - `(Term, Term)`, the entry of a map. Its key is the map key: entries are ordered by
 //!   `(key, value)`, which orders keys as `Term`'s `Ord` does, so a search by key finds the
-//!   first entry of that key. Its hash mixes the two terms' hashes; its summary is the entry's
-//!   share of the same fields, plus what a repeated key needs.
-//! - `Variable`, the element of a persistent variable set (and, paired with a count, of a
-//!   variable multiset, keyed by the variable). Its key is itself, its hash is the variable's
-//!   `FxHasher` hash, and its summary is `()`.
+//!   first entry of that key. Its hash mixes the two terms' hashes; its summary and group
+//!   summary are the entry's share of the same fields (the symbolic-key count reads the key).
+//! - `Variable`, the element of a persistent variable set (and, in a
+//!   [`Multiset`](multiset::Multiset), paired with its number of occurrences, keyed by the
+//!   variable). Its key is itself, its hash is the variable's `FxHasher` hash, and its summary
+//!   and group summary are `()`.
 //!
 //! # Fill invariant
 //!
@@ -52,10 +61,16 @@
 //! # Summaries
 //!
 //! Every node stores a [`NodeSummary`]: the number of items below it, its first and last item,
-//! the [`SequenceHash`] of its items, and the item type's own [`Summary`]. Each of these is a
-//! monoid, and a node's summary is the fold of its items' summaries in order, so a summary of
-//! any concatenation of subtrees is the combination of theirs. The first and last items let an
-//! ordered search pick a child by its keys alone.
+//! whether two adjacent items share a key, the [`SequenceHash`] of its items, the item type's
+//! own [`Summary`], and its [`Group`] summary. Each of these is a monoid, and a node's summary is
+//! the fold of its items' summaries in order, so a summary of any concatenation of subtrees is
+//! the combination of theirs. The first and last items let an ordered search pick a child by its
+//! keys alone, and give the repeated-key flag at a junction.
+//!
+//! All fields but the group summary have a constant size, and a copied node recomputes them from
+//! its children. The group summary can grow with the items (the variables they mention), so a
+//! copied node gets it by difference from the node it replaces: [`Group`] says when and why
+//! that is exact, and [`edit`] and [`seek`] which operations do so.
 //!
 //! # Equality, order and hash
 //!
@@ -74,6 +89,9 @@
 //! through the same work list, [`Dismantle`], so a deep nesting is freed in constant stack too.
 
 mod edit;
+pub(crate) mod multiset;
+pub(crate) mod seek;
+pub(crate) mod summary;
 #[cfg(test)]
 mod tests;
 
@@ -109,6 +127,45 @@ impl Summary for () {
     fn combine(self, _right: &Self) -> Self {}
 }
 
+/// A [`Summary`] whose [`combine`](Summary::combine) is commutative and can be undone:
+/// [`subtract`](Group::subtract) takes out of a summary the share of some of the items it
+/// summarizes. Counts and multisets are such summaries.
+///
+/// A node keeps its group summary by the difference an edit makes below it, the summaries of the
+/// items the edit adds and removes, instead of recombining its children's summaries: a node
+/// holds the same items as the node it replaces up to that difference, and since the group is
+/// commutative, where in the node the items went does not matter. A summary whose size grows with
+/// the items below the node (the multiset of the variables they mention) then costs an edit only
+/// the difference, at each node it copies; recombining would cost everything below the node.
+pub(crate) trait Group: Summary {
+    /// The summary of the items `self` summarizes without those `part` summarizes, which are
+    /// among them.
+    #[must_use]
+    fn subtract(self, part: &Self) -> Self;
+
+    /// The work of combining with or subtracting this summary, in the units its operations are
+    /// linear in (the entries of a multiset). Of two summaries to combine, the heavier is kept
+    /// and the lighter added to it; of two parts of a node to compute, the lighter is folded and
+    /// the heavier subtracted from the node's.
+    fn weight(&self) -> usize;
+}
+
+impl Group for () {
+    fn subtract(self, _part: &Self) -> Self {}
+
+    fn weight(&self) -> usize {
+        0
+    }
+}
+
+/// The group summary of `groups`, combined in order. Each combination keeps the heavier side,
+/// so the work is that of the lighter sides.
+fn fold_groups<G: Group>(groups: impl IntoIterator<Item = G>) -> G {
+    groups
+        .into_iter()
+        .fold(G::identity(), |fold, group| fold.combine(&group))
+}
+
 /// An item of a [`Chunked`] sequence.
 ///
 /// The sequence relies on two agreements. [`hash64`](Item::hash64) agrees with `Eq`: equal
@@ -120,8 +177,13 @@ pub(crate) trait Item: Clone + Eq + fmt::Debug {
     /// What an ordered collection is searched by.
     type Key: Ord + ?Sized;
 
-    /// The item type's own share of a node's summary.
+    /// The item type's own share of a node's summary, recombined from a copied node's children
+    /// (its combination must cost a constant, not grow with the items).
     type Summary: Summary;
+
+    /// The item type's share of a node's summary that is kept by difference ([`Group`]): one
+    /// whose size grows with the items, such as the multiset of the variables they mention.
+    type Group: Group;
 
     fn key(&self) -> &Self::Key;
 
@@ -130,6 +192,9 @@ pub(crate) trait Item: Clone + Eq + fmt::Debug {
 
     /// The summary of the one-item sequence holding this item.
     fn summary(&self) -> Self::Summary;
+
+    /// The group summary of the one-item sequence holding this item.
+    fn group(&self) -> Self::Group;
 }
 
 /// The prime `2^61 - 1`, the modulus of [`SequenceHash`].
@@ -212,14 +277,25 @@ impl Summary for SequenceHash {
 }
 
 /// The summary every node stores: the number of items, the first and last item (absent only in
-/// the identity), the hash of the item sequence, and the item type's own summary.
+/// the identity), whether two adjacent items have the same key, the hash of the item sequence,
+/// and the item type's own summary and group summary.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NodeSummary<I: Item> {
     pub(crate) count: usize,
     pub(crate) first: Option<I>,
     pub(crate) last: Option<I>,
+    /// Two adjacent items share a key. In an ordered collection, equal keys are adjacent, so
+    /// this says whether a key is repeated; a list records it too, and nothing reads it there.
+    pub(crate) collision: bool,
     pub(crate) hash: SequenceHash,
     pub(crate) extra: I::Summary,
+    pub(crate) group: I::Group,
+}
+
+/// Whether the junction of a run ending with `last` and a run starting with `first` puts two
+/// items of one key side by side.
+fn collides<I: Item>(last: Option<&I>, first: Option<&I>) -> bool {
+    matches!((last, first), (Some(last), Some(first)) if last.key() == first.key())
 }
 
 impl<I: Item> NodeSummary<I> {
@@ -229,28 +305,47 @@ impl<I: Item> NodeSummary<I> {
             count: 1,
             first: Some(item.clone()),
             last: Some(item.clone()),
+            collision: false,
             hash: SequenceHash::of_item(item.hash64()),
             extra: item.summary(),
+            group: item.group(),
         }
     }
 
     /// The fold of the items' summaries, cloning only the first and the last item.
     fn of_items(items: &[I]) -> Self {
+        Self::of_items_with(items, fold_groups(items.iter().map(Item::group)))
+    }
+
+    /// The fold of the items' summaries, but for the group summary, which is `group`.
+    fn of_items_with(items: &[I], group: I::Group) -> Self {
         Self {
             count: items.len(),
             first: items.first().cloned(),
             last: items.last().cloned(),
+            collision: items
+                .windows(2)
+                .any(|pair| collides(Some(&pair[0]), Some(&pair[1]))),
             hash: items.iter().fold(SequenceHash::EMPTY, |hash, item| {
                 hash.combine(&SequenceHash::of_item(item.hash64()))
             }),
             extra: items.iter().fold(I::Summary::identity(), |extra, item| {
                 extra.combine(&item.summary())
             }),
+            group,
         }
     }
 
     /// The fold of the children's summaries, cloning only the first and the last item.
     fn of_children(children: &[Arc<Node<I>>]) -> Self {
+        Self::of_children_with(
+            children,
+            fold_groups(children.iter().map(|child| child.summary().group.clone())),
+        )
+    }
+
+    /// The fold of the children's summaries, but for the group summary, which is `group`.
+    fn of_children_with(children: &[Arc<Node<I>>], group: I::Group) -> Self {
         Self {
             count: children.iter().map(|child| child.summary().count).sum(),
             first: children
@@ -259,6 +354,13 @@ impl<I: Item> NodeSummary<I> {
             last: children
                 .last()
                 .and_then(|child| child.summary().last.clone()),
+            collision: children.iter().any(|child| child.summary().collision)
+                || children.windows(2).any(|pair| {
+                    collides(
+                        pair[0].summary().last.as_ref(),
+                        pair[1].summary().first.as_ref(),
+                    )
+                }),
             hash: children.iter().fold(SequenceHash::EMPTY, |hash, child| {
                 hash.combine(&child.summary().hash)
             }),
@@ -267,6 +369,7 @@ impl<I: Item> NodeSummary<I> {
                 .fold(I::Summary::identity(), |extra, child| {
                     extra.combine(&child.summary().extra)
                 }),
+            group,
         }
     }
 
@@ -285,18 +388,24 @@ impl<I: Item> Summary for NodeSummary<I> {
             count: 0,
             first: None,
             last: None,
+            collision: false,
             hash: SequenceHash::EMPTY,
             extra: I::Summary::identity(),
+            group: I::Group::identity(),
         }
     }
 
     fn combine(self, right: &Self) -> Self {
         Self {
             count: self.count + right.count,
+            collision: self.collision
+                || right.collision
+                || collides(self.last.as_ref(), right.first.as_ref()),
             first: self.first.or_else(|| right.first.clone()),
             last: right.last.clone().or(self.last),
             hash: self.hash.combine(&right.hash),
             extra: self.extra.combine(&right.extra),
+            group: self.group.combine(&right.group),
         }
     }
 }
@@ -324,6 +433,23 @@ impl<I: Item> Node<I> {
 
     fn internal(height: usize, children: Vec<Arc<Self>>) -> Self {
         let summary = NodeSummary::of_children(&children);
+        Self::Internal {
+            height,
+            children,
+            summary,
+        }
+    }
+
+    /// A leaf whose group summary the caller knows: `group` is that of `items`.
+    fn leaf_with(items: Vec<I>, group: I::Group) -> Self {
+        let summary = NodeSummary::of_items_with(&items, group);
+        Self::Leaf { items, summary }
+    }
+
+    /// An internal node whose group summary the caller knows: `group` is that of the items
+    /// below `children`.
+    fn internal_with(height: usize, children: Vec<Arc<Self>>, group: I::Group) -> Self {
+        let summary = NodeSummary::of_children_with(&children, group);
         Self::Internal {
             height,
             children,
@@ -646,6 +772,59 @@ impl<'a, I: Item> Iter<'a, I> {
             remaining: root.map_or(0, |root| root.summary().count),
         }
     }
+}
+
+impl<'a, I: Item> Iter<'a, I> {
+    /// The items at positions `start..end` below `root`, with `start <= end <=` its count. Each
+    /// end descends once to its first item, keeping the siblings beside its path.
+    fn between(root: Option<&'a Arc<Node<I>>>, start: usize, end: usize) -> Self {
+        let mut iter = Self {
+            front: Vec::new(),
+            front_items: [].iter(),
+            back: Vec::new(),
+            back_items: [].iter(),
+            remaining: end - start,
+        };
+        let Some(root) = root.filter(|_| start < end) else {
+            return iter;
+        };
+        let (mut node, mut index) = (root, start);
+        iter.front_items = loop {
+            match &**node {
+                Node::Leaf { items, .. } => break items[index..].iter(),
+                Node::Internal { children, .. } => {
+                    let (slot, offset) = slot_of(children, index);
+                    iter.front.push(children[slot + 1..].iter());
+                    (node, index) = (&children[slot], offset);
+                }
+            }
+        };
+        let (mut node, mut index) = (root, end - 1);
+        iter.back_items = loop {
+            match &**node {
+                Node::Leaf { items, .. } => break items[..=index].iter(),
+                Node::Internal { children, .. } => {
+                    let (slot, offset) = slot_of(children, index);
+                    iter.back.push(children[..slot].iter());
+                    (node, index) = (&children[slot], offset);
+                }
+            }
+        };
+        iter
+    }
+}
+
+/// The child of `children` holding position `index`, below their total count, and the position
+/// within it.
+fn slot_of<I: Item>(children: &[Arc<Node<I>>], mut index: usize) -> (usize, usize) {
+    for (slot, child) in children.iter().enumerate() {
+        let count = child.summary().count;
+        if index < count {
+            return (slot, index);
+        }
+        index -= count;
+    }
+    unreachable!("a position below the count")
 }
 
 impl<'a, I: Item> Iterator for Iter<'a, I> {

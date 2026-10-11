@@ -10,12 +10,12 @@ use proptest::prelude::*;
 use super::{DEFAULT, Entry, check_invariants, choices, entries, shaped};
 use crate::term::chunked::{Chunked, Item, Node};
 
-fn entry() -> impl Strategy<Value = Entry> {
+pub(super) fn entry() -> impl Strategy<Value = Entry> {
     (0u8..40, any::<u8>()).prop_map(|(key, value)| Entry { key, value })
 }
 
 /// The height of a tree's root; 0 for the empty tree.
-fn height<I: Item, const B: usize>(tree: &Chunked<I, B>) -> usize {
+pub(super) fn height<I: Item, const B: usize>(tree: &Chunked<I, B>) -> usize {
     tree.root.as_ref().map_or(0, |root| root.height())
 }
 
@@ -30,7 +30,10 @@ fn collect_nodes<I: Item>(node: &Arc<Node<I>>, into: &mut HashSet<*const Node<I>
 
 /// The number of nodes of `tree` that none of `sources` holds: a node one of them holds is
 /// shared with its whole subtree and not entered.
-fn unshared<I: Item, const B: usize>(tree: &Chunked<I, B>, sources: &[&Chunked<I, B>]) -> usize {
+pub(super) fn unshared<I: Item, const B: usize>(
+    tree: &Chunked<I, B>,
+    sources: &[&Chunked<I, B>],
+) -> usize {
     let mut known = HashSet::new();
     for source in sources {
         if let Some(root) = &source.root {
@@ -53,7 +56,7 @@ fn unshared<I: Item, const B: usize>(tree: &Chunked<I, B>, sources: &[&Chunked<I
 
 /// The checks every result of an edit passes: the invariant, its model, and a hash and an
 /// equality that are those of the bulk-loaded model.
-fn check<const B: usize>(tree: &Chunked<Entry, B>, model: &[Entry]) {
+pub(super) fn check<const B: usize>(tree: &Chunked<Entry, B>, model: &[Entry]) {
     check_invariants(tree);
     assert_eq!(tree.to_vec(), model);
     let loaded = Chunked::<Entry, B>::from_vec(model.to_vec());

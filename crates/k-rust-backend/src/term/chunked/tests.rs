@@ -14,9 +14,13 @@ use proptest::prelude::*;
 use rustc_hash::FxHasher;
 
 mod edit;
+mod seek;
+mod summary;
 
 use super::{
     Chunked, DEFAULT_BRANCHING, Dismantle, Item, Node, NodeSummary, SequenceHash, Summary,
+    multiset::Multiset,
+    summary::{Any, Count, Failing, Saturating, Uniform},
 };
 
 /// An item with a small key domain, so that keys repeat, and a value.
@@ -59,9 +63,53 @@ fn fx_hash(value: &impl Hash) -> u64 {
     hasher.finish()
 }
 
+/// The test items' summary: the [`Tally`], then one of each generic summary over some
+/// arithmetic property of the item (see [`Entry::summary`]).
+type EntrySummary = (Tally, Failing<2>, Count, Saturating<2>, Any, Uniform<u8>);
+
+/// The test items' group summary: the multiset of the "variables" an item mentions.
+type Variables = Multiset<u8, 5>;
+
+impl Entry {
+    /// Whether the item satisfies each of two flags.
+    fn flags(&self) -> [bool; 2] {
+        [!self.value.is_multiple_of(5), !self.value.is_multiple_of(7)]
+    }
+
+    /// Whether the item's key counts as symbolic.
+    fn symbolic_key(&self) -> bool {
+        self.key.is_multiple_of(4)
+    }
+
+    /// What the item adds to a saturating count.
+    fn cells(&self) -> usize {
+        usize::from(self.value % 4)
+    }
+
+    fn marked(&self) -> bool {
+        self.value.is_multiple_of(11)
+    }
+
+    /// The value all items of a uniform run share.
+    fn header(&self) -> u8 {
+        self.key / 8
+    }
+
+    /// The variables the item mentions: none for a third of the values (ground items), two
+    /// otherwise, from small domains so that items share them.
+    fn variables(&self) -> Vec<u8> {
+        if self.value.is_multiple_of(3) {
+            Vec::new()
+        } else {
+            vec![self.value % 23, 23 + self.key % 9]
+        }
+    }
+}
+
 impl Item for Entry {
     type Key = u8;
-    type Summary = Tally;
+    type Summary = EntrySummary;
+    type Group = Variables;
 
     fn key(&self) -> &u8 {
         &self.key
@@ -71,13 +119,24 @@ impl Item for Entry {
         fx_hash(self)
     }
 
-    fn summary(&self) -> Tally {
+    fn summary(&self) -> EntrySummary {
         let odd = self.value % 2 == 1;
-        Tally {
-            sum: u64::from(self.value),
-            odd: usize::from(odd),
-            first_odd: odd.then_some(self.value),
-        }
+        (
+            Tally {
+                sum: u64::from(self.value),
+                odd: usize::from(odd),
+                first_odd: odd.then_some(self.value),
+            },
+            Failing::of(self.flags()),
+            Count::of(self.symbolic_key()),
+            Saturating::of(self.cells()),
+            Any(self.marked()),
+            Uniform::One(self.header()),
+        )
+    }
+
+    fn group(&self) -> Variables {
+        Multiset::of(self.variables())
     }
 }
 
@@ -559,6 +618,7 @@ impl Drop for Counted {
 impl Item for Counted {
     type Key = u32;
     type Summary = ();
+    type Group = ();
 
     fn key(&self) -> &u32 {
         &self.0
@@ -569,6 +629,8 @@ impl Item for Counted {
     }
 
     fn summary(&self) {}
+
+    fn group(&self) {}
 }
 
 /// A stack far too small for a recursion as deep as the nestings below.
@@ -644,6 +706,7 @@ enum Nest {
 impl Item for Nest {
     type Key = ();
     type Summary = ();
+    type Group = ();
 
     fn key(&self) -> &() {
         &()
@@ -657,6 +720,8 @@ impl Item for Nest {
     }
 
     fn summary(&self) {}
+
+    fn group(&self) {}
 }
 
 impl Drop for Nest {

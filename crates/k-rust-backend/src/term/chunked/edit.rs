@@ -35,10 +35,31 @@
 //! same items are equal as sequences. A repeated item or key is kept: an inserted item goes after
 //! the items equal to it, and a union keeps both operands' items, so a collection that holds a
 //! key twice stays visibly so.
+//!
+//! # Group summaries
+//!
+//! A copied node's group summary ([`Group`]) is the summary of the node it replaces changed by
+//! the edit's difference: an insertion adds the item's, a removal subtracts it, and a join adds
+//! the shorter tree's summary to each node of the taller one's spine that it copies, so each
+//! costs what the difference costs at each copied node, not what lies below it. A node that
+//! rebalancing creates is the exception: when a node splits in two, the lighter half's summary is
+//! folded from its children and the heavier half's is the rest; when two nodes are concatenated,
+//! the lighter one's summary is added to the heavier one's. Under the fill invariant, a node made by
+//! a split or a concatenation is away from both bounds, so in a linear history it is split or
+//! concatenated again only after a number of edits below it proportional to its width, and that
+//! work is shared among them.
+//!
+//! [`split_at`](Chunked::split_at) and [`union`](Chunked::union) build their results by joins of
+//! subtrees cut from the operands, and fold the group summary of each node they build over a run
+//! of children ([`of_nodes`](Chunked::of_nodes)) from those children. That is exact, but it costs
+//! the variables below the run rather than those of the cut or added items; keeping each cut
+//! node's summary by difference from the node it was cut from is left to the part of the work
+//! that moves lists and maps onto the tree, where splits and unions of symbolic collections are
+//! measured.
 
 use std::{cmp::Ordering, sync::Arc};
 
-use super::{Chunked, Item, Node};
+use super::{Chunked, Group, Item, Node, Summary, fold_groups};
 
 /// One node, or two adjacent nodes of the same height, that take the place of one node after
 /// an edit.
@@ -68,15 +89,21 @@ fn locate<I: Item>(children: &[Arc<Node<I>>], mut index: usize) -> (usize, usize
     unreachable!("a node has children")
 }
 
-/// The root above the replacement of a root: the root itself, or a new root over the two.
-fn grow<I: Item>((left, right): Replacement<I>) -> Arc<Node<I>> {
+/// The root above the replacement of a root, whose items have the group summary `group`: the
+/// root itself, or a new root over the two.
+fn grow<I: Item>((left, right): Replacement<I>, group: I::Group) -> Arc<Node<I>> {
     match right {
         None => left,
         Some(right) => {
             let height = left.height() + 1;
-            Arc::new(Node::internal(height, vec![left, right]))
+            Arc::new(Node::internal_with(height, vec![left, right], group))
         }
     }
+}
+
+/// The group summary of a child, a cheap clone (a multiset is a shared tree).
+fn child_group<I: Item>(child: &Arc<Node<I>>) -> I::Group {
+    child.summary().group.clone()
 }
 
 impl<I: Item, const B: usize> Chunked<I, B> {
@@ -89,7 +116,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                 height: 1,
                 children,
                 summary,
-            } if summary.count <= B => Arc::new(Node::leaf(
+            } if summary.count <= B => Arc::new(Node::leaf_with(
                 children
                     .iter()
                     .flat_map(|child| match &**child {
@@ -97,27 +124,66 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                         Node::Internal { .. } => unreachable!("height 1 is over leaves"),
                     })
                     .collect(),
+                summary.group.clone(),
             )),
             _ => node,
         };
         Self { root: Some(node) }
     }
 
-    /// `contents` as one node, or as two even halves when it does not fit in one.
-    fn pack<T>(mut contents: Vec<T>, build: impl Fn(Vec<T>) -> Node<I>) -> Replacement<I> {
+    /// `contents`, whose items have the group summary `group`, as one node, or as two even
+    /// halves when it does not fit in one. The lighter half's group summary is folded from its
+    /// contents' (`group_of`), and the heavier half's is the rest of `group`.
+    fn pack<T>(
+        mut contents: Vec<T>,
+        group: I::Group,
+        group_of: impl Fn(&T) -> I::Group,
+        build: impl Fn(Vec<T>, I::Group) -> Node<I>,
+    ) -> Replacement<I> {
         debug_assert!(contents.len() <= 2 * B, "at most two nodes' worth");
         if contents.len() <= B {
-            return (Arc::new(build(contents)), None);
+            return (Arc::new(build(contents, group)), None);
         }
         let right = contents.split_off(contents.len().div_ceil(2));
-        (Arc::new(build(contents)), Some(Arc::new(build(right))))
+        let left_groups: Vec<I::Group> = contents.iter().map(&group_of).collect();
+        let right_groups: Vec<I::Group> = right.iter().map(&group_of).collect();
+        let weight = |groups: &[I::Group]| groups.iter().map(Group::weight).sum::<usize>();
+        let (left_group, right_group) = if weight(&left_groups) <= weight(&right_groups) {
+            let left_group = fold_groups(left_groups);
+            (left_group.clone(), group.subtract(&left_group))
+        } else {
+            let right_group = fold_groups(right_groups);
+            (group.subtract(&right_group), right_group)
+        };
+        (
+            Arc::new(build(contents, left_group)),
+            Some(Arc::new(build(right, right_group))),
+        )
+    }
+
+    /// The items of a leaf, with the group summary `group`, as one leaf or two.
+    fn pack_items(items: Vec<I>, group: I::Group) -> Replacement<I> {
+        Self::pack(items, group, Item::group, Node::leaf_with)
+    }
+
+    /// The children of an internal node of height `height`, with the group summary `group`, as
+    /// one node or two.
+    fn pack_children(
+        height: usize,
+        children: Vec<Arc<Node<I>>>,
+        group: I::Group,
+    ) -> Replacement<I> {
+        Self::pack(children, group, child_group, |children, group| {
+            Node::internal_with(height, children, group)
+        })
     }
 
     /// The contents of two adjacent nodes of the same height, as one node or two.
     fn concatenate(left: &Node<I>, right: &Node<I>) -> Replacement<I> {
+        let group = left.summary().group.clone().combine(&right.summary().group);
         match (left, right) {
             (Node::Leaf { items: l, .. }, Node::Leaf { items: r, .. }) => {
-                Self::pack(l.iter().chain(r).cloned().collect(), Node::leaf)
+                Self::pack_items(l.iter().chain(r).cloned().collect(), group)
             }
             (
                 Node::Internal {
@@ -126,9 +192,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                     ..
                 },
                 Node::Internal { children: r, .. },
-            ) => Self::pack(l.iter().chain(r).cloned().collect(), |children| {
-                Node::internal(*height, children)
-            }),
+            ) => Self::pack_children(*height, l.iter().chain(r).cloned().collect(), group),
             _ => unreachable!("nodes of the same height"),
         }
     }
@@ -149,28 +213,35 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         assert!(index <= self.len(), "an insertion within the sequence");
         match &self.root {
             None => Self::rooted(Arc::new(Node::leaf(vec![item]))),
-            Some(root) => Self::rooted(grow(Self::insert_into(root, index, item))),
+            Some(root) => {
+                let added = item.group();
+                let group = root.summary().group.clone().combine(&added);
+                Self::rooted(grow(Self::insert_into(root, index, item, &added), group))
+            }
         }
     }
 
-    fn insert_into(node: &Node<I>, index: usize, item: I) -> Replacement<I> {
+    /// `node` with `item`, whose group summary is `added`, inserted at `index`. Every node on
+    /// the path gains `added` in its group summary.
+    fn insert_into(node: &Node<I>, index: usize, item: I, added: &I::Group) -> Replacement<I> {
+        let group = node.summary().group.clone().combine(added);
         match node {
             Node::Leaf { items, .. } => {
                 let mut items = items.clone();
                 items.insert(index, item);
-                Self::pack(items, Node::leaf)
+                Self::pack_items(items, group)
             }
             Node::Internal {
                 height, children, ..
             } => {
                 let (slot, offset) = locate(children, index);
-                let (left, right) = Self::insert_into(&children[slot], offset, item);
+                let (left, right) = Self::insert_into(&children[slot], offset, item, added);
                 let mut children = children.clone();
                 children[slot] = left;
                 if let Some(right) = right {
                     children.insert(slot + 1, right);
                 }
-                Self::pack(children, |children| Node::internal(*height, children))
+                Self::pack_children(*height, children, group)
             }
         }
     }
@@ -180,7 +251,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
     pub(crate) fn remove_at(&self, index: usize) -> (Self, I) {
         assert!(index < self.len(), "a removal within the sequence");
         let root = self.root.as_ref().expect("a nonempty sequence has a root");
-        let (root, item) = Self::remove_from(root, index);
+        let (root, item, _) = Self::remove_from(root, index);
         let tree = match root {
             Node::Leaf { ref items, .. } if items.is_empty() => Self::new(),
             Node::Internal { mut children, .. } if children.len() == 1 => {
@@ -192,19 +263,23 @@ impl<I: Item, const B: usize> Chunked<I, B> {
     }
 
     /// `node` without the item at `index`, which may hold one item or child fewer than
-    /// `MIN_FILL`, and that item.
-    fn remove_from(node: &Node<I>, index: usize) -> (Node<I>, I) {
+    /// `MIN_FILL`, that item, and its group summary, which every node on the path loses.
+    fn remove_from(node: &Node<I>, index: usize) -> (Node<I>, I, I::Group) {
         match node {
-            Node::Leaf { items, .. } => {
+            Node::Leaf { items, summary } => {
                 let mut items = items.clone();
                 let item = items.remove(index);
-                (Node::leaf(items), item)
+                let removed = item.group();
+                let group = summary.group.clone().subtract(&removed);
+                (Node::leaf_with(items, group), item, removed)
             }
             Node::Internal {
-                height, children, ..
+                height,
+                children,
+                summary,
             } => {
                 let (slot, offset) = locate(children, index);
-                let (child, item) = Self::remove_from(&children[slot], offset);
+                let (child, item, removed) = Self::remove_from(&children[slot], offset);
                 let mut children = children.clone();
                 if child.width() >= Self::MIN_FILL {
                     children[slot] = Arc::new(child);
@@ -224,7 +299,8 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                     let (one, two) = Self::concatenate(first, second);
                     children.splice(left..left + 2, std::iter::once(one).chain(two));
                 }
-                (Node::internal(*height, children), item)
+                let group = summary.group.clone().subtract(&removed);
+                (Node::internal_with(*height, children, group), item, removed)
             }
         }
     }
@@ -234,13 +310,18 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         match (&self.root, &other.root) {
             (None, _) => other.clone(),
             (_, None) => self.clone(),
-            (Some(left), Some(right)) => Self::rooted(grow(Self::join_nodes(left, right))),
+            (Some(left), Some(right)) => {
+                let group = left.summary().group.clone().combine(&right.summary().group);
+                Self::rooted(grow(Self::join_nodes(left, right), group))
+            }
         }
     }
 
     /// The items below `left` followed by those below `right`, as nodes of the taller one's
-    /// height. Either may be underfilled (a root); every node below them is not.
+    /// height. Either may be underfilled (a root); every node below them is not. Each node of
+    /// the taller one's spine that is copied gains the shorter one's group summary.
     fn join_nodes(left: &Arc<Node<I>>, right: &Arc<Node<I>>) -> Replacement<I> {
+        let group = || left.summary().group.clone().combine(&right.summary().group);
         match left.height().cmp(&right.height()) {
             Ordering::Equal => {
                 if left.width() >= Self::MIN_FILL && right.width() >= Self::MIN_FILL {
@@ -261,7 +342,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                 let mut children = children.clone();
                 children[last] = one;
                 children.extend(two);
-                Self::pack(children, |children| Node::internal(*height, children))
+                Self::pack_children(*height, children, group())
             }
             Ordering::Less => {
                 let Node::Internal {
@@ -276,7 +357,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                 if let Some(two) = two {
                     children.insert(1, two);
                 }
-                Self::pack(children, |children| Node::internal(*height, children))
+                Self::pack_children(*height, children, group())
             }
         }
     }
