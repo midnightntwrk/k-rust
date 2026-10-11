@@ -7375,3 +7375,74 @@ fn ceil_and_predicate_equations_with_an_unbound_result_variable_are_not_used() {
         }
     }
 }
+
+/// Axioms that carry neither a label nor a `UNIQUE_ID` share the id `UNKNOWN`; a condition the
+/// solver leaves undecided in one of them is reported with that axiom's own first sentence, so
+/// the two equations below, both left undecided on one term, give two reports, each naming its
+/// own axiom.
+#[test]
+fn a_condition_the_solver_leaves_undecided_carries_the_first_sentence_of_its_own_axiom() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                sort SortP{} []
+                symbol pair{}(SortS{}, SortS{}) : SortP{}
+                    [constructor{}(), functional{}(), injective{}()]
+                symbol f{}() : SortS{} [function{}()]
+                symbol g{}() : SortS{} [function{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("zero")), \top{R}()),
+                    \equals{SortS{}, R}(f{}(), \and{SortS{}}(\dv{SortS{}}("one"), \top{SortS{}}()))
+                ) []
+                axiom{R} \implies{R}(
+                    \and{R}(\equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("zero")), \top{R}()),
+                    \equals{SortS{}, R}(g{}(), \and{SortS{}}(\dv{SortS{}}("two"), \top{SortS{}}()))
+                ) []
+            endmodule []"#,
+    )
+    .expect("the definition parses");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes");
+    let origins = definition
+        .classified_axioms()
+        .iter()
+        .filter(|axiom| axiom.attributes().unique_id == "UNKNOWN")
+        .map(|axiom| axiom.attributes().origins.first().cloned())
+        .collect::<Vec<_>>();
+    assert_eq!(origins.len(), 2, "{origins:?}");
+    assert_ne!(origins[0], origins[1]);
+    let input = term(&definition, "pair{}(f{}(), g{}())");
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_with_solver(
+            &definition,
+            &input,
+            &[],
+            SimplificationOptions::default(),
+            &FixedValiditySolver(Validity::Unknown("timeout".into())),
+        )
+    });
+    assert_eq!(
+        result.expect("an unknown verdict is not an error").term,
+        input
+    );
+    let mut reported = diagnostics
+        .iter()
+        .map(|diagnostic| match diagnostic {
+            BackendDiagnostic::UndecidedCondition {
+                rule_id,
+                origin,
+                reason: ConditionIndeterminacy::SmtUnknown(_),
+                ..
+            } => {
+                assert_eq!(rule_id, "UNKNOWN");
+                origin.clone()
+            }
+            other => panic!("expected only solver-undecided conditions: {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    reported.sort();
+    let mut expected = origins;
+    expected.sort();
+    assert_eq!(reported, expected);
+}
