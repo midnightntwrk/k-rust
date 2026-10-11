@@ -260,6 +260,10 @@ pub(super) struct Chart {
     // The nodes ending here that productions flagged by `SameSpanCycles` built, each with the
     // building production; the entry keeps its node alive so the address stays unique.
     pub(super) cycle_nodes: RefCell<IndexMap<*const PackedTerm, (Rc<PackedTerm>, usize)>>,
+    // Where the layout before this position starts, when items moved here past layout: the end
+    // of the token the scanner read last. A node completed here whose last part is empty spans
+    // that layout, which its last token does not reach (`Chart::last_token_end`).
+    pub(super) layout_start: Option<usize>,
 }
 
 impl Default for Chart {
@@ -280,6 +284,21 @@ impl Chart {
             popped: StateSet::default(),
             completed_nodes: RefCell::new(IndexMap::default()),
             cycle_nodes: RefCell::new(IndexMap::default()),
+            layout_start: None,
+        }
+    }
+
+    /// The end of the last token of a node completed at this chart's position `end` from
+    /// `origin`. A node ends here either after a token it reads, which is followed by no layout,
+    /// or after an empty last part, which completes past the layout that follows the node's last
+    /// token. A node of no token (`origin == end`) ends where it starts.
+    pub(super) fn last_token_end(&self, origin: usize, end: usize) -> usize {
+        match self.layout_start {
+            Some(token_end) if origin < end => {
+                debug_assert!(origin <= token_end && token_end < end);
+                token_end
+            }
+            _ => end,
         }
     }
 }
@@ -694,6 +713,7 @@ pub(super) fn completed_nodes(
                     input,
                     state.origin,
                     end,
+                    chart.last_token_end(state.origin, end),
                     provenance,
                 ),
             };
@@ -884,6 +904,7 @@ mod tests {
             std::slice::from_ref(&child),
             "child",
             0,
+            5,
             5,
             ParseProvenance {
                 source: SourceId(0),

@@ -2405,6 +2405,13 @@ impl Grammar {
                 if state.dot < production.items.len() && canonical != position {
                     #[cfg(test)]
                     record_chart_dispatch(ChartDispatchKind::Relocation, derivation_count, revisit);
+                    debug_assert!(
+                        charts[canonical]
+                            .layout_start
+                            .is_none_or(|start| start == position),
+                        "the scanner reads one sequence of tokens"
+                    );
+                    charts[canonical].layout_start = Some(position);
                     self.add_chart_state(&mut charts[canonical], state, derivations)?;
                     continue;
                 }
@@ -2580,6 +2587,7 @@ impl Grammar {
                                     input,
                                     state.origin,
                                     position,
+                                    charts[position].last_token_end(state.origin, position),
                                     provenance,
                                 );
                                 if production.term_production.is_some() {
