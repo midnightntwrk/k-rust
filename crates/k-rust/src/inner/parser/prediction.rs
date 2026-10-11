@@ -2521,6 +2521,67 @@ mod tests {
         }
     }
 
+    /// Under `S0 ::= "+" S1 [o2]` and `S1 ::= S0 [o0]`, non-associative together, with
+    /// `S1 ::= S0` also a pass-through, every reading of `+ + a` breaks `o2`'s right edge,
+    /// below it `o0` or `o2`. Writing `o0`'s operand through `P ::= S0` numbers the productions
+    /// differently and changes no tree, so it changes no reported violation either
+    /// (`canonical_packed_error`).
+    #[test]
+    fn a_reported_violation_does_not_depend_on_a_pass_through_renumbering_productions() {
+        let operators: Vec<GeneratedOperator> = vec![
+            (0, 3, 0, 0, 0, 0, false, 0),
+            (1, 0, 0, 0, 0, 0, false, 0),
+            (0, 1, 0, 1, 0, 0, false, 0),
+            (0, 0, 0, 0, 0, 0, false, 0),
+            (1, 0, 0, 0, 0, 0, false, 0),
+        ];
+        let groups = [(2, BTreeSet::from([2, 10]))];
+        pass_through_pair_outcome(
+            &operators,
+            &BTreeMap::new(),
+            &groups,
+            false,
+            (0, 0),
+            "+ + a",
+        )
+        .unwrap();
+        let original =
+            operator_grammar(&operators, &BTreeMap::new(), &groups, false, None).unwrap();
+        assert_eq!(
+            filtered(&original, "+ + a"),
+            Err(ParseError::Associativity {
+                parent: "o2".to_owned(),
+                child: "o0".to_owned(),
+                side: "right",
+            })
+        );
+    }
+
+    /// Under `S0 ::= S0 "=>" S1` (a rewrite), `S1 ::= "+" S0 [o3]` and three sequences
+    /// (`S0 ::= S0 "~>" S0`, `S0 ::= S0 "~>" S1`, `S1 ::= S1 "~>" S1`), every reading of
+    /// `+ a => a ~> + a` puts a rewrite or a sequence below `o3`. Writing the rewrite's right
+    /// operand through `P ::= S1` changes no tree, and the same scope error is reported.
+    #[test]
+    fn a_reported_scope_error_does_not_depend_on_a_pass_through_below_a_rewrite() {
+        let operators: Vec<GeneratedOperator> = vec![
+            (0, 0, 0, 0, 0, 0, false, 2),
+            (0, 0, 0, 1, 0, 0, false, 1),
+            (0, 0, 0, 1, 0, 0, false, 2),
+            (1, 1, 0, 0, 0, 0, false, 0),
+            (1, 0, 1, 1, 0, 0, false, 2),
+        ];
+        let input = "+ a => a ~> + a";
+        pass_through_pair_outcome(&operators, &BTreeMap::new(), &[], false, (1, 1), input).unwrap();
+        let original = operator_grammar(&operators, &BTreeMap::new(), &[], false, None).unwrap();
+        assert_eq!(
+            filtered(&original, input),
+            Err(ParseError::Scope {
+                parent: "o3".to_owned(),
+                child: InternalLabel::KRewrite.as_str().to_owned(),
+            })
+        );
+    }
+
     /// Under `S1 ::= S1 "~>" S0` (a sequence) and `S1 ::= S0 "+" S1 [applyPriority(1)]`,
     /// `a + a ~> a ~> a` has three readings: sequences of three items and of two, and a sum
     /// whose right operand, which `applyPriority(1)` leaves unjudged, is a sequence. With the

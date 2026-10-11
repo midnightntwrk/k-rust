@@ -850,6 +850,34 @@ impl ParseError {
     pub(crate) fn is_scope(&self) -> bool {
         matches!(self, Self::Scope { .. })
     }
+
+    /// The order in which a violation of the priority, associativity and scope relations is
+    /// reported before another (`canonical_packed_error`): a scope error first, then an
+    /// associativity, a priority and a cast's priority violation, each by the labels and the
+    /// side it names; any other error after them, unordered among themselves.
+    ///
+    /// A priority violation, of an operator or of a cast's operand, is met only by a reading
+    /// that groups operators against their declared precedence, which the text did not ask for;
+    /// an associativity violation can be met by a reading that follows the precedences, and
+    /// then names what the text needs, parentheses among operators of one level: every item
+    /// reading of `a + a - a - b`, with `+` binding tighter than a non-associative `-`, nests
+    /// `-` in `-` or in `+`, and the report is the former.
+    /// The key is what the error says, so a choice made by it is a function of the violations
+    /// and not of how the grammar numbers its productions, which writing an operand through a
+    /// pass-through sort changes without changing a tree.
+    pub(crate) fn violation_order(&self) -> (u8, &str, &str, &str) {
+        match self {
+            Self::Scope { parent, child } => (0, parent, child, ""),
+            Self::Associativity {
+                parent,
+                child,
+                side,
+            } => (1, parent, child, side),
+            Self::Priority { parent, child } => (2, parent, child, ""),
+            Self::CastPriority { cast, child } => (3, cast, child, ""),
+            _ => (4, "", "", ""),
+        }
+    }
 }
 
 impl fmt::Display for ParseError {

@@ -743,22 +743,32 @@ pub(super) fn completed_nodes(
     completed
 }
 
-/// The error of an ambiguity none of whose readings passes: a scope error of one of them when
-/// some reading breaks a scope ([`ParseError::is_scope`]), else the error of any reading, in
-/// each case that of the structurally least such reading, so the choice depends on the readings
-/// and not on the order they arrived in.
+/// The error of an ambiguity none of whose readings passes: the least of their errors in
+/// [`ParseError::violation_order`], so a scope error when some reading breaks a scope
+/// ([`ParseError::is_scope`]). Readings with equal errors report the same error, and errors
+/// that order alike without being equal are told apart by their readings' structural order,
+/// so the choice depends on the readings and their errors and not on the order they arrived
+/// in.
 ///
 /// A misplaced rewrite, sequence or `#let` is the error to report where a reading breaks one:
 /// in `a => a ~> a => a`, meant as `(a => a) ~> (a => a)`, parentheses are the fix, and the
 /// associativity violation of the readings that move a rewrite out of the sequence
 /// (`a => ((a ~> a) => a)`) follows only from reading a rewrite where it was not written.
+///
+/// Any other violation of a reading is true of a derivation of the input, so any of them is a
+/// correct report; they are ordered by what they say rather than by their readings' structure,
+/// which compares production numbers that writing an operand through a pass-through sort
+/// changes without changing a tree. Under `S0 ::= "+" S1 [o2]` and `S1 ::= S0 [o0]`,
+/// non-associative together, with `S1 ::= S0` also a pass-through, every reading of `+ + a`
+/// breaks `o2`'s right edge, below it `o0` or `o2`; the report names `o0` however the grammar
+/// numbers them.
 pub(super) fn canonical_packed_error(errors: Vec<(Rc<PackedTerm>, ParseError)>) -> ParseError {
     errors
         .into_iter()
         .min_by(|(left, left_error), (right, right_error)| {
-            right_error
-                .is_scope()
-                .cmp(&left_error.is_scope())
+            left_error
+                .violation_order()
+                .cmp(&right_error.violation_order())
                 .then_with(|| cmp_packed_structurally(left, right))
         })
         .map(|(_, error)| error)
