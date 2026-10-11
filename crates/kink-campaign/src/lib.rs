@@ -9,16 +9,20 @@
 mod campaign;
 mod manifest;
 mod oracle;
+mod plan;
 pub use manifest::{
     CampaignManifest, ManifestError, ManifestInput, ManifestOperator, MultiManifestInput,
-    OperatorId, campaign_manifest, campaign_manifest_multi,
+    OperatorId, campaign_manifest, campaign_manifest_multi, campaign_manifest_multi_with_budget,
 };
+pub use plan::{BudgetMutants, CampaignPlan, CampaignPlanError, campaign_plan};
 mod report;
 pub use report::{
     CAMPAIGN_REPORT_VERSION, CampaignReport, ReportError, campaign_report, campaign_report_multi,
 };
 mod replay;
-pub use replay::{ReplayDeclaration, ReplayOperator, ReplayOutcome, ReplayRefusal, replay};
+pub use replay::{
+    ReplayDeclaration, ReplayOperator, ReplayOutcome, ReplayRefusal, replay, replay_with_budget,
+};
 mod runner;
 pub mod selection;
 pub use selection::{Coupled, MutantSelection, Sel, SelectionPolicy};

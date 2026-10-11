@@ -40,6 +40,8 @@ pub enum CandidateFailureKind {
     CardinalityMismatch,
     CandidateCap,
     IncompleteGeneration,
+    /// A declared sampling budget omitted at least one selected origin.
+    Sampled,
     InvalidBinding,
     /// An operator built an edit outside the sentences of its origin.
     UnauthorizedEdit,
@@ -842,6 +844,20 @@ pub struct Selection<'b> {
 }
 
 impl<'b> Selection<'b> {
+    /// Keeps a subset of the selected origins in their existing canonical order.
+    /// A cut makes the selection incomplete and sampled; a no-op preserves every
+    /// property, including an earlier failure on an empty selection.
+    #[must_use]
+    pub fn sample(mut self, mut keep: impl FnMut(&PatchOrigin) -> bool) -> Self {
+        let population = self.selected_origins.len();
+        self.selected_origins.retain(|origin| keep(origin));
+        if self.selected_origins.len() < population {
+            self.completeness = Completeness::Incomplete;
+            self.failure = Some(CandidateFailureKind::Sampled);
+        }
+        self
+    }
+
     /// The baseline of the discovery the origins were selected from.
     #[must_use]
     pub const fn baseline(&self) -> &'b Baseline {

@@ -1,6 +1,6 @@
 //! Deterministic declaration and artifact identities, without executing a campaign.
 
-use crate::{Campaign, CrashPolicy, Projection, ScheduleMode, StateProjection};
+use crate::{BudgetMutants, Campaign, CrashPolicy, Projection, ScheduleMode, StateProjection};
 use k_rust::{backend::BackendOptions, kompile::CompileOptions, kore::codec::to_value};
 use kink_native::{K_RUST_REVISION, MutantRejection, execution::SolverProfile};
 use kink_patch::{
@@ -118,6 +118,15 @@ pub fn campaign_manifest(input: &ManifestInput<'_>) -> Result<CampaignManifest, 
 pub fn campaign_manifest_multi(
     input: &MultiManifestInput<'_>,
 ) -> Result<CampaignManifest, ManifestError> {
+    campaign_manifest_multi_with_budget(input, None)
+}
+
+/// Records an explicitly declared sampling budget alongside the supplied generations.
+/// Code operators cannot be sampled by a spec budget.
+pub fn campaign_manifest_multi_with_budget(
+    input: &MultiManifestInput<'_>,
+    budget: Option<&BudgetMutants>,
+) -> Result<CampaignManifest, ManifestError> {
     let campaign = input.campaign;
     let validator = campaign.validator;
     let baseline = validator.baseline();
@@ -145,6 +154,36 @@ pub fn campaign_manifest_multi(
         u.value() != kink_patch::resolve_universe(baseline, &kink_patch::Universe::v1()).value()
     }) {
         return Err(ManifestError::OperatorMismatch);
+    }
+    if let Some(budget) = budget {
+        let specs = input
+            .operators
+            .iter()
+            .map(|operator| match operator {
+                ManifestOperator::Spec(spec) => Ok((*spec, usize::MAX)),
+                ManifestOperator::Code(_) => Err(ManifestError::OperatorMismatch),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let expected = OperatorSpec::generate_all(
+            baseline,
+            input.universe.ok_or(ManifestError::OperatorMismatch)?,
+            &specs,
+            Some(budget.limits()),
+        )
+        .map_err(encode)?;
+        if expected
+            .iter()
+            .zip(input.generations)
+            .any(|(expected, actual)| {
+                expected.selected_origins() != actual.selected_origins()
+                    || expected.candidates() != actual.candidates()
+                    || expected.dispositions() != actual.dispositions()
+                    || expected.completeness() != actual.completeness()
+                    || expected.failure() != actual.failure()
+            })
+        {
+            return Err(ManifestError::OperatorMismatch);
+        }
     }
     let declarations = kink_native::declaration_census(&compiled)
         .map_err(|e| ManifestError::Census(e.to_string()))?;
@@ -181,8 +220,13 @@ pub fn campaign_manifest_multi(
     {
         let generation_value = json!({"origins":generation.selected_origins().len(),"rejected_origins":generation.dispositions().iter().filter(|d| matches!(d, CandidateDisposition::Rejected(_))).count(),"completeness":match generation.completeness() { Completeness::CompleteFinite => "complete-finite", Completeness::Incomplete => "incomplete" },"failure":generation.failure().map(|f| enum_name(&format!("{f:?}"))),"scored":generation.scored()});
         operators.push(match operator {
-            ManifestOperator::Code(id) => json!({"kind":"code","id":id.id,"version":id.version,"policy":policy(id.policy),"generation":generation_value}),
-            ManifestOperator::Spec(spec) => json!({"kind":"spec","spec":spec.canonical_value(),"spec_sha256":spec.digest().to_string(),"generation":generation_value}),
+            ManifestOperator::Code(id) => json!({"kind":"code","id":id.id,"version":id.version,"policy":policy(id.policy),"generation":generation_value,"population":null,"population_sha256":null,"sampling":null}),
+            ManifestOperator::Spec(spec) => {
+                let (population, population_sha256) = spec.population(baseline, input.universe.ok_or(ManifestError::OperatorMismatch)?).map_err(encode)?;
+                json!({"kind":"spec","spec":spec.canonical_value(),"spec_sha256":spec.digest().to_string(),"generation":generation_value,
+                    "population":population,"population_sha256":population_sha256.to_string(),
+                    "sampling":budget.map(|budget| json!({"seed":budget.seed_hex(),"size":generation.selected_origins().len(),"population":population}))})
+            },
         });
         for candidate in generation.candidates() {
             let index = mutants.len();
@@ -270,12 +314,13 @@ pub fn campaign_manifest_multi(
     }
     let backend = BackendOptions::default();
     let value = json!({
-        "schema":"kink-campaign-manifest","version":4,
+        "schema":"kink-campaign-manifest","version":5,
         "k_rust":{"revision":K_RUST_REVISION,"provenance_format":k_rust::definition::json::PROVENANCE_FORMAT,"provenance_version":k_rust::definition::json::PROVENANCE_VERSION},
         "kink":{"fingerprint":FINGERPRINT_DOMAIN,"canonical_patch":CANONICAL_PATCH_DOMAIN,"compiled_kore":COMPILED_KORE_DOMAIN},
         "profile":SolverProfile::BUILD.name(), "compile_options":"default",
         "backend_options":{"smt_timeout_ms":backend.smt_timeout_ms,"smt_retry_limit":backend.smt_retry_limit},
         "budget":{"time_ms":u64::try_from(campaign.budget.time.as_millis()).unwrap_or(u64::MAX),"max_simplification_iterations":campaign.budget.max_simplification_iterations,"max_depth":campaign.budget.max_depth,"max_breadth":campaign.budget.max_breadth.map(|v| v.get())},
+        "budget_mutants":budget.map(BudgetMutants::value),
         "schedule":match input.schedule { ScheduleMode::Full => "full", ScheduleMode::FirstKill => "first-kill" },
         "module":campaign.module,"classifier":input.classifier,
         "selection":input.selection.value(),

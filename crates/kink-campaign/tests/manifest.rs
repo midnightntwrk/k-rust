@@ -471,6 +471,7 @@ fn check_manifest(manifest: &CampaignManifest) {
             "compile_options",
             "backend_options",
             "budget",
+            "budget_mutants",
             "schedule",
             "selection",
             "module",
@@ -507,7 +508,16 @@ fn check_manifest(manifest: &CampaignManifest) {
     );
     keys(
         &value["operators"][0],
-        &["kind", "id", "version", "policy", "generation"],
+        &[
+            "kind",
+            "id",
+            "version",
+            "policy",
+            "generation",
+            "population",
+            "population_sha256",
+            "sampling",
+        ],
     );
     if value["operators"][0]["policy"].is_object() {
         keys(&value["operators"][0]["policy"], &["exact"]);
@@ -554,7 +564,7 @@ fn check_manifest(manifest: &CampaignManifest) {
         keys(&mutant["validation"], &["outcome", "stage", "detail"]);
     }
     assert_eq!(value["schema"], "kink-campaign-manifest");
-    assert_eq!(value["version"], 4);
+    assert_eq!(value["version"], 5);
     assert_eq!(
         value["profile"],
         if cfg!(feature = "z3") { "z3" } else { "no-z3" }

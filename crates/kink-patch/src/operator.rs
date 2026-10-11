@@ -8,11 +8,12 @@
 
 use crate::{
     Baseline, CandidateFailure, CandidateGeneration, CodecError, Edit, Patch, PatchOrigin,
-    ResolvedUniverse, SelectionPolicy, Sha256Digest, SiteSelector, canonical_json, derive_sites_in,
-    payload_digest, select,
+    ResolvedUniverse, Selection, SelectionPolicy, Sha256Digest, SiteSelector, canonical_json,
+    derive_sites_in, payload_digest, select,
 };
 use k_rust::kast::{Sort, Term, parser::parse_sort};
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 
 pub const OPERATOR_DOMAIN: &str = "kink/operator/v1";
 
@@ -57,6 +58,140 @@ pub struct OperatorSpec {
 }
 
 impl OperatorSpec {
+    /// Canonical site tuple used by v1 population and sampling identities.
+    #[must_use]
+    pub fn origin_value(origin: &PatchOrigin) -> Value {
+        json!(
+            origin
+                .site_tuple
+                .iter()
+                .map(|at| {
+                    json!({"module":at.sentence.module,"index":at.sentence.index,"path":at.path.0})
+                })
+                .collect::<Vec<_>>()
+        )
+    }
+
+    /// Counts and digests the full selected population, before every bound.
+    ///
+    /// # Errors
+    /// Returns discovery or selection failures unchanged.
+    pub fn population(
+        &self,
+        baseline: &Baseline,
+        universe: &ResolvedUniverse,
+    ) -> Result<(u64, Sha256Digest), CandidateFailure> {
+        let selection = self.full_selection(baseline, universe)?;
+        let origins = selection.selected_origins();
+        let value = json!(origins.iter().map(Self::origin_value).collect::<Vec<_>>());
+        Ok((
+            u64::try_from(origins.len()).expect("population fits u64"),
+            payload_digest("kink/population/v1", canonical_json(&value).as_bytes()),
+        ))
+    }
+
+    /// Generates specs in declaration order with optional hash-rank sampling.
+    /// Each entry pairs a spec with its ordinary candidate cap. A budget first
+    /// retains at most `min(cap, per_spec_max)` origins per spec, then at most
+    /// `total_max` across specs, before folding any patch. Rank ties use canonical
+    /// origin text, spec digest and spec ordinal. Retained origins keep canonical
+    /// order. Without a budget the existing capped generation is unchanged.
+    ///
+    /// # Errors
+    /// Returns discovery, selection or fold failures unchanged.
+    pub fn generate_all<'b>(
+        baseline: &'b Baseline,
+        universe: &ResolvedUniverse,
+        specs: &[(&Self, usize)],
+        budget: Option<(u64, u64, &[u8])>,
+    ) -> Result<Vec<CandidateGeneration<'b>>, CandidateFailure> {
+        let Some((per_spec_max, total_max, seed)) = budget else {
+            return specs
+                .iter()
+                .map(|(spec, cap)| generate(baseline, universe, spec, *cap))
+                .collect();
+        };
+        let per_spec_max = usize::try_from(per_spec_max).unwrap_or(usize::MAX);
+        let total_max = usize::try_from(total_max).unwrap_or(usize::MAX);
+        let mut selections = Vec::with_capacity(specs.len());
+        for (spec, cap) in specs {
+            let selection = spec.full_selection(baseline, universe)?;
+            let mut ranks = selection
+                .selected_origins()
+                .iter()
+                .enumerate()
+                .map(|(index, origin)| {
+                    let (rank, text) = sample_rank(seed, origin);
+                    (rank, text, index)
+                })
+                .collect::<Vec<_>>();
+            ranks.sort();
+            let kept = ranks
+                .into_iter()
+                .take((*cap).min(per_spec_max))
+                .map(|(_, _, index)| index)
+                .collect::<BTreeSet<_>>();
+            let mut index = 0;
+            selections.push(selection.sample(|_| {
+                let keep = kept.contains(&index);
+                index += 1;
+                keep
+            }));
+        }
+        let mut ranks = selections
+            .iter()
+            .enumerate()
+            .flat_map(|(spec_index, selection)| {
+                selection.selected_origins().iter().enumerate().map(
+                    move |(origin_index, origin)| {
+                        let (rank, text) = sample_rank(seed, origin);
+                        (
+                            rank,
+                            text,
+                            specs[spec_index].0.digest(),
+                            spec_index,
+                            origin_index,
+                        )
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        ranks.sort();
+        let kept = ranks
+            .into_iter()
+            .take(total_max)
+            .map(|(_, _, _, spec_index, origin_index)| (spec_index, origin_index))
+            .collect::<BTreeSet<_>>();
+        selections
+            .into_iter()
+            .enumerate()
+            .map(|(spec_index, selection)| {
+                let mut origin_index = 0;
+                let selection = selection.sample(|_| {
+                    let keep = kept.contains(&(spec_index, origin_index));
+                    origin_index += 1;
+                    keep
+                });
+                let spec = specs[spec_index].0;
+                selection.fold(&spec.name(), |origin| spec.action.patch(baseline, origin))
+            })
+            .collect()
+    }
+
+    fn full_selection<'b>(
+        &self,
+        baseline: &'b Baseline,
+        universe: &ResolvedUniverse,
+    ) -> Result<Selection<'b>, CandidateFailure> {
+        let clauses = self
+            .selector
+            .iter()
+            .map(Clause::selector)
+            .collect::<Vec<_>>();
+        let discovery = derive_sites_in(baseline, universe, &clauses)?;
+        select(&discovery, SelectionPolicy::Each, usize::MAX)
+    }
+
     /// Builds a spec with the v1 `each` policy.
     ///
     /// # Errors
@@ -155,6 +290,14 @@ impl OperatorSpec {
         }
         Ok(spec)
     }
+}
+
+fn sample_rank(seed: &[u8], origin: &PatchOrigin) -> (Sha256Digest, String) {
+    let text = canonical_json(&OperatorSpec::origin_value(origin));
+    let mut bytes = Vec::with_capacity(seed.len() + text.len());
+    bytes.extend_from_slice(seed);
+    bytes.extend_from_slice(text.as_bytes());
+    (payload_digest("kink/sample/v1", &bytes), text)
 }
 
 impl Clause {

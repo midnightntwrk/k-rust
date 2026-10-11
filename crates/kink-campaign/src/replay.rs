@@ -7,9 +7,9 @@
 //! gives `Reproduced`. Refusals and divergences never return or alter a verdict.
 
 use crate::{
-    CAMPAIGN_REPORT_VERSION, Campaign, CampaignOptions, ManifestOperator, MultiManifestInput,
-    MutantId, OperatorId, ScheduleMode, SelectionPolicy, TestCase, campaign_manifest_multi,
-    campaign_report_multi, run_campaign_multi,
+    BudgetMutants, CAMPAIGN_REPORT_VERSION, Campaign, CampaignOptions, ManifestOperator,
+    MultiManifestInput, MutantId, OperatorId, ScheduleMode, SelectionPolicy, TestCase,
+    campaign_manifest_multi_with_budget, campaign_report_multi, run_campaign_multi,
 };
 use k_rust::{definition::json, kompile::CompileOptions, kore::ast::Pattern};
 use kink_native::{
@@ -87,13 +87,25 @@ pub fn replay(
     baseline_artifact: &str,
     declaration: &ReplayDeclaration<'_>,
 ) -> ReplayOutcome {
-    replay_checked(report, baseline_artifact, declaration).unwrap_or_else(ReplayOutcome::Refused)
+    replay_with_budget(report, baseline_artifact, declaration, None)
+}
+
+/// Replays against the caller's declared sampling budget, never a budget read from the report.
+pub fn replay_with_budget(
+    report: &str,
+    baseline_artifact: &str,
+    declaration: &ReplayDeclaration<'_>,
+    budget: Option<&BudgetMutants>,
+) -> ReplayOutcome {
+    replay_checked(report, baseline_artifact, declaration, budget)
+        .unwrap_or_else(ReplayOutcome::Refused)
 }
 
 fn replay_checked(
     report: &str,
     baseline_artifact: &str,
     declaration: &ReplayDeclaration<'_>,
+    budget: Option<&BudgetMutants>,
 ) -> Result<ReplayOutcome, ReplayRefusal> {
     let value: Value = serde_json::from_str(report).map_err(|_| ReplayRefusal::Schema)?;
     if value["schema"] != "kink-campaign-report" || value["version"] != CAMPAIGN_REPORT_VERSION {
@@ -107,6 +119,25 @@ fn replay_checked(
         return Err(ReplayRefusal::ManifestDigest);
     }
     check_environment(manifest)?;
+    if manifest["schema"] != "kink-campaign-manifest" || manifest["version"] != 5 {
+        return Err(ReplayRefusal::Schema);
+    }
+    if manifest.get("budget_mutants") != Some(&budget.map_or(Value::Null, BudgetMutants::value)) {
+        return Err(ReplayRefusal::Declaration);
+    }
+    if let Some(budget) = budget {
+        let entries = manifest["operators"]
+            .as_array()
+            .ok_or(ReplayRefusal::Declaration)?;
+        for entry in entries {
+            if entry["sampling"]
+                != json!({"seed":budget.seed_hex(),
+                "size":entry["generation"]["origins"],"population":entry["population"]})
+            {
+                return Err(ReplayRefusal::Declaration);
+            }
+        }
+    }
     if manifest["baseline"]["semantic_input_sha256"]
         != sha256(baseline_artifact.as_bytes()).to_string()
     {
@@ -159,11 +190,34 @@ fn replay_checked(
         .collect::<Result<Vec<_>, _>>()?;
     let mut generations = Vec::new();
     let mut operators = Vec::new();
+    if let Some(budget) = budget {
+        let inputs = declaration
+            .operators
+            .iter()
+            .zip(&specs)
+            .map(|(operator, spec)| match operator {
+                ReplayOperator::Spec { cap, .. } => {
+                    Ok((spec.as_ref().ok_or(ReplayRefusal::Declaration)?, *cap))
+                }
+                ReplayOperator::Code { .. } => Err(ReplayRefusal::Declaration),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        generations = OperatorSpec::generate_all(
+            validator.baseline(),
+            universe.as_ref().ok_or(ReplayRefusal::Declaration)?,
+            &inputs,
+            Some(budget.limits()),
+        )
+        .map_err(|e| ReplayRefusal::Selection(e.to_string()))?;
+    }
     for (operator, spec) in declaration.operators.iter().zip(&specs) {
         let generation = match operator {
             ReplayOperator::Spec { cap, .. } => {
                 let spec = spec.as_ref().ok_or(ReplayRefusal::Declaration)?;
                 operators.push(ManifestOperator::Spec(spec));
+                if budget.is_some() {
+                    continue;
+                }
                 generate(
                     validator.baseline(),
                     universe.as_ref().ok_or(ReplayRefusal::Declaration)?,
@@ -188,15 +242,18 @@ fn replay_checked(
         .map_err(|e| ReplayRefusal::Selection(e.to_string()))?;
         generations.push(generation);
     }
-    let regenerated_manifest = campaign_manifest_multi(&MultiManifestInput {
-        campaign: &campaign,
-        generations: &generations,
-        operators: &operators,
-        universe: universe.as_ref(),
-        schedule: declaration.schedule,
-        selection: declaration.selection,
-        classifier: declaration.classifier,
-    })
+    let regenerated_manifest = campaign_manifest_multi_with_budget(
+        &MultiManifestInput {
+            campaign: &campaign,
+            generations: &generations,
+            operators: &operators,
+            universe: universe.as_ref(),
+            schedule: declaration.schedule,
+            selection: declaration.selection,
+            classifier: declaration.classifier,
+        },
+        budget,
+    )
     .map_err(|_| ReplayRefusal::Declaration)?;
     if regenerated_manifest.text() != manifest_text {
         return Err(ReplayRefusal::Declaration);
