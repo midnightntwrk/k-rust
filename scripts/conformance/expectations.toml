@@ -952,14 +952,15 @@ reason = ""
 
 [[case]]
 name = "issue-1682-korePrettyPrint"
-accepted_verdict = "krust-unsupported"
+accepted_verdict = "match"
 accepted_stage = "krun"
+accepted_basis = "The kompile step matches and krun 1.test matches its checked-in KORE output modulo C10; the kast step is the declined-capability step exclusion."
 baseline_verdict = "krust-unsupported"
 baseline_stage = "krun"
 exclusion = ""
-reason = "kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile step matches; krun 1.test mismatches (an unpaired `?_Gen0` disjunct), pending."
+reason = "krun 1.test's `rule <k> a => ?_:Int </k>` leaves a value that is some Int, which the reference prints as `Var'QuesUnds'Gen0` and krust as `Ex-hVar'QuesUnds'Gen0-b0`; the name of such a variable is not observable, so the KORE comparison renames it (C10, docs/compatibility.md#comparison-contract) and the step matches. kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope)."
 step_exclusions = [
-  { step = "kast", exclusion = "declined-capability", reason = "kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile step matches; krun 1.test mismatches (an unpaired `?_Gen0` disjunct), pending." },
+  { step = "kast", exclusion = "declined-capability", reason = "kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope)." },
 ]
 
 [[case]]

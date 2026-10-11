@@ -5494,19 +5494,25 @@ fn executed_kore_matches_the_reference_backend() {
         parse_pattern(&source).unwrap()
     });
     // N4: without an initial pattern, `K_DIFFERENTIAL_PATTERN_EXISTENTIALS` lists the search
-    // pattern's `?` variables (K names without `?`, whitespace-separated); when it is set, every
-    // other `?` variable of a result is a rule existential.
-    let pattern_existentials = env::var("K_DIFFERENTIAL_PATTERN_EXISTENTIALS")
-        .ok()
-        .map(|names| names.split_whitespace().map(str::to_owned).collect());
+    // pattern's `?` variables (K names without `?`, whitespace-separated; empty for a run without
+    // a search pattern); when it is set, every other `?` variable of a result is a rule
+    // existential, except one the port prints under a request name (`port_request_existentials`).
+    let pattern_existentials: Option<BTreeSet<String>> =
+        env::var("K_DIFFERENTIAL_PATTERN_EXISTENTIALS")
+            .ok()
+            .map(|names| names.split_whitespace().map(str::to_owned).collect());
+    let reference = read_execution_result(&reference_path);
+    let actual = read_execution_result(&actual_path);
     let names = match (&initial, pattern_existentials) {
         (Some(initial), _) => GeneratedNames::fixing(initial),
-        (None, Some(pattern)) => GeneratedNames::shapes_with_pattern_existentials(pattern),
+        (None, Some(mut pattern)) => {
+            pattern.extend(port_request_existentials(&actual));
+            GeneratedNames::shapes_with_pattern_existentials(pattern)
+        }
         (None, None) => GeneratedNames::shapes(),
     };
-    let reference =
-        normalize_execution_pattern_with(read_execution_result(&reference_path), &names);
-    let actual = normalize_execution_pattern_with(read_execution_result(&actual_path), &names);
+    let reference = normalize_execution_pattern_with(reference, &names);
+    let actual = normalize_execution_pattern_with(actual, &names);
 
     let definition = env::var_os("K_DIFFERENTIAL_DEFINITION");
     let module = env::var("K_DIFFERENTIAL_MODULE").unwrap_or_else(|_| "MAIN".into());
@@ -5626,6 +5632,171 @@ fn execution_comparator_reads_a_kore_json_reference_result() {
             "{} against {}: {}{}",
             reference.display(),
             actual.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// N4 with `K_DIFFERENTIAL_PATTERN_EXISTENTIALS` set and empty, as the conformance driver passes it
+/// for a `krun --output kore` step without a search pattern (C10): every `?` variable a result
+/// holds is a rule existential, which denotes some value, so the reference's rule name
+/// (`Var'QuesUnds'Gen0`, the instance of `rule a => ?_:Int`) and the port's mint
+/// (`Ex-hVar'QuesUnds'Gen0-b0`) compare equal. The renaming is a bijection per disjunct that keeps
+/// sorts: identifying two variables, splitting one, or changing a sort stays a difference. A `?`
+/// variable the port prints without a marker is a request variable and is compared by name, as
+/// is a listed search-pattern name, even when it ends in digits like a counted instance.
+/// Runs this test binary's ignored comparator.
+#[test]
+fn execution_comparator_renames_rule_existentials_without_a_search_pattern() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = env::temp_dir().join(format!(
+        "k-rust-execution-existentials-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).unwrap();
+    let mut written = 0;
+    let mut write = |text: &str| {
+        written += 1;
+        let path = directory.join(format!("{written}.kore"));
+        fs::write(&path, text).unwrap();
+        path
+    };
+    let compare = |reference: &Path, actual: &Path, pattern_existentials: Option<&str>| {
+        let mut command = Command::new(env::current_exe().unwrap());
+        command
+            .args([
+                "--quiet",
+                "--ignored",
+                "--exact",
+                "executed_kore_matches_the_reference_backend",
+            ])
+            .env("K_REFERENCE_EXECUTION", reference)
+            .env("K_RUST_EXECUTION", actual)
+            .env_remove("K_DIFFERENTIAL_DEFINITION")
+            .env_remove("K_DIFFERENTIAL_INITIAL_PATTERN")
+            .env_remove("K_DIFFERENTIAL_PATTERN_EXISTENTIALS")
+            .env_remove("K_DIFFERENTIAL_STRATEGY")
+            .env_remove("K_DIFFERENTIAL_ORACLE_EXCLUSION");
+        if let Some(names) = pattern_existentials {
+            command.env("K_DIFFERENTIAL_PATTERN_EXISTENTIALS", names);
+        }
+        command.output().unwrap()
+    };
+    let configuration = |value: &str| {
+        format!(
+            "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortInt{{}}, \
+             SortKItem{{}}}}({value}), dotk{{}}())), \
+             Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
+        )
+    };
+    let case_reference = write(&configuration("Var'QuesUnds'Gen0:SortInt{}"));
+    let case_port = write(&configuration("Ex-hVar'QuesUnds'Gen0-b0:SortInt{}"));
+    let pair = write(r"t{}(Var'Ques'X:SortInt{}, Var'Ques'Y:SortInt{})");
+    let shared = write(r"t{}(Var'Ques'X:SortInt{}, Var'Ques'X:SortInt{})");
+    let port_pair = write(r"t{}(Ex-hVar'Ques'X-b0:SortInt{}, Ex-hVar'Ques'Y-b1:SortInt{})");
+    let port_shared = write(r"t{}(Ex-hVar'Ques'X-b0:SortInt{}, Ex-hVar'Ques'X-b0:SortInt{})");
+    let port_sort = write(r"t{}(Ex-hVar'Ques'X-b0:SortBool{}, Ex-hVar'Ques'Y-b1:SortInt{})");
+    let swapped = write(r"t{}(Var'Ques'Y:SortInt{}, Var'Ques'X:SortInt{})");
+    // The port keeps the request's `?Y` and mints the other value.
+    let port_request_first = write(r"t{}(Var'Ques'Y:SortInt{}, Ex-hVar'Ques'X-b0:SortInt{})");
+    let port_request_second = write(r"t{}(Ex-hVar'Ques'X-b0:SortInt{}, Var'Ques'Y:SortInt{})");
+    let disjunction = write(
+        r#"\or{S{}}(t{}(Var'Ques'X:SortInt{}, \dv{SortInt{}}("1")), t{}(Var'Ques'X:SortInt{}, \dv{SortInt{}}("2")))"#,
+    );
+    // `?` names ending in digits, the shape of a counted rule-existential instance: a listed or
+    // request name stays fixed all the same.
+    let counted_pair = write(r"t{}(Var'Ques'X1:SortInt{}, Var'Ques'Y1:SortInt{})");
+    let counted_swapped = write(r"t{}(Var'Ques'Y1:SortInt{}, Var'Ques'X1:SortInt{})");
+    let port_counted_first = write(r"t{}(Var'Ques'X1:SortInt{}, Ex-hVar'Ques'Y-b0:SortInt{})");
+    let port_disjunction = write(
+        r#"\or{S{}}(t{}(Ex-hVar'Ques'X-b3:SortInt{}, \dv{SortInt{}}("2")), t{}(Ex-hVar'Ques'X-b1:SortInt{}, \dv{SortInt{}}("1")))"#,
+    );
+    for (name, reference, actual, pattern_existentials, equal) in [
+        ("case", &case_reference, &case_port, Some(""), true),
+        (
+            "case by shape only",
+            &case_reference,
+            &case_port,
+            None,
+            false,
+        ),
+        ("renamed pair", &pair, &port_pair, Some(""), true),
+        (
+            "renamed per disjunct",
+            &disjunction,
+            &port_disjunction,
+            Some(""),
+            true,
+        ),
+        (
+            "two variables identified",
+            &pair,
+            &port_shared,
+            Some(""),
+            false,
+        ),
+        ("one variable split", &shared, &port_pair, Some(""), false),
+        ("sort changed", &pair, &port_sort, Some(""), false),
+        (
+            "search pattern variable fixed",
+            &pair,
+            &port_pair,
+            Some("X"),
+            false,
+        ),
+        (
+            "request variable kept",
+            &swapped,
+            &port_request_first,
+            Some(""),
+            true,
+        ),
+        (
+            "request variable moved",
+            &pair,
+            &port_request_first,
+            Some(""),
+            false,
+        ),
+        (
+            "counted request variables swapped",
+            &counted_pair,
+            &counted_swapped,
+            Some(""),
+            false,
+        ),
+        (
+            "counted search pattern variable fixed",
+            &counted_pair,
+            &port_counted_first,
+            Some("Y1"),
+            false,
+        ),
+        (
+            "counted search pattern variable kept",
+            &counted_pair,
+            &port_counted_first,
+            Some("X1"),
+            true,
+        ),
+        (
+            "request variable moved back",
+            &swapped,
+            &port_request_second,
+            Some(""),
+            false,
+        ),
+    ] {
+        let output = compare(reference, actual, pattern_existentials);
+        assert_eq!(
+            output.status.success(),
+            equal,
+            "{name}: {}{}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
@@ -7038,13 +7209,23 @@ impl GeneratedNames {
         }
         match &self.fixed {
             Some(fixed) => !fixed.contains(&variable.name),
-            None => {
-                execution_generated_name(&variable.name)
-                    || self
-                        .pattern_existentials
-                        .as_ref()
-                        .is_some_and(|pattern| rule_existential_name(&variable.name, pattern))
-            }
+            None => match &self.pattern_existentials {
+                // A listed `?` name is the search pattern's or a request variable's, whatever its
+                // shape: `Var'Ques'X1` is fixed when `X1` is listed, not read as a counted
+                // instance of a rule's `?X`.
+                Some(pattern)
+                    if declared_existential(&variable.name)
+                        .is_some_and(|declared| pattern.contains(&declared)) =>
+                {
+                    false
+                }
+                pattern => {
+                    execution_generated_name(&variable.name)
+                        || pattern
+                            .as_ref()
+                            .is_some_and(|pattern| rule_existential_name(&variable.name, pattern))
+                }
+            },
         }
     }
 }
@@ -7059,11 +7240,17 @@ impl GeneratedNames {
 /// The only other `?` variables a result can hold are the search pattern's, which the request
 /// names, so a caller that lists them separates the two.
 fn rule_existential_name(name: &str, pattern_existentials: &BTreeSet<String>) -> bool {
+    declared_existential(name).is_some_and(|declared| !pattern_existentials.contains(&declared))
+}
+
+/// The K name without `?` of a KORE element variable that decodes to a K `?` variable
+/// (`X` for `Var'Ques'X`), `None` for any other variable.
+fn declared_existential(name: &str) -> Option<String> {
     match k_rust::kast::identifier::decode_variable(name) {
-        (k_rust::kore::ast::VariableKind::Element, Ok(decoded)) => decoded
-            .strip_prefix('?')
-            .is_some_and(|declared| !pattern_existentials.contains(declared)),
-        _ => false,
+        (k_rust::kore::ast::VariableKind::Element, Ok(decoded)) => {
+            decoded.strip_prefix('?').map(str::to_owned)
+        }
+        _ => None,
     }
 }
 
@@ -7075,16 +7262,38 @@ fn is_canonical_free_name(name: &str) -> bool {
     })
 }
 
-fn execution_generated_name(name: &str) -> bool {
-    if let Ok(decoded) = k_rust_backend::term::names::decode_variable_name(name)
-        && (decoded.contains('!')
+/// N4 given the search pattern's `?` variables: the K names (without `?`) of the `?` variables
+/// free in a port result that the port prints under a request name.
+///
+/// The port prints every variable it introduces with a provenance marker or a `!` counter and
+/// every variable of the request verbatim (docs/compatibility.md#variable-names), so a `?`
+/// variable it prints without either is a free variable of the initial pattern. Such a variable
+/// is shared with the query and therefore observable; it is compared by name on both sides, as
+/// the reference keeps the initial pattern's names too.
+fn port_request_existentials(port: &Pattern) -> BTreeSet<String> {
+    port.free_variables()
+        .into_iter()
+        .filter(|variable| !port_minted_name(&variable.name))
+        .filter_map(|variable| declared_existential(&variable.name))
+        .collect()
+}
+
+/// N4: a name the port made, whose decoded spelling carries a `Rule#`/`Eq#`/`Ex#` marker or a
+/// `!` counter.
+fn port_minted_name(name: &str) -> bool {
+    k_rust_backend::term::names::decode_variable_name(name).is_ok_and(|decoded| {
+        decoded.contains('!')
             || k_rust_backend::term::names::split_marker(
                 &decoded,
                 &k_rust_backend::term::names::VariableProvenance::ALL,
             )
             .0
-            .is_some())
-    {
+            .is_some()
+    })
+}
+
+fn execution_generated_name(name: &str) -> bool {
+    if port_minted_name(name) {
         return true;
     }
     if generated_stem(name).is_some() || existential_generated_name(name) {
