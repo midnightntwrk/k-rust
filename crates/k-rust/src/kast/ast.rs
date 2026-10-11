@@ -1,6 +1,7 @@
 //! The user-facing K term model.
 
 use std::{
+    borrow::Cow,
     fmt::{self, Display, Formatter},
     sync::Arc,
 };
@@ -20,7 +21,7 @@ use super::printer::Printer;
 /// A sort is dropped with an explicit work list, so a sort nested to any depth is dropped on
 /// any thread. Because of that `Drop`, a sort cannot be destructured by move; take its fields
 /// with `std::mem::take` instead.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Sort {
     pub name: String,
     pub parameters: Vec<Sort>,
@@ -86,7 +87,7 @@ impl Sort {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Label {
     pub name: String,
     pub parameters: Vec<Sort>,
@@ -764,82 +765,86 @@ impl Ord for Term {
     }
 }
 
-impl Term {
-    /// One level of [`Term::cmp`], which runs it with stack for one more level.
-    fn cmp_level(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
+/// The fields of one node that the comparison of terms ([`Term::cmp`], and so [`Term::eq`])
+/// reads besides its children: its variant, and its label, or its token or variable name with
+/// its sort. Annotations are not among them.
+///
+/// The derived order is the comparison's order on nodes that differ in these fields: variants in
+/// the order [`Term`] declares them, then the fields in order. [`NodeHead::of`] borrows them from
+/// a term; [`NodeHead::into_owned`] keeps them past the term.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum NodeHead<'t> {
+    InjectedLabel(Cow<'t, Label>),
+    Rewrite,
+    As,
+    Variable(Cow<'t, str>, Option<Cow<'t, Sort>>),
+    Sequence,
+    Apply(Cow<'t, Label>),
+    Token(Cow<'t, str>, Cow<'t, Sort>),
+}
 
-        let left = self.unannotated();
-        let right = other.unannotated();
-        let rank = |term: &Self| match term {
-            Self::InjectedLabel(_) => 0,
-            Self::Rewrite { .. } => 1,
-            Self::As { .. } => 2,
-            Self::Variable { .. } => 3,
-            Self::Sequence(_) => 4,
-            Self::Apply { .. } => 5,
-            Self::Token { .. } => 6,
-            Self::Annotated { .. } => unreachable!(),
-        };
-        match rank(left).cmp(&rank(right)) {
-            Ordering::Equal => {}
-            ordering => return ordering,
+impl<'t> NodeHead<'t> {
+    /// The head of `term`, its annotations removed.
+    pub(crate) fn of(term: &'t Term) -> Self {
+        match term.unannotated() {
+            Term::InjectedLabel(label) => Self::InjectedLabel(Cow::Borrowed(label)),
+            Term::Rewrite { .. } => Self::Rewrite,
+            Term::As { .. } => Self::As,
+            Term::Variable { name, sort } => {
+                Self::Variable(Cow::Borrowed(name), sort.as_ref().map(Cow::Borrowed))
+            }
+            Term::Sequence(_) => Self::Sequence,
+            Term::Apply { label, .. } => Self::Apply(Cow::Borrowed(label)),
+            Term::Token { token, sort } => Self::Token(Cow::Borrowed(token), Cow::Borrowed(sort)),
+            Term::Annotated { .. } => unreachable!("unannotated strips annotations"),
         }
-        match (left, right) {
-            (Self::InjectedLabel(left), Self::InjectedLabel(right)) => left.cmp(right),
-            (
-                Self::Rewrite {
-                    left: left_left,
-                    right: left_right,
-                },
-                Self::Rewrite {
-                    left: right_left,
-                    right: right_right,
-                },
-            ) => (left_left, left_right).cmp(&(right_left, right_right)),
-            (
-                Self::As {
-                    pattern: left_pattern,
-                    alias: left_alias,
-                },
-                Self::As {
-                    pattern: right_pattern,
-                    alias: right_alias,
-                },
-            ) => (left_pattern, left_alias).cmp(&(right_pattern, right_alias)),
-            (
-                Self::Variable {
-                    name: left_name,
-                    sort: left_sort,
-                },
-                Self::Variable {
-                    name: right_name,
-                    sort: right_sort,
-                },
-            ) => (left_name, left_sort).cmp(&(right_name, right_sort)),
-            (Self::Sequence(left), Self::Sequence(right)) => left.cmp(right),
-            (
-                Self::Apply {
-                    label: left_label,
-                    arguments: left_arguments,
-                },
-                Self::Apply {
-                    label: right_label,
-                    arguments: right_arguments,
-                },
-            ) => (left_label, left_arguments).cmp(&(right_label, right_arguments)),
-            (
-                Self::Token {
-                    token: left_token,
-                    sort: left_sort,
-                },
-                Self::Token {
-                    token: right_token,
-                    sort: right_sort,
-                },
-            ) => (left_token, left_sort).cmp(&(right_token, right_sort)),
-            _ => unreachable!("equal term ranks have matching variants"),
+    }
+
+    /// This head with its fields owned.
+    pub(crate) fn into_owned(self) -> NodeHead<'static> {
+        let owned = |sort: Cow<'_, Sort>| Cow::Owned(sort.into_owned());
+        match self {
+            Self::InjectedLabel(label) => NodeHead::InjectedLabel(Cow::Owned(label.into_owned())),
+            Self::Rewrite => NodeHead::Rewrite,
+            Self::As => NodeHead::As,
+            Self::Variable(name, sort) => {
+                NodeHead::Variable(Cow::Owned(name.into_owned()), sort.map(owned))
+            }
+            Self::Sequence => NodeHead::Sequence,
+            Self::Apply(label) => NodeHead::Apply(Cow::Owned(label.into_owned())),
+            Self::Token(token, sort) => {
+                NodeHead::Token(Cow::Owned(token.into_owned()), owned(sort))
+            }
         }
+    }
+}
+
+impl Term {
+    /// One level of [`Term::cmp`], which runs it with stack for one more level: the heads, then
+    /// the children in order, each compared by [`Term::cmp`].
+    fn cmp_level(&self, other: &Self) -> std::cmp::Ordering {
+        let (left, right) = (self.unannotated(), other.unannotated());
+        NodeHead::of(left)
+            .cmp(&NodeHead::of(right))
+            .then_with(|| match (left, right) {
+                (
+                    Self::Rewrite { left: a, right: b }
+                    | Self::As {
+                        pattern: a,
+                        alias: b,
+                    },
+                    Self::Rewrite { left: c, right: d }
+                    | Self::As {
+                        pattern: c,
+                        alias: d,
+                    },
+                ) => (a, b).cmp(&(c, d)),
+                (
+                    Self::Sequence(l) | Self::Apply { arguments: l, .. },
+                    Self::Sequence(r) | Self::Apply { arguments: r, .. },
+                ) => l.cmp(r),
+                _ => std::cmp::Ordering::Equal,
+            })
     }
 }
 
@@ -1201,5 +1206,84 @@ mod tests {
         }
         drop((nodes, metadata));
         assert_eq!(Arc::strong_count(&record), 1);
+    }
+
+    /// A term without its annotations, in a type whose comparison is derived: variants in the
+    /// order `Term` declares them, then each variant's fields in order, children included.
+    #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+    enum Derived {
+        InjectedLabel(Label),
+        Rewrite(Box<Self>, Box<Self>),
+        As(Box<Self>, Box<Self>),
+        Variable(String, Option<Sort>),
+        Sequence(Vec<Self>),
+        Apply(Label, Vec<Self>),
+        Token(String, Sort),
+    }
+
+    impl From<&Term> for Derived {
+        fn from(term: &Term) -> Self {
+            let boxed = |term: &Term| Box::new(Self::from(term));
+            match term.unannotated() {
+                Term::InjectedLabel(label) => Self::InjectedLabel(label.clone()),
+                Term::Rewrite { left, right } => Self::Rewrite(boxed(left), boxed(right)),
+                Term::As { pattern, alias } => Self::As(boxed(pattern), boxed(alias)),
+                Term::Variable { name, sort } => Self::Variable(name.clone(), sort.clone()),
+                Term::Sequence(items) => Self::Sequence(items.iter().map(Self::from).collect()),
+                Term::Apply { label, arguments } => {
+                    Self::Apply(label.clone(), arguments.iter().map(Self::from).collect())
+                }
+                Term::Token { token, sort } => Self::Token(token.clone(), sort.clone()),
+                Term::Annotated { .. } => unreachable!("unannotated strips annotations"),
+            }
+        }
+    }
+
+    /// The comparison of terms, and so `Term::eq`, is the derived comparison of the terms without
+    /// their annotations. A field is decided only by pairs that agree on every field before it, so
+    /// each term is compared with each of its one-edit neighbours (one token text or sort,
+    /// variable name or sort, label name or parameter changed at any depth), and with the
+    /// previous draw for the order of variants and of children; one side of each pair carries
+    /// annotations on some of its nodes.
+    #[test]
+    fn the_comparison_is_the_derived_comparison_on_one_edit_neighbours() {
+        use proptest::{
+            strategy::{Strategy, ValueTree},
+            test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
+        };
+
+        use crate::kast::test_terms::{decorated, one_edit_neighbours, varied_fields};
+
+        let check = |left: &Term, right: &Term| {
+            let mut count = 0_u32;
+            let annotated = decorated(left, &mut || {
+                count += 1;
+                count.is_multiple_of(2).then(|| TermMetadata {
+                    sort: Some(Sort::new("K")),
+                    ..TermMetadata::default()
+                })
+            });
+            let derived = Derived::from(left).cmp(&Derived::from(right));
+            for left in [left, &annotated] {
+                assert_eq!(left.cmp(right), derived, "{left:?} and {right:?}");
+                assert_eq!(right.cmp(left), derived.reverse(), "{right:?} and {left:?}");
+                assert_eq!(left == right, derived.is_eq(), "{left:?} and {right:?}");
+            }
+        };
+        let mut runner = TestRunner::new_with_rng(
+            Config::default(),
+            TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+        );
+        let strategy = varied_fields();
+        let mut previous = Term::Sequence(Vec::new());
+        for _ in 0..1024 {
+            let term = strategy.new_tree(&mut runner).expect("a case").current();
+            check(&term, &term.clone());
+            check(&term, &previous);
+            for (_, neighbour) in one_edit_neighbours(&term) {
+                check(&term, &neighbour);
+            }
+            previous = term;
+        }
     }
 }

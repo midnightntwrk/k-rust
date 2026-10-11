@@ -2935,6 +2935,11 @@ symbol = "scan_term_theory"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify/scan.rs"
+symbol = "scan_alternatives"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/scan.rs"
 symbol = "scan_group"
 
 [[node.sites]]

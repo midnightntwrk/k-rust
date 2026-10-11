@@ -63,7 +63,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     inner::ParsedProgram,
-    kast::{Label, Sort, Term, TermParts},
+    kast::{Label, NodeHead, Sort, Term, TermParts},
     kompile::{
         SentenceTyper, SentenceTyping, SortInjector,
         fresh_names::{FreshNames, GeneratedVariableIdentity},
@@ -1898,121 +1898,24 @@ fn binding_shapes<'pattern, 'shape>(
     }
 }
 
-/// Feed `sort` into `hasher` as `Sort::cmp` reads it: its name, then its parameters in order.
-fn hash_sort(sort: &Sort, hasher: &mut impl Hasher) {
-    sort.name.hash(hasher);
-    sort.parameters.len().hash(hasher);
-    for parameter in &sort.parameters {
-        hash_sort(parameter, hasher);
-    }
-}
-
-/// Feed `label` into `hasher` as `Label::cmp` reads it: its name, then its sort parameters.
-fn hash_label(label: &Label, hasher: &mut impl Hasher) {
-    label.name.hash(hasher);
-    label.parameters.len().hash(hasher);
-    for parameter in &label.parameters {
-        hash_sort(parameter, hasher);
-    }
-}
-
-/// The fields of one node that [`Term::cmp`] compares apart from its children: its kind and
-/// its label, token or variable with their sorts. Annotations are not among them.
-#[derive(PartialEq)]
-enum Head {
-    InjectedLabel(Label),
-    Rewrite,
-    As,
-    Variable(String, Option<Sort>),
-    Sequence,
-    Apply(Label),
-    Token(String, Sort),
-}
-
-impl Head {
-    /// The head of `node`.
-    fn of(node: &Term) -> Self {
-        match node.unannotated() {
-            Term::InjectedLabel(label) => Self::InjectedLabel(label.clone()),
-            Term::Rewrite { .. } => Self::Rewrite,
-            Term::As { .. } => Self::As,
-            Term::Variable { name, sort } => Self::Variable(name.clone(), sort.clone()),
-            Term::Sequence(_) => Self::Sequence,
-            Term::Apply { label, .. } => Self::Apply(label.clone()),
-            Term::Token { token, sort } => Self::Token(token.clone(), sort.clone()),
-            Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
-        }
-    }
-
-    /// Whether this is the head of `node`, compared as [`Term::cmp`] compares it.
-    fn is(&self, node: &Term) -> bool {
-        match (self, node.unannotated()) {
-            (Self::InjectedLabel(head), Term::InjectedLabel(label))
-            | (Self::Apply(head), Term::Apply { label, .. }) => head == label,
-            (Self::Rewrite, Term::Rewrite { .. })
-            | (Self::As, Term::As { .. })
-            | (Self::Sequence, Term::Sequence(_)) => true,
-            (Self::Variable(head_name, head_sort), Term::Variable { name, sort }) => {
-                head_name == name && head_sort == sort
-            }
-            (Self::Token(head_token, head_sort), Term::Token { token, sort }) => {
-                head_token == token && head_sort == sort
-            }
-            _ => false,
-        }
-    }
-
-    /// The hash of the head of `node`, as [`Self::is`] compares it.
-    fn hash(node: &Term) -> u64 {
-        let mut hasher = FxHasher::default();
-        match node.unannotated() {
-            Term::InjectedLabel(label) => {
-                0u8.hash(&mut hasher);
-                hash_label(label, &mut hasher);
-            }
-            Term::Rewrite { .. } => 1u8.hash(&mut hasher),
-            Term::As { .. } => 2u8.hash(&mut hasher),
-            Term::Variable { name, sort } => {
-                3u8.hash(&mut hasher);
-                name.hash(&mut hasher);
-                sort.is_some().hash(&mut hasher);
-                if let Some(sort) = sort {
-                    hash_sort(sort, &mut hasher);
-                }
-            }
-            Term::Sequence(_) => 4u8.hash(&mut hasher),
-            Term::Apply { label, .. } => {
-                5u8.hash(&mut hasher);
-                hash_label(label, &mut hasher);
-            }
-            Term::Token { token, sort } => {
-                6u8.hash(&mut hasher);
-                token.hash(&mut hasher);
-                hash_sort(sort, &mut hasher);
-            }
-            Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
-        }
-        hasher.finish()
-    }
-}
-
 /// One number per distinct term recorded in the expansion of one sentence or standalone term
 /// ([`Shape::identity`]), so that two recorded terms are equal under [`Term::eq`] exactly when
-/// their numbers are equal: a node is numbered by its head and its children's numbers, and each
-/// such key is given one number.
+/// their numbers are equal: a node is numbered by its head ([`NodeHead`]) and its children's
+/// numbers, and each such key is given one number.
 ///
-/// By induction on terms, equal terms have equal heads and pairwise equal children, so equal
-/// keys and one number; and two terms with one number have one key, so equal heads and
+/// [`Term::eq`] holds exactly when the heads are equal and the children pairwise equal. By
+/// induction on terms, equal terms therefore have equal heads and pairwise equal children, so
+/// equal keys and one number; and two terms with one number have one key, so equal heads and
 /// children with equal numbers, which are equal terms. Heads are numbered the same way, so a
 /// key holds no copy of a label; a lookup costs the hash of the node's own fields and of its
 /// children's numbers, and a new number one entry.
 #[derive(Default)]
 struct Identities {
-    /// The first head number, in `heads`, of each head hash ([`Head::hash`]).
+    /// The first head number, in `heads`, of each head hash.
     head_chains: FxHashMap<u64, u32>,
     /// The head numbered i at index i - 1, with the next head number of the same hash (0:
     /// none).
-    heads: Vec<(Head, u32)>,
+    heads: Vec<(NodeHead<'static>, u32)>,
     /// The first identity, in `keys`, of each key hash.
     key_chains: FxHashMap<u64, u32>,
     /// The key of identity i at index i - 1 (0 stands for no recorded identity): the head
@@ -2031,18 +1934,21 @@ impl Identities {
 
     /// The number of the head of `node`.
     fn head(&mut self, node: &Term) -> u32 {
-        let hash = Head::hash(node);
+        let view = NodeHead::of(node);
+        let mut hasher = FxHasher::default();
+        view.hash(&mut hasher);
+        let hash = hasher.finish();
         let first = self.head_chains.get(&hash).copied().unwrap_or(0);
         let mut next = first;
         // Invariant: `next`, when not 0, is the number of a head of hash `hash` none of whose predecessors in the chain is the head of `node`; each iteration moves one step along the chain, whose links point to earlier numbers.
         while next != 0 {
             let (head, after) = &self.heads[next as usize - 1];
-            if head.is(node) {
+            if *head == view {
                 return next;
             }
             next = *after;
         }
-        self.heads.push((Head::of(node), first));
+        self.heads.push((view.into_owned(), first));
         let number = u32::try_from(self.heads.len()).expect("fewer than 2^32 distinct heads");
         self.head_chains.insert(hash, number);
         number
@@ -3068,15 +2974,14 @@ endmodule
 #[cfg(test)]
 mod identity_tests {
     use proptest::{
-        prelude::*,
-        strategy::ValueTree,
+        strategy::{Strategy, ValueTree},
         test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
     };
 
     use super::{Identities, Shape, children_of};
     use crate::kast::{
-        Label, Sort, Term,
-        test_terms::{at_path_mut, positions},
+        Term,
+        test_terms::{one_edit_neighbours, varied_fields},
     };
 
     /// The identity expansion gives `term` when it records `term` and its subterms, children
@@ -3095,150 +3000,6 @@ mod identity_tests {
         }
     }
 
-    fn sort() -> impl Strategy<Value = Sort> {
-        prop_oneof![
-            Just(Sort::new("Int")),
-            Just(Sort::new("Bool")),
-            Just(Sort::with_parameters("List", vec![Sort::new("Int")])),
-        ]
-    }
-
-    /// Terms over a small alphabet that varies every field `Term::eq` compares besides the
-    /// children: token texts and sorts, variable names and sorts (or none), label names and
-    /// label sort parameters.
-    fn label() -> BoxedStrategy<Label> {
-        (0_u8..2, prop::collection::vec(sort(), 0..2))
-            .prop_map(|(name, parameters)| Label::with_parameters(format!("l{name}"), parameters))
-            .boxed()
-    }
-
-    fn term() -> impl Strategy<Value = Term> {
-        let leaf = prop_oneof![
-            (0_u8..2, sort()).prop_map(|(token, sort)| Term::Token {
-                token: token.to_string(),
-                sort,
-            }),
-            (0_u8..2, prop::option::of(sort())).prop_map(|(name, sort)| Term::Variable {
-                name: format!("X{name}"),
-                sort,
-            }),
-            label().prop_map(Term::InjectedLabel),
-            label().prop_map(|label| Term::Apply {
-                label,
-                arguments: Vec::new()
-            }),
-        ];
-        leaf.prop_recursive(3, 24, 3, |inner| {
-            prop_oneof![
-                (label(), prop::collection::vec(inner.clone(), 1..3))
-                    .prop_map(|(label, arguments)| Term::Apply { label, arguments }),
-                prop::collection::vec(inner.clone(), 0..3).prop_map(Term::Sequence),
-                (inner.clone(), inner.clone()).prop_map(|(left, right)| Term::Rewrite {
-                    left: Box::new(left),
-                    right: Box::new(right),
-                }),
-                (inner.clone(), inner).prop_map(|(pattern, alias)| Term::As {
-                    pattern: Box::new(pattern),
-                    alias: Box::new(alias),
-                }),
-            ]
-        })
-    }
-
-    fn other_sort(sort: &Sort) -> Sort {
-        if *sort == Sort::new("Int") {
-            Sort::new("Bool")
-        } else {
-            Sort::new("Int")
-        }
-    }
-
-    /// A change of one field of a node.
-    type Edit = Box<dyn Fn(&mut Term)>;
-
-    /// Each term that differs from `term` in exactly one field of one node other than its
-    /// children, with the name of the field: every field `Term::cmp_level` compares besides the
-    /// children (the variant is changed by the generator's independent draws).
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "the structural nodes have no field besides their children"
-    )]
-    fn one_edit_neighbours(term: &Term) -> Vec<(&'static str, Term)> {
-        let mut neighbours = Vec::new();
-        for (steps, _) in positions(term) {
-            let mut edits: Vec<(&'static str, Edit)> = Vec::new();
-            match at_path_mut(&mut term.clone(), &steps) {
-                Term::Token { .. } => {
-                    edits.push((
-                        "token text",
-                        Box::new(|node| {
-                            if let Term::Token { token, .. } = node {
-                                token.push('\'');
-                            }
-                        }),
-                    ));
-                    edits.push((
-                        "token sort",
-                        Box::new(|node| {
-                            if let Term::Token { sort, .. } = node {
-                                *sort = other_sort(sort);
-                            }
-                        }),
-                    ));
-                }
-                Term::Variable { .. } => {
-                    edits.push((
-                        "variable name",
-                        Box::new(|node| {
-                            if let Term::Variable { name, .. } = node {
-                                name.push('\'');
-                            }
-                        }),
-                    ));
-                    edits.push((
-                        "variable sort",
-                        Box::new(|node| {
-                            if let Term::Variable { sort, .. } = node {
-                                *sort = match sort {
-                                    None => Some(Sort::new("Int")),
-                                    Some(sort) => Some(other_sort(sort)),
-                                };
-                            }
-                        }),
-                    ));
-                }
-                Term::InjectedLabel(_) | Term::Apply { .. } => {
-                    edits.push((
-                        "label name",
-                        Box::new(|node| {
-                            if let Term::InjectedLabel(label) | Term::Apply { label, .. } = node {
-                                label.name.push('\'');
-                            }
-                        }),
-                    ));
-                    edits.push((
-                        "label parameters",
-                        Box::new(|node| {
-                            if let Term::InjectedLabel(label) | Term::Apply { label, .. } = node {
-                                match label.parameters.first_mut() {
-                                    Some(parameter) => *parameter = other_sort(parameter),
-                                    None => label.parameters.push(Sort::new("Int")),
-                                }
-                            }
-                        }),
-                    ));
-                }
-                _ => {}
-            }
-            for (field, edit) in edits {
-                let mut neighbour = term.clone();
-                edit(at_path_mut(&mut neighbour, &steps));
-                neighbours.push((field, neighbour));
-            }
-        }
-        neighbours
-    }
-
     /// Two recorded terms get one identity exactly when they are equal under `Term::eq`
     /// (`Identities`' own statement), checked on each term against each of its one-edit
     /// neighbours, which differ from it in one token text or sort, variable name or sort, or
@@ -3252,7 +3013,7 @@ mod identity_tests {
             Config::default(),
             TestRng::deterministic_rng(RngAlgorithm::ChaCha),
         );
-        let strategy = term();
+        let strategy = varied_fields();
         let mut fields = std::collections::BTreeMap::<&str, usize>::new();
         for _ in 0..1024 {
             let term = strategy.new_tree(&mut runner).expect("a case").current();

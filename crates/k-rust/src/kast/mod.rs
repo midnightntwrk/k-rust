@@ -12,6 +12,7 @@ pub(crate) mod string;
 #[cfg(test)]
 pub(crate) mod test_terms;
 
+pub(crate) use ast::NodeHead;
 pub use ast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermParts, TermSpan};
 pub use names::{FrontendSort, GeneratedCell, GeneratedLabel, InternalLabel, WellKnownModule};
 pub(crate) use sort_role::SortRole;

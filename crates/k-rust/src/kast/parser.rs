@@ -48,14 +48,10 @@ struct Parser<'a> {
 }
 
 // The reader descends once per level of the term or sort it reads, whose depth nothing bounds,
-// so each recursive step (`term`, `rewrite_or_as`, `sort`) runs with stack for one more level
-// (`crate::stack::guarded`).
+// so the recursive steps (`rewrite_or_as`, `sort`), which every cycle of the descent passes
+// through, run with stack for one more level (`crate::stack::guarded`).
 impl Parser<'_> {
     fn term(&mut self) -> Result<Term, ParseError> {
-        crate::stack::guarded(|| self.term_level())
-    }
-
-    fn term_level(&mut self) -> Result<Term, ParseError> {
         let first = self.rewrite_or_as()?;
         let mut items = vec![first];
         while self.consume("~>") {
