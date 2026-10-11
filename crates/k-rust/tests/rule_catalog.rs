@@ -191,7 +191,12 @@ fn catalog_rewrite_identities_install_as_observation_filters() {
             rules: Some(vec![ambiguous.id.clone()]),
         })
         .expect_err("shared identity must be rejected by the observation filter");
-    assert!(error.to_string().contains("AmbiguousRule"), "{error}");
+    assert!(
+        error
+            .to_string()
+            .contains("is carried by axioms that differ"),
+        "{error}"
+    );
 
     let observed = backend
         .execute_observed(ObservedRequest {

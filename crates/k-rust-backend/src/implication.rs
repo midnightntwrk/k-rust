@@ -885,7 +885,10 @@ pub enum ImplicationError {
 
 impl fmt::Display for ImplicationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{self:?}")
+        match self {
+            Self::Subsorting(error) => write!(formatter, "{error}"),
+            Self::Simplification(error) => write!(formatter, "{error}"),
+        }
     }
 }
 

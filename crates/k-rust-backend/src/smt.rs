@@ -94,9 +94,29 @@ pub enum SExprError {
     TrailingInput(usize),
 }
 
+/// Offsets are zero-based byte offsets into the parsed text.
 impl fmt::Display for SExprError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{self:?}")
+        match self {
+            Self::UnexpectedEnd => {
+                formatter.write_str("the text ends where an expression is expected")
+            }
+            Self::UnexpectedClose(offset) => {
+                write!(formatter, "the ')' at byte offset {offset} closes no list")
+            }
+            Self::UnterminatedList(offset) => write!(
+                formatter,
+                "the list opened at byte offset {offset} is not closed"
+            ),
+            Self::EmptyAtom(offset) => write!(
+                formatter,
+                "the character at byte offset {offset} cannot begin an expression"
+            ),
+            Self::TrailingInput(offset) => write!(
+                formatter,
+                "text follows the expression at byte offset {offset}"
+            ),
+        }
     }
 }
 
@@ -1404,6 +1424,29 @@ mod tests {
             SExpr::parse("(+ #1 #2) trailing"),
             Err(SExprError::TrailingInput(_))
         ));
+    }
+
+    /// A malformed `smt-hook` is reported by where its text goes wrong, in words.
+    #[test]
+    fn s_expression_errors_state_where_the_text_goes_wrong() {
+        let message = |source: &str| SExpr::parse(source).unwrap_err().to_string();
+        assert_eq!(
+            message("  "),
+            "the text ends where an expression is expected"
+        );
+        assert_eq!(message(")"), "the ')' at byte offset 0 closes no list");
+        assert_eq!(
+            message("(+ #1"),
+            "the list opened at byte offset 0 is not closed"
+        );
+        assert_eq!(
+            message("(+ ;)"),
+            "the character at byte offset 3 cannot begin an expression"
+        );
+        assert_eq!(
+            message("(+ #1 #2) trailing"),
+            "text follows the expression at byte offset 10"
+        );
     }
 
     #[test]

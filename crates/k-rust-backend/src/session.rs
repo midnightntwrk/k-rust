@@ -37,8 +37,32 @@ pub enum SessionError {
 
 impl fmt::Display for SessionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{self:?}")
+        match self {
+            Self::Definition(error) => write!(formatter, "{error}"),
+            Self::IntroducesSorts(sorts) => write!(
+                formatter,
+                "an added module may not declare sorts, and this one declares {}",
+                quoted_list(sorts)
+            ),
+            Self::IntroducesSymbols(symbols) => write!(
+                formatter,
+                "an added module may not declare symbols, and this one declares {}",
+                quoted_list(symbols)
+            ),
+            Self::DuplicateModuleName(module) => write!(
+                formatter,
+                "a different module named '{module}' is already in the definition"
+            ),
+        }
     }
+}
+
+fn quoted_list(names: &[String]) -> String {
+    names
+        .iter()
+        .map(|name| format!("'{name}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl Error for SessionError {}

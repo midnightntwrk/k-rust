@@ -3588,7 +3588,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                 )
                 .map_err(|error| {
                     KproveSolverError::Backend(BackendError(format!(
-                        "could not prove claim: {error:?}"
+                        "could not prove claim: {error}"
                     )))
                 })
             })

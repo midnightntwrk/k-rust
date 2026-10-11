@@ -51,6 +51,59 @@ pub enum TokenKind {
     Where,
 }
 
+/// A token kind as a reader of KORE text knows it: a punctuation mark or keyword in its own
+/// spelling, quoted, and a token class by what it is.
+impl fmt::Display for TokenKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let spelling = match self {
+            Self::String => return formatter.write_str("a string literal"),
+            Self::Id => return formatter.write_str("an identifier"),
+            Self::SetVarId => return formatter.write_str("a set variable"),
+            Self::Comma => ",",
+            Self::Colon => ":",
+            Self::Walrus => ":=",
+            Self::LParen => "(",
+            Self::RParen => ")",
+            Self::LBrace => "{",
+            Self::RBrace => "}",
+            Self::LBracket => "[",
+            Self::RBracket => "]",
+            Self::MlTop => "\\top",
+            Self::MlBottom => "\\bottom",
+            Self::MlNot => "\\not",
+            Self::MlAnd => "\\and",
+            Self::MlOr => "\\or",
+            Self::MlImplies => "\\implies",
+            Self::MlIff => "\\iff",
+            Self::MlExists => "\\exists",
+            Self::MlForall => "\\forall",
+            Self::MlMu => "\\mu",
+            Self::MlNu => "\\nu",
+            Self::MlCeil => "\\ceil",
+            Self::MlFloor => "\\floor",
+            Self::MlEquals => "\\equals",
+            Self::MlIn => "\\in",
+            Self::MlNext => "\\next",
+            Self::MlRewrites => "\\rewrites",
+            Self::MlDv => "\\dv",
+            Self::MlLeftAssoc => "\\left-assoc",
+            Self::MlRightAssoc => "\\right-assoc",
+            Self::Module => "module",
+            Self::EndModule => "endmodule",
+            Self::Import => "import",
+            Self::Sort => "sort",
+            Self::HookedSort => "hooked-sort",
+            Self::Symbol => "symbol",
+            Self::HookedSymbol => "hooked-symbol",
+            Self::Axiom => "axiom",
+            Self::Claim => "claim",
+            Self::Alias => "alias",
+            Self::Where => "where",
+        };
+        write!(formatter, "'{spelling}'")
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Token<'a> {
     pub kind: TokenKind,

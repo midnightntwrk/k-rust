@@ -236,7 +236,12 @@ pub enum ProofError {
 
 impl fmt::Display for ProofError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{self:?}")
+        match self {
+            Self::Implication(error) => write!(formatter, "{error}"),
+            Self::ZeroCounterexampleLimit => formatter.write_str(
+                "the counterexample limit is 0, and a proof needs a limit of at least 1",
+            ),
+        }
     }
 }
 
@@ -5498,6 +5503,10 @@ mod tests {
                 &NoSolver,
             ),
             Err(ProofError::ZeroCounterexampleLimit)
+        );
+        assert_eq!(
+            ProofError::ZeroCounterexampleLimit.to_string(),
+            "the counterexample limit is 0, and a proof needs a limit of at least 1"
         );
     }
 
