@@ -4363,6 +4363,21 @@ mod tests {
         assert!(format!("{error}").contains("hasDomainValues"), "{error}");
     }
 
+    /// A standalone pattern (a search target, a pattern a host hands over) is verified before
+    /// it is internalized, and verification itself refuses a domain value of a sort without
+    /// `hasDomainValues`: a sort that declares no domain values has no value to name.
+    #[test]
+    fn standalone_verification_rejects_domain_values_on_unmarked_sorts() {
+        let definition = BackendDefinition::internalize(&reference_definition_fixture("ok"), "M")
+            .expect("control definition should internalize");
+        let pattern = reference_pattern_fixture("dv");
+        let error = definition
+            .verify_standalone_pattern(&pattern, &[])
+            .err()
+            .expect("domain values require hasDomainValues");
+        assert!(format!("{error}").contains("hasDomainValues"), "{error}");
+    }
+
     #[test]
     fn reference_rejects_non_boolean_bool_literals() {
         let error = BackendDefinition::internalize(&reference_definition_fixture("boolbad"), "M")
@@ -5372,9 +5387,19 @@ mod tests {
                 DefinitionError::MacroOrAliasInImplication(symbol) => symbol.clone(),
                 _ => unreachable!("the table contains only macro-or-alias failures"),
             };
+            let refused = definition
+                .validate_executable_pattern(&pattern)
+                .unwrap_err();
+            // The refusal names the symbol a host must expand before execution.
             assert_eq!(
-                definition.validate_executable_pattern(&pattern),
-                Err(DefinitionError::MacroOrAliasInExecutablePattern(symbol))
+                refused.to_string(),
+                format!(
+                    "invalid executable input: macro or alias symbol '{symbol}' survived expansion"
+                )
+            );
+            assert_eq!(
+                refused,
+                DefinitionError::MacroOrAliasInExecutablePattern(symbol)
             );
             assert_eq!(
                 definition
