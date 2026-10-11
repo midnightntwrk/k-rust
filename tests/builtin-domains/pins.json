@@ -485,34 +485,16 @@
         "run": "65"
       },
       "ord-latin-1": {
-        "native": {
-          "parse": "accepted",
-          "run": "differs: state contains 0 <k> cells"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "193"
-        }
+        "parse": "accepted",
+        "run": "193"
       },
       "chr-latin-1": {
-        "native": {
-          "parse": "accepted",
-          "run": "differs: gate expectation for <k> failed: expected=inj{SortString{}, SortKItem{}}(\\dv{SortString{}}(\"\\xc1\")), actual=inj{SortString{}, SortKItem{}}(\\dv{SortString{}}(\"\\xc3\\x81\"))"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "\"\\xc1\""
-        }
+        "parse": "accepted",
+        "run": "\"\\xc1\""
       },
       "from-string-latin-1": {
-        "native": {
-          "parse": "accepted",
-          "run": "differs: state contains 0 <k> cells"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "1"
-        }
+        "parse": "accepted",
+        "run": "1"
       },
       "from-int": {
         "parse": "accepted",
@@ -872,36 +854,6 @@
   },
   "known_divergences": {
     "krs-builtin-strings": {
-      "ord-latin-1": {
-        "native": {
-          "parse": "accepted",
-          "run": "differs: state contains 0 <k> cells"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "193"
-        }
-      },
-      "chr-latin-1": {
-        "native": {
-          "parse": "accepted",
-          "run": "differs: gate expectation for <k> failed: expected=inj{SortString{}, SortKItem{}}(\\dv{SortString{}}(\"\\xc1\")), actual=inj{SortString{}, SortKItem{}}(\\dv{SortString{}}(\"\\xc3\\x81\"))"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "\"\\xc1\""
-        }
-      },
-      "from-string-latin-1": {
-        "native": {
-          "parse": "accepted",
-          "run": "differs: state contains 0 <k> cells"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "1"
-        }
-      },
       "match-latin-1": {
         "native": {
           "parse": "accepted",

@@ -551,7 +551,7 @@ A string literal is a K `String` token, in patterns as well as results, so `Gree
 K 7.1.337 strings hold code points U+0000 to U+00FF (Latin-1) only, so a code point above U+00FF is rejected; use `Bytes` for other data.
 KRS spells each value one way in the emitted K: `"\u{c1}"` in Rust is `"\xc1"` in K.
 A `char` literal is rejected (K has no `Char` sort; write `"a"`), and so is a byte string (write `k::bytes!(b"..")`).
-Code points from U+0080 to U+00FF do not yet behave the same on every backend: k-rust stores `"\xc1"` as one raw byte, so `string::ord` and `bytes::from_string` do not evaluate on it and `string::chr(193)` is a different value, and Java K's LLVM backend does not match a rule's `"\xc1"` against a program's.
+Code points from U+0080 to U+00FF evaluate alike on every backend, with one exception: Java K's LLVM backend does not match a rule's `"\xc1"` against a program's, which k-rust does.
 
 K has one `Float` sort, and every value carries its precision and exponent range in its token.
 Rust's `f32` and `f64` are K's binary32 and binary64: `0.1f32` is the K token `0.1f`, `1.5f64` is `1.5d`, and an unsuffixed `1.5` is K's default, binary64.

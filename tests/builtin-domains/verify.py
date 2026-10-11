@@ -96,13 +96,11 @@ program `go()`, whose rule is `kequal::ite(true, 1, Undef())` with `Undef` a
 function that has no equations: Java K's LLVM backend evaluates only the taken
 branch and ends in `1`, while k-rust, strict in both branches, splits on whether
 `Undef()` is defined and ends in two leaves (upstream
-k-rust/ite-untaken-branch-definedness). It also pins the `\xc1` programs
-on which the routes disagree. k-rust stores a `\xHH` escape as the raw byte, so its `ordChar`,
-`chrChar` (which yields UTF-8), and `String2Bytes` disagree with K's Latin-1
-code points (upstream k-rust/string-hex-escape-latin1); and Java K's LLVM
-backend does not match the rule literal `"\xc1"` against the same program
-literal, which k-rust does (upstream k/llvm-latin1-string-literal-match). The
-gate fails when either route's pinned outcome changes.
+k-rust/ite-untaken-branch-definedness). It also pins `match-latin-1`, the one
+`\xc1` program on which the routes disagree: Java K's LLVM backend does not
+match the rule literal `"\xc1"` against the same program literal, which
+k-rust does (upstream k/llvm-latin1-string-literal-match). The gate fails
+when either route's pinned outcome changes.
 
 Every program runs natively through k-rust and through Java K's LLVM backend;
 the normalized final computation cells must agree with each other and with the
