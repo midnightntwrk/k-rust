@@ -495,7 +495,7 @@ The emitted declaration of a head carries `hasDomainValues` exactly when that he
 
 An unlabelled `token` production whose only item is a nonterminal, `syntax Toks ::= Names [token]`, spells each phrase of `Names` as a domain value of `Toks` whose text is the input the phrase spans; it builds no term of `Names`.
 So no `Names` value is a `Toks` value, and the production states no subsort: it is in the syntactic subsort relation (a `Names` phrase stands where `Toks` is written) and not in the semantic one, the compiled definition has no `subsort{SortNames{}, SortToks{}}` axiom and no `inj{SortNames{}, SortToks{}}`, and the no-junk axiom of `Toks` is that of a sort of domain values.
-A sort of domain values may have no subsort in a loaded definition (the backend's verification rejects one), and here none is stated: the pinned reference emits the subsort axiom, and its backend then rejects the compiled definition, where k-rust compiles and runs it.
+A sort of domain values may have no subsort in a loaded definition (the backend's verification rejects one), and here none is stated: the pinned reference emits the subsort axiom, and its backend then rejects the compiled definition, where k-rust compiles it; a program placed through a phrase sort's own syntax (`Pgm ::= "run" Toks`) runs, while a configuration variable whose sort reaches the phrase sort by subsorts alone (`Pgm ::= Toks` with `$PGM:Pgm`) still compiles to a token of its own text (open).
 (`a_token_subsort_over_a_list_compiles_without_a_subsort_and_runs` in [cli.rs](../crates/k-rust/tests/cli.rs), `a_token_subsort_is_only_a_syntactic_subsort` in [definition_relations.rs](../crates/k-rust/tests/definition_relations.rs).)
 
 ## Strings and their literals
