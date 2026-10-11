@@ -1717,6 +1717,19 @@ impl<K: Clone, V: Clone> FoundKeys<K, V> {
     }
 }
 
+impl<K, V> FoundKeys<K, V> {
+    /// The subject's entries outside the common keys, in order, as [`FoundKeys::split`] copies
+    /// them, read in place.
+    pub(super) fn others<'s>(&'s self, subject: &'s [(K, V)]) -> impl Iterator<Item = &'s (K, V)> {
+        let mut found = self.found.iter().copied().peekable();
+        subject
+            .iter()
+            .enumerate()
+            .filter(move |(index, _)| found.next_if_eq(index).is_none())
+            .map(|(_, entry)| entry)
+    }
+}
+
 /// The search half of [`split_common_keys`]: `O(log n)` key comparisons per pattern key and no
 /// copy of the subject's other entries.
 pub(super) fn find_common_keys<K: Ord + Clone, V: Clone>(
@@ -1792,7 +1805,8 @@ mod tests {
     /// `ilog2(n) + 1` key comparisons, the binary search's own count, and the subject's other
     /// entries are copied around the place found without being compared: one comparison per entry
     /// would mean the subject was scanned or reordered. A key the subject does not bind costs no
-    /// more, and leaves the subject whole.
+    /// more, and leaves the subject whole. Reading the other entries in place (`others`) gives
+    /// the ones the split copies, again without comparing them.
     #[test]
     fn one_pattern_key_is_found_in_the_subject_by_binary_search() {
         const ENTRIES: u32 = 4096;
@@ -1818,16 +1832,22 @@ mod tests {
         ] {
             let pattern = [(counted(probe), 0)];
             comparisons.set(0);
+            let found = find_common_keys(&pattern, &subject);
+            let others = found
+                .others(&subject)
+                .map(|(key, _)| key.value)
+                .collect::<Vec<_>>();
             let CommonKeys {
                 values,
                 pattern_only,
                 subject_only,
-            } = split_common_keys(&pattern, &subject);
+            } = found.split(&subject);
             let made = comparisons.get();
             assert!(
                 made <= bound,
                 "key {probe}: {made} comparisons, bound {bound}"
             );
+            assert_eq!(others, values_of(&subject_only), "key {probe}");
             let expected_rest: Vec<u32> = (1..=ENTRIES)
                 .map(|index| 2 * index)
                 .filter(|&key| key != probe)

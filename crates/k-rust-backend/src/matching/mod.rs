@@ -173,7 +173,9 @@ pub enum FailReason {
     /// injections.
     VariableRecursion(RigidCycle),
     VariableConflict(Variable, Term, Term),
-    KeyNotFound(Term, Term),
+    /// A constructor-like map key or set element of the pattern that the subject, whose keys or
+    /// elements are all constructor-like, does not contain.
+    KeyNotFound(Term),
     /// A map key or a set element that occurs twice, and the collection: `\bottom`.
     DuplicateKeys(Term, Term),
     SharedVariables(BTreeSet<Variable>),
@@ -1730,6 +1732,23 @@ impl<'a> Matcher<'a> {
             self.queue.extend(found.values);
             return Ok(());
         }
+        // A constructor-like pattern key that no subject entry binds syntactically, while every
+        // other key of the subject is constructor-like too, is bound by no subject entry at all:
+        // distinct constructor-like terms denote distinct values. The match fails on that key,
+        // decided from key attributes alone, before the subject's other entries are copied: the
+        // failure names the key and nothing else, since no reader of a failed match needs the
+        // subject's remainder. A constructor-like map has constructor-like keys.
+        if let Some((key, _)) = found
+            .pattern_only
+            .iter()
+            .find(|(key, _)| key.attributes().constructor_like)
+            && (subject.attributes().constructor_like
+                || found
+                    .others(subject_entries)
+                    .all(|(key, _)| key.attributes().constructor_like))
+        {
+            return Err(FailReason::KeyNotFound(key.clone()));
+        }
         let CommonKeys {
             mut values,
             pattern_only,
@@ -1800,10 +1819,7 @@ impl<'a> Matcher<'a> {
 
         if let Some(element) = pattern_concrete.first() {
             if subject_symbolic.is_empty() && subject_rest.is_none() {
-                return Err(FailReason::KeyNotFound(
-                    element.clone(),
-                    set(subject_elements.into_iter().collect(), None),
-                ));
+                return Err(FailReason::KeyNotFound(element.clone()));
             }
             return self.defer(
                 set(pattern_elements.into_iter().collect(), pattern_rest),
@@ -1860,13 +1876,9 @@ impl<'a> Matcher<'a> {
         pattern: MapRemainder,
         subject: MapRemainder,
     ) -> Result<Vec<(Term, Term)>, FailReason> {
-        if let Some((key, _)) = pattern.concrete.first() {
-            if subject.symbolic.is_empty() {
-                return Err(FailReason::KeyNotFound(
-                    key.clone(),
-                    subject.to_term(definition.clone()),
-                ));
-            }
+        if !pattern.concrete.is_empty() {
+            // `match_maps` refutes a pattern key the subject's constructor-like keys lack.
+            debug_assert!(!subject.symbolic.is_empty());
             self.defer(
                 pattern.to_term(definition.clone()),
                 subject.to_term(definition.clone()),

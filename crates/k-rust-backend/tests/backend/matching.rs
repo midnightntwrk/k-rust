@@ -1377,14 +1377,16 @@ fn reads_ground_keys_of_a_large_map_and_leaves_the_rest_as_the_frame() {
             "{mode:?}"
         );
     }
-    for (first, read_keys) in [(key(46), vec![key(19)]), (key(47), vec![key(18)])] {
+    // The failure names the pattern key the subject lacks, after `K` is bound.
+    for (first, read_keys, missing) in [
+        (key(46), vec![key(19)], key(19)),
+        (key(47), vec![key(18)], key(47)),
+    ] {
         let (pattern, subject) = read(first, &read_keys);
         for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
-            assert!(
-                matches!(
-                    match_terms(mode, &sort_graph(), &pattern, &subject),
-                    MatchResult::Failed(FailReason::KeyNotFound(_, _))
-                ),
+            assert_eq!(
+                match_terms(mode, &sort_graph(), &pattern, &subject),
+                MatchResult::Failed(FailReason::KeyNotFound(missing.clone())),
                 "{mode:?}"
             );
         }
@@ -1393,7 +1395,7 @@ fn reads_ground_keys_of_a_large_map_and_leaves_the_rest_as_the_frame() {
 
 /// A ground set that lacks a ground element of the pattern, and a ground map with an entry that a
 /// closed pattern does not name, are refuted in every mode. Callers read only which refutation
-/// it is, never the terms it carries, so only the kind is checked here.
+/// it is; a missing element is named, the collections' contents are not checked.
 #[test]
 fn refutes_ground_collections_that_lack_or_add_an_entry() {
     let set_definition = set_definition();
@@ -1424,7 +1426,7 @@ fn refutes_ground_collections_that_lack_or_add_an_entry() {
     for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
         let result = match_terms(mode, &sort_graph(), &set_pattern, &set_subject);
         assert!(
-            matches!(result, MatchResult::Failed(FailReason::KeyNotFound(_, _))),
+            result == MatchResult::Failed(FailReason::KeyNotFound(element("b"))),
             "{mode:?}: {result:?}"
         );
         let result = match_terms(mode, &sort_graph(), &map_pattern, &map_subject);
