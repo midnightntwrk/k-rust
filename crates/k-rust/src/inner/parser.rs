@@ -1467,7 +1467,10 @@ pub struct Grammar {
     layout: Layout,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
-    // Invariant: when set, this indexes `associativities`; cleared whenever they change.
+    // Invariant: when set, this indexes `associativities` over `productions`, with the edge each
+    // production's dot selects (`associativity_edge_at`, which reads the production's items and
+    // attributes); cleared whenever the relations change, a production is added, or a production
+    // is changed after it is added.
     associativity_index: OnceLock<AssociativityIndex>,
     subsort_relations: SubsortRelations,
     syntactic_subsort_relations: SubsortRelations,
