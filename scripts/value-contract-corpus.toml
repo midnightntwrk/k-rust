@@ -571,9 +571,36 @@ full_condition_memo_hits = 1480
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
 
-# KEVM withdraws claims (a relevant non-joined pair), so the manifest covers it; it is compiled
-# here and measured at a host UID (scripts/gates.toml, value-contract-corpus). Until that run
-# records its values with --update kevm, the gate reports the case as unrecorded.
+# KEVM withdraws a claim (a relevant non-joined pair), so the manifest covers it; it is compiled
+# here and measured at a host UID (scripts/gates.toml, value-contract-corpus).
 [[case]]
 name = "kevm"
 definition = "kevm"
+[case.expected]
+equations = 1945
+pairs = 2
+overlaps = 2
+separated = 0
+refuted = 1
+joined = 0
+unjoined = 1
+relevant = 1
+violations = 0
+heads = 0
+tainted_heads = 0
+tainted_symbols = 5
+several_matches = 0
+families = 2
+confluent_families = 1
+relevant_equations = 6
+skipped = 19966
+full_pairs = 19968
+full_unjoined = 28
+full_tainted_symbols = 65
+simplifier_calls = 5
+condition_memo_hits = 2
+full_simplifier_calls = 1240
+full_condition_memo_hits = 995
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
+
