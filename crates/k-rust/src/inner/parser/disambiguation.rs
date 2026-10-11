@@ -607,12 +607,13 @@ impl Grammar {
     /// of a sort below the one its place declares ranks as anything else ([`Self::may_stand`]):
     /// a sequence, of sort `K`, is no `KItem` argument, and a rewrite of a `Pat` to an `Exp` is
     /// no `Arm`, so neither is what the rule means there. A rewrite's own sort is chosen by
-    /// inference, at most its place's, so its sides stand at that place. Below a rewrite (in a
-    /// side of one, at any depth) a rewrite ranks after anything else: a side of a rewrite is a
-    /// term, not a change, so no term has a rewrite there, and where another reading of the
-    /// position exists the rule means that one (`rule match(_, _ => B) => B` with a match arm
-    /// `Arm ::= Pat "=>" Exp` reads the arm); where none does, the nested rewrite stays and is
-    /// reported as such. A tree is kept when, at each of its positions, its subtree has the
+    /// inference, at most its place's, so its sides stand at that place. In a term no rule
+    /// changes, a side of a rewrite (at any depth) or a side condition (`requires`, `ensures`),
+    /// a rewrite ranks after anything else: a side of a rewrite is a term, not a change, and a
+    /// condition is a `Bool` the rule tests, so no rule has a rewrite there, and where another
+    /// reading of the position exists the rule means that one (`rule match(_, _ => B) => B` and
+    /// `requires isArm(P => B)` with a match arm `Arm ::= Pat "=>" Exp` read the arm); where none
+    /// does, the rewrite stays and is reported where a check rejects it. A tree is kept when, at each of its positions, its subtree has the
     /// least rank among the trees that agree with it everywhere outside that position. A
     /// position that some readings do not have is compared only among those that have it;
     /// there is one condition per position and no order between them, so choosing
@@ -637,46 +638,44 @@ impl Grammar {
         self.prefer_structural_readings_memo(&forest, None, false, true, &mut HashMap::new())
     }
 
-    /// Among the readings of a forest, keep at every position below a rewrite those whose
-    /// subtree there is not rooted at a rewrite, where any is: the part of
-    /// [`Self::prefer_structural_readings`] that reads no sort. A reading with a rewrite inside
-    /// a side of another is no rule whatever its sorts (a side of a rewrite is a term, not a
-    /// change, and the definition checks reject every such reading), so this removes no reading
-    /// that is a rule; it is the forest sorts decide when the preferred readings have no
-    /// well-sorted one (`Grammar::infer_without_structural_preference`).
-    pub(super) fn prefer_no_rewrite_inside_a_rewrite(
-        &self,
-        forest: Rc<PackedTerm>,
-    ) -> Rc<PackedTerm> {
+    /// Among the readings of a forest, keep at every position in a term no rule changes (a side
+    /// of a rewrite or a side condition) those whose subtree there is not rooted at a rewrite,
+    /// where any is: the part of [`Self::prefer_structural_readings`] that reads no sort. A
+    /// reading with a rewrite inside a side of another or in a condition is no rule whatever its
+    /// sorts (a side of a rewrite is a term, not a change, and a condition is a `Bool` the rule
+    /// tests), so this removes no reading that is a rule; it is the forest sorts decide when the
+    /// preferred readings have no well-sorted one
+    /// (`Grammar::infer_without_structural_preference`).
+    pub(super) fn prefer_no_rewrite_inside_a_term(&self, forest: Rc<PackedTerm>) -> Rc<PackedTerm> {
         self.prefer_structural_readings_memo(&forest, None, false, false, &mut HashMap::new())
     }
 
     /// The readings of `term`, every reading of a position at `place` (`None` at the parse's
-    /// root), below a rewrite or not, that [`Self::prefer_structural_readings`] keeps, or, without
-    /// `constructs`, that [`Self::prefer_no_rewrite_inside_a_rewrite`] keeps.
+    /// root), in a term no rule changes or not, that [`Self::prefer_structural_readings`] keeps,
+    /// or, without `constructs`, that [`Self::prefer_no_rewrite_inside_a_term`] keeps.
     fn prefer_structural_readings_memo(
         &self,
         term: &Rc<PackedTerm>,
         place: Option<StructuralPlace<'_>>,
-        below_rewrite: bool,
+        in_term: bool,
         constructs: bool,
         memo: &mut PreferenceMemo,
     ) -> Rc<PackedTerm> {
         crate::stack::guarded(|| {
             // Invariant: an entry maps a node, kept alive beside it, at a place of one declared
-            // and one recognized sort, below a rewrite or not, to its kept readings.
+            // and one recognized sort, in a term no rule changes or not, to its kept readings.
             let key = (
                 Rc::as_ptr(term),
                 place.map(|place| (place.declared.clone(), place.recognized.clone())),
-                below_rewrite,
+                in_term,
             );
             if let Some((_, preferred)) = memo.get(&key) {
                 return Rc::clone(preferred);
             }
-            // Below a rewrite, a rewrite ranks after every other reading: no term has a rewrite
-            // inside a side of another, so where another reading of the position exists, the
+            // In a term no rule changes, a rewrite ranks after every other reading: no rule has a
+            // rewrite in a side of another or in a condition, so where another reading exists, the
             // rewrite is not what the rule means there.
-            let candidates = if below_rewrite {
+            let candidates = if in_term {
                 self.restrict_root_without_label(term, InternalLabel::KRewrite.as_str())
                     .unwrap_or_else(|| Rc::clone(term))
             } else {
@@ -688,13 +687,13 @@ impl Grammar {
                 InternalLabel::Let,
             ]
             .into_iter()
-            .filter(|label| constructs && (!below_rewrite || *label != InternalLabel::KRewrite))
+            .filter(|label| constructs && (!in_term || *label != InternalLabel::KRewrite))
             .find_map(|label| self.restrict_root_label(&candidates, label.as_str(), place))
             .unwrap_or(candidates);
             let preferred = self.prefer_structural_readings_below(
                 &restricted,
                 place,
-                below_rewrite,
+                in_term,
                 constructs,
                 memo,
             );
@@ -709,7 +708,7 @@ impl Grammar {
         &self,
         term: &Rc<PackedTerm>,
         place: Option<StructuralPlace<'_>>,
-        below_rewrite: bool,
+        in_term: bool,
         constructs: bool,
         memo: &mut PreferenceMemo,
     ) -> Rc<PackedTerm> {
@@ -723,7 +722,7 @@ impl Grammar {
                             vec![self.prefer_structural_readings_below(
                                 alternative,
                                 place,
-                                below_rewrite,
+                                in_term,
                                 constructs,
                                 memo,
                             )]
@@ -731,11 +730,7 @@ impl Grammar {
                         _ => {
                             let merged = merge_alternatives_at_one_position(&group);
                             let kept = self.prefer_structural_readings_below(
-                                &merged,
-                                place,
-                                below_rewrite,
-                                constructs,
-                                memo,
+                                &merged, place, in_term, constructs, memo,
                             );
                             if Rc::ptr_eq(&kept, &merged) {
                                 group
@@ -774,20 +769,15 @@ impl Grammar {
                 children,
                 metadata,
             } => {
-                let places = self.structural_places(*production, place);
-                let below_rewrite = below_rewrite
-                    || self.productions[*production].parse_label.as_deref()
-                        == Some(InternalLabel::KRewrite.as_str());
+                let context = self.structural_child_context(*production, place, in_term);
                 let preferred = children
                     .iter()
                     .enumerate()
                     .map(|(index, child)| {
+                        let (place, in_term) =
+                            context.get(index).copied().unwrap_or((None, in_term));
                         self.prefer_structural_readings_memo(
-                            child,
-                            places.get(index).copied().flatten(),
-                            below_rewrite,
-                            constructs,
-                            memo,
+                            child, place, in_term, constructs, memo,
                         )
                     })
                     .collect::<Vec<_>>();
@@ -998,18 +988,18 @@ impl Grammar {
         merged
     }
 
-    /// The readings of `term`, standing at `place` below a rewrite or not, by the rank
+    /// The readings of `term`, standing at `place` in a term no rule changes or not, by the rank
     /// [`Self::prefer_structural_readings`] gives their root there, least first: a rewrite, a
-    /// sequence, a `#let` (each where it may stand), anything else, and below a rewrite a
-    /// rewrite last. The root is seen through pass-through productions as there.
+    /// sequence, a `#let` (each where it may stand), anything else, and in a term no rule
+    /// changes a rewrite last. The root is seen through pass-through productions as there.
     pub(super) fn structural_rank_parts(
         &self,
         term: &Rc<PackedTerm>,
         place: Option<StructuralPlace<'_>>,
-        below_rewrite: bool,
+        in_term: bool,
     ) -> BTreeMap<u8, Rc<PackedTerm>> {
         let mut parts: BTreeMap<u8, BTreeSet<Rc<PackedTerm>>> = BTreeMap::new();
-        self.collect_structural_rank_parts(term, place, below_rewrite, &mut |rank, part| {
+        self.collect_structural_rank_parts(term, place, in_term, &mut |rank, part| {
             let set = parts.entry(rank).or_default();
             match &part.node {
                 PackedNode::Ambiguity(nested) => set.extend(nested.iter().cloned()),
@@ -1028,13 +1018,13 @@ impl Grammar {
         &self,
         term: &Rc<PackedTerm>,
         place: Option<StructuralPlace<'_>>,
-        below_rewrite: bool,
+        in_term: bool,
         add: &mut dyn FnMut(u8, Rc<PackedTerm>),
     ) {
         match &term.node {
             PackedNode::Ambiguity(alternatives) => {
                 for alternative in alternatives {
-                    self.collect_structural_rank_parts(alternative, place, below_rewrite, add);
+                    self.collect_structural_rank_parts(alternative, place, in_term, add);
                 }
             }
             PackedNode::Production {
@@ -1047,7 +1037,7 @@ impl Grammar {
                     Some(own) => {
                         let fits = || self.may_stand(term, place);
                         let rank = if own == InternalLabel::KRewrite.as_str() {
-                            if below_rewrite {
+                            if in_term {
                                 4
                             } else if fits() {
                                 0
@@ -1074,7 +1064,7 @@ impl Grammar {
                         self.collect_structural_rank_parts(
                             &children[0],
                             inner,
-                            below_rewrite,
+                            in_term,
                             &mut |rank, part| {
                                 let node = if Rc::ptr_eq(&part, &children[0]) {
                                     Rc::clone(term)
@@ -1097,8 +1087,8 @@ impl Grammar {
     }
 
     /// The positions of `forest`, packed by [`Self::merge_alternatives_at_every_position`], at
-    /// which its readings differ in rank: every ambiguity, at every place and depth below or
-    /// outside a rewrite at which it is reached, whose alternatives have several ranks
+    /// which its readings differ in rank: every ambiguity, at every place and depth, in a term
+    /// no rule changes or not, at which it is reached, whose alternatives have several ranks
     /// ([`Self::structural_rank_parts`]), with its readings of each rank, least first. Two
     /// readings that first differ at a position with different ranks there take different
     /// alternatives of the ambiguity there, so they are in two parts of one of these.
@@ -1112,17 +1102,17 @@ impl Grammar {
         &self,
         term: &Rc<PackedTerm>,
         place: Option<StructuralPlace<'_>>,
-        below_rewrite: bool,
+        in_term: bool,
         visited: &mut HashSet<StructuralPosition>,
         choices: &mut Vec<StructuralChoice>,
     ) {
-        let position = structural_position(term, place, below_rewrite);
+        let position = structural_position(term, place, in_term);
         if !visited.insert(position.clone()) {
             return;
         }
         match &term.node {
             PackedNode::Ambiguity(alternatives) => {
-                let parts = self.structural_rank_parts(term, place, below_rewrite);
+                let parts = self.structural_rank_parts(term, place, in_term);
                 if parts.len() > 1 {
                     choices.push(StructuralChoice {
                         position,
@@ -1130,13 +1120,7 @@ impl Grammar {
                     });
                 }
                 for alternative in alternatives {
-                    self.collect_structural_choices(
-                        alternative,
-                        place,
-                        below_rewrite,
-                        visited,
-                        choices,
-                    );
+                    self.collect_structural_choices(alternative, place, in_term, visited, choices);
                 }
             }
             PackedNode::Production {
@@ -1144,36 +1128,47 @@ impl Grammar {
                 children,
                 ..
             } => {
-                let (places, below_rewrite) =
-                    self.structural_child_context(*production, place, below_rewrite);
+                let context = self.structural_child_context(*production, place, in_term);
                 for (index, child) in children.iter().enumerate() {
-                    self.collect_structural_choices(
-                        child,
-                        places.get(index).copied().flatten(),
-                        below_rewrite,
-                        visited,
-                        choices,
-                    );
+                    let (place, in_term) = context.get(index).copied().unwrap_or((None, in_term));
+                    self.collect_structural_choices(child, place, in_term, visited, choices);
                 }
             }
             PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => {}
         }
     }
 
-    /// The places of a production node's children, and whether they are below a rewrite, for
-    /// the node standing at `place` ([`Self::prefer_structural_readings`]).
+    /// The place of each child of a production node standing at `place`, and whether the child
+    /// lies in a term no rule changes ([`Self::prefer_structural_readings`]): every child of
+    /// such a node, both sides of a rewrite, and the side conditions of a rule (every child of
+    /// its content but the body).
     pub(super) fn structural_child_context<'a>(
         &'a self,
         production: usize,
         place: Option<StructuralPlace<'a>>,
-        below_rewrite: bool,
-    ) -> (Vec<Option<StructuralPlace<'a>>>, bool) {
-        (
-            self.structural_places(production, place),
-            below_rewrite
-                || self.productions[production].parse_label.as_deref()
-                    == Some(InternalLabel::KRewrite.as_str()),
-        )
+        in_term: bool,
+    ) -> Vec<(Option<StructuralPlace<'a>>, bool)> {
+        let label = self.productions[production]
+            .parse_label
+            .as_deref()
+            .and_then(InternalLabel::of);
+        self.structural_places(production, place)
+            .into_iter()
+            .enumerate()
+            .map(|(index, place)| {
+                let child_in_term = in_term
+                    || match label {
+                        Some(InternalLabel::KRewrite) => true,
+                        Some(
+                            InternalLabel::RuleRequires
+                            | InternalLabel::RuleEnsures
+                            | InternalLabel::RuleRequiresEnsures,
+                        ) => index > 0,
+                        _ => false,
+                    };
+                (place, child_in_term)
+            })
+            .collect()
     }
 
     /// The readings of `forest` that pass through `choice`'s position and have `part` there, or
@@ -1192,12 +1187,12 @@ impl Grammar {
         &self,
         term: &Rc<PackedTerm>,
         place: Option<StructuralPlace<'_>>,
-        below_rewrite: bool,
+        in_term: bool,
         choice: &StructuralChoice,
         part: &Rc<PackedTerm>,
         memo: &mut HashMap<StructuralPosition, Option<Rc<PackedTerm>>>,
     ) -> Option<Rc<PackedTerm>> {
-        let position = structural_position(term, place, below_rewrite);
+        let position = structural_position(term, place, in_term);
         if position == choice.position {
             return Some(Rc::clone(part));
         }
@@ -1208,14 +1203,9 @@ impl Grammar {
             PackedNode::Ambiguity(alternatives) => {
                 let mut retained = BTreeSet::new();
                 for alternative in alternatives {
-                    if let Some(through) = self.readings_through_memo(
-                        alternative,
-                        place,
-                        below_rewrite,
-                        choice,
-                        part,
-                        memo,
-                    ) {
+                    if let Some(through) =
+                        self.readings_through_memo(alternative, place, in_term, choice, part, memo)
+                    {
                         match &through.node {
                             PackedNode::Ambiguity(nested) => {
                                 retained.extend(nested.iter().cloned())
@@ -1233,18 +1223,13 @@ impl Grammar {
                 children,
                 metadata,
             } => {
-                let (places, below_rewrite) =
-                    self.structural_child_context(*production, place, below_rewrite);
+                let context = self.structural_child_context(*production, place, in_term);
                 let mut variants = BTreeSet::new();
                 for (index, child) in children.iter().enumerate() {
-                    if let Some(through) = self.readings_through_memo(
-                        child,
-                        places.get(index).copied().flatten(),
-                        below_rewrite,
-                        choice,
-                        part,
-                        memo,
-                    ) {
+                    let (place, in_term) = context.get(index).copied().unwrap_or((None, in_term));
+                    if let Some(through) =
+                        self.readings_through_memo(child, place, in_term, choice, part, memo)
+                    {
                         let mut children = children.clone();
                         children[index] = through;
                         variants.insert(PackedTerm::production(
@@ -4878,25 +4863,25 @@ pub(super) struct StructuralPlace<'a> {
 }
 
 /// The readings [`Grammar::prefer_structural_readings`] kept of a node at a place, by the node's
-/// identity, the place's declared and recognized sorts and whether the place is below a
-/// rewrite, with the node kept alive beside its entry.
+/// identity, the place's declared and recognized sorts and whether the place is in a term no
+/// rule changes, with the node kept alive beside its entry.
 type PreferenceMemo =
     HashMap<(*const PackedTerm, Option<(Sort, Sort)>, bool), (Rc<PackedTerm>, Rc<PackedTerm>)>;
 
-/// A node of a forest at a place of one declared and one recognized sort, below a rewrite or
-/// not: one position of the readings that reach the node there
+/// A node of a forest at a place of one declared and one recognized sort, in a term no rule
+/// changes or not: one position of the readings that reach the node there
 /// ([`Grammar::structural_choices`]).
 type StructuralPosition = (*const PackedTerm, Option<(Sort, Sort)>, bool);
 
 fn structural_position(
     term: &Rc<PackedTerm>,
     place: Option<StructuralPlace<'_>>,
-    below_rewrite: bool,
+    in_term: bool,
 ) -> StructuralPosition {
     (
         Rc::as_ptr(term),
         place.map(|place| (place.declared.clone(), place.recognized.clone())),
-        below_rewrite,
+        in_term,
     )
 }
 

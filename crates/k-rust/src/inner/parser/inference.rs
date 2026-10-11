@@ -207,8 +207,8 @@ impl Grammar {
     /// is not a product of choices per position (a variable's sort ties distant positions), so
     /// a forest pass cannot compute it; this decides the parses it can from inference alone.
     ///
-    /// The readings are those of `admitted` without a rewrite inside a side of another where the
-    /// position has another reading (`Grammar::prefer_no_rewrite_inside_a_rewrite`): such a
+    /// The readings are those of `admitted` without a rewrite inside a side of another or in a
+    /// side condition where the position has another reading (`Grammar::prefer_no_rewrite_inside_a_term`): such a
     /// reading is no rule whatever its sorts, so dropping it drops no candidate. When no
     /// reading is well sorted, the preferred readings' rejection is the error, as without this
     /// step. Otherwise every position at which the readings differ in rank
@@ -233,7 +233,7 @@ impl Grammar {
         explicitly_anywhere: bool,
         lower: impl Fn(ParsedTerm) -> Result<T, ParseError>,
     ) -> Result<T, ParseError> {
-        let readings = self.prefer_no_rewrite_inside_a_rewrite(Rc::clone(admitted));
+        let readings = self.prefer_no_rewrite_inside_a_term(Rc::clone(admitted));
         let merged = self.merge_alternatives_at_every_position(&readings);
         let choices = self.structural_choices(&merged);
         if choices.is_empty() {
@@ -1868,7 +1868,7 @@ fn inference_error(message: impl Into<String>) -> ParseError {
 #[cfg(test)]
 pub(crate) struct ExactStructuralChoice {
     /// The distinct terms of the admitted readings that are well sorted and put no rewrite
-    /// inside a side of another, each lowered with its own typing.
+    /// inside a side of another or in a side condition, each lowered with its own typing.
     pub(crate) well_sorted: usize,
     /// The distinct terms of the well-sorted readings the per-position choice keeps, each
     /// lowered with its own typing: a reading is kept when no well-sorted reading that agrees
@@ -1962,18 +1962,17 @@ impl Grammar {
     }
 
     /// The rank of every position of `tree` standing at `place`, by its path, and whether a
-    /// rewrite stands inside a side of another.
+    /// rewrite stands in a term no rule changes (a side of another, a side condition).
     fn exact_ranks(
         &self,
         tree: &ParsedTerm,
         place: Option<super::disambiguation::StructuralPlace<'_>>,
-        below_rewrite: bool,
+        in_term: bool,
         path: &mut Vec<usize>,
         ranks: &mut HashMap<Vec<usize>, u8>,
         nested: &mut bool,
     ) {
-        let parts =
-            self.structural_rank_parts(&PackedTerm::from_parsed(tree), place, below_rewrite);
+        let parts = self.structural_rank_parts(&PackedTerm::from_parsed(tree), place, in_term);
         let [rank] = parts.keys().copied().collect::<Vec<_>>()[..] else {
             panic!("a tree has one rank at a position");
         };
@@ -1985,17 +1984,11 @@ impl Grammar {
             ..
         } = tree
         {
-            let (places, below) = self.structural_child_context(*production, place, below_rewrite);
+            let context = self.structural_child_context(*production, place, in_term);
             for (index, child) in children.iter().enumerate() {
+                let (place, in_term) = context.get(index).copied().unwrap_or((None, in_term));
                 path.push(index);
-                self.exact_ranks(
-                    child,
-                    places.get(index).copied().flatten(),
-                    below,
-                    path,
-                    ranks,
-                    nested,
-                );
+                self.exact_ranks(child, place, in_term, path, ranks, nested);
                 path.pop();
             }
         }

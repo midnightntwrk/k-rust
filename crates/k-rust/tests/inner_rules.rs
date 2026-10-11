@@ -1147,6 +1147,79 @@ endmodule
     }
 }
 
+/// A side condition is a term, a `Bool` the rule tests, not a change, so no rule has a rewrite
+/// in one either: there a rewrite ranks after every other reading as in a side of a rewrite, and
+/// where user syntax reuses `=>` the condition means the user's syntax (a match arm checked by a
+/// predicate, an argument of a predicate taking any item). The rule's own rewrite, in its body,
+/// is still chosen there.
+#[test]
+fn a_rewrite_in_a_side_condition_does_not_win_over_user_syntax() {
+    let source = |rule: &str| {
+        format!(
+            r#"module MAIN
+  syntax Pat ::= "p" [symbol(p)]
+  syntax Exp ::= "e" [symbol(e)]
+  syntax Arm ::= Pat "=>" Exp [symbol(arm)]
+  syntax Bool ::= isArm(Arm) [function, total, symbol(isArm)]
+                | ok(KItem) [function, total, symbol(ok)]
+  syntax A ::= "a" [symbol(a)]
+  syntax KItem ::= A "=>" A [symbol(arrow)]
+  syntax KItem ::= f(KItem) [symbol(f)] | k(Exp) [symbol(k)]
+  rule {rule}
+endmodule
+"#
+        )
+    };
+    for (rule, body, condition) in [
+        (
+            "k(B) => .K requires isArm(P => B)",
+            "k(#SemanticCastToExp(B))=>.K",
+            "isArm(arm(#SemanticCastToPat(P),#SemanticCastToExp(B)))",
+        ),
+        (
+            "f(a) => .K requires isArm(P => B)",
+            "f(a(.KList))=>.K",
+            "isArm(arm(#SemanticCastToPat(P),#SemanticCastToExp(B)))",
+        ),
+        (
+            "f(a) => .K requires ok(a => a)",
+            "f(a(.KList))=>.K",
+            "ok(arrow(a(.KList),a(.KList)))",
+        ),
+        (
+            "f(a => a) ensures ok(a => a)",
+            "f(a(.KList)=>a(.KList))",
+            "ok(arrow(a(.KList),a(.KList)))",
+        ),
+    ] {
+        let definition = lowered(&source(rule));
+        let definition =
+            resolve_rule_bubbles(&definition).unwrap_or_else(|error| panic!("{rule}: {error}"));
+        let (resolved_body, requires, ensures) = definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match &**sentence {
+                Sentence::Rule {
+                    body,
+                    requires,
+                    ensures,
+                    ..
+                } => Some((body.to_string(), requires.to_string(), ensures.to_string())),
+                _ => None,
+            })
+            .expect("the rule should be resolved");
+        assert_eq!(resolved_body, body, "{rule}");
+        let resolved_condition = if rule.contains("ensures") {
+            ensures
+        } else {
+            requires
+        };
+        assert_eq!(resolved_condition, condition, "{rule}");
+    }
+}
+
 /// The rule bodies of a module over a match-arm-like `Foo ::= Bar "=>" Bar` whose `=>` the
 /// rule's rewrite also reads, with `f` taking a `Foo`, `g` a `Bar` and cells `<k>` and `<c>`,
 /// or the load's error.
