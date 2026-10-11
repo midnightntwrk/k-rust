@@ -2618,7 +2618,9 @@ mod tests {
     /// `o1`, `o2` and `o3` (`o3(o1(a => a => a), a)`: `o1` and `o2`, syntactic subsorts, judge no
     /// child). Below the labelled start the readings rooted at the rewrite are chosen; they
     /// split the text at either `=>`, so they share no position below the root and stay an
-    /// ambiguity, reported at the places they differ. Writing `o3`'s left operand through
+    /// ambiguity, reported at the places they differ. Below the rewrite, at the right side of
+    /// `a => (a => a + a)`, the inner rewrite read through the unlabelled pass-through ranks
+    /// after its readings through `o1` and `o2`, which are rooted at those labels. Writing `o3`'s left operand through
     /// `P ::= S1` changes no tree and no entry of the report. The forest has more trees than a
     /// build without Z3 types (`PORTABLE_AMBIGUITY_TREE_LIMIT`), so the test needs the native
     /// inference (`docs/testing.md`).
@@ -2661,7 +2663,8 @@ mod tests {
             [
                 vec!["atom(.KList)=>atom(.KList)", "atom(.KList)"],
                 vec![
-                    "atom(.KList)=>o3(atom(.KList),atom(.KList))",
+                    "o1(atom(.KList)=>o3(atom(.KList),atom(.KList)))",
+                    "o2(atom(.KList)=>o3(atom(.KList),atom(.KList)))",
                     "o3(atom(.KList),atom(.KList))"
                 ],
             ]

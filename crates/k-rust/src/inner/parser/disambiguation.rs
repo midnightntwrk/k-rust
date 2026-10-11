@@ -607,7 +607,12 @@ impl Grammar {
     /// of a sort below the one its place declares ranks as anything else ([`Self::may_stand`]):
     /// a sequence, of sort `K`, is no `KItem` argument, and a rewrite of a `Pat` to an `Exp` is
     /// no `Arm`, so neither is what the rule means there. A rewrite's own sort is chosen by
-    /// inference, at most its place's, so its sides stand at that place. A tree is kept when, at
+    /// inference, at most its place's, so its sides stand at that place. Below a rewrite
+    /// (in a side of one, at any depth) a rewrite ranks after anything else: a side of a rewrite
+    /// is a term, not a change, so no term has a rewrite there, and where another reading of the
+    /// position exists the rule means that one (`rule match(_, _ => B) => B` with a match arm
+    /// `Arm ::= Pat "=>" Exp` reads the arm); where none does, the nested rewrite stays and is
+    /// reported as such. A tree is kept when, at
     /// each of its positions, its subtree has the least rank among the trees that agree with it
     /// everywhere outside that position. A position that some readings do not have is compared only among those that
     /// have it; there is one condition per position and no order between them, so choosing
@@ -629,36 +634,49 @@ impl Grammar {
     /// share subterms, on how alternatives of one node are packed, or on which sorts readings
     /// pass through.
     pub(super) fn prefer_structural_readings(&self, forest: Rc<PackedTerm>) -> Rc<PackedTerm> {
-        self.prefer_structural_readings_memo(&forest, None, &mut HashMap::new())
+        self.prefer_structural_readings_memo(&forest, None, false, &mut HashMap::new())
     }
 
     /// The readings of `term`, every reading of a position at `place` (`None` at the parse's
-    /// root), that [`Self::prefer_structural_readings`] keeps.
+    /// root), below a rewrite or not, that [`Self::prefer_structural_readings`] keeps.
     fn prefer_structural_readings_memo(
         &self,
         term: &Rc<PackedTerm>,
         place: Option<StructuralPlace<'_>>,
+        below_rewrite: bool,
         memo: &mut PreferenceMemo,
     ) -> Rc<PackedTerm> {
         crate::stack::guarded(|| {
             // Invariant: an entry maps a node, kept alive beside it, at a place of one declared
-            // and one recognized sort to its kept readings.
+            // and one recognized sort, below a rewrite or not, to its kept readings.
             let key = (
                 Rc::as_ptr(term),
                 place.map(|place| (place.declared.clone(), place.recognized.clone())),
+                below_rewrite,
             );
             if let Some((_, preferred)) = memo.get(&key) {
                 return Rc::clone(preferred);
             }
+            // Below a rewrite, a rewrite ranks after every other reading: no term has a rewrite
+            // inside a side of another, so where another reading of the position exists, the
+            // rewrite is not what the rule means there.
+            let candidates = if below_rewrite {
+                self.restrict_root_without_label(term, InternalLabel::KRewrite.as_str())
+                    .unwrap_or_else(|| Rc::clone(term))
+            } else {
+                Rc::clone(term)
+            };
             let restricted = [
                 InternalLabel::KRewrite,
                 InternalLabel::KSequence,
                 InternalLabel::Let,
             ]
             .into_iter()
-            .find_map(|label| self.restrict_root_label(term, label.as_str(), place))
-            .unwrap_or_else(|| Rc::clone(term));
-            let preferred = self.prefer_structural_readings_below(&restricted, place, memo);
+            .filter(|label| !below_rewrite || *label != InternalLabel::KRewrite)
+            .find_map(|label| self.restrict_root_label(&candidates, label.as_str(), place))
+            .unwrap_or(candidates);
+            let preferred =
+                self.prefer_structural_readings_below(&restricted, place, below_rewrite, memo);
             memo.insert(key, (Rc::clone(term), Rc::clone(&preferred)));
             preferred
         })
@@ -670,6 +688,7 @@ impl Grammar {
         &self,
         term: &Rc<PackedTerm>,
         place: Option<StructuralPlace<'_>>,
+        below_rewrite: bool,
         memo: &mut PreferenceMemo,
     ) -> Rc<PackedTerm> {
         match &term.node {
@@ -679,11 +698,21 @@ impl Grammar {
                 for group in self.alternatives_at_one_position(alternatives) {
                     let kept = match group.as_slice() {
                         [alternative] => {
-                            vec![self.prefer_structural_readings_below(alternative, place, memo)]
+                            vec![self.prefer_structural_readings_below(
+                                alternative,
+                                place,
+                                below_rewrite,
+                                memo,
+                            )]
                         }
                         _ => {
                             let merged = merge_alternatives_at_one_position(&group);
-                            let kept = self.prefer_structural_readings_below(&merged, place, memo);
+                            let kept = self.prefer_structural_readings_below(
+                                &merged,
+                                place,
+                                below_rewrite,
+                                memo,
+                            );
                             if Rc::ptr_eq(&kept, &merged) {
                                 group
                                     .iter()
@@ -722,6 +751,9 @@ impl Grammar {
                 metadata,
             } => {
                 let places = self.structural_places(*production, place);
+                let below_rewrite = below_rewrite
+                    || self.productions[*production].parse_label.as_deref()
+                        == Some(InternalLabel::KRewrite.as_str());
                 let preferred = children
                     .iter()
                     .enumerate()
@@ -729,6 +761,7 @@ impl Grammar {
                         self.prefer_structural_readings_memo(
                             child,
                             places.get(index).copied().flatten(),
+                            below_rewrite,
                             memo,
                         )
                     })
@@ -828,6 +861,51 @@ impl Grammar {
             }
             PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => None,
         })
+    }
+
+    /// The trees of a packed node whose root, seen through pass-through productions as
+    /// [`Self::restrict_root_label`] sees it, is not labelled `label`, or `None` when every
+    /// tree's is.
+    fn restrict_root_without_label(
+        &self,
+        term: &Rc<PackedTerm>,
+        label: &str,
+    ) -> Option<Rc<PackedTerm>> {
+        match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                self.restrict_alternatives(term, alternatives, |alternative| {
+                    self.restrict_root_without_label(alternative, label)
+                })
+            }
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let descriptor = &self.productions[*production];
+                match descriptor.parse_label.as_deref() {
+                    Some(own) => (own != label).then(|| Rc::clone(term)),
+                    None if descriptor.syntactic_subsort || children.len() == 1 => {
+                        let child = self.restrict_root_without_label(children.first()?, label)?;
+                        if Rc::ptr_eq(&child, &children[0]) {
+                            Some(Rc::clone(term))
+                        } else {
+                            let mut children = children.clone();
+                            children[0] = child;
+                            Some(PackedTerm::production(
+                                *production,
+                                children,
+                                metadata.clone(),
+                            ))
+                        }
+                    }
+                    None => Some(Rc::clone(term)),
+                }
+            }
+            PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => {
+                Some(Rc::clone(term))
+            }
+        }
     }
 
     /// Whether a node standing for a term of sort `sort` can be well sorted at `place`: where
@@ -4444,10 +4522,10 @@ struct StructuralPlace<'a> {
 }
 
 /// The readings [`Grammar::prefer_structural_readings`] kept of a node at a place, by the node's
-/// identity and the place's declared and recognized sorts, with the node kept alive beside its
-/// entry.
+/// identity, the place's declared and recognized sorts and whether the place is below a
+/// rewrite, with the node kept alive beside its entry.
 type PreferenceMemo =
-    HashMap<(*const PackedTerm, Option<(Sort, Sort)>), (Rc<PackedTerm>, Rc<PackedTerm>)>;
+    HashMap<(*const PackedTerm, Option<(Sort, Sort)>, bool), (Rc<PackedTerm>, Rc<PackedTerm>)>;
 
 /// What makes two alternatives of one ambiguity the same node over different packings of its
 /// children: the production, the node's metadata (its span among it) and every child's span.

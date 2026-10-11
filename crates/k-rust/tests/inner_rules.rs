@@ -1107,6 +1107,46 @@ endmodule
     }
 }
 
+/// A side of a rewrite is a term, not a change, so no term has a rewrite inside another's side:
+/// there a rewrite ranks after every other reading, and where user syntax reuses `=>`, the rule
+/// means the user's syntax: a match arm with variable sides in a function rule and an argument
+/// of either side read the user's `=>`. Where no other reading exists, the nested rewrite stays
+/// (and the definition checks report it).
+#[test]
+fn a_rewrite_inside_a_side_of_another_does_not_win_over_user_syntax() {
+    let source = |rule: &str| {
+        format!(
+            r#"module MAIN
+  syntax Pat ::= "p" [symbol(p)]
+  syntax Exp ::= "e" [symbol(e)]
+  syntax Arm ::= Pat "=>" Exp [symbol(arm)]
+  syntax Exp ::= match(Exp, Arm) [function, symbol(match)]
+  syntax A ::= "a" [symbol(a)]
+  syntax KItem ::= A "=>" A [symbol(arrow)]
+  syntax KItem ::= f(KItem) [symbol(f)] | g(K) [symbol(g)]
+  rule {rule}
+endmodule
+"#
+        )
+    };
+    for (rule, expected) in [
+        (
+            "match(_, _ => B) => B",
+            "match(#SemanticCastToExp(_),arm(#SemanticCastToPat(_),#SemanticCastToExp(B)))=>#SemanticCastToExp(B)",
+        ),
+        ("f(a => a) => .K", "f(arrow(a(.KList),a(.KList)))=>.K"),
+        (
+            "f(a) => g(a => a)",
+            "f(a(.KList))=>g(arrow(a(.KList),a(.KList)))",
+        ),
+    ] {
+        let definition = lowered(&source(rule));
+        let definition =
+            resolve_rule_bubbles(&definition).unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
+    }
+}
+
 /// Each reading of a body is judged by itself. With user syntax that reuses `=>` twice
 /// (`A "=>" A "=>" A`), `a => (b => a) + a => a` has readings rooted at either of the rule's
 /// unparenthesized `=>`, and each puts one rewrite directly below the other, which the rewrite's
