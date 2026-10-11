@@ -153,6 +153,7 @@ cp "$FAKE_RESULTS" "$results"
             .env("CONFORMANCE_DRIVER_VERSION", "fixture-driver-v1")
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
             .env("CONFORMANCE_BACKLOG", "")
+            .env("CONFORMANCE_VALUE_CONTRACT_GATE", &self.fake_binary)
             .env("FAKE_ARGS", &self.args);
         command
     }
@@ -214,6 +215,63 @@ fn make_executable(path: &Path) {
     let mut permissions = fs::metadata(path).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(path, permissions).unwrap();
+}
+
+/// The critical-pair corpus gate (V12) reads the definitions the conformance driver compiles, so a
+/// measurement runs it on the manifest cases that this run compiled (by their conformance case,
+/// `issue-4114-overload-injection` for the gate's `issue-4114`), from the run's work tree, and a
+/// difference it reports fails the ratchet.
+#[test]
+fn a_measurement_runs_the_critical_pair_corpus_gate_on_the_cases_it_compiled() {
+    let fixture = Fixture::new();
+    let mut expectations = fs::read_to_string(&fixture.expectations).unwrap();
+    expectations.push_str(
+        "\n[[case]]\nname = \"issue-4114-overload-injection\"\nbaseline_verdict = \"match\"\nbaseline_stage = \"krun\"\nexclusion = \"\"\nreason = \"\"\n",
+    );
+    fs::write(&fixture.expectations, expectations).unwrap();
+    let gate = fixture.root.join("value-contract-gate");
+    let calls = fixture.root.join("value-contract.calls");
+    fs::write(
+        &gate,
+        format!(
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> {:?}\nexit \"$FAKE_GATE_STATUS\"\n",
+            calls.to_str().unwrap()
+        ),
+    )
+    .unwrap();
+    make_executable(&gate);
+    let results = fixture.results(
+        "measured",
+        &[
+            ("issue-4114-overload-injection", "match", "krun"),
+            ("a", "match", "krun"),
+        ],
+    );
+    let seeded = fixture.seed(&results);
+    assert!(seeded.status.success(), "{seeded:?}");
+    for (status, expected) in [("0", Some(0)), ("3", Some(3))] {
+        let output = fixture
+            .wrapper()
+            .args(["--label", &format!("gate-{status}")])
+            .args(["--cases", "issue-4114-overload-injection", "a"])
+            .env("FAKE_RESULTS", &results)
+            .env("CONFORMANCE_VALUE_CONTRACT_GATE", &gate)
+            .env("CONFORMANCE_WORK_TREE", "/fixture/work-tree")
+            .env("FAKE_GATE_STATUS", status)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            expected,
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(&calls).unwrap(),
+        "--work-tree /fixture/work-tree issue-4114\n".repeat(2)
+    );
 }
 
 #[test]

@@ -233,16 +233,31 @@ paths = [
   '^scripts/reference-differential\.toml$',
 ]
 
-# The load-time critical-pair check's verdicts and counts on whole definitions (V12).
+# The load-time critical-pair check's verdicts and counts on whole definitions (V12): the
+# conformance ratchet compiles the manifest's conformance cases and runs the gate on them, and the
+# script compiles WASM and KEVM itself.
 [[gate]]
 name = "value-contract-corpus"
+run = "certification"
+command = "scripts/conformance-ratchet.sh --label change --cases pl-tutorial/2_languages/3_fun/1_untyped/1_environment pl-tutorial/2_languages/1_simple/1_untyped pl-tutorial/2_languages/1_simple/2_typed/1_static pl-tutorial/2_languages/1_simple/2_typed/2_dynamic pl-tutorial/2_languages/2_kool/1_untyped pl-tutorial/2_languages/2_kool/2_typed/1_dynamic pl-tutorial/2_languages/2_kool/2_typed/2_static bison-glr-bug glr2 glr3 glr4 overload issue-1090 issue-2909-allow-anywhere-haskell/llvm issue-2909-allow-anywhere-haskell/haskell issue-4142-no-symbol-overload issue-4114-overload-injection --log target/conformance/ratchet.toml --runs-dir target/conformance/runs"
+paths = [
+  "@krust",
+  "@reference",
+  "@conformance",
+  '^scripts/value-contract-corpus\.(sh|toml)$',
+  '^crates/k-rust-backend/tests/value_contract_corpus\.rs$',
+]
+
+[[gate]]
+name = "value-contract-corpus-real-semantics"
 run = "heavy"
 host = "human-uid"
-command = "scripts/value-contract-corpus.sh"
+command = "scripts/value-contract-corpus.sh wasm kevm"
 paths = [
   "@krust",
   '^scripts/value-contract-corpus\.(sh|toml)$',
   '^crates/k-rust-backend/tests/value_contract_corpus\.rs$',
+  '^scripts/reference-memory-guard\.sh$',
 ]
 
 # The Python unit tests of the scripts' helpers.

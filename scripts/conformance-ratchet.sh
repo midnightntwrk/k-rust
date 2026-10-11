@@ -6,6 +6,7 @@ helper="$workspace/scripts/conformance/ratchet.py"
 measure="$workspace/scripts/conformance/measure.py"
 summarize="$workspace/scripts/conformance/summarize.py"
 driver=${CONFORMANCE_DRIVER:-"$workspace/scripts/conformance/run.py"}
+value_contract_gate=${CONFORMANCE_VALUE_CONTRACT_GATE:-"$workspace/scripts/value-contract-corpus.sh"}
 expectations="$workspace/scripts/conformance/expectations.toml"
 backlog=${CONFORMANCE_BACKLOG-"$workspace/draft/conformance-backlog/tickets.toml"}
 backlog_explicit=false
@@ -37,6 +38,8 @@ against the previous measurement with the same driver version or if any
 non-excluded measured case is below its initial measurement floor (its first recorded rank),
 whatever the driver version and whether or not this run lowered it.
 The versioned accepted_verdict is also a floor, even for a fresh log or driver.
+A measurement then runs the critical-pair corpus gate (scripts/value-contract-corpus.sh) on the
+cases of its manifest that it compiled, and fails with that gate's status when it differs.
 --seed-acceptance initializes a local log from those recorded verdicts without running tools.
 --audit reads the log and expectations and lists every case below its required floor.
 With a backlog it also lists every non-excluded case whose latest verdict is not match
@@ -420,4 +423,31 @@ python3 "$helper" append \
   --wall-seconds "$wall_seconds" \
   --peak-rss-mib "$peak_rss_mib" \
   --artifacts "$run_dir" || append_status=$?
-exit "$append_status"
+
+# The critical-pair corpus gate (V12) reads definitions this driver compiles, so it runs on the
+# cases of its manifest that this run compiled, from the same work tree; a difference fails the
+# ratchet as a rank below its floor does.
+mapfile -t value_contract_cases < <(python3 - "$workspace/scripts/value-contract-corpus.toml" \
+  "${selected[@]}" <<'PY'
+import sys, tomllib
+selected = set(sys.argv[2:])
+prefix, suffix = "conformance:tests/regression-new/", "/krust-kompiled/definition.kore"
+with open(sys.argv[1], "rb") as manifest:
+    for case in tomllib.load(manifest)["case"]:
+        definition = case["definition"]
+        if (definition.startswith(prefix) and definition.endswith(suffix)
+                and definition[len(prefix):-len(suffix)] in selected):
+            print(case["name"])
+PY
+)
+value_contract_status=0
+if ((${#value_contract_cases[@]})); then
+  echo "[conformance] critical-pair corpus (scripts/value-contract-corpus.sh): ${value_contract_cases[*]}"
+  "$value_contract_gate" \
+    --work-tree "${CONFORMANCE_WORK_TREE:-/tmp/k-rust-conformance/k-distribution}" \
+    "${value_contract_cases[@]}" || value_contract_status=$?
+fi
+if ((append_status != 0)); then
+  exit "$append_status"
+fi
+exit "$value_contract_status"
