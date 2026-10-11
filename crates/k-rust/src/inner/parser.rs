@@ -12,11 +12,11 @@
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
-//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_forest, inference, then through lower_inferred resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity)"
+//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_readings, inference, then through lower_inferred resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity); when inference rejects every reading the structural choice kept after it removed some, infer_without_structural_preference infers over every admitted reading once more, and once per part of each position where their ranks differ until one has two well-sorted parts, which no card carries yet"
 //!
 //! [[cost]]
 //! mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
-//! bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and the error-reporting passes of prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks; every recognition charges its chart steps (an item, the derivations it reads, the callers a completion advances) and the forest passes as many again as the recognition that built the forest against the diagnostic's work limit (DiagnosticWork), and stops when it is reached"
+//! bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and the error-reporting passes of prepare_packed_readings over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks; every recognition charges its chart steps (an item, the derivations it reads, the callers a completion advances) and the forest passes as many again as the recognition that built the forest against the diagnostic's work limit (DiagnosticWork), and stops when it is reached"
 //!
 //! [[cost]]
 //! mode = "filtered attempt with retry (parse_in_context, diagnose)"
@@ -3278,7 +3278,7 @@ impl Grammar {
         self.push_top_lhs_packed_ambiguity_up(forest)
     }
 
-    /// The passes of `prepare_packed_forest` that can report an error, which are all that the
+    /// The passes of `prepare_packed_readings` that can report an error, which are all that the
     /// explanation of a failed parse reads (`Grammar::explain_violation`).
     fn check_packed_forest(
         &self,

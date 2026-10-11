@@ -1871,8 +1871,8 @@ pub(crate) struct ExactStructuralChoice {
     /// inside a side of another, each lowered with its own typing.
     pub(crate) well_sorted: usize,
     /// The distinct terms of the well-sorted readings the per-position choice keeps, each
-    /// lowered with its own typing: a reading is kept when no well-sorted reading that agrees with it everywhere
-    /// outside one position ranks lower at that position.
+    /// lowered with its own typing: a reading is kept when no well-sorted reading that agrees
+    /// with it everywhere outside one position ranks lower at that position.
     pub(crate) kept: Vec<Term>,
 }
 

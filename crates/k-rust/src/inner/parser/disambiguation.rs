@@ -607,15 +607,15 @@ impl Grammar {
     /// of a sort below the one its place declares ranks as anything else ([`Self::may_stand`]):
     /// a sequence, of sort `K`, is no `KItem` argument, and a rewrite of a `Pat` to an `Exp` is
     /// no `Arm`, so neither is what the rule means there. A rewrite's own sort is chosen by
-    /// inference, at most its place's, so its sides stand at that place. Below a rewrite
-    /// (in a side of one, at any depth) a rewrite ranks after anything else: a side of a rewrite
-    /// is a term, not a change, so no term has a rewrite there, and where another reading of the
+    /// inference, at most its place's, so its sides stand at that place. Below a rewrite (in a
+    /// side of one, at any depth) a rewrite ranks after anything else: a side of a rewrite is a
+    /// term, not a change, so no term has a rewrite there, and where another reading of the
     /// position exists the rule means that one (`rule match(_, _ => B) => B` with a match arm
     /// `Arm ::= Pat "=>" Exp` reads the arm); where none does, the nested rewrite stays and is
-    /// reported as such. A tree is kept when, at
-    /// each of its positions, its subtree has the least rank among the trees that agree with it
-    /// everywhere outside that position. A position that some readings do not have is compared only among those that
-    /// have it; there is one condition per position and no order between them, so choosing
+    /// reported as such. A tree is kept when, at each of its positions, its subtree has the
+    /// least rank among the trees that agree with it everywhere outside that position. A
+    /// position that some readings do not have is compared only among those that have it;
+    /// there is one condition per position and no order between them, so choosing
     /// top-down, bottom-up or in any order keeps the same trees, and since every comparison
     /// includes the tree itself, the choice never leaves a forest empty.
     ///
@@ -623,7 +623,7 @@ impl Grammar {
     /// scope relation gives it no meaning denotes nothing and is gone before this runs, so the
     /// condition only chooses where the remaining readings offer the construct. The comparisons
     /// are of readings that each break no relation, so it runs after every relation and every
-    /// application has been judged ([`Grammar::prepare_packed_forest`]).
+    /// application has been judged ([`Grammar::prepare_packed_readings`]).
     ///
     /// In the forest, the trees that agree outside a production node's child slot are the trees
     /// of that slot's child node, together with those of the same slot of every other
