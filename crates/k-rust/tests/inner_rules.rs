@@ -962,6 +962,10 @@ fn a_body_with_no_reading_reports_a_misplaced_rewrite_before_another_violation()
 /// reading; the second has a valid one (`a => (a + a)`), so its misplaced reading
 /// (`(a => a) + a`) is not what fails, and the first argument's violation is reported.
 ///
+/// Both readings of `a => a => a` break the rewrite's associativity, one at its left child and
+/// one at its right; the two errors differ only in the side they name, and the reported one is
+/// the least by what it says (`ParseError::violation_order`), the left.
+///
 /// In the portable build's rule grammar a rewrite is never a side of another, so `a => a => a`
 /// has no derivation and is reported where it ends: the whole body, or the first argument.
 #[test]
@@ -971,8 +975,8 @@ fn a_body_with_no_misplaced_construct_reports_its_own_violation() {
         #[cfg(feature = "z3-inference")]
         let reported = matches!(
             error,
-            ParseError::Associativity { ref parent, ref child, .. }
-                if parent == "#KRewrite" && child == "#KRewrite"
+            ParseError::Associativity { ref parent, ref child, side }
+                if parent == "#KRewrite" && child == "#KRewrite" && side == "left"
         );
         #[cfg(not(feature = "z3-inference"))]
         let reported = matches!(
