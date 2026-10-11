@@ -106,6 +106,7 @@ Under `--io on` the `stdinGetc` rule applies only while the stream's `#buffer` h
 Under `--io off`, and therefore in search, `stdinGetc` cannot apply and, unless the program itself is read from standard input, the whole input with its trailing newlines replaced by exactly one is the initial `#buffer($STDIN)`.
 `stdinParseString` then takes the whole remaining buffer as one `String`, and `stdinParseInt` takes the prefix before the buffer's first delimiter.
 When that buffer holds more than one character and begins with a delimiter, because the input does or because two delimiters are adjacent after a token, the prefix is empty, `String2Int("")` is undefined, and the rule produces an undefined result where the interactive stream would have trimmed the delimiter and read the next token.
+The trailing newlines become exactly one for these rules: since nothing extends the buffer, a token is read only when a delimiter already follows it, so the one newline ends the input's last line whether or not standard input ended it, and the further ones are empty lines that hold no token, two of which would make a read past the last token undefined instead of finding the end of the input.
 The two modes therefore agree on a stream program's input only where these forms coincide; this is the input precondition of C9 in the [comparison contract](#comparison-contract).
 
 ## Frontend policy

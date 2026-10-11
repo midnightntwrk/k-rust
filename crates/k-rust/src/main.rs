@@ -639,7 +639,7 @@ struct KrunArgs {
     surface_pattern: Option<String>,
 
     /// Enable real input/output for stream cells. `off` buffers standard input to end of file
-    /// into `$STDIN`, with its trailing newlines replaced by exactly one, as K's krun does.
+    /// into `$STDIN`, with its trailing newlines replaced by exactly one, which ends its last line.
     /// Defaults to `on` for execution and `off` for search.
     #[arg(long, value_enum, value_name = "on|off")]
     io: Option<IoArg>,
@@ -3742,11 +3742,16 @@ fn read_stdin_for_stream() -> io::Result<Vec<u8>> {
     Ok(input)
 }
 
-/// The text K's krun buffers into `$STDIN` under `--io off` (krun:557-558): standard input is
-/// read by a command substitution, which drops every trailing newline, and fed through a bash
-/// here-string, which appends one, to the escaping awk script, which emits every record with
-/// `ORS`. The buffer therefore ends in exactly one newline, also when standard input is empty
-/// (`#buffer("\n")`); interior newlines and every other byte are kept.
+/// The text `--io off` gives `$STDIN` (`docs/compatibility.md`, "Backend scope"): standard input
+/// with its trailing newlines replaced by exactly one, also when it is empty (`#buffer("\n")`);
+/// interior newlines and every other byte are kept.
+/// With the console off nothing extends the `stdin` stream's buffer, so a parse rule reads a token
+/// only when a delimiter already follows it there. The one newline ends the input's last line
+/// whether or not standard input ended it, so its last token is read like every other where the
+/// newline is a requested delimiter. The further trailing newlines are empty lines that hold no
+/// token; kept, two of them would leave a buffer that begins with two delimiters after the last
+/// token, which `stdinParseInt` reads as the undefined `String2Int("")` where the input has
+/// simply ended.
 fn buffered_stdin_bytes(mut input: Vec<u8>) -> Vec<u8> {
     let trimmed = input
         .iter()
