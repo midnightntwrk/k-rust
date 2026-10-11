@@ -1391,6 +1391,53 @@ fn reads_ground_keys_of_a_large_map_and_leaves_the_rest_as_the_frame() {
     }
 }
 
+/// A ground set that lacks a ground element of the pattern, and a ground map with an entry that a
+/// closed pattern does not name, are refuted in every mode. Callers read only which refutation
+/// it is, never the terms it carries, so only the kind is checked here.
+#[test]
+fn refutes_ground_collections_that_lack_or_add_an_entry() {
+    let set_definition = set_definition();
+    let element = |name| domain_value(Sort::simple("SetElement"), name);
+    let set_pattern = Term::set(
+        set_definition.clone(),
+        vec![element("b")],
+        Some(var("REST", Sort::simple("SetSort"))),
+    );
+    let set_subject = Term::set(set_definition, vec![element("a"), element("c")], None);
+
+    let map_definition = map_definition();
+    let key = |name| domain_value(Sort::simple("MapKey"), name);
+    let map_pattern = Term::map(
+        map_definition.clone(),
+        vec![(key("a"), var("VALUE", Sort::simple("MapValue")))],
+        None,
+    );
+    let map_subject = Term::map(
+        map_definition,
+        vec![
+            (key("a"), domain_value(Sort::simple("MapValue"), "1")),
+            (key("c"), domain_value(Sort::simple("MapValue"), "3")),
+        ],
+        None,
+    );
+
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        let result = match_terms(mode, &sort_graph(), &set_pattern, &set_subject);
+        assert!(
+            matches!(result, MatchResult::Failed(FailReason::KeyNotFound(_, _))),
+            "{mode:?}: {result:?}"
+        );
+        let result = match_terms(mode, &sort_graph(), &map_pattern, &map_subject);
+        assert!(
+            matches!(
+                result,
+                MatchResult::Failed(FailReason::DifferentContents(_, _))
+            ),
+            "{mode:?}: {result:?}"
+        );
+    }
+}
+
 #[test]
 fn defers_a_symbolic_map_entry_against_a_subject_frame() {
     let definition = map_definition();
