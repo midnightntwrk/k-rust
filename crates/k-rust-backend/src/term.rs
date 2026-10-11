@@ -90,7 +90,10 @@ use crate::smt::SmtType;
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) mod chunked;
 pub mod head;
+pub mod items;
 pub mod names;
+
+pub use items::Items;
 
 pub type Name = Arc<str>;
 
@@ -711,17 +714,17 @@ pub enum TermKind {
     },
     Map {
         definition: Arc<MapDefinition>,
-        entries: Vec<(Term, Term)>,
+        entries: Items<(Term, Term)>,
         rest: Option<Term>,
     },
     List {
         definition: Arc<ListDefinition>,
-        heads: Vec<Term>,
-        rest: Option<(Term, Vec<Term>)>,
+        heads: Items<Term>,
+        rest: Option<(Term, Items<Term>)>,
     },
     Set {
         definition: Arc<SetDefinition>,
-        elements: Vec<Term>,
+        elements: Items<Term>,
         rest: Option<Term>,
     },
 }
@@ -1212,7 +1215,7 @@ impl Term {
                     definition: nested,
                     entries,
                     rest,
-                } if nested == &definition => (entries.clone(), rest.clone()),
+                } if nested == &definition => (entries.to_vec(), rest.clone()),
                 _ => (Vec::new(), Some(rest)),
             },
             None => (Vec::new(), None),
@@ -1226,7 +1229,7 @@ impl Term {
         }
         Self::new(TermKind::Map {
             definition,
-            entries,
+            entries: entries.into(),
             rest,
         })
     }
@@ -1246,7 +1249,7 @@ impl Term {
                     heads.extend(nested_heads.iter().cloned());
                     match nested_rest {
                         Some((nested_middle, nested_tails)) => {
-                            let mut combined_tails = nested_tails.clone();
+                            let mut combined_tails = nested_tails.to_vec();
                             combined_tails.extend(tails);
                             Some((nested_middle.clone(), combined_tails))
                         }
@@ -1268,8 +1271,8 @@ impl Term {
         }
         Self::new(TermKind::List {
             definition,
-            heads,
-            rest,
+            heads: heads.into(),
+            rest: rest.map(|(middle, tails)| (middle, tails.into())),
         })
     }
 
@@ -1294,7 +1297,7 @@ impl Term {
                     definition: nested,
                     elements,
                     rest,
-                } if nested == &definition => (elements.clone(), rest.clone()),
+                } if nested == &definition => (elements.to_vec(), rest.clone()),
                 _ => (Vec::new(), Some(rest)),
             },
             None => (Vec::new(), None),
@@ -1308,7 +1311,7 @@ impl Term {
         }
         Self::new(TermKind::Set {
             definition,
-            elements,
+            elements: elements.into(),
             rest,
         })
     }
@@ -2483,7 +2486,7 @@ fn map_parts(definition: &Arc<MapDefinition>, term: &Term) -> (Vec<(Term, Term)>
             definition: found,
             entries,
             rest,
-        } if found == definition => (entries.clone(), rest.clone()),
+        } if found == definition => (entries.to_vec(), rest.clone()),
         _ => (Vec::new(), Some(term.clone())),
     }
 }
@@ -2510,21 +2513,22 @@ fn combine_lists(
         ) if left_definition == &definition && right_definition == &definition => {
             match (left_rest, right_rest) {
                 (None, None) => {
-                    let mut heads = left_heads.clone();
+                    let mut heads = left_heads.to_vec();
                     heads.extend(right_heads.iter().cloned());
                     Term::list(definition, heads, None)
                 }
                 (None, Some(rest)) => {
-                    let mut heads = left_heads.clone();
+                    let mut heads = left_heads.to_vec();
                     heads.extend(right_heads.iter().cloned());
-                    Term::list(definition, heads, Some(rest.clone()))
+                    let (middle, tails) = rest;
+                    Term::list(definition, heads, Some((middle.clone(), tails.to_vec())))
                 }
                 (Some((middle, tails)), None) => {
-                    let mut tails = tails.clone();
+                    let mut tails = tails.to_vec();
                     tails.extend(right_heads.iter().cloned());
                     Term::list(
                         definition,
-                        left_heads.clone(),
+                        left_heads.to_vec(),
                         Some((middle.clone(), tails)),
                     )
                 }
@@ -2541,7 +2545,7 @@ fn combine_lists(
             },
             _,
         ) if found == &definition => {
-            Term::list(definition, heads.clone(), Some((right, Vec::new())))
+            Term::list(definition, heads.to_vec(), Some((right, Vec::new())))
         }
         (
             _,
@@ -2551,7 +2555,7 @@ fn combine_lists(
                 rest: None,
             },
         ) if found == &definition => {
-            Term::list(definition, Vec::new(), Some((left, heads.clone())))
+            Term::list(definition, Vec::new(), Some((left, heads.to_vec())))
         }
         _ => Term::application_raw(symbol, sort_arguments, vec![left, right]),
     }
@@ -2584,7 +2588,7 @@ fn set_parts(definition: &Arc<SetDefinition>, term: &Term) -> (Vec<Term>, Option
             definition: found,
             elements,
             rest,
-        } if found == definition => (elements.clone(), rest.clone()),
+        } if found == definition => (elements.to_vec(), rest.clone()),
         _ => (Vec::new(), Some(term.clone())),
     }
 }
@@ -4143,7 +4147,7 @@ mod tests {
             panic!("expected an internal set")
         };
         // A repeated element is kept: set concatenation is nilpotent, so this set is bottom.
-        assert_eq!(elements, &[one.clone(), one.clone(), two]);
+        assert_eq!(elements.to_vec(), [one.clone(), one.clone(), two]);
         assert!(!set.attributes().ceil_free());
         assert_eq!(set.repeated_collection_key(), Some(&one));
         assert!(!set.attributes().evaluated);

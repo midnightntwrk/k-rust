@@ -979,7 +979,7 @@ fn set_parts(term: &Term) -> Option<(Arc<crate::term::SetDefinition>, Vec<Term>,
             definition,
             elements,
             rest,
-        } => Some((definition.clone(), elements.clone(), rest.clone())),
+        } => Some((definition.clone(), elements.to_vec(), rest.clone())),
         TermKind::Application { symbol, .. } => match &symbol.attributes.collection {
             Some(crate::term::CollectionMetadata::Set(definition))
                 if definition.symbols.concat == symbol.name =>

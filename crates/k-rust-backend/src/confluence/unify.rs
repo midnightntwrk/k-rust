@@ -47,7 +47,8 @@ use crate::{
     matching::lift_to_overload,
     substitution::{Substitution, substitute},
     term::{
-        HeadRole, ListDefinition, Name, Sort, Symbol, Term, TermKind, Variable, VariableKind,
+        HeadRole, Items, ListDefinition, Name, Sort, Symbol, Term, TermKind, Variable,
+        VariableKind,
         names::{FreshMarker, with_fresh_marker},
     },
 };
@@ -795,8 +796,8 @@ impl Unifier<'_> {
     fn lists(
         problem: &mut Problem,
         definition: &Arc<ListDefinition>,
-        left: (&Vec<Term>, Option<&(Term, Vec<Term>)>),
-        right: (&Vec<Term>, Option<&(Term, Vec<Term>)>),
+        left: (&Items<Term>, Option<&(Term, Items<Term>)>),
+        right: (&Items<Term>, Option<&(Term, Items<Term>)>),
     ) -> Result<Outcome, UnresolvedShape> {
         let list = |heads: Vec<Term>, rest: Option<(Term, Vec<Term>)>| {
             Term::list(Arc::clone(definition), heads, rest)

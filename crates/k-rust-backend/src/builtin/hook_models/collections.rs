@@ -150,7 +150,7 @@ fn related_set(draw: &mut Draw<'_>, env: &mut Env, first: &Term) -> Term {
     let crate::term::TermKind::Set { elements, rest, .. } = first.kind() else {
         return first.clone();
     };
-    let mut elements = elements.clone();
+    let mut elements = elements.to_vec();
     elements.retain(|_| !draw.chance(2));
     for element in &mut elements {
         *element = disguise(draw, env, element);

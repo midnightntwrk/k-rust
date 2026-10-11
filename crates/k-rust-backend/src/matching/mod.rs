@@ -1057,10 +1057,14 @@ impl<'a> Matcher<'a> {
                 },
             ) if left == right => self.match_lists(
                 left.clone(),
-                left_heads.clone(),
-                left_rest.clone(),
-                right_heads.clone(),
-                right_rest.clone(),
+                left_heads.to_vec(),
+                left_rest
+                    .clone()
+                    .map(|(middle, tails)| (middle, tails.to_vec())),
+                right_heads.to_vec(),
+                right_rest
+                    .clone()
+                    .map(|(middle, tails)| (middle, tails.to_vec())),
             ),
             (
                 TermKind::Set {
@@ -1075,9 +1079,9 @@ impl<'a> Matcher<'a> {
                 },
             ) if left == right => self.match_sets(
                 left.clone(),
-                left_elements.clone(),
+                left_elements.to_vec(),
                 left_rest.clone(),
-                right_elements.clone(),
+                right_elements.to_vec(),
                 right_rest.clone(),
             ),
             (

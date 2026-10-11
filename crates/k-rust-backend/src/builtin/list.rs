@@ -214,7 +214,7 @@ fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<
     let TermKind::List { heads, rest, .. } = list.kind() else {
         return Ok(None);
     };
-    let tails = rest.as_ref().map_or(&[][..], |(_, tails)| tails.as_slice());
+    let tails = rest.as_ref().map_or(&[][..], |(_, tails)| &tails[..]);
     if heads.contains(element) || tails.contains(element) {
         return Ok(Some(bool_term(true)));
     }

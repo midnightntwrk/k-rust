@@ -666,7 +666,7 @@ pub(super) fn recover_symbolic_map_key_matches(
                 pattern_definition.clone(),
                 pattern_entries.clone(),
                 pattern_rest.clone(),
-                subject_entries.clone(),
+                subject_entries.to_vec(),
             ))
         })?;
     let branch_remainder = remainder

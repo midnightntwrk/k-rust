@@ -947,7 +947,7 @@ fn collection_value(backend: &BackendDefinition, term: &Term, run: &mut Run) -> 
             rest,
         } => {
             let (middle, tail) = match rest {
-                Some((middle, tail)) => (vec![middle.clone()], tail.clone()),
+                Some((middle, tail)) => (vec![middle.clone()], tail.to_vec()),
                 None => (Vec::new(), Vec::new()),
             };
             let (heads, middle, tail) = match (

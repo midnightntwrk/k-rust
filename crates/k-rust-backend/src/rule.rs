@@ -296,7 +296,7 @@ impl Absence {
         else {
             return None;
         };
-        let [element] = elements.as_slice() else {
+        let [element] = &elements[..] else {
             return None;
         };
         Some(Self::new(
