@@ -193,6 +193,104 @@ impl Grammar {
         lower(self.infer_sorts(unpacked, top_sort, explicitly_anywhere)?)
     }
 
+    /// Decide a parse none of whose preferred readings is well sorted by the sorts of every
+    /// reading the relations admit, `admitted`; `preferred_error` is the preferred readings'
+    /// rejection.
+    ///
+    /// The preference (`Grammar::prefer_structural_readings`) chooses before inference, from the
+    /// sorts written in a reading, so it can keep only readings that inference rejects and drop
+    /// the one it would accept: under `f(Foo)` with a user `Foo ::= Bar "=>" Bar`,
+    /// `<k> f(X => Y) ... </k> <c> g(X) => .K ... </c>` with `g(Bar)` prefers the rewrite at
+    /// `f`'s argument, which needs `X` both a `Foo` and a `Bar`. The rule the preference stands
+    /// for is the per-position choice among the well-sorted readings: a reading is kept when no
+    /// well-sorted reading that agrees with it outside a position ranks lower there. That set
+    /// is not a product of choices per position (a variable's sort ties distant positions), so
+    /// a forest pass cannot compute it; this decides the parses it can from inference alone.
+    ///
+    /// The readings are those of `admitted` without a rewrite inside a side of another or in a
+    /// side condition where the position has another reading (`Grammar::prefer_no_rewrite_inside_a_term`): such a
+    /// reading is no rule whatever its sorts, so dropping it drops no candidate. When no
+    /// reading is well sorted, the preferred readings' rejection is the error, as without this
+    /// step. Otherwise every position at which the readings differ in rank
+    /// (`Grammar::structural_choices`) is asked, part by part, whether some well-sorted reading
+    /// has that part there. When the well-sorted readings have parts of two ranks at one
+    /// position, the per-position choice would separate them and this does not: the parse is
+    /// reported ambiguous between a well-sorted reading of each part. When they have one rank
+    /// at every such position, no well-sorted reading ranks lower than another where they
+    /// first differ, so the per-position choice keeps every well-sorted reading, and inference
+    /// over the readings decides exactly as it decides among the kept ones: its result is the
+    /// parse.
+    ///
+    /// So a parse this returns is the one the per-position choice among well-sorted readings
+    /// gives, and where that choice would separate readings by rank this reports an ambiguity
+    /// rather than choose. It runs only after the preferred readings failed inference, so a
+    /// parse whose preferred readings are well sorted pays nothing for it.
+    pub(super) fn infer_without_structural_preference<T: LoweredTerm>(
+        &self,
+        admitted: &Rc<PackedTerm>,
+        preferred_error: ParseError,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+        lower: impl Fn(ParsedTerm) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
+        let readings = self.prefer_no_rewrite_inside_a_term(Rc::clone(admitted));
+        let merged = self.merge_alternatives_at_every_position(&readings);
+        let choices = self.structural_choices(&merged);
+        if choices.is_empty() {
+            return Err(preferred_error);
+        }
+        let decided = self.infer_packed_sorts(
+            self.finish_pre_inference_packed_forest(readings),
+            top_sort,
+            explicitly_anywhere,
+            &lower,
+        );
+        match decided {
+            Err(ParseError::SortInference { .. }) => return Err(preferred_error),
+            Err(error @ ParseError::Ambiguous { .. }) => return Err(error),
+            _ => {}
+        }
+        for choice in &choices {
+            let mut well_sorted: Option<Result<ParsedTerm, ParseError>> = None;
+            for part in &choice.parts {
+                let Some(through) = self.readings_through(&merged, choice, part) else {
+                    continue;
+                };
+                let inferred = self.infer_packed_sorts(
+                    self.finish_pre_inference_packed_forest(through),
+                    top_sort,
+                    explicitly_anywhere,
+                    Ok,
+                );
+                if matches!(inferred, Err(ParseError::SortInference { .. })) {
+                    continue;
+                }
+                let Some(first) = well_sorted.take() else {
+                    well_sorted = Some(inferred);
+                    continue;
+                };
+                return match (first, inferred) {
+                    (Ok(first), Ok(second)) => {
+                        let mut readings = BTreeSet::new();
+                        for inferred in [first, second] {
+                            match &inferred {
+                                ParsedTerm::Ambiguity(nested) => {
+                                    readings.extend(nested.iter().cloned())
+                                }
+                                _ => {
+                                    readings.insert(inferred);
+                                }
+                            }
+                        }
+                        lower(ParsedTerm::Ambiguity(readings))
+                    }
+                    (Err(error), _) | (_, Err(error)) => Err(error),
+                };
+            }
+        }
+        decided
+    }
+
     /// Decide an ambiguous or parametric forest in the z3 build: the portable decision when it
     /// decides, otherwise Z3.
     ///
@@ -1761,6 +1859,177 @@ fn is_anonymous(name: &str) -> bool {
 fn inference_error(message: impl Into<String>) -> ParseError {
     ParseError::SortInference {
         message: message.into(),
+    }
+}
+
+/// The parse the per-position choice among well-sorted readings gives, computed on trees, for
+/// testing the choice made before inference and its fallback
+/// (`Grammar::infer_without_structural_preference`).
+#[cfg(test)]
+pub(crate) struct ExactStructuralChoice {
+    /// The distinct terms of the admitted readings that are well sorted and put no rewrite
+    /// inside a side of another or in a side condition, each lowered with its own typing.
+    pub(crate) well_sorted: usize,
+    /// The distinct terms of the well-sorted readings the per-position choice keeps, each
+    /// lowered with its own typing: a reading is kept when no well-sorted reading that agrees
+    /// with it everywhere outside one position ranks lower at that position.
+    pub(crate) kept: Vec<Term>,
+}
+
+#[cfg(test)]
+impl Grammar {
+    /// [`ExactStructuralChoice`] for `input` parsed at `start`, by expanding every reading the
+    /// relations admit, typing each alone and comparing every pair.
+    pub(crate) fn exact_structural_choice(
+        &self,
+        start: &Sort,
+        input: &str,
+    ) -> ExactStructuralChoice {
+        use super::{ParseProvenance, PredictionMode, PriorityFilter};
+        let start_id = self
+            .sort_id(start)
+            .expect("the start sort is in the grammar");
+        let mut scanner_cache = vec![None; input.len() + 1];
+        let start_position = self.canonical_position(input, 0, &mut scanner_cache);
+        let memos = std::cell::RefCell::new(super::disambiguation::PackedPriorityMemos::default());
+        let recognition = self
+            .recognize(
+                start_id,
+                start_position,
+                input,
+                ParseProvenance {
+                    source: crate::provenance::SourceId(0),
+                    base_offset: 0,
+                },
+                PredictionMode::Unfiltered,
+                PriorityFilter::Enforced,
+                None,
+                false,
+                &mut false,
+                &mut super::WorkMeter::unlimited(),
+                &mut scanner_cache,
+                &memos,
+            )
+            .expect("the input is recognized");
+        let Ok(admitted) =
+            self.check_packed_forest(PackedTerm::ambiguity(recognition.parses), &memos)
+        else {
+            return ExactStructuralChoice {
+                well_sorted: 0,
+                kept: Vec::new(),
+            };
+        };
+        let mut candidates = Vec::new();
+        for tree in expand_packed_trees(&admitted) {
+            let mut ranks = HashMap::new();
+            let mut nested = false;
+            self.exact_ranks(&tree, None, false, &mut Vec::new(), &mut ranks, &mut nested);
+            if nested {
+                continue;
+            }
+            if let Ok(inferred) =
+                self.infer_packed_sorts(PackedTerm::from_parsed(&tree), start, false, Ok)
+            {
+                candidates.push((tree, ranks, inferred));
+            }
+        }
+        let distinct = |terms: &mut dyn Iterator<Item = &ParsedTerm>| {
+            let mut distinct: Vec<Term> = Vec::new();
+            for inferred in terms {
+                let lowered = self
+                    .lower_inferred(inferred.clone(), start)
+                    .expect("a well-sorted reading lowers");
+                if !distinct.iter().any(|term| term.identical(&lowered)) {
+                    distinct.push(lowered);
+                }
+            }
+            distinct
+        };
+        let well_sorted = distinct(&mut candidates.iter().map(|(_, _, inferred)| inferred)).len();
+        let kept = distinct(
+            &mut candidates
+                .iter()
+                .filter(|(tree, ranks, _)| {
+                    !candidates.iter().any(|(other, other_ranks, _)| {
+                        let mut frontier = Vec::new();
+                        exact_frontier(tree, other, &mut Vec::new(), &mut frontier);
+                        matches!(&frontier[..], [position] if other_ranks[position] < ranks[position])
+                    })
+                })
+                .map(|(_, _, inferred)| inferred),
+        );
+        ExactStructuralChoice { well_sorted, kept }
+    }
+
+    /// The rank of every position of `tree` standing at `place`, by its path, and whether a
+    /// rewrite stands in a term no rule changes (a side of another, a side condition).
+    fn exact_ranks(
+        &self,
+        tree: &ParsedTerm,
+        place: Option<super::disambiguation::StructuralPlace<'_>>,
+        in_term: bool,
+        path: &mut Vec<usize>,
+        ranks: &mut HashMap<Vec<usize>, u8>,
+        nested: &mut bool,
+    ) {
+        let parts = self.structural_rank_parts(&PackedTerm::from_parsed(tree), place, in_term);
+        let [rank] = parts.keys().copied().collect::<Vec<_>>()[..] else {
+            panic!("a tree has one rank at a position");
+        };
+        *nested |= rank == 4;
+        ranks.insert(path.clone(), rank);
+        if let ParsedTerm::Production {
+            production,
+            children,
+            ..
+        } = tree
+        {
+            let context = self.structural_child_context(*production, place, in_term);
+            for (index, child) in children.iter().enumerate() {
+                let (place, in_term) = context.get(index).copied().unwrap_or((None, in_term));
+                path.push(index);
+                self.exact_ranks(child, place, in_term, path, ranks, nested);
+                path.pop();
+            }
+        }
+    }
+}
+
+/// The topmost positions at which two trees differ: a node of one production with equal
+/// metadata in both is compared child by child, any other difference is a position.
+#[cfg(test)]
+fn exact_frontier(
+    left: &ParsedTerm,
+    right: &ParsedTerm,
+    path: &mut Vec<usize>,
+    frontier: &mut Vec<Vec<usize>>,
+) {
+    if left == right {
+        return;
+    }
+    match (left, right) {
+        (
+            ParsedTerm::Production {
+                production,
+                children,
+                metadata,
+            },
+            ParsedTerm::Production {
+                production: other_production,
+                children: other_children,
+                metadata: other_metadata,
+            },
+        ) if production == other_production
+            && metadata == other_metadata
+            && children.len() == other_children.len() =>
+        {
+            for (index, (child, other)) in children.iter().zip(other_children).enumerate() {
+                path.push(index);
+                exact_frontier(child, other, path, frontier);
+                path.pop();
+            }
+        }
+        _ => frontier.push(path.clone()),
     }
 }
 

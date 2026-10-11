@@ -158,7 +158,9 @@ use super::{
     AmbiguityPlace, AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts,
     ParsedTerm, Production, StructuralOrder, cmp_packed_structurally, lower_term,
 };
-use crate::kast::{FrontendSort, InternalLabel, ProductionIdentity, Sort, Term, TermSpan, string};
+use crate::kast::{
+    FrontendSort, InternalLabel, ProductionIdentity, Sort, Term, TermMetadata, TermSpan, string,
+};
 
 use super::canonical_packed_error;
 
@@ -448,8 +450,8 @@ impl Grammar {
     /// associativity) at one of its edges denotes nothing there, so it is dropped before any
     /// caller packs it. A rewrite, sequence or `#let` below an operator is such a violation like
     /// any other: the reading that holds it is not a term the rule could mean. The filter only
-    /// excludes; the choice among the readings that survive it is made once, for the whole body
-    /// ([`Self::prefer_structural_body_readings`]).
+    /// excludes; the choice among the readings that survive it is made per tree, on the readings
+    /// of the whole input ([`Self::prefer_structural_readings`]).
     pub(super) fn filter_completed_packed_priority(
         &self,
         term: Rc<PackedTerm>,
@@ -589,73 +591,255 @@ impl Grammar {
         })
     }
 
-    /// Among the readings of a whole rule body, keep those rooted at a rewrite, else those rooted
-    /// at a sequence, else those rooted at a `#let`; with none of them, keep every reading.
+    /// Among the readings of a forest, keep at every position those whose subtree there is
+    /// rooted at a rewrite, else at a sequence, else at a `#let`, else every one.
     ///
     /// In a rule body these three constructs are the rule's own structure, not operators of the
-    /// user's language: a reading rooted at `=>` says the body is the rewrite its `=>` spells.
-    /// When user syntax reuses one of their tokens (a match arm `A "=>" A`), the body also has a
-    /// reading through that syntax, and the rule's own construct is what a rule body means.
-    /// The choice compares readings of the same text that each denote a term, so it runs after
-    /// every relation and every application has been judged ([`Grammar::prepare_packed_forest`]):
-    /// a reading that breaks one denotes nothing and so cannot take part in it. It is made per
-    /// tree, by each tree's root, so it does not depend on where the trees share subterms or on
-    /// which sorts their readings pass through. The body is the child of a `#RuleContent`
-    /// production (`#ruleNoConditions`, `#ruleRequires`, `#ruleEnsures`,
-    /// `#ruleRequiresEnsures`); a parse of any other start sort is its own body. Below the
-    /// root, an ambiguity between a rewrite and another reading stays an ambiguity.
-    pub(super) fn prefer_structural_body_readings(&self, forest: Rc<PackedTerm>) -> Rc<PackedTerm> {
-        [
-            InternalLabel::KRewrite,
-            InternalLabel::KSequence,
-            InternalLabel::Let,
-        ]
-        .into_iter()
-        .find_map(|label| self.restrict_body_root(&forest, label.as_str()))
-        .unwrap_or(forest)
+    /// user's language: a subtree rooted at `=>` says that this part of the body is the rewrite
+    /// its `=>` spells. When user syntax reuses one of their tokens (a match arm `A "=>" A`), a
+    /// part of the body also has a reading through that syntax, and the rule's own construct is
+    /// what the rule means there, at the body's root as in a cell, an argument or a bracket.
+    ///
+    /// The choice is defined on trees. A position of a tree is a node occurrence in it, standing
+    /// at a child slot of its parent's production; the rank of the subtree there is read at its
+    /// root seen through pass-through productions (as [`Self::packed_top_parse_label`] reads it):
+    /// rewrite, sequence, `#let`, anything else, where a construct that cannot stand for a term
+    /// of a sort below the one its place declares ranks as anything else ([`Self::may_stand`]):
+    /// a sequence, of sort `K`, is no `KItem` argument, and a rewrite of a `Pat` to an `Exp` is
+    /// no `Arm`, so neither is what the rule means there. A rewrite's own sort is chosen by
+    /// inference, at most its place's, so its sides stand at that place. In a term no rule
+    /// changes, a side of a rewrite (at any depth) or a side condition (`requires`, `ensures`),
+    /// a rewrite ranks after anything else: a side of a rewrite is a term, not a change, and a
+    /// condition is a `Bool` the rule tests, so no rule has a rewrite there, and where another
+    /// reading of the position exists the rule means that one (`rule match(_, _ => B) => B` and
+    /// `requires isArm(P => B)` with a match arm `Arm ::= Pat "=>" Exp` read the arm); where none
+    /// does, the rewrite stays and is reported where a check rejects it. A tree is kept when, at each of its positions, its subtree has the
+    /// least rank among the trees that agree with it everywhere outside that position. A
+    /// position that some readings do not have is compared only among those that have it;
+    /// there is one condition per position and no order between them, so choosing
+    /// top-down, bottom-up or in any order keeps the same trees, and since every comparison
+    /// includes the tree itself, the choice never leaves a forest empty.
+    ///
+    /// It needs no list of the places a construct may stand: a reading that puts one where the
+    /// scope relation gives it no meaning denotes nothing and is gone before this runs, so the
+    /// condition only chooses where the remaining readings offer the construct. The comparisons
+    /// are of readings that each break no relation, so it runs after every relation and every
+    /// application has been judged ([`Grammar::prepare_packed_readings`]).
+    ///
+    /// In the forest, the trees that agree outside a production node's child slot are the trees
+    /// of that slot's child node, together with those of the same slot of every other
+    /// alternative that applies the same production over the same split
+    /// ([`Self::alternatives_at_one_position`]). So the choice restricts each child node to its
+    /// alternatives of least rank (through pass-throughs) and recurses into the kept ones, once
+    /// per node and place however many parents share them; it does not depend on where trees
+    /// share subterms, on how alternatives of one node are packed, or on which sorts readings
+    /// pass through.
+    pub(super) fn prefer_structural_readings(&self, forest: Rc<PackedTerm>) -> Rc<PackedTerm> {
+        self.prefer_structural_readings_memo(&forest, None, false, true, &mut HashMap::new())
     }
 
-    /// The trees of a parse forest whose body root is labelled `label`, or `None` when no tree's
-    /// is ([`Self::prefer_structural_body_readings`]).
-    fn restrict_body_root(&self, term: &Rc<PackedTerm>, label: &str) -> Option<Rc<PackedTerm>> {
+    /// Among the readings of a forest, keep at every position in a term no rule changes (a side
+    /// of a rewrite or a side condition) those whose subtree there is not rooted at a rewrite,
+    /// where any is: the part of [`Self::prefer_structural_readings`] that reads no sort. A
+    /// reading with a rewrite inside a side of another or in a condition is no rule whatever its
+    /// sorts (a side of a rewrite is a term, not a change, and a condition is a `Bool` the rule
+    /// tests), so this removes no reading that is a rule; it is the forest sorts decide when the
+    /// preferred readings have no well-sorted one
+    /// (`Grammar::infer_without_structural_preference`).
+    pub(super) fn prefer_no_rewrite_inside_a_term(&self, forest: Rc<PackedTerm>) -> Rc<PackedTerm> {
+        self.prefer_structural_readings_memo(&forest, None, false, false, &mut HashMap::new())
+    }
+
+    /// The readings of `term`, every reading of a position at `place` (`None` at the parse's
+    /// root), in a term no rule changes or not, that [`Self::prefer_structural_readings`] keeps,
+    /// or, without `constructs`, that [`Self::prefer_no_rewrite_inside_a_term`] keeps.
+    fn prefer_structural_readings_memo(
+        &self,
+        term: &Rc<PackedTerm>,
+        place: Option<StructuralPlace<'_>>,
+        in_term: bool,
+        constructs: bool,
+        memo: &mut PreferenceMemo,
+    ) -> Rc<PackedTerm> {
+        crate::stack::guarded(|| {
+            // Invariant: an entry maps a node, kept alive beside it, at a place of one declared
+            // and one recognized sort, in a term no rule changes or not, to its kept readings.
+            let key = (
+                Rc::as_ptr(term),
+                place.map(|place| (place.declared.clone(), place.recognized.clone())),
+                in_term,
+            );
+            if let Some((_, preferred)) = memo.get(&key) {
+                return Rc::clone(preferred);
+            }
+            // In a term no rule changes, a rewrite ranks after every other reading: no rule has a
+            // rewrite in a side of another or in a condition, so where another reading exists, the
+            // rewrite is not what the rule means there.
+            let candidates = if in_term {
+                self.restrict_root_without_label(term, InternalLabel::KRewrite.as_str())
+                    .unwrap_or_else(|| Rc::clone(term))
+            } else {
+                Rc::clone(term)
+            };
+            let restricted = [
+                InternalLabel::KRewrite,
+                InternalLabel::KSequence,
+                InternalLabel::Let,
+            ]
+            .into_iter()
+            .filter(|label| constructs && (!in_term || *label != InternalLabel::KRewrite))
+            .find_map(|label| self.restrict_root_label(&candidates, label.as_str(), place))
+            .unwrap_or(candidates);
+            let preferred = self.prefer_structural_readings_below(
+                &restricted,
+                place,
+                in_term,
+                constructs,
+                memo,
+            );
+            memo.insert(key, (Rc::clone(term), Rc::clone(&preferred)));
+            preferred
+        })
+    }
+
+    /// The readings of `term` whose root has been chosen, with the choice made at every child
+    /// slot below it ([`Self::prefer_structural_readings`]).
+    fn prefer_structural_readings_below(
+        &self,
+        term: &Rc<PackedTerm>,
+        place: Option<StructuralPlace<'_>>,
+        in_term: bool,
+        constructs: bool,
+        memo: &mut PreferenceMemo,
+    ) -> Rc<PackedTerm> {
         match &term.node {
             PackedNode::Ambiguity(alternatives) => {
-                self.restrict_alternatives(term, alternatives, |alternative| {
-                    self.restrict_body_root(alternative, label)
-                })
+                let mut retained = BTreeSet::new();
+                let mut changed = false;
+                for group in self.alternatives_at_one_position(alternatives) {
+                    let kept = match group.as_slice() {
+                        [alternative] => {
+                            vec![self.prefer_structural_readings_below(
+                                alternative,
+                                place,
+                                in_term,
+                                constructs,
+                                memo,
+                            )]
+                        }
+                        _ => {
+                            let merged = merge_alternatives_at_one_position(&group);
+                            let kept = self.prefer_structural_readings_below(
+                                &merged, place, in_term, constructs, memo,
+                            );
+                            if Rc::ptr_eq(&kept, &merged) {
+                                group
+                                    .iter()
+                                    .map(|alternative| Rc::clone(alternative))
+                                    .collect()
+                            } else {
+                                vec![kept]
+                            }
+                        }
+                    };
+                    changed |= kept.len() != group.len()
+                        || kept
+                            .iter()
+                            .zip(&group)
+                            .any(|(kept, alternative)| !Rc::ptr_eq(kept, alternative));
+                    for kept in kept {
+                        match &kept.node {
+                            PackedNode::Ambiguity(nested) => {
+                                retained.extend(nested.iter().cloned())
+                            }
+                            _ => {
+                                retained.insert(kept);
+                            }
+                        }
+                    }
+                }
+                if changed {
+                    PackedTerm::ambiguity(retained)
+                } else {
+                    Rc::clone(term)
+                }
             }
             PackedNode::Production {
                 production,
                 children,
                 metadata,
-            } if self.productions[*production]
-                .result
-                .is_frontend(FrontendSort::RuleContent)
-                && !children.is_empty() =>
-            {
-                let body = self.restrict_root_label(&children[0], label)?;
-                if Rc::ptr_eq(&body, &children[0]) {
-                    return Some(Rc::clone(term));
+            } => {
+                let context = self.structural_child_context(*production, place, in_term);
+                let preferred = children
+                    .iter()
+                    .enumerate()
+                    .map(|(index, child)| {
+                        let (place, in_term) =
+                            context.get(index).copied().unwrap_or((None, in_term));
+                        self.prefer_structural_readings_memo(
+                            child, place, in_term, constructs, memo,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                if preferred
+                    .iter()
+                    .zip(children)
+                    .all(|(preferred, child)| Rc::ptr_eq(preferred, child))
+                {
+                    Rc::clone(term)
+                } else {
+                    PackedTerm::production(*production, preferred, metadata.clone())
                 }
-                let mut children = children.clone();
-                children[0] = body;
-                Some(PackedTerm::production(
-                    *production,
-                    children,
-                    metadata.clone(),
-                ))
             }
-            _ => self.restrict_root_label(term, label),
+            PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => Rc::clone(term),
         }
     }
 
-    /// The trees of a packed node whose root, seen through pass-through productions as
-    /// [`Self::packed_top_parse_label`] sees it, is labelled `label`.
-    fn restrict_root_label(&self, term: &Rc<PackedTerm>, label: &str) -> Option<Rc<PackedTerm>> {
+    /// The alternatives of an ambiguity grouped by the node they are at their root: one group per
+    /// production applied over the same children's spans with the same metadata, and every other
+    /// alternative alone ([`Self::prefer_structural_readings`]). A group's alternatives are trees
+    /// of one production over one split of the text that the forest packs apart, each over part
+    /// of a child's readings (`f(a => a)` can arrive as `f(rewrite | arrow)`, `f(rewrite)` and
+    /// `f(arrow)`). The exclusions judge each edge by itself, so a child that may stand at a
+    /// slot of the production may stand there beside any children of the other slots: every
+    /// combination of the group's children is a reading, and each child slot of the group is
+    /// one position whose readings are the union of the group's children there.
+    fn alternatives_at_one_position<'a>(
+        &self,
+        alternatives: &'a BTreeSet<Rc<PackedTerm>>,
+    ) -> Vec<Vec<&'a Rc<PackedTerm>>> {
+        let mut groups: Vec<Vec<&'a Rc<PackedTerm>>> = Vec::new();
+        let mut keys: Vec<Option<PositionKey<'a>>> = Vec::new();
+        for alternative in alternatives {
+            let key = position_key(alternative);
+            match key
+                .as_ref()
+                .and_then(|key| keys.iter().position(|other| other.as_ref() == Some(key)))
+            {
+                Some(index) => groups[index].push(alternative),
+                None => {
+                    groups.push(vec![alternative]);
+                    keys.push(key);
+                }
+            }
+        }
+        groups
+    }
+
+    /// The trees of a packed node, standing at `place` (`None` at the parse's root), whose root,
+    /// seen through pass-through productions as [`Self::packed_top_parse_label`] sees it, is
+    /// labelled `label` by a production whose node may stand where it stands
+    /// ([`Self::structural_reading_fits`]).
+    fn restrict_root_label(
+        &self,
+        term: &Rc<PackedTerm>,
+        label: &str,
+        place: Option<StructuralPlace<'_>>,
+    ) -> Option<Rc<PackedTerm>> {
         crate::stack::guarded(|| match &term.node {
             PackedNode::Ambiguity(alternatives) => {
                 self.restrict_alternatives(term, alternatives, |alternative| {
-                    self.restrict_root_label(alternative, label)
+                    self.restrict_root_label(alternative, label, place)
                 })
             }
             PackedNode::Production {
@@ -665,9 +849,16 @@ impl Grammar {
             } => {
                 let descriptor = &self.productions[*production];
                 match descriptor.parse_label.as_deref() {
-                    Some(own) => (own == label).then(|| Rc::clone(term)),
+                    Some(own) => {
+                        (own == label && self.may_stand(term, place)).then(|| Rc::clone(term))
+                    }
                     None if descriptor.syntactic_subsort || children.len() == 1 => {
-                        let child = self.restrict_root_label(children.first()?, label)?;
+                        let inner = self
+                            .structural_places(*production, place)
+                            .first()
+                            .copied()
+                            .flatten();
+                        let child = self.restrict_root_label(children.first()?, label, inner)?;
                         if Rc::ptr_eq(&child, &children[0]) {
                             Some(Rc::clone(term))
                         } else {
@@ -685,6 +876,487 @@ impl Grammar {
             }
             PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => None,
         })
+    }
+
+    /// The trees of a packed node whose root, seen through pass-through productions as
+    /// [`Self::restrict_root_label`] sees it, is not labelled `label`, or `None` when every
+    /// tree's is.
+    fn restrict_root_without_label(
+        &self,
+        term: &Rc<PackedTerm>,
+        label: &str,
+    ) -> Option<Rc<PackedTerm>> {
+        match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                self.restrict_alternatives(term, alternatives, |alternative| {
+                    self.restrict_root_without_label(alternative, label)
+                })
+            }
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let descriptor = &self.productions[*production];
+                match descriptor.parse_label.as_deref() {
+                    Some(own) => (own != label).then(|| Rc::clone(term)),
+                    None if descriptor.syntactic_subsort || children.len() == 1 => {
+                        let child = self.restrict_root_without_label(children.first()?, label)?;
+                        if Rc::ptr_eq(&child, &children[0]) {
+                            Some(Rc::clone(term))
+                        } else {
+                            let mut children = children.clone();
+                            children[0] = child;
+                            Some(PackedTerm::production(
+                                *production,
+                                children,
+                                metadata.clone(),
+                            ))
+                        }
+                    }
+                    None => Some(Rc::clone(term)),
+                }
+            }
+            PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => {
+                Some(Rc::clone(term))
+            }
+        }
+    }
+
+    /// The readings of `forest` packed so that the alternatives of every ambiguity differ at
+    /// their root: each group of alternatives that apply one production over one split
+    /// ([`Self::alternatives_at_one_position`]) is merged into one node, at every depth. The
+    /// trees are the same, and two of them that first differ at a position reach one ambiguity
+    /// of the result there and take different alternatives of it, which is what
+    /// [`Self::structural_choices`] reads.
+    pub(super) fn merge_alternatives_at_every_position(
+        &self,
+        forest: &Rc<PackedTerm>,
+    ) -> Rc<PackedTerm> {
+        self.merge_alternatives_memo(forest, &mut HashMap::new())
+    }
+
+    fn merge_alternatives_memo(
+        &self,
+        term: &Rc<PackedTerm>,
+        memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+    ) -> Rc<PackedTerm> {
+        if let Some((_, merged)) = memo.get(&Rc::as_ptr(term)) {
+            return Rc::clone(merged);
+        }
+        let merged = match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                let alternatives = flattened_alternatives(alternatives);
+                let mut retained = BTreeSet::new();
+                for group in self.alternatives_at_one_position(&alternatives) {
+                    let node = match group.as_slice() {
+                        [alternative] => Rc::clone(alternative),
+                        _ => merge_alternatives_at_one_position(&group),
+                    };
+                    let node = self.merge_alternatives_memo(&node, memo);
+                    match &node.node {
+                        PackedNode::Ambiguity(nested) => retained.extend(nested.iter().cloned()),
+                        _ => {
+                            retained.insert(node);
+                        }
+                    }
+                }
+                PackedTerm::ambiguity(retained)
+            }
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let merged = children
+                    .iter()
+                    .map(|child| self.merge_alternatives_memo(child, memo))
+                    .collect::<Vec<_>>();
+                if merged
+                    .iter()
+                    .zip(children)
+                    .all(|(merged, child)| Rc::ptr_eq(merged, child))
+                {
+                    Rc::clone(term)
+                } else {
+                    PackedTerm::production(*production, merged, metadata.clone())
+                }
+            }
+            PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => Rc::clone(term),
+        };
+        memo.insert(Rc::as_ptr(term), (Rc::clone(term), Rc::clone(&merged)));
+        merged
+    }
+
+    /// The readings of `term`, standing at `place` in a term no rule changes or not, by the rank
+    /// [`Self::prefer_structural_readings`] gives their root there, least first: a rewrite, a
+    /// sequence, a `#let` (each where it may stand), anything else, and in a term no rule
+    /// changes a rewrite last. The root is seen through pass-through productions as there.
+    pub(super) fn structural_rank_parts(
+        &self,
+        term: &Rc<PackedTerm>,
+        place: Option<StructuralPlace<'_>>,
+        in_term: bool,
+    ) -> BTreeMap<u8, Rc<PackedTerm>> {
+        let mut parts: BTreeMap<u8, BTreeSet<Rc<PackedTerm>>> = BTreeMap::new();
+        self.collect_structural_rank_parts(term, place, in_term, &mut |rank, part| {
+            let set = parts.entry(rank).or_default();
+            match &part.node {
+                PackedNode::Ambiguity(nested) => set.extend(nested.iter().cloned()),
+                _ => {
+                    set.insert(part);
+                }
+            }
+        });
+        parts
+            .into_iter()
+            .map(|(rank, set)| (rank, PackedTerm::ambiguity(set)))
+            .collect()
+    }
+
+    fn collect_structural_rank_parts(
+        &self,
+        term: &Rc<PackedTerm>,
+        place: Option<StructuralPlace<'_>>,
+        in_term: bool,
+        add: &mut dyn FnMut(u8, Rc<PackedTerm>),
+    ) {
+        match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                for alternative in alternatives {
+                    self.collect_structural_rank_parts(alternative, place, in_term, add);
+                }
+            }
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let descriptor = &self.productions[*production];
+                match descriptor.parse_label.as_deref() {
+                    Some(own) => {
+                        let fits = || self.may_stand(term, place);
+                        let rank = if own == InternalLabel::KRewrite.as_str() {
+                            if in_term {
+                                4
+                            } else if fits() {
+                                0
+                            } else {
+                                3
+                            }
+                        } else if own == InternalLabel::KSequence.as_str() && fits() {
+                            1
+                        } else if own == InternalLabel::Let.as_str() && fits() {
+                            2
+                        } else {
+                            3
+                        };
+                        add(rank, Rc::clone(term));
+                    }
+                    None if (descriptor.syntactic_subsort || children.len() == 1)
+                        && !children.is_empty() =>
+                    {
+                        let inner = self
+                            .structural_places(*production, place)
+                            .first()
+                            .copied()
+                            .flatten();
+                        self.collect_structural_rank_parts(
+                            &children[0],
+                            inner,
+                            in_term,
+                            &mut |rank, part| {
+                                let node = if Rc::ptr_eq(&part, &children[0]) {
+                                    Rc::clone(term)
+                                } else {
+                                    let mut children = children.clone();
+                                    children[0] = part;
+                                    PackedTerm::production(*production, children, metadata.clone())
+                                };
+                                add(rank, node);
+                            },
+                        );
+                    }
+                    None => add(3, Rc::clone(term)),
+                }
+            }
+            PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => {
+                add(3, Rc::clone(term))
+            }
+        }
+    }
+
+    /// The positions of `forest`, packed by [`Self::merge_alternatives_at_every_position`], at
+    /// which its readings differ in rank: every ambiguity, at every place and depth, in a term
+    /// no rule changes or not, at which it is reached, whose alternatives have several ranks
+    /// ([`Self::structural_rank_parts`]), with its readings of each rank, least first. Two
+    /// readings that first differ at a position with different ranks there take different
+    /// alternatives of the ambiguity there, so they are in two parts of one of these.
+    pub(super) fn structural_choices(&self, forest: &Rc<PackedTerm>) -> Vec<StructuralChoice> {
+        let mut choices = Vec::new();
+        self.collect_structural_choices(forest, None, false, &mut HashSet::new(), &mut choices);
+        choices
+    }
+
+    fn collect_structural_choices(
+        &self,
+        term: &Rc<PackedTerm>,
+        place: Option<StructuralPlace<'_>>,
+        in_term: bool,
+        visited: &mut HashSet<StructuralPosition>,
+        choices: &mut Vec<StructuralChoice>,
+    ) {
+        let position = structural_position(term, place, in_term);
+        if !visited.insert(position.clone()) {
+            return;
+        }
+        match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                let parts = self.structural_rank_parts(term, place, in_term);
+                if parts.len() > 1 {
+                    choices.push(StructuralChoice {
+                        position,
+                        parts: parts.into_values().collect(),
+                    });
+                }
+                for alternative in alternatives {
+                    self.collect_structural_choices(alternative, place, in_term, visited, choices);
+                }
+            }
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            } => {
+                let context = self.structural_child_context(*production, place, in_term);
+                for (index, child) in children.iter().enumerate() {
+                    let (place, in_term) = context.get(index).copied().unwrap_or((None, in_term));
+                    self.collect_structural_choices(child, place, in_term, visited, choices);
+                }
+            }
+            PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => {}
+        }
+    }
+
+    /// The place of each child of a production node standing at `place`, and whether the child
+    /// lies in a term no rule changes ([`Self::prefer_structural_readings`]): every child of
+    /// such a node, both sides of a rewrite, and the side conditions of a rule (every child of
+    /// its content but the body).
+    pub(super) fn structural_child_context<'a>(
+        &'a self,
+        production: usize,
+        place: Option<StructuralPlace<'a>>,
+        in_term: bool,
+    ) -> Vec<(Option<StructuralPlace<'a>>, bool)> {
+        let label = self.productions[production]
+            .parse_label
+            .as_deref()
+            .and_then(InternalLabel::of);
+        self.structural_places(production, place)
+            .into_iter()
+            .enumerate()
+            .map(|(index, place)| {
+                let child_in_term = in_term
+                    || match label {
+                        Some(InternalLabel::KRewrite) => true,
+                        Some(
+                            InternalLabel::RuleRequires
+                            | InternalLabel::RuleEnsures
+                            | InternalLabel::RuleRequiresEnsures,
+                        ) => index > 0,
+                        _ => false,
+                    };
+                (place, child_in_term)
+            })
+            .collect()
+    }
+
+    /// The readings of `forest` that pass through `choice`'s position and have `part` there, or
+    /// `None` when none does. `forest` is the one `choice` was found in
+    /// ([`Self::structural_choices`]).
+    pub(super) fn readings_through(
+        &self,
+        forest: &Rc<PackedTerm>,
+        choice: &StructuralChoice,
+        part: &Rc<PackedTerm>,
+    ) -> Option<Rc<PackedTerm>> {
+        self.readings_through_memo(forest, None, false, choice, part, &mut HashMap::new())
+    }
+
+    fn readings_through_memo(
+        &self,
+        term: &Rc<PackedTerm>,
+        place: Option<StructuralPlace<'_>>,
+        in_term: bool,
+        choice: &StructuralChoice,
+        part: &Rc<PackedTerm>,
+        memo: &mut HashMap<StructuralPosition, Option<Rc<PackedTerm>>>,
+    ) -> Option<Rc<PackedTerm>> {
+        let position = structural_position(term, place, in_term);
+        if position == choice.position {
+            return Some(Rc::clone(part));
+        }
+        if let Some(through) = memo.get(&position) {
+            return through.clone();
+        }
+        let through = match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                let mut retained = BTreeSet::new();
+                for alternative in alternatives {
+                    if let Some(through) =
+                        self.readings_through_memo(alternative, place, in_term, choice, part, memo)
+                    {
+                        match &through.node {
+                            PackedNode::Ambiguity(nested) => {
+                                retained.extend(nested.iter().cloned())
+                            }
+                            _ => {
+                                retained.insert(through);
+                            }
+                        }
+                    }
+                }
+                (!retained.is_empty()).then(|| PackedTerm::ambiguity(retained))
+            }
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let context = self.structural_child_context(*production, place, in_term);
+                let mut variants = BTreeSet::new();
+                for (index, child) in children.iter().enumerate() {
+                    let (place, in_term) = context.get(index).copied().unwrap_or((None, in_term));
+                    if let Some(through) =
+                        self.readings_through_memo(child, place, in_term, choice, part, memo)
+                    {
+                        let mut children = children.clone();
+                        children[index] = through;
+                        variants.insert(PackedTerm::production(
+                            *production,
+                            children,
+                            metadata.clone(),
+                        ));
+                    }
+                }
+                (!variants.is_empty()).then(|| PackedTerm::ambiguity(variants))
+            }
+            PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => None,
+        };
+        memo.insert(position, through.clone());
+        through
+    }
+
+    /// Whether a node standing for a term of sort `sort` can be well sorted at `place`: where
+    /// the sort is not below the one the place declares, no reading puts the node there with a
+    /// meaning, and the choice does not prefer a construct there
+    /// ([`Self::prefer_structural_readings`]). A node of the scaffolding sort a widened place is
+    /// recognized at stands for a term of the sort the place declares
+    /// (`Grammar::admit_rewrites_in_argument_positions`): in the portable build a rewrite at a
+    /// `KItem` argument is a node of `#RuleKItem`, a rewrite of sort `KItem`. A place of no sort
+    /// (the parse's root) or of a sort outside the subsort order (a sort parameter) admits it.
+    fn structural_reading_fits(&self, sort: &Sort, place: Option<StructuralPlace<'_>>) -> bool {
+        let Some(place) = place else {
+            return true;
+        };
+        if sort == place.recognized {
+            return true;
+        }
+        let Ok(order) = self.subsort_relations.order() else {
+            return true;
+        };
+        !order.contains(place.declared) || order.less_than_eq(sort, place.declared)
+    }
+
+    /// Whether some reading of `term` can be well sorted at `place` as far as the sorts written in
+    /// it say: a node of a production stands for a term of the production's sort
+    /// ([`Self::structural_reading_fits`]); a node of a parametric production whose sort is its
+    /// result parameter (a rewrite, `#as`, `#let`) for a term of a sort that is at most the
+    /// place's and at least each operand's at that parameter, so it can stand there exactly when
+    /// each of those operands can; a pass-through for its child's term or one of its own sort; a
+    /// token for a term of its sort; a variable for a term of any sort. A reading this rejects
+    /// is rejected by inference too, so the choice does not prefer a construct where no term puts
+    /// it ([`Self::prefer_structural_readings`]). It reads only the sorts written in the reading,
+    /// not a variable's sort from its other occurrences, which only inference relates; where
+    /// that keeps no well-sorted reading, sorts decide among every reading
+    /// (`Grammar::infer_without_structural_preference`).
+    fn may_stand(&self, term: &Rc<PackedTerm>, place: Option<StructuralPlace<'_>>) -> bool {
+        if place.is_none() {
+            return true;
+        }
+        match &term.node {
+            PackedNode::Ambiguity(alternatives) => alternatives
+                .iter()
+                .any(|alternative| self.may_stand(alternative, place)),
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            } => {
+                let descriptor = &self.productions[*production];
+                if let Some(origin) = &descriptor.parametric_origin
+                    && origin.result_is_parameter()
+                {
+                    return origin
+                        .nonterminal_sorts()
+                        .zip(children)
+                        .filter(|(sort, _)| **sort == origin.result)
+                        .all(|(_, child)| self.may_stand(child, place));
+                }
+                self.structural_reading_fits(&descriptor.result, place)
+                    || ((descriptor.parse_label.is_none() || descriptor.syntactic_subsort)
+                        && children.len() == 1
+                        && self.may_stand(&children[0], place))
+            }
+            PackedNode::Term(term) => match term.unannotated() {
+                Term::Token { sort, .. } => self.structural_reading_fits(sort, place),
+                _ => true,
+            },
+            PackedNode::InstantiatedProduction { .. } => true,
+        }
+    }
+
+    /// The place of each nonterminal child slot of `production`, in order, for a node standing
+    /// at `own` (`None`: a place that admits every construct). An operand declared at the
+    /// parametric production's result parameter stands at the node's own place, since the
+    /// parameter is at most that place's sort; an operand of another parameter admits every
+    /// construct; every other operand's place is the one the production declares there.
+    fn structural_places<'a>(
+        &'a self,
+        production: usize,
+        own: Option<StructuralPlace<'a>>,
+    ) -> Vec<Option<StructuralPlace<'a>>> {
+        let descriptor = &self.productions[production];
+        let origin_sorts = descriptor
+            .parametric_origin
+            .as_ref()
+            .map(|origin| (origin, origin.nonterminal_sorts().collect::<Vec<_>>()));
+        descriptor
+            .items
+            .iter()
+            .zip(&descriptor.item_sort_ids)
+            .filter_map(|(item, sort_id)| match item {
+                Item::NonTerminal(declared) => Some((declared, sort_id)),
+                _ => None,
+            })
+            .enumerate()
+            .map(|(slot, (declared, sort_id))| {
+                if let Some((origin, sorts)) = &origin_sorts
+                    && let Some(sort) = sorts.get(slot)
+                {
+                    if origin.result_is_parameter() && **sort == origin.result {
+                        return own;
+                    }
+                    if mentions_parameter(sort, &origin.parameters) {
+                        return None;
+                    }
+                }
+                Some(StructuralPlace {
+                    declared,
+                    recognized: sort_id.map_or(declared, |id| &self.sorts[id]),
+                })
+            })
+            .collect()
     }
 
     /// The alternatives of an ambiguity that `restrict` keeps, the ambiguity itself when it keeps
@@ -4170,6 +4842,128 @@ fn collect_frontier<'a>(nodes: &[&'a ParsedTerm], frontier: &mut Vec<Vec<&'a Par
             collect_frontier(&below, frontier);
         }
     })
+}
+
+/// Whether `sort` is one of `parameters` or applies a sort constructor to one.
+fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
+    parameters.contains(sort)
+        || sort
+            .parameters
+            .iter()
+            .any(|inner| mentions_parameter(inner, parameters))
+}
+
+/// A child slot as [`Grammar::prefer_structural_readings`] sees it: the sort its production
+/// declares there and the sort the recognizer predicts there, which differ only at a place
+/// widened to a rule-scaffolding sort (`Grammar::admit_rewrites_in_argument_positions`).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct StructuralPlace<'a> {
+    declared: &'a Sort,
+    recognized: &'a Sort,
+}
+
+/// The readings [`Grammar::prefer_structural_readings`] kept of a node at a place, by the node's
+/// identity, the place's declared and recognized sorts and whether the place is in a term no
+/// rule changes, with the node kept alive beside its entry.
+type PreferenceMemo =
+    HashMap<(*const PackedTerm, Option<(Sort, Sort)>, bool), (Rc<PackedTerm>, Rc<PackedTerm>)>;
+
+/// A node of a forest at a place of one declared and one recognized sort, in a term no rule
+/// changes or not: one position of the readings that reach the node there
+/// ([`Grammar::structural_choices`]).
+type StructuralPosition = (*const PackedTerm, Option<(Sort, Sort)>, bool);
+
+fn structural_position(
+    term: &Rc<PackedTerm>,
+    place: Option<StructuralPlace<'_>>,
+    in_term: bool,
+) -> StructuralPosition {
+    (
+        Rc::as_ptr(term),
+        place.map(|place| (place.declared.clone(), place.recognized.clone())),
+        in_term,
+    )
+}
+
+/// A position at which the readings of a forest differ in rank
+/// ([`Grammar::structural_choices`]).
+pub(super) struct StructuralChoice {
+    /// The position, whose node lives as long as the forest it was found in.
+    position: StructuralPosition,
+    /// The readings of the node there, one part per rank, least first.
+    pub(super) parts: Vec<Rc<PackedTerm>>,
+}
+
+/// The alternatives of an ambiguity with every alternative that is itself an ambiguity replaced
+/// by its own alternatives.
+fn flattened_alternatives(alternatives: &BTreeSet<Rc<PackedTerm>>) -> BTreeSet<Rc<PackedTerm>> {
+    let mut flattened = BTreeSet::new();
+    for alternative in alternatives {
+        match &alternative.node {
+            PackedNode::Ambiguity(nested) => flattened.extend(flattened_alternatives(nested)),
+            _ => {
+                flattened.insert(Rc::clone(alternative));
+            }
+        }
+    }
+    flattened
+}
+
+/// What makes two alternatives of one ambiguity the same node over different packings of its
+/// children: the production, the node's metadata (its span among it) and every child's span.
+/// `None` for a node without a production or a child of unknown span, which is grouped with
+/// nothing.
+type PositionKey<'a> = (usize, &'a TermMetadata, Vec<TermSpan>);
+
+fn position_key(term: &PackedTerm) -> Option<PositionKey<'_>> {
+    let PackedNode::Production {
+        production,
+        children,
+        metadata,
+    } = &term.node
+    else {
+        return None;
+    };
+    let spans = children
+        .iter()
+        .map(|child| super::chart::packed_term_span(child))
+        .collect::<Option<Vec<_>>>()?;
+    Some((*production, metadata, spans))
+}
+
+/// One node for a group of [`Grammar::alternatives_at_one_position`]: the group's production
+/// over, at each child slot, the union of the group's children there.
+fn merge_alternatives_at_one_position(group: &[&Rc<PackedTerm>]) -> Rc<PackedTerm> {
+    let PackedNode::Production {
+        production,
+        children,
+        metadata,
+    } = &group[0].node
+    else {
+        unreachable!("a group of several alternatives applies one production")
+    };
+    let merged = (0..children.len())
+        .map(|slot| {
+            let mut union = BTreeSet::new();
+            for alternative in group {
+                let PackedNode::Production { children, .. } = &alternative.node else {
+                    unreachable!("a group of several alternatives applies one production")
+                };
+                match &children[slot].node {
+                    PackedNode::Ambiguity(nested) => union.extend(nested.iter().cloned()),
+                    _ => {
+                        union.insert(Rc::clone(&children[slot]));
+                    }
+                }
+            }
+            if union.len() == 1 {
+                union.pop_first().expect("one alternative")
+            } else {
+                PackedTerm::ambiguity(union)
+            }
+        })
+        .collect();
+    PackedTerm::production(*production, merged, metadata.clone())
 }
 
 #[cfg(test)]

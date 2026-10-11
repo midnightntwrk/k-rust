@@ -12,11 +12,11 @@
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
-//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_forest, inference, then through lower_inferred resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity)"
+//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_readings, inference, then through lower_inferred resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity); when inference rejects every reading the structural choice kept after it removed some, infer_without_structural_preference infers over every admitted reading once more, and once per part of each position where their ranks differ until one has two well-sorted parts, which no card carries yet"
 //!
 //! [[cost]]
 //! mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
-//! bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and the error-reporting passes of prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks; every recognition charges its chart steps (an item, the derivations it reads, the callers a completion advances) and the forest passes as many again as the recognition that built the forest against the diagnostic's work limit (DiagnosticWork), and stops when it is reached"
+//! bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and the error-reporting passes of prepare_packed_readings over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks; every recognition charges its chart steps (an item, the derivations it reads, the callers a completion advances) and the forest passes as many again as the recognition that built the forest against the diagnostic's work limit (DiagnosticWork), and stops when it is reached"
 //!
 //! [[cost]]
 //! mode = "filtered attempt with retry (parse_in_context, diagnose)"
@@ -627,6 +627,15 @@ struct Recognition {
     /// Whether the recognition stopped at its work limit; its charts and parses are then
     /// incomplete and say nothing about the input.
     work_limit_reached: bool,
+}
+
+/// The forest of a parse ready for inference (`Grammar::prepare_packed_readings`).
+struct PreparedReadings {
+    /// The readings the structural preference keeps, packed for inference.
+    preferred: Rc<PackedTerm>,
+    /// The readings the relations and applications admit, before the preference, when it
+    /// removed some of them.
+    admitted: Option<Rc<PackedTerm>>,
 }
 
 /// One entry of the readings reported at an ambiguous subterm, one per root key (head and
@@ -1244,6 +1253,22 @@ pub(crate) struct ParametricOrigin {
 impl ParametricOrigin {
     fn hook(&self) -> Option<&str> {
         self.attributes.string(AttributeKey::Hook)
+    }
+
+    /// The sorts of the origin's nonterminal items, in order.
+    pub(crate) fn nonterminal_sorts(&self) -> impl Iterator<Item = &Sort> {
+        self.items.iter().filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+        })
+    }
+
+    /// Whether the origin's result is one of its parameters (a rewrite, `#as`, `#let`): every
+    /// instance builds a node of one production of the family (`Production::term_production`),
+    /// so that production's sort is not the sort of the term the node stands for, which
+    /// inference chooses, at most the sort of the place the node stands at.
+    pub(crate) fn result_is_parameter(&self) -> bool {
+        self.parameters.contains(&self.result)
     }
 }
 
@@ -1989,21 +2014,27 @@ impl Grammar {
         drop(_span);
         // Packed normalization and inference phase: preserve sharing until losing alternatives
         // are removed, then materialize exactly the retained inferred trees.
-        let forest = self.prepare_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)?;
+        let PreparedReadings {
+            preferred: forest,
+            admitted,
+        } = self.prepare_packed_readings(PackedTerm::ambiguity(parses), &priority_memos)?;
+        let lower = |tree: ParsedTerm| self.lower_inferred(tree, start);
+        // When no preferred reading is well sorted, sorts decide among the admitted ones.
+        let unless_ill_sorted = |result: Result<Term, ParseError>| match (result, &admitted) {
+            (Err(error @ ParseError::SortInference { .. }), Some(admitted)) => {
+                self.infer_without_structural_preference(admitted, error, start, is_anywhere, lower)
+            }
+            (result, _) => result,
+        };
         // Checked mode compares the engines on an ambiguous forest by what each lowers to.
         #[cfg(feature = "z3-inference")]
         if inference::checked_inference_requested()
-            && let Some(checked) =
-                self.checked_ambiguous_parse(&forest, start, is_anywhere, |tree| {
-                    self.lower_inferred(tree, start)
-                })
+            && let Some(checked) = self.checked_ambiguous_parse(&forest, start, is_anywhere, lower)
         {
-            return checked.map_err(Failure::Error);
+            return unless_ill_sorted(checked).map_err(Failure::Error);
         }
-        self.infer_packed_sorts(forest, start, is_anywhere, |tree| {
-            self.lower_inferred(tree, start)
-        })
-        .map_err(Failure::Error)
+        unless_ill_sorted(self.infer_packed_sorts(forest, start, is_anywhere, lower))
+            .map_err(Failure::Error)
     }
 
     /// Why a parse whose recognition removed a derivation for `first_violation` failed.
@@ -3203,6 +3234,18 @@ impl Grammar {
         )
     }
 
+    /// The preferred forest of [`Self::prepare_packed_readings`].
+    #[cfg(test)]
+    fn prepare_packed_forest(
+        &self,
+        forest: Rc<PackedTerm>,
+        priority_memos: &RefCell<PackedPriorityMemos>,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        Ok(self
+            .prepare_packed_readings(forest, priority_memos)?
+            .preferred)
+    }
+
     /// Cross the shared packed-forest boundary only after the transforms that precede inference.
     ///
     /// Record collapse allocates generated variables against every name in the original forest,
@@ -3212,21 +3255,33 @@ impl Grammar {
     /// alternatives share is transformed once and stays shared.
     /// Priority runs after collapse because generated record productions deliberately defer edge
     /// checks until they have exposed their original production.
-    /// The preference among a rule body's readings (`Grammar::prefer_structural_body_readings`)
-    /// runs after those checks, so it chooses only among readings that denote a term.
-    fn prepare_packed_forest(
+    /// The preference for K's rewrite, sequence and `#let` at every position
+    /// (`Grammar::prefer_structural_readings`) runs after those checks, so it chooses only among
+    /// readings that denote a term. When it removed readings, the readings the checks admit are
+    /// kept beside the preferred ones: sorts decide among them when no preferred reading is well
+    /// sorted (`Grammar::infer_without_structural_preference`). Keeping them is one reference;
+    /// nothing is computed from them unless that happens.
+    fn prepare_packed_readings(
         &self,
         forest: Rc<PackedTerm>,
         priority_memos: &RefCell<PackedPriorityMemos>,
-    ) -> Result<Rc<PackedTerm>, ParseError> {
-        let forest = self.check_packed_forest(forest, priority_memos)?;
-        let forest = self.prefer_structural_body_readings(forest);
-        let forest = self.factor_pre_inference_packed_ambiguities(forest);
-        let forest = self.push_top_lhs_packed_ambiguity_up(forest);
-        Ok(forest)
+    ) -> Result<PreparedReadings, ParseError> {
+        let admitted = self.check_packed_forest(forest, priority_memos)?;
+        let preferred = self.prefer_structural_readings(Rc::clone(&admitted));
+        let admitted = (!Rc::ptr_eq(&preferred, &admitted)).then_some(admitted);
+        Ok(PreparedReadings {
+            preferred: self.finish_pre_inference_packed_forest(preferred),
+            admitted,
+        })
     }
 
-    /// The passes of `prepare_packed_forest` that can report an error, which are all that the
+    /// The packing passes that follow the choice among readings and precede inference.
+    fn finish_pre_inference_packed_forest(&self, forest: Rc<PackedTerm>) -> Rc<PackedTerm> {
+        let forest = self.factor_pre_inference_packed_ambiguities(forest);
+        self.push_top_lhs_packed_ambiguity_up(forest)
+    }
+
+    /// The passes of `prepare_packed_readings` that can report an error, which are all that the
     /// explanation of a failed parse reads (`Grammar::explain_violation`).
     fn check_packed_forest(
         &self,

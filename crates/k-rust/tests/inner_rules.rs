@@ -840,8 +840,8 @@ endmodule
 
 /// With user syntax that reuses `=>`, a rule body has a reading through it beside the rewrite
 /// its `=>` spells. Among the readings of the whole body that denote a term, the one rooted at
-/// the rule's own rewrite is the body. The choice is made once, on the readings of the whole
-/// body, so it does not depend on an invalid reading packed beside a valid one: `a => a`, which
+/// the rule's own rewrite is the body. The choice is made on the readings of the whole body, per
+/// tree, so it does not depend on an invalid reading packed beside a valid one: `a => a`, which
 /// has none (no reading puts a rewrite below `+`), reads as the rewrite like `a => a + a`.
 #[test]
 fn a_rule_body_whose_arrow_user_syntax_reuses_reads_as_the_rewrite() {
@@ -857,22 +857,458 @@ fn a_rule_body_whose_arrow_user_syntax_reuses_reads_as_the_rewrite() {
     }
 }
 
-/// The preference is a choice among the readings of the whole body. Below its root, as in an
-/// argument (or a cell), a rewrite and another reading of the same text stay an ambiguity,
-/// whether or not an invalid reading (`(a => a) + a`, a rewrite below `+`) exists beside them.
+/// The rule's own rewrite is preferred wherever it stands, not only at the body's root: in an
+/// argument, the text `a => a` has a rewrite reading and an `arrow` reading at the same place, and
+/// the rewrite is what the rule means there, whether or not an invalid reading (`(a => a) + a`, a
+/// rewrite below `+`) exists beside them, and however deep the argument is.
 #[test]
-fn a_rewrite_below_the_body_root_does_not_win_over_user_syntax_reusing_its_token() {
-    for rule in ["f(a => a) => .K", "f(a => a + a) => .K"] {
-        let error = resolve_rule_bubbles(&lowered(&arrow_module(rule)))
-            .expect_err("the argument has a rewrite and an arrow reading");
-        let RuleError::Parse(ref parse) = error else {
-            panic!("{rule}: {error:?}")
-        };
+fn a_rewrite_below_the_body_root_wins_over_user_syntax_reusing_its_token() {
+    for (rule, expected) in [
+        ("f(a => a)", "f(a(.KList)=>a(.KList))"),
+        ("f(a => a + a)", "f(a(.KList)=>plus(a(.KList),a(.KList)))"),
+        (
+            "f(f(a + a => a))",
+            "f(f(plus(a(.KList),a(.KList))=>a(.KList)))",
+        ),
+    ] {
+        let definition = resolve_rule_bubbles(&lowered(&arrow_module(rule)))
+            .unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
+    }
+}
+
+/// In a cell, as in an argument, the rule's rewrite is preferred over user syntax that reuses
+/// its token: `<k> a => a ... </k>` rewrites the cell's first item.
+#[test]
+fn a_rewrite_in_a_cell_wins_over_user_syntax_reusing_its_token() {
+    for (rule, expected) in [
+        ("<k> a => a ... </k>", "a(.KList)=>a(.KList)"),
+        (
+            "<k> a => a + a ... </k>",
+            "a(.KList)=>plus(a(.KList),a(.KList))",
+        ),
+    ] {
+        let source = format!(
+            r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+             | A "+" A [left, symbol(plus)]
+  syntax KItem ::= A "=>" A [symbol(arrow)]
+  configuration <k> a </k>
+  rule {rule}
+  syntax K
+endmodule
+"#
+        );
+        let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+        let loaded = load(
+            ResolvedSource::new("cells.k", &source),
+            "MAIN",
+            &mut resolver,
+        )
+        .unwrap_or_else(|error| panic!("{rule}: {error:?}"));
+        let bodies = loaded
+            .definition()
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| match &**sentence {
+                Sentence::Rule { body, .. } => Some(body.to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
         assert!(
-            matches!(parse.error, ParseError::Ambiguous { .. }),
-            "{rule}: {error:?}"
+            bodies
+                .iter()
+                .any(|body| body.contains("<k>") && body.contains(expected)),
+            "{rule}: {bodies:?}"
         );
     }
+}
+
+/// A module whose user syntax reuses `=>` and `~>` (`arrow`, `seqish`), with wrappers that put a
+/// `K` (`j`) or a `KItem` (`h`) inside an `A`, and one rule over it.
+fn arrow_sequence_module(rule: &str) -> String {
+    format!(
+        r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+             | j(K) [symbol(j)]
+             | h(KItem) [symbol(h)]
+             | A "+" A [left, symbol(plus)]
+  syntax KItem ::= A "=>" A [symbol(arrow)]
+  syntax KItem ::= A "~>" A [symbol(seqish)]
+  syntax KItem ::= f(KItem) [symbol(f)]
+  rule {rule}
+endmodule
+"#
+    )
+}
+
+/// The choice is made at each position among the readings that agree above it. In
+/// `f(j(a ~> a) => a)` the argument of `f` is the rule's rewrite or `arrow`, and the rewrite is
+/// chosen there; the argument of `j` is then the rule's sequence or `seqish`, and the sequence is
+/// chosen. The `j` below the `arrow` reading is another position, which that reading's removal
+/// leaves without a choice to make. The reading `(a ~> a) + a` puts the sequence below `+` and is
+/// gone before the choice, so `j(a ~> a + a)` reads like `j(a ~> a)`.
+#[test]
+fn a_choice_is_made_at_each_position_of_the_readings_kept_above_it() {
+    for (rule, expected) in [
+        ("f(j(a ~> a) => a)", "f(j(a(.KList)~>a(.KList))=>a(.KList))"),
+        (
+            "f(j(a ~> a + a) => a)",
+            "f(j(a(.KList)~>plus(a(.KList),a(.KList)))=>a(.KList))",
+        ),
+        ("f(a => j(a ~> a))", "f(a(.KList)=>j(a(.KList)~>a(.KList)))"),
+    ] {
+        let definition = resolve_rule_bubbles(&lowered(&arrow_sequence_module(rule)))
+            .unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
+    }
+}
+
+/// A sequence has sort `K`, so it cannot be the argument of `h(KItem)`: there the rule's
+/// sequence is not a reading that means anything, the choice does not prefer it, and the user's
+/// `seqish` is the argument, as it would be with no preference at all.
+#[test]
+fn a_construct_whose_sort_cannot_stand_at_a_place_is_not_preferred_there() {
+    for (rule, expected) in [
+        (
+            "h(a ~> a) => a",
+            "h(seqish(a(.KList),a(.KList)))=>a(.KList)",
+        ),
+        (
+            "f(h(a ~> a) => a)",
+            "f(h(seqish(a(.KList),a(.KList)))=>a(.KList))",
+        ),
+    ] {
+        let definition = resolve_rule_bubbles(&lowered(&arrow_sequence_module(rule)))
+            .unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
+    }
+}
+
+/// Readings that differ above a position are not compared at it. With `A "~>" A` and
+/// `A "=>" A` both reused, `a => a ~> a => a` has two readings rooted at the rule's rewrite,
+/// `(arrow(a, a) ~> a) => a` and `a => (a ~> arrow(a, a))`: they split the text at different
+/// `=>`, so every position below the root belongs to one of them only, and both remain an
+/// ambiguity. `a => a ~> a` has one split, so its readings agree at the root and differ only at
+/// the rewrite's right side, where the sequence is chosen over `seqish(a, a)`.
+#[test]
+fn readings_that_differ_above_a_position_are_not_compared_at_it() {
+    let source = |rule: &str| {
+        format!(
+            r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+  syntax KItem ::= A "=>" A [symbol(arrow)]
+  syntax KItem ::= A "~>" A [symbol(seqish)]
+  rule {rule}
+endmodule
+"#
+        )
+    };
+    let definition = resolve_rule_bubbles(&lowered(&source("a => a ~> a"))).unwrap();
+    assert_eq!(
+        only_rule_body(&definition),
+        "a(.KList)=>a(.KList)~>a(.KList)"
+    );
+    let rule = "a => a ~> a => a";
+    let error =
+        resolve_rule_bubbles(&lowered(&source(rule))).expect_err("two readings differ at the root");
+    let RuleError::Parse(ref parse) = error else {
+        panic!("{rule}: {error:?}")
+    };
+    assert!(
+        matches!(parse.error, ParseError::Ambiguous { .. }),
+        "{rule}: {error:?}"
+    );
+}
+
+/// A rewrite's sort is a parameter that inference chooses, at most the sort of the place it
+/// stands at, so the rewrite is preferred at a place of any sort (`h(Foo)`, with the user's
+/// `Foo ::= Bar "=>" Bar`), and its sides stand at that place: as the argument of `g(K)` the
+/// rule's sequence is its right side, as the argument of `f(KItem)` a sequence cannot be, and
+/// the user's `seqish` is.
+#[test]
+fn a_rewrite_is_preferred_at_a_place_of_any_sort_and_its_sides_stand_there() {
+    let source = |rule: &str| {
+        format!(
+            r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+  syntax KItem ::= A "~>" A [symbol(seqish)]
+  syntax KItem ::= f(KItem) [symbol(f)] | g(K) [symbol(g)]
+  syntax Bar ::= "bar" [symbol(bar)]
+  syntax Foo ::= Bar
+  syntax Foo ::= Bar "=>" Bar [symbol(arrowfoo)]
+  syntax KItem ::= h(Foo) [symbol(h)]
+  rule {rule}
+endmodule
+"#
+        )
+    };
+    for (rule, expected) in [
+        ("h(bar => bar)", "h(bar(.KList)=>bar(.KList))"),
+        ("g(a => a ~> a)", "g(a(.KList)=>a(.KList)~>a(.KList))"),
+        (
+            "f(a => a ~> a)",
+            "f(a(.KList)=>seqish(a(.KList),a(.KList)))",
+        ),
+    ] {
+        let definition = resolve_rule_bubbles(&lowered(&source(rule)))
+            .unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
+    }
+}
+
+/// A rewrite's sort is at least each of its sides' sorts, so where a side's sort cannot stand
+/// at a place the rewrite cannot either, and the choice does not prefer it there: in a match
+/// arm `syntax Arm ::= Pat "=>" Exp`, the `=>` of `match(V, p => e)` cannot be the rule's
+/// rewrite of an `Arm` (a `Pat` and an `Exp` are no `Arm`), so it is the arm, whatever other
+/// sorts the module declares (an unused `A` beside them changes nothing); so with a token (`1`,
+/// a `Num`) or a sort written on a variable (`P:Pat`) on a side.
+#[test]
+fn a_rewrite_whose_sides_cannot_stand_at_a_place_is_not_preferred_there() {
+    for unused in ["", r#"syntax A ::= "a" [symbol(a)]"#] {
+        a_match_arm_is_read_whatever_other_sorts_the_module_declares(unused);
+    }
+}
+
+fn a_match_arm_is_read_whatever_other_sorts_the_module_declares(unused: &str) {
+    let source = |rule: &str| {
+        format!(
+            r#"module MAIN
+  {unused}
+  syntax Num ::= r"[0-9]+" [token]
+  syntax Pat ::= "p" [symbol(p)] | Num
+  syntax Exp ::= "e" [symbol(e)] | Num
+  syntax Arm ::= Pat "=>" Exp [symbol(arm)]
+  syntax Exp ::= match(Exp, Arm) [symbol(match)]
+  rule {rule}
+endmodule
+"#
+        )
+    };
+    for (rule, expected) in [
+        (
+            "match(V, p => e) => e",
+            "match(#SemanticCastToExp(V),arm(p(.KList),e(.KList)))=>e(.KList)",
+        ),
+        (
+            "match(V, 1 => B) => B",
+            r#"match(#SemanticCastToExp(V),arm(#token("1","Num"),#SemanticCastToExp(B)))=>#SemanticCastToExp(B)"#,
+        ),
+        (
+            "match(V, P:Pat => B) => B",
+            "match(#SemanticCastToExp(V),arm(#SemanticCastToPat(P),#SemanticCastToExp(B)))=>#SemanticCastToExp(B)",
+        ),
+    ] {
+        let definition = resolve_rule_bubbles(&lowered(&source(rule)))
+            .unwrap_or_else(|error| panic!("{unused} {rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{unused} {rule}");
+    }
+}
+
+/// A side of a rewrite is a term, not a change, so no term has a rewrite inside another's side:
+/// there a rewrite ranks after every other reading, and where user syntax reuses `=>`, the rule
+/// means the user's syntax: a match arm with variable sides in a function rule and an argument
+/// of either side read the user's `=>`. Where no other reading exists, the nested rewrite stays
+/// (and the definition checks report it).
+#[test]
+fn a_rewrite_inside_a_side_of_another_does_not_win_over_user_syntax() {
+    let source = |rule: &str| {
+        format!(
+            r#"module MAIN
+  syntax Pat ::= "p" [symbol(p)]
+  syntax Exp ::= "e" [symbol(e)]
+  syntax Arm ::= Pat "=>" Exp [symbol(arm)]
+  syntax Exp ::= match(Exp, Arm) [function, symbol(match)]
+  syntax A ::= "a" [symbol(a)]
+  syntax KItem ::= A "=>" A [symbol(arrow)]
+  syntax KItem ::= f(KItem) [symbol(f)] | g(K) [symbol(g)]
+  rule {rule}
+endmodule
+"#
+        )
+    };
+    for (rule, expected) in [
+        (
+            "match(_, _ => B) => B",
+            "match(#SemanticCastToExp(_),arm(#SemanticCastToPat(_),#SemanticCastToExp(B)))=>#SemanticCastToExp(B)",
+        ),
+        ("f(a => a) => .K", "f(arrow(a(.KList),a(.KList)))=>.K"),
+        (
+            "f(a) => g(a => a)",
+            "f(a(.KList))=>g(arrow(a(.KList),a(.KList)))",
+        ),
+    ] {
+        let definition = lowered(&source(rule));
+        let definition =
+            resolve_rule_bubbles(&definition).unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
+    }
+}
+
+/// A side condition is a term, a `Bool` the rule tests, not a change, so no rule has a rewrite
+/// in one either: there a rewrite ranks after every other reading as in a side of a rewrite, and
+/// where user syntax reuses `=>` the condition means the user's syntax (a match arm checked by a
+/// predicate, an argument of a predicate taking any item). The rule's own rewrite, in its body,
+/// is still chosen there.
+#[test]
+fn a_rewrite_in_a_side_condition_does_not_win_over_user_syntax() {
+    let source = |rule: &str| {
+        format!(
+            r#"module MAIN
+  syntax Pat ::= "p" [symbol(p)]
+  syntax Exp ::= "e" [symbol(e)]
+  syntax Arm ::= Pat "=>" Exp [symbol(arm)]
+  syntax Bool ::= isArm(Arm) [function, total, symbol(isArm)]
+                | ok(KItem) [function, total, symbol(ok)]
+  syntax A ::= "a" [symbol(a)]
+  syntax KItem ::= A "=>" A [symbol(arrow)]
+  syntax KItem ::= f(KItem) [symbol(f)] | k(Exp) [symbol(k)]
+  rule {rule}
+endmodule
+"#
+        )
+    };
+    for (rule, body, condition) in [
+        (
+            "k(B) => .K requires isArm(P => B)",
+            "k(#SemanticCastToExp(B))=>.K",
+            "isArm(arm(#SemanticCastToPat(P),#SemanticCastToExp(B)))",
+        ),
+        (
+            "f(a) => .K requires isArm(P => B)",
+            "f(a(.KList))=>.K",
+            "isArm(arm(#SemanticCastToPat(P),#SemanticCastToExp(B)))",
+        ),
+        (
+            "f(a) => .K requires ok(a => a)",
+            "f(a(.KList))=>.K",
+            "ok(arrow(a(.KList),a(.KList)))",
+        ),
+        (
+            "f(a => a) ensures ok(a => a)",
+            "f(a(.KList)=>a(.KList))",
+            "ok(arrow(a(.KList),a(.KList)))",
+        ),
+    ] {
+        let definition = lowered(&source(rule));
+        let definition =
+            resolve_rule_bubbles(&definition).unwrap_or_else(|error| panic!("{rule}: {error}"));
+        let (resolved_body, requires, ensures) = definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match &**sentence {
+                Sentence::Rule {
+                    body,
+                    requires,
+                    ensures,
+                    ..
+                } => Some((body.to_string(), requires.to_string(), ensures.to_string())),
+                _ => None,
+            })
+            .expect("the rule should be resolved");
+        assert_eq!(resolved_body, body, "{rule}");
+        let resolved_condition = if rule.contains("ensures") {
+            ensures
+        } else {
+            requires
+        };
+        assert_eq!(resolved_condition, condition, "{rule}");
+    }
+}
+
+/// The rule bodies of a module over a match-arm-like `Foo ::= Bar "=>" Bar` whose `=>` the
+/// rule's rewrite also reads, with `f` taking a `Foo`, `g` a `Bar` and cells `<k>` and `<c>`,
+/// or the load's error.
+fn bodies_over_a_user_arrow(rule: &str) -> Result<Vec<String>, String> {
+    let source = format!(
+        r#"module MAIN
+  syntax Bar ::= "bar" [symbol(bar)]
+  syntax Foo ::= Bar "=>" Bar [symbol(arrowfoo)]
+  syntax KItem ::= f(Foo) [symbol(f)] | g(Bar) [symbol(g)] | h(Foo) [symbol(h)]
+  configuration <k> .K </k> <c> .K </c>
+  rule {rule}
+  syntax K
+endmodule
+"#
+    );
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new("arrow.k", &source),
+        "MAIN",
+        &mut resolver,
+    )
+    .map_err(|error| format!("{error:?}"))?;
+    Ok(loaded
+        .definition()
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .filter(|body| !body.starts_with("init"))
+        .collect())
+}
+
+/// The preference chooses before inference, from the sorts written in a reading, so it can keep
+/// only readings inference rejects: at `f`'s argument it prefers the rewrite `X => Y`, of sort at
+/// most `Foo`, though `g(X)` makes `X` a `Bar`. Then sorts decide among every reading: the one
+/// well-sorted reading reads the user's `=>` (an arm) there, as it does with `X:Bar` written,
+/// where the preferred readings already are well sorted. Where a preferred reading is well
+/// sorted it is the parse even when another is too (`f(X => X)` alone rewrites).
+#[test]
+fn sorts_decide_among_every_reading_when_no_preferred_one_is_well_sorted() {
+    for (rule, expected) in [
+        (
+            "<k> f(X => Y) ... </k> <c> g(X) => .K ... </c>",
+            "f(arrowfoo(#SemanticCastToBar(X),#SemanticCastToBar(Y)))",
+        ),
+        (
+            "<k> f(X:Bar => Y) ... </k> <c> g(X) => .K ... </c>",
+            "f(arrowfoo(#SemanticCastToBar(X),#SemanticCastToBar(Y)))",
+        ),
+        (
+            "<k> f(X => X) ... </k>",
+            "f(#SemanticCastToFoo(X)=>#SemanticCastToFoo(X))",
+        ),
+    ] {
+        let bodies =
+            bodies_over_a_user_arrow(rule).unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert!(
+            bodies.iter().any(|body| body.contains(expected)),
+            "{rule}: {bodies:?}"
+        );
+    }
+}
+
+/// When sorts decide among every reading, well-sorted readings that rank differently where they
+/// first differ are reported as an ambiguity, not chosen between: with `D` a `Bar` (from
+/// `g(D)`), `f(C => D)` can only be an arm, and `f(A => B)` is well sorted both as a rewrite and
+/// as an arm. Where no reading at all is well sorted, the error is the preferred readings' own.
+#[test]
+fn sorts_deciding_among_every_reading_report_readings_of_different_ranks_as_ambiguous() {
+    let ambiguous =
+        bodies_over_a_user_arrow("<k> f(A => B) ~> f(C => D) ... </k> <c> g(D) => .K ... </c>")
+            .unwrap_err();
+    for reading in [
+        "Ambiguous",
+        "#SemanticCastToFoo(A)=>#SemanticCastToFoo(B)",
+        "arrowfoo(#SemanticCastToBar(A),#SemanticCastToBar(B))",
+    ] {
+        assert!(ambiguous.contains(reading), "{ambiguous}");
+    }
+    let error =
+        bodies_over_a_user_arrow("<k> f(X => Y) ... </k> <c> g(X) => h(X) ... </c>").unwrap_err();
+    assert!(
+        error.contains("SortInference") && error.contains("variable has incompatible sort bounds"),
+        "{error}"
+    );
 }
 
 /// Each reading of a body is judged by itself. With user syntax that reuses `=>` twice
