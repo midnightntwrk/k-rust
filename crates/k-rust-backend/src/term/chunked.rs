@@ -12,10 +12,10 @@
 //! that needs only constant stack, the persistent edits of [`edit`] (inserting and removing one
 //! item by path copy, splitting at a position or a key, joining, and the union of two ordered
 //! sequences), the per-node summaries of [`summary`] and the group summaries kept by difference
-//! ([`Group`], [`multiset`]), and the seeks, ranges and item-wise rebuilds of [`seek`]. Nothing
-//! outside this module and its tests uses it until terms move to it, so its declaration in
-//! `term.rs` allows dead code outside test builds; test builds keep the lint, so every item here
-//! is at least tested.
+//! ([`Group`], [`multiset`]), the seeks, ranges and item-wise rebuilds of [`seek`], and the
+//! shared variable sets of [`variables`]. Nothing outside this module and its tests uses it until
+//! terms move to it, so its declaration in `term.rs` allows dead code outside test builds; test
+//! builds keep the lint, so every item here is at least tested.
 //!
 //! # Items
 //!
@@ -37,10 +37,14 @@
 //!   `(key, value)`, which orders keys as `Term`'s `Ord` does, so a search by key finds the
 //!   first entry of that key. Its hash mixes the two terms' hashes; its summary and group
 //!   summary are the entry's share of the same fields (the symbolic-key count reads the key).
-//! - `Variable`, the element of a persistent variable set (and, in a
-//!   [`Multiset`](multiset::Multiset), paired with its number of occurrences, keyed by the
-//!   variable). Its key is itself, its hash is the variable's `FxHasher` hash, and its summary
-//!   and group summary are `()`.
+//! - `Variable`, through [`Occurrences`](multiset::Occurrences)`<Variable>`: the entry of a
+//!   [`Multiset`](multiset::Multiset) of variables and of a
+//!   [`Variables`](variables::Variables) set, which share one tree (the variables of a
+//!   collection are the elements of its root's multiset). `Variable` brings the `Ord`, `Hash`
+//!   and `Debug` the entry needs; the entry's key is the variable, its hash the `FxHasher` hash
+//!   of the variable and count, and its summary and group summary are `()`. The term attribute
+//!   `variables` becomes a [`Variables`](variables::Variables), and `Substitution` implements
+//!   [`VariableLookup`](variables::VariableLookup) over its domain.
 //!
 //! # Fill invariant
 //!
@@ -94,6 +98,7 @@ pub(crate) mod seek;
 pub(crate) mod summary;
 #[cfg(test)]
 mod tests;
+pub(crate) mod variables;
 
 use std::{
     cmp::Ordering,
@@ -609,6 +614,15 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         self.iter().cloned().collect()
     }
 
+    /// Whether the two sequences are one tree: both empty, or holding the same root node.
+    pub(crate) fn shares_root(&self, other: &Self) -> bool {
+        match (&self.root, &other.root) {
+            (None, None) => true,
+            (Some(l), Some(r)) => Arc::ptr_eq(l, r),
+            _ => false,
+        }
+    }
+
     /// The order of the two item sequences, lexicographic as for slices, with `compare` ordering
     /// two items. A node both sequences hold at the same position is skipped without calling
     /// `compare` on its items.
@@ -688,9 +702,10 @@ impl<I: Item, const B: usize> fmt::Debug for Chunked<I, B> {
 /// properties of the sequence, so a difference in either decides inequality.
 impl<I: Item, const B: usize> PartialEq for Chunked<I, B> {
     fn eq(&self, other: &Self) -> bool {
+        if self.shares_root(other) {
+            return true;
+        }
         match (&self.root, &other.root) {
-            (None, None) => true,
-            (Some(l), Some(r)) if Arc::ptr_eq(l, r) => true,
             (Some(l), Some(r)) => {
                 let (l, r) = (l.summary(), r.summary());
                 l.count == r.count && l.hash == r.hash && self.eq_by(other, I::eq)

@@ -5,6 +5,9 @@
 //! Adding or removing a few occurrences copies a path of the multiset's own tree, so the
 //! multisets of a node before and after an edit share all but that path. Combining two multisets
 //! adds the lighter one's entries to the heavier one, so its work is the lighter one's size.
+//!
+//! Test builds count the entries each thread creates, changes or removes (`ENTRY_UPDATES`), so
+//! the tests can hold an edit of an item tree to the entries its difference names.
 
 use std::{
     fmt,
@@ -12,6 +15,22 @@ use std::{
 };
 
 use super::{Chunked, DEFAULT_BRANCHING, Group, Item, Summary};
+
+#[cfg(test)]
+thread_local! {
+    /// The multiset entries this thread has created, changed or removed: one per element of
+    /// [`Multiset::of`], one per [`Multiset::add`] and per [`Multiset::remove`]. Combining and
+    /// subtracting go through `add` and `remove`, one call per entry of the lighter operand.
+    pub(crate) static ENTRY_UPDATES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Count `entries` entry updates (test builds only).
+fn tally(entries: usize) {
+    #[cfg(test)]
+    ENTRY_UPDATES.with(|count| count.set(count.get() + entries));
+    #[cfg(not(test))]
+    let _ = entries;
+}
 
 /// An element of a [`Multiset`] and its number of occurrences, at least one.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -64,6 +83,7 @@ impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Multiset<E, B> {
                 _ => entries.push(Occurrences { element, count: 1 }),
             }
         }
+        tally(entries.len());
         Self {
             entries: Chunked::from_vec(entries),
         }
@@ -100,6 +120,7 @@ impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Multiset<E, B> {
     /// The multiset with `count` more occurrences of `element`.
     #[must_use]
     pub(crate) fn add(&self, element: &E, count: usize) -> Self {
+        tally(1);
         let entries = match self.entries.search(element) {
             Ok(index) => {
                 let entry = self.entries.get(index).expect("a found entry");
@@ -125,6 +146,7 @@ impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Multiset<E, B> {
     /// The multiset with `count` fewer occurrences of `element`, which has at least that many.
     #[must_use]
     pub(crate) fn remove(&self, element: &E, count: usize) -> Self {
+        tally(1);
         let index = self
             .entries
             .search(element)

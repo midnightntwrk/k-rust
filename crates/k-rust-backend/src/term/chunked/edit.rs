@@ -89,14 +89,15 @@ fn locate<I: Item>(children: &[Arc<Node<I>>], mut index: usize) -> (usize, usize
     unreachable!("a node has children")
 }
 
-/// The root above the replacement of a root, whose items have the group summary `group`: the
-/// root itself, or a new root over the two.
-fn grow<I: Item>((left, right): Replacement<I>, group: I::Group) -> Arc<Node<I>> {
+/// The root above the replacement of a root, whose items have the group summary `group()`: the
+/// root itself, or a new root over the two. The group summary is computed only for a new root,
+/// since the replacement's nodes carry their own.
+fn grow<I: Item>((left, right): Replacement<I>, group: impl FnOnce() -> I::Group) -> Arc<Node<I>> {
     match right {
         None => left,
         Some(right) => {
             let height = left.height() + 1;
-            Arc::new(Node::internal_with(height, vec![left, right], group))
+            Arc::new(Node::internal_with(height, vec![left, right], group()))
         }
     }
 }
@@ -215,8 +216,10 @@ impl<I: Item, const B: usize> Chunked<I, B> {
             None => Self::rooted(Arc::new(Node::leaf(vec![item]))),
             Some(root) => {
                 let added = item.group();
-                let group = root.summary().group.clone().combine(&added);
-                Self::rooted(grow(Self::insert_into(root, index, item, &added), group))
+                let replacement = Self::insert_into(root, index, item, &added);
+                Self::rooted(grow(replacement, || {
+                    root.summary().group.clone().combine(&added)
+                }))
             }
         }
     }
@@ -311,7 +314,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
             (None, _) => other.clone(),
             (_, None) => self.clone(),
             (Some(left), Some(right)) => {
-                let group = left.summary().group.clone().combine(&right.summary().group);
+                let group = || left.summary().group.clone().combine(&right.summary().group);
                 Self::rooted(grow(Self::join_nodes(left, right), group))
             }
         }

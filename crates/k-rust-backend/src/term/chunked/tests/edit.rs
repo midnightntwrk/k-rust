@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, collections::HashSet, sync::Arc};
 use proptest::prelude::*;
 
 use super::{DEFAULT, Entry, check_invariants, choices, entries, shaped};
-use crate::term::chunked::{Chunked, Item, Node};
+use crate::term::chunked::{Chunked, Item, Node, multiset::Multiset, variables::Variables};
 
 pub(super) fn entry() -> impl Strategy<Value = Entry> {
     (0u8..40, any::<u8>()).prop_map(|(key, value)| Entry { key, value })
@@ -62,6 +62,38 @@ pub(super) fn check<const B: usize>(tree: &Chunked<Entry, B>, model: &[Entry]) {
     let loaded = Chunked::<Entry, B>::from_vec(model.to_vec());
     assert_eq!(tree.hash_value(), loaded.hash_value());
     assert_eq!(tree, &loaded);
+    check_variables(tree, model);
+}
+
+/// Every node's multiset of variables keeps its own invariant (the edits change it by
+/// difference), and the root's counts each variable once per item of the model mentioning it;
+/// the root's variable set, a view of that multiset, holds the variables of the model.
+fn check_variables<const B: usize>(tree: &Chunked<Entry, B>, model: &[Entry]) {
+    let mut pending: Vec<&Arc<Node<Entry>>> = tree.root.iter().collect();
+    while let Some(node) = pending.pop() {
+        check_invariants(node.summary().group.entries());
+        if let Node::Internal { children, .. } = &**node {
+            pending.extend(children);
+        }
+    }
+    let mut counts: BTreeMap<u8, usize> = BTreeMap::new();
+    for item in model {
+        for variable in item.variables() {
+            *counts.entry(variable).or_insert(0) += 1;
+        }
+    }
+    let root = tree
+        .summary()
+        .map_or_else(Multiset::new, |summary| summary.group.clone());
+    assert!(
+        root.entries()
+            .iter()
+            .map(|entry| (&entry.element, &entry.count))
+            .eq(counts.iter())
+    );
+    let set = Variables::of_multiset(&root);
+    assert!(set.entries().shares_root(root.entries()));
+    assert_eq!(set.to_btree_set(), counts.into_keys().collect());
 }
 
 /// The items of a multiset model in order, each as often as it is counted.

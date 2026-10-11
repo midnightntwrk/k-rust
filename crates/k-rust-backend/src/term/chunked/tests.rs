@@ -16,6 +16,7 @@ use rustc_hash::FxHasher;
 mod edit;
 mod seek;
 mod summary;
+mod variables;
 
 use super::{
     Chunked, DEFAULT_BRANCHING, Dismantle, Item, Node, NodeSummary, SequenceHash, Summary,
