@@ -372,7 +372,6 @@ fn assert_step_independent_of_size(shape: &str, size: u64, step_bytes: impl Fn(u
 }
 
 #[test]
-#[ignore = "K22: a step still copies the whole map, which the local fixes leave; un-ignore with the persistent representation"]
 fn adding_one_map_entry_costs_the_same_on_a_larger_map() {
     let _one = ONE_AT_A_TIME
         .lock()

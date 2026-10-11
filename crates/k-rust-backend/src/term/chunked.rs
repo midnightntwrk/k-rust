@@ -421,19 +421,32 @@ enum Node<I: Item> {
     Leaf {
         items: Vec<I>,
         summary: NodeSummary<I>,
+        checked: Checked,
     },
     Internal {
         /// One more than the children's height; a leaf's height is 0.
         height: usize,
         children: Vec<Arc<Node<I>>>,
         summary: NodeSummary<I>,
+        checked: Checked,
     },
 }
+
+/// Debug builds: whether the one check that reads it, `definedness::check_ceil_free`, has passed
+/// the items below a node and the pairs of adjacent items there ([`Chunked::check_unchecked`]),
+/// so that a later check of a tree sharing the node skips it; nothing in other builds. A node is never changed once built, so the mark stays
+/// true of it. The mark is not part of the node's value: a copy of a node is built unmarked.
+#[derive(Default)]
+struct Checked(#[cfg(debug_assertions)] std::sync::atomic::AtomicBool);
 
 impl<I: Item> Node<I> {
     fn leaf(items: Vec<I>) -> Self {
         let summary = NodeSummary::of_items(&items);
-        Self::Leaf { items, summary }
+        Self::Leaf {
+            items,
+            summary,
+            checked: Checked::default(),
+        }
     }
 
     fn internal(height: usize, children: Vec<Arc<Self>>) -> Self {
@@ -442,13 +455,18 @@ impl<I: Item> Node<I> {
             height,
             children,
             summary,
+            checked: Checked::default(),
         }
     }
 
     /// A leaf whose group summary the caller knows: `group` is that of `items`.
     fn leaf_with(items: Vec<I>, group: I::Group) -> Self {
         let summary = NodeSummary::of_items_with(&items, group);
-        Self::Leaf { items, summary }
+        Self::Leaf {
+            items,
+            summary,
+            checked: Checked::default(),
+        }
     }
 
     /// An internal node whose group summary the caller knows: `group` is that of the items
@@ -459,6 +477,7 @@ impl<I: Item> Node<I> {
             height,
             children,
             summary,
+            checked: Checked::default(),
         }
     }
 
@@ -468,10 +487,89 @@ impl<I: Item> Node<I> {
         }
     }
 
+    #[cfg(debug_assertions)]
+    fn checked(&self) -> &std::sync::atomic::AtomicBool {
+        match self {
+            Self::Leaf { checked, .. } | Self::Internal { checked, .. } => &checked.0,
+        }
+    }
+
     fn height(&self) -> usize {
         match self {
             Self::Leaf { .. } => 0,
             Self::Internal { height, .. } => *height,
+        }
+    }
+}
+
+/// Debug builds: checks that read only what changed since the last check.
+#[cfg(debug_assertions)]
+impl<I: Item, const B: usize> Chunked<I, B> {
+    /// Hand the items of each leaf not marked checked to `items`, and to `adjacent` each pair of
+    /// adjacent items within such a leaf or straddling two children of an internal node not
+    /// marked checked; a marked node is skipped with everything below it. The nodes visited are
+    /// returned, for the caller to mark once what it checks of the items has passed.
+    ///
+    /// Every pair of adjacent items of the sequence is within one leaf or straddles two
+    /// children of the lowest node above both, as the last item of one child and the first of the
+    /// next, which the children's summaries give. So once a tree has been checked, every item and
+    /// every pair of adjacent items has been handed over, and checking a tree made from it by
+    /// edits visits only the nodes the edits built: the paths they copied.
+    pub(crate) fn check_unchecked<'t>(
+        &'t self,
+        mut items: impl FnMut(&'t [I]),
+        mut adjacent: impl FnMut(&'t I, &'t I),
+    ) -> Unchecked<'t, I> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut pending = self.root.iter().collect::<Vec<_>>();
+        let mut visited = Vec::new();
+        while let Some(node) = pending.pop() {
+            if node.checked().load(Relaxed) {
+                continue;
+            }
+            match &**node {
+                Node::Leaf { items: leaf, .. } => {
+                    items(leaf);
+                    for pair in leaf.windows(2) {
+                        adjacent(&pair[0], &pair[1]);
+                    }
+                }
+                Node::Internal { children, .. } => {
+                    for pair in children.windows(2) {
+                        let (Some(last), Some(first)) =
+                            (&pair[0].summary().last, &pair[1].summary().first)
+                        else {
+                            unreachable!("a node has items")
+                        };
+                        adjacent(last, first);
+                    }
+                    pending.extend(children);
+                }
+            }
+            visited.push(node);
+        }
+        Unchecked(visited)
+    }
+}
+
+/// Debug builds: the nodes a check visited ([`Chunked::check_unchecked`]), to be marked once
+/// the check has passed them.
+#[cfg(debug_assertions)]
+#[must_use]
+pub(crate) struct Unchecked<'t, I: Item>(Vec<&'t Arc<Node<I>>>);
+
+#[cfg(debug_assertions)]
+impl<I: Item> Unchecked<'_, I> {
+    /// No node.
+    pub(crate) fn none() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Mark the nodes checked.
+    pub(crate) fn mark(self) {
+        for node in self.0 {
+            node.checked()
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
 }
@@ -1086,7 +1184,7 @@ impl<I: Item> Dismantle<I> {
             "a leaf is opened only after the previous one"
         );
         match node {
-            Node::Leaf { items, summary } => {
+            Node::Leaf { items, summary, .. } => {
                 drop(summary);
                 self.items = items.into_iter();
             }

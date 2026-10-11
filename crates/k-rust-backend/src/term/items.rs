@@ -306,6 +306,29 @@ impl<T: Stored> Items<T> {
         }
     }
 
+    /// Debug builds: hand the items a check has not passed to `items`, and the pairs of
+    /// adjacent items among them or next to them to `adjacent`. A tree hands over the leaves
+    /// and junctions not marked checked and returns their nodes, which the caller marks once the
+    /// items have passed (`Chunked::check_unchecked`), so a sequence edited since its last check
+    /// hands over the paths the edits copied; a vector hands over all of its items every time.
+    #[cfg(debug_assertions)]
+    pub(crate) fn check_unchecked<'t>(
+        &'t self,
+        mut items: impl FnMut(&'t [T]),
+        mut adjacent: impl FnMut(&'t T, &'t T),
+    ) -> chunked::Unchecked<'t, T> {
+        match &self.0 {
+            Backing::Vec(vector) => {
+                items(vector);
+                for pair in vector.windows(2) {
+                    adjacent(&pair[0], &pair[1]);
+                }
+                chunked::Unchecked::none()
+            }
+            Backing::Tree(tree) => tree.check_unchecked(items, adjacent),
+        }
+    }
+
     /// Hand each item of which this sequence held the last handle to `each`, in no particular
     /// order, through a work list: a tree node shared with another sequence is only released.
     pub(crate) fn dismantle(self, each: impl FnMut(T)) {
@@ -691,6 +714,10 @@ pub(crate) struct ItemSummary {
     macro_or_alias: Any,
     k_cells: Saturating<2>,
     symbolic_keys: Count,
+    /// Debug builds: the sorts of an item's first and last term (a map entry's key and value, an
+    /// element twice), shared by all items or `Mixed`.
+    #[cfg(debug_assertions)]
+    sorts: Uniform<(Sort, Sort)>,
 }
 
 impl ItemSummary {
@@ -717,6 +744,22 @@ impl ItemSummary {
                     .sum(),
             ),
             symbolic_keys: Count::of(!key.attributes().constructor_like),
+            #[cfg(debug_assertions)]
+            sorts: Uniform::One((
+                terms.first().map_or_else(|| key.sort(), |term| term.sort()),
+                terms.last().map_or_else(|| key.sort(), |term| term.sort()),
+            )),
+        }
+    }
+
+    /// Debug builds: whether each item's first term is of sort `first` and its last of sort
+    /// `last` (a map entry's key and value sorts, an element's sort twice); true for no item.
+    #[cfg(debug_assertions)]
+    pub(crate) fn all_of_sorts(&self, first: &Sort, last: &Sort) -> bool {
+        match &self.sorts {
+            Uniform::Empty => true,
+            Uniform::One((one, other)) => one == first && other == last,
+            Uniform::Mixed => false,
         }
     }
 
@@ -754,6 +797,8 @@ impl Summary for ItemSummary {
             macro_or_alias: Any::identity(),
             k_cells: Saturating::identity(),
             symbolic_keys: Count::identity(),
+            #[cfg(debug_assertions)]
+            sorts: Uniform::identity(),
         }
     }
 
@@ -764,6 +809,8 @@ impl Summary for ItemSummary {
             macro_or_alias: self.macro_or_alias.combine(&right.macro_or_alias),
             k_cells: self.k_cells.combine(&right.k_cells),
             symbolic_keys: self.symbolic_keys.combine(&right.symbolic_keys),
+            #[cfg(debug_assertions)]
+            sorts: self.sorts.combine(&right.sorts),
         }
     }
 }

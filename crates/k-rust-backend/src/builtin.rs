@@ -309,14 +309,23 @@ fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
             .iter()
             .map(|element| (element, &definition.element_sort))
             .collect(),
+        // The entries' summary keeps their sorts when they all agree, so a map is checked
+        // without reading the entries the hook did not touch.
         TermKind::Map {
             definition,
             entries,
             ..
-        } => entries
-            .iter()
-            .flat_map(|(key, value)| [(key, &definition.key_sort), (value, &definition.value_sort)])
-            .collect(),
+        } => {
+            debug_assert!(
+                entries
+                    .summary()
+                    .extra
+                    .all_of_sorts(&definition.key_sort, &definition.value_sort),
+                "{hook} evaluated to a map holding a key or value of another sort than its \
+                 collection's: {value:?}"
+            );
+            Vec::new()
+        }
         _ => Vec::new(),
     };
     for (element, sort) in element_sorts {

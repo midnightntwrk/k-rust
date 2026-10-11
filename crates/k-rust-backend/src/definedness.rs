@@ -176,6 +176,10 @@ fn ceil_term_walk(
 /// the same subterm at every level (a list a recursive equation consumes) stays linear. A node is
 /// not checked again under another definition: the attribute is a function of the term, and
 /// `ceilFree_sound` holds for every definition.
+///
+/// A map whose keys share one header and which has no rest is checked through its entries' tree
+/// (`check_map_entries`), so that a map edited since its last check costs the paths the edits
+/// copied, not its size.
 #[cfg(debug_assertions)]
 fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
     if term.ceil_free_checked() {
@@ -185,8 +189,14 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
     let mut children = Vec::new();
     let mut unchecked = vec![term];
     let mut passed = Vec::new();
+    let mut passed_entries = Vec::new();
     while let Some(node) = unchecked.pop() {
         if node.ceil_free_checked() {
+            continue;
+        }
+        if let Some(entries) = check_map_entries(definition, node, &mut unchecked) {
+            passed_entries.push(entries);
+            passed.push(node);
             continue;
         }
         let after = ceil_term_node(definition, node, &mut obligations, &mut children);
@@ -197,9 +207,52 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
         unchecked.append(&mut children);
         passed.push(node);
     }
+    for entries in passed_entries {
+        entries.mark();
+    }
     for node in passed {
         node.mark_ceil_free_checked();
     }
+}
+
+/// Debug builds: [`check_ceil_free`] at a map without a rest whose keys share one header (the
+/// entries' summary), which a `ceil_free` map is: asserts that the map node has no obligation
+/// of its own, pushes its keys and values onto `unchecked`, and returns the tree nodes it read,
+/// to be marked once they pass; `None` for any other node, which the walk checks as it is.
+///
+/// Without a rest, the obligations of the node are the disequalities of its pairs of keys that
+/// are not apart. The keys are domain values, or injections of domain values, all with one
+/// header (`key_header`), so two of them are apart exactly when they differ; ordered, they all
+/// differ when each differs from the next. So checking that each key is apart from the next
+/// (`elements_are_apart`, the walk's own test of a pair) checks every pair, and the pairs and
+/// keys the tree hands over are those of the nodes not checked before
+/// (`Items::check_unchecked`): a map edited since its last check costs the copied paths.
+#[cfg(debug_assertions)]
+fn check_map_entries<'t>(
+    definition: &BackendDefinition,
+    term: &'t Term,
+    unchecked: &mut Vec<&'t Term>,
+) -> Option<crate::term::chunked::Unchecked<'t, (Term, Term)>> {
+    let TermKind::Map {
+        entries,
+        rest: None,
+        ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    if !entries.summary().extra.keys_share_one_header() {
+        return None;
+    }
+    Some(entries.check_unchecked(
+        |items| unchecked.extend(items.iter().flat_map(|(key, value)| [key, value])),
+        |(left, _), (right, _)| {
+            assert!(
+                elements_are_apart(definition, left, right),
+                "a ceil_free map binds keys that are not apart, {left:?} and {right:?}: {term:?}"
+            );
+        },
+    ))
 }
 
 /// One node of the definedness walk: appends the node's own obligations to `before` and its

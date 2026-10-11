@@ -223,7 +223,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         changed: &mut Vec<usize>,
     ) -> Option<(Node<I>, Difference<I::Group>)> {
         match node {
-            Node::Leaf { items, summary } => {
+            Node::Leaf { items, summary, .. } => {
                 let mut replaced: Option<Vec<I>> = None;
                 let mut removed = Vec::new();
                 let mut added = Vec::new();
@@ -250,6 +250,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                 height,
                 children,
                 summary,
+                ..
             } => {
                 let mut replaced: Option<Vec<Arc<Node<I>>>> = None;
                 let mut difference = Difference {

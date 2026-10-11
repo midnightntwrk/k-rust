@@ -122,6 +122,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                 height: 1,
                 children,
                 summary,
+                ..
             } if summary.count <= B => Arc::new(Node::leaf_with(
                 children
                     .iter()
@@ -334,7 +335,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
     /// `MIN_FILL`, that item, and its group summary, which every node on the path loses.
     fn remove_from(node: &Node<I>, index: usize) -> (Node<I>, I, I::Group) {
         match node {
-            Node::Leaf { items, summary } => {
+            Node::Leaf { items, summary, .. } => {
                 let mut items = items.clone();
                 let item = items.remove(index);
                 let removed = item.group();
@@ -345,6 +346,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                 height,
                 children,
                 summary,
+                ..
             } => {
                 let (slot, offset) = locate(children, index);
                 let (child, item, removed) = Self::remove_from(&children[slot], offset);
@@ -456,7 +458,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
     /// of its lighter side, and a cut near either end costs the few items cut away.
     fn split_node(node: &Arc<Node<I>>, index: usize) -> Sides<I> {
         match &**node {
-            Node::Leaf { items, summary } => {
+            Node::Leaf { items, summary, .. } => {
                 let (left, right) = items.split_at(index);
                 let (left_group, right_group) = Self::divide(
                     summary.group.clone(),
@@ -472,6 +474,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                 height,
                 children,
                 summary,
+                ..
             } => {
                 let (slot, offset) = locate(children, index);
                 let (before, after) = if offset == 0 {
