@@ -87,11 +87,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      # lake selects the toolchain that lean/lean-toolchain names.
+      # lake selects the toolchain that lean/lean-toolchain names. elan itself is the release
+      # binary at a fixed version, checked against its published digest before it runs.
       - name: Install elan
+        env:
+          ELAN_VERSION: 4.2.4
+          ELAN_SHA256: 42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63
         run: |
-          curl -fsSL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
-            | sh -s -- -y --default-toolchain none
+          curl -fsSLo /tmp/elan.tar.gz \
+            "https://github.com/leanprover/elan/releases/download/v${ELAN_VERSION}/elan-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${ELAN_SHA256}  /tmp/elan.tar.gz" | sha256sum --check --strict
+          tar -xzf /tmp/elan.tar.gz -C /tmp elan-init
+          /tmp/elan-init -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Check the Lean proofs
