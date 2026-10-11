@@ -1179,6 +1179,10 @@ def compare_bison_parser_commands(case, row, input_path, reference_command, rust
         message = re.search(r"panicked at[^\n]*\n(.*)", tout + terr, re.S)
         text = (message.group(1) if message else (tout + terr)).strip()
         step.update(verdict="mismatch", comparison="generated parser stdout", divergence="\n".join(text.splitlines()[:DIFF_LINES]))
+        # A known divergence is stated in the manifest row's reason; report it with the
+        # mismatch, so the divergence printed beside it can be checked against that statement.
+        if row.get("reason"):
+            step["reason"] = f"manifest: {row['reason']}"
     else:
         step.update(verdict="krust-error", reason=f"parser-output comparator exit {trc}", divergence="\n".join((tout + terr).strip().splitlines()[:DIFF_LINES]))
     return step_record(case, **step)
