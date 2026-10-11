@@ -290,8 +290,9 @@ impl<I: Item + Ord, const B: usize> Chunked<I, B> {
     ///
     /// The replacements are made in place, copying the paths to them. A replaced item stays
     /// where it is when it is still in order with the unchanged items around it and with the
-    /// replaced items kept before it; the others are taken out and put back by a union, which
-    /// places them as the order says. So the result is the sorted sequence of the changed items,
+    /// replaced items kept before it; the others are taken out and put back one insertion each,
+    /// where the order places them, so each moved item costs a path copy and its own group
+    /// summary's difference along it. So the result is the sorted sequence of the changed items,
     /// and a rebuild that keeps the order (a value of a map changed, not its key) copies only the
     /// paths to the changed items.
     pub(crate) fn rebuild_where(
@@ -308,8 +309,9 @@ impl<I: Item + Ord, const B: usize> Chunked<I, B> {
             tree = rest;
             moved.push(item);
         }
-        moved.sort();
-        tree.union(&Self::from_vec(moved))
+        // One insertion per moved item: each is a path copy whose group work is the item's own
+        // (a union would build nodes over runs of untouched children and fold their groups).
+        moved.into_iter().fold(tree, |tree, item| tree.insert(item))
     }
 
     /// Among the positions `changed` (in increasing order) of an otherwise ordered sequence, those

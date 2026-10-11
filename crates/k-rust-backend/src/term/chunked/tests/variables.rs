@@ -231,8 +231,8 @@ fn a_union_keeps_the_handle_of_the_first_largest_operand() {
 }
 
 /// An item mentioning a few variables of a large domain, so that a node's multiset is much
-/// larger than an item's.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+/// larger than an item's. Ordered by key first, as an ordered collection's items are.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 struct Mentions {
     key: u32,
     variables: Vec<u32>,
@@ -568,5 +568,48 @@ proptest! {
         join_one::<5>(model.clone(), shape.clone(), &item);
         join_one::<6>(model.clone(), shape.clone(), &item);
         join_one::<DEFAULT>(model, shape, &item);
+    }
+}
+
+// A rebuild that changes one item's key so that it no longer fits where it was replaces it in
+// place, takes it out and inserts it where the order puts it: its group work is that of the
+// replacement, the removal and the insertion, each a path copy whatever the variables below
+// the copied nodes.
+fn moving_rebuild<const B: usize>(model: Vec<Mentions>, shape: Vec<u8>, pick: usize) {
+    let tree: Chunked<Mentions, B> = shaped(model.clone(), shape);
+    let index = pick % model.len();
+    let moved = Mentions {
+        key: u32::MAX,
+        variables: model[index].variables.clone(),
+    };
+    let wanted = model[index].key;
+    let seek = crate::term::chunked::seek::Where::new(
+        |_: &crate::term::chunked::NodeSummary<Mentions>| true,
+        move |item: &Mentions| item.key == wanted,
+    );
+    let (rebuilt, updates) = entry_updates(|| tree.rebuild_where(&seek, |_| Some(moved.clone())));
+    let mut expected = model;
+    expected.remove(index);
+    expected.push(moved.clone());
+    check_mentions(&rebuilt, &expected);
+    let (replaced, replace) = entry_updates(|| tree.replace_at(index, moved.clone()));
+    let ((rest, item), remove) = entry_updates(|| replaced.remove_at(index));
+    let (_, insert) = entry_updates(|| rest.insert(item));
+    assert!(
+        updates <= replace + remove + insert,
+        "{updates} entry updates, against {replace} + {remove} + {insert} for the path copies"
+    );
+}
+
+proptest! {
+    #[test]
+    fn a_rebuild_moving_one_item_does_the_work_of_its_path_copies(
+        model in mentions(400),
+        shape in choices(),
+        pick in any::<usize>(),
+    ) {
+        moving_rebuild::<5>(model.clone(), shape.clone(), pick);
+        moving_rebuild::<6>(model.clone(), shape.clone(), pick);
+        moving_rebuild::<DEFAULT>(model, shape, pick);
     }
 }
