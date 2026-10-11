@@ -490,6 +490,13 @@ A literal at any other sort is rejected by the definition checks with `InvalidDo
 The emitted declaration of a head carries `hasDomainValues` exactly when that head admits domain values, so `Bool` and `KConfigVar` carry it even without token productions, and every domain value of the emitted definition is at a sort declared with it.
 [Token admissibility tests](../crates/k-rust/tests/token_admissibility.rs) pin the admitted sorts and the rejection of a hooked sort's literal.
 
+## Token productions over a phrase
+
+An unlabelled `token` production whose only item is a nonterminal, `syntax Toks ::= Names [token]`, spells each phrase of `Names` as a domain value of `Toks` whose text is the input the phrase spans; it builds no term of `Names`.
+So no `Names` value is a `Toks` value, and the production states no subsort: it is in the syntactic subsort relation (a `Names` phrase stands where `Toks` is written) and not in the semantic one, the compiled definition has no `subsort{SortNames{}, SortToks{}}` axiom and no `inj{SortNames{}, SortToks{}}`, and the no-junk axiom of `Toks` is that of a sort of domain values.
+A sort of domain values may have no subsort in a loaded definition (the backend's verification rejects one), and here none is stated: the pinned reference emits the subsort axiom, and its backend then rejects the compiled definition, where k-rust compiles and runs it.
+(`a_token_subsort_over_a_list_compiles_without_a_subsort_and_runs` in [cli.rs](../crates/k-rust/tests/cli.rs), `a_token_subsort_is_only_a_syntactic_subsort` in [definition_relations.rs](../crates/k-rust/tests/definition_relations.rs).)
+
 ## Strings and their literals
 
 A KORE string literal is a sequence of code points (`kore-syntax.md`): printable ASCII stands for itself, and each escape names one code point, `\xhh` the code point U+00hh.

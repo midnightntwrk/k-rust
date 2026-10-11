@@ -12375,6 +12375,78 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A token subsort's sort holds tokens, not values of the subsort it reads its text from: `Toks`
+/// spells each `Names` phrase as a `Toks` domain value, and no `Names` list is a `Toks` value. So
+/// the compiled definition states no subsort from `Names` to `Toks` (a sort of domain values has
+/// no injected values), and a program that holds such a token compiles and runs.
+#[test]
+fn a_token_subsort_over_a_list_compiles_without_a_subsort_and_runs() {
+    let source = r##"
+module TOKRUN-SYNTAX
+  syntax Name ::= r"[a-z]+" [token]
+  syntax Names ::= List{Name, ","}
+  syntax Toks ::= Names [token]
+  syntax Pgm ::= "run" Toks
+endmodule
+module TOKRUN
+  imports TOKRUN-SYNTAX
+  syntax KItem ::= done(Pgm)
+  configuration <k> $PGM:Pgm </k>
+  rule <k> P:Pgm => done(P) </k>
+endmodule
+"##;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "TOKRUN"], &compiled);
+    let kore = fs::read_to_string(compiled.join("definition.kore")).unwrap();
+    assert!(
+        kore.contains("sort SortToks{} [hasDomainValues{}()]"),
+        "{kore}"
+    );
+    assert!(!kore.contains("inj{SortNames{}, SortToks{}}"), "{kore}");
+
+    let program = root.join("program.txt");
+    fs::write(&program, "run ab ,\n cd ").unwrap();
+    let krun = |depth: Option<&str>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .arg(&program)
+            .args(["--sort", "Pgm"]);
+        if let Some(depth) = depth {
+            command.args(["--depth", depth]);
+        }
+        let output = command.stdin(Stdio::null()).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let pattern = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+        k_rust::kore::printer::Printer::compact().print_pattern(&pattern)
+    };
+    let program =
+        r#"Lblrun'UndsUnds'TOKRUN-SYNTAX'Unds'Pgm'Unds'Toks{}(\dv{SortToks{}}("ab ,\n cd"))"#;
+    let initial = krun(Some("0"));
+    assert!(
+        initial.contains(&format!(
+            "kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}({program}), dotk{{}}())"
+        )),
+        "{initial}"
+    );
+    let last = krun(None);
+    assert!(
+        last.contains(&format!(
+            "kseq{{}}(Lbldone'LParUndsRParUnds'TOKRUN'Unds'KItem'Unds'Pgm{{}}({program}), dotk{{}}())"
+        )),
+        "{last}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kcompile_skips_bison_tools_when_the_configuration_has_no_pgm() {
     let (root, definition) = fixture();

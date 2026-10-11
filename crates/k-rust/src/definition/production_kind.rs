@@ -98,7 +98,8 @@ pub(crate) enum BracketName {
 /// later one's fact as a field (`Function { macro_like }`, `Token { algebraic }`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ProductionKind {
-    /// Unlabelled `S ::= T`: an injection, stated by the subsort axiom; declares no symbol.
+    /// Unlabelled `S ::= T` without `token`: an injection, stated by the subsort axiom; declares
+    /// no symbol.
     Subsort,
     /// Labelled with a matching-logic connective or a label of the K sequence (`#KSequence`,
     /// `#EmptyK`): the KORE prelude declares and axiomatises it, so the production only gives it
@@ -204,7 +205,15 @@ impl ProductionKind {
             unreachable!("production kinds classify productions")
         };
         if label.is_none() && matches!(items.as_slice(), [ProductionItem::NonTerminal { .. }]) {
-            return Self::Subsort;
+            // An unlabelled unary token production spells a phrase of its child as a domain value
+            // of its sort and injects nothing: a token production with no symbol.
+            return if attributes.has(AttributeKey::Token) {
+                Self::Token {
+                    algebraic: is_algebraic(attributes),
+                }
+            } else {
+                Self::Subsort
+            };
         }
         if label
             .as_ref()
@@ -1472,6 +1481,25 @@ mod tests {
             ProductionKind::of_unbracketed(&bracket),
             ProductionKind::Unlabelled
         );
+    }
+
+    /// `Toks ::= Names` injects every `Names` value into `Toks`; with `token` it spells each
+    /// `Names` phrase as a `Toks` domain value instead, and declares no symbol.
+    #[test]
+    fn an_unlabelled_unary_production_is_a_subsort_unless_it_is_a_token_production() {
+        let names = || {
+            vec![ProductionItem::NonTerminal {
+                sort: Sort::new("Names"),
+                name: None,
+            }]
+        };
+        let subsort = production(None, "Toks", names(), &[]);
+        assert_eq!(ProductionKind::of(&subsort), ProductionKind::Subsort);
+        let token = production(None, "Toks", names(), &[AttributeKey::Token]);
+        let kind = ProductionKind::of(&token);
+        assert_eq!(kind, ProductionKind::Token { algebraic: false });
+        assert!(!kind.declares_symbol(false));
+        assert_eq!(kind.no_junk(), NoJunk::DomainValues);
     }
 
     /// `syntax {W} Foo ::= pick(x: MInt{W}, y: Int)` is a family of symbols, one per `W`, so no

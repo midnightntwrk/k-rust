@@ -83,6 +83,20 @@ fn distinguishes_semantic_and_syntactic_subsorts() {
     assert!(!syntactic.contains(&Sort::new("Box")));
 }
 
+/// `Toks ::= Names [token]` spells a `Names` phrase as a `Toks` domain value: a `Names` phrase
+/// stands where `Toks` is written, but no `Names` value is a `Toks` value.
+#[test]
+fn a_token_subsort_is_only_a_syntactic_subsort() {
+    let token = production(None, "Toks", &["Names"], attrs(&[("token", "")]));
+    let sentences = [&token];
+
+    let semantic = compute_subsorts(sentences, false).unwrap();
+    assert!(!semantic.less_than(&Sort::new("Names"), &Sort::new("Toks")));
+
+    let syntactic = compute_subsorts(sentences, true).unwrap();
+    assert!(syntactic.less_than(&Sort::new("Names"), &Sort::new("Toks")));
+}
+
 #[test]
 fn rule_disambiguation_adds_only_the_user_list_element_subsort() {
     let recursive = production(

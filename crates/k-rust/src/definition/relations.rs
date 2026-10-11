@@ -100,6 +100,13 @@ impl std::error::Error for Error {}
 pub(crate) enum SubsortDeclaration<'a> {
     /// No sort parameters: `child < parent`, a pair of both relations and a subsort axiom.
     Pair { child: &'a Sort, parent: &'a Sort },
+    /// No sort parameters and `token`: a phrase of `child` is spelled as a domain value of
+    /// `parent`, whose text is the text the phrase spans.
+    ///
+    /// The production gives `parent` no `child` value: a `child` term is no token, and no term
+    /// of `parent` is built from one. So the pair is only syntactic (a `child` phrase stands where
+    /// `parent` is written) and has no subsort axiom.
+    TokenPhrase { child: &'a Sort, parent: &'a Sort },
     /// `{S} KItem ::= S`: every sort of K terms is a KItem, which compilation states per sort.
     KernelTop,
     /// `{S} S ::= KBott`: the parse-time bottom is below every sort.
@@ -115,6 +122,7 @@ impl<'a> SubsortDeclaration<'a> {
             parameters,
             sort,
             items,
+            attributes,
             ..
         } = production
         else {
@@ -123,7 +131,12 @@ impl<'a> SubsortDeclaration<'a> {
         let [ProductionItem::NonTerminal { sort: child, .. }] = items.as_slice() else {
             return None;
         };
-        if parameters.is_empty() {
+        if parameters.is_empty() && attributes.has(AttributeKey::Token) {
+            Some(Self::TokenPhrase {
+                child,
+                parent: sort,
+            })
+        } else if parameters.is_empty() {
             Some(Self::Pair {
                 child,
                 parent: sort,
@@ -140,9 +153,9 @@ impl<'a> SubsortDeclaration<'a> {
 
 /// Compute the semantic or the syntactic subsort relation.
 ///
-/// Unlabeled injections participate in both relations. Labeled injections only
-/// participate in the syntactic relation, and parametric productions participate
-/// in neither.
+/// Unlabeled injections participate in both relations. Labeled unary productions and
+/// unlabeled unary token productions only participate in the syntactic relation, and
+/// parametric productions participate in neither.
 pub fn compute_subsorts<'a>(
     sentences: impl IntoIterator<Item = &'a Sentence>,
     syntactic: bool,
@@ -202,11 +215,14 @@ fn disambiguation_subsort_pairs_of(sentence: &Sentence) -> impl Iterator<Item = 
 }
 
 /// The `(child, sort)` pair a non-parametric unary production states: in the semantic relation
-/// only when it is unlabeled, in the syntactic relation always.
+/// only when it is unlabeled and no token production, in the syntactic relation always.
 fn subsort_pair(sentence: &Sentence, syntactic: bool) -> Option<(Sort, Sort)> {
     match SubsortDeclaration::of(sentence) {
         Some(SubsortDeclaration::Pair { child, parent }) => {
             return Some((child.clone(), parent.clone()));
+        }
+        Some(SubsortDeclaration::TokenPhrase { child, parent }) => {
+            return syntactic.then(|| (child.clone(), parent.clone()));
         }
         Some(
             SubsortDeclaration::KernelTop
