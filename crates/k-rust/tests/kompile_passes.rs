@@ -7053,6 +7053,98 @@ fn rejects_an_alias_variable_of_cells_of_two_sorts_naming_both() {
     }
 }
 
+// An alias `P #as V` of one cell `P` denotes `P` and binds `V` to it, so wherever it is written
+// it is placed as `P` is: wrapped in `P`'s missing parents when written above them, lifted to
+// `P`'s configured parent when written in a cell below it, and completed with the cells written
+// beside it that belong inside the one `P` there. `V` then names the cell `P` is in the completed
+// rule, so each rule compiles as the one that writes the alias where completion places it.
+const ALIAS_PLACEMENT: &str = r#"<k> $PGM:Int </k> <u> <ux> 0 </ux> <r multiplicity="*" type="Map"> <rid> 0 </rid> <m> <mx> 0 </mx> <p> <px> 0 </px> <c> 0 </c> </p> </m> </r> </u>"#;
+
+#[test]
+fn an_alias_of_one_cell_written_outside_its_parent_is_placed_as_its_cell() {
+    for (outside, placed) in [
+        // Wrapped in its missing parents, alone or beside other cells.
+        (
+            "<k> 0 => 1 </k> (<r> <rid> 1 </rid> ... </r> #as A)",
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> ... </r> #as A) ... </u>",
+        ),
+        (
+            "<k> 0 => 1 </k> (<r> <rid> 1 </rid> <m> <p> <c> 7 </c> ... </p> ... </m> ... </r> #as A) <ux> 5 => 6 </ux>",
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m> <p> <c> 7 </c> ... </p> ... </m> ... </r> #as A) <ux> 5 => 6 </ux> ... </u>",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> (<m> <mx> 1 </mx> P:PCell </m> #as M) ... </u>",
+            "<k> 0 => 1 </k> <u> <r> (<m> <mx> 1 </mx> P:PCell </m> #as M) ... </r> ... </u>",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> (<rid> 1 </rid> #as I) ... </u>",
+            "<k> 0 => 1 </k> <u> <r> (<rid> 1 </rid> #as I) ... </r> ... </u>",
+        ),
+        // Completed with a cell written beside it that belongs inside the one `<u>`, whether the
+        // alias is written in its configured parent or above it.
+        (
+            "<k> 0 => 1 </k> (<u> <ux> 1 </ux> ... </u> #as U) <rid> 3 </rid>",
+            "<k> 0 => 1 </k> (<u> <ux> 1 </ux> <r> <rid> 3 </rid> ... </r> ... </u> #as U)",
+        ),
+        (
+            "<k> 0 => 1 </k> (<u> <ux> 1 </ux> ... </u> #as U) <rid> 3 </rid> <mx> 4 </mx>",
+            "<k> 0 => 1 </k> (<u> <ux> 1 </ux> <r> <rid> 3 </rid> <m> <mx> 4 </mx> ... </m> ... </r> ... </u> #as U)",
+        ),
+        // Lifted out of a cell below its configured parent.
+        (
+            "<k> 0 => 1 </k> <p> <px> 1 </px> (<ux> 2 </ux> #as X) ... </p>",
+            "<k> 0 => 1 </k> <u> (<ux> 2 </ux> #as X) <r> <m> <p> <px> 1 </px> ... </p> ... </m> ... </r> ... </u>",
+        ),
+    ] {
+        let outside_body = concretized_cell_rule(ALIAS_PLACEMENT, outside)
+            .unwrap_or_else(|errors| panic!("{outside}: {errors:?}"));
+        let placed_body = concretized_cell_rule(ALIAS_PLACEMENT, placed)
+            .unwrap_or_else(|errors| panic!("{placed}: {errors:?}"));
+        assert_eq!(outside_body, placed_body, "{outside}");
+    }
+}
+
+// A `type="List"` instance written beside the one `<u>` continues into the one `<w>` there, an
+// alias of it included, and its position is stated when nothing written there may be part of the
+// same list: the alias's `...` stands for the rest of that list, after the placed instance.
+#[test]
+fn a_list_instance_placed_beside_an_alias_continues_into_the_aliased_cell() {
+    let configuration = r#"<k> $PGM:Int </k> <u> <ux> 0 </ux> <w> <wx> 0 </wx> <l multiplicity="*" type="List"> <lx> 0 </lx> </l> </w> </u>"#;
+    let outside = "<k> 0 => 1 </k> (<u> <ux> 1 </ux> (<w> <wx> 1 </wx> ... </w> #as W) ... </u> #as U) <l> <lx> 3 </lx> </l>";
+    let placed = "<k> 0 => 1 </k> (<u> <ux> 1 </ux> (<w> <wx> 1 </wx> <l> <lx> 3 </lx> </l> ... </w> #as W) ... </u> #as U)";
+    assert_eq!(
+        concretized_cell_rule(configuration, outside).unwrap(),
+        concretized_cell_rule(configuration, placed).unwrap()
+    );
+}
+
+// The one `<u>` holds the `<rid>` written beside its alias, so the rule states nothing about it
+// when that `<u>` is written closed (it has no other children), or when the cell written beside
+// it would be placed above it; such rules are rejected as the rules without the alias are.
+#[test]
+fn rejects_an_alias_outside_its_parent_whose_cell_cannot_take_its_place() {
+    for (rule, message) in [
+        (
+            "<k> 0 => 1 </k> (<u> <ux> 1 </ux> <r> R </r> </u> #as U) <rid> 3 </rid>",
+            "Cell <rid> written beside <u> belongs inside it: the configuration allows only one <u> there, and it is written closed (without ...), so it has no other children",
+        ),
+        (
+            "<k> 0 => 1 </k> <r> <m> (<u> <ux> 1 </ux> ... </u> #as U) ... </m> ... </r>",
+            "Cell <u> written inside <m>: the configuration places <m> inside <u>",
+        ),
+        (
+            "<k> 0 => 1 </k> ((<rid> 1 </rid> <m> <mx> 1 </mx> ... </m>) #as F)",
+            "The alias F in <generatedTop> names the cells <rid> <m>; an alias written in a cell body names one cell",
+        ),
+    ] {
+        let errors = concretized_cell_rule(ALIAS_PLACEMENT, rule).expect_err(rule);
+        assert!(
+            errors.iter().any(|error| error.contains(message)),
+            "{rule}: {errors:?}"
+        );
+    }
+}
+
 // An item written among a cell's children outside any rewrite is placed by the same rule as one
 // on a rewrite side, so an item no child holds is rejected with the same message, located in the
 // cell's body.
