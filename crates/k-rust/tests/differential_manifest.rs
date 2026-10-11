@@ -1848,8 +1848,8 @@ fn every_conformance_normalisation_is_registered() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids,
-        (1..=9).map(|id| format!("C{id}")).collect::<BTreeSet<_>>(),
-        "the conformance register must contain C1 through C9"
+        (1..=10).map(|id| format!("C{id}")).collect::<BTreeSet<_>>(),
+        "the conformance register must contain C1 through C10"
     );
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for row in rows {
@@ -1992,6 +1992,40 @@ fn every_conformance_normalisation_is_registered() {
         assert!(
             c9["justification"].as_str().unwrap().contains(needle),
             "C9 must cite {needle}"
+        );
+    }
+    // C10 is N4's reading of a checked-in KORE output: every `?` variable that neither the
+    // recipe's --pattern nor the request names is a rule existential, renamed bijectively and
+    // sort-preservingly per disjunct.
+    let c10 = rows
+        .iter()
+        .find(|row| row["id"].as_str() == Some("C10"))
+        .expect("C10 row");
+    assert_eq!(
+        c10["anchor_symbol"].as_str(),
+        Some("kore_output_comparison_environment")
+    );
+    for needle in [
+        "--output kore",
+        "executed_kore_matches_the_reference_backend",
+        "K_DIFFERENTIAL_PATTERN_EXISTENTIALS",
+        "bijective, sort-preserving renaming per disjunct",
+        "--pattern",
+        "request variable",
+    ] {
+        assert!(
+            c10["rule"].as_str().unwrap().contains(needle),
+            "C10 must state {needle}"
+        );
+    }
+    for needle in [
+        "docs/compatibility.md#result-variables",
+        "docs/compatibility.md#variable-names",
+        "docs/compatibility.md#comparison-contract",
+    ] {
+        assert!(
+            c10["justification"].as_str().unwrap().contains(needle),
+            "C10 must cite {needle}"
         );
     }
 }

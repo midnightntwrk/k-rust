@@ -2358,6 +2358,76 @@ print(json.dumps({
     }
 }
 
+/// C10: a recipe whose checked-in output is KORE reaches the structural comparator with the
+/// recipe's --pattern `?` variables in K_DIFFERENTIAL_PATTERN_EXISTENTIALS, empty for a plain run,
+/// so N4 renames every other `?` variable as a rule existential (the comparator's own behaviour is
+/// `execution_comparator_renames_rule_existentials_without_a_search_pattern` in
+/// reference_differential.rs).
+#[test]
+fn conformance_driver_compares_kore_output_modulo_existential_renaming() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+calls = []
+def fake_test_binary(name, env, cwd):
+    calls.append({"name": name, "env": env})
+    return 0, "", ""
+run.run_test_binary = fake_test_binary
+run.run_krust_program = lambda case, kind, prog, stdin_path, extra, sort, syntax_module, step: (
+    ["krust"], 0, "t{}(Ex-hVar'QuesUnds'Gen0-b0:SortInt{})", "", 0.0, False)
+run.confirm_oracle = lambda case, rec, step: None
+def driver(recipe_text):
+    root = tempfile.mkdtemp()
+    case = run.Case("kore-output")
+    case.dir = root; case.log = os.path.join(root, "logs")
+    os.makedirs(case.log)
+    case.ref_kompiled = os.path.join(root, "reference-kompiled")
+    case.def_file = "test.k"; case.main_module = "TEST"; case.syntax_module = "TEST"; case.pgm_sort = "KItem"
+    with open(os.path.join(root, "program.out"), "w") as f: f.write("t{}(Var'QuesUnds'Gen0:SortInt{})\n")
+    calls.clear()
+    step = run.do_krun(case, run.split_recipe(recipe_text))
+    return {"verdict": step["verdict"], "comparison": step.get("comparison"),
+            "calls": [[call["name"], call["env"].get("K_DIFFERENTIAL_PATTERN_EXISTENTIALS")] for call in calls]}
+
+print(json.dumps({
+    "plain": driver("/kbin/krun program --output kore | diff - program.out"),
+    "search": driver("/kbin/krun program --search-final --pattern '<k> ?Y:Int T:Int ?X:Int </k>' --output kore | diff - program.out"),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    for (name, existentials) in [("plain", ""), ("search", "X Y")] {
+        let probe = &probes[name];
+        assert_eq!(probe["verdict"], "match", "{name}: {probes}");
+        assert_eq!(
+            probe["calls"],
+            serde_json::json!([["executed_kore_matches_the_reference_backend", existentials]]),
+            "{name}: {probes}"
+        );
+        assert!(
+            probe["comparison"]
+                .as_str()
+                .unwrap()
+                .contains("modulo C10 existential renaming"),
+            "{name}: {probes}"
+        );
+    }
+}
+
 #[test]
 fn conformance_driver_compares_simplified_kore_when_the_execution_text_differs() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

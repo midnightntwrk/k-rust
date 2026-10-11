@@ -1362,6 +1362,34 @@ def krust_timeout_reason(step, tool):
     return f"krust {tool} timed out"
 
 
+# C10 (scripts/reference-normalisations.toml): a checked-in KORE output is compared structurally, modulo N4's
+# renaming of the rule existentials a result introduces (docs/compatibility.md#result-variables).
+KORE_OUTPUT_COMPARISON = (
+    "KORE disjunct multiset and constraints modulo C10 existential renaming "
+    "(reference_differential::executed_kore_matches_the_reference_backend)")
+
+
+def kore_output_comparison_environment(case, expected_path, kore_path, pattern=""):
+    """C10: the structural comparator's environment for a recipe whose checked-in output is KORE. It names the
+    recipe's --pattern `?` variables in K_DIFFERENTIAL_PATTERN_EXISTENTIALS (empty without a --pattern), so N4
+    renames every other `?` variable of either result as a rule existential, bijectively and sort-preservingly per
+    disjunct, as C7 does for kprint's `?` tokens; a `?` variable krust prints without a marker is a request
+    variable and stays fixed. K_DIFFERENTIAL_DEFINITION enables N15 when the reference kompiled definition exists."""
+    comparison_environment = {
+        "K_REFERENCE_EXECUTION": expected_path,
+        "K_RUST_EXECUTION": kore_path,
+        "K_DIFFERENTIAL_MODULE": case.main_module or "MAIN",
+        "K_RUST_KRUST": KRUST,
+        "K_DIFFERENTIAL_PATTERN_EXISTENTIALS": " ".join(sorted(pattern_existentials(pattern))),
+    }
+    definition = (
+        f"{case.ref_kompiled}/definition.kore" if case.ref_kompiled else None
+    )
+    if definition and os.path.exists(definition):
+        comparison_environment["K_DIFFERENTIAL_DEFINITION"] = definition
+    return comparison_environment
+
+
 def compare_execution(case, rec, step, kout, kore_output, tag, pattern=""):
     """Compare krust KORE output with the checked-in .out (pretty via kprint modulo C7 with the recipe's
     --pattern text fixing its own `?` variables, or structurally for --output kore)."""
@@ -1372,20 +1400,10 @@ def compare_execution(case, rec, step, kout, kore_output, tag, pattern=""):
         return None
     expected = open(outp, errors="replace").read()
     if kore_output:
-        comparison_environment = {
-            "K_REFERENCE_EXECUTION": outp,
-            "K_RUST_EXECUTION": kore_path,
-            "K_DIFFERENTIAL_MODULE": case.main_module or "MAIN",
-            "K_RUST_KRUST": KRUST,
-        }
-        definition = (
-            f"{case.ref_kompiled}/definition.kore" if case.ref_kompiled else None
-        )
-        if definition and os.path.exists(definition):
-            comparison_environment["K_DIFFERENTIAL_DEFINITION"] = definition
+        comparison_environment = kore_output_comparison_environment(case, outp, kore_path, pattern)
         trc, tout, terr = run_test_binary("executed_kore_matches_the_reference_backend",
                                           comparison_environment, case.dir)
-        step["comparison"] = "KORE disjunct multiset and constraints (reference_differential::executed_kore_matches_the_reference_backend)"
+        step["comparison"] = KORE_OUTPUT_COMPARISON
         if trc == 0: return True
         msg = re.search(r"panicked at[^\n]*\n(.*)", tout + terr, re.S)
         step["divergence"] = "\n".join(((msg.group(1) if msg else tout + terr).strip()).splitlines()[:DIFF_LINES])
