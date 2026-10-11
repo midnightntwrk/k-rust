@@ -1377,17 +1377,66 @@ fn reads_ground_keys_of_a_large_map_and_leaves_the_rest_as_the_frame() {
             "{mode:?}"
         );
     }
-    for (first, read_keys) in [(key(46), vec![key(19)]), (key(47), vec![key(18)])] {
+    // The failure names the pattern key the subject lacks, after `K` is bound.
+    for (first, read_keys, missing) in [
+        (key(46), vec![key(19)], key(19)),
+        (key(47), vec![key(18)], key(47)),
+    ] {
         let (pattern, subject) = read(first, &read_keys);
         for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
-            assert!(
-                matches!(
-                    match_terms(mode, &sort_graph(), &pattern, &subject),
-                    MatchResult::Failed(FailReason::KeyNotFound(_, _))
-                ),
+            assert_eq!(
+                match_terms(mode, &sort_graph(), &pattern, &subject),
+                MatchResult::Failed(FailReason::KeyNotFound(missing.clone())),
                 "{mode:?}"
             );
         }
+    }
+}
+
+/// A ground set that lacks a ground element of the pattern, and a ground map with an entry that a
+/// closed pattern does not name, are refuted in every mode. Callers read only which refutation
+/// it is; a missing element is named, the collections' contents are not checked.
+#[test]
+fn refutes_ground_collections_that_lack_or_add_an_entry() {
+    let set_definition = set_definition();
+    let element = |name| domain_value(Sort::simple("SetElement"), name);
+    let set_pattern = Term::set(
+        set_definition.clone(),
+        vec![element("b")],
+        Some(var("REST", Sort::simple("SetSort"))),
+    );
+    let set_subject = Term::set(set_definition, vec![element("a"), element("c")], None);
+
+    let map_definition = map_definition();
+    let key = |name| domain_value(Sort::simple("MapKey"), name);
+    let map_pattern = Term::map(
+        map_definition.clone(),
+        vec![(key("a"), var("VALUE", Sort::simple("MapValue")))],
+        None,
+    );
+    let map_subject = Term::map(
+        map_definition,
+        vec![
+            (key("a"), domain_value(Sort::simple("MapValue"), "1")),
+            (key("c"), domain_value(Sort::simple("MapValue"), "3")),
+        ],
+        None,
+    );
+
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        let result = match_terms(mode, &sort_graph(), &set_pattern, &set_subject);
+        assert!(
+            result == MatchResult::Failed(FailReason::KeyNotFound(element("b"))),
+            "{mode:?}: {result:?}"
+        );
+        let result = match_terms(mode, &sort_graph(), &map_pattern, &map_subject);
+        assert!(
+            matches!(
+                result,
+                MatchResult::Failed(FailReason::DifferentContents(_, _))
+            ),
+            "{mode:?}: {result:?}"
+        );
     }
 }
 
