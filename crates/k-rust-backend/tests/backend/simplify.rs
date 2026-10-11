@@ -5,7 +5,7 @@ use k_rust_backend::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     rewrite::Pattern,
-    rule::Predicate,
+    rule::{Predicate, RuleOrigin},
     simplify::*,
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     stop::Stoppable,
@@ -23,6 +23,18 @@ use crate::support::{
         simplify_predicate_with_solver, simplify_predicates_with_solver, simplify_with_solver,
     },
 };
+
+/// The first written sentence of the axiom `unique_id` of `definition`, which an
+/// `UndecidedCondition` of its equations carries.
+fn first_origin(definition: &BackendDefinition, unique_id: &str) -> Option<RuleOrigin> {
+    let mut axioms = definition
+        .classified_axioms()
+        .iter()
+        .filter(|axiom| axiom.attributes().unique_id == unique_id);
+    let axiom = axioms.next().expect("the axiom is in the definition");
+    assert!(axioms.next().is_none(), "one axiom has the id {unique_id}");
+    axiom.attributes().origins.first().cloned()
+}
 
 fn definition(axioms: &str) -> BackendDefinition {
     let source = format!(
@@ -2706,6 +2718,7 @@ fn a_refuted_element_binding_definedness_makes_the_subject_bottom() {
         diagnostics,
         [BackendDiagnostic::UndecidedCondition {
             rule_id: "discard".into(),
+            origin: first_origin(&definition, "discard"),
             reason: ConditionIndeterminacy::InconsistentPathCondition,
             predicates: vec![obligation],
             rule_variables: Vec::new(),
@@ -5944,6 +5957,7 @@ fn untranslatable_definedness_obligation_is_carried() {
         diagnostics,
         [BackendDiagnostic::UndecidedCondition {
             rule_id: "discard".into(),
+            origin: first_origin(&definition, "discard"),
             reason: ConditionIndeterminacy::Untranslatable(solver.0.clone()),
             predicates: vec![obligation],
             rule_variables: Vec::new(),
@@ -6731,6 +6745,7 @@ fn unbound_reports(diagnostics: &[BackendDiagnostic]) -> Vec<UnboundReport<'_>> 
         .filter_map(|diagnostic| match diagnostic {
             BackendDiagnostic::UndecidedCondition {
                 rule_id,
+                origin: _,
                 reason: ConditionIndeterminacy::UnboundResultVariables(variables),
                 predicates,
                 rule_variables,
@@ -7201,6 +7216,53 @@ fn a_dropped_call_whose_definedness_the_result_carries_is_reported() {
     }
 }
 
+/// Axioms that carry neither a label nor a `UNIQUE_ID` share the id `UNKNOWN`; a condition left
+/// undecided in one of them is reported with that axiom's own first sentence, so two such
+/// equations passed over on one term give two reports, each naming its own axiom.
+#[test]
+fn an_undecided_condition_carries_the_first_sentence_of_its_own_axiom() {
+    let unnamed = definition(&format!(
+        r#"{UNBOUND_RESULT_SYMBOLS}
+        axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortS{{}}, R}}(
+            f{{}}(X:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(Y:SortS{{}}), \top{{SortS{{}}}}())))
+            [simplification{{}}()]
+        axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortS{{}}, R}}(
+            p{{}}(X:SortS{{}}), \and{{SortS{{}}}}(wrap{{}}(Y:SortS{{}}), \top{{SortS{{}}}}())))
+            [simplification{{}}()]"#
+    ));
+    let origins = unnamed
+        .classified_axioms()
+        .iter()
+        .filter(|axiom| axiom.attributes().unique_id == "UNKNOWN")
+        .map(|axiom| axiom.attributes().origins.first().cloned())
+        .collect::<Vec<_>>();
+    assert_eq!(origins.len(), 2, "{origins:?}");
+    assert_ne!(origins[0], origins[1]);
+    let input = term(
+        &unnamed,
+        r#"budgetPair{}(f{}(\dv{SortS{}}("a")), p{}(\dv{SortS{}}("a")))"#,
+    );
+    let (result, diagnostics) =
+        diagnostic::collect(|| simplify(&unnamed, &input, SimplificationOptions::default()));
+    assert_eq!(result.unwrap().term, input);
+    let mut reported = diagnostics
+        .iter()
+        .map(|diagnostic| match diagnostic {
+            BackendDiagnostic::UndecidedCondition {
+                rule_id, origin, ..
+            } => {
+                assert_eq!(rule_id, "UNKNOWN");
+                origin.clone()
+            }
+            other => panic!("expected only undecided conditions: {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    reported.sort();
+    let mut expected = origins;
+    expected.sort();
+    assert_eq!(reported, expected);
+}
+
 /// A simplification equation whose result has a variable its left-hand side does not bind is
 /// passed over; a lower-priority simplification still applies, as after an open `requires`.
 /// The term is evaluated, so the passed-over equation is not reported; without the other
@@ -7238,6 +7300,7 @@ fn a_simplification_with_an_unbound_result_variable_is_passed_over() {
         diagnostics,
         [BackendDiagnostic::UndecidedCondition {
             rule_id: "unbound".into(),
+            origin: first_origin(&alone, "unbound"),
             reason: ConditionIndeterminacy::UnboundResultVariables(vec!["Y".into()]),
             predicates: Vec::new(),
             rule_variables: Vec::new(),

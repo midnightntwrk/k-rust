@@ -12,7 +12,7 @@ use rustc_hash::FxHashSet;
 
 use crate::{
     builtin::UnsupportedHookReason,
-    rule::{Predicate, collect_all_variables, rename_predicates},
+    rule::{Predicate, RuleOrigin, collect_all_variables, rename_predicates},
     simplify::{BudgetSubject, ConditionIndeterminacy, SimplificationError},
     term::{
         Term, TermKind, Variable,
@@ -52,6 +52,12 @@ pub enum BackendDiagnostic {
     /// dropped report nothing.
     UndecidedCondition {
         rule_id: String,
+        /// The first written sentence of the equation's axiom
+        /// ([`origins`](crate::rule::RuleAttributes::origins)). Axioms that carry neither a
+        /// label nor a `UNIQUE_ID` share the `rule_id` `UNKNOWN`, and no two axioms of a
+        /// definition share a first sentence, so the origin names the axiom the condition
+        /// belongs to where the id does not.
+        origin: Option<RuleOrigin>,
         reason: ConditionIndeterminacy,
         predicates: Vec<Predicate>,
         /// The variables of the equation that are free in `predicates`, as the attempt names

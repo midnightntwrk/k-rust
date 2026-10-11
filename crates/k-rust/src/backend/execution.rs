@@ -521,23 +521,27 @@ pub fn k_label(kore_name: &str) -> String {
     crate::kast::identifier::decode_label(kore_name).unwrap_or_else(|_| kore_name.to_owned())
 }
 
-/// How a warning names a rule: its label, or its `UNIQUE_ID` when it has none, and the position
-/// it is written at when the KORE carries one.
-fn rule_description(definition: &BackendDefinition, rule_id: &str) -> String {
-    let attributes = definition
+/// How a warning names the equation `rule_id` whose axiom's first written sentence is
+/// `origin`: the way every diagnostic names an axiom
+/// ([`diagnostic_name`](k_rust_backend::rule::RuleAttributes::diagnostic_name)). Axioms that
+/// carry neither a label nor a `UNIQUE_ID` share the id `UNKNOWN`, so the id alone does not say
+/// which of them the warning is about; no two axioms of a definition share a first sentence, so
+/// the id and the origin together do. The id alone names an equation no axiom of the
+/// definition has.
+fn rule_description(
+    definition: &BackendDefinition,
+    rule_id: &str,
+    origin: Option<&RuleOrigin>,
+) -> String {
+    definition
         .classified_axioms()
         .iter()
         .map(ClassifiedAxiom::attributes)
-        .find(|attributes| attributes.unique_id == rule_id);
-    let name = attributes
-        .and_then(|attributes| attributes.label.as_deref())
-        .unwrap_or(rule_id);
-    let position = attributes
-        .and_then(|attributes| attributes.origins.first())
-        .and_then(RuleOrigin::written_position)
-        .map(|position| format!(" at {position}"))
-        .unwrap_or_default();
-    format!("{name}{position}")
+        .find(|attributes| attributes.unique_id == rule_id && attributes.origins.first() == origin)
+        .map_or_else(
+            || rule_id.to_owned(),
+            |attributes| attributes.diagnostic_name(k_label),
+        )
 }
 
 /// A variable as the author wrote it: the K name a KORE variable name encodes (`VarY` is `Y`),
@@ -639,13 +643,14 @@ fn parenthesized_explanations(explanations: &[String]) -> String {
 fn undecided_condition_message(
     definition: &BackendDefinition,
     rule_id: &str,
+    origin: Option<&RuleOrigin>,
     reason: &ConditionIndeterminacy,
     predicates: &[Predicate],
     rule_variables: &[Variable],
     result_sort: &Sort,
     depth: u64,
 ) -> String {
-    let rule = rule_description(definition, rule_id);
+    let rule = rule_description(definition, rule_id, origin);
     let (predicates, rule_variables) = diagnostic::printable_condition(predicates, rule_variables);
     let mut explained = rule_variables
         .iter()
@@ -728,6 +733,7 @@ fn report_diagnostics<'a>(
             }
             BackendDiagnostic::UndecidedCondition {
                 rule_id,
+                origin,
                 reason,
                 predicates,
                 rule_variables,
@@ -736,6 +742,7 @@ fn report_diagnostics<'a>(
                 undecided_condition_message(
                     definition,
                     rule_id,
+                    origin.as_ref(),
                     reason,
                     predicates,
                     rule_variables,
@@ -2189,6 +2196,7 @@ mod undecided_reason_tests {
             let message = super::undecided_condition_message(
                 &definition,
                 "r",
+                None,
                 reason,
                 &[],
                 &[],
@@ -2200,6 +2208,49 @@ mod undecided_reason_tests {
             }
         }
         assert!(in_debug.is_empty(), "{in_debug:#?}");
+    }
+
+    /// Axioms that carry neither a label nor a `UNIQUE_ID` share the id `UNKNOWN`; a warning
+    /// about the condition of one of them names that axiom by its own first sentence, where it
+    /// is written when the KORE says so and by its place in its module otherwise, so two such
+    /// equations are never named alike.
+    #[test]
+    fn an_unnamed_equation_is_named_by_its_own_sentence() {
+        let syntax = k_rust_kore::kore::parser::parse_definition(
+            r#"[] module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}(), functional{}()]
+                symbol f{}(SortS{}) : SortS{} [function{}()]
+                symbol g{}(SortS{}) : SortS{} [function{}()]
+                axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                    f{}(X:SortS{}), \and{SortS{}}(a{}(), \top{SortS{}}())))
+                    [simplification{}()]
+                axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                    g{}(X:SortS{}), \and{SortS{}}(a{}(), \top{SortS{}}())))
+                    [simplification{}(),
+                     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(test.k)"),
+                     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,20)")]
+            endmodule []"#,
+        )
+        .expect("the definition parses");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes");
+        let names = definition
+            .classified_axioms()
+            .iter()
+            .map(|axiom| axiom.attributes())
+            .filter(|attributes| attributes.unique_id == "UNKNOWN")
+            .map(|attributes| {
+                super::rule_description(&definition, "UNKNOWN", attributes.origins.first())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            [
+                "at sentence index 4 (zero-based) of module MAIN",
+                "at test.k:7:3"
+            ]
+        );
     }
 
     /// Every name a warning prints is the user's or explained: a variable free in the
@@ -2244,6 +2295,7 @@ mod undecided_reason_tests {
             let condition = super::undecided_condition_message(
                 &definition,
                 "r",
+                None,
                 &reason,
                 std::slice::from_ref(predicate),
                 &[],

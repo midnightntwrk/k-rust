@@ -1399,17 +1399,19 @@ impl AlphaComparable for BackendDiagnostic {
             (
                 UndecidedCondition {
                     rule_id: li,
+                    origin: lo,
                     reason: lr,
                     predicates: lp,
                     rule_variables: lv,
                 },
                 UndecidedCondition {
                     rule_id: ri,
+                    origin: ro,
                     reason: rr,
                     predicates: rp,
                     rule_variables: rv,
                 },
-            ) if li == ri && lv.len() == rv.len() => {
+            ) if li == ri && lo == ro && lv.len() == rv.len() => {
                 collect_condition_indeterminacy(lr, rr, context)?;
                 collect_slice(lp, rp, context, collect_predicate)?;
                 // The list is in variable order, which a renaming need not keep.
@@ -1440,11 +1442,13 @@ impl AlphaComparable for BackendDiagnostic {
         Ok(match self {
             UndecidedCondition {
                 rule_id,
+                origin,
                 reason,
                 predicates,
                 rule_variables,
             } => UndecidedCondition {
                 rule_id: rule_id.clone(),
+                origin: origin.clone(),
                 reason: rename_condition_indeterminacy(reason, context),
                 predicates: rename_predicates(predicates, context),
                 rule_variables: {
