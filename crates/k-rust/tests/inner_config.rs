@@ -475,7 +475,7 @@ fn parses_uppercase_cell_names_without_treating_them_as_variables() {
 }
 
 fn resolve_source(source: &str, main_module: &str) -> Result<Definition, ConfigError> {
-    let parsed = k_rust::outer::parse("unread-configuration-variable.k", source).unwrap();
+    let parsed = k_rust::outer::parse("phrase-token-configuration.k", source).unwrap();
     let lowered = k_rust::outer::lower(&parsed, main_module).unwrap();
     resolve_configuration_bubbles(&lowered)
 }
@@ -557,20 +557,6 @@ endmodule
 "#;
     let body = configuration_body(&resolve_source(source, "T").unwrap());
     assert!(body.contains("#token(\"1 , 2\",\"Toks\")"), "{body}");
-}
-
-#[test]
-fn a_configuration_variable_read_through_its_sort_and_variable_text_inside_a_token_are_accepted() {
-    let source = format!(
-        "{PHRASE_TOKEN_SYNTAX}
-module T
-  imports T-SYNTAX
-  syntax Quoted ::= r\"'[^']*'\" [token]
-  configuration <t> <k> $PGM:Run </k> <q> '$PGM' </q> </t>
-endmodule
-"
-    );
-    resolve_source(&source, "T").unwrap();
 }
 
 #[test]

@@ -3375,55 +3375,6 @@ impl Grammar {
             .flat_map(|sort_id| self.productions_for_id(sort_id))
     }
 
-    /// The byte spans, in order, of the tokens of `input` that a token production of `sort`
-    /// scans by its own lexeme (a single terminal or regex item).
-    ///
-    /// The scanner's winner at a position depends only on the input there, so `input` has one
-    /// token stream, which every parse of it reads: from the start, each winner is consumed,
-    /// layout skipped and a token kept. A token of that stream is written in `input` whatever a
-    /// parse later builds over it. The walk ends at the first position with no nonempty winner,
-    /// where no parse continues either.
-    pub(in crate::inner) fn scanned_tokens_of(
-        &self,
-        sort: &Sort,
-        input: &str,
-    ) -> Vec<(usize, usize)> {
-        let lexemes = self
-            .productions_for(sort)
-            .filter_map(|index| {
-                let production = &self.productions[index];
-                match production.item_lexeme_ids.as_slice() {
-                    [Some(lexeme)] if production.token => Some(*lexeme),
-                    _ => None,
-                }
-            })
-            .collect::<BTreeSet<_>>();
-        let mut spans = Vec::new();
-        if lexemes.is_empty() {
-            return spans;
-        }
-        let mut scanner_cache = vec![None; input.len() + 1];
-        let mut position = 0;
-        // Invariant: `spans` holds the tokens of `lexemes` in the stream before `position`, a
-        // boundary of the stream; each iteration consumes one nonempty winner.
-        while position < input.len() {
-            match self
-                .scanner
-                .winner(&self.layout, input, position, &mut scanner_cache[position])
-            {
-                Some(ScanWinner::Layout { end }) if end > position => position = end,
-                Some(ScanWinner::Token { lexeme, end }) if end > position => {
-                    if lexemes.contains(&lexeme) {
-                        spans.push((position, end));
-                    }
-                    position = end;
-                }
-                Some(ScanWinner::Layout { .. } | ScanWinner::Token { .. }) | None => break,
-            }
-        }
-        spans
-    }
-
     fn canonical_position(
         &self,
         input: &str,
