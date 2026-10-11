@@ -1702,6 +1702,8 @@ impl<K: Clone, V: Clone> FoundKeys<K, V> {
             pattern_only,
             found,
         } = self;
+        #[cfg(test)]
+        SPLIT_COPIES.with(|copies| copies.set(copies.get() + subject.len() - found.len()));
         let mut subject_only = Vec::with_capacity(subject.len() - found.len());
         let mut start = 0;
         for index in found {
@@ -1715,6 +1717,12 @@ impl<K: Clone, V: Clone> FoundKeys<K, V> {
             subject_only,
         }
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test builds: the subject entries this thread's [`FoundKeys::split`]s have copied.
+    pub(crate) static SPLIT_COPIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 impl<K, V> FoundKeys<K, V> {

@@ -1215,3 +1215,73 @@ fn a_conjunction_under_an_injection_matches_a_value_of_a_subsort() {
         );
     }
 }
+
+/// A constructor-like pattern key that a map with constructor-like keys does not bind refutes the
+/// match from the keys alone: the subject's other entries, which the refutation does not name,
+/// are not copied, so the failure costs the search and not the size of the subject.
+#[test]
+fn a_ground_key_missing_from_a_ground_map_fails_without_copying_its_other_entries() {
+    const ENTRIES: u32 = 4096;
+    let definition = map_definition();
+    let key = |index: u32| domain_value(Sort::simple("MapKey"), &format!("{index:05}"));
+    let subject = Term::map(
+        definition.clone(),
+        (1..=ENTRIES)
+            .map(|index| (key(2 * index), domain_value(Sort::simple("MapValue"), "v")))
+            .collect(),
+        None,
+    );
+    for rest in [None, Some(var("REST", Sort::simple("MapSort")))] {
+        let pattern = Term::map(
+            definition.clone(),
+            vec![(key(ENTRIES + 1), var("VALUE", Sort::simple("MapValue")))],
+            rest,
+        );
+        for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+            crate::matching::SPLIT_COPIES.with(|copies| copies.set(0));
+            assert_eq!(
+                match_terms(mode, &sort_graph(), &pattern, &subject),
+                MatchResult::Failed(FailReason::KeyNotFound(key(ENTRIES + 1))),
+                "{mode:?}"
+            );
+            assert_eq!(
+                crate::matching::SPLIT_COPIES.with(std::cell::Cell::get),
+                0,
+                "{mode:?}: the subject's other entries were copied"
+            );
+        }
+    }
+}
+
+/// A constructor-like pattern key that the subject does not bind syntactically is refuted only
+/// when every subject key is constructor-like: a symbolic subject key may denote it, so the match
+/// is not refuted, whatever the number of other ground keys beside it.
+#[test]
+fn a_ground_key_missing_beside_a_symbolic_subject_key_is_not_refuted() {
+    let definition = map_definition();
+    let key = |name: &str| domain_value(Sort::simple("MapKey"), name);
+    let value = |name: &str| domain_value(Sort::simple("MapValue"), name);
+    let subject = Term::map(
+        definition.clone(),
+        vec![
+            (key("a"), value("1")),
+            (var("K", Sort::simple("MapKey")), value("2")),
+            (key("c"), value("3")),
+        ],
+        None,
+    );
+    for rest in [None, Some(var("REST", Sort::simple("MapSort")))] {
+        let pattern = Term::map(
+            definition.clone(),
+            vec![(key("b"), var("VALUE", Sort::simple("MapValue")))],
+            rest,
+        );
+        for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+            let result = match_terms(mode, &sort_graph(), &pattern, &subject);
+            assert!(
+                !matches!(result, MatchResult::Failed(_)),
+                "{mode:?}: {result:?}"
+            );
+        }
+    }
+}

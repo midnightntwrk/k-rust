@@ -46,6 +46,8 @@
 //! point of `crate::matching` keeps its path.
 
 mod collections;
+#[cfg(test)]
+pub(crate) use collections::SPLIT_COPIES;
 
 pub(crate) use collections::{
     CollectionMatches, CollectionSolution, Narrowing, expand_closed_map_implication_remainders,
