@@ -542,11 +542,10 @@ pub enum HaltReason {
     /// its term a rewrite successor. The set of satisfying instances may be empty.
     Stuck,
     /// An undefined step: under the leaf pattern's constraints, some rule applies to every
-    /// instance (it matches, its `requires` holds, and it blocks the lower priorities), and, under
-    /// `ExecutionMode::All`, no instance has a defined successor. `ExecutionMode::Any` offers
-    /// such instances to every later rule of the same priority but follows one collection
-    /// candidate per rule, so there no rule of that priority gives an instance a defined
-    /// successor through the candidate the step follows; another collection candidate might.
+    /// instance (it matches, its `requires` holds, and it blocks the lower priorities), and no
+    /// instance has a defined successor. `ExecutionMode::Any` offers such instances to every
+    /// later application group of the rule and every later rule of the same priority, so there
+    /// too no rule of that priority gives an instance a defined successor.
     /// `rule_id` names the rule when one application is responsible. The set of satisfying
     /// instances may be empty.
     Trivial {

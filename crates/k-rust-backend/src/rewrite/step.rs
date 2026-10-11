@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Any"
-//! bound = "O(c) rule attempts plus one predicate simplification per applied rule and per priority whose rules left some applicable instance without a defined result, and one SAT check per step"
+//! bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), and one SAT check per step"
 //!
 //! [[cost]]
 //! mode = "Any with dropped-successor tracking (SequentialDeterminism)"
@@ -28,13 +28,16 @@
 //! priority group, so a configuration's successors are those of every rule of the first priority
 //! that applies to it, while `Any` mode threads it through the rules sequentially, so each instance
 //! follows, among the rules of the first priority that applies to it, the first that gives it a
-//! defined result, and none when each of them that applies gives an undefined one. The returned
-//! remainder is complete in both modes. Within a priority, `Any` feeds each rule the instances no
-//! earlier rule took to a defined result, so the instances where a rule applies but its result is
-//! undefined reach the later rules of its priority, and only the priority's end excludes every
-//! instance one of its rules applies to. O(c) rule attempts per step for the c candidates of
-//! `rule::applicable_rewrite_groups` plus one SAT check per productive group (`All`) or one
-//! predicate simplification per applied rule and one SAT check per step (`Any`);
+//! defined result (and, among that rule's application groups, the first that does), and none
+//! when each of them that applies gives an undefined one. The returned remainder is complete in
+//! both modes. Within a priority, `Any` feeds each rule, and each application group of a rule,
+//! the instances no earlier one took to a defined result, so the instances where a rule applies
+//! but its result is undefined reach the later rules of its priority, and only the priority's end
+//! excludes every instance one of its rules applies to through any of its application groups.
+//! O(c) rule attempts per step for the c candidates of `rule::applicable_rewrite_groups` plus one
+//! SAT check per productive group (`All`) or one predicate simplification per applied application
+//! group, one SAT check per candidate of a rule's application group after its first, and one SAT
+//! check per step (`Any`);
 //! `Counter::RewriteRulesApplied`. A one-path proof step also asks `Any` whether it may have
 //! dropped a successor (`SequentialDeterminism`): a rule of a priority that already applied is
 //! attempted once more on the whole subject, and the sub-cases of one priority are compared
@@ -604,12 +607,13 @@ fn fold_lower_priority_groups(
 /// Whether a sequential step may have dropped a successor of some configuration of its subject.
 ///
 /// The sequential step feeds each rule only the part of the subject that no earlier rule of its
-/// priority took to a defined result (and that no higher priority applies to), follows one
-/// collection candidate per rule, and keeps one symbolic successor for a rule whose right-hand
-/// side chooses a value. A configuration then loses a successor exactly when two applications of
-/// the same priority give it a defined result (the later one is fed the complement of the
-/// earlier's defined sub-case), when a rule has a second collection candidate, or when one
-/// application stands for several successors. The tracker is conservative: it reports `dropped`
+/// priority took to a defined result (and that no higher priority applies to), feeds each
+/// application group of a rule the part no earlier group of it took to a defined result, and
+/// keeps one symbolic successor for a rule whose right-hand side chooses a value. A configuration
+/// then loses a successor exactly when two applications of the same priority give it a defined
+/// result (the later one is fed the complement of the earlier's defined sub-case), which a rule
+/// with a second application group may do on its own, or when one application stands for
+/// several successors. The tracker is conservative: it reports `dropped`
 /// unless each of these is excluded, a pairwise disjointness by a syntactic refutation or an
 /// `Unsat` answer (an abstracted query can answer `Sat` spuriously, never `Unsat`). Lower-priority
 /// rules are not alternatives where a higher-priority rule applies, so only equal priorities are
@@ -765,6 +769,27 @@ fn rule_has_one_successor(rule: &RewriteRule) -> bool {
                 .iter()
                 .all(|variable| bound.contains(variable))
         })
+}
+
+/// Whether `constraints` may have an instance: `false` only when they are refuted, by their
+/// constants, a finite constructor domain or an `Unsat` answer. A stop is no answer, so it is
+/// returned.
+fn may_have_instance(
+    definition: &BackendDefinition,
+    constraints: &[Predicate],
+    solver: &dyn SmtSolver,
+) -> Stoppable<bool> {
+    Ok(match predicates_truth(constraints) {
+        Truth::False => false,
+        Truth::True => true,
+        Truth::Unknown => {
+            !violates_finite_constructor_domain(definition, constraints)
+                && !matches!(
+                    solver.is_sat(constraints, &Substitution::new())?,
+                    Ok(Satisfiability::Unsat)
+                )
+        }
+    })
 }
 
 /// Simplify the constraints of `remaining` under those of `pattern`, recording the work.
@@ -929,106 +954,152 @@ pub(super) fn rewrite_step_any(
             RuleAttempt::NotApplicable => {}
             RuleAttempt::Unified { groups } => {
                 measure::bump(Counter::RewriteRulesApplied);
-                // `any` follows one deterministic collection candidate of the first applicable
-                // rule; the other groups' work belongs to candidates it does not follow.
-                let group = groups
-                    .into_iter()
-                    .next()
-                    .expect("a unified rule has an application group");
-                let common = group.common.unwrap_or_default();
-                let mut group_trivial = group.trivial;
-                restrict_to_undefined(&mut group_trivial, &group.applied);
-                let candidates_work = in_emission_order(
-                    std::iter::once(common.as_slice()).chain(
-                        group
-                            .applied
-                            .iter()
-                            .map(|application| application.diagnostics.as_slice()),
-                    ),
-                );
-                // The earlier trivial entries of this priority were offered to this rule: its
-                // candidates take their instances in its defined sub-cases.
-                if !group.applied.is_empty() {
-                    let earlier = &mut trivial[priority_trivial..];
-                    exclude_defined(earlier, &group.applied);
-                    for entry in earlier {
-                        extend_distinct(&mut entry.diagnostics, &candidates_work);
+                // Each application group of the rule (one collection candidate or split case of
+                // its match) is a way the rule applies, and each blocks the lower priorities
+                // where it applies. They are offered the subject in order, as the rules of a
+                // priority are: a group takes the instances no earlier group took to a defined
+                // result. The attempt was made before any of them narrowed `remaining`, so a
+                // later group's candidates are restricted here by the complements of the earlier
+                // groups' defined sub-cases (`excluded`), the conjuncts `remaining` gained from
+                // them, and a candidate with no instance left is dropped.
+                let mut excluded = Vec::new();
+                let mut earlier_defined = Vec::new();
+                for group in groups {
+                    if predicates_truth(&remaining.pattern().constraints) == Truth::False {
+                        // The earlier groups took every instance.
+                        break;
                     }
-                }
-                let mut undefined_diagnostics = remaining_diagnostics.clone();
-                extend_distinct(
-                    &mut undefined_diagnostics,
-                    &in_emission_order(
-                        std::iter::once(common.as_slice())
-                            .chain(
-                                group
-                                    .applied
-                                    .iter()
-                                    .map(|application| application.diagnostics.as_slice()),
-                            )
-                            .chain(std::iter::once(group.trivial_work.as_slice())),
-                    ),
-                );
-                let mut narrowed = false;
-                // The work the narrowing of `remaining` derives from beyond `common`; the
-                // candidates of this attempt are not derived from it.
-                let mut narrowing_work = Vec::new();
-                for application in group.applied {
-                    extend_unique(
-                        &mut remainder_conditions,
-                        std::iter::once(application.remainder.as_predicate().clone()),
+                    let common = group.common.unwrap_or_default();
+                    let mut group_trivial = group.trivial;
+                    restrict_to_undefined(&mut group_trivial, &group.applied);
+                    exclude_defined(&mut group_trivial, &earlier_defined);
+                    let mut offered = Vec::with_capacity(group.applied.len());
+                    for mut application in group.applied {
+                        if !excluded.is_empty() {
+                            for restricted in [
+                                &mut application.applied.before,
+                                &mut application.applied.pattern,
+                            ] {
+                                extend_unique(
+                                    &mut restricted.constraints,
+                                    excluded.iter().cloned(),
+                                );
+                            }
+                            if !may_have_instance(
+                                definition,
+                                &application.applied.pattern.constraints,
+                                solver,
+                            )? {
+                                // Every instance it has a defined result on is an earlier
+                                // group's; where it applies, it still blocks.
+                                extend_unique(
+                                    &mut remainder_conditions,
+                                    std::iter::once(application.remainder.as_predicate().clone()),
+                                );
+                                remaining.block(application.remainder);
+                                continue;
+                            }
+                        }
+                        offered.push(application);
+                    }
+                    let candidates_work = in_emission_order(
+                        std::iter::once(common.as_slice()).chain(
+                            offered
+                                .iter()
+                                .map(|application| application.diagnostics.as_slice()),
+                        ),
                     );
-                    let narrowing =
-                        remaining.exclude_defined(&application.defined, &application.remainder);
-                    if narrowing.restricted {
-                        // The defined sub-case also derives from the candidate's own work.
-                        narrowing_work.extend(application.diagnostics.iter().cloned());
+                    // The earlier trivial entries of this priority were offered to this group:
+                    // its candidates take their instances in their defined sub-cases.
+                    if !offered.is_empty() {
+                        let earlier = &mut trivial[priority_trivial..];
+                        exclude_defined(
+                            earlier,
+                            offered.iter().map(|application| &application.defined),
+                        );
+                        for entry in earlier {
+                            extend_distinct(&mut entry.diagnostics, &candidates_work);
+                        }
                     }
-                    narrowed |= narrowing.grew;
-                    // The work on `remaining` so far precedes this attempt.
-                    let mut candidate = application.applied;
-                    let mut diagnostics = remaining_diagnostics.clone();
+                    let mut undefined_diagnostics = remaining_diagnostics.clone();
                     extend_distinct(
-                        &mut diagnostics,
-                        &in_emission_order([common.as_slice(), &application.diagnostics]),
+                        &mut undefined_diagnostics,
+                        &in_emission_order(
+                            std::iter::once(common.as_slice())
+                                .chain(
+                                    offered
+                                        .iter()
+                                        .map(|application| application.diagnostics.as_slice()),
+                                )
+                                .chain(std::iter::once(group.trivial_work.as_slice())),
+                        ),
                     );
-                    candidate.diagnostics = diagnostics;
-                    applied.push(candidate);
-                }
-                // `remaining` is narrowed by the negation of this group's defined sub-cases, and
-                // at the priority's end by the negation of its applicability, whose work is
-                // `blocked_diagnostics`.
-                extend_distinct(
-                    &mut remaining_diagnostics,
-                    &in_emission_order([common.as_slice(), narrowing_work.as_slice()]),
-                );
-                extend_distinct(
-                    &mut blocked_diagnostics,
-                    &in_emission_order([common.as_slice()]),
-                );
-                for mut application in group_trivial {
-                    application.diagnostics.clone_from(&undefined_diagnostics);
-                    extend_unique(
-                        &mut remainder_conditions,
-                        std::iter::once(application.remainder.as_predicate().clone()),
-                    );
-                    remaining.block(application.remainder.clone());
-                    trivial.push(application);
-                }
-                if narrowed
-                    && let Err(error) = simplify_remaining(
-                        definition,
-                        pattern,
-                        &mut remaining,
+                    let mut narrowed = false;
+                    // The work the narrowing of `remaining` derives from beyond `common`; the
+                    // candidates of this group are not derived from it.
+                    let mut narrowing_work = Vec::new();
+                    for application in offered {
+                        extend_unique(
+                            &mut remainder_conditions,
+                            std::iter::once(application.remainder.as_predicate().clone()),
+                        );
+                        let narrowing =
+                            remaining.exclude_defined(&application.defined, &application.remainder);
+                        if narrowing.restricted {
+                            // The defined sub-case also derives from the candidate's own work.
+                            narrowing_work.extend(application.diagnostics.iter().cloned());
+                        }
+                        narrowed |= narrowing.grew;
+                        extend_unique(
+                            &mut excluded,
+                            std::iter::once(application.defined.complement(&application.remainder)),
+                        );
+                        earlier_defined.push(application.defined);
+                        // The work on `remaining` so far precedes this group.
+                        let mut candidate = application.applied;
+                        let mut diagnostics = remaining_diagnostics.clone();
+                        extend_distinct(
+                            &mut diagnostics,
+                            &in_emission_order([common.as_slice(), &application.diagnostics]),
+                        );
+                        candidate.diagnostics = diagnostics;
+                        applied.push(candidate);
+                    }
+                    // `remaining` is narrowed by the negation of this group's defined sub-cases,
+                    // and at the priority's end by the negation of its applicability, whose work
+                    // is `blocked_diagnostics`.
+                    extend_distinct(
                         &mut remaining_diagnostics,
-                        simplification_options,
-                        solver,
-                    )?
-                {
-                    return Ok(RewriteResult::Simplification {
-                        pattern: remaining.into_pattern(),
-                        error,
-                    });
+                        &in_emission_order([common.as_slice(), narrowing_work.as_slice()]),
+                    );
+                    extend_distinct(
+                        &mut blocked_diagnostics,
+                        &in_emission_order([common.as_slice()]),
+                    );
+                    for mut application in group_trivial {
+                        application.diagnostics.clone_from(&undefined_diagnostics);
+                        extend_unique(
+                            &mut remainder_conditions,
+                            std::iter::once(application.remainder.as_predicate().clone()),
+                        );
+                        remaining.block(application.remainder.clone());
+                        trivial.push(application);
+                    }
+                    if narrowed
+                        && let Err(error) = simplify_remaining(
+                            definition,
+                            pattern,
+                            &mut remaining,
+                            &mut remaining_diagnostics,
+                            simplification_options,
+                            solver,
+                        )?
+                    {
+                        return Ok(RewriteResult::Simplification {
+                            pattern: remaining.into_pattern(),
+                            error,
+                        });
+                    }
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
