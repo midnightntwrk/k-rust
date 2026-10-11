@@ -14,13 +14,7 @@
 //! Equality, order and hash are those of the item sequence, as for the vector itself: the
 //! derived implementations of the newtype hand the vector to the vector's.
 
-use std::{
-    cmp::Ordering,
-    fmt,
-    iter::FusedIterator,
-    ops::{Deref, RangeBounds},
-    slice, vec,
-};
+use std::{cmp::Ordering, fmt, iter::FusedIterator, ops::RangeBounds, slice, vec};
 
 use super::Term;
 
@@ -261,15 +255,6 @@ impl<T> IntoIterator for Items<T> {
 
     fn into_iter(self) -> IntoIter<T> {
         IntoIter(self.0.into_iter())
-    }
-}
-
-// Temporary, while the sites that read the items as a slice move to the methods above.
-impl<T> Deref for Items<T> {
-    type Target = [T];
-
-    fn deref(&self) -> &[T] {
-        &self.0
     }
 }
 
