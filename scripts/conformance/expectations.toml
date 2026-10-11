@@ -541,9 +541,9 @@ accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 exclusion = ""
-reason = "5.test: the program token NaNp24x8 is printed NaNf by the LLVM runtime's Float printer (float_to_string re-spells a binary32 value with the f suffix, llvm-backend runtime/strings/numeric.cpp); the pinned Haskell engine and krust both keep the token as written (kast --output kore and kore-exec print NaNp24x8), and the frontend's own printer would spell it NaNp24x8 (FloatBuiltin.value). The value and format are identical (domains.md: p24x8 is binary32); the difference is LLVM-specific printing under docs/compatibility.md#backend-scope. 1.test to 4.test match. In a sandbox the LLVM interpreter cannot start under the RLIMIT_AS fallback, so the case reports reference-error there; on the host it is this mismatch."
+reason = "5.test: the program token NaNp24x8 is printed NaNf by the LLVM runtime's Float printer, which re-spells a binary32 value with the f suffix; krust keeps the token as written, as do kast --output kore and kore-exec (both print NaNp24x8). The value and format are identical (domains.md: p24x8 is binary32); the difference is LLVM-specific printing under docs/compatibility.md#backend-scope. 1.test to 4.test match. In a sandbox the LLVM interpreter cannot start under the RLIMIT_AS fallback, so the case reports reference-error there; on the host it is this mismatch."
 step_exclusions = [
-  { step = "krun", test = "5.test", exclusion = "llvm-only", reason = "5.test: the program token NaNp24x8 is printed NaNf by the LLVM runtime's Float printer (float_to_string re-spells a binary32 value with the f suffix, llvm-backend runtime/strings/numeric.cpp); the pinned Haskell engine and krust both keep the token as written (kast --output kore and kore-exec print NaNp24x8), and the frontend's own printer would spell it NaNp24x8 (FloatBuiltin.value). The value and format are identical (domains.md: p24x8 is binary32); the difference is LLVM-specific printing under docs/compatibility.md#backend-scope. 1.test to 4.test match. In a sandbox the LLVM interpreter cannot start under the RLIMIT_AS fallback, so the case reports reference-error there; on the host it is this mismatch." },
+  { step = "krun", test = "5.test", exclusion = "llvm-only", reason = "5.test: the program token NaNp24x8 is printed NaNf by the LLVM runtime's Float printer, which re-spells a binary32 value with the f suffix; krust keeps the token as written, as do kast --output kore and kore-exec (both print NaNp24x8). The value and format are identical (domains.md: p24x8 is binary32); the difference is LLVM-specific printing under docs/compatibility.md#backend-scope. 1.test to 4.test match. In a sandbox the LLVM interpreter cannot start under the RLIMIT_AS fallback, so the case reports reference-error there; on the host it is this mismatch." },
 ]
 [[case]]
 name = "fresh1"
@@ -766,9 +766,9 @@ accepted_stage = "kompile"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "The reference kompile is expected to fail, so no reference definition exists to drive the kast step against; the kompile rejection itself matches (docs/compatibility.md#driver-scope)."
+reason = "The reference kompile is expected to fail, so no reference definition exists to drive the krun step against; the kompile rejection itself matches (docs/compatibility.md#driver-scope)."
 step_exclusions = [
-  { step = "krun", exclusion = "undriven-recipe", reason = "The reference kompile is expected to fail, so no reference definition exists to drive the kast step against; the kompile rejection itself matches (docs/compatibility.md#driver-scope)." },
+  { step = "krun", exclusion = "undriven-recipe", reason = "The reference kompile is expected to fail, so no reference definition exists to drive the krun step against; the kompile rejection itself matches (docs/compatibility.md#driver-scope)." },
 ]
 
 [[case]]
@@ -957,9 +957,9 @@ accepted_stage = "krun"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "krun"
 exclusion = ""
-reason = "kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile and krun steps match."
+reason = "kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile step matches; krun 1.test mismatches (an unpaired `?_Gen0` disjunct), pending."
 step_exclusions = [
-  { step = "kast", exclusion = "declined-capability", reason = "kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile and krun steps match." },
+  { step = "kast", exclusion = "declined-capability", reason = "kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile step matches; krun 1.test mismatches (an unpaired `?_Gen0` disjunct), pending." },
 ]
 
 [[case]]
@@ -1199,9 +1199,9 @@ accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "The anywhere equation foo() = bar() simplifies the initial configuration to bar() in both toolchains. The remaining rewrite foo() => baz() matches through a function equality in Kore (Kore/Simplify/AndTerms.hs functionAnd), which simplifies to true; LLVM instead matches syntactically and retains bar(). The LLVM execution expectation is excluded under docs/compatibility.md#backend-scope. Compilation agrees: an anywhere rewrite is constrained by its left-hand side sort, as TypeInferencer.isFunction(t, isAnywhere) requires (revision 746bbb8)."
+reason = "The anywhere equation foo() = bar() simplifies the initial configuration to bar() in both toolchains. The remaining rewrite foo() => baz() still applies: the equation makes foo() and bar() the same value, so unifying the left-hand side foo() with bar() is true; LLVM instead matches syntactically and retains bar(). The LLVM execution expectation is excluded under docs/compatibility.md#backend-scope. Compilation agrees: an anywhere rewrite is constrained by its left-hand side sort, since it replaces a term of that sort wherever one occurs."
 step_exclusions = [
-  { step = "krun", exclusion = "llvm-only", reason = "The anywhere equation foo() = bar() simplifies the initial configuration to bar() in both toolchains. The remaining rewrite foo() => baz() matches through a function equality in Kore (Kore/Simplify/AndTerms.hs functionAnd), which simplifies to true; LLVM instead matches syntactically and retains bar(). The LLVM execution expectation is excluded under docs/compatibility.md#backend-scope. Compilation agrees: an anywhere rewrite is constrained by its left-hand side sort, as TypeInferencer.isFunction(t, isAnywhere) requires (revision 746bbb8)." },
+  { step = "krun", exclusion = "llvm-only", reason = "The anywhere equation foo() = bar() simplifies the initial configuration to bar() in both toolchains. The remaining rewrite foo() => baz() still applies: the equation makes foo() and bar() the same value, so unifying the left-hand side foo() with bar() is true; LLVM instead matches syntactically and retains bar(). The LLVM execution expectation is excluded under docs/compatibility.md#backend-scope. Compilation agrees: an anywhere rewrite is constrained by its left-hand side sort, since it replaces a term of that sort wherever one occurs." },
 ]
 [[case]]
 name = "issue-3035-antileft/haskell"
@@ -1929,9 +1929,9 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Compilation agrees: the MInt{K} ::= MInt{64} bridge belongs only to the parsing module (RuleGrammarGenerator.java), so parametric results in ==MInt slots infer declared widths. All 13 execution steps require unsupported MInt-specialized hooks: MINT.bytes2MInt, MINT.MInt2bytes, MINT.pow, BYTES.lengthMInt, BYTES.getMInt, BYTES.updateMInt, BYTES.padLeftMInt, BYTES.padRightMInt, BYTES.substrMInt, BYTES.replaceAtMInt, LIST.getMInt, LIST.sizeMInt and LIST.updateMInt. Neither pinned Kore engine evaluates them; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml."
+reason = "Compilation agrees: the MInt{K} ::= MInt{64} bridge belongs only to the parsing module, so parametric results in ==MInt slots infer declared widths. All 13 execution steps require unsupported MInt-specialized hooks: MINT.bytes2MInt, MINT.MInt2bytes, MINT.pow, BYTES.lengthMInt, BYTES.getMInt, BYTES.updateMInt, BYTES.padLeftMInt, BYTES.padRightMInt, BYTES.substrMInt, BYTES.replaceAtMInt, LIST.getMInt, LIST.sizeMInt and LIST.updateMInt. Neither pinned Kore engine evaluates them; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml."
 step_exclusions = [
-  { step = "krun", exclusion = "llvm-only", reason = "Compilation agrees: the MInt{K} ::= MInt{64} bridge belongs only to the parsing module (RuleGrammarGenerator.java), so parametric results in ==MInt slots infer declared widths. All 13 execution steps require unsupported MInt-specialized hooks: MINT.bytes2MInt, MINT.MInt2bytes, MINT.pow, BYTES.lengthMInt, BYTES.getMInt, BYTES.updateMInt, BYTES.padLeftMInt, BYTES.padRightMInt, BYTES.substrMInt, BYTES.replaceAtMInt, LIST.getMInt, LIST.sizeMInt and LIST.updateMInt. Neither pinned Kore engine evaluates them; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml." },
+  { step = "krun", exclusion = "llvm-only", reason = "Compilation agrees: the MInt{K} ::= MInt{64} bridge belongs only to the parsing module, so parametric results in ==MInt slots infer declared widths. All 13 execution steps require unsupported MInt-specialized hooks: MINT.bytes2MInt, MINT.MInt2bytes, MINT.pow, BYTES.lengthMInt, BYTES.getMInt, BYTES.updateMInt, BYTES.padLeftMInt, BYTES.padRightMInt, BYTES.substrMInt, BYTES.replaceAtMInt, LIST.getMInt, LIST.sizeMInt and LIST.updateMInt. Neither pinned Kore engine evaluates them; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml." },
 ]
 
 [[case]]
@@ -2674,7 +2674,7 @@ accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "The function rule `freshIntx() => !_I:Int` retains its free right-hand variable in both emitted definitions: ResolveFreshConstants.java returns function rules unchanged, as does Rust rule_defines_function. LLVM supplies a runtime fresh counter: adding 10 yields 10 for one call and 10 ~> 11 for two calls. The pinned Haskell backend instead times out after 240 s on 1.test; Rust explores symbolic branches. This LLVM fresh-counter expectation is excluded under docs/compatibility.md#backend-scope. Compilation and 2.test agree (the latter prints 7)."
+reason = "krust kompile rejects `rule freshIntx() => !_I:Int` with InvalidFreshConstant (docs/compatibility.md#compiler-resolved-fresh-constants), so neither test runs, pending. 1.test's expected output is excluded as the step exclusion states; 2.test (expected output 7) stays ranked."
 step_exclusions = [
-  { step = "krun", test = "1.test", exclusion = "llvm-only", reason = "The function rule `freshIntx() => !_I:Int` retains its free right-hand variable in both emitted definitions: ResolveFreshConstants.java returns function rules unchanged, as does Rust rule_defines_function. LLVM supplies a runtime fresh counter: adding 10 yields 10 for one call and 10 ~> 11 for two calls. The pinned Haskell backend instead times out after 240 s on 1.test; Rust explores symbolic branches. This LLVM fresh-counter expectation is excluded under docs/compatibility.md#backend-scope. Compilation and 2.test agree (the latter prints 7)." },
+  { step = "krun", test = "1.test", exclusion = "llvm-only", reason = "1.test expects each call of freshIntx() to yield the next value of a counter. The function rule `freshIntx() => !_I:Int` is an equation, applied wherever the function occurs without the configuration, so no counter cell supplies its fresh variable and the rule defines no value for the call (docs/compatibility.md#compiler-resolved-fresh-constants). The expected values come from a runtime counter that the LLVM backend threads through function evaluation, and are excluded under docs/compatibility.md#backend-scope." },
 ]
