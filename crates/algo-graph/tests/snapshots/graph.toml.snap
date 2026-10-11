@@ -6579,7 +6579,7 @@ id = "parser.chart.completed_memo"
 provenance = "declared"
 area = "parser"
 name = "completed-node memoization for Earley charts"
-variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation, plus parser.forest.cycle_check when its production is flagged"
+variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_completed_packed_priority for one derivation, plus parser.forest.cycle_check when its production is flagged"
 table = "Algorithm::ALL"
 registry_name = "ParserChartCompletedMemo"
 
@@ -6893,15 +6893,15 @@ symbol = "Grammar::filter_packed_priority"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::filter_or_defer_packed_priority"
+symbol = "Grammar::filter_completed_packed_priority"
 
 [[node.cost]]
 mode = "one parse forest"
 bound = "O(N)"
 
 [[node.cost]]
-mode = "one completion candidate (filter_or_defer_packed_priority)"
-bound = "one memoized packed filter; a Scope error under KRewrite, KSequence or Let is deferred, and the candidate kept"
+mode = "one completion candidate (filter_completed_packed_priority)"
+bound = "one memoized packed filter; a candidate that breaks any relation, a scope error included, is dropped"
 
 [[node]]
 kind = "algorithm"
@@ -7058,7 +7058,7 @@ id = "parser.earley.recognize"
 provenance = "declared"
 area = "parser"
 name = "agenda-driven Earley recognition"
-variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; P = distinct lexemes among the input's tokens; u = nodes (chart, production, and the production of the node it is in the forest, which differs only for a production that passes its child through) whose usefulness the completion lookahead decides once per next token and count of deferred-scope witnesses before the position, and whose root reachability it searches, each again only when asked with a later earliest end than the bounds already known for it, each search over the waiting items of the charts it reaches, each item judged by the associativity and priority relations at its edge (a priority violation, where a rewrite, sequence or #let could defer a scope error, only against the first witness token after the caller's origin) and by where the input's next token its rest can begin with lies (O(P log B))"
+variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; P = distinct lexemes among the input's tokens; u = nodes (chart, production, and the production of the node it is in the forest, which differs only for a production that passes its child through) whose usefulness the completion lookahead decides once per next token, and whose root reachability it searches, each again only when asked with a later earliest end than the bounds already known for it, each search over the waiting items of the charts it reaches, each item judged by the associativity and priority relations at its edge and by where the input's next token its rest can begin with lies (O(P log B))"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserEarleyRecognize"
@@ -7150,7 +7150,7 @@ symbol = "InstanceNodes::intern"
 
 [[node.cost]]
 mode = "recognition (the chart loop of recognize)"
-bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it; a chain written directly as a side of a rewrite keeps every doomed reading that takes the rewrite as an operand (cubic) unless the input has only one token that can begin a rewrite, sequence or #let, where the first attempt skips them (DoomedEdges); the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
+bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it, and for a chain written directly as a side of a rewrite, whose readings that take the rewrite as an operand break a relation and are skipped; the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
 
 [[node.cost]]
 mode = "one parse attempt (parse_attempt)"
@@ -7162,7 +7162,7 @@ bound = "two recognitions, the second with the relations ignored and every node 
 
 [[node.cost]]
 mode = "filtered attempt with retry (parse_in_context, diagnose)"
-bound = "at most two parse attempts, after a first that skipped edges to doomed readings (DoomedEdges) and failed, which is then made again keeping them; the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain would take the cubic recognition of that chain's relation-free grammar; every attempt and explanation after the first shares one work limit (DiagnosticWork), the larger of a floor and 16 times the first attempt's chart steps, past which the first attempt's own error is reported, so a failed parse takes chart work linear in its first attempt's plus the floor"
+bound = "at most two parse attempts, the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain would take the cubic recognition of that chain's relation-free grammar; every attempt and explanation after the first shares one work limit (DiagnosticWork), the larger of a floor and 16 times the first attempt's chart steps, past which the first attempt's own error is reported, so a failed parse takes chart work linear in its first attempt's plus the floor"
 
 [[node]]
 kind = "algorithm"

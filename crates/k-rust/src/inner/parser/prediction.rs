@@ -38,7 +38,6 @@ use k_rust_kore::measure::{self, Counter};
 #[cfg(test)]
 use super::Sort;
 use super::{Grammar, Item};
-use crate::kast::InternalLabel;
 
 /// A set of scanner lexeme ids, one bit per id; ids are dense indexes into the scanner.
 #[derive(Clone, Default, Eq, PartialEq)]
@@ -144,29 +143,6 @@ pub(super) struct PredictionAnalysis {
     /// For each active production and each dot position, what the items from the dot to the end
     /// can begin with; `None` for a production the predictor never adds.
     rests: Vec<Option<ProductionRests>>,
-    /// The productions the predictor adds that build a rewrite, a sequence or a `#let`, whose
-    /// scope errors the priority filter defers, as the tokens their nodes contain.
-    deferred_scopes: DeferredScopes,
-}
-
-/// Where a node whose scope error the priority filter defers (one built by a production
-/// labelled `#KRewrite`, `#KSequence` or `#let`) can lie in the input.
-#[derive(Clone, Debug)]
-pub(super) enum DeferredScopes {
-    /// The grammar builds no such node.
-    Absent,
-    /// Every such node contains a token of one of these lexemes (each production's first
-    /// lexical item), so a span without one contains none.
-    Witnessed(LexemeSet),
-    /// Some such production has no lexical item, so any span may contain its node.
-    Unwitnessed,
-}
-
-impl DeferredScopes {
-    /// Whether a token of `lexeme` witnesses a deferred node (`Witnessed` only).
-    pub(super) fn witnesses(&self, lexeme: usize) -> bool {
-        matches!(self, Self::Witnessed(lexemes) if lexemes.contains(lexeme))
-    }
 }
 
 /// The FIRST sets and nullability of the suffixes of one production's items.
@@ -340,58 +316,13 @@ impl PredictionAnalysis {
                 nullable,
             });
         }
-        let deferred = |index: usize| {
-            grammar.productions[index]
-                .parse_label
-                .as_deref()
-                .is_some_and(|label| {
-                    [
-                        InternalLabel::KRewrite,
-                        InternalLabel::KSequence,
-                        InternalLabel::Let,
-                    ]
-                    .iter()
-                    .any(|deferred| label == deferred.as_str())
-                })
-        };
-        let mut deferred_scopes = DeferredScopes::Absent;
-        for index in grammar.by_result.iter().flatten() {
-            let production = &grammar.productions[*index];
-            if !deferred(*index) && !production.term_production.is_some_and(deferred) {
-                continue;
-            }
-            let witness = production
-                .items
-                .iter()
-                .filter(|item| !matches!(item, Item::NonTerminal(_)))
-                .find_map(|item| grammar.scanner.lexeme_id(item));
-            deferred_scopes = match (deferred_scopes, witness) {
-                (DeferredScopes::Unwitnessed, _) | (_, None) => DeferredScopes::Unwitnessed,
-                (DeferredScopes::Absent, Some(lexeme)) => {
-                    let mut lexemes = LexemeSet::default();
-                    lexemes.insert(lexeme);
-                    DeferredScopes::Witnessed(lexemes)
-                }
-                (DeferredScopes::Witnessed(mut lexemes), Some(lexeme)) => {
-                    lexemes.insert(lexeme);
-                    DeferredScopes::Witnessed(lexemes)
-                }
-            };
-        }
         Self {
             first_items,
             epsilon,
             first,
             buckets,
             rests,
-            deferred_scopes,
         }
-    }
-
-    /// Where the nodes whose scope errors the priority filter defers can lie
-    /// (`Grammar::boundary_admits`).
-    pub(super) fn deferred_scopes(&self) -> &DeferredScopes {
-        &self.deferred_scopes
     }
 
     /// Whether the items of `production` from `dot` on can begin with the lexeme `winner`, the
@@ -483,16 +414,16 @@ mod tests {
     use proptest::prelude::*;
 
     use super::super::{
-        CHART_COMPLETION_CANDIDATES, DiagnosticWork, DoomedEdges, NONTERMINAL_PREDICTIONS_SKIPPED,
-        NoParseInput, PARSE_ATTEMPTS, PREDICTION_ANALYSIS_BUILDS, PackedPriorityMemos, PackedTerm,
-        ParseContext, ParseError, ParseProvenance, PredictionMode, PriorityFilter, Pruning,
-        Recognition, SameSpanCycles, ScanWinner, SourceId, Term, TermMetadata, WorkMeter,
+        CHART_COMPLETION_CANDIDATES, DiagnosticWork, NONTERMINAL_PREDICTIONS_SKIPPED, NoParseInput,
+        PARSE_ATTEMPTS, PREDICTION_ANALYSIS_BUILDS, PackedPriorityMemos, PackedTerm, ParseContext,
+        ParseError, ParseProvenance, PredictionMode, PriorityFilter, Pruning, Recognition,
+        SameSpanCycles, ScanWinner, SourceId, Term, TermMetadata, WorkMeter,
     };
     use super::*;
     use crate::definition::{
         Attributes, ProductionCatalog, ProductionItem, Sentence, SortDenotations,
     };
-    use crate::kast::{Label, TermSpan};
+    use crate::kast::{InternalLabel, Label, TermSpan};
     fn nt(sort: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
             sort: Sort::new(sort),
@@ -1063,7 +994,6 @@ mod tests {
                     PriorityFilter::Ignored,
                     stand_in,
                     false,
-                    DoomedEdges::Kept,
                     &mut false,
                     &mut WorkMeter::unlimited(),
                     &mut scanner_cache,
@@ -1088,13 +1018,13 @@ mod tests {
             }
         }
 
-        /// The same in a grammar with productions labelled `#KRewrite`, `#KSequence` or `#let`,
-        /// whose scope errors below an operator the priority filter defers: the doomed nodes
-        /// it keeps can be read by the preference among the readings of the root, so skipping
-        /// items must keep every one it can read (`Grammar::priority_admits`), and an attempt
-        /// that skipped the others and failed is made again keeping them (`DoomedEdges`).
+        /// The same in a grammar with productions labelled `#KRewrite`, `#KSequence` or `#let`:
+        /// a node of one below an operator is a scope error, which drops the reading at
+        /// completion like every other violation, so skipping the items that would build one
+        /// loses no parse (`Grammar::boundary_admits`); and an ambiguity prefers its readings
+        /// rooted at such a node, which the skipped items must leave unchanged.
         #[test]
-        fn completion_pruning_matches_unfiltered_recognition_with_deferred_scopes(
+        fn completion_pruning_matches_unfiltered_recognition_with_rewrites_sequences_and_lets(
             productions in prop::collection::vec(
                 (0u8..3, prop::collection::vec(0u8..8, 0..5)),
                 1..9,
@@ -1415,19 +1345,15 @@ mod tests {
         ));
     }
 
-    /// In a grammar with a rewrite, the priority filter keeps a node whose child is a rewrite
-    /// below an operator: the scope error is deferred, so that a reading rooted at the rewrite
-    /// can be preferred over it, and until then the doomed node, with every edge below it, is
-    /// part of the forest. Under `S2 ::= "a" | S0 "c" | S2 S0 "c" [#KRewrite]` and
-    /// `S0 ::= S2 S0 | ""`, `a c c c` is ambiguous. A first attempt that skipped every item
-    /// whose edge the filter rejects, the deferred ones included, built a smaller forest than an
-    /// unfiltered recognition, with other readings. The report is a function of the readings
-    /// (the smallest subterm outside which they all agree, and where they differ), so it is pinned
-    /// once for both engines, and the forests are compared directly. The input holds three
-    /// `c`, each a token a rewrite node can hold, so
-    /// the full parse skips no edge to a doomed node either (`DoomedEdges`).
+    /// In a grammar with a rewrite, a rewrite below an operator is a scope error, which drops
+    /// the node holding it at completion like every other violation, and a filtered
+    /// recognition skips the items that would build such a node. Under
+    /// `S2 ::= "a" | S0 "c" | S2 S0 "c" [#KRewrite]` and `S0 ::= S2 S0 | ""`, `a c c c` is
+    /// ambiguous. The report is a function of the readings (the smallest subterm outside which
+    /// they all agree, and where they differ), not of how a forest packs them, so the filtered
+    /// attempt, the full parse and an unfiltered recognition report the same ambiguity.
     #[test]
-    fn edges_below_a_deferred_scope_error_are_kept() {
+    fn an_ambiguity_beside_a_rewrite_below_an_operator_is_reported_by_its_readings() {
         let grammar = Grammar::from_sentences(&[
             production("Start", vec![nt("S0")], "start"),
             production("S1", vec![], "p0"),
@@ -1442,44 +1368,9 @@ mod tests {
             production("S0", vec![], "p5"),
         ])
         .unwrap();
-        let forest = |mode: PredictionMode| {
-            let input = "a c c c";
-            let start = grammar.sort_id(grammar.sort_denotations.denote(&Sort::new("Start")));
-            let mut scanner_cache = vec![None; input.len() + 1];
-            let start_position = grammar.canonical_position(input, 0, &mut scanner_cache);
-            grammar
-                .recognize(
-                    start.unwrap(),
-                    start_position,
-                    input,
-                    ParseProvenance {
-                        source: SourceId(7),
-                        base_offset: 100,
-                    },
-                    mode,
-                    PriorityFilter::Enforced,
-                    None,
-                    false,
-                    DoomedEdges::Kept,
-                    &mut false,
-                    &mut WorkMeter::unlimited(),
-                    &mut scanner_cache,
-                    &std::cell::RefCell::new(PackedPriorityMemos::default()),
-                )
-                .map(|recognition| recognition.parses)
-        };
-        let unfiltered_forest = forest(PredictionMode::Unfiltered);
-        assert!(
-            unfiltered_forest
-                .as_ref()
-                .is_ok_and(|parses| !parses.is_empty()),
-            "{unfiltered_forest:?}"
-        );
-        assert_eq!(forest(PredictionMode::Filtered), unfiltered_forest);
 
         // The readings differ at both children of the root's `S2 S0`, so the whole input is
-        // reported, with those two subterms, whichever engine decided the forest and however
-        // it packed the readings.
+        // reported, with those two subterms.
         let (start, end) = (100, 107);
         let expected = unfiltered(&grammar, "a c c c");
         assert!(
@@ -1510,23 +1401,19 @@ mod tests {
         assert_eq!(filtered(&grammar, "a c c c"), expected);
     }
 
-    /// Two witnesses: a doomed node the preference reads. `Start ::= S` passes its child
-    /// through, so the readings of `S` are the readings of the root, among which the preference
-    /// keeps those rooted at a rewrite. `S ::= A "=>" X` is a rewrite and
-    /// `S ::= A "=>" Y [imp]` an ordinary production over the same token; `X` derives only
-    /// `Q "*" A [times]`, with the nested rewrite `Q ::= A "=>" A` as its first child, and
-    /// `times > plus`. In `a => a => a * a + a` the only `X` is
-    /// `times(rewrite(a, a), plus(a, a))`: the filter meets the rewrite below `times` (a scope
-    /// error it defers) before the sum below it (a priority violation), so that node is doomed
-    /// and stays in the forest. It lies inside `rewrite(a, times(..))`, the one reading of `S`
-    /// rooted at a rewrite, and `imp(a, ytail(a, a, plus(a, a)))` is the other. The preference
-    /// keeps the rewrite reading, whose doomed node fails the filter, so the input has no
-    /// parse. A recognition that skipped the edge from `times` to the sum would not build that
-    /// reading, and would accept the input through `imp`. So in an input with two witnesses
-    /// (here the two `=>`, the first lexical item of each rewrite), the first attempt keeps
-    /// the edges to doomed nodes (`DoomedEdges`).
+    /// A reading with a rewrite below an operator denotes nothing, so it is dropped when its
+    /// node completes and is no candidate for the preference among the readings of the root.
+    /// `Start ::= S` passes its child through, so the readings of `S` are the readings of the
+    /// root, among which the preference keeps those rooted at a rewrite. `S ::= A "=>" X` is a
+    /// rewrite and `S ::= A "=>" Y [imp]` an ordinary production over the same token; `X`
+    /// derives only `Q "*" A [times]`, with the nested rewrite `Q ::= A "=>" A` as its first
+    /// child, and `times > plus`. In `a => a => a * a + a` the only `X` is
+    /// `times(rewrite(a, a), plus(a, a))`, which breaks two relations (the rewrite below
+    /// `times`, the sum below `times`) and is dropped, so `S` has no reading rooted at a
+    /// rewrite and its one reading, `imp(a, ytail(a, a, plus(a, a)))`, is the parse, whichever
+    /// of the two violations is met first.
     #[test]
-    fn a_doomed_node_inside_a_rewrite_with_two_witnesses_is_kept() {
+    fn a_reading_with_a_rewrite_below_an_operator_is_no_candidate_for_the_preference() {
         let grammar = Grammar::from_sentences(&[
             Sentence::Production {
                 label: None,
@@ -1563,8 +1450,10 @@ mod tests {
         let input = "a => a => a * a + a";
         let expected = unfiltered(&grammar, input);
         assert!(
-            matches!(&expected, Err(ParseError::Scope { parent, child })
-                if parent == "times" && child == InternalLabel::KRewrite.as_str()),
+            matches!(&expected, Ok(term) if matches!(
+                term.unannotated(),
+                Term::Apply { label, .. } if label.name == "imp"
+            )),
             "{expected:?}"
         );
         assert_eq!(filtered(&grammar, input), expected);
@@ -2453,7 +2342,7 @@ mod tests {
         /// The structured pruning generator: an operator grammar (infix, prefix and postfix
         /// operators over two sorts, labelled unary productions, duplicates of an operator under
         /// another label, `applyPriority` naming one end, priorities, associativity groups, and
-        /// rewrites and sequences, whose scope errors are deferred), and its metamorphic pair,
+        /// rewrites and sequences, which are scope errors below an operator), and its metamorphic pair,
         /// the same grammar with one operand of one operator written through an unlabelled
         /// pass-through (`P ::= S`). The pass-through builds no node, so both grammars derive
         /// the same trees under the same labels, priorities and associativity; where the
@@ -2618,8 +2507,7 @@ mod tests {
     /// The pruning difference the structured generator found: a postfix `S1 ::= S1 "+" [o2]`
     /// beside a rewrite, written `S1 ::= P "+"` through `P ::= S1`. On `a => a +` the parse
     /// gives the unfiltered recognition's scope error, but only through the retry: the first
-    /// filtered attempt, keeping every edge to a doomed node, finds no derivation where the
-    /// unfiltered recognition finds one. Without the pass-through the two agree.
+    /// filtered attempt finds no derivation where the unfiltered recognition finds one. Without the pass-through the two agree.
     #[test]
     #[ignore = "K29 finding: a first pruned attempt misses a derivation behind a pass-through; un-ignore with its fix"]
     fn a_pass_through_below_a_postfix_operator_keeps_the_first_attempts_derivation() {
@@ -2639,7 +2527,8 @@ mod tests {
     /// Class test for the inference-engine ticket: the Z3 and portable engines implement one
     /// decision (which readings of a forest are the parse), so on one forest they reject alike:
     /// the same error, the same reported ambiguity, span and subterms. The forest is
-    /// the one `edges_below_a_deferred_scope_error_are_kept` pins per engine; both engines are
+    /// the one `an_ambiguity_beside_a_rewrite_below_an_operator_is_reported_by_its_readings`
+    /// pins per engine; both engines are
     /// run on it in one build, after the same recognition and pre-inference passes.
     #[cfg(feature = "z3-inference")]
     #[test]
@@ -2677,7 +2566,6 @@ mod tests {
                 PriorityFilter::Enforced,
                 None,
                 false,
-                DoomedEdges::Kept,
                 &mut false,
                 &mut WorkMeter::unlimited(),
                 &mut scanner_cache,

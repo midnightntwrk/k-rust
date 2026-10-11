@@ -14,7 +14,7 @@
 //! id = "parser.chart.completed_memo"
 //! name = "completed-node memoization for Earley charts"
 //! sites = ["completed_nodes", "Chart::invalidate_completed_node"]
-//! variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation, plus parser.forest.cycle_check when its production is flagged"
+//! variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_completed_packed_priority for one derivation, plus parser.forest.cycle_check when its production is flagged"
 //! counters = ["ParserCompletedNodesHits", "ParserCompletedNodesMisses", "ParserCompletedNodesInvalidated", "ParserChartCompletionCandidates"]
 //!
 //! [[cost]]
@@ -699,7 +699,7 @@ pub(super) fn completed_nodes(
             };
             let filtered = match filter {
                 PriorityFilter::Enforced => {
-                    grammar.filter_or_defer_packed_priority(Rc::clone(&term), priority_memos)
+                    grammar.filter_completed_packed_priority(Rc::clone(&term), priority_memos)
                 }
                 PriorityFilter::Ignored => Ok(Rc::clone(&term)),
             };
@@ -891,7 +891,7 @@ mod tests {
             },
         );
         let parent = grammar
-            .filter_or_defer_packed_priority(parent, &RefCell::new(PackedPriorityMemos::default()))
+            .filter_completed_packed_priority(parent, &RefCell::new(PackedPriorityMemos::default()))
             .expect("packed parent satisfies priority");
         let PackedNode::Production { children, .. } = &parent.node else {
             panic!("expected packed production");

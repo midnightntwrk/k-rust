@@ -2,13 +2,13 @@
 //! id = "parser.earley.recognize"
 //! name = "agenda-driven Earley recognition"
 //! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance", "Grammar::parse_in_context", "Grammar::diagnose", "Grammar::explain", "Grammar::advanced_item_useful", "Grammar::completion_useful", "Grammar::node_reaches_root", "Grammar::priority_admits", "RemainingTokens::new", "Reach::rest_follows", "InstanceNodes::intern"]
-//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; P = distinct lexemes among the input's tokens; u = nodes (chart, production, and the production of the node it is in the forest, which differs only for a production that passes its child through) whose usefulness the completion lookahead decides once per next token and count of deferred-scope witnesses before the position, and whose root reachability it searches, each again only when asked with a later earliest end than the bounds already known for it, each search over the waiting items of the charts it reaches, each item judged by the associativity and priority relations at its edge (a priority violation, where a rewrite, sequence or #let could defer a scope error, only against the first witness token after the caller's origin) and by where the input's next token its rest can begin with lies (O(P log B))"
+//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; P = distinct lexemes among the input's tokens; u = nodes (chart, production, and the production of the node it is in the forest, which differs only for a production that passes its child through) whose usefulness the completion lookahead decides once per next token, and whose root reachability it searches, each again only when asked with a later earliest end than the bounds already known for it, each search over the waiting items of the charts it reaches, each item judged by the associativity and priority relations at its edge and by where the input's next token its rest can begin with lies (O(P log B))"
 //! counters = ["ParserParseAttempts", "ParserChartAgendaPops", "ParserChartRevisitPops", "ParserChartDerivationsRead", "ParserChartPredictionAttempts", "ParserChartCompletionCandidates", "ParserTerminalPredictionsSkipped", "ParserNonterminalPredictionsSkipped"]
 //! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "recognition (the chart loop of recognize)"
-//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it; a chain written directly as a side of a rewrite keeps every doomed reading that takes the rewrite as an operand (cubic) unless the input has only one token that can begin a rewrite, sequence or #let, where the first attempt skips them (DoomedEdges); the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
+//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it, and for a chain written directly as a side of a rewrite, whose readings that take the rewrite as an operand break a relation and are skipped; the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
@@ -20,7 +20,7 @@
 //!
 //! [[cost]]
 //! mode = "filtered attempt with retry (parse_in_context, diagnose)"
-//! bound = "at most two parse attempts, after a first that skipped edges to doomed readings (DoomedEdges) and failed, which is then made again keeping them; the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain would take the cubic recognition of that chain's relation-free grammar; every attempt and explanation after the first shares one work limit (DiagnosticWork), the larger of a floor and 16 times the first attempt's chart steps, past which the first attempt's own error is reported, so a failed parse takes chart work linear in its first attempt's plus the floor"
+//! bound = "at most two parse attempts, the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain would take the cubic recognition of that chain's relation-free grammar; every attempt and explanation after the first shares one work limit (DiagnosticWork), the larger of a floor and 16 times the first attempt's chart steps, past which the first attempt's own error is reported, so a failed parse takes chart work linear in its first attempt's plus the floor"
 //! ```
 //!
 //! ```toml algorithm
@@ -144,7 +144,7 @@ pub(crate) use self::disambiguation::parse_apply_priority;
 use self::lists::UserList;
 #[cfg(feature = "cli")]
 pub(crate) use self::parametric::concretize_parametric_productions;
-use self::prediction::{DeferredScopes, PredictionAnalysis};
+use self::prediction::PredictionAnalysis;
 #[cfg(feature = "cli")]
 pub(crate) use self::scanner::DEFAULT_LAYOUT;
 pub(super) use self::scanner::Scanner;
@@ -257,10 +257,6 @@ struct Reach<'a> {
     remaining: Option<&'a RemainingTokens>,
     /// The position of the next token, where every caller's rest begins at the earliest.
     from: usize,
-    /// Which edges to a doomed node may be skipped.
-    doomed: DoomedEdges,
-    /// Set when an edge that `DoomedEdges::Kept` keeps is skipped.
-    doomed_pruned: &'a std::cell::Cell<bool>,
 }
 
 impl Reach<'_> {
@@ -313,9 +309,6 @@ impl Reach<'_> {
 struct RemainingTokens {
     /// The positions of each lexeme's tokens, ascending, by lexeme.
     positions: HashMap<usize, Vec<usize>>,
-    /// The positions, ascending, of the tokens that witness a node whose scope error the
-    /// priority filter defers (`DeferredScopes::Witnessed`).
-    deferrals: Vec<usize>,
 }
 
 impl RemainingTokens {
@@ -326,11 +319,9 @@ impl RemainingTokens {
         grammar: &Grammar,
         input: &str,
         from: usize,
-        deferred_scopes: &DeferredScopes,
         scanner_cache: &mut [ScanCacheEntry],
     ) -> Self {
         let mut positions = HashMap::<usize, Vec<usize>>::new();
-        let mut deferrals = Vec::new();
         let mut position = from;
         // Invariant: `position` is a token boundary reached from `from`; it strictly increases
         // at every token read, so the loop ends, and each lexeme's positions are ascending.
@@ -345,40 +336,12 @@ impl RemainingTokens {
                 break;
             };
             positions.entry(lexeme).or_default().push(canonical);
-            if deferred_scopes.witnesses(lexeme) {
-                deferrals.push(canonical);
-            }
             if end <= canonical {
                 break;
             }
             position = end;
         }
-        Self {
-            positions,
-            deferrals,
-        }
-    }
-
-    /// The first token at or after `position` that witnesses a node whose scope error the
-    /// priority filter defers.
-    fn first_deferral_from(&self, position: usize) -> Option<usize> {
-        self.deferrals
-            .get(
-                self.deferrals
-                    .partition_point(|deferral| *deferral < position),
-            )
-            .copied()
-    }
-
-    /// How many such witnesses the input holds.
-    fn deferral_count(&self) -> usize {
-        self.deferrals.len()
-    }
-
-    /// How many such witnesses come before `position`.
-    fn deferrals_before(&self, position: usize) -> usize {
-        self.deferrals
-            .partition_point(|deferral| *deferral < position)
+        Self { positions }
     }
 
     /// The first position at or after `after` where the token is a lexeme for which `accepts`
@@ -411,38 +374,12 @@ impl RemainingTokens {
     }
 }
 
-/// Whether a caller can hold a node at its dot in a reading the priority filter keeps
-/// (`Grammar::boundary_admits`).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Admission {
-    No,
-    Yes,
-    /// Only when the caller's own node ends past the token at this position: the edge breaks a
-    /// relation, which drops the caller's node at completion unless an earlier check of it
-    /// meets a scope error the filter defers, and such an error needs a node of a rewrite,
-    /// sequence or `#let`, which contains a token that witnesses it, the first of which at or
-    /// after the caller's origin lies here.
-    IfEndsAfter(usize),
-}
-
-impl Admission {
-    /// The earliest `after` of the caller's node, given the earliest its rest allows.
-    fn after(self, after: usize) -> Option<usize> {
-        match self {
-            Self::No => None,
-            Self::Yes => Some(after),
-            Self::IfEndsAfter(witness) => Some(after.max(witness + 1)),
-        }
-    }
-}
-
 /// A node the root-reachability searches judge: its origin, the production that builds it, and
 /// the production of the node it is in the forest (`Grammar::stands_for`).
 type NodeKey = (usize, usize, usize);
 
-/// A completion `Grammar::completion_useful` judges: the node, the scanner's next token, and
-/// how many witnesses of a deferred scope error come before the position.
-type CompletionKey = (NodeKey, Option<usize>, usize);
+/// A completion `Grammar::completion_useful` judges: the node and the scanner's next token.
+type CompletionKey = (NodeKey, Option<usize>);
 
 /// What the root-reachability searches of one recognition learned of a node
 /// (`Grammar::node_reaches_root`): it can be part of a parse when its callers' rests may begin
@@ -515,10 +452,6 @@ impl InstanceNodes {
 /// What a parse attempt skipped, for the decision to retry it.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Pruning {
-    /// Which edges to a doomed node the attempt may skip (`DoomedEdges`); set by the caller.
-    pub(super) doomed: DoomedEdges,
-    /// Whether the attempt skipped an edge that `DoomedEdges::Kept` keeps.
-    pub(super) doomed_pruned: bool,
     /// Whether the attempt skipped a prediction or a completion an unfiltered attempt makes.
     pub(super) pruned: bool,
     /// The last non-empty chart of the attempt's recognition of the whole input under the
@@ -667,8 +600,7 @@ impl From<ParseError> for Failure {
 struct NoDerivation {
     /// The no-parse diagnostic of the attempt's own chart.
     no_parse: ParseError,
-    /// The violation the recognition met first, when it is to be explained: an attempt that
-    /// skipped an edge to a doomed node (`DoomedEdges`) is made again keeping them instead.
+    /// The violation the recognition met first, to be explained.
     violation: Option<ParseError>,
     start_id: usize,
     start_position: usize,
@@ -685,30 +617,6 @@ pub(super) enum PriorityFilter {
     Ignored,
 }
 
-/// Whether a filtered recognition may skip an edge that would build a doomed node: one that
-/// breaks a relation but that the priority filter keeps for the preference among the readings
-/// of the root, because it, or a child checked before the breaking edge, holds a rewrite,
-/// sequence or `#let` below an operator (a scope error the filter defers).
-///
-/// The preference reads a doomed node only when it is, or lies inside, a reading of the root
-/// rooted at a rewrite, sequence or `#let`; every other doomed node is dropped by the filter
-/// after recognition, or discarded with the losing readings. Such a node contains a rewrite,
-/// sequence or `#let` node, and so a token of its first lexical item (`DeferredScopes`); a
-/// rewrite, sequence or `#let` node above it holds its own such token, outside every child.
-/// So in an input with one such token in all, no doomed node is read by the preference, and
-/// skipping the edges to them leaves every reading that can be the parse. What it changes is
-/// the forest a failed parse is explained from: an attempt that skipped one and failed is made
-/// again keeping them (`Grammar::diagnose`).
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(super) enum DoomedEdges {
-    /// Keep every edge the filter could keep for the preference.
-    #[default]
-    Kept,
-    /// Skip every edge that breaks a relation when the input has one token that can begin a
-    /// rewrite, sequence or `#let`.
-    SkippedBesideOneScope,
-}
-
 /// The outcome of the recognition phase of one parse attempt.
 struct Recognition {
     charts: Vec<Chart>,
@@ -716,8 +624,6 @@ struct Recognition {
     parses: BTreeSet<Rc<PackedTerm>>,
     /// The first priority or associativity violation that removed a derivation, in chart order.
     first_violation: Option<ParseError>,
-    /// Whether an edge that `DoomedEdges::Kept` keeps was skipped.
-    doomed_pruned: bool,
     /// Whether the recognition stopped at its work limit; its charts and parses are then
     /// incomplete and say nothing about the input.
     work_limit_reached: bool,
@@ -1822,10 +1728,7 @@ impl Grammar {
         context: ParseContext,
     ) -> Result<Term, ParseError> {
         let start = self.sort_denotations.denote(start);
-        let mut pruning = Pruning {
-            doomed: DoomedEdges::SkippedBesideOneScope,
-            ..Pruning::default()
-        };
+        let mut pruning = Pruning::default();
         let mut first_work = WorkMeter::unlimited();
         let failure = match self.parse_attempt(
             start,
@@ -1876,9 +1779,7 @@ impl Grammar {
 
     /// The outcome of a parse whose first attempt failed with `failure`, after `pruning`.
     ///
-    /// Skipping the edges to doomed nodes keeps every reading that can be the parse, but not the
-    /// forest a failure is computed from (`DoomedEdges`): such a failure is computed again
-    /// keeping them. A failure without a derivation is explained from the chart, whose items the
+    /// A failure without a derivation is explained from the chart, whose items the
     /// skipped work changes: it is retried with the skipped work restored where the diagnostic
     /// reads it. A failure after recognition (an ambiguity, sort inference, a relation error of
     /// the forest, a cycle) is computed from the forest, which skipping leaves as it is
@@ -1893,24 +1794,10 @@ impl Grammar {
         start: &Sort,
         input: &str,
         context: ParseContext,
-        mut failure: Failure,
+        failure: Failure,
         mut pruning: Pruning,
         work: &mut WorkMeter,
     ) -> Result<Result<Term, ParseError>, WorkLimitReached> {
-        if pruning.doomed_pruned {
-            pruning = Pruning::default();
-            failure = match self.parse_attempt(
-                start,
-                input,
-                context,
-                PredictionMode::Filtered,
-                &mut pruning,
-                work,
-            ) {
-                Ok(term) => return Ok(Ok(term)),
-                Err(failure) => failure,
-            };
-        }
         let error = if pruning.pruned && pruning.furthest.is_some() {
             None
         } else {
@@ -2020,7 +1907,6 @@ impl Grammar {
             charts,
             parses,
             first_violation,
-            doomed_pruned,
             work_limit_reached,
         } = self.recognize(
             start_id,
@@ -2031,7 +1917,6 @@ impl Grammar {
             PriorityFilter::Enforced,
             None,
             matches!(prediction_mode, PredictionMode::Retry { .. }),
-            pruning.doomed,
             &mut pruning.pruned,
             work,
             &mut scanner_cache,
@@ -2040,7 +1925,6 @@ impl Grammar {
         if work_limit_reached {
             return Err(Failure::WorkLimit);
         }
-        pruning.doomed_pruned = doomed_pruned;
         if parses.is_empty() {
             pruning.furthest = Some(
                 charts
@@ -2057,9 +1941,7 @@ impl Grammar {
             );
             return Err(Failure::NoDerivation(Box::new(NoDerivation {
                 no_parse,
-                // An attempt that skipped edges to doomed nodes and failed is made again keeping
-                // them, which explains the failure; this one is not explained.
-                violation: first_violation.filter(|_| !doomed_pruned),
+                violation: first_violation,
                 start_id,
                 start_position,
                 prediction_mode,
@@ -2161,7 +2043,6 @@ impl Grammar {
                 PriorityFilter::Ignored,
                 Some(&stand_in),
                 false,
-                DoomedEdges::Kept,
                 pruned,
                 work,
                 scanner_cache,
@@ -2198,7 +2079,6 @@ impl Grammar {
             PriorityFilter::Ignored,
             None,
             true,
-            DoomedEdges::Kept,
             pruned,
             work,
             scanner_cache,
@@ -2234,8 +2114,8 @@ impl Grammar {
         // The check at hand-off judges an edge only where the filter judges it, and in the same
         // way, so a derivation the filter admits at every edge survives the recognition that
         // enforces the relations. That recognition can then fail although such a derivation
-        // exists only when a scope error is deferred (a node built by a rewrite, a sequence or a
-        // `#let` production) and the root preference keeps a reading that fails.
+        // exists only when the preference among the readings of an ambiguity (for those rooted
+        // at a rewrite, a sequence or a `#let`) keeps readings that all fail at their edge.
         debug_assert!(
             violation.is_some()
                 || self.productions.iter().any(|production| {
@@ -2249,8 +2129,8 @@ impl Grammar {
                         .any(|scope| scope.as_str() == label)
                     })
                 }),
-            "a failed recognition without deferred scope errors has a derivation every edge of \
-             which the relations admit"
+            "a failed recognition without a preferred rewrite, sequence or #let has a \
+             derivation every edge of which the relations admit"
         );
         Ok(violation.unwrap_or(first_violation))
     }
@@ -2280,7 +2160,6 @@ impl Grammar {
         filter: PriorityFilter,
         stand_in: Option<&Rc<PackedTerm>>,
         cut_repetitions: bool,
-        doomed: DoomedEdges,
         pruned: &mut bool,
         work: &mut WorkMeter,
         scanner_cache: &mut [ScanCacheEntry],
@@ -2295,7 +2174,7 @@ impl Grammar {
                 .get_or_init(|| PredictionAnalysis::new(self))
         });
         // Whether a completion over `[origin, position]` of a production is useful when the
-        // scanner's next token is `winner`, by `(origin, production, stands for, winner, region)`
+        // scanner's next token is `winner`, by `(origin, production, stands for, winner)`
         // (`Grammar::completion_useful`).
         let mut useful_completions = HashMap::new();
         // Whether a node of a production starting in a chart can be part of a parse of the whole
@@ -2307,7 +2186,6 @@ impl Grammar {
         // What a completion gives each group of its callers (below), kept across completions so
         // that it is allocated once per recognition.
         let mut boundaries: Vec<(usize, usize, Option<Rc<PackedTerm>>)> = Vec::new();
-        let doomed_pruned = std::cell::Cell::new(false);
         // The relations a skipped completion is judged by (`PredictionMode`): a retry judges
         // only whether the input can continue an item, never where the relations let its node
         // sit.
@@ -2396,7 +2274,6 @@ impl Grammar {
                         charts,
                         parses: BTreeSet::new(),
                         first_violation: None,
-                        doomed_pruned: doomed_pruned.get(),
                         work_limit_reached: true,
                     });
                 }
@@ -2589,7 +2466,7 @@ impl Grammar {
                                 }
                             };
                             match match filter {
-                                PriorityFilter::Enforced => self.filter_or_defer_packed_priority(
+                                PriorityFilter::Enforced => self.filter_completed_packed_priority(
                                     Rc::clone(&term),
                                     priority_memos,
                                 ),
@@ -2633,13 +2510,11 @@ impl Grammar {
                             {
                                 if usefulness_filter == PriorityFilter::Enforced
                                     && remaining_tokens.is_none()
-                                    && let Some(analysis) = completion_analysis
                                 {
                                     remaining_tokens = Some(RemainingTokens::new(
                                         self,
                                         input,
                                         start_position,
-                                        analysis.deferred_scopes(),
                                         scanner_cache,
                                     ));
                                 }
@@ -2721,8 +2596,6 @@ impl Grammar {
                                         root,
                                         remaining: remaining_tokens.as_ref(),
                                         from: canonical,
-                                        doomed,
-                                        doomed_pruned: &doomed_pruned,
                                     },
                                     &mut useful_completions,
                                     &mut reaching_nodes,
@@ -2827,7 +2700,6 @@ impl Grammar {
             charts,
             parses,
             first_violation,
-            doomed_pruned: doomed_pruned.get(),
             work_limit_reached: false,
         })
     }
@@ -2982,10 +2854,7 @@ impl Grammar {
             *next_caller += 1;
             let Some(caller_after) = reach
                 .rest_follows(caller.production, caller.dot + 1, *after)
-                .and_then(|caller_after| {
-                    self.boundary_admits(caller, *stands_for, reach)
-                        .after(caller_after)
-                })
+                .filter(|_| self.boundary_admits(caller, *stands_for, reach))
             else {
                 continue;
             };
@@ -3072,13 +2941,7 @@ impl Grammar {
         memo: &mut HashMap<CompletionKey, bool>,
         reaching: &mut HashMap<NodeKey, Reaching>,
     ) -> bool {
-        // A caller completed here through a nullable rest ends here, so whether its node holds
-        // a witness of a deferred scope error (`Admission::IfEndsAfter`) depends on how many
-        // witnesses come before this position, which is part of the key.
-        let region = reach
-            .remaining
-            .map_or(0, |remaining| remaining.deferrals_before(reach.from));
-        if let Some(useful) = memo.get(&(node, winner, region)) {
+        if let Some(useful) = memo.get(&(node, winner)) {
             return *useful;
         }
         let mut visited = HashSet::from([node]);
@@ -3105,8 +2968,7 @@ impl Grammar {
                 continue;
             };
             *next_caller += 1;
-            let admission = self.boundary_admits(caller, *stands_for, reach);
-            if admission == Admission::No {
+            if !self.boundary_admits(caller, *stands_for, reach) {
                 continue;
             }
             let dot = caller.dot + 1;
@@ -3120,19 +2982,16 @@ impl Grammar {
                 .rest_can_start_with(caller.production, dot, winner)
                 && reach
                     .rest_follows(caller.production, dot, reach.from)
-                    .and_then(|after| admission.after(after))
                     .is_some_and(|after| {
                         self.node_reaches_root(earlier, caller_node, after, reach, reaching)
                     })
             {
                 break 'search true;
             }
-            if !reach.analysis.rest_is_nullable(caller.production, dot)
-                || admission.after(reach.from) != Some(reach.from)
-            {
+            if !reach.analysis.rest_is_nullable(caller.production, dot) {
                 continue;
             }
-            match memo.get(&(caller_node, winner, region)) {
+            match memo.get(&(caller_node, winner)) {
                 Some(true) => break 'search true,
                 Some(false) => {}
                 None => {
@@ -3144,11 +3003,11 @@ impl Grammar {
         };
         if found {
             for (node, _) in stack {
-                memo.insert((node, winner, region), true);
+                memo.insert((node, winner), true);
             }
         } else {
             for node in visited {
-                memo.insert((node, winner, region), false);
+                memo.insert((node, winner), false);
             }
         }
         found
@@ -3159,42 +3018,13 @@ impl Grammar {
     /// ([`Self::stands_for`]). The associativity boundary [`Self::filter_associative_boundary`]
     /// drops the node before the caller packs it, in every grammar (judged from `child`'s own
     /// parse label; a production without one whose node stands for a node of an unknown
-    /// production passes that node's label up, which is not known here, so it is kept). The priority filter judges the edge when the caller completes
-    /// ([`Self::priority_admits`]): a violation drops the caller's node, unless the filter has
-    /// already met, in an earlier child or in another reading of this one, a rewrite, sequence
-    /// or `#let` below an operator, a scope error it defers so that a reading rooted at the
-    /// rewrite can be preferred over the one with the error, keeping the doomed node in the
-    /// forest until then. Such an error needs a node of a rewrite, sequence or `#let` inside
-    /// the caller's node, so a violation removes the reading wherever the caller's node holds no
-    /// token that witnesses one ([`DeferredScopes`]); in a grammar without them, always.
-    fn boundary_admits(&self, caller: State, child: usize, reach: Reach<'_>) -> Admission {
-        if reach.filter == PriorityFilter::Ignored {
-            return Admission::Yes;
-        }
-        if !self.associativity_admits(caller, child) {
-            return Admission::No;
-        }
-        if self.priority_admits(caller, child) {
-            return Admission::Yes;
-        }
-        match reach.analysis.deferred_scopes() {
-            DeferredScopes::Absent => Admission::No,
-            DeferredScopes::Unwitnessed => Admission::Yes,
-            DeferredScopes::Witnessed(_) => match reach.remaining {
-                None => Admission::Yes,
-                Some(remaining) => match remaining.first_deferral_from(caller.origin) {
-                    None => Admission::No,
-                    Some(_)
-                        if reach.doomed == DoomedEdges::SkippedBesideOneScope
-                            && remaining.deferral_count() == 1 =>
-                    {
-                        reach.doomed_pruned.set(true);
-                        Admission::No
-                    }
-                    Some(witness) => Admission::IfEndsAfter(witness),
-                },
-            },
-        }
+    /// production passes that node's label up, which is not known here, so it is kept). The
+    /// priority filter judges the edge when the caller completes ([`Self::priority_admits`]): a
+    /// violation drops the caller's node, as a violation of any relation does, so a reading
+    /// built over the edge is part of no parse.
+    fn boundary_admits(&self, caller: State, child: usize, reach: Reach<'_>) -> bool {
+        reach.filter == PriorityFilter::Ignored
+            || (self.associativity_admits(caller, child) && self.priority_admits(caller, child))
     }
 
     /// Whether [`Self::filter_associative_boundary`] keeps a node built by `child` as the
@@ -4118,7 +3948,7 @@ mod chart_tests {
         let cast = PackedTerm::production(1, vec![infix], TermMetadata::default());
 
         assert_eq!(
-            grammar.filter_or_defer_packed_priority(
+            grammar.filter_completed_packed_priority(
                 cast,
                 &RefCell::new(PackedPriorityMemos::default()),
             ),

@@ -488,12 +488,6 @@ type RuleShape = (&'static str, &'static str, fn(&str) -> String);
 /// The completion candidates of loading `rule` beside a left- or right-associative `+` chain
 /// syntax, at the chain lengths 50, 100 and 200 that `rule` builds its body from.
 fn rule_chain_work(associativity: &str, rule: impl Fn(&str) -> String) -> [u64; 3] {
-    rule_chain_counts(associativity, rule)
-        .map(|counts| counts.get(Counter::ParserChartCompletionCandidates))
-}
-
-/// The work counters and allocations of loading `rule` (as [`rule_chain_work`]).
-fn rule_chain_counts(associativity: &str, rule: impl Fn(&str) -> String) -> [Snapshot; 3] {
     [50, 100, 200].map(|length| {
         let chain = (0..length)
             .map(|number| (number % 10).to_string())
@@ -507,33 +501,27 @@ fn rule_chain_counts(associativity: &str, rule: impl Fn(&str) -> String) -> [Sna
              configuration <k> $PGM:K </k>\n  {}\nendmodule\n",
             rule(&chain)
         );
-        let allocated = || {
-            let mut totals = Snapshot::default();
-            measure::set_allocation_counters(&mut totals);
-            totals
-        };
-        let before = (measure::snapshot(), allocated());
+        let before = measure::snapshot();
         drop(load_with_prelude(&source));
-        let mut work = measure::snapshot().delta(&before.0);
-        let bytes = allocated().delta(&before.1);
-        work.0[Counter::Allocations as usize] = bytes.get(Counter::Allocations);
-        work
+        measure::snapshot()
+            .delta(&before)
+            .get(Counter::ParserChartCompletionCandidates)
     })
 }
 
-/// An operator chain written directly as a side of a rule's only rewrite, with nothing to
-/// delimit it from the rewrite, is parsed in chart work linear in its length. Every sum that
-/// starts after the first operand of a left-associative chain on the left of the `=>` (or ends
-/// before the last of a right-associative chain on its right) can take the rewrite as its last
-/// (first) operand; the reading `0 + ... + (k + ... => .K)` breaks the scope of the rewrite,
-/// but the priority filter keeps such a doomed reading for the preference among the readings of
-/// the root, so the chart held every one of those sums: cubic (eight times the work per
-/// doubling). With one rewrite in the rule, no doomed reading is read by that preference, so
-/// the first attempt skips the edges that build them (`DoomedEdges`). The same holds where a
-/// `)` the chain's parentheses need reappears after the rewrite (`foo(...) => bar(z)`).
+/// An operator chain written directly as a side of a rule's rewrite, with nothing to delimit
+/// it from the rewrite, is parsed in chart work linear in its length. Every sum that starts
+/// after the first operand of a left-associative chain on the left of the `=>` (or ends before
+/// the last of a right-associative chain on its right) could take the rewrite as its last
+/// (first) operand, but the reading `0 + ... + (k + ... => .K)` puts the rewrite below `+`, a
+/// scope error, which drops the reading like every other violation, so the recognition skips
+/// the items that would build those sums (a chart holding every one of them is cubic: eight
+/// times the work per doubling). The same holds where a `)` the chain's parentheses need
+/// reappears after the rewrite (`foo(...) => bar(z)`), and beside a second token that can begin
+/// a rewrite, sequence or `#let` (`=> .K ~> foo(0)`).
 #[test]
-fn chains_beside_a_rules_only_rewrite_parse_in_chart_work_linear_in_their_length() {
-    let shapes: [RuleShape; 4] = [
+fn chains_beside_a_rewrite_parse_in_chart_work_linear_in_their_length() {
+    let shapes: [RuleShape; 5] = [
         ("left side in a cell", "left", |chain| {
             format!("rule <k> {chain} => .K ... </k>")
         }),
@@ -545,6 +533,9 @@ fn chains_beside_a_rules_only_rewrite_parse_in_chart_work_linear_in_their_length
         }),
         ("argument beside a later `)`", "left", |chain| {
             format!("rule foo({chain}) => bar(z)")
+        }),
+        ("left side beside a sequence", "left", |chain| {
+            format!("rule <k> {chain} => .K ~> foo(0) ... </k>")
         }),
     ];
     let _measuring = measuring();
@@ -559,37 +550,34 @@ fn chains_beside_a_rules_only_rewrite_parse_in_chart_work_linear_in_their_length
     }
 }
 
-/// A documented bound, not a goal: beside a second token that can begin a rewrite, sequence or
-/// `#let` (here a `~>`), a doomed reading of a chain written directly against the rewrite can
-/// be read by the preference among the readings of the root, so its edges are kept: the
-/// completion candidates grow about four times per doubling of the chain (and the time, which
-/// reads the callers waiting for each completion, about eight times). The test pins that the
-/// candidates grow no faster than that, with a margin, so that a worse regression fails. The
-/// associativity relation that every caller of every completion is checked against is read
-/// without copying the labels compared: the allocations grow about four times per doubling,
-/// where a copy of both labels for each check made them grow about eight times (1.0 million
-/// more from 50 to 100 operands, 7.6 million more from 100 to 200).
+/// A flat `~>` sequence written directly against a rule's rewrite
+/// (`rule <k> foo(0) ~> foo(1) ~> ... => .K </k>`) is parsed in chart work linear in its length:
+/// every sequence that starts after its first item could take the rewrite as its last item, but
+/// a rewrite below `~>` is a scope error, which drops the reading like every other violation,
+/// so the recognition skips the items that would build those sequences.
 #[test]
-fn chains_beside_a_rewrite_and_a_sequence_keep_their_doomed_readings_within_a_bound() {
+fn a_sequence_against_a_rewrite_parses_in_chart_work_linear_in_its_length() {
     let _measuring = measuring();
-    let counts = rule_chain_counts("left", |chain| {
-        format!("rule <k> {chain} => .K ~> foo(0) ... </k>")
+    let [at_50, at_100, at_200] = [50, 100, 200].map(|length| {
+        let sequence = (0..length)
+            .map(|number| format!("foo({})", number % 10))
+            .collect::<Vec<_>>()
+            .join(" ~> ");
+        let source = format!(
+            "module MAIN\n  imports INT\n  syntax KItem ::= foo(Int) [symbol(foo)]\n  \
+             configuration <k> $PGM:K </k>\n  rule <k> {sequence} => .K </k>\nendmodule\n"
+        );
+        let before = measure::snapshot();
+        drop(load_with_prelude(&source));
+        measure::snapshot()
+            .delta(&before)
+            .get(Counter::ParserChartCompletionCandidates)
     });
-    let [at_50, at_100, at_200] = counts
-        .each_ref()
-        .map(|work| work.get(Counter::ParserChartCompletionCandidates));
     let (first, second) = (at_100 - at_50, at_200 - at_100);
-    println!("`=>` and `~>`: {at_50}, {at_100} and {at_200} completions at 50, 100 and 200");
+    println!("`~>` sequence: {at_50}, {at_100} and {at_200} completions at 50, 100 and 200 items");
     assert!(
-        second <= first * 10,
-        "{at_50}, {at_100} and {at_200} completions at 50, 100 and 200 operands"
-    );
-    let [allocated_50, allocated_100, allocated_200] =
-        counts.each_ref().map(|work| work.get(Counter::Allocations));
-    let (first, second) = (allocated_100 - allocated_50, allocated_200 - allocated_100);
-    assert!(
-        second <= first * 5,
-        "{allocated_50}, {allocated_100} and {allocated_200} allocations at 50, 100 and 200 operands"
+        second <= first * 5 / 2,
+        "{at_50}, {at_100} and {at_200} completions at 50, 100 and 200 items"
     );
 }
 

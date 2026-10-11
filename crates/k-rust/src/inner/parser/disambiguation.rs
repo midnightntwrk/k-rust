@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.priority"
 //! name = "priority and associativity filtering of packed terms"
-//! sites = ["Grammar::filter_packed_priority", "Grammar::filter_or_defer_packed_priority"]
+//! sites = ["Grammar::filter_packed_priority", "Grammar::filter_completed_packed_priority"]
 //! variable = "N = packed nodes per memo lifetime"
 //! counters = ["ParserPackedPriorityComputations"]
 //! span = "per problem"
@@ -11,8 +11,8 @@
 //! bound = "O(N)"
 //!
 //! [[cost]]
-//! mode = "one completion candidate (filter_or_defer_packed_priority)"
-//! bound = "one memoized packed filter; a Scope error under KRewrite, KSequence or Let is deferred, and the candidate kept"
+//! mode = "one completion candidate (filter_completed_packed_priority)"
+//! bound = "one memoized packed filter; a candidate that breaks any relation, a scope error included, is dropped"
 //! ```
 //!
 //! ```toml algorithm
@@ -444,31 +444,19 @@ impl Grammar {
         PackedTerm::production(*production, factored_children, metadata.clone())
     }
 
-    pub(super) fn filter_or_defer_packed_priority(
+    /// Filter a node at its completion: a node that breaks a relation (scope, cast, priority or
+    /// associativity) at one of its edges denotes nothing there, so it is dropped before any
+    /// caller packs it. A rewrite, sequence or `#let` below an operator is such a violation like
+    /// any other: the reading that holds it is not a term the rule could mean, and so is not a
+    /// candidate for the preference among the readings of an ambiguity either.
+    pub(super) fn filter_completed_packed_priority(
         &self,
         term: Rc<PackedTerm>,
         memos: &RefCell<PackedPriorityMemos>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         let mut memos = memos.borrow_mut();
         let PackedPriorityMemos { nodes, children } = &mut *memos;
-        match self.filter_packed_priority_memo(Rc::clone(&term), nodes, children) {
-            Ok(term) => Ok(term),
-            // A locally invalid nested rewrite/sequence/let may be the losing view of an
-            // ambiguity whose sibling has that operation at the root. Retain only those failures
-            // until the packed root preference can select the sibling.
-            Err(ParseError::Scope { child, .. })
-                if [
-                    InternalLabel::KRewrite,
-                    InternalLabel::KSequence,
-                    InternalLabel::Let,
-                ]
-                .iter()
-                .any(|label| child == label.as_str()) =>
-            {
-                Ok(term)
-            }
-            Err(error) => Err(error),
-        }
+        self.filter_packed_priority_memo(term, nodes, children)
     }
 
     pub(super) fn filter_packed_priority(
@@ -483,11 +471,11 @@ impl Grammar {
     }
 
     #[cfg(test)]
-    pub(super) fn filter_or_defer_packed_priority_fresh(
+    pub(super) fn filter_completed_packed_priority_fresh(
         &self,
         term: Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        self.filter_or_defer_packed_priority(term, &RefCell::new(PackedPriorityMemos::default()))
+        self.filter_completed_packed_priority(term, &RefCell::new(PackedPriorityMemos::default()))
     }
 
     /// Filter a packed node against the priority and associativity relations.
@@ -4204,8 +4192,8 @@ mod tests {
             let memos = RefCell::new(PackedPriorityMemos::default());
             for parent in parents_to_filter {
                 let root = wrapped(parents[parent], &shared);
-                let actual = grammar.filter_or_defer_packed_priority(Rc::clone(&root), &memos);
-                let expected = grammar.filter_or_defer_packed_priority_fresh(root);
+                let actual = grammar.filter_completed_packed_priority(Rc::clone(&root), &memos);
+                let expected = grammar.filter_completed_packed_priority_fresh(root);
                 prop_assert_eq!(actual, expected);
             }
         }
@@ -4218,14 +4206,14 @@ mod tests {
             let memos = RefCell::new(PackedPriorityMemos::default());
             for _ in 0..repetitions {
                 grammar
-                    .filter_or_defer_packed_priority(Rc::clone(&root), &memos)
+                    .filter_completed_packed_priority(Rc::clone(&root), &memos)
                     .unwrap();
             }
             let shared_work = snapshot().delta(&before).get(Counter::ParserPackedPriorityComputations);
             let before = snapshot();
             for _ in 0..repetitions {
                 grammar
-                    .filter_or_defer_packed_priority_fresh(Rc::clone(&root))
+                    .filter_completed_packed_priority_fresh(Rc::clone(&root))
                     .unwrap();
             }
             let fresh_work = snapshot().delta(&before).get(Counter::ParserPackedPriorityComputations);
