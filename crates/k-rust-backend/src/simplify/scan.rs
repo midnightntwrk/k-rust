@@ -443,6 +443,15 @@ mod tests {
             scan(&[NotApplicable(()), Unused]),
             ("unused".to_owned(), vec![])
         );
+        assert_eq!(
+            scan(&[
+                NotApplicable(()),
+                EquationAttempt::Recurred,
+                Unused,
+                undecided()
+            ]),
+            ("recurred".to_owned(), vec![1, 3])
+        );
     }
 
     /// Diagnostics follow the outcome they explain, as for the instances of one equation: an
@@ -473,6 +482,10 @@ mod tests {
         assert_eq!(
             scan_equations(&[NotApplicable(()), NotApplicable(())]),
             ("not applicable".to_owned(), vec![], 0)
+        );
+        assert_eq!(
+            scan_equations(&[EquationAttempt::Recurred, Unused, undecided()]),
+            ("blocked".to_owned(), vec![], 2)
         );
     }
 }
