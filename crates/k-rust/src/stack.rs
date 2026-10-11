@@ -22,8 +22,8 @@
 /// Measured as the largest drop in the remaining stack between two consecutive guards, over
 /// application chains 2,000 levels deep: the conversion of KAST terms to KORE takes the most,
 /// 3.0 KiB per level in a release build, 3.4 KiB in the `dev` profile (opt-level 1) and 33 KiB
-/// unoptimized; sort injection takes 2.0, 2.5 and 8.5 KiB, the KAST text reader 1.2, 1.1 and
-/// 6.6 KiB. 256 KiB is more than seven times the deepest of them.
+/// unoptimized; sort injection takes 2.0, 2.5 and 8.5 KiB, the KAST text reader 1.5, 1.7 and
+/// 8.3 KiB. 256 KiB is more than seven times the deepest of them.
 #[cfg(not(target_family = "wasm"))]
 pub(crate) const RED_ZONE: usize = 256 * 1024;
 
