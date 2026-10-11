@@ -113,12 +113,11 @@ impl<'a> ResultCollection<'a> {
 
 /// `element`, of sort `from`, as a term of sort `into`: itself when the sorts are equal, its
 /// injection when `from` is a strict subsort of `into`, and `None` otherwise.
-fn convert(sorts: Option<&SortGraph>, element: Term, from: &Sort, into: &Name) -> Option<Term> {
-    let into = Sort::simple(into.clone());
-    if *from == into {
+fn convert(sorts: Option<&SortGraph>, element: Term, from: &Sort, into: &Sort) -> Option<Term> {
+    if from == into {
         return Some(element);
     }
-    below(sorts, from, &into).then(|| Term::injection(from.clone(), into, element))
+    below(sorts, from, into).then(|| Term::injection(from.clone(), into.clone(), element))
 }
 
 /// `elements`, all of sort `from`, as terms of sort `into`: borrowed when the sorts are equal,
@@ -126,14 +125,13 @@ fn convert(sorts: Option<&SortGraph>, element: Term, from: &Sort, into: &Name) -
 fn convert_all<'e>(
     sorts: Option<&SortGraph>,
     elements: &'e [Term],
-    from: &Name,
-    into: &Name,
+    from: &Sort,
+    into: &Sort,
 ) -> Option<Cow<'e, [Term]>> {
     if from == into {
         return Some(Cow::Borrowed(elements));
     }
-    let (from, into) = (Sort::simple(from.clone()), Sort::simple(into.clone()));
-    below(sorts, &from, &into).then(|| {
+    below(sorts, from, into).then(|| {
         Cow::Owned(
             elements
                 .iter()
@@ -164,11 +162,11 @@ impl Elements<'_> {
         convert(self.sorts, element, &from, &self.definition.element_sort)
     }
 
-    fn elements<'e>(&self, elements: &'e [Term], from: &Name) -> Option<Cow<'e, [Term]>> {
+    fn elements<'e>(&self, elements: &'e [Term], from: &Sort) -> Option<Cow<'e, [Term]>> {
         convert_all(self.sorts, elements, from, &self.definition.element_sort)
     }
 
-    fn owned_elements(&self, elements: Vec<Term>, from: &Name) -> Option<Vec<Term>> {
+    fn owned_elements(&self, elements: Vec<Term>, from: &Sort) -> Option<Vec<Term>> {
         if *from == self.definition.element_sort {
             return Some(elements);
         }
@@ -183,7 +181,7 @@ pub(super) struct ListResult<'a> {
 
 impl ListResult<'_> {
     /// Elements of sort `from` the hook computed, as elements of the result.
-    pub(super) fn owned_elements(&self, elements: Vec<Term>, from: &Name) -> Option<Vec<Term>> {
+    pub(super) fn owned_elements(&self, elements: Vec<Term>, from: &Sort) -> Option<Vec<Term>> {
         self.elements.owned_elements(elements, from)
     }
 
@@ -197,7 +195,7 @@ impl ListResult<'_> {
     pub(super) fn elements<'e>(
         &self,
         elements: &'e [Term],
-        from: &Name,
+        from: &Sort,
     ) -> Option<Cow<'e, [Term]>> {
         self.elements.elements(elements, from)
     }
@@ -222,7 +220,7 @@ pub(super) struct SetResult<'a> {
 
 impl SetResult<'_> {
     /// Elements of sort `from` the hook computed, as elements of the result.
-    pub(super) fn owned_elements(&self, elements: Vec<Term>, from: &Name) -> Option<Vec<Term>> {
+    pub(super) fn owned_elements(&self, elements: Vec<Term>, from: &Sort) -> Option<Vec<Term>> {
         self.elements.owned_elements(elements, from)
     }
 
@@ -236,7 +234,7 @@ impl SetResult<'_> {
     pub(super) fn elements<'e>(
         &self,
         elements: &'e [Term],
-        from: &Name,
+        from: &Sort,
     ) -> Option<Cow<'e, [Term]>> {
         self.elements.elements(elements, from)
     }
@@ -285,8 +283,6 @@ impl MapResult<'_> {
         {
             return Some(Cow::Borrowed(entries));
         }
-        let key_sort = Sort::simple(from.key_sort.clone());
-        let value_sort = Sort::simple(from.value_sort.clone());
         entries
             .iter()
             .map(|(key, value)| {
@@ -294,13 +290,13 @@ impl MapResult<'_> {
                     convert(
                         self.sorts,
                         key.clone(),
-                        &key_sort,
+                        &from.key_sort,
                         &self.definition.key_sort,
                     )?,
                     convert(
                         self.sorts,
                         value.clone(),
-                        &value_sort,
+                        &from.value_sort,
                         &self.definition.value_sort,
                     )?,
                 ))

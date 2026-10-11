@@ -213,7 +213,7 @@ impl Shapes {
             element: element.into(),
             concat: concat.into(),
         };
-        let element_sort = || item_sort_name().into();
+        let element_sort = || Sort::simple(item_sort_name());
         Self {
             list: Arc::new(ListDefinition {
                 symbols: symbols(list),

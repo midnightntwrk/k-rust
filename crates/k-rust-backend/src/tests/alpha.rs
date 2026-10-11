@@ -1726,13 +1726,13 @@ fn ordered_collections(first: &str, second: &str) -> OrderedCollections {
     };
     let map_definition = Arc::new(MapDefinition {
         symbols: symbols.clone(),
-        key_sort: "SortS".into(),
-        value_sort: "SortS".into(),
+        key_sort: Sort::simple("SortS"),
+        value_sort: Sort::simple("SortS"),
         map_sort: "SortMap".into(),
     });
     let set_definition = Arc::new(ListDefinition {
         symbols,
-        element_sort: "SortS".into(),
+        element_sort: Sort::simple("SortS"),
         list_sort: "SortSet".into(),
     });
     let value = |text: &str| Term::domain_value(sort.clone(), text);
@@ -1801,7 +1801,7 @@ fn ambiguous_set_then_ordered(first: &str, second: &str, ordered: &str) -> Ambig
             element: "element".into(),
             concat: "concat".into(),
         },
-        element_sort: "SortS".into(),
+        element_sort: Sort::simple("SortS"),
         list_sort: "SortSet".into(),
     });
     AmbiguousSetThenOrdered {

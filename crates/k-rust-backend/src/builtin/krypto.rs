@@ -693,7 +693,7 @@ mod tests {
                     element: "LblListItem".into(),
                     concat: "Lbl'Unds'List'Unds'".into(),
                 },
-                element_sort: "SortKItem".into(),
+                element_sort: Sort::simple("SortKItem"),
                 list_sort: "SortList".into(),
             }),
             items,

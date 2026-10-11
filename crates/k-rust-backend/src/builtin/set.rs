@@ -298,7 +298,7 @@ mod tests {
                 element: format!("{name}-element").into(),
                 concat: format!("{name}-concat").into(),
             },
-            element_sort: "SortKItem".into(),
+            element_sort: Sort::simple("SortKItem"),
             list_sort: name.into(),
         })
     }

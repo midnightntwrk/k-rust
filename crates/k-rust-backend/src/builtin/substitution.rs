@@ -1300,8 +1300,8 @@ mod tests {
                 element: "map-element".into(),
                 concat: "map-concat".into(),
             },
-            key_sort: "SortExp".into(),
-            value_sort: "SortExp".into(),
+            key_sort: Sort::simple("SortExp"),
+            value_sort: Sort::simple("SortExp"),
             map_sort: "SortMap".into(),
         })
     }
@@ -1518,7 +1518,7 @@ mod tests {
                 element: "list-element".into(),
                 concat: "list-concat".into(),
             },
-            element_sort: "SortExp".into(),
+            element_sort: Sort::simple("SortExp"),
             list_sort: "SortList".into(),
         });
         let map = Term::map(
@@ -1582,7 +1582,7 @@ mod tests {
                 element: "set-element".into(),
                 concat: "set-concat".into(),
             },
-            element_sort: "SortExp".into(),
+            element_sort: Sort::simple("SortExp"),
             list_sort: "SortSet".into(),
         });
         let set = Term::set(definition, vec![exp_var("x"), exp_var("y")], None);

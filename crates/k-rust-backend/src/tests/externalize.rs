@@ -73,14 +73,14 @@ fn keyed(map: bool) -> KeyedCollection {
     if map {
         KeyedCollection::Map(std::sync::Arc::new(MapDefinition {
             symbols: symbols("map"),
-            key_sort: "SortKItem".into(),
-            value_sort: "SortKItem".into(),
+            key_sort: Sort::simple("SortKItem"),
+            value_sort: Sort::simple("SortKItem"),
             map_sort: "SortMap".into(),
         }))
     } else {
         KeyedCollection::Set(std::sync::Arc::new(ListDefinition {
             symbols: symbols("set"),
-            element_sort: "SortKItem".into(),
+            element_sort: Sort::simple("SortKItem"),
             list_sort: "SortSet".into(),
         }))
     }

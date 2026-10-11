@@ -14,8 +14,8 @@ use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 use proptest::prelude::*;
 
 use crate::term::{
-    CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name, Sort, Symbol,
-    SymbolAttributes, SymbolType, Term, TermKind, Variable,
+    CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Sort, Symbol, SymbolAttributes,
+    SymbolType, Term, TermKind, Variable,
 };
 
 fn sort() -> impl Strategy<Value = Sort> {
@@ -79,15 +79,15 @@ fn collection_symbols(prefix: &str) -> CollectionSymbols {
 }
 
 /// Two definitions per collection kind, which differ only in one sort.
-fn element_sort(second: bool) -> Name {
-    if second { "SortInt" } else { "SortKItem" }.into()
+fn element_sort(second: bool) -> Sort {
+    Sort::simple(if second { "SortInt" } else { "SortKItem" })
 }
 
 fn map_definition(second: bool) -> Arc<MapDefinition> {
     Arc::new(MapDefinition {
         symbols: collection_symbols("Map"),
         key_sort: element_sort(second),
-        value_sort: "SortKItem".into(),
+        value_sort: Sort::simple("SortKItem"),
         map_sort: "SortMap".into(),
     })
 }
@@ -243,7 +243,7 @@ fn other_sort(sort: &Sort) -> Sort {
 }
 
 /// The element sort of the other definition of a collection kind (see [`element_sort`]).
-fn other_element_sort(sort: &Name) -> Name {
+fn other_element_sort(sort: &Sort) -> Sort {
     element_sort(*sort != element_sort(true))
 }
 
@@ -552,7 +552,7 @@ impl GeneratedClasses {
                 ..
             } => {
                 self.definitions
-                    .insert(("map", definition.key_sort.as_ref() == "SortInt"));
+                    .insert(("map", definition.key_sort == element_sort(true)));
                 keys(entries.iter().map(|(key, _)| key).collect());
                 self.equal_keys_different_values +=
                     usize::from(entries.iter().enumerate().any(|(index, (key, value))| {
@@ -567,12 +567,12 @@ impl GeneratedClasses {
                 ..
             } => {
                 self.definitions
-                    .insert(("set", definition.element_sort.as_ref() == "SortInt"));
+                    .insert(("set", definition.element_sort == element_sort(true)));
                 keys(elements.iter().collect());
             }
             TermKind::List { definition, .. } => {
                 self.definitions
-                    .insert(("list", definition.element_sort.as_ref() == "SortInt"));
+                    .insert(("list", definition.element_sort == element_sort(true)));
             }
             TermKind::And(..) | TermKind::Variable(_) | TermKind::Injection { .. } => {}
         }

@@ -3274,10 +3274,9 @@ case_tests! {
     }
 }
 
-/// The backend's collection metadata names a collection's element (key, value) sorts by sort
-/// name, so it cannot hold a closed instance of a parametric sort such as `MInt{64}`; a
-/// collection whose `element` symbol takes one would compile and then be refused at load. It is
-/// rejected at the element production, with the backend's reason.
+/// A collection whose `element` symbol takes a closed instance of a parametric sort such as
+/// `MInt{64}` is still refused by compilation, at the element production, until its compiled
+/// form is checked from source to load; the backend loads such a collection.
 fn assert_parametric_collection_element_is_a_located_error(
     kind: &str,
     element: &str,

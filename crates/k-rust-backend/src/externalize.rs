@@ -1539,7 +1539,7 @@ mod tests {
         let list = Term::list(
             std::sync::Arc::new(crate::term::ListDefinition {
                 symbols,
-                element_sort: "SortKItem".into(),
+                element_sort: Sort::simple("SortKItem"),
                 list_sort: "SortList".into(),
             }),
             vec![shared.clone(), shared.clone()],

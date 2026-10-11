@@ -164,13 +164,13 @@ fn sample(definition: &BackendDefinition, sort: &str) -> String {
                 CollectionMetadata::Map(map) => (
                     map.symbols.clone(),
                     vec![
-                        sample(definition, &map.key_sort),
-                        sample(definition, &map.value_sort),
+                        sample(definition, sort_name(&map.key_sort)),
+                        sample(definition, sort_name(&map.value_sort)),
                     ],
                 ),
                 CollectionMetadata::List(list) | CollectionMetadata::Set(list) => (
                     list.symbols.clone(),
-                    vec![sample(definition, &list.element_sort)],
+                    vec![sample(definition, sort_name(&list.element_sort))],
                 ),
             };
             format!("{}{{}}({})", symbols.element, arguments.join(", "))
@@ -184,15 +184,20 @@ fn misplaced_elements(collection: &CollectionMetadata, value: &Term) -> Vec<Stri
     let elements: Vec<(&Term, &str)> = match (collection, value.kind()) {
         (CollectionMetadata::Map(map), TermKind::Map { entries, .. }) => entries
             .iter()
-            .flat_map(|(key, value)| [(key, &*map.key_sort), (value, &*map.value_sort)])
+            .flat_map(|(key, value)| {
+                [
+                    (key, sort_name(&map.key_sort)),
+                    (value, sort_name(&map.value_sort)),
+                ]
+            })
             .collect(),
         (CollectionMetadata::List(list), TermKind::List { heads, .. }) => heads
             .iter()
-            .map(|head| (head, &*list.element_sort))
+            .map(|head| (head, sort_name(&list.element_sort)))
             .collect(),
         (CollectionMetadata::Set(set), TermKind::Set { elements, .. }) => elements
             .iter()
-            .map(|element| (element, &*set.element_sort))
+            .map(|element| (element, sort_name(&set.element_sort)))
             .collect(),
         _ => {
             return vec![format!(

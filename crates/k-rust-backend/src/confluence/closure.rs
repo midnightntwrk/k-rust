@@ -359,7 +359,7 @@ impl SortReach {
                     .edges
                     .entry(Sort::simple(sort))
                     .or_default()
-                    .extend(parts.into_iter().map(Sort::simple));
+                    .extend(parts);
             }
             if symbol.is(WellKnownSymbol::Inj) {
                 // A sort injection's edges are the subsort edges above.

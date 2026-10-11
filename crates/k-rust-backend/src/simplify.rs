@@ -6842,18 +6842,18 @@ mod tests {
         let key = Term::domain_value(Sort::simple("SortKey"), "key");
         let map_definition = Arc::new(MapDefinition {
             symbols: collection_symbols("map"),
-            key_sort: "SortKey".into(),
-            value_sort: "SortInt".into(),
+            key_sort: Sort::simple("SortKey"),
+            value_sort: Sort::simple("SortInt"),
             map_sort: "SortMap".into(),
         });
         let list_definition = Arc::new(ListDefinition {
             symbols: collection_symbols("list"),
-            element_sort: "SortInt".into(),
+            element_sort: Sort::simple("SortInt"),
             list_sort: "SortList".into(),
         });
         let set_definition = Arc::new(ListDefinition {
             symbols: collection_symbols("set"),
-            element_sort: "SortInt".into(),
+            element_sort: Sort::simple("SortInt"),
             list_sort: "SortSet".into(),
         });
         let composite = Term::and(

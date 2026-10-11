@@ -36,8 +36,8 @@ fn collection_symbols(prefix: &str) -> CollectionSymbols {
 fn map_definition() -> Arc<MapDefinition> {
     Arc::new(MapDefinition {
         symbols: collection_symbols("map"),
-        key_sort: "MapKey".into(),
-        value_sort: "MapValue".into(),
+        key_sort: Sort::simple("MapKey"),
+        value_sort: Sort::simple("MapValue"),
         map_sort: "MapSort".into(),
     })
 }
@@ -947,7 +947,7 @@ fn carries_an_open_set_subject_frame_through_every_selection() {
 fn set_definition() -> Arc<crate::term::SetDefinition> {
     Arc::new(crate::term::SetDefinition {
         symbols: collection_symbols("set"),
-        element_sort: "SetElement".into(),
+        element_sort: Sort::simple("SetElement"),
         list_sort: "SetSort".into(),
     })
 }

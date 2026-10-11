@@ -13,6 +13,8 @@ mod matching;
 mod names;
 #[path = "backend/overloaded_list_owise.rs"]
 mod overloaded_list_owise;
+#[path = "backend/parametric_collection_elements.rs"]
+mod parametric_collection_elements;
 #[path = "backend/partial_equation_heads.rs"]
 mod partial_equation_heads;
 #[path = "backend/properties.rs"]

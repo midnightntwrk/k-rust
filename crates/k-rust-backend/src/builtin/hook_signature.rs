@@ -23,7 +23,7 @@
 
 use crate::{
     matching::SortGraph,
-    term::{CollectionMetadata, Name, Sort},
+    term::{CollectionMetadata, Sort},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -180,17 +180,16 @@ impl<'c, C: Fn(&Sort) -> Option<&'c CollectionMetadata>> SortFacts for LoadedSor
     type Sort = Sort;
 
     fn collection(&self, sort: &Sort) -> Option<CollectionShape<Sort>> {
-        let named = |name: &Name| Sort::simple(name.clone());
         (self.collection)(sort).map(|collection| match collection {
             CollectionMetadata::List(definition) => {
-                CollectionShape::List(named(&definition.element_sort))
+                CollectionShape::List(definition.element_sort.clone())
             }
             CollectionMetadata::Set(definition) => {
-                CollectionShape::Set(named(&definition.element_sort))
+                CollectionShape::Set(definition.element_sort.clone())
             }
             CollectionMetadata::Map(definition) => CollectionShape::Map {
-                key: named(&definition.key_sort),
-                value: named(&definition.value_sort),
+                key: definition.key_sort.clone(),
+                value: definition.value_sort.clone(),
             },
         })
     }

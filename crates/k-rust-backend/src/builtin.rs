@@ -291,7 +291,7 @@ fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
         result_sort,
         "{hook} evaluated to a value of another sort than its application: {value:?}"
     );
-    let element_sorts: Vec<(&Term, &crate::term::Name)> = match value.kind() {
+    let element_sorts: Vec<(&Term, &Sort)> = match value.kind() {
         TermKind::List {
             definition,
             heads,
@@ -322,7 +322,7 @@ fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
     for (element, sort) in element_sorts {
         debug_assert_eq!(
             element.sort(),
-            Sort::simple(sort.clone()),
+            *sort,
             "{hook} evaluated to a collection holding an element of another sort than its \
              element sort: {element:?}"
         );
@@ -2252,13 +2252,13 @@ mod tests {
         };
         let map_definition = Arc::new(MapDefinition {
             symbols: symbols.clone(),
-            key_sort: "SortInt".into(),
-            value_sort: "SortInt".into(),
+            key_sort: Sort::simple("SortInt"),
+            value_sort: Sort::simple("SortInt"),
             map_sort: "SortMap".into(),
         });
         let list_definition = Arc::new(ListDefinition {
             symbols,
-            element_sort: "SortInt".into(),
+            element_sort: Sort::simple("SortInt"),
             list_sort: "SortList".into(),
         });
         let left_map = Term::map(
@@ -3090,7 +3090,7 @@ mod tests {
                     element: "element".into(),
                     concat: "concat".into(),
                 },
-                element_sort: "SortS".into(),
+                element_sort: Sort::simple("SortS"),
                 list_sort: "SortList".into(),
             }),
             vec![f_one.clone()],

@@ -702,7 +702,7 @@ mod tests {
                 element: format!("{name}-element").into(),
                 concat: format!("{name}-concat").into(),
             },
-            element_sort: element_sort.into(),
+            element_sort: Sort::simple(element_sort),
             list_sort: name.into(),
         })
     }
@@ -738,8 +738,8 @@ mod tests {
                 element: format!("{name}-element").into(),
                 concat: format!("{name}-concat").into(),
             },
-            key_sort: "SortKey".into(),
-            value_sort: "SortValue".into(),
+            key_sort: Sort::simple("SortKey"),
+            value_sort: Sort::simple("SortValue"),
             map_sort: name.into(),
         })
     }

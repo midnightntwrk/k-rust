@@ -108,8 +108,9 @@ pub(super) fn collection_hook_diagnostics(
             continue;
         };
         let element_sorts = non_terminal_sorts(items);
-        // The backend names a collection's element (key, value) sorts by sort name, which no
-        // instance of a parametric sort such as `MInt{64}` has; it refuses such a collection.
+        // A closed instance of a parametric sort such as `MInt{64}` is one sort, and the backend
+        // loads a collection over it; compiling one is still refused until the compiled form of
+        // such a collection is checked from source to load.
         if let Some(applied) = element_sorts
             .iter()
             .find(|sort| !sort.parameters.is_empty())

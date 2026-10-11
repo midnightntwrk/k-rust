@@ -157,6 +157,14 @@ impl Sort {
                 if arguments.is_empty() && name.as_ref() == sort.kore_name()
         )
     }
+
+    /// True when a sort variable occurs anywhere in the sort.
+    pub fn has_variable(&self) -> bool {
+        match self {
+            Self::Variable(_) => true,
+            Self::Application { arguments, .. } => arguments.iter().any(Self::has_variable),
+        }
+    }
 }
 
 /// One `Name` per `BuiltinSort` variant, created on first use and indexed by the variant's
@@ -659,15 +667,15 @@ pub struct CollectionSymbols {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct MapDefinition {
     pub symbols: CollectionSymbols,
-    pub key_sort: Name,
-    pub value_sort: Name,
+    pub key_sort: Sort,
+    pub value_sort: Sort,
     pub map_sort: Name,
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ListDefinition {
     pub symbols: CollectionSymbols,
-    pub element_sort: Name,
+    pub element_sort: Sort,
     pub list_sort: Name,
 }
 
@@ -3696,13 +3704,13 @@ mod tests {
         let two = Term::domain_value(sort(), "2");
         let set = Arc::new(SetDefinition {
             symbols: collection_symbols(),
-            element_sort: "Element".into(),
+            element_sort: Sort::simple("Element"),
             list_sort: "Set".into(),
         });
         let map = Arc::new(MapDefinition {
             symbols: collection_symbols(),
-            key_sort: "Key".into(),
-            value_sort: "Value".into(),
+            key_sort: Sort::simple("Key"),
+            value_sort: Sort::simple("Value"),
             map_sort: "Map".into(),
         });
         let symbolic = Term::variable(Variable::new("K", sort()));
@@ -3740,18 +3748,18 @@ mod tests {
         let value = Term::domain_value(sort(), "1");
         let map = Arc::new(MapDefinition {
             symbols: collection_symbols(),
-            key_sort: "Key".into(),
-            value_sort: "Value".into(),
+            key_sort: Sort::simple("Key"),
+            value_sort: Sort::simple("Value"),
             map_sort: "Map".into(),
         });
         let set = Arc::new(SetDefinition {
             symbols: collection_symbols(),
-            element_sort: "Element".into(),
+            element_sort: Sort::simple("Element"),
             list_sort: "Set".into(),
         });
         let list = Arc::new(ListDefinition {
             symbols: collection_symbols(),
-            element_sort: "Element".into(),
+            element_sort: Sort::simple("Element"),
             list_sort: "List".into(),
         });
         let mut anywhere = Symbol::constructor("anywhere", vec![sort()], sort());
@@ -3813,13 +3821,13 @@ mod tests {
         let other = Term::domain_value(sort(), "2");
         let map = Arc::new(MapDefinition {
             symbols: collection_symbols(),
-            key_sort: "Key".into(),
-            value_sort: "Value".into(),
+            key_sort: Sort::simple("Key"),
+            value_sort: Sort::simple("Value"),
             map_sort: "Map".into(),
         });
         let set = Arc::new(SetDefinition {
             symbols: collection_symbols(),
-            element_sort: "Element".into(),
+            element_sort: Sort::simple("Element"),
             list_sort: "Set".into(),
         });
         let singleton_set = Term::set(set.clone(), vec![value.clone()], None);
@@ -3901,13 +3909,13 @@ mod tests {
         let value = Term::domain_value(sort(), "1");
         let map = Arc::new(MapDefinition {
             symbols: collection_symbols(),
-            key_sort: "Key".into(),
-            value_sort: "Value".into(),
+            key_sort: Sort::simple("Key"),
+            value_sort: Sort::simple("Value"),
             map_sort: "Map".into(),
         });
         let set = Arc::new(SetDefinition {
             symbols: collection_symbols(),
-            element_sort: "Element".into(),
+            element_sort: Sort::simple("Element"),
             list_sort: "Set".into(),
         });
         let key = |name| {
@@ -4094,8 +4102,8 @@ mod tests {
         let two = Term::domain_value(sort(), "2");
         let map_definition = Arc::new(MapDefinition {
             symbols: collection_symbols(),
-            key_sort: "Key".into(),
-            value_sort: "Value".into(),
+            key_sort: Sort::simple("Key"),
+            value_sort: Sort::simple("Value"),
             map_sort: "Map".into(),
         });
         let nested_map = Term::map(
@@ -4120,7 +4128,7 @@ mod tests {
 
         let set_definition = Arc::new(SetDefinition {
             symbols: collection_symbols(),
-            element_sort: "Element".into(),
+            element_sort: Sort::simple("Element"),
             list_sort: "Set".into(),
         });
         let set = Term::set(

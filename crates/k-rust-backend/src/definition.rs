@@ -3390,27 +3390,14 @@ fn attach_collection_metadata(
                         names.element
                     ))
                 })?;
-                let [
-                    Sort::Application {
-                        name: key_sort,
-                        arguments: key_arguments,
-                    },
-                    Sort::Application {
-                        name: value_sort,
-                        arguments: value_arguments,
-                    },
-                ] = element.argument_sorts.as_slice()
-                else {
+                let [key_sort, value_sort] = element.argument_sorts.as_slice() else {
                     return Err(DefinitionError::MalformedCollection(format!(
                         "map element symbol {} must take key and value sorts",
                         names.element
                     )));
                 };
-                if !key_arguments.is_empty() || !value_arguments.is_empty() {
-                    return Err(DefinitionError::MalformedCollection(
-                        "parametric map element sorts are not supported".into(),
-                    ));
-                }
+                closed_element_sort(&names.element, key_sort)?;
+                closed_element_sort(&names.element, value_sort)?;
                 let definition = Arc::new(MapDefinition {
                     symbols: names.clone(),
                     key_sort: key_sort.clone(),
@@ -3426,23 +3413,13 @@ fn attach_collection_metadata(
                         names.element
                     ))
                 })?;
-                let [
-                    Sort::Application {
-                        name: element_sort,
-                        arguments,
-                    },
-                ] = element.argument_sorts.as_slice()
-                else {
+                let [element_sort] = element.argument_sorts.as_slice() else {
                     return Err(DefinitionError::MalformedCollection(format!(
                         "collection element symbol {} must take one sort",
                         names.element
                     )));
                 };
-                if !arguments.is_empty() {
-                    return Err(DefinitionError::MalformedCollection(
-                        "parametric collection element sorts are not supported".into(),
-                    ));
-                }
+                closed_element_sort(&names.element, element_sort)?;
                 let definition = Arc::new(ListDefinition {
                     symbols: names.clone(),
                     element_sort: element_sort.clone(),
@@ -3480,6 +3457,19 @@ fn attach_collection_metadata(
         {
             Arc::make_mut(symbol).attributes.result_collection = Some(collection.clone());
         }
+    }
+    Ok(())
+}
+
+/// Rejects an element, key or value sort with a sort variable: the collection sort has no sort
+/// parameters, so nothing would instantiate the variable, and a collection's elements need one
+/// sort that every element of the collection is compared and converted at. A closed sort, however
+/// built (`SortInt{}`, `SortMInt{Sort64{}}`), is such a sort.
+fn closed_element_sort(element: &Name, sort: &Sort) -> Result<(), DefinitionError> {
+    if sort.has_variable() {
+        return Err(DefinitionError::MalformedCollection(format!(
+            "collection element symbol {element} takes a sort with a sort variable"
+        )));
     }
     Ok(())
 }

@@ -44,18 +44,18 @@ fn mixed_deep_term() -> Term {
     ));
     let map = Arc::new(MapDefinition {
         symbols: collection_symbols("Map"),
-        key_sort: "SortS".into(),
-        value_sort: "SortS".into(),
+        key_sort: Sort::simple("SortS"),
+        value_sort: Sort::simple("SortS"),
         map_sort: "SortMap".into(),
     });
     let list = Arc::new(ListDefinition {
         symbols: collection_symbols("List"),
-        element_sort: "SortS".into(),
+        element_sort: Sort::simple("SortS"),
         list_sort: "SortList".into(),
     });
     let set = Arc::new(ListDefinition {
         symbols: collection_symbols("Set"),
-        element_sort: "SortS".into(),
+        element_sort: Sort::simple("SortS"),
         list_sort: "SortSet".into(),
     });
     let mut term = leaf.clone();

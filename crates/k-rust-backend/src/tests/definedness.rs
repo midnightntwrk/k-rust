@@ -273,13 +273,13 @@ fn forced_collection_collisions_have_negative_shape_flags() {
     };
     let map_definition = Arc::new(MapDefinition {
         symbols: symbols("Map"),
-        key_sort: "SortInt".into(),
-        value_sort: "SortInt".into(),
+        key_sort: Sort::simple("SortInt"),
+        value_sort: Sort::simple("SortInt"),
         map_sort: "SortMap".into(),
     });
     let set_definition = Arc::new(ListDefinition {
         symbols: symbols("Set"),
-        element_sort: "SortInt".into(),
+        element_sort: Sort::simple("SortInt"),
         list_sort: "SortSet".into(),
     });
     let int = |value: &str| Term::domain_value(Sort::simple("SortInt"), value);
@@ -471,18 +471,18 @@ fn collection_definitions() -> (Arc<MapDefinition>, Arc<ListDefinition>, Arc<Lis
     (
         Arc::new(MapDefinition {
             symbols: symbols("Map"),
-            key_sort: "SortKItem".into(),
-            value_sort: "SortKItem".into(),
+            key_sort: Sort::simple("SortKItem"),
+            value_sort: Sort::simple("SortKItem"),
             map_sort: "SortMap".into(),
         }),
         Arc::new(ListDefinition {
             symbols: symbols("Set"),
-            element_sort: "SortKItem".into(),
+            element_sort: Sort::simple("SortKItem"),
             list_sort: "SortSet".into(),
         }),
         Arc::new(ListDefinition {
             symbols: symbols("List"),
-            element_sort: "SortKItem".into(),
+            element_sort: Sort::simple("SortKItem"),
             list_sort: "SortList".into(),
         }),
     )
@@ -575,7 +575,7 @@ fn grouped_disequalities_are_the_pairwise_ones() {
             element: "Setelement".into(),
             concat: "Setconcat".into(),
         },
-        element_sort: "SortKItem".into(),
+        element_sort: Sort::simple("SortKItem"),
         list_sort: "SortSet".into(),
     });
     // Pairs skipped by the grouping, pairs with a disequality, and collections with a repeat.
@@ -670,8 +670,8 @@ fn keys_of_one_skeleton_need_no_apartness_check() {
             element: "Mapelement".into(),
             concat: "Mapconcat".into(),
         },
-        key_sort: "SortKItem".into(),
-        value_sort: "SortKItem".into(),
+        key_sort: Sort::simple("SortKItem"),
+        value_sort: Sort::simple("SortKItem"),
         map_sort: "SortMap".into(),
     });
     let (int, kitem, s) = (

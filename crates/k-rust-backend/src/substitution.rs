@@ -715,7 +715,7 @@ mod tests {
                 element: "listItem".into(),
                 concat: "listConcat".into(),
             },
-            element_sort: "SortElement".into(),
+            element_sort: Sort::simple("SortElement"),
             list_sort: "SortList".into(),
         });
         let substitution = Substitution::from([

@@ -505,7 +505,7 @@ mod tests {
                 element: "element".into(),
                 concat: "concat".into(),
             },
-            element_sort: "SortItem".into(),
+            element_sort: Sort::simple("SortItem"),
             list_sort: "SortItems".into(),
         })
     }
