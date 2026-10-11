@@ -20,6 +20,7 @@ pub(super) fn compile(
     run(
         "flex",
         tool("KRUST_FLEX", "flex"),
+        start_sort,
         directory,
         [
             header_argument,
@@ -35,6 +36,7 @@ pub(super) fn compile(
     run(
         "bison",
         tool("KRUST_BISON", "bison"),
+        start_sort,
         directory,
         [
             OsString::from("-d"),
@@ -67,16 +69,28 @@ pub(super) fn compile(
         OsString::from("-o"),
         output.as_os_str().to_owned(),
     ]);
-    run("C compiler", tool("KRUST_CC", "cc"), directory, arguments)
+    run(
+        "C compiler",
+        tool("KRUST_CC", "cc"),
+        start_sort,
+        directory,
+        arguments,
+    )
 }
 
 fn tool(variable: &str, default: &str) -> OsString {
     std::env::var_os(variable).unwrap_or_else(|| default.into())
 }
 
+/// Runs one tool of the parser build for `start_sort`. A tool that exits with a status rejects
+/// its input and says why on standard error, which is reported as it is. A tool killed by a
+/// signal stopped without deciding anything about its input (an internal assertion of the tool,
+/// or an outside kill), so that is reported as a failure of the tool, with the parser it was
+/// building, before whatever it wrote.
 fn run(
     description: &str,
     executable: impl AsRef<OsStr>,
+    start_sort: &Sort,
     directory: &Path,
     arguments: impl IntoIterator<Item = OsString>,
 ) -> Result<(), Error> {
@@ -88,13 +102,67 @@ fn run(
     if output.status.success() {
         return Ok(());
     }
-    let status = output
-        .status
-        .code()
-        .map_or_else(|| "signal".to_owned(), |code| format!("exit code {code}"));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(Error::render(format!(
-        "{description} failed with {status}: {}",
-        stderr.trim_end()
-    )))
+    let stderr = stderr.trim_end();
+    if let Some(code) = output.status.code() {
+        return Err(Error::render(format!(
+            "{description} failed with exit code {code}: {stderr}"
+        )));
+    }
+    #[cfg(unix)]
+    let signal = std::os::unix::process::ExitStatusExt::signal(&output.status).map_or_else(
+        || "a signal".to_owned(),
+        |signal| format!("signal {signal}"),
+    );
+    #[cfg(not(unix))]
+    let signal = "a signal";
+    let mut message = format!(
+        "{description} was killed by {signal} while building the parser of sort {start_sort}; \
+         this is a failure of {description} itself, not a rejection of the grammar"
+    );
+    if !stderr.is_empty() {
+        message.push_str(&format!(", and {description} wrote: {stderr}"));
+    }
+    Err(Error::render(message))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tool_killed_by_a_signal_is_reported_as_its_own_failure_naming_the_start_sort() {
+        let directory = std::env::temp_dir();
+        let error = run(
+            "bison",
+            "sh",
+            &Sort::new("Pgm"),
+            &directory,
+            [
+                OsString::from("-c"),
+                OsString::from("echo 'bison: src/X.c:1: f: Assertion failed.' >&2; kill -ABRT $$"),
+            ],
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            error,
+            "bison was killed by signal 6 while building the parser of sort Pgm; this is a \
+             failure of bison itself, not a rejection of the grammar, and bison wrote: \
+             bison: src/X.c:1: f: Assertion failed."
+        );
+        let error = run(
+            "bison",
+            "sh",
+            &Sort::new("Pgm"),
+            &directory,
+            [
+                OsString::from("-c"),
+                OsString::from("echo rejected >&2; exit 1"),
+            ],
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(error, "bison failed with exit code 1: rejected");
+    }
 }
