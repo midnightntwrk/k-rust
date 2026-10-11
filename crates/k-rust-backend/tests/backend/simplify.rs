@@ -7064,14 +7064,14 @@ fn a_call_dropped_later_in_the_same_simplification_is_not_reported() {
     }
 }
 
-/// A sub-predicate is an assumption only if it is equal to an assumed conjunct, so it has as many
-/// predicate nodes as one; a sub-predicate larger than every assumption other than the conjunct
-/// being simplified is looked up without hashing or copying it. A `\not` chain over
-/// `\ceil(f(X))` beside the known `\floor(f(X))` is the conjunct being simplified, and its lookups
-/// then walk a bounded number of nodes per level: four times the depth, about four times the
-/// nodes, where hashing and copying the rest of the chain at every level took sixteen times.
+/// An assumption lookup reads only the top two levels of the sub-predicate it looks up (its key)
+/// and compares it only with the assumed conjuncts of that key, so a lookup does not hash or copy
+/// the rest of a deep sub-predicate. A `\not` chain over `\ceil(f(X))` beside the known
+/// `\floor(f(X))` is the conjunct being simplified, and its lookups then walk a bounded number of
+/// nodes per level: four times the depth, about four times the nodes, where hashing and copying
+/// the rest of the chain at every level took sixteen times.
 #[test]
-fn assumption_lookups_in_a_connective_chain_are_bounded_by_the_assumptions() {
+fn assumption_lookups_in_a_connective_chain_read_a_bounded_key_per_level() {
     let definition = definition("");
     let applied = term(&definition, "f{}(X:SortS{})");
     let known = [Predicate::Floor(applied.clone())];
