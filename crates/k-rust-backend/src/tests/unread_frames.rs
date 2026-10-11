@@ -152,14 +152,28 @@ fn an_unread_frame_is_bound_only_where_the_subject_has_obligations() {
         term(&definition, &int(20))
     );
 
-    let symbolic = term(
-        &definition,
-        &format!(
-            "lookup{{}}({}, {key})",
-            map(&["VarX:SortInt{}".to_owned(), int(2)])
-        ),
-    );
-    assert!(!symbolic.attributes().ceil_free());
+    let symbolic_map = map(&["VarX:SortInt{}".to_owned(), int(2)]);
+    assert!(!term(&definition, &symbolic_map).attributes().ceil_free());
+    let symbolic = term(&definition, &format!("lookup{{}}({symbolic_map}, {key})"));
     let kept = match_equation_in_definition(&definition, &rule.lhs, &symbolic, frames);
     assert!(binds_a_map(&kept));
+}
+
+/// A pattern key the subject lacks leaves the match failed, unread frame or not: the frame is
+/// skipped only once every pattern key has been found.
+#[test]
+fn an_unread_frame_does_not_hide_a_missing_key() {
+    let definition = load();
+    let rule = only_equation(&definition, "lookup");
+    let frames = &rule.computed_attributes.unread_map_frames;
+    let subject_map = map(&[int(1), int(3)]);
+    assert!(term(&definition, &subject_map).attributes().ceil_free());
+    let absent = term(
+        &definition,
+        &format!("lookup{{}}({subject_map}, {})", int(2)),
+    );
+    assert!(matches!(
+        match_equation_in_definition(&definition, &rule.lhs, &absent, frames),
+        MatchResult::Failed(_)
+    ));
 }
