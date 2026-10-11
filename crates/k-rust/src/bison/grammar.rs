@@ -34,8 +34,10 @@
 //! of a restricted sort that a production passes through is restricted too when it derives an
 //! excluded node at its root, which one indexed DFS per child decides in O(productions);
 //! the productions that restriction leaves deriving no finite tree are then removed by two
-//! productivity worklists, linear in the exported items; a third, after rendering, decides whether
-//! the start sort derives a program at all. Reachability is a visited-set DFS, O(reachable sorts * productions).
+//! productivity worklists, linear in the exported items; a third, before rendering, decides which
+//! productions are useful (rendered) and whether the start sort derives a program at all.
+//! Reachability is a visited-set DFS, O(reachable sorts * productions), run twice: through every
+//! production (the productions checked) and through the useful ones (the sorts rendered).
 //! These exporter-only algorithms have no dedicated counter.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -310,7 +312,24 @@ fn render_inner(
             sort: start.clone(),
         });
     }
-    let reachable = reachable_sorts(&productions, start);
+    // Only the useful grammar is rendered: the productions whose operands all derive a finite
+    // tree, over the sorts the start sort reaches through such productions. Every other rule can
+    // take part in no parse, so the program language and the parser are those of the useful
+    // grammar alone; Bison drops such rules too (as useless) before building its tables, keeping
+    // the order of the rest, so it builds the same parser from either rendering. Rendering them
+    // anyway only leaves Bison that removal, which its IELR pass does not survive on some
+    // grammars: `AnnotationList__compute_from_inadequacies` aborts on a grammar it accepts once
+    // the useless rules are gone. The productions the start sort reaches through any production
+    // are still checked as they are rendered, so a definition's own error in a production that
+    // derives nothing is still reported.
+    let productive = productive_sorts(&productions, Sort::clone);
+    let useful = |production: &GrammarProduction| {
+        nonterminal_sorts(&production.items)
+            .iter()
+            .all(|operand| productive.contains(*operand))
+    };
+    let reachable = reachable_sorts(&productions, start, |_| true);
+    let rendered_sorts = reachable_sorts(&productions, start, useful);
     let sort_catalog = SortCatalog::from_visible(sentences.iter());
     let semantic_sentences = || {
         sentences.iter().filter(|sentence| {
@@ -351,14 +370,14 @@ fn render_inner(
         )
         .expect("writing to a string cannot fail");
     }
-    for sort in &reachable {
+    for sort in &rendered_sorts {
         writeln!(output, "%nterm {}", encode_bison_sort(sort))
             .expect("writing to a string cannot fail");
     }
     write_list_closers(
         &mut output,
         &productions,
-        &reachable,
+        &rendered_sorts,
         &sort_catalog,
         &placements,
         &overloads,
@@ -388,11 +407,11 @@ fn render_inner(
         let Some(alternatives) = grouped.get(sort) else {
             continue;
         };
-        writeln!(output, "{}:", encode_bison_sort(sort)).expect("writing to a string cannot fail");
-        for (index, production) in alternatives.iter().enumerate() {
-            output.push_str(if index == 0 { "  " } else { "  |" });
+        let mut rule = String::new();
+        for production in alternatives {
+            let mut alternative = String::new();
             write_production(
-                &mut output,
+                &mut alternative,
                 production,
                 scanner,
                 &sort_catalog,
@@ -400,15 +419,24 @@ fn render_inner(
                 &overloads,
                 mode == Mode::Glr,
             )?;
+            if rendered_sorts.contains(sort) && useful(production) {
+                rule.push_str(if rule.is_empty() { "  " } else { "  |" });
+                rule.push_str(&alternative);
+            }
         }
-        output.push_str(";\n");
+        // A rendered sort is productive, so it has a useful alternative.
+        if !rule.is_empty() {
+            writeln!(output, "{}:", encode_bison_sort(sort))
+                .expect("writing to a string cannot fail");
+            output.push_str(&rule);
+            output.push_str(";\n");
+        }
     }
     // Bison requires the start symbol to derive a sentence. A start sort whose productions all
     // need a sort without finite programs has no programs at all, the same empty program
     // language as a start sort without productions, so it is reported the same way, by sort.
     // The check follows rendering so that a production's own error, which names the
     // production and its location, is reported first.
-    let productive = productive_sorts(&productions, Sort::clone);
     if !productive.contains(start) {
         return Err(GrammarError::UnproductiveStartSort {
             sort: start.clone(),
@@ -743,8 +771,8 @@ fn render_items(items: &[ProductionItem]) -> String {
 /// (where each restricted sort `origins` maps is its unrestricted sort) is the definition's own
 /// and is kept, so the checks of rendering still report its errors. This holds also when
 /// restriction has emptied another of its operands (`A ::= C#0 "*" B` with `B` unproductive): `B`
-/// already makes the production derive nothing, so it stays, and Bison reports it as useless with
-/// the definition's other useless rules.
+/// already makes the production derive nothing, so it stays, checked by rendering and left out of
+/// the rendered grammar with the definition's other useless rules (`render_inner`).
 fn remove_rules_restriction_made_useless(
     productions: &mut Vec<GrammarProduction>,
     origins: &BTreeMap<Sort, Sort>,
@@ -1069,11 +1097,16 @@ fn restricted_sort(sort: &Sort, ordinal: usize) -> Sort {
     Sort::with_parameters(format!("{}#{ordinal}", sort.name), sort.parameters.clone())
 }
 
+/// The sorts `start` reaches through the productions `usable` accepts.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "ProductionItem is not a sentence kind; only the listed variants are special here"
 )]
-fn reachable_sorts(productions: &[GrammarProduction], start: &Sort) -> BTreeSet<Sort> {
+fn reachable_sorts(
+    productions: &[GrammarProduction],
+    start: &Sort,
+    usable: impl Fn(&GrammarProduction) -> bool,
+) -> BTreeSet<Sort> {
     let mut reachable = BTreeSet::new();
     let mut pending = vec![start.clone()];
     // Invariant: `reachable` contains exactly the visited sort closure and `pending` contains
@@ -1084,7 +1117,7 @@ fn reachable_sorts(productions: &[GrammarProduction], start: &Sort) -> BTreeSet<
         }
         for production in productions
             .iter()
-            .filter(|production| production.result == sort)
+            .filter(|production| production.result == sort && usable(production))
         {
             pending.extend(production.items.iter().filter_map(|item| match item {
                 ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
@@ -2752,6 +2785,59 @@ mod tests {
         assert!(exported_labels.contains("ghost"), "{productions:#?}");
         assert!(defined.contains(&Sort::new("Add")));
         assert!(!defined.contains(&Sort::new("Zoo")));
+    }
+
+    /// Only the useful grammar is rendered: a production with an operand of a sort that derives
+    /// no program (`Cfg`, which has no productions) is left out, and so are the sorts only such
+    /// productions reach (`Hidden`) and the declaration of each; the start sort keeps its other
+    /// productions. Such a production is still checked: one without a semantic action is an
+    /// error although it could take part in no parse.
+    #[test]
+    fn only_the_useful_grammar_is_rendered_and_each_reachable_production_is_checked() {
+        let terminal = |text: &str| ProductionItem::Terminal(text.into());
+        let mut sentences = vec![
+            syntax_sort("Cfg", &[]),
+            production("Pgm", vec![nonterminal("Exp")], None, &[]),
+            production("Pgm", vec![nonterminal("Cfg")], None, &[]),
+            production(
+                "Pgm",
+                vec![nonterminal("Cfg"), terminal("!"), nonterminal("Hidden")],
+                Some("bang"),
+                &[],
+            ),
+            production("Exp", vec![terminal("1")], Some("one"), &[]),
+            production("Hidden", vec![terminal("h")], Some("hidden"), &[]),
+        ];
+        for mode in [Mode::Lr, Mode::Glr] {
+            let output = rendered(&sentences, "Pgm", mode).unwrap();
+            let rules = output.split("\n%%\n").nth(1).unwrap();
+            let rule_heads = rules
+                .lines()
+                .filter(|line| line.ends_with(':'))
+                .collect::<Vec<_>>();
+            assert_eq!(rule_heads, ["SortExp__:", "SortPgm__:"], "{rules}");
+            assert!(
+                !rules.contains("SortCfg__") && !rules.contains("SortHidden__"),
+                "{rules}"
+            );
+            assert!(!rules.contains("Lblbang") && !rules.contains("Lblhidden"));
+            assert!(
+                !output.contains("%nterm SortCfg__") && !output.contains("%nterm SortHidden__")
+            );
+            assert!(output.contains("%nterm SortPgm__") && output.contains("%nterm SortExp__"));
+        }
+        sentences.push(production(
+            "Pgm",
+            vec![nonterminal("Cfg"), terminal("?"), nonterminal("Cfg")],
+            None,
+            &[],
+        ));
+        assert_eq!(
+            rendered(&sentences, "Pgm", Mode::Lr)
+                .unwrap_err()
+                .to_string(),
+            "production for Pgm has no Bison semantic action"
+        );
     }
 
     /// `parser.bison.priorities`, `prepare_user_lists`: a user list that is not one recursive and

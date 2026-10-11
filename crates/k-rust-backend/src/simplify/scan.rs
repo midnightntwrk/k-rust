@@ -358,7 +358,7 @@ mod tests {
 
     /// Attempt alternative `index` of `outcomes`: emit a diagnostic naming it and end as given.
     fn replay(outcomes: &[Outcome], index: usize) -> Outcome {
-        diagnostic::emit_rule_condition_budget_exhausted(&format!("alternative-{index}"), 1);
+        diagnostic::emit_rule_condition_budget_exhausted(&format!("alternative-{index}"), None, 1);
         match &outcomes[index] {
             EquationAttempt::Applied(result) => EquationAttempt::Applied(*result),
             EquationAttempt::NotApplicable(()) => EquationAttempt::NotApplicable(()),

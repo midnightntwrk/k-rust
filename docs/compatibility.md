@@ -303,7 +303,8 @@ The intermediate sorts of a subsort chain have no text of their own and locate n
 The file name is the program path as given (a byte outside a UTF-8 sequence read as the character of its value, as a generated parser reads its path), and `-` for standard input, `--expression`, `-c` values, `kast` batch cases and library text, none of which is read from a file.
 In KAST the wrapper keeps its sort argument and the injection of a term located at its position's sort (`#location{Exp}(inj{Int,Exp}(#token("1","Int")), ...)`): the instance of `#location` is the sort the term is located at, which an inference from its argument would make the least one, `Int`.
 A definition whose main module does not import `K-LOCATIONS` while a program sort declares `[locations]` is now rejected by `krun` when it converts the program (`cannot find a production for KLabel "#location"`); before, the attribute was ignored on that route.
-krust's two parsers still place an empty term differently when layout separates it from the text after it: the in-process parser locates it at the start of the text after it (`f( )` locates its empty list at line 1, column 4), a generated parser at the end of the text before it (column 3), and a term ending with such an empty term ends there too; with no layout between, both agree (`in_process_parsing_locates_located_sorts_as_the_generated_parser` in `crates/k-rust/tests/cli.rs`).
+A located term spans its text, from the first character of its first token to the last character of its last, on both routes, so the layout after a term whose last part is empty (an empty list, or the empty end every list has) is no part of it: `f(1, 2 )` locates `1, 2` at columns 3 to 7. A term with no text, such as an empty list, stands at the end of the token before it (the start of the input when none), so a list contains its empty end: `f( )` locates its empty list at line 1, column 3, and in `( x ? a ,\n b  \n )` with `syntax Pair ::= Name "?" Names`, the `Names` after `?` is at line 1, column 7 to line 2, column 3, its empty end at line 2, column 3 (`in_process_parsing_locates_located_sorts_as_the_generated_parser` in `crates/k-rust/tests/cli.rs`).
+The two routes still differ on a term whose first part is empty and is followed by layout: the in-process parser starts it at its first token, while a generated parser starts its line and column at that empty part, at the end of the token before it (with `syntax Pair ::= Opt "#" Name` and an empty `Opt`, `(  # x )` locates the `Pair` from column 4 in process and from column 2 in a generated parser; open).
 
 ## Generated parser tokens are characters
 
@@ -489,6 +490,13 @@ A hook alone does not admit domain values: it fixes how the backend computes on 
 A literal at any other sort is rejected by the definition checks with `InvalidDomainValue`, and one a compiler pass writes after them is rejected by term conversion with `InvalidToken`.
 The emitted declaration of a head carries `hasDomainValues` exactly when that head admits domain values, so `Bool` and `KConfigVar` carry it even without token productions, and every domain value of the emitted definition is at a sort declared with it.
 [Token admissibility tests](../crates/k-rust/tests/token_admissibility.rs) pin the admitted sorts and the rejection of a hooked sort's literal.
+
+## Token productions over a phrase
+
+An unlabelled `token` production whose only item is a nonterminal, `syntax Toks ::= Names [token]`, spells each phrase of `Names` as a domain value of `Toks` whose text is the input the phrase spans; it builds no term of `Names`.
+So no `Names` value is a `Toks` value, and the production states no subsort: it is in the syntactic subsort relation (a `Names` phrase stands where `Toks` is written) and not in the semantic one, the compiled definition has no `subsort{SortNames{}, SortToks{}}` axiom and no `inj{SortNames{}, SortToks{}}`, and the no-junk axiom of `Toks` is that of a sort of domain values.
+A sort of domain values may have no subsort in a loaded definition (the backend's verification rejects one), and here none is stated: the pinned reference emits the subsort axiom, and its backend then rejects the compiled definition, where k-rust compiles it; a program placed through a phrase sort's own syntax (`Pgm ::= "run" Toks`) runs, while a configuration variable whose sort reaches the phrase sort by subsorts alone (`Pgm ::= Toks` with `$PGM:Pgm`) still compiles to a token of its own text (open).
+(`a_token_subsort_over_a_list_compiles_without_a_subsort_and_runs` in [cli.rs](../crates/k-rust/tests/cli.rs), `a_token_subsort_is_only_a_syntactic_subsort` in [definition_relations.rs](../crates/k-rust/tests/definition_relations.rs).)
 
 ## Strings and their literals
 

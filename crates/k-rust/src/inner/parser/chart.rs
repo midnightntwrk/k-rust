@@ -260,9 +260,9 @@ pub(super) struct Chart {
     // The nodes ending here that productions flagged by `SameSpanCycles` built, each with the
     // building production; the entry keeps its node alive so the address stays unique.
     pub(super) cycle_nodes: RefCell<IndexMap<*const PackedTerm, (Rc<PackedTerm>, usize)>>,
-    // Where the layout before this position starts, when items moved here past layout: the end
-    // of the token the scanner read last. A node completed here whose last part is empty spans
-    // that layout, which its last token does not reach (`Chart::last_token_end`).
+    // Where the layout before this position starts, when layout precedes it: the end of the token
+    // the scanner read last, or the start of the input. Set when items move here past layout, and
+    // at the first chart of an input that starts with layout (`Chart::text_span`).
     pub(super) layout_start: Option<usize>,
 }
 
@@ -288,17 +288,32 @@ impl Chart {
         }
     }
 
-    /// The end of the last token of a node completed at this chart's position `end` from
-    /// `origin`. A node ends here either after a token it reads, which is followed by no layout,
-    /// or after an empty last part, which completes past the layout that follows the node's last
-    /// token. A node of no token (`origin == end`) ends where it starts.
-    pub(super) fn last_token_end(&self, origin: usize, end: usize) -> usize {
+    /// The span of the text of a node completed at this chart's position `end` from `origin`:
+    /// from the start of its first token to the end of its last, as input offsets.
+    ///
+    /// Layout belongs to no node. A node starts at its first token, since an item is predicted
+    /// only past the layout before it, so `origin` is never inside layout. It ends here either
+    /// after a token it reads, or after an empty last part, which completes past the layout that
+    /// follows the node's last token: that token ends where this chart's layout starts.
+    ///
+    /// A node of no token (`origin == end`) has empty text, which every point of the layout
+    /// between the token before it and the token after it equally holds. It stands at the end of
+    /// the token before it (the start of the input when none), so that a node whose last part is
+    /// empty, such as every `List{}` phrase, contains that part at its own end.
+    ///
+    /// The chart positions of a derivation's children are recovered from these spans, which
+    /// `factor_derivations` relies on: a nonempty node starts at its origin, the next item is
+    /// processed past the layout after its last token whichever of the two charts it completed
+    /// at, and an empty node at a chart stands at the start of the layout before it, which no
+    /// other chart's layout starts at.
+    pub(super) fn text_span(&self, origin: usize, end: usize) -> (usize, usize) {
         match self.layout_start {
             Some(token_end) if origin < end => {
-                debug_assert!(origin <= token_end && token_end < end);
-                token_end
+                debug_assert!(origin < token_end && token_end < end);
+                (origin, token_end)
             }
-            _ => end,
+            Some(token_end) => (token_end, token_end),
+            None => (origin, end),
         }
     }
 }
@@ -711,9 +726,7 @@ pub(super) fn completed_nodes(
                     production,
                     children,
                     input,
-                    state.origin,
-                    end,
-                    chart.last_token_end(state.origin, end),
+                    chart.text_span(state.origin, end),
                     provenance,
                 ),
             };
@@ -927,9 +940,7 @@ mod tests {
             &grammar.productions[0],
             std::slice::from_ref(&child),
             "child",
-            0,
-            5,
-            5,
+            (0, 5),
             ParseProvenance {
                 source: SourceId(0),
                 base_offset: 0,

@@ -836,28 +836,20 @@ pub(super) fn pack_alternatives(nodes: &BTreeSet<Rc<PackedTerm>>) -> Rc<PackedTe
     PackedTerm::ambiguity(alternatives)
 }
 
-/// The node of `production` over `children`, which spans `input[start..end]`.
-///
-/// `token_end` is the end of the node's last token (`Chart::last_token_end`). A token
-/// production's text is the input from the first character of its first token to the last
-/// character of its last token: a phrase whose last part is empty completes after the layout
-/// that follows its last token, and that layout is no part of the text (with `syntax Names ::=
-/// List{Name, ","}` and `syntax MyToks ::= Names [token]`, `( a , b  )` holds the `MyToks` token
-/// `a , b`). Its first part needs no such care: an item is predicted only where the layout before
-/// it has been skipped, so a node starts at its first token.
-#[allow(clippy::too_many_arguments)]
+/// The node of `production` over `children`, whose text is `input[start..end]`
+/// (`Chart::text_span`): from the first character of its first token to the last character of
+/// its last, without the layout around it. A token production reads that text as its token, so
+/// with `syntax Names ::= List{Name, ","}` and `syntax MyToks ::= Names [token]`, `( a , b  )`
+/// holds the `MyToks` token `a , b`.
 pub(super) fn build_packed_term(
     production_index: usize,
     production: &Production,
     children: &[Rc<PackedTerm>],
     input: &str,
-    start: usize,
-    end: usize,
-    token_end: usize,
+    (start, end): (usize, usize),
     provenance: ParseProvenance,
 ) -> Rc<PackedTerm> {
     if production.token {
-        let end = token_end;
         if production.result.is_frontend(FrontendSort::KVariable) {
             return PackedTerm::leaf(
                 Term::Variable {

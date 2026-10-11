@@ -1582,8 +1582,8 @@ fn simplify_rule_predicates(
     )
 }
 
-/// Simplify the side-condition predicates of an application attempt of `rule_id`, keeping
-/// them unsimplified when simplification fails.
+/// Simplify the side-condition predicates of an application attempt of `rule`, keeping them
+/// unsimplified when simplification fails.
 ///
 /// The unsimplified predicates are the same condition, so deciding them instead is sound; it
 /// is only weaker, and may leave the condition undecided where the simplified form would have
@@ -1605,7 +1605,7 @@ fn simplify_rule_predicates(
 #[allow(clippy::too_many_arguments)]
 fn simplify_rule_predicates_or_keep(
     definition: &BackendDefinition,
-    rule_id: &str,
+    rule: &RuleAttributes,
     anchor: &Term,
     predicates: Vec<Predicate>,
     known_predicates: &[Predicate],
@@ -1615,7 +1615,7 @@ fn simplify_rule_predicates_or_keep(
 ) -> SimplifyResult<Vec<Predicate>> {
     match simplify_rule_predicates(
         definition,
-        (rule_id, anchor),
+        (&rule.unique_id, anchor),
         &predicates,
         known_predicates,
         options,
@@ -1625,13 +1625,13 @@ fn simplify_rule_predicates_or_keep(
         Ok(simplified) => Ok(simplified),
         Err(Unwind::Stop(stop)) => Err(Unwind::Stop(stop)),
         Err(Unwind::Fail(failure)) => {
-            record_rule_condition_failure(rule_id, failure);
+            record_rule_condition_failure(rule, failure);
             Ok(predicates)
         }
     }
 }
 
-/// Record why the side conditions of an application attempt of `rule_id` are kept unsimplified,
+/// Record why the side conditions of an application attempt of `rule` are kept unsimplified,
 /// so that an equation left unapplied because of `failure` is distinguishable from one whose
 /// condition is open.
 ///
@@ -1647,11 +1647,15 @@ fn simplify_rule_predicates_or_keep(
 #[deny(clippy::wildcard_enum_match_arm)]
 #[cold]
 #[inline(never)]
-fn record_rule_condition_failure(rule_id: &str, failure: SimplificationError) {
+fn record_rule_condition_failure(rule: &RuleAttributes, failure: SimplificationError) {
     match failure {
         SimplificationError::IterationLimit { limit, .. }
         | SimplificationError::PredicateIterationLimit { limit, .. } => {
-            diagnostic::emit_rule_condition_budget_exhausted(rule_id, limit);
+            diagnostic::emit_rule_condition_budget_exhausted(
+                &rule.unique_id,
+                rule.origins.first(),
+                limit,
+            );
         }
         SimplificationError::UnsupportedHook { hook, reason, .. } => {
             diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason });
@@ -1662,7 +1666,8 @@ fn record_rule_condition_failure(rule_id: &str, failure: SimplificationError) {
         | SimplificationError::DisjunctiveResult { .. }
         | SimplificationError::InvalidBuiltinResultSymbol { .. }) => {
             diagnostic::emit(BackendDiagnostic::RuleConditionFailed {
-                rule_id: rule_id.to_owned(),
+                rule_id: rule.unique_id.clone(),
+                origin: rule.origins.first().cloned(),
                 failure,
             });
         }
@@ -1778,7 +1783,7 @@ fn evaluate_equation_condition(
                 } else {
                     simplify_rule_predicates_or_keep(
                         definition,
-                        rule_id,
+                        rule,
                         anchor,
                         predicates,
                         known,
@@ -6321,13 +6326,12 @@ fn decide_equation_bindings(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<DecidedEquation> {
-    let rule_id = rule.unique_id.as_str();
     let decided = matched.decide(|obligations| {
         let decide = || {
             let obligations = if let Some(anchor) = anchor {
                 simplify_rule_predicates_or_keep(
                     definition,
-                    rule_id,
+                    rule,
                     anchor,
                     obligations,
                     known_predicates,
@@ -6742,7 +6746,7 @@ fn evaluate_ensures(
             } else {
                 simplify_rule_predicates_or_keep(
                     definition,
-                    &rule.attributes.unique_id,
+                    &rule.attributes,
                     term,
                     ensures,
                     known,

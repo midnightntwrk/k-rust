@@ -2387,9 +2387,11 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         tracing::info_span!("phase", name = tracing::field::display("program_parse")).entered();
     let started = Instant::now();
     let available_config_vars = &compiled.configuration_variables;
-    // K's krun (krun:484-489, :506-521) reads a program only when one is passed; a
-    // definition without `$PGM` runs from the configuration variables alone and never
-    // touches standard input.
+    // The program is the value of `$PGM`. A program that is passed (an expression or a file)
+    // is parsed and checked whether or not the definition declares `$PGM`. When none is
+    // passed, a definition that declares `$PGM` takes it from standard input, and one that
+    // declares none has nothing for a program to bind: it runs from its configuration
+    // variables alone and never reads standard input for a program.
     let program_supplied = options.expression.is_some() || options.program_file.is_some();
     let program_uses_stdin = options.expression.is_none()
         && options
@@ -4697,6 +4699,26 @@ mod tests {
             error,
             GeneratedIdentityMappingError::Missing { identity: missing }
         );
+        assert_eq!(
+            error.to_string(),
+            "generated element variable VarMissing is missing from the internalized match target"
+        );
+    }
+
+    #[test]
+    fn generated_identity_mapping_names_a_missing_set_variable_by_its_kore_spelling() {
+        let target = backend_pattern_with_candidates(
+            Variable::new("VarPresent", BackendSort::simple("SortInt")),
+            Vec::new(),
+        );
+        let missing = k_rust::kompile::KoreVariableIdentity::set("@VarMissing");
+        let error =
+            map_generated_anonymous_variables(&target, &BTreeSet::from([missing])).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "generated set variable @VarMissing is missing from the internalized match target"
+        );
     }
 
     #[test]
@@ -4717,6 +4739,34 @@ mod tests {
                 identity,
                 candidates: BTreeSet::from([first, second]),
             }
+        );
+        assert_eq!(
+            error.to_string(),
+            "generated element variable VarGenerated has multiple internalized sorts: SortBool{}, SortInt{}"
+        );
+    }
+
+    #[test]
+    fn a_generated_variable_absent_from_the_compiled_target_is_named_by_kind_and_kore_name() {
+        let definition = parse_kore_definition(
+            r#"[]
+            module M
+              sort SortS{} []
+            endmodule []"#,
+        )
+        .unwrap();
+        let backend = BackendDefinition::internalize(&definition, "M").unwrap();
+        let compiled = CompiledSearchPattern {
+            pattern: parse_kore_pattern("VarPresent:SortS{}").unwrap(),
+            generated_anonymous_variables: BTreeSet::from([
+                k_rust::kompile::KoreVariableIdentity::element("VarAbsent"),
+            ]),
+        };
+        let error = prepare_backend_match_target(&backend, compiled).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "generated element variable VarAbsent does not occur in the compiled match target"
         );
     }
 

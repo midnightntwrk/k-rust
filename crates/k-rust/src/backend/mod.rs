@@ -2558,10 +2558,17 @@ mod tests {
         }])
     }
 
+    /// The rule's axiom is a sentence of the definition written without `Source` or `Location`,
+    /// so its origin is present and names neither.
     fn condition_exhausted_json(rule_id: &str) -> Value {
         serde_json::json!([
             {"kind": "simplification-budget-exhausted", "limit": 3, "subject": "predicates"},
-            {"kind": "rule-condition-unsimplified", "ruleId": rule_id, "limit": 3}
+            {
+                "kind": "rule-condition-unsimplified",
+                "ruleId": rule_id,
+                "origin": {"source": null, "location": null},
+                "limit": 3
+            }
         ])
     }
 

@@ -484,8 +484,20 @@ export type BackendDiagnostic =
     }
   | { kind: 'undecided-predicate'; predicate: Kore; reason: ConditionIndeterminacy }
   | { kind: 'simplification-budget-exhausted'; limit: number; subject: 'term' | 'predicates' }
-  | { kind: 'rule-condition-unsimplified'; ruleId: string; limit: number }
-  | { kind: 'rule-condition-failed'; ruleId: string; failure: SearchFailure }
+  | {
+      kind: 'rule-condition-unsimplified'
+      ruleId: string
+      /** The first written sentence of the rule's axiom, as for 'undecided-condition'; with `ruleId` it names a rule whose id is 'UNKNOWN'. */
+      origin?: RuleOrigin
+      limit: number
+    }
+  | {
+      kind: 'rule-condition-failed'
+      ruleId: string
+      /** The first written sentence of the rule's axiom, as for 'undecided-condition'; with `ruleId` it names a rule whose id is 'UNKNOWN'. */
+      origin?: RuleOrigin
+      failure: SearchFailure
+    }
   | { kind: 'unsupported-hook-unevaluated'; hook: string; reason: string }
 
 export type SmtFailure =

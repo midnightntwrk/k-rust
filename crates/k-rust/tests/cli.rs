@@ -11104,9 +11104,11 @@ endmodule
 
 /// In-process program parsing locates the terms of `[locations]` sorts as a generated parser
 /// does: a term is wrapped in `#location` at its own sort and at the sort of its position when
-/// either declares `[locations]` (`Val` inside `Exp`, through its injection, when both do), an
-/// empty list at the empty span where it stands, and the file name is the program path as given,
-/// `-` for standard input and `--expression`. `krun --depth 0` and the generated parser give each
+/// either declares `[locations]` (`Val` inside `Exp`, through its injection, when both do), a
+/// term from its first token to its last, without the layout after it even when its last part is
+/// empty (`f(1, 2 )` locates `1, 2` and its empty end at the end of `2`), an empty list at the end
+/// of the token before it (`f( )` locates it after `(`), and the file name is the program path as
+/// given, `-` for standard input and `--expression`. `krun --depth 0` and the generated parser give each
 /// program one term once the injection into the start position is removed.
 #[cfg(unix)]
 #[test]
@@ -11201,7 +11203,17 @@ endmodule
         assert_eq!(symbol.name, "kseq");
         uninjected(&arguments[0])
     };
-    let programs = ["v + 1", "f(1, 2)", "f()", "1", "(1 +\r\nv)\r+ f(3)\n"];
+    let programs = [
+        "v + 1",
+        "f(1, 2)",
+        "f()",
+        "1",
+        "(1 +\r\nv)\r+ f(3)\n",
+        "f(1, 2 )",
+        "f( )",
+        "f( 1 ,\n 2  \n )\n",
+        "f(f( ), (v) ) + f(\n)",
+    ];
     for (index, program) in programs.into_iter().enumerate() {
         let input = root.join(format!("program-{index}.pgm"));
         fs::write(&input, program).unwrap();
@@ -11226,6 +11238,66 @@ endmodule
             in_process(&["--expression".as_ref(), program.as_ref()], None),
             unnamed,
             "{program:?} given by --expression"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The program grammar renders only its useful rules. Here `KItem ::= KConfigVar` is one that is
+/// not: `KConfigVar` has no program syntax. Rendered, Bison dropped it as useless, and its IELR
+/// pass then aborted on this grammar (`AnnotationList__compute_from_inadequacies`). Without it
+/// the parser is generated and reads a `Toks` phrase, empty or not, as its text.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_builds_a_located_token_phrase_over_a_list_without_useless_rules() {
+    const DEFINITION: &str = r#"
+module L-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp [locations]
+  syntax Val [locations]
+  syntax Exps [locations]
+  syntax Toks [locations]
+  syntax Val ::= Int | "v" [symbol(v)]
+  syntax Exp ::= Val | Exp "+" Exp [left, symbol(plus)] | "f" "(" Exps ")" [symbol(f)]
+               | "(" Exp ")" [bracket]
+               | "g" "(" Toks ")" [symbol(g)]
+  syntax Exps ::= List{Exp, ","}
+  syntax Vals ::= List{Val, ","}
+  syntax Toks ::= Vals [token]
+  syntax Pgm ::= Exp
+endmodule
+"#;
+    let (root, parser) = generate_parser(DEFINITION, "L-SYNTAX", &[]);
+    let located = |term: &str, columns: (u32, u32)| {
+        format!(
+            "Lbl'Hash'location{{{sort}}}({term}, \\dv{{SortString{{}}}}(\"p\"), \\dv{{SortInt{{}}}}(\"1\"), \\dv{{SortInt{{}}}}(\"{}\"), \\dv{{SortInt{{}}}}(\"1\"), \\dv{{SortInt{{}}}}(\"{}\"))",
+            columns.0,
+            columns.1,
+            sort = if term.starts_with("\\dv") {
+                "SortToks{}"
+            } else {
+                "SortExp{}"
+            },
+        )
+    };
+    for (program, text) in [("g(v, 1)", "v, 1"), ("g()", "")] {
+        let input = root.join("program.pgm");
+        fs::write(&input, program).unwrap();
+        let output = Command::new(&parser).arg(&input).arg("p").output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let end = u32::try_from(program.len()).unwrap();
+        let phrase = located(&format!("\\dv{{SortToks{{}}}}(\"{text}\")"), (3, end));
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap().trim_end(),
+            format!(
+                "inj{{SortExp{{}}, SortPgm{{}}}}({})",
+                located(&format!("Lblg{{}}({phrase})"), (1, end + 1))
+            ),
+            "{program:?}"
         );
     }
     fs::remove_dir_all(root).unwrap();
@@ -12370,6 +12442,78 @@ endmodule
             r#"\\dv\{SortInt\{\}\}\("([0-9]+)"\)"#,
         ),
         (r"a ,\n b".to_owned(), vec![1, 3, 2, 3])
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A token subsort's sort holds tokens, not values of the subsort it reads its text from: `Toks`
+/// spells each `Names` phrase as a `Toks` domain value, and no `Names` list is a `Toks` value. So
+/// the compiled definition states no subsort from `Names` to `Toks` (a sort of domain values has
+/// no injected values), and a program that holds such a token compiles and runs.
+#[test]
+fn a_token_subsort_over_a_list_compiles_without_a_subsort_and_runs() {
+    let source = r##"
+module TOKRUN-SYNTAX
+  syntax Name ::= r"[a-z]+" [token]
+  syntax Names ::= List{Name, ","}
+  syntax Toks ::= Names [token]
+  syntax Pgm ::= "run" Toks
+endmodule
+module TOKRUN
+  imports TOKRUN-SYNTAX
+  syntax KItem ::= done(Pgm)
+  configuration <k> $PGM:Pgm </k>
+  rule <k> P:Pgm => done(P) </k>
+endmodule
+"##;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "TOKRUN"], &compiled);
+    let kore = fs::read_to_string(compiled.join("definition.kore")).unwrap();
+    assert!(
+        kore.contains("sort SortToks{} [hasDomainValues{}()]"),
+        "{kore}"
+    );
+    assert!(!kore.contains("inj{SortNames{}, SortToks{}}"), "{kore}");
+
+    let program = root.join("program.txt");
+    fs::write(&program, "run ab ,\n cd ").unwrap();
+    let krun = |depth: Option<&str>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .arg(&program)
+            .args(["--sort", "Pgm"]);
+        if let Some(depth) = depth {
+            command.args(["--depth", depth]);
+        }
+        let output = command.stdin(Stdio::null()).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let pattern = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+        k_rust::kore::printer::Printer::compact().print_pattern(&pattern)
+    };
+    let program =
+        r#"Lblrun'UndsUnds'TOKRUN-SYNTAX'Unds'Pgm'Unds'Toks{}(\dv{SortToks{}}("ab ,\n cd"))"#;
+    let initial = krun(Some("0"));
+    assert!(
+        initial.contains(&format!(
+            "kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}({program}), dotk{{}}())"
+        )),
+        "{initial}"
+    );
+    let last = krun(None);
+    assert!(
+        last.contains(&format!(
+            "kseq{{}}(Lbldone'LParUndsRParUnds'TOKRUN'Unds'KItem'Unds'Pgm{{}}({program}), dotk{{}}())"
+        )),
+        "{last}"
     );
 
     fs::remove_dir_all(root).unwrap();

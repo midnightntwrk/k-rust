@@ -74,24 +74,37 @@ impl fmt::Display for GeneratedIdentityMappingError {
         match self {
             Self::Missing { identity } => write!(
                 formatter,
-                "generated {:?} KORE variable {:?} is missing from the internalized match target",
-                identity.kind, identity.name
+                "{} is missing from the internalized match target",
+                GeneratedVariable(identity)
             ),
             Self::Ambiguous {
                 identity,
                 candidates,
             } => write!(
                 formatter,
-                "generated {:?} KORE variable {:?} has multiple internalized sorts: {}",
-                identity.kind,
-                identity.name,
+                "{} has multiple internalized sorts: {}",
+                GeneratedVariable(identity),
                 candidates
                     .iter()
-                    .map(|candidate| format!("{:?}", candidate.sort))
+                    .map(|candidate| externalize::sort(&candidate.sort).to_string())
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
         }
+    }
+}
+
+/// A variable the search-pattern compiler generated, as an error names it: its kind and its
+/// name as the compiled KORE pattern spells it.
+struct GeneratedVariable<'a>(&'a KoreVariableIdentity);
+
+impl fmt::Display for GeneratedVariable<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let kind = match self.0.kind {
+            KoreVariableKind::Element => "element",
+            KoreVariableKind::Set => "set",
+        };
+        write!(formatter, "generated {kind} variable {}", self.0.name)
     }
 }
 
@@ -211,8 +224,8 @@ pub fn prepare_backend_match_target(
         .find(|identity| !occurring.contains(*identity))
     {
         return Err(io::Error::other(format!(
-            "generated {:?} KORE variable {:?} does not occur in the compiled match target",
-            identity.kind, identity.name
+            "{} does not occur in the compiled match target",
+            GeneratedVariable(identity)
         ))
         .into());
     }

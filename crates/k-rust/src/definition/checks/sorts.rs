@@ -84,6 +84,7 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                     }
                     Some(
                         SubsortDeclaration::Pair { .. }
+                        | SubsortDeclaration::TokenPhrase { .. }
                         | SubsortDeclaration::KernelTop
                         | SubsortDeclaration::KernelBottom,
                     )
