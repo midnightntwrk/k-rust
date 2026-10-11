@@ -515,16 +515,25 @@ fn a_condition_whose_evaluation_does_not_end_does_not_keep_a_definition_from_loa
 /// Random definitions in the axiom-instance harness's default run.
 const AXIOM_CASES: u64 = 24;
 
-/// The labelled definitions of the axiom-instance harness's run: the oracle's templates and the
-/// harness's own (`generator::axiom_templates`), the reviewers' probes with two variants each,
-/// the claim-dependent refutation probe, and `cases` random definitions from `seed`
-/// (`generator::axiom_definition`).
+/// The labelled definitions of the axiom-instance harness's run: the oracle's templates, each
+/// also with its heads hooked, and the harness's own (`generator::axiom_templates`), the
+/// reviewers' probes with two variants each, the claim-dependent refutation probe, and `cases`
+/// random definitions from `seed` (`generator::axiom_definition`), some of whose heads are
+/// hooked.
 fn axiom_definitions(cases: u64, seed: u64) -> Vec<(String, Definition)> {
-    let mut definitions = generator::templates()
-        .into_iter()
-        .map(|(name, definition, _)| (name, definition))
-        .chain(generator::axiom_templates())
-        .collect::<Vec<_>>();
+    // An equation head written as a hooked symbol keeps or loses its claims as any other head
+    // does (its hook may be partial), so each template is also judged with its heads hooked, and
+    // some heads of the random definitions are hooked.
+    let mut definitions = Vec::new();
+    for (name, definition, _) in generator::templates() {
+        let mut hooked = definition.clone();
+        generator::hook_some_heads(&mut hooked, &mut Rng(seed), 100);
+        definitions.push((name.clone(), definition));
+        if !hooked.hooked_heads.is_empty() {
+            definitions.push((format!("{name}, heads hooked"), hooked));
+        }
+    }
+    definitions.extend(generator::axiom_templates());
     for (index, probe) in probes::probes().into_iter().enumerate() {
         for number in 0..2u64 {
             let mut rng = Rng(seed
@@ -545,10 +554,9 @@ fn axiom_definitions(cases: u64, seed: u64) -> Vec<(String, Definition)> {
     ));
     for case in 0..cases {
         let mut rng = Rng(seed ^ case.wrapping_mul(0x9e37_79b9_7f4a_7c15));
-        definitions.push((
-            format!("case {case} (seed {seed:#x})"),
-            generator::axiom_definition(&mut rng),
-        ));
+        let mut definition = generator::axiom_definition(&mut rng);
+        generator::hook_some_heads(&mut definition, &mut Rng(rng.0 ^ 0x5eed_400c), HOOKED_HEADS);
+        definitions.push((format!("case {case} (seed {seed:#x})"), definition));
     }
     definitions
 }
