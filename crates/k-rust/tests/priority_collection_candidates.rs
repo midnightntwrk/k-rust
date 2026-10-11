@@ -210,8 +210,6 @@ fn every_match_of_a_higher_rule_blocks_the_lower_priority_under_strategy_all() {
 }
 
 #[test]
-#[ignore = "K43: strategy any narrows the lower priorities by the first match of `pick` only, so \
-            `low` takes X <= 0 with Y unconstrained and the instances with Y > 0 reach `other`"]
 fn every_match_of_a_higher_rule_blocks_the_lower_priority_under_strategy_any() {
     assert_priority_respected(&mut backend(), ExecutionStrategy::Any);
 }

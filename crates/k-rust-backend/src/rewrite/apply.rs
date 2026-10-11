@@ -231,17 +231,22 @@ pub(super) fn restrict_to_undefined(
     }
 }
 
-/// Further restrict each entry of `trivial` by `applied`, candidates of its priority that were
-/// offered the entry's instances after it was restricted: `undefined` gains `not D_j` for each.
-pub(super) fn exclude_defined(trivial: &mut [TrivialApplication], applied: &[RuleApplication]) {
-    if applied.is_empty() {
+/// Further restrict each entry of `trivial` by `defined`, the defined sub-cases of candidates
+/// of its priority that took the entry's instances there: `undefined` gains `not D_j` for each.
+pub(super) fn exclude_defined<'a>(
+    trivial: &mut [TrivialApplication],
+    defined: impl IntoIterator<Item = &'a DefinedSubcase>,
+) {
+    let negations = defined
+        .into_iter()
+        .map(DefinedSubcase::negation)
+        .collect::<Vec<_>>();
+    if negations.is_empty() {
         return;
     }
     for entry in trivial {
-        entry.undefined = conjoin_flat(
-            std::iter::once(entry.undefined.clone())
-                .chain(applied.iter().map(|sibling| sibling.defined.negation())),
-        );
+        entry.undefined =
+            conjoin_flat(std::iter::once(entry.undefined.clone()).chain(negations.iter().cloned()));
     }
 }
 

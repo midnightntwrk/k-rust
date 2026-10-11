@@ -5809,20 +5809,20 @@ fn a_match_splits_groups_carry_only_their_own_condition_work() {
             .collect::<Vec<_>>()
     };
 
-    // The remainder is built from both groups' conditions, so it depends on both.
-    assert_eq!(
-        run(ExecutionMode::All),
-        [
-            ("one", Vec::new()),
-            ("two", vec![predicates_budget_exhausted(1)]),
-            ("remainder", vec![predicates_budget_exhausted(1)]),
-        ]
-    );
-    // The sequential step follows the first group only: the second group's work is on no path.
-    assert_eq!(
-        run(ExecutionMode::Any),
-        [("one", Vec::new()), ("remainder", Vec::new())]
-    );
+    // The remainder is built from both groups' conditions, so it depends on both. The
+    // sequential step offers the second group what the first did not take, which is its whole
+    // branch, so it has the same leaves.
+    for mode in [ExecutionMode::All, ExecutionMode::Any] {
+        assert_eq!(
+            run(mode),
+            [
+                ("one", Vec::new()),
+                ("two", vec![predicates_budget_exhausted(1)]),
+                ("remainder", vec![predicates_budget_exhausted(1)]),
+            ],
+            "{mode:?}"
+        );
+    }
 }
 
 /// A candidate's own list keeps emission order across the units it depends on: the rule's

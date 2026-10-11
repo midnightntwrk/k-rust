@@ -27,11 +27,9 @@
 //! Soundness, by induction on alias nesting: every configuration `A` denotes satisfies `App(ρ')`
 //! for an executable ρ' whose priority is at most the summary's. A naming disjunct denotes exactly
 //! where its rule applies, a nested alias holds by hypothesis, and a union keeps the bound. In
-//! `--strategy all`, and for a concrete subject in either strategy, a rule of priority `p` is
-//! offered only subjects to which no executable rule of smaller priority applies, so a conjunct
-//! whose alias summarises below `p` holds on every subject the rule is offered. Whether a symbolic
-//! `any` step can pass to a lower priority instances that a later application group of a higher
-//! rule covers is open and independent of these conjuncts. A non-executable rule is offered no
+//! either strategy a rule of priority `p` is offered only subjects to which no executable rule of
+//! smaller priority applies, through any of its matches, so a conjunct whose alias summarises
+//! below `p` holds on every subject the rule is offered. A non-executable rule is offered no
 //! subject, so its conjuncts are left as written without a summary. The check is sufficient, not
 //! complete.
 //!
