@@ -11231,6 +11231,66 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The program grammar renders only its useful rules. Here `KItem ::= KConfigVar` is one that is
+/// not: `KConfigVar` has no program syntax. Rendered, Bison dropped it as useless, and its IELR
+/// pass then aborted on this grammar (`AnnotationList__compute_from_inadequacies`). Without it
+/// the parser is generated and reads a `Toks` phrase, empty or not, as its text.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_builds_a_located_token_phrase_over_a_list_without_useless_rules() {
+    const DEFINITION: &str = r#"
+module L-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp [locations]
+  syntax Val [locations]
+  syntax Exps [locations]
+  syntax Toks [locations]
+  syntax Val ::= Int | "v" [symbol(v)]
+  syntax Exp ::= Val | Exp "+" Exp [left, symbol(plus)] | "f" "(" Exps ")" [symbol(f)]
+               | "(" Exp ")" [bracket]
+               | "g" "(" Toks ")" [symbol(g)]
+  syntax Exps ::= List{Exp, ","}
+  syntax Vals ::= List{Val, ","}
+  syntax Toks ::= Vals [token]
+  syntax Pgm ::= Exp
+endmodule
+"#;
+    let (root, parser) = generate_parser(DEFINITION, "L-SYNTAX", &[]);
+    let located = |term: &str, columns: (u32, u32)| {
+        format!(
+            "Lbl'Hash'location{{{sort}}}({term}, \\dv{{SortString{{}}}}(\"p\"), \\dv{{SortInt{{}}}}(\"1\"), \\dv{{SortInt{{}}}}(\"{}\"), \\dv{{SortInt{{}}}}(\"1\"), \\dv{{SortInt{{}}}}(\"{}\"))",
+            columns.0,
+            columns.1,
+            sort = if term.starts_with("\\dv") {
+                "SortToks{}"
+            } else {
+                "SortExp{}"
+            },
+        )
+    };
+    for (program, text) in [("g(v, 1)", "v, 1"), ("g()", "")] {
+        let input = root.join("program.pgm");
+        fs::write(&input, program).unwrap();
+        let output = Command::new(&parser).arg(&input).arg("p").output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let end = u32::try_from(program.len()).unwrap();
+        let phrase = located(&format!("\\dv{{SortToks{{}}}}(\"{text}\")"), (3, end));
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap().trim_end(),
+            format!(
+                "inj{{SortExp{{}}, SortPgm{{}}}}({})",
+                located(&format!("Lblg{{}}({phrase})"), (1, end + 1))
+            ),
+            "{program:?}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// Class test for the two-parser ticket: the generated parser and the in-process parser are two
 /// builds of one function from program text to a term, so each program must get the same term
 /// from both, modulo injections, or be rejected by both, and what the generated parser prints is
