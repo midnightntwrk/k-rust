@@ -120,9 +120,7 @@ fn verdict(backend: &mut Backend, leaf: &ExecutionLeaf, conditions: &[String]) -
 }
 
 fn backend() -> Backend {
-    let backend = Backend::new(&compile(), "PICK", BackendOptions::default()).unwrap();
-    assert!(backend.capabilities().smt, "the checks below need a solver");
-    backend
+    Backend::new(&compile(), "PICK", BackendOptions::default()).unwrap()
 }
 
 /// The leaves of `go(X, Y)` under `strategy` whose state is a successor of the step.
@@ -149,6 +147,7 @@ fn symbolic_successors(backend: &mut Backend, strategy: ExecutionStrategy) -> Ve
 /// No `other` successor has an instance where `pick` applies, and every instance where `pick`
 /// applies only through its match on `Y` has a `done` successor.
 fn assert_priority_respected(backend: &mut Backend, strategy: ExecutionStrategy) {
+    assert!(backend.capabilities().smt, "the checks below need a solver");
     let leaves = symbolic_successors(backend, strategy);
     let mut covered = false;
     for leaf in &leaves {
@@ -205,11 +204,19 @@ fn a_ground_instance_follows_the_match_that_applies() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "z3-inference"),
+    ignore = "comparing the leaves' conditions needs a solver"
+)]
 fn every_match_of_a_higher_rule_blocks_the_lower_priority_under_strategy_all() {
     assert_priority_respected(&mut backend(), ExecutionStrategy::All);
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "z3-inference"),
+    ignore = "comparing the leaves' conditions needs a solver"
+)]
 fn every_match_of_a_higher_rule_blocks_the_lower_priority_under_strategy_any() {
     assert_priority_respected(&mut backend(), ExecutionStrategy::Any);
 }
