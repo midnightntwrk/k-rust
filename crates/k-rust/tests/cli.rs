@@ -12077,6 +12077,114 @@ endmodule
 }
 
 #[test]
+fn a_token_subsort_over_a_phrase_reads_the_phrase_text_as_its_token() {
+    // `Pair` is no token, so a `MyTok` token's text is the input its phrase spans: from its
+    // first token to its last, with the layout between them and without the layout around them.
+    // `Wrapped` reads that text through a second token subsort. `Pairs` puts several such
+    // phrases in one input, after a line-anchored token (whose scanner rejects matches), so
+    // each phrase is reduced once the scanner has read past it.
+    let source = r##"
+module TOKPHRASE
+  syntax Name ::= r"[a-z]+" [token]
+  syntax Mark ::= r"^#[a-z]+" [token]
+  syntax Pair ::= Name "." Name | Mark Name
+  syntax MyTok ::= Pair [token]
+  syntax Wrapped ::= MyTok [token]
+  syntax Pairs ::= MyTok ";" Pairs | MyTok
+endmodule
+"##;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let parsed = k_rust::outer::parse("tokphrase.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, "TOKPHRASE").unwrap();
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&lowered).unwrap();
+    let converter = k_rust::kompile::TermConverter::new(&resolved, "TOKPHRASE").unwrap();
+    let token = |text: &str, sort: &str| {
+        converter
+            .convert(&k_rust::kast::Term::Token {
+                token: text.into(),
+                sort: k_rust::kast::Sort::new(sort),
+            })
+            .map(|pattern| k_rust::kore::printer::Printer::compact().print_pattern(&pattern))
+            .unwrap()
+    };
+
+    let cases = [
+        (
+            "MyTok",
+            "  ab .\n cd // c\n /* x */ ",
+            r#"#token("ab .\n cd","MyTok")"#.to_owned(),
+            token("ab .\n cd", "MyTok"),
+        ),
+        (
+            "Wrapped",
+            "  ab .\n cd // c\n /* x */ ",
+            r#"#token("ab .\n cd","Wrapped")"#.to_owned(),
+            token("ab .\n cd", "Wrapped"),
+        ),
+        (
+            "Pairs",
+            "ab.cd ;\n#m  x; ef . gh",
+            r##"`_;__TOKPHRASE_Pairs_MyTok_Pairs`(#token("ab.cd","MyTok"),`_;__TOKPHRASE_Pairs_MyTok_Pairs`(#token("#m  x","MyTok"),#token("ef . gh","MyTok")))"##.to_owned(),
+            format!(
+                "Lbl'UndsSClnUndsUnds'TOKPHRASE'Unds'Pairs'Unds'MyTok'Unds'Pairs{{}}({},Lbl'UndsSClnUndsUnds'TOKPHRASE'Unds'Pairs'Unds'MyTok'Unds'Pairs{{}}({},inj{{SortMyTok{{}}, SortPairs{{}}}}({})))",
+                token("ab.cd", "MyTok"),
+                token("#m  x", "MyTok"),
+                token("ef . gh", "MyTok"),
+            ),
+        ),
+    ];
+    for (index, (sort, program, kast, kore)) in cases.into_iter().enumerate() {
+        let input = root.join(format!("program-{index}.txt"));
+        fs::write(&input, program).unwrap();
+        let in_process = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kast", definition.to_str().unwrap()])
+            .args(["--module", "TOKPHRASE", "--sort", sort])
+            .arg(&input)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            in_process.status.success(),
+            "{sort}: {}",
+            String::from_utf8_lossy(&in_process.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(in_process.stdout).unwrap().trim_end(),
+            kast,
+            "{sort}"
+        );
+
+        let parser = root.join(format!("{sort}-parser"));
+        let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kast", definition.to_str().unwrap()])
+            .args(["--module", "TOKPHRASE", "--sort", sort, "--gen-parser"])
+            .arg(&parser)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            generated.status.success(),
+            "{sort}: {}",
+            String::from_utf8_lossy(&generated.stderr)
+        );
+        let output = Command::new(&parser).arg(&input).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{sort}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            format!("{kore}\n"),
+            "{sort}"
+        );
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_skips_bison_tools_when_the_configuration_has_no_pgm() {
     let (root, definition) = fixture();
     fs::write(

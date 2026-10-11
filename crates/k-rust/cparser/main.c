@@ -423,7 +423,6 @@ YYSTYPE mergeAmb(YYSTYPE x0, YYSTYPE x1) {
   n->symbol = symbol;
   n->sort = x0n->sort;
   n->str = false;
-  n->token = NULL;
   n->nchildren = 2;
   n->children[0] = x0n;
   n->children[1] = x1n;
@@ -461,6 +460,45 @@ void print(struct string_buffer *sb, node *current) {
   }
 }
 
+/* Every byte the scanner has read in this parse, in order: a token subsort reads the text of its
+   phrase from here, by the phrase's byte span, after the scanner may have read past it. */
+static char *krust_input = NULL;
+static size_t krust_input_length = 0, krust_input_capacity = 0;
+
+void krust_read(YYLTYPE *location, const char *text, size_t length) {
+  if (krust_input_capacity - krust_input_length < length) {
+    size_t capacity = krust_input_capacity ? krust_input_capacity : 4096;
+    while (capacity - krust_input_length < length) {
+      if (capacity > SIZE_MAX / 2) {
+        fprintf(stderr, "the input does not fit in memory\n");
+        exit(1);
+      }
+      capacity *= 2;
+    }
+    char *input = realloc(krust_input, capacity);
+    if (!input) {
+      fprintf(stderr, "the input does not fit in memory\n");
+      exit(1);
+    }
+    krust_input = input;
+    krust_input_capacity = capacity;
+  }
+  memcpy(krust_input + krust_input_length, text, length);
+  location->first_offset = krust_input_length;
+  krust_input_length += length;
+  location->last_offset = krust_input_length;
+}
+
+char *krust_read_text(const YYLTYPE *location) {
+  assert(location->first_offset <= location->last_offset);
+  assert(location->last_offset <= krust_input_length);
+  size_t length = location->last_offset - location->first_offset;
+  char *text = malloc(length + 1);
+  memcpy(text, krust_input + location->first_offset, length);
+  text[length] = '\0';
+  return text;
+}
+
 extern node *result;
 extern char *filename;
 
@@ -471,6 +509,7 @@ static void parse_internal(
   yylex_init(&scanner);
 
   filename = location_file;
+  krust_input_length = 0;
 
   FILE *f = fopen(input_file, "r");
   if (!f) {

@@ -114,7 +114,7 @@ impl CPlacement<'_> {
     ) {
         writeln!(
             output,
-            "  node *{name} = malloc(sizeof(node) + {} * sizeof(node *));\n  {name}->symbol = {};\n  {name}->sort = {};\n  {name}->str = false;\n  {name}->token = NULL;\n  {name}->location = {};\n  {name}->hasLocation = {};\n  {name}->nchildren = {};",
+            "  node *{name} = malloc(sizeof(node) + {} * sizeof(node *));\n  {name}->symbol = {};\n  {name}->sort = {};\n  {name}->str = false;\n  {name}->location = {};\n  {name}->hasLocation = {};\n  {name}->nchildren = {};",
             children.len(),
             quote_c_string(symbol),
             quote_c_string(&encode_kore_sort(sort).to_string()),
