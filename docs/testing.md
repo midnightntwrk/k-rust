@@ -40,6 +40,7 @@ A change to code under a `cfg(feature = ...)` gate, to the backend's `z3` sites,
 cargo nextest run -p k-rust -p k-rust-wasm -p k-rust-backend --no-default-features
 ```
 
+The registry entry `build-agreement` (`scripts/build-agreement.sh`) compiles every compile case of `scripts/reference-differential.toml`, the real semantics included, through the library in both builds and fails when they compile a case differently, when a build does not compile a case expected to compile, or when the portable build's `Z3InferenceRequired` refusals differ from the set its entry records; a change to the rule grammar, the parser, or any source with a `z3-inference` cfg owes it.
 CI runs the workspace suite under checked sort inference, which runs the portable and Z3 engines on every inference and fails when they disagree; reproduce it with `KRUST_TYPE_INFERENCE_MODE=checked cargo nextest run --workspace --profile ci-checked`.
 The `ci-checked` profile leaves out k-rust's `measure_ratchet`, whose snapshots pin one engine's work, and `k-rust-wasm`, which ships without Z3; `scripts/measure-ratchet.sh` runs the former in the default mode.
 `inner_rules` also reruns itself under checked inference in an ordinary run, so parser changes get the engine-agreement check without the whole checked run.

@@ -96,6 +96,15 @@ conformance = [
   '^scripts/conformance-ratchet\.sh$',
   '^scripts/conformance/[^/]+\.(py|toml)$',
 ]
+# Where the native and the portable build of k-rust can compile a definition differently: the
+# rule grammar and the parser, whose forests the two inference engines decide (a change to their
+# shared part changes what both engines are given, so it can add a refusal or a disagreement),
+# every other source with code compiled in one build only, and the feature table.
+inference = [
+  '^crates/k-rust/src/inner/',
+  '^crates/k-rust/src/(kompile/compile|kast/sort_role|backend/(mod|simplification))\.rs$',
+  '^crates/k-rust/Cargo\.toml$',
+]
 
 [[gate]]
 name = "compile-light"
@@ -258,6 +267,22 @@ paths = [
   '^scripts/value-contract-corpus\.(sh|toml)$',
   '^crates/k-rust-backend/tests/value_contract_corpus\.rs$',
   '^scripts/reference-memory-guard\.sh$',
+]
+
+# The native and the portable build compile every compile case of the manifest alike, the local
+# ones and the real semantics. `--refused` is the set the portable build refuses with
+# `Z3InferenceRequired` today: a definition its hosts cannot compile. A refusal outside it fails,
+# and so does a listed case that now compiles, so the record changes with the refusals it records.
+# The compiles are library calls in one test process per build; most of the time is the builds.
+[[gate]]
+name = "build-agreement"
+run = "certification"
+command = "scripts/build-agreement.sh --refused evm-equivalence,mir,wasm"
+paths = [
+  "@inference",
+  '^scripts/build-agreement\.sh$',
+  '^crates/k-rust/tests/build_agreement\.rs$',
+  '^scripts/reference-differential\.toml$',
 ]
 
 # The Python unit tests of the scripts' helpers.

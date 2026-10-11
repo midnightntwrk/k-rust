@@ -3056,6 +3056,57 @@ fn a_change_to_the_inner_parser_owes_kast_real_semantics() {
     );
 }
 
+/// The two builds of k-rust can compile a definition differently only through code that one of
+/// them compiles and the other does not, or through the forests both engines are given. So a
+/// change to any source with a `z3-inference` cfg, to the native-only inference module, or to the
+/// rule grammar and parser owes the entry that compares the builds.
+#[test]
+fn a_change_to_code_compiled_in_one_build_only_owes_build_agreement() {
+    fn sources(directory: &Path, found: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(directory).expect("read source directory") {
+            let path = entry.expect("directory entry").path();
+            if path.is_dir() {
+                sources(&path, found);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                found.push(path);
+            }
+        }
+    }
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut found = Vec::new();
+    sources(&workspace.join("crates/k-rust/src"), &mut found);
+    let mut owing = found
+        .into_iter()
+        .filter(|path| {
+            fs::read_to_string(path)
+                .expect("read source")
+                .contains("feature = \"z3-inference\"")
+        })
+        .map(|path| {
+            path.strip_prefix(&workspace)
+                .expect("a workspace source")
+                .display()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert!(!owing.is_empty(), "no source has a z3-inference cfg");
+    owing.extend([
+        "crates/k-rust/src/inner/parser/z3_inference.rs".to_owned(),
+        "crates/k-rust/src/inner/parser/chart.rs".to_owned(),
+        "crates/k-rust/Cargo.toml".to_owned(),
+    ]);
+    for path in &owing {
+        let (code, stdout, stderr) = run_gates(&["--list", "--touched", path]);
+        assert_eq!(code, Some(0), "{stderr}");
+        assert!(
+            stdout
+                .lines()
+                .any(|line| line.starts_with("build-agreement ")),
+            "a change to {path} does not owe build-agreement: {stdout}"
+        );
+    }
+}
+
 #[test]
 fn workflow_script_commands_reads_folded_and_plain_steps() {
     let workflow = "jobs:\n  local:\n    steps:\n      - name: Build\n        run: cargo build\n\n      - name: Compile\n        run: >-\n          scripts/reference-differential.sh\n          append casts\n\n      - name: Install\n        run: |\n          scripts/not-a-gate.sh\n          other\n\n      - name: Proof\n        run: scripts/reference-proof-differential.sh mini-proof\n";
