@@ -13,15 +13,15 @@ import sys
 import tempfile
 import tomllib
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from verdicts import RANK, case_verdict, ranked_steps  # noqa: E402  (scripts/conformance/verdicts.py)
 
-RANK = {
-    "reference-error": -1,
-    "krust-error": 0,
-    "mismatch": 1,
-    "krust-unsupported": 2,
-    "skipped-with-reason": 2,
-    "match": 3,
-}
+
+# The meaning of a logged rank. A run records it, and a rank recorded under another meaning is no
+# measurement on this scale: comparing against it is a driver change, and the floor is taken again
+# from the first rank recorded on this scale. `residual-steps`: a case is ranked by the steps no
+# step exclusion names, as the driver would rank it had those steps not run.
+RANKING = "residual-steps"
 
 
 class RatchetError(Exception):
@@ -51,6 +51,25 @@ def expectation_map(document: dict) -> dict[str, dict]:
             raise RatchetError(f"case {name} has unknown accepted verdict: {row['accepted_verdict']!r}")
         if "accepted_verdict" in row and not isinstance(row.get("accepted_stage"), str):
             raise RatchetError(f"case {name} has no accepted stage")
+        # A case exclusion removes every step of the case from ranking, including steps that do
+        # not yet exist, so it is the right tool only where no step of the case can be ranked.
+        if row.get("exclusion") and not row.get("whole_case_reason"):
+            raise RatchetError(
+                f"case {name} is excluded as a whole without a whole_case_reason naming why no step "
+                "can be ranked; exclude the divergent steps instead"
+            )
+        if row.get("whole_case_reason") and not row.get("exclusion"):
+            raise RatchetError(f"case {name} has a whole_case_reason but no exclusion")
+        for exclusion in row.get("step_exclusions", []):
+            if not any(key in exclusion for key in STEP_SELECTORS):
+                raise RatchetError(f"case {name} has a step exclusion without a selector")
+            # A verifier rejection is a property of the whole definition, not one comparison:
+            # accepting one of its diagnostics would hide every later one. An accepted verifier
+            # divergence is a normalisation of the verification copy instead (run.py).
+            if exclusion.get("step") == "kore-verify":
+                raise RatchetError(
+                    f"case {name} excludes a kore-verify step; normalise the verification copy instead"
+                )
         mapped[name] = row
     return mapped
 
@@ -101,6 +120,7 @@ def render_entry(run: dict) -> str:
         "workspace_revision",
         "k_revision",
         "driver_version",
+        "ranking",
         "krust_sha256",
         "test_binary_sha256",
         "selection",
@@ -131,6 +151,8 @@ def render_entry(run: dict) -> str:
             "[[run.case]]",
             f"name = {json.dumps(case['name'], ensure_ascii=False)}",
             f"verdict = {json.dumps(case['verdict'])}",
+            f"ranked_verdict = {json.dumps(case['ranked_verdict'])}",
+            f"step_exclusions = {string_array(case['step_exclusions'])}",
             f"stage = {json.dumps(case['stage'])}",
             f"fallback_verdict = {json.dumps(case['fallback_verdict'])}",
             f"rank = {case['rank']}",
@@ -173,37 +195,51 @@ def atomic_write(path: Path, body: str) -> None:
             os.unlink(temporary)
 
 
-# Step fields a step exclusion may select on; `verify_error` is the first diagnostic line of a
-# kore-verify step, so an exclusion names one verifier rejection rather than any.
-STEP_SELECTORS = ("test", "out", "step", "verify_error")
+# Step fields a step exclusion may select on.
+STEP_SELECTORS = ("test", "out", "step")
 
 
-def matching_step_exclusion(result: dict, expectation: dict) -> str:
-    """The exclusion of a case: its own, or the step exclusion of its first step at the case's
-    verdict when a step exclusion covers every step at that verdict. A step exclusion names one
-    step's divergence; another step at the same verdict keeps the case ranked."""
+def step_exclusion(step: dict, expectation: dict) -> dict | None:
+    """The first step exclusion of `expectation` whose selectors all equal the step's fields."""
+    return next(
+        (
+            exclusion
+            for exclusion in expectation.get("step_exclusions", [])
+            if (selectors := [key for key in STEP_SELECTORS if key in exclusion])
+            and all(step.get(key) == exclusion[key] for key in selectors)
+        ),
+        None,
+    )
+
+
+def ranked_case(result: dict, expectation: dict) -> tuple[str, list[str], str]:
+    """Rank a measured case modulo its exclusions: (ranked verdict, step exclusions applied, case
+    exclusion).
+
+    A step exclusion accepts the divergence of the steps it names, so applying it is deleting
+    those steps: the case is ranked by the verdict of the steps that remain, computed as the driver
+    computes a case verdict. Every other step keeps the case ranked whatever its verdict. When
+    every step is excluded, every divergence of the case is an accepted one and the case agrees
+    with the reference modulo its exclusions, so it ranks as `match`; any step that later appears
+    or diverges otherwise is then below that rank. A case exclusion (`whole_case_reason`) leaves
+    the case unranked; its recorded verdict is kept as measured.
+    """
     if expectation.get("exclusion"):
-        return expectation["exclusion"]
-    failing = [
-        step for step in result.get("step", []) if step.get("verdict") == result.get("verdict")
-    ]
-    if not failing:
-        return ""
-    exclusions = []
-    for step in failing:
-        exclusion = next(
-            (
-                exclusion
-                for exclusion in expectation.get("step_exclusions", [])
-                if (selectors := [key for key in STEP_SELECTORS if key in exclusion])
-                and all(step.get(key) == exclusion[key] for key in selectors)
-            ),
-            None,
-        )
+        return result["verdict"], [], expectation["exclusion"]
+    kept = []
+    applied = []
+    for step in result.get("step", []):
+        exclusion = step_exclusion(step, expectation)
         if exclusion is None:
-            return ""
-        exclusions.append(exclusion.get("exclusion", ""))
-    return exclusions[0]
+            kept.append(step)
+        else:
+            applied.append(exclusion.get("exclusion", ""))
+    if not applied:
+        # The driver's own verdict: nothing was deleted, and a verdict the driver set without
+        # steps (an undriven or unenumerable case) has no steps to recompute it from.
+        return result["verdict"], [], ""
+    remaining = ranked_steps(kept, result.get("bison_parsers_only", False))
+    return case_verdict(remaining) or "match", list(dict.fromkeys(applied)), ""
 
 
 def previous_measurement(runs: list[dict], name: str) -> tuple[dict | None, dict | None]:
@@ -221,6 +257,26 @@ def first_measurement(runs: list[dict], name: str) -> tuple[dict | None, dict | 
             if case.get("name") == name:
                 return run, case
     return None, None
+
+
+def required_floor(runs: list[dict], name: str, expectation: dict) -> int | None:
+    """The rank a case must keep: the greatest of its first logged rank, its first rank logged on
+    the current scale (`RANKING`), and its versioned acceptance rank; None when there is none.
+
+    Excluding a step can only raise a case's rank, so a rank logged before steps were ranked
+    residually is a valid but possibly loose bound, and the first residual rank re-establishes
+    the floor without lowering it.
+    """
+    ranks = []
+    _, first = first_measurement(runs, name)
+    if first is not None:
+        ranks.append(first["rank"])
+    _, first_residual = first_measurement([run for run in runs if run.get("ranking") == RANKING], name)
+    if first_residual is not None:
+        ranks.append(first_residual["rank"])
+    if "accepted_verdict" in expectation:
+        ranks.append(RANK[expectation["accepted_verdict"]])
+    return max(ranks) if ranks else None
 
 
 def is_below_floor(rank: int, floor_rank: int) -> bool:
@@ -245,7 +301,9 @@ def classify_delta(
     previous_rank = previous_case["rank"]
     floor_rank = floor_case["rank"] if floor_case is not None else previous_rank
     rank = RANK[verdict]
-    driver_changed = previous_run.get("driver_version") != driver_version
+    driver_changed = (
+        previous_run.get("driver_version") != driver_version or previous_run.get("ranking") != RANKING
+    )
     if previous_rank == rank:
         return previous_rank, floor_rank, "same", False
     if previous_rank == -1 or rank == -1:
@@ -288,18 +346,15 @@ def build_run(
     for result in sorted(results, key=lambda row: row["name"]):
         name = result["name"]
         expectation = expectations[name]
-        verdict = result["verdict"]
+        verdict, step_exclusions, exclusion = ranked_case(result, expectation)
         rank = RANK[verdict]
         previous_run, previous_case = previous_measurement(previous_runs, name)
-        _, floor_case = first_measurement(previous_runs, name)
-        accepted_rank = RANK.get(expectation.get("accepted_verdict"), -1)
-        if accepted_rank > (floor_case["rank"] if floor_case else -1):
-            floor_case = {"rank": accepted_rank}
+        floor = required_floor(previous_runs, name, expectation)
+        floor_case = None if floor is None else {"rank": floor}
         previous_rank, floor_rank, delta, driver_changed = classify_delta(
             previous_run, previous_case, floor_case, verdict, driver_version
         )
-        floor_rank = max(floor_rank, accepted_rank)
-        exclusion = matching_step_exclusion(result, expectation)
+        floor_rank = max(floor_rank, RANK.get(expectation.get("accepted_verdict"), -1))
         if delta == "regression" and not exclusion:
             regressions.append(name)
         if is_below_floor(rank, floor_rank) and not exclusion:
@@ -315,7 +370,9 @@ def build_run(
         rows.append(
             {
                 "name": name,
-                "verdict": verdict,
+                "verdict": result["verdict"],
+                "ranked_verdict": verdict,
+                "step_exclusions": step_exclusions,
                 "stage": result.get("stage", "none"),
                 "fallback_verdict": result.get("fallback_verdict", ""),
                 "rank": rank,
@@ -333,6 +390,7 @@ def build_run(
         "workspace_revision": workspace_revision,
         "k_revision": k_revision,
         "driver_version": driver_version,
+        "ranking": RANKING,
         "krust_sha256": krust_sha256,
         "test_binary_sha256": test_binary_sha256,
         "selection": selection,
@@ -358,6 +416,8 @@ def print_pr_block(run: dict) -> None:
     print("|---|---:|---:|---:|---|")
     for case in run["case"]:
         exclusion = f" (excluded: {case['exclusion']})" if case["exclusion"] else ""
+        if case["step_exclusions"]:
+            exclusion += f" (ranked without steps excluded as: {', '.join(case['step_exclusions'])})"
         print(
             f"| {case['name']} | {case['floor_rank']} | {case['previous_rank']} | "
             f"{case['rank']} | {case['delta']}{exclusion} |"
@@ -487,9 +547,16 @@ def load_backlog(path: Path) -> list[dict]:
     return tickets
 
 
+def ranked_verdict(case: dict) -> str:
+    """A logged case's verdict modulo its step exclusions; a row logged before rows recorded it
+    was ranked by its measured verdict."""
+    return case.get("ranked_verdict", case["verdict"])
+
+
 def audit_backlog(latest: dict[str, tuple[dict, dict]], expectations: dict[str, dict], tickets: list[dict]) -> int:
-    """List pending cases (latest verdict not match, no exclusion) that no open ticket names, and open
-    tickets whose named cases all match. Returns the number of unowned pending cases."""
+    """List pending cases (latest verdict modulo step exclusions not match, no case exclusion) that no
+    open ticket names, and open tickets whose named cases all match. Returns the number of unowned
+    pending cases."""
     owners: dict[str, list[str]] = {}
     for ticket in tickets:
         if ticket["state"] != "open" or ticket.get("case_role", "owner") != "owner":
@@ -503,7 +570,7 @@ def audit_backlog(latest: dict[str, tuple[dict, dict]], expectations: dict[str, 
     pending = []
     for name in sorted(latest):
         run, case = latest[name]
-        if case["verdict"] == "match":
+        if ranked_verdict(case) == "match":
             continue
         exclusion = case.get("exclusion") or expectations.get(name, {}).get("exclusion", "")
         if exclusion:
@@ -524,7 +591,7 @@ def audit_backlog(latest: dict[str, tuple[dict, dict]], expectations: dict[str, 
         for ticket in tickets
         if ticket["state"] == "open"
         and ticket.get("case_role", "owner") == "owner"
-        and all(name in latest and latest[name][1]["verdict"] == "match" for name in ticket["cases"])
+        and all(name in latest and ranked_verdict(latest[name][1]) == "match" for name in ticket["cases"])
     ]
     evidence_only = [
         ticket["id"]
@@ -558,9 +625,8 @@ def command_audit(args: argparse.Namespace) -> int:
     rows = []
     for name in sorted(latest):
         run, case = latest[name]
-        _, floor_case = first_measurement(runs, name)
-        floor_rank = floor_case["rank"] if floor_case is not None else -1
-        floor_rank = max(floor_rank, RANK.get(expectations.get(name, {}).get("accepted_verdict"), -1))
+        floor = required_floor(runs, name, expectations.get(name, {}))
+        floor_rank = -1 if floor is None else floor
         if is_below_floor(case["rank"], floor_rank):
             rows.append((name, floor_rank, run, case))
     scope = f"run {args.sequence}" if args.sequence is not None else "latest measurement per case"

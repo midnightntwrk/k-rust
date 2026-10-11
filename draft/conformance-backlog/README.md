@@ -22,13 +22,15 @@ Seeded 2026-09-18 from ratchet sequence 4 (`target/conformance/ratchet.toml`, la
 
 ## Current queue (2026-09-20, measured through CB-15 closure sequence 31)
 
-The ledger has no open ticket, and no open ticket owns a pending conformance verdict.
+The ledger's open tickets are CB-23 and CB-24 (opened 2026-10-11), each owning one pending case; every earlier ticket is closed.
+2026-10-11: CB-23 and CB-24 were opened for two cases the K30 step-exclusion ranking surfaced on the w4-tooling head9 run; the table below lists them.
 The combined audit over shared history, CB-20 closure, the CB-12/CB-22 acceptance, and CB-15 closure sequence 31 reports zero pending cases, zero pending cases without an open owner, and three below-floor cases that are all covered by existing exclusions.
 All eleven `[[decision]]` rows are decided; no owner policy choice blocks the queue.
 
 | ticket | role | current state | next gate |
 |---|---|---|---|
-| none | — | all recorded tickets closed | — |
+| CB-23 | owner | open, investigation needed (issue-1682-korePrettyPrint krun 1.test, recorded 2026-10-11 from the w4-tooling head9 run) | investigation |
+| CB-24 | owner | open, investigation needed (withConfig2 kompile InvalidFreshConstant, recorded 2026-10-11 from the w4-tooling head9 run) | investigation |
 
 CB-15 is closed through captured output `8fb9a55`, committed effect ownership `d5eb262`, branch-local state `d983b8d`, console hooks `12737c0`, arbitrary-byte strings `eb9e39b`, live delivery `7a2ebe6`, and the CB-15-6 closure implementation `b865b8a`.
 C9 remains the primary independent oracle for normal tutorial streams; the `matrix.simple` fallback records its C9 input-precondition failure before a separate committed live comparison.

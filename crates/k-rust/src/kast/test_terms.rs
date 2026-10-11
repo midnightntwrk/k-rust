@@ -1,13 +1,14 @@
-//! Test support: random terms holding every constructor, and a statement of a term's child steps
-//! written independently of the walks under test.
+//! Test support: random terms holding every constructor, and the nodes of a term with their
+//! destination paths.
 //!
 //! Two conventions number the nodes of a sentence's terms: term-metadata addresses take nodes in
 //! preorder, and destination paths take one step per level. Each must hold on every constructor,
 //! so the properties that check them draw terms from [`every_constructor`], and compare against
-//! [`positions`] and [`paired`], which follow the specification below rather than the code under
-//! test: a `Rewrite`'s child 0 is its left side and child 1 its right side, an `As`'s child 0 is
-//! its pattern and child 1 its alias, and a sequence's or an application's child `i` is its item
-//! `i`; annotations are not nodes and take no step.
+//! [`positions`] and [`paired`]. A destination path's steps are those of [`Term::children`], the
+//! one enumeration of a node's children in step order, whose order its own unit test states
+//! against the constructors' fields; [`positions`] lists a term's nodes through it, so a
+//! property compares the paths a walk records with the paths that name the nodes. [`paired`]
+//! follows the constructors' fields rather than any walk.
 
 use proptest::prelude::*;
 
@@ -118,7 +119,11 @@ pub(crate) fn one_edit_neighbours(term: &Term) -> Vec<(&'static str, Term)> {
     let mut neighbours = Vec::new();
     for (steps, _) in positions(term) {
         let mut edits: Vec<(&'static str, Edit)> = Vec::new();
-        match at_path_mut(&mut term.clone(), &steps) {
+        match term
+            .clone()
+            .at_path_mut(&steps)
+            .expect("a step names a child")
+        {
             Term::Token { .. } => {
                 edits.push((
                     "token text",
@@ -183,7 +188,7 @@ pub(crate) fn one_edit_neighbours(term: &Term) -> Vec<(&'static str, Term)> {
         }
         for (field, edit) in edits {
             let mut neighbour = term.clone();
-            edit(at_path_mut(&mut neighbour, &steps));
+            edit(neighbour.at_path_mut(&steps).expect("a step names a child"));
             neighbours.push((field, neighbour));
         }
     }
@@ -223,27 +228,13 @@ pub(crate) fn decorated(term: &Term, metadata: &mut impl FnMut() -> Option<TermM
     }
 }
 
-/// The children of `term`, its annotations removed, by step number (the specification above).
-fn children(term: &Term) -> Vec<&Term> {
-    match term.unannotated() {
-        Term::Rewrite { left, right } => vec![left, right],
-        Term::As { pattern, alias } => vec![pattern, alias],
-        Term::Sequence(items)
-        | Term::Apply {
-            arguments: items, ..
-        } => items.iter().collect(),
-        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => Vec::new(),
-        Term::Annotated { .. } => unreachable!("unannotated strips annotations"),
-    }
-}
-
 /// Every node of `term` (its annotation, when it has one) with the steps that lead to it from
 /// `term`.
 pub(crate) fn positions(term: &Term) -> Vec<(Vec<u32>, &Term)> {
     let mut found = Vec::new();
     let mut pending = vec![(Vec::new(), term)];
     while let Some((steps, node)) = pending.pop() {
-        for (step, child) in (0..).zip(children(node)) {
+        for (step, child) in (0..).zip(node.children()) {
             let mut child_steps = steps.clone();
             child_steps.push(step);
             pending.push((child_steps, child));
@@ -251,36 +242,6 @@ pub(crate) fn positions(term: &Term) -> Vec<(Vec<u32>, &Term)> {
         found.push((steps, node));
     }
     found
-}
-
-/// The node `steps` lead to from `term`, its annotation included.
-pub(crate) fn at_path_mut<'a>(mut term: &'a mut Term, steps: &[u32]) -> &'a mut Term {
-    for step in steps {
-        let mut node = term;
-        while let Term::Annotated { term: inner, .. } = node {
-            node = inner;
-        }
-        let step = usize::try_from(*step).expect("a step fits usize");
-        term = match node {
-            Term::Rewrite { left, right } => [&mut **left, &mut **right]
-                .into_iter()
-                .nth(step)
-                .expect("a step names a child"),
-            Term::As { pattern, alias } => [&mut **pattern, &mut **alias]
-                .into_iter()
-                .nth(step)
-                .expect("a step names a child"),
-            Term::Sequence(items)
-            | Term::Apply {
-                arguments: items, ..
-            } => &mut items[step],
-            Term::InjectedLabel(_)
-            | Term::Variable { .. }
-            | Term::Token { .. }
-            | Term::Annotated { .. } => unreachable!("a step names a child"),
-        };
-    }
-    term
 }
 
 /// The corresponding nodes of two terms of the same shape, each with its annotation; panics where

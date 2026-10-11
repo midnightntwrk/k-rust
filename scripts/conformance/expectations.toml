@@ -3,7 +3,7 @@ source = "Versioned conformance measurements and acceptance floors, with explici
 
 # Case names identify directories under the pinned K checkout's k-distribution/tests/regression-new.
 # step_exclusions test/out selectors match the upstream recipe's recorded strings exactly, including any ./ prefix.
-# A step_exclusions `step` selector names the driver's step kind; `verify_error` matches the first diagnostic line of a `kore-verify` step exactly.
+# A step_exclusions `step` selector names the driver's step kind; a `kore-verify` step is never excluded (an accepted verifier divergence is a verification-copy normalisation).
 # These upstream filenames are independent of the curated fixtures under crates/k-rust/tests/fixtures/reference.
 # `budget` overrides the driver's 300 s case budget; `step_budget` caps the CPU seconds of one program
 # execution inside it and needs `step_wall_budget`, which caps that execution's wall seconds (a program
@@ -56,11 +56,6 @@ meaning = "The checked-in output was not reproduced by the pinned reference tool
 id = "supported-superset"
 decided_by = "docs/compatibility.md#anywhere-rules"
 meaning = "The port intentionally supports anywhere rules that the K Haskell frontend rejects."
-
-[[category]]
-id = "verifier-anywhere-argument"
-decided_by = "docs/compatibility.md#anywhere-heads-in-equation-arguments"
-meaning = "The reference KORE verifier rejects a function equation whose argument contains an anywhere head without `injective`; the port withholds the attribute because an anywhere equation of that head identifies applications with different arguments, and the equation is consistent and evaluated as specified because its argument is normal on every instance."
 
 [[category]]
 id = "compiler-added-grammar"
@@ -196,8 +191,11 @@ accepted_verdict = "mismatch"
 accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "--coverage is LLVM-only instrumentation and the translated command drops it."
+step_exclusions = [
+  { step = "kompile", exclusion = "llvm-only", reason = "--coverage is LLVM-only instrumentation and the translated command drops it." },
+]
 
 [[case]]
 name = "bytes-haskell"
@@ -232,8 +230,11 @@ accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "memsetBytes is LLVM-only; the port must report an unsupported-hook error on constructor-like arguments."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "memsetBytes is LLVM-only; the port must report an unsupported-hook error on constructor-like arguments." },
+]
 
 [[case]]
 name = "cast"
@@ -413,8 +414,12 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kprove --debugger and --debug-script drive K's interactive prover session; krust has no equivalent to translate to (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kprove", exclusion = "declined-capability", reason = "kprove --debugger and --debug-script drive K's interactive prover session; krust has no equivalent to translate to (docs/compatibility.md#cli-scope). The kompile step matches." },
+  { step = "k-rule-find", exclusion = "declined-capability", reason = "kprove --debugger and --debug-script drive K's interactive prover session; krust has no equivalent to translate to (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "coverage"
@@ -422,8 +427,11 @@ accepted_verdict = "mismatch"
 accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "--coverage is LLVM-only instrumentation and the translated command drops it."
+step_exclusions = [
+  { step = "kompile", exclusion = "llvm-only", reason = "--coverage is LLVM-only instrumentation and the translated command drops it." },
+]
 
 [[case]]
 name = "domains-lemmas-no-smt"
@@ -458,8 +466,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --output pretty asks for K's pretty printer; krust kast prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --output pretty asks for K's pretty printer; krust kast prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "equals-pattern"
@@ -529,8 +540,11 @@ accepted_verdict = "mismatch"
 accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
-exclusion = "llvm-only"
-reason = "5.test: the program token NaNp24x8 is printed NaNf by the LLVM runtime's Float printer (float_to_string re-spells a binary32 value with the f suffix, llvm-backend runtime/strings/numeric.cpp); the pinned Haskell engine and krust both keep the token as written (kast --output kore and kore-exec print NaNp24x8), and the frontend's own printer would spell it NaNp24x8 (FloatBuiltin.value). The value and format are identical (domains.md: p24x8 is binary32); the difference is LLVM-specific printing under docs/compatibility.md#backend-scope. 1.test to 4.test match. In a sandbox the LLVM interpreter cannot start under the RLIMIT_AS fallback, so the case reports reference-error there; on the host it is this mismatch."
+exclusion = ""
+reason = "5.test: the program token NaNp24x8 is printed NaNf by the LLVM runtime's Float printer, which re-spells a binary32 value with the f suffix; krust keeps the token as written, as do kast --output kore and kore-exec (both print NaNp24x8). The value and format are identical (domains.md: p24x8 is binary32); the difference is LLVM-specific printing under docs/compatibility.md#backend-scope. 1.test to 4.test match. In a sandbox the LLVM interpreter cannot start under the RLIMIT_AS fallback, so the case reports reference-error there; on the host it is this mismatch."
+step_exclusions = [
+  { step = "krun", test = "5.test", exclusion = "llvm-only", reason = "5.test: the program token NaNp24x8 is printed NaNf by the LLVM runtime's Float printer, which re-spells a binary32 value with the f suffix; krust keeps the token as written, as do kast --output kore and kore-exec (both print NaNp24x8). The value and format are identical (domains.md: p24x8 is binary32); the difference is LLVM-specific printing under docs/compatibility.md#backend-scope. 1.test to 4.test match. In a sandbox the LLVM interpreter cannot start under the RLIMIT_AS fallback, so the case reports reference-error there; on the host it is this mismatch." },
+]
 [[case]]
 name = "fresh1"
 accepted_verdict = "match"
@@ -673,6 +687,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "outer-parse"
 exclusion = "declined-capability"
 reason = "--outer-parsed-json is outside the krust CLI contract (docs/compatibility.md#cli-scope); the driver has no equivalent input option. The recorded compile step is unsupported and the three execution steps fail on the JSON definition."
+whole_case_reason = "The definition reaches the compiler only as outer-parsed JSON, which krust does not read, so the compilation is the declined capability and every execution step runs its result; no step is independent of it."
 [[case]]
 name = "int-llvm"
 accepted_verdict = "match"
@@ -697,16 +712,22 @@ accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "IO.open, IO.system and IO.mkstemp are LLVM-backend hooks without evaluators in either pinned Kore engine. Each execution step reports an unsupported-hook error on constructor-like arguments. Compilation agrees; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "IO.open, IO.system and IO.mkstemp are LLVM-backend hooks without evaluators in either pinned Kore engine. Each execution step reports an unsupported-hook error on constructor-like arguments. Compilation agrees; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml." },
+]
 [[case]]
 name = "issue-1088"
 accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --output-file names an output path that krust has no flag for; the driver does not rewrite it to a shell redirection (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --output-file names an output path that krust has no flag for; the driver does not rewrite it to a shell redirection (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "issue-1090"
@@ -732,8 +753,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "krun --output program asks for K's program unparser; krust krun prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "krun", exclusion = "declined-capability", reason = "krun --output program asks for K's program unparser; krust krun prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "issue-1169"
@@ -741,8 +765,11 @@ accepted_verdict = "skipped-with-reason"
 accepted_stage = "kompile"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "kompile"
-exclusion = "undriven-recipe"
-reason = "The reference kompile is expected to fail, so no reference definition exists to drive the kast step against; the kompile rejection itself matches (docs/compatibility.md#driver-scope)."
+exclusion = ""
+reason = "The reference kompile is expected to fail, so no reference definition exists to drive the krun step against; the kompile rejection itself matches (docs/compatibility.md#driver-scope)."
+step_exclusions = [
+  { step = "krun", exclusion = "undriven-recipe", reason = "The reference kompile is expected to fail, so no reference definition exists to drive the krun step against; the kompile rejection itself matches (docs/compatibility.md#driver-scope)." },
+]
 
 [[case]]
 name = "issue-1175"
@@ -750,7 +777,7 @@ accepted_verdict = "match"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "both-reject"
+exclusion = ""
 reason = "Both toolchains reject the broken rule; only their error presentation differs."
 
 [[case]]
@@ -823,8 +850,11 @@ accepted_verdict = "mismatch"
 accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "--coverage is LLVM-only instrumentation and the translated command drops it."
+step_exclusions = [
+  { step = "kompile", exclusion = "llvm-only", reason = "--coverage is LLVM-only instrumentation and the translated command drops it." },
+]
 
 [[case]]
 name = "issue-1436"
@@ -875,8 +905,11 @@ accepted_verdict = "mismatch"
 accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "--gen-bison-parser's not-lr1 warning is a bison/LLVM frontend feature."
+step_exclusions = [
+  { step = "kompile", exclusion = "llvm-only", reason = "--gen-bison-parser's not-lr1 warning is a bison/LLVM frontend feature." },
+]
 
 [[case]]
 name = "issue-1573"
@@ -893,8 +926,11 @@ accepted_verdict = "skipped-with-reason"
 accepted_stage = "kompile"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "kompile"
-exclusion = "undriven-recipe"
+exclusion = ""
 reason = "The upstream recipe redirects the krun output to /dev/null and its .out is empty, so the krun step has no oracle; the generated parser_PGM step is compared by the Bison manifest (docs/compatibility.md#driver-scope)."
+step_exclusions = [
+  { step = "krun", exclusion = "undriven-recipe", reason = "The upstream recipe redirects the krun output to /dev/null and its .out is empty, so the krun step has no oracle; the generated parser_PGM step is compared by the Bison manifest (docs/compatibility.md#driver-scope)." },
+]
 
 [[case]]
 name = "issue-1633"
@@ -920,8 +956,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "krun"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "krun"
-exclusion = "declined-capability"
-reason = "kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile and krun steps match."
+exclusion = ""
+reason = "kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile step matches; krun 1.test mismatches (an unpaired `?_Gen0` disjunct), pending."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --input kore reads a KORE pattern instead of a program; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile step matches; krun 1.test mismatches (an unpaired `?_Gen0` disjunct), pending." },
+]
 
 [[case]]
 name = "issue-1683-cfgVarsWarns"
@@ -1013,6 +1052,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = "declined-capability"
 reason = "--top-cell is outside the krust CLI contract (docs/compatibility.md#cli-scope). Without that manual override, fresh-constant resolution reports `Too many top cells for module TEST: BarCell, KCell`."
+whole_case_reason = "The reference compiles the definition only under the --top-cell override the port declines, so the compilation is the declined capability and every execution step runs its result; no step is independent of it."
 [[case]]
 name = "issue-2114"
 accepted_verdict = "match"
@@ -1049,7 +1089,7 @@ accepted_verdict = "match"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "both-reject"
+exclusion = ""
 reason = "Both toolchains reject the broken claim; only their error presentation differs."
 
 [[case]]
@@ -1097,8 +1137,12 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "krun"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "krun"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --input kore --output pretty reads a KORE pattern and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile and krun steps match."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --input kore --output pretty reads a KORE pattern and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile and krun steps match." },
+  { step = "kore-print", exclusion = "declined-capability", reason = "kast --input kore --output pretty reads a KORE pattern and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile and krun steps match." },
+]
 
 [[case]]
 name = "issue-2812-kprove-filter-claims/claims"
@@ -1154,8 +1198,11 @@ accepted_verdict = "mismatch"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
-reason = "The anywhere equation foo() = bar() simplifies the initial configuration to bar() in both toolchains. The remaining rewrite foo() => baz() matches through a function equality in Kore (Kore/Simplify/AndTerms.hs functionAnd), which simplifies to true; LLVM instead matches syntactically and retains bar(). The LLVM execution expectation is excluded under docs/compatibility.md#backend-scope. Compilation agrees: an anywhere rewrite is constrained by its left-hand side sort, as TypeInferencer.isFunction(t, isAnywhere) requires (revision 746bbb8)."
+exclusion = ""
+reason = "The anywhere equation foo() = bar() simplifies the initial configuration to bar() in both toolchains. The remaining rewrite foo() => baz() still applies: the equation makes foo() and bar() the same value, so unifying the left-hand side foo() with bar() is true; LLVM instead matches syntactically and retains bar(). The LLVM execution expectation is excluded under docs/compatibility.md#backend-scope. Compilation agrees: an anywhere rewrite is constrained by its left-hand side sort, since it replaces a term of that sort wherever one occurs."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "The anywhere equation foo() = bar() simplifies the initial configuration to bar() in both toolchains. The remaining rewrite foo() => baz() still applies: the equation makes foo() and bar() the same value, so unifying the left-hand side foo() with bar() is true; LLVM instead matches syntactically and retains bar(). The LLVM execution expectation is excluded under docs/compatibility.md#backend-scope. Compilation agrees: an anywhere rewrite is constrained by its left-hand side sort, since it replaces a term of that sort wherever one occurs." },
+]
 [[case]]
 name = "issue-3035-antileft/haskell"
 accepted_verdict = "match"
@@ -1198,8 +1245,11 @@ accepted_verdict = "skipped-with-reason"
 accepted_stage = "kompile"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "kompile"
-exclusion = "undriven-recipe"
+exclusion = ""
 reason = "A ktest-fail kast test without a kompiled definition: the expected kompile rejection matches and leaves nothing to parse against (docs/compatibility.md#driver-scope)."
+step_exclusions = [
+  { step = "kast", exclusion = "undriven-recipe", reason = "A ktest-fail kast test without a kompiled definition: the expected kompile rejection matches and leaves nothing to parse against (docs/compatibility.md#driver-scope)." },
+]
 
 [[case]]
 name = "issue-3450-kprove-fresh"
@@ -1219,6 +1269,7 @@ baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 exclusion = "llvm-only"
 reason = "--enable-search changes LLVM configuration generation and has no port contract."
+whole_case_reason = "The reference compiles under --enable-search, which changes the generated configuration, so the compiled definitions are not the same definition and every execution step runs that compilation's result; no step compares like with like."
 
 [[case]]
 name = "issue-3604-counterCell"
@@ -1235,8 +1286,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --debug-tokens dumps K's scanner tokens; krust exposes no scanner debugging flag (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --debug-tokens dumps K's scanner tokens; krust exposes no scanner debugging flag (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "issue-3672-debugParse"
@@ -1244,8 +1298,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --debug-parse dumps K's parser trace; krust exposes no parser debugging flag (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --debug-parse dumps K's parser trace; krust exposes no parser debugging flag (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "issue-3996-unary-symbol-list"
@@ -1271,8 +1328,11 @@ accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "kore-exec returns both branches; the checked-in output records the LLVM backend's choice."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "kore-exec returns both branches; the checked-in output records the LLVM backend's choice." },
+]
 
 [[case]]
 name = "issue-4153-missing-module"
@@ -1369,8 +1429,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --input json --output pretty reads a JSON KAST and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --input json --output pretty reads a JSON KAST and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "kast-bison"
@@ -1398,8 +1461,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kast"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kast"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --expand-macros has no krust kast equivalent, so the compared text differs; the driver's fallback compares the macro-free JSON parse instead (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --expand-macros has no krust kast equivalent, so the compared text differs; the driver's fallback compares the macro-free JSON parse instead (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "kast-input"
@@ -1407,8 +1473,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --input kast --output pretty reads a KAST term and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --input kast --output pretty reads a KAST term and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "kast-kore-input"
@@ -1416,8 +1485,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --input kore --output pretty reads a KORE pattern and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --input kore --output pretty reads a KORE pattern and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "kast-rule"
@@ -1425,8 +1497,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --input rule parses a rule fragment; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --input rule parses a rule fragment; krust kast reads programs only (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "kdep-options/remake-depend"
@@ -1436,6 +1511,7 @@ baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 exclusion = "undriven-recipe"
 reason = "A ktest-kdep.mak recipe exercises K's kdep dependency tool; krust has no dependency tool and the driver does not translate the recipe (docs/compatibility.md#driver-scope)."
+whole_case_reason = "The recipe defines no step the driver drives, so there is no step to rank."
 
 [[case]]
 name = "kdep-options/simple"
@@ -1445,6 +1521,7 @@ baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 exclusion = "undriven-recipe"
 reason = "A ktest-kdep.mak recipe exercises K's kdep dependency tool; krust has no dependency tool and the driver does not translate the recipe (docs/compatibility.md#driver-scope)."
+whole_case_reason = "The recipe defines no step the driver drives, so there is no step to rank."
 
 [[case]]
 name = "kompiled-directory/default"
@@ -1452,16 +1529,22 @@ accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "#kompiledDirectory() (KREFLECTION.kompiledDir) is an LLVM-backend hook without a pinned Kore evaluator; the recipe compiles with the LLVM backend (docs/compatibility.md#backend-scope). Compilation agrees; execution reports an unsupported-hook error on constructor-like arguments."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "#kompiledDirectory() (KREFLECTION.kompiledDir) is an LLVM-backend hook without a pinned Kore evaluator; the recipe compiles with the LLVM backend (docs/compatibility.md#backend-scope). Compilation agrees; execution reports an unsupported-hook error on constructor-like arguments." },
+]
 [[case]]
 name = "kompiled-directory/nested"
 accepted_verdict = "skipped-with-reason"
 accepted_stage = "none"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "#kompiledDirectory() (KREFLECTION.kompiledDir) is an LLVM-backend hook without a pinned Kore evaluator; the recipe compiles with the LLVM backend (docs/compatibility.md#backend-scope). Compilation agrees; execution reports an unsupported-hook error on constructor-like arguments."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "#kompiledDirectory() (KREFLECTION.kompiledDir) is an LLVM-backend hook without a pinned Kore evaluator; the recipe compiles with the LLVM backend (docs/compatibility.md#backend-scope). Compilation agrees; execution reports an unsupported-hook error on constructor-like arguments." },
+]
 [[case]]
 name = "kore-brackets"
 accepted_verdict = "match"
@@ -1495,8 +1578,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kprove --branching-allowed bounds K's proof search by branch count; krust bounds by breadth, a different quantity, and the driver does not translate between them (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kprove", exclusion = "declined-capability", reason = "kprove --branching-allowed bounds K's proof search by branch count; krust bounds by breadth, a different quantity, and the driver does not translate between them (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "kprove-error-status"
@@ -1504,8 +1590,11 @@ accepted_verdict = "mismatch"
 accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
-exclusion = "reference-crash"
+exclusion = ""
 reason = "The pinned reference backend crashes without producing an expected proof result."
+step_exclusions = [
+  { step = "kprove", test = "crash-spec.k", exclusion = "reference-crash", reason = "The pinned reference backend crashes without producing an expected proof result." },
+]
 
 [[case]]
 name = "kprove-haskell"
@@ -1522,7 +1611,7 @@ accepted_verdict = "match"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "both-reject"
+exclusion = ""
 reason = "Both toolchains report the unbound right-hand-side variable."
 
 [[case]]
@@ -1579,8 +1668,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "krun --parser cat supplies a pre-parsed KORE $PGM through a custom parser command, outside the krust CLI interface (docs/compatibility.md#cli-scope). Compilation agrees; the execution step is unsupported."
+step_exclusions = [
+  { step = "krun", exclusion = "declined-capability", reason = "krun --parser cat supplies a pre-parsed KORE $PGM through a custom parser command, outside the krust CLI interface (docs/compatibility.md#cli-scope). Compilation agrees; the execution step is unsupported." },
+]
 [[case]]
 name = "let-priority"
 accepted_verdict = "match"
@@ -1625,6 +1717,7 @@ baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 exclusion = "llvm-only"
 reason = "The recipe is a custom Makefile that builds an LLVM library through llvm-kompile; the driver has no kompile, kast, or krun step to translate (docs/compatibility.md#backend-scope)."
+whole_case_reason = "The recipe defines no step the driver drives, so there is no step to rank."
 
 [[case]]
 name = "llvm-krun"
@@ -1632,8 +1725,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "llvm-krun is the LLVM backend's own runner and has no krust equivalent (docs/compatibility.md#backend-scope). The kompile step matches; the generated parser_PGM step is compared by the Bison manifest."
+step_exclusions = [
+  { step = "llvm-krun", exclusion = "llvm-only", reason = "llvm-krun is the LLVM backend's own runner and has no krust equivalent (docs/compatibility.md#backend-scope). The kompile step matches; the generated parser_PGM step is compared by the Bison manifest." },
+]
 
 [[case]]
 name = "llvm-string2base"
@@ -1650,24 +1746,36 @@ accepted_verdict = "reference-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "The Bison/LLVM recipe uses --gen-bison-parser, [locations] and K-LOCATIONS. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lbl'Hash'location with variable result sort` (89:10). Rust accepts the constructor schema and checks each application's instance sort. This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)."
+step_exclusions = [
+  { step = "kompile", exclusion = "llvm-only", reason = "The Bison/LLVM recipe uses --gen-bison-parser, [locations] and K-LOCATIONS. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lbl'Hash'location with variable result sort` (89:10). Rust accepts the constructor schema and checks each application's instance sort. This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)." },
+  { step = "krun", exclusion = "llvm-only", reason = "The Bison/LLVM recipe uses --gen-bison-parser, [locations] and K-LOCATIONS. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lbl'Hash'location with variable result sort` (89:10). Rust accepts the constructor schema and checks each application's instance sort. This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)." },
+]
 [[case]]
 name = "locations2"
 accepted_verdict = "reference-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "The Bison/LLVM recipe uses --gen-bison-parser, [locations] and K-LOCATIONS. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lbl'Hash'location with variable result sort` (90:10). Rust accepts the constructor schema and checks each application's instance sort. This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)."
+step_exclusions = [
+  { step = "kompile", exclusion = "llvm-only", reason = "The Bison/LLVM recipe uses --gen-bison-parser, [locations] and K-LOCATIONS. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lbl'Hash'location with variable result sort` (90:10). Rust accepts the constructor schema and checks each application's instance sort. This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)." },
+  { step = "krun", exclusion = "llvm-only", reason = "The Bison/LLVM recipe uses --gen-bison-parser, [locations] and K-LOCATIONS. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lbl'Hash'location with variable result sort` (90:10). Rust accepts the constructor schema and checks each application's instance sort. This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)." },
+]
 [[case]]
 name = "locations3"
 accepted_verdict = "reference-error"
 accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "The Bison/LLVM recipe uses --gen-bison-parser, [locations] and K-LOCATIONS. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lbl'Hash'location with variable result sort` (91:10). Rust accepts the constructor schema and checks each application's instance sort. This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)."
+step_exclusions = [
+  { step = "kompile", exclusion = "llvm-only", reason = "The Bison/LLVM recipe uses --gen-bison-parser, [locations] and K-LOCATIONS. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lbl'Hash'location with variable result sort` (91:10). Rust accepts the constructor schema and checks each application's instance sort. This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)." },
+  { step = "krun", exclusion = "llvm-only", reason = "The Bison/LLVM recipe uses --gen-bison-parser, [locations] and K-LOCATIONS. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lbl'Hash'location with variable result sort` (91:10). Rust accepts the constructor schema and checks each application's instance sort. This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)." },
+]
 [[case]]
 name = "lub"
 accepted_verdict = "match"
@@ -1790,8 +1898,11 @@ accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "Compilation agrees for ::MInt{8} casts and MInt literals in rules. All 18 execution programs require MINT.integer through Int2MInt(I)::MInt{8} and report an unsupported-hook error. Fixed-width machine-integer hooks have no evaluator in either pinned Kore engine; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "Compilation agrees for ::MInt{8} casts and MInt literals in rules. All 18 execution programs require MINT.integer through Int2MInt(I)::MInt{8} and report an unsupported-hook error. Fixed-width machine-integer hooks have no evaluator in either pinned Kore engine; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml." },
+]
 
 [[case]]
 name = "mint-llvm-2"
@@ -1817,8 +1928,11 @@ accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
-exclusion = "llvm-only"
-reason = "Compilation agrees: the MInt{K} ::= MInt{64} bridge belongs only to the parsing module (RuleGrammarGenerator.java), so parametric results in ==MInt slots infer declared widths. All 13 execution steps require unsupported MInt-specialized hooks: MINT.bytes2MInt, MINT.MInt2bytes, MINT.pow, BYTES.lengthMInt, BYTES.getMInt, BYTES.updateMInt, BYTES.padLeftMInt, BYTES.padRightMInt, BYTES.substrMInt, BYTES.replaceAtMInt, LIST.getMInt, LIST.sizeMInt and LIST.updateMInt. Neither pinned Kore engine evaluates them; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml."
+exclusion = ""
+reason = "Compilation agrees: the MInt{K} ::= MInt{64} bridge belongs only to the parsing module, so parametric results in ==MInt slots infer declared widths. All 13 execution steps require unsupported MInt-specialized hooks: MINT.bytes2MInt, MINT.MInt2bytes, MINT.pow, BYTES.lengthMInt, BYTES.getMInt, BYTES.updateMInt, BYTES.padLeftMInt, BYTES.padRightMInt, BYTES.substrMInt, BYTES.replaceAtMInt, LIST.getMInt, LIST.sizeMInt and LIST.updateMInt. Neither pinned Kore engine evaluates them; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "Compilation agrees: the MInt{K} ::= MInt{64} bridge belongs only to the parsing module, so parametric results in ==MInt slots infer declared widths. All 13 execution steps require unsupported MInt-specialized hooks: MINT.bytes2MInt, MINT.MInt2bytes, MINT.pow, BYTES.lengthMInt, BYTES.getMInt, BYTES.updateMInt, BYTES.padLeftMInt, BYTES.padRightMInt, BYTES.substrMInt, BYTES.replaceAtMInt, LIST.getMInt, LIST.sizeMInt and LIST.updateMInt. Neither pinned Kore engine evaluates them; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml." },
+]
 
 [[case]]
 name = "mutable-bytes/default"
@@ -1835,8 +1949,11 @@ accepted_verdict = "mismatch"
 accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "Mutable Bytes semantics are defined only by the LLVM backend."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "Mutable Bytes semantics are defined only by the LLVM backend." },
+]
 
 [[case]]
 name = "no-dup-rules"
@@ -1862,8 +1979,11 @@ accepted_verdict = "mismatch"
 accepted_stage = "search"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "The reference --enable-search/--no-pattern interface prints bare configurations while krust prints the same disjuncts under its default Result equality binding. The disjunct sets agree; the LLVM search rendering is outside the krust CLI contract (docs/compatibility.md#cli-scope)."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "The reference --enable-search/--no-pattern interface prints bare configurations while krust prints the same disjuncts under its default Result equality binding. The disjunct sets agree; the LLVM search rendering is outside the krust CLI contract (docs/compatibility.md#cli-scope)." },
+]
 [[case]]
 name = "nomain"
 accepted_verdict = "match"
@@ -1906,8 +2026,11 @@ accepted_verdict = "mismatch"
 accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "Decision-tree exhaustiveness diagnostics are LLVM-backend behavior."
+step_exclusions = [
+  { step = "kompile", exclusion = "llvm-only", reason = "Decision-tree exhaustiveness diagnostics are LLVM-backend behavior." },
+]
 
 [[case]]
 name = "or-haskell"
@@ -1951,8 +2074,11 @@ accepted_verdict = "reference-error"
 accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "The GLR-bison recipe uses --bison-lists --gen-glr-bison-parser and cparse. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lblamb with variable result sort` (395:10). This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)."
+step_exclusions = [
+  { step = "kompile", exclusion = "llvm-only", reason = "The GLR-bison recipe uses --bison-lists --gen-glr-bison-parser and cparse. Its reference definition.kore is rejected by kore-parser --verify: `Cannot define constructor Lblamb with variable result sort` (395:10). This definition is outside the Haskell-backend acceptance boundary (docs/compatibility.md#backend-scope)." },
+]
 [[case]]
 name = "parseNonPgm"
 accepted_verdict = "match"
@@ -2015,6 +2141,7 @@ baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 exclusion = "undriven-recipe"
 reason = "The case is a custom Makefile that only delegates to sub-makes, and the driver does not follow sub-makes; the lesson's definition is exercised by its sibling lessons (docs/compatibility.md#driver-scope)."
+whole_case_reason = "The recipe defines no step the driver drives, so there is no step to rank."
 
 [[case]]
 name = "pl-tutorial/1_k/4_imp++/lesson_7"
@@ -2107,9 +2234,6 @@ baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
 reason = "Private CB-12-5 seven-case run (b64e130, --jobs 2): the kompile comparison and all 50 artifact-driven program steps match in 83.1 s. One Rust runtime compilation takes 2.7 s. Program time has a 0.2 s minimum and median; constructor-bst-sorting.fun takes 49.9 s, tail-recursion.fun 7.1 s, and every other program at most 0.7 s. The 300 s default case budget retains 3.6x headroom. The step budget counts CPU seconds; at 927b9ce6 and its successors constructor-bst-sorting.fun costs 84-99 s of user CPU in five standalone runs at load 11-28 on 32 CPUs, and at most 107 s of wall time (in a ratchet run at load 22-31), and 180 CPU-s keeps 1.8x headroom over the largest CPU cost so that the verdict does not depend on machine load. The 240 s step wall budget ends a program that stops accruing CPU time (blocked, or throttled at its memory limit), and ends a correct run only at a wall/CPU ratio above 2.4. A divergent or stalled outlier therefore costs at most 240 s, and the rest of the case took 21.9-24.5 s of wall time in two uncached runs at load 18-23 (reference kompile 8.9-10.2 s, both krust compilations, and the other 49 programs, without the oracle re-runs that only mismatching programs incur), so the programs behind it remain observable inside the 300 s case budget. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
-step_exclusions = [
-  { step = "kore-verify", verify_error = "Found invalid subterm in argument of function equation:", exclusion = "verifier-anywhere-argument", reason = "Since the anywhere heads `_=_` and `[_|_]` carry no `injective` (their anywhere rules `F P = E => F = fun P -> E` and `[E1,E2,Es|T] => [E1|[E2,Es|T]]` identify applications with different arguments), the reference verifier rejects the `names`, `exps` and `getMatching` equations whose arguments contain them. Those arguments (`X:Name = E`, `[H | T]`) are normal on every instance, so the equations are consistent, and the definition.kore comparison and all 50 program steps stay ranked." },
-]
 
 [[case]]
 name = "poly-kitem"
@@ -2135,8 +2259,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --input kore --output pretty reads a KORE pattern and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --input kore --output pretty reads a KORE pattern and pretty-prints it; krust kast reads programs and prints KORE text only (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "prelude-warnings"
@@ -2162,8 +2289,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "krun --proof-hint asks the LLVM backend to emit proof hints; krust has no proof-hint output (docs/compatibility.md#cli-scope). The kompile step matches; the generated parser_PGM step is compared by the Bison manifest."
+step_exclusions = [
+  { step = "krun", exclusion = "declined-capability", reason = "krun --proof-hint asks the LLVM backend to emit proof hints; krust has no proof-hint output (docs/compatibility.md#cli-scope). The kompile step matches; the generated parser_PGM step is compared by the Bison manifest." },
+]
 
 [[case]]
 name = "proof-instrumentation-debug"
@@ -2171,8 +2301,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "krun --proof-hint asks the LLVM backend to emit proof hints; krust has no proof-hint output (docs/compatibility.md#cli-scope). The kompile step matches; the generated parser_PGM step is compared by the Bison manifest."
+step_exclusions = [
+  { step = "krun", exclusion = "declined-capability", reason = "krun --proof-hint asks the LLVM backend to emit proof hints; krust has no proof-hint output (docs/compatibility.md#cli-scope). The kompile step matches; the generated parser_PGM step is compared by the Bison manifest." },
+]
 
 [[case]]
 name = "proof-tests/deposit/spec"
@@ -2182,6 +2315,7 @@ baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 exclusion = "undriven-recipe"
 reason = "The upstream Makefile has its ktest.mak include commented out pending K issue 2308, so make -n all fails and the recipe defines no step (docs/compatibility.md#driver-scope)."
+whole_case_reason = "The recipe defines no step the driver drives, so there is no step to rank."
 
 [[case]]
 name = "proof-tests/deposit/test"
@@ -2207,17 +2341,23 @@ accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "INT.srand and INT.rand are LLVM-backend hooks; the pinned Kore implementation raises notImplemented. Compilation agrees; execution reports unsupported hook INT.srand (docs/compatibility.md#backend-scope)."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "INT.srand and INT.rand are LLVM-backend hooks; the pinned Kore implementation raises notImplemented. Compilation agrees; execution reports unsupported hook INT.srand (docs/compatibility.md#backend-scope)." },
+]
 [[case]]
 name = "rangemap-tests-llvm"
 accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "RANGEMAP hooks have no evaluator in either pinned Kore engine. All 66 execution steps report unsupported RANGEMAP.elementRng or RANGEMAP.unit. Compilation and parsing at $PGM:KItem agree; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml."
 budget = 1800
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "RANGEMAP hooks have no evaluator in either pinned Kore engine. All 66 execution steps report unsupported RANGEMAP.elementRng or RANGEMAP.unit. Compilation and parsing at $PGM:KItem agree; see docs/compatibility.md#backend-scope and crates/k-rust/tests/fixtures/hook-capabilities.toml." },
+]
 [[case]]
 name = "rat/defined/haskell"
 accepted_verdict = "match"
@@ -2260,8 +2400,11 @@ accepted_verdict = "krust-unsupported"
 accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
+exclusion = ""
 reason = "kast --debug-tokens dumps K's scanner tokens; krust exposes no scanner debugging flag (docs/compatibility.md#cli-scope). The kompile step matches."
+step_exclusions = [
+  { step = "kast", exclusion = "declined-capability", reason = "kast --debug-tokens dumps K's scanner tokens; krust exposes no scanner debugging flag (docs/compatibility.md#cli-scope). The kompile step matches." },
+]
 
 [[case]]
 name = "regex-unicode"
@@ -2444,8 +2587,11 @@ accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "#trace (IO.traceTerm) is an LLVM-backend debugging hook without a pinned Kore evaluator. Compilation agrees; execution reports unsupported hook IO.traceTerm at depth 1 (docs/compatibility.md#backend-scope)."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "#trace (IO.traceTerm) is an LLVM-backend debugging hook without a pinned Kore evaluator. Compilation agrees; execution reports unsupported hook IO.traceTerm at depth 1 (docs/compatibility.md#backend-scope)." },
+]
 [[case]]
 name = "unification-lemmas"
 accepted_verdict = "match"
@@ -2479,16 +2625,22 @@ accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "#unparseKORE (KREFLECTION.printKORE) is an LLVM-backend hook without a pinned Kore evaluator. Compilation agrees; execution reports unsupported hook KREFLECTION.printKORE (docs/compatibility.md#backend-scope)."
+step_exclusions = [
+  { step = "krun", exclusion = "llvm-only", reason = "#unparseKORE (KREFLECTION.printKORE) is an LLVM-backend hook without a pinned Kore evaluator. Compilation agrees; execution reports unsupported hook KREFLECTION.printKORE (docs/compatibility.md#backend-scope)." },
+]
 [[case]]
 name = "useless"
 accepted_verdict = "mismatch"
 accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
+exclusion = ""
 reason = "Decision-tree useless-rule diagnostics are LLVM-backend behavior."
+step_exclusions = [
+  { step = "kompile", exclusion = "llvm-only", reason = "Decision-tree useless-rule diagnostics are LLVM-backend behavior." },
+]
 
 [[case]]
 name = "werrorCategory"
@@ -2521,5 +2673,8 @@ accepted_verdict = "krust-error"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "llvm-only"
-reason = "The function rule `freshIntx() => !_I:Int` retains its free right-hand variable in both emitted definitions: ResolveFreshConstants.java returns function rules unchanged, as does Rust rule_defines_function. LLVM supplies a runtime fresh counter: adding 10 yields 10 for one call and 10 ~> 11 for two calls. The pinned Haskell backend instead times out after 240 s on 1.test; Rust explores symbolic branches. This LLVM fresh-counter expectation is excluded under docs/compatibility.md#backend-scope. Compilation and 2.test agree (the latter prints 7)."
+exclusion = ""
+reason = "krust kompile rejects `rule freshIntx() => !_I:Int` with InvalidFreshConstant (docs/compatibility.md#compiler-resolved-fresh-constants), so neither test runs, pending. 1.test's expected output is excluded as the step exclusion states; 2.test (expected output 7) stays ranked."
+step_exclusions = [
+  { step = "krun", test = "1.test", exclusion = "llvm-only", reason = "1.test expects each call of freshIntx() to yield the next value of a counter. The function rule `freshIntx() => !_I:Int` is an equation, applied wherever the function occurs without the configuration, so no counter cell supplies its fresh variable and the rule defines no value for the call (docs/compatibility.md#compiler-resolved-fresh-constants). The expected values come from a runtime counter that the LLVM backend threads through function evaluation, and are excluded under docs/compatibility.md#backend-scope." },
+]

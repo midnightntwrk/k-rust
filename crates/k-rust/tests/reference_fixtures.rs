@@ -298,6 +298,73 @@ fn check_manifest(root: &Path, subsystem: &str, path: &Path) {
             );
         }
     }
+    check_oracle_exception(&manifest, path);
+}
+
+/// A fixture whose expected answer differs from what the reference toolchain produced is a
+/// recorded divergence (`oracle_exception = true`): its `oracle_exception_reason` links the
+/// docs/compatibility.md sections that argue it, each of which exists, and one of them names the
+/// case.
+fn check_oracle_exception(manifest: &Value, path: &Path) {
+    let reason = manifest.get("oracle_exception_reason");
+    match manifest.get("oracle_exception") {
+        None => {
+            assert!(
+                reason.is_none(),
+                "{} gives an oracle_exception_reason without an oracle exception",
+                path.display()
+            );
+            return;
+        }
+        Some(flag) => assert_eq!(
+            flag.as_bool(),
+            Some(true),
+            "{} oracle_exception must be true when present",
+            path.display()
+        ),
+    }
+    let reason = reason
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("{} oracle exception needs a reason", path.display()));
+    let compatibility = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/compatibility.md"),
+    )
+    .expect("docs/compatibility.md");
+    let case = manifest["case"].as_str().expect("fixture case");
+    let anchors = reason
+        .split_whitespace()
+        .filter_map(|word| word.strip_prefix("docs/compatibility.md#"))
+        .map(|anchor| anchor.trim_end_matches(['.', ',', ';', ')']))
+        .collect::<Vec<_>>();
+    assert!(
+        !anchors.is_empty(),
+        "{} oracle exception must link its docs/compatibility.md section",
+        path.display()
+    );
+    let mut named = false;
+    for anchor in anchors {
+        let heading = compatibility
+            .lines()
+            .filter_map(|line| line.strip_prefix("## "))
+            .find(|heading| heading.to_lowercase().replace(' ', "-") == anchor)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} links docs/compatibility.md#{anchor}, which is not a section",
+                    path.display()
+                )
+            });
+        let section = compatibility
+            .split(&format!("## {heading}\n"))
+            .nth(1)
+            .and_then(|rest| rest.split("\n## ").next())
+            .expect("compatibility section body");
+        named |= section.contains(&format!("`{case}`"));
+    }
+    assert!(
+        named,
+        "no docs/compatibility.md section that {} links names `{case}`",
+        path.display()
+    );
 }
 
 fn check_recorded_file<'a>(

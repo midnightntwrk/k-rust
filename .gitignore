@@ -1,6 +1,9 @@
 target/
 .z3-trace
 
+# LLVM coverage profiles written by instrumented test runs
+*.profraw
+
 # generated Python bytecode from the scripts/ helpers
 __pycache__/
 

@@ -145,7 +145,10 @@ The portable subset includes the embedded standard prelude: loading it as an imp
 the same loaded definition and `definition.kore` as the native build, under either backend's
 module exclusion. The CLI is deliberately native-only. A portable build returns a structured
 `Z3InferenceRequired` error when a rule needs parametric sort inference or contains an ambiguous
-forest the portable decision does not settle.
+forest the portable decision does not settle. Of the semantics the compatibility manifest
+compiles, the portable build refuses the WASM, MIR and KEVM definitions this way today and gives
+the native build's KORE for every other definition the native build compiles; the `build-agreement` entry of `scripts/gates.toml` records
+that refusal set and fails when it changes.
 
 ## CLI
 
@@ -644,18 +647,20 @@ scripts/reference-differential.sh casts cell-map  # selected cases
 ```
 
 The real-semantics certification protocol is manual rather than a CI job.
-Run the complete protocol after a change to frontend, definition, kompile, or KORE-emission behavior and record the named results, wall times, and peak memory in the change description:
+Every gate is an entry of the registry `scripts/gates.toml`, whose header holds the protocol, and `scripts/run-gates.sh` runs entries by name, by kind, or by what a change touches, logging each one's exit status, wall time and peak RSS:
 
 ```console
-scripts/reference-differential.sh wasm mir evm-equivalence
-scripts/reference-kast-differential.sh wasm mir evm-equivalence
-scripts/reference-non-imp-execution-differential.sh imp
-scripts/reference-proof-differential.sh imp
-scripts/reference-rpc-differential.sh imp
-scripts/reference-mir-execution-differential.sh
+scripts/run-gates.sh --changed main..HEAD           # the entries this branch owes
+scripts/run-gates.sh --list --touched crates/k-rust/src/inner/parser.rs
+scripts/run-gates.sh kast-real-semantics            # one entry by name; an unknown name fails
+scripts/run-gates.sh --run heavy --changed main..HEAD
 ```
 
+Each certification and heavy entry names the paths whose change owes it; record the runner's summary in the change description.
+Heavy entries (the WASM, MIR and KEVM compiles, parses and runs, the WASM execution gate and the critical-pair corpus) need a host UID with a user systemd manager; the runner lists them as not run under an `agent-N` user and exits 3.
+
 `scripts/reference-differential.toml` is the source of truth for pins, checkout paths, compiler options, compared artifacts, parser cases, execution/search programs, proof claims, RPC cases, and the six documented oracle exclusions.
+A recorded divergence, a compile case with `expect = "port-accepts"` or a kast entry under `port-accepts` or `port-rejects`, states its reason, which links the `docs/compatibility.md` section that names it; its gate runs both sides and fails when either moves.
 The scripts enforce clean checkouts at the manifest revisions and require the matching K release.
 Set `K_CHECKOUT`, `IMP_SEMANTICS_CHECKOUT`, `WASM_SEMANTICS_CHECKOUT`, `EVM_SEMANTICS_CHECKOUT`, `EVM_EQUIVALENCE_CHECKOUT`, or `MIR_SEMANTICS_CHECKOUT` when a checkout is not at its ignored workspace-default path.
 Each of the six Java-backed differential scripts re-executes its complete job in one transient user systemd scope before loading the manifest, validating pins, or starting reference and Rust phases.

@@ -76,6 +76,17 @@ jobs:
       - name: Check all targets at the declared minimum
         run: cargo check --workspace --all-targets --locked
 
+  scripts:
+    name: Script unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Run the Python unit tests of the scripts
+        run: scripts/script-unit-tests.sh
+
   rust:
     name: Rust
     runs-on: ubuntu-latest

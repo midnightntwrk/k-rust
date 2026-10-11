@@ -12,8 +12,17 @@ use std::{
 use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
 use regex::Regex;
 
+#[path = "support/execution_sources.rs"]
+mod execution_sources;
 #[path = "support/line_anchors.rs"]
 mod line_anchors;
+use execution_sources::{NO_EVALUATOR, PINNED_PLUGIN_BN128, SEARCH_BOUND, SIZE_BOUND};
+#[path = "support/proof_sources.rs"]
+mod proof_sources;
+use proof_sources::{
+    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_KEPT, LATER_BINDING_RECOVERED, LATER_BINDING_RULE,
+    LET_PARTIAL_CONDITION, NEGATIVE_POWER, UNDEFINED_STEP,
+};
 
 /// A `KRUST-PROVENANCE` document written by the version 7 writer (k-rust `480a0d3b`), as an
 /// artifact or prepared directory of that krust holds.
@@ -2423,6 +2432,55 @@ fn reference_krun_supplies_io_and_stdin_for_stream_cells() {
     assert!(!stdout.contains(r"\bottom"), "{stdout}");
 }
 
+/// krust's console bytes for `program` of the `non-ascii-stdout` reference fixture, live I/O.
+fn non_ascii_stdout(program: &str) -> Vec<u8> {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/cli/non-ascii-stdout");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("test.k").to_str().unwrap(),
+            fixtures.join(program).to_str().unwrap(),
+            "--main-module",
+            "NON-ASCII-STDOUT",
+            "--sort",
+            "Pgm",
+            "--output",
+            "none",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output.stdout
+}
+
+/// A `String` is a sequence of code points, and the console writes each as one byte, its code
+/// point (docs/compatibility.md, console input and output). `"café ÿ!"` is therefore the seven
+/// bytes the reference's krun writes for the same program (the LLVM backend's, the pinned
+/// reference backend with console I/O; `reference/cli/non-ascii-stdout/stdout.bin`).
+/// `"caf\u00e9"` is the same value as `"café"`, so krust writes the same bytes for it; the
+/// reference writes `é` as `c3 a9` there, so its console bytes depend on how the literal is
+/// spelled (`escaped.stdout.bin`).
+#[test]
+fn krun_writes_each_non_ascii_character_to_the_console_as_the_byte_of_its_code_point() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/cli/non-ascii-stdout");
+    let reference = fs::read(fixtures.join("stdout.bin")).unwrap();
+    assert_eq!(reference, b"caf\xe9 \xff!");
+    assert_eq!(non_ascii_stdout("program.pgm"), reference);
+
+    assert_eq!(non_ascii_stdout("escaped.pgm"), b"caf\xe9");
+    assert_eq!(
+        fs::read(fixtures.join("escaped.stdout.bin")).unwrap(),
+        b"caf\xc3\xa9"
+    );
+}
+
 #[test]
 fn krun_captured_output_emits_one_complete_stdout_buffer_without_kore_framing() {
     let fixture_path =
@@ -4748,30 +4806,8 @@ fn krun_does_not_reuse_a_failed_evaluation_that_read_stdin_after_the_console_mov
 /// leaves an undecided condition. `i` and `fl` hide the constants from the constant folder.
 #[test]
 fn krun_refuses_an_application_without_an_evaluator_only_where_a_run_needs_it() {
-    const SOURCE: &str = r#"
-module NOEVAL
-  imports INT
-  imports BOOL
-  imports FLOAT
-  imports K-EQUAL
-  configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= "unused" | "branch" | "used" | "decide" | "partial"
-  syntax KItem ::= r(K) | f(Float) | "pos" | "nonpos"
-  syntax Int ::= i(Int) [function, total]
-  rule i(X) => X
-  syntax Float ::= fl(Float) [function, total]
-  rule fl(X) => X
-  rule <k> unused => r(false andBool (Float2Int(expFloat(fl(1.0))) ==Int 2)) </k>
-  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else Float2Int(expFloat(fl(1.0))) #fi) </k>
-  rule <k> used => r(expFloat(fl(1.0))) </k>
-  rule <k> decide => f(expFloat(fl(1.0))) </k>
-  rule <k> partial => r(false andBool (Float2Int(logFloat(fl(2.0))) ==Int 0)) </k>
-  rule <k> f(X) => r(pos) </k> requires X >Float 0.0
-  rule <k> f(X) => r(nonpos) </k> requires X <=Float 0.0
-endmodule
-"#;
     let (root, definition) = fixture();
-    fs::write(&definition, SOURCE).unwrap();
+    fs::write(&definition, NO_EVALUATOR).unwrap();
     let run = |program: &str| {
         let input = root.join(format!("{program}.noeval"));
         fs::write(&input, program).unwrap();
@@ -4849,35 +4885,8 @@ endmodule
 /// arguments, under the 2^24-bit floor). `i` hides the constants from the constant folder.
 #[test]
 fn krun_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
-    const SOURCE: &str = r#"
-module BOUND
-  imports INT
-  imports BOOL
-  imports K-EQUAL
-  configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= "unused" | "unusedshl" | "branch" | "guard" | "decided" | "dropped" | "used" | "shl"
-               | "computed"
-  syntax KItem ::= r(K) | f(Int) | g(Int) | "pos" | "nonpos"
-  syntax Int ::= i(Int) [function, total]
-  rule i(X) => X
-  rule <k> unused => r(false andBool (2 ^Int i(16777216) >Int i(0))) </k>
-  rule <k> unusedshl => r(false andBool (1 <<Int i(16777216) >Int i(0))) </k>
-  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else 2 ^Int i(16777216) #fi) </k>
-  rule <k> guard => r(1) </k> requires i(0) >Int i(1) andBool (1 <<Int i(16777216)) >Int i(0)
-  rule <k> guard => r(4) </k> [owise]
-  rule <k> decided => r(1) </k> requires 2 ^Int i(16777217) >Int i(0)
-  rule <k> decided => r(4) </k> [owise]
-  rule <k> dropped => g(1 <<Int i(16777217)) </k>
-  rule <k> g(_) => r(9) </k>
-  rule <k> used => r(2 ^Int 16777216) </k>
-  rule <k> shl => f(1 <<Int i(16777217)) </k>
-  rule <k> computed => r(2 ^Int i(1048576) >Int 0) </k>
-  rule <k> f(X) => r(pos) </k> requires X >Int 0
-  rule <k> f(X) => r(nonpos) </k> requires X <=Int 0
-endmodule
-"#;
     let (root, definition) = fixture();
-    fs::write(&definition, SOURCE).unwrap();
+    fs::write(&definition, SIZE_BOUND).unwrap();
     let run = |program: &str| {
         let input = root.join(format!("{program}.bound"));
         fs::write(&input, program).unwrap();
@@ -4967,22 +4976,8 @@ endmodule
 /// exponent from the constant folder.
 #[test]
 fn krun_search_matches_no_condition_on_a_result_above_the_size_bound() {
-    const SOURCE: &str = r#"
-module SEARCH-BOUND
-  imports INT
-  imports BOOL
-  configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= "go" | "power"
-  syntax KItem ::= f(Int) | "done"
-  syntax Int ::= i(Int) [function, total]
-  rule i(X) => X
-  rule <k> go => f(1 <<Int i(16777217)) </k>
-  rule <k> power => f(2 ^Int i(16777217)) </k>
-  rule <k> f(_) => done </k>
-endmodule
-"#;
     let (root, definition) = fixture();
-    fs::write(&definition, SOURCE).unwrap();
+    fs::write(&definition, SEARCH_BOUND).unwrap();
     let input = root.join("go.search");
     fs::write(&input, "go").unwrap();
     let power = root.join("power.search");
@@ -7053,35 +7048,6 @@ fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// `app` on values is an `anywhere` overload of `app` on expressions, rewritten to the constructor
-/// `c` only for a positive first argument. The claim's symbolic step on `app(N, 0)` applies the
-/// priority-10 rule where `N <=Int 0`, and its remainder `N >Int 0` simplifies `app(N, 0)` to
-/// `c(N)`, which only the priority-50 `c` rule rewrites. `$NEXT` places the overloaded item at
-/// the `<k>` head (empty) or after a `mark()` head.
-const ANYWHERE_OVERLOAD_REMAINDER: &str = r#"
-module OVL-SYNTAX
-  imports INT-SYNTAX
-  syntax Val ::= Int | c(Int) | app(Val, Val) [overload(app)]
-  syntax Exp ::= Val | app(Exp, Exp) [overload(app)]
-  syntax KItem ::= done(Int) | mark()
-endmodule
-
-module OVL
-  imports OVL-SYNTAX
-  imports INT
-  imports BOOL
-  configuration <k> $PGM:Exp </k> <n> 0 </n>
-  rule app(X:Int, _:Int):Val => c(X) requires X >Int 0 [anywhere]
-  rule <k> $NEXT _:Val => done(0) ... </k> <n> X </n> requires X <=Int 0 [priority(10)]
-  rule <k> $NEXT c(X) => done(X) ... </k>
-endmodule
-
-module OVL-SPEC
-  imports OVL
-  claim <k> $NEXT app(N:Int, 0):Val => done(?_M) </k> <n> N </n>
-endmodule
-"#;
-
 /// A lower-priority rule is applied to the remainder as simplified, not to the step's subject:
 /// the `c` rule does not match `app(N, 0)` but matches the remainder's `c(N)`. The condition
 /// comes from another cell, since `app(N, 0)`, which the anywhere equation rewrites for `N > 0`,
@@ -7231,64 +7197,6 @@ fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
     }
 }
 
-/// A trusted lemma or rule records a condition over X, either a kept unifier equation or
-/// the definedness of a discarded partial argument, before the collection solver binds X
-/// from a set element. The application covers only instances where the condition holds of
-/// the bound value. Both lemmas are true; both main claims are false at A = 0. The rule's
-/// condition is c(B, A) = f(A).
-const LATER_BINDING_KEPT: &str = r#"
-module LEMMAKEPT
-  imports INT
-  imports SET
-  syntax Elem ::= a(Int) | b(Int)
-  syntax KItem ::= go(Set) | run(Int, Set) | done(Int)
-  configuration <k> $PGM:K </k>
-  rule <k> go(S) => run(5, S) ... </k>
-  rule <k> run(N, SetItem(a(X)) _S) => done(X) ... </k> requires N ==Int X +Int 1
-endmodule
-module LEMMAKEPT-SPEC
-  imports LEMMAKEPT
-  claim [lemma]: <k> run(X +Int 1, SetItem(a(X)) SetItem(b(_Y))) => done(X) ... </k> [trusted]
-  claim [main]: <k> go(SetItem(a(A)) SetItem(b(_B))) => done(A) ... </k>
-endmodule
-"#;
-
-const LATER_BINDING_RECOVERED: &str = r#"
-module LEMMADEF
-  imports INT
-  imports SET
-  syntax Elem ::= a(Int) | b(Int)
-  syntax KItem ::= go(Set) | run(Int, Set) | done(Int)
-  syntax Int ::= h(Int) [function, total]
-  configuration <k> $PGM:K </k>
-  rule h(_) => 7
-  rule <k> go(S) => run(7, S) ... </k>
-  rule <k> run(7, SetItem(a(X)) _S) => done(X) ... </k> requires X =/=Int 0
-endmodule
-module LEMMADEF-SPEC
-  imports LEMMADEF
-  claim [lemma]: <k> run(h(10 /Int X), SetItem(a(X)) SetItem(b(_Y))) => done(X) ... </k> [trusted]
-  claim [main]: <k> go(SetItem(a(A)) SetItem(b(_B))) => done(A) ... </k>
-endmodule
-"#;
-
-const LATER_BINDING_RULE: &str = r#"
-module RULESOLVED
-  imports INT
-  imports SET
-  syntax Elem ::= a(Int) | b(Int)
-  syntax Foo ::= c(Int, Int) | f(Int) [function, total]
-  syntax KItem ::= go(Int, Set) | foo(Int, Foo, Set) | bar(Int) | done()
-  configuration <k> $PGM:K </k>
-  rule <k> go(A, S) => foo(A, f(A), S) ... </k>
-  rule <k> foo(Y, c(X, Y), SetItem(a(X)) SetItem(b(_Z))) => bar(X) ... </k>
-endmodule
-module RULESOLVED-SPEC
-  imports RULESOLVED
-  claim [main]: <k> go(A, SetItem(a(B)) SetItem(b(C))) => done() ... </k>
-endmodule
-"#;
-
 #[test]
 fn kprove_claim_condition_over_a_later_binding_is_stated_under_it() {
     for (source, module) in [
@@ -7353,29 +7261,6 @@ fn kprove_rule_condition_over_a_later_binding_is_stated_under_it() {
     assert!(!stdout.contains(r"\exists"), "{stdout}");
 }
 
-/// A condition over `10 /Int A`, written directly (`PLAIN`) or through the lambda a `#let`
-/// generates (`LET`).
-const LET_PARTIAL_CONDITION: &str = r#"
-module LETDIV-SYNTAX
-  imports INT-SYNTAX
-  syntax Op ::= half(Int) [symbol(half)]
-  syntax Prog ::= "halt" [symbol(halt)] | seq(Op, Prog) [symbol(seq)]
-endmodule
-
-module LETDIV
-  imports LETDIV-SYNTAX
-  imports INT
-  configuration <k> .K </k>
-  rule [half]: seq(half(A), P) => P requires $CONDITION
-endmodule
-
-module LETDIV-SPEC
-  imports LETDIV
-  claim [symbolic]: <k> seq(half(_X:Int), halt) => halt </k>
-  claim [ground]: <k> seq(half(0), halt) => halt </k>
-endmodule
-"#;
-
 /// `10 /Int A` is undefined at `A = 0`, where the ground claim is disproved, so the symbolic
 /// claim is false and must not be proven, whether the division is bound by `#let` or not.
 #[test]
@@ -7423,23 +7308,6 @@ fn kprove_keeps_the_definedness_of_a_let_bound_partial_condition() {
         fs::remove_dir_all(root).unwrap();
     }
 }
-
-const NEGATIVE_POWER: &str = r#"
-module NEGPOW
-  imports INT
-  imports BOOL
-  configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= gm(Int)
-  syntax KItem ::= "yes" | "no"
-  rule <k> gm(B) => yes </k> requires 3 ^%Int B 7 ==Int 0
-  rule <k> gm(_) => no </k> [owise]
-endmodule
-module NEGPOW-SPEC
-  imports NEGPOW
-  claim [negative]: <k> gm(B) => yes </k> requires B <Int 0
-  claim [minus-one]: <k> gm(B) => no </k> requires B ==Int -1
-endmodule
-"#;
 
 /// `3 ^%Int B 7` is undefined for every negative `B` (no integer is `3 ^Int B`), so `gm(B)` takes
 /// the `owise` rule there, and the claim that it reaches `yes` for every negative `B` is false:
@@ -8739,62 +8607,6 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
     }
     fs::remove_dir_all(root).unwrap();
 }
-
-/// Rules whose result is undefined on part of the instances they apply to: a false `ensures`
-/// that the step cannot decide (`apart`, `cover`, `low`), one that always has a witness
-/// (`fresh`), a refuted one beside a sibling with a disjoint `requires` (`pickpos`), and one
-/// before an unconditional sibling (`skipbot`). `cover` and `skip` declare the rule with the
-/// undefined instances first, so a one-path step tries it before the sibling that covers them;
-/// `low`'s other rule is `owise`, of lower priority, and so blocked where `lowbot` applies.
-const UNDEFINED_STEP: &str = r#"
-module UNDEF-SYNTAX
-  imports INT-SYNTAX
-  syntax Prog ::= "halt" [symbol(halt)]
-                | "done" [symbol(done)]
-                | "fresh" [symbol(fresh)]
-                | apart(Int, Int) [symbol(apart)]
-                | cover(Int, Int) [symbol(cover)]
-                | val(Int) [symbol(val)]
-                | pick(Int) [symbol(pick)]
-                | "skip" [symbol(skip)]
-                | low(Int, Int) [symbol(low)]
-endmodule
-
-module UNDEF
-  imports UNDEF-SYNTAX
-  imports BASIC-K
-  imports INT
-  configuration <k> $PGM:Prog </k>
-  rule [apart]:   <k> apart(A, B) => halt </k> ensures A =/=Int B
-  rule [cover]:   <k> cover(A, B) => halt </k> ensures A =/=Int B
-  rule [coverok]: <k> cover(A, B) => halt </k> requires A ==Int B
-  rule [fresh]:   <k> fresh => val(?X:Int) </k> ensures ?X >Int 0
-  rule [pickpos]: <k> pick(I) => halt </k> requires I >Int 0 ensures false
-  rule [pickneg]: <k> pick(I) => done </k> requires I <=Int 0
-  rule [skipbot]: <k> skip => halt </k> ensures false
-  rule [skipok]:  <k> skip => done </k>
-  rule [lowbot]:  <k> low(A, B) => halt </k> ensures A =/=Int B
-  rule [lowow]:   <k> low(_, _) => halt </k> [owise]
-endmodule
-
-module UNDEF-SPEC
-  imports UNDEF
-  claim [sym]:       <k> apart(_X, _Y) => halt </k>
-  claim [gnd]:       <k> apart(0, 0) => halt </k>
-  claim [sym-one]:   <k> apart(X, Y) => halt </k> requires X >=Int Y [one-path]
-  claim [defined]:   <k> apart(X, Y) => halt </k> requires X =/=Int Y
-  claim [cover]:     <k> cover(_X, _Y) => halt </k>
-  claim [fresh]:     <k> fresh => val(?Y:Int) </k> ensures ?Y >Int 0
-  claim [fresh-one]: <k> fresh => val(?Y:Int) </k> ensures ?Y >=Int 1 [one-path]
-  claim [pick]:      <k> pick(_I) => done </k>
-  claim [cover-one]: <k> cover(_X, _Y) => halt </k> [one-path]
-  claim [skip-one]:  <k> skip => done </k> [one-path]
-  claim [skip]:      <k> skip => done </k>
-  claim [pick-one]:  <k> pick(_I) => done </k> [one-path]
-  claim [low-one]:   <k> low(_X, _Y) => halt </k> [one-path]
-  claim [low]:       <k> low(_X, _Y) => halt </k>
-endmodule
-"#;
 
 /// A claim holds for every instance of its left-hand side, so a symbolic claim is not proven
 /// while one of its instances ends in an undefined step. `apart(X, Y)` has the undefined step
@@ -12073,67 +11885,6 @@ fn krun_executes_bn128_fixture_to_pinned_kore_results() {
     }
     fs::remove_dir_all(root).unwrap();
 }
-
-/// The BN128 section of `plugin/krypto.md` at blockchain-k-plugin `651a2db5`, the plugin the pinned
-/// KEVM uses, verbatim in a module of the same name: its point productions carry no `symbol`
-/// attribute, so their Kore labels are generated from the production.
-const PINNED_PLUGIN_BN128: &str = r#"
-module KRYPTO
-    imports BOOL-SYNTAX
-    imports INT-SYNTAX
-    imports LIST
-
-    syntax G1Point ::= "(" Int "," Int ")" [prefer]
-    syntax G2Point ::= "(" Int "x" Int "," Int "x" Int ")"
-    syntax G1Point ::= BN128Add(G1Point, G1Point) [function, hook(KRYPTO.bn128add)]
-                     | BN128Mul(G1Point, Int)     [function, hook(KRYPTO.bn128mul)]
-
-    syntax Bool ::= BN128AtePairing(List, List) [function, hook(KRYPTO.bn128ate)]
-
-    syntax Bool ::= isValidPoint(G1Point) [function, hook(KRYPTO.bn128valid)]
-                  | isValidPoint(G2Point) [function, symbol(isValidG2Point), hook(KRYPTO.bn128g2valid)]
-endmodule
-
-module MAIN
-  imports INT
-  imports BOOL
-  imports LIST
-  imports KRYPTO
-
-  syntax G1Point ::= alt(Int, Int, Int)
-  syntax Check ::= "valid" | "off-curve" | "other-constructor" | "g2-valid" | "add" | "mul"
-                 | "pairing"
-  syntax KItem ::= result(K)
-
-  rule <k> valid => result(isValidPoint((1, 2))) </k>
-  rule <k> off-curve => result(isValidPoint((1, 3))) </k>
-  rule <k> other-constructor => result(isValidPoint(alt(1, 2, 0))) </k>
-  rule <k> g2-valid => result(isValidPoint((
-      10857046999023057135944570762232829481370756359578518086990519993285655852781
-        x 11559732032986387107991004021392285783925812861821192530917403151452391805634,
-      8495653923123431417604973247489272438418190587263600148770280649306958101930
-        x 4082367875863433681332203403145435568316851327593401208105741076214120093531)))
-  </k>
-  rule <k> add => result(BN128Add((1, 2), (1, 2))) </k>
-  rule <k> mul => result(BN128Mul((1, 2), 2)) </k>
-  rule <k> pairing => result(BN128AtePairing(
-    ListItem((1, 2))
-      ListItem((1, 21888242871839275222246405745257275088696311157297823662689037894645226208581)),
-    ListItem((
-      10857046999023057135944570762232829481370756359578518086990519993285655852781
-        x 11559732032986387107991004021392285783925812861821192530917403151452391805634,
-      8495653923123431417604973247489272438418190587263600148770280649306958101930
-        x 4082367875863433681332203403145435568316851327593401208105741076214120093531))
-      ListItem((
-        10857046999023057135944570762232829481370756359578518086990519993285655852781
-          x 11559732032986387107991004021392285783925812861821192530917403151452391805634,
-        8495653923123431417604973247489272438418190587263600148770280649306958101930
-          x 4082367875863433681332203403145435568316851327593401208105741076214120093531))))
-  </k>
-
-  configuration <k> $PGM:Check </k>
-endmodule
-"#;
 
 #[test]
 fn krun_evaluates_bn128_hooks_on_the_pinned_plugin_point_productions() {

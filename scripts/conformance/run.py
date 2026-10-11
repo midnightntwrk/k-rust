@@ -27,7 +27,9 @@ import tomllib
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE))
 import reference_cache  # noqa: E402  (scripts/reference_cache.py)
+from verdicts import RANK as VERDICT_RANK, case_verdict, ranked_steps, step_verdict  # noqa: E402
 KR = str(HERE.parents[1])
 K_CHECKOUT = os.environ.get("K_CHECKOUT", f"{KR}/k")
 KBIN = os.path.dirname(os.environ["K_KOMPILE"]) if os.environ.get("K_KOMPILE") else f"{K_CHECKOUT}/result/bin"
@@ -1046,21 +1048,26 @@ def do_kompile(case, rec, expect_fail):
                 divergence="\n".join((verr or vout).splitlines()[:DIFF_LINES]),
             )
             return step_record(case, **step)
+        # The verifier reads a separate copy of the krust definition in its declaration
+        # vocabulary; the compared and executed definition is never changed. N38 (LLVM target
+        # only): a partial value production is emitted without `function`, so that an
+        # irreducible application stays a value, and the verifier requires `function` or
+        # `functional` of an equation head; the copy adds `function{}()` to exactly the
+        # `value-production` declarations. N47: an `anywhere` head is emitted without
+        # `injective`, an axiom its anywhere equation may falsify, and the verifier admits it in
+        # an equation argument only when injective; the copy adds `injective{}()` to it, and the
+        # compiler's critical-pair check decides those equations' consistency instead.
         verify_kore = rust_kore
         verify_note = ""
-        if args[args.index("--backend") + 1] == "llvm":
-            # N38 (docs/compatibility.md): the LLVM target emits a partial value production
-            # without `function`, so that an irreducible application stays a value, and the
-            # verifier requires `function` or `functional` of an equation head. Verify a copy
-            # with `function{}()` added to exactly the `value-production` declarations; the
-            # compared and executed definition is never changed.
-            verify_kore = f"{case.dir}/krust-kompiled/definition.verify.kore"
-            try:
-                count = llvm_verification_copy(rust_kore, verify_kore)
-                verify_note = f"N38 LLVM verification value-production declarations: {count}\n"
-            except (OSError, UnicodeError, ValueError) as error:
-                verify_kore = None
-                vrc, vout, verr, vsecs, vto = 1, "", f"N38: {error}", 0.0, False
+        try:
+            verify_note = verification_copy(
+                rust_kore, f"{case.dir}/krust-kompiled/definition.verify.kore",
+                llvm=args[args.index("--backend") + 1] == "llvm")
+            if verify_note:
+                verify_kore = f"{case.dir}/krust-kompiled/definition.verify.kore"
+        except (OSError, UnicodeError, ValueError) as error:
+            verify_kore = None
+            vrc, vout, verr, vsecs, vto = 1, "", f"verification copy: {error}", 0.0, False
         if verify_kore is not None:
             vrc, vout, verr, vsecs, vto = reference_sh(
                 case, [KORE_PARSER, verify_kore], case.remaining(), "kore-parser",
@@ -1069,7 +1076,8 @@ def do_kompile(case, rec, expect_fail):
         case.logfile("kompile.krust-verify.log", verify_note + vout + "\n--- stderr ---\n" + verr)
         step["krust_verify_rc"] = vrc
         step["krust_verify_seconds"] = round(vsecs, 1)
-        step["verification"] = "kore-parser --verify" + (" (N38 copy)" if verify_note else "")
+        copy_ids = [line.split()[0] for line in verify_note.splitlines()]
+        step["verification"] = "kore-parser --verify" + (f" ({', '.join(copy_ids)} copy)" if copy_ids else "")
         if vto or vrc != 0:
             # The rejection is its own step, ranked after every other step of the case, and the
             # definition.kore comparison still runs: a step exclusion for this rejection then
@@ -2463,30 +2471,36 @@ def run_case(rel, kind):
     return finish(case)
 
 
-VERDICT_RANK = {
-    "reference-error": -1,
-    "krust-error": 0,
-    "mismatch": 1,
-    "krust-unsupported": 2,
-    "skipped-with-reason": 2,
-    "match": 3,
-}
 STAGE_RANK = ["outer-parse", "inner-parse", "kompile", "bison-parser", "kast", "krun", "search", "kprove"]
 
 
-def llvm_verification_copy(source, destination):
-    """Write the N38 verifier copy of an LLVM-target definition (scripts/reference-llvm-verification.py)
-    and return the number of declarations it marked `function`."""
+def verification_copy(source, destination, llvm):
+    """Write the verifier copy of a krust definition (scripts/reference-llvm-verification.py) when
+    a normalisation changes it, and return one note line per normalisation applied ("" when the
+    definition is verified as written).
+
+    N38 applies to an LLVM-target definition whatever it changes, so its count is always
+    reported there; N47 applies to every definition and is reported when it adds an attribute.
+    """
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "reference_llvm_verification", HERE.parent / "reference-llvm-verification.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     with open(source, "rb") as handle:
-        normalized, count = module.normalize_llvm_value_productions(handle.read().decode())
+        text = handle.read().decode()
+    notes = []
+    if llvm:
+        text, count = module.normalize_llvm_value_productions(text)
+        notes.append(f"N38 LLVM verification value-production declarations: {count}")
+    text, count = module.normalize_anywhere_injective(text)
+    if count:
+        notes.append(f"N47 verification anywhere declarations made injective: {count}")
+    if not notes:
+        return ""
     with open(destination, "wb") as handle:
-        handle.write(normalized.encode())
-    return count
+        handle.write(text.encode())
+    return "\n".join(notes) + "\n"
 
 
 def kore_verify_error(text):
@@ -2504,22 +2518,18 @@ def finish(case, verdict=None, reason=None):
     case.steps.extend(case.deferred_steps)
     case.deferred_steps = []
     if verdict is None:
-        ranked_steps = case.steps
-        if BISON_PARSER_ONLY:
-            ranked_steps = [step for step in case.steps if step.get("step") == "bison-parser"]
-        vs = [s.get("verdict", "skipped-with-reason") for s in ranked_steps]
-        if not vs: verdict, reason = "skipped-with-reason", "no driven steps"
+        ranked = ranked_steps(case.steps, BISON_PARSER_ONLY)
+        verdict = case_verdict(ranked)
+        if verdict is None: verdict, reason = "skipped-with-reason", "no driven steps"
         else:
-            verdict = min(vs, key=VERDICT_RANK.__getitem__)
-            first = next(s for s in ranked_steps if s.get("verdict") == verdict)
+            first = next(s for s in ranked if step_verdict(s) == verdict)
             reason = first.get("reason") or (f"{first.get('step')} {first.get('test', '')}".strip() + f": {verdict}")
     stages = [s.get("stage") for s in case.steps if s.get("stage")]
     stage = max(stages, key=STAGE_RANK.index) if stages else "none"
     case.verdict, case.reason, case.stage = verdict, reason, stage
     case.fallback_verdict = case.fallback_stage = None
     if any("fallback_sort" in s for s in case.steps):
-        vs = [s.get("fallback_verdict", s.get("verdict", "skipped-with-reason")) for s in case.steps]
-        case.fallback_verdict = min(vs, key=VERDICT_RANK.__getitem__)
+        case.fallback_verdict = case_verdict([{"verdict": s.get("fallback_verdict", step_verdict(s))} for s in case.steps])
         st = [s.get("fallback_stage", s.get("stage")) for s in case.steps if s.get("fallback_stage", s.get("stage"))]
         case.fallback_stage = max(st, key=STAGE_RANK.index) if st else stage
     return case
@@ -2533,6 +2543,8 @@ def write_results(cases, path=RESULTS):
         lines += ["[[case]]", f"name = {toml_str(c.name)}", f"kind = {toml_str(c.kind)}", f"backend = {toml_str(c.backend)}",
                   f"verdict = {toml_str(c.verdict)}", f"stage = {toml_str(c.stage)}", f"reason = {toml_str(c.reason or '')}",
                   f"seconds = {getattr(c, 'seconds', 0)}", f"steps = {len(c.steps)}"]
+        # The ratchet re-ranks a case from its steps and must select the same ones (verdicts.py).
+        if BISON_PARSER_ONLY: lines.append("bison_parsers_only = true")
         if getattr(c, "fallback_verdict", None):
             lines.append(f"fallback_verdict = {toml_str(c.fallback_verdict)}  # after re-parsing K/KItem programs with the sort the reference kast assigns")
             lines.append(f"fallback_stage = {toml_str(c.fallback_stage)}")

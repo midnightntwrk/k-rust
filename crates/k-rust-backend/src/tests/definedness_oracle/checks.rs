@@ -1,9 +1,10 @@
-//! The checks of one definition against the oracle's normal-form model: V4 (unique normal forms
-//! on accepted definitions), V5 (every claim agrees with `M_NF` there), and V6 (on definitions
-//! with non-joined pairs: (a) the taint set recomputed by the oracle, (c) no claim on a tainted
-//! term, and (b) the claims on untainted terms whose evaluation applies only untainted equations
-//! agree with their unique normal form), and V6 (d) on every definition with a model: no claim on
-//! a term, or a generalization of one, that every model makes undefined (`forced.rs`).
+//! The checks of one definition that read the backend's verdicts against each other, and the
+//! oracle's exploration of the ground terms around the reviewers' probes: V9 (the load's scope
+//! and the full check admit the same claims and warn about the same pairs), the memo (the full
+//! check with and without its memo of condition simplifications reaches the same verdict), and
+//! each probe's `\ceil` obligation and token, with the preconditions P0 and P2 measured by the
+//! oracle's evaluator. The value claims themselves are judged against the axioms by
+//! [`super::axioms`].
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -16,24 +17,18 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 use super::{
     Rng,
     engine::{BOTTOM, Id, Node, Universe},
-    language::{Definition, Kind, Pat, equation_index, pattern_variables},
+    language::{Definition, Kind, Pat, pattern_variables},
 };
 use crate::{
     definition::BackendDefinition,
     rule::Predicate,
-    simplify::{SimplificationOptions, simplify, simplify_predicate_with_solver},
+    simplify::{SimplificationOptions, simplify_predicate_with_solver},
     smt::NoSolver,
-    term::{Sort, Term, TermKind, head::certified_ground_normal_form},
+    term::{Sort, Term, TermKind},
 };
 
-/// Queries per definition, values per sort, and instances per generalization.
+/// Ground terms explored around a probe definition.
 const QUERIES: usize = 40;
-
-/// Instances of each left-hand side among the roots of the V6 (d) derivation.
-const FORCED_INSTANCES: usize = 8;
-
-/// The mark of a V6 (d) failure, which the mutation tests of review 1's classes look for.
-pub(super) const FORCED: &str = "V6 (d)";
 
 /// The tag of V9's failures: the load's scope and the full check differ on a claim or a warning.
 pub(super) const SCOPES: &str = "V9";
@@ -57,6 +52,7 @@ pub(super) fn memo_count_difference(
     })
 }
 
+/// Values per sort, and instances of each left-hand side among the explored terms.
 const VALUES_PER_SORT: usize = 8;
 const VALUATIONS_PER_EQUATION: usize = 4;
 
@@ -112,23 +108,6 @@ pub(super) struct Tally {
     pub(super) queries: usize,
     /// Queries whose evaluation did not end within the bounds (outside P0).
     pub(super) nonterminating: usize,
-    pub(super) tokens: usize,
-    pub(super) certificates: usize,
-    pub(super) apartness: usize,
-    pub(super) ceilings: usize,
-    pub(super) generalizations: usize,
-    /// Claims withheld on tainted terms (property A).
-    pub(super) withheld: usize,
-    /// Marker claims (an irreducible value-production application is defined) checked.
-    pub(super) markers: usize,
-    /// Queries whose evaluation by the backend ends in a certified value other than their
-    /// normal form under `->E`, and a sample of them.
-    pub(super) divergent: usize,
-    pub(super) divergences: Vec<String>,
-    /// V6 (d): queries every model of a definition with a model makes undefined, and
-    /// definitions shown to have no model (where nothing is checked).
-    pub(super) forced_undefined: usize,
-    pub(super) without_model: usize,
     pub(super) classes: BTreeMap<Class, usize>,
     /// The reasons of the non-joined pairs, counted.
     pub(super) reasons: BTreeMap<String, usize>,
@@ -150,23 +129,9 @@ impl Tally {
         self.outside_totality += other.outside_totality;
         self.queries += other.queries;
         self.nonterminating += other.nonterminating;
-        self.tokens += other.tokens;
-        self.certificates += other.certificates;
-        self.apartness += other.apartness;
-        self.ceilings += other.ceilings;
-        self.generalizations += other.generalizations;
-        self.withheld += other.withheld;
-        self.markers += other.markers;
-        self.divergent += other.divergent;
-        self.forced_undefined += other.forced_undefined;
-        self.without_model += other.without_model;
         self.memo_conditions += other.memo_conditions;
         self.memo_hits += other.memo_hits;
         self.with_skipped_pair += other.with_skipped_pair;
-        if self.divergences.len() < 5 {
-            self.divergences.extend(other.divergences);
-            self.divergences.truncate(5);
-        }
         for (class, count) in other.classes {
             *self.classes.entry(class).or_default() += count;
         }
@@ -178,7 +143,7 @@ impl Tally {
 
     pub(super) fn summary(&self, name: &str) -> String {
         format!(
-            "{name}: {} definitions ({} rejected, {} accepted, {} partially tainted, {} outside P2), {} queries ({} outside P0), positive claims checked: {} tokens, {} certificates, {} marker claims, {} apartness, {} \\ceil discharges, {} generalizations; {} claims withheld on tainted terms; {} evaluations diverging from ->E; {} queries undefined in every model, {} definitions without a model; classes {:?}; {} failures",
+            "{name}: {} definitions ({} rejected, {} accepted, {} partially tainted, {} outside P2), {} probe queries explored ({} outside P0); classes {:?}; non-joined pairs by reason {:?}; {} of the full check's {} conditions answered from the memo; {} definitions with a pair the load's scope skipped; {} failures",
             self.definitions,
             self.rejected,
             self.accepted,
@@ -186,21 +151,12 @@ impl Tally {
             self.outside_totality,
             self.queries,
             self.nonterminating,
-            self.tokens,
-            self.certificates,
-            self.markers,
-            self.apartness,
-            self.ceilings,
-            self.generalizations,
-            self.withheld,
-            self.divergent,
-            self.forced_undefined,
-            self.without_model,
             self.classes,
+            self.reasons,
+            self.memo_hits,
+            self.memo_conditions,
+            self.with_skipped_pair,
             self.failures.len()
-        ) + &format!(
-            "; non-joined pairs by reason {:?}; {} of the full check's {} conditions answered from the memo; {} definitions with a pair the load's scope skipped",
-            self.reasons, self.memo_hits, self.memo_conditions, self.with_skipped_pair
         )
     }
 }
@@ -212,8 +168,6 @@ pub(super) struct Verdict {
     pub(super) accepted: bool,
     /// The tainted symbols, as the backend computed them.
     pub(super) tainted: BTreeSet<String>,
-    /// For each probe query: (whether its `\ceil` obligation was kept, whether it got a token).
-    pub(super) probes: Vec<(bool, bool)>,
 }
 
 /// The parsed and internalized backend definition, or why there is none.
@@ -579,144 +533,6 @@ pub(super) fn without_aliases(pattern: &Pat) -> Pat {
     }
 }
 
-/// The oracle's own taint closure (the design's 3.8) from the backend's non-joined pairs:
-/// equations are identified by their labels.
-pub(super) fn oracle_taint(
-    definition: &Definition,
-    seeds: impl IntoIterator<Item = usize>,
-) -> (BTreeSet<usize>, BTreeSet<String>) {
-    let taintable = |name: &str| {
-        definition
-            .symbols
-            .iter()
-            .find(|symbol| symbol.name == name)
-            .is_some_and(|symbol| !matches!(symbol.kind, Kind::Constructor | Kind::Hook))
-    };
-    let mut equations = BTreeSet::new();
-    let mut symbols = BTreeSet::new();
-    let mut queue = seeds.into_iter().collect::<Vec<_>>();
-    loop {
-        while let Some(index) = queue.pop() {
-            if !equations.insert(index) {
-                continue;
-            }
-            let equation = &definition.equations[index];
-            let mut mentioned = BTreeSet::new();
-            for pattern in [Some(&equation.lhs), Some(&equation.rhs)]
-                .into_iter()
-                .chain([equation.requires.as_ref(), equation.ensures.as_ref()])
-                .flatten()
-            {
-                symbols_of(pattern, &mut mentioned);
-            }
-            symbols.extend(mentioned.into_iter().filter(|name| taintable(name)));
-            let mut variables = BTreeMap::new();
-            pattern_variables(&equation.lhs, &mut variables);
-            for sort in variables.values() {
-                symbols.extend(observable_heads(definition, sort));
-            }
-        }
-        for (index, equation) in definition.equations.iter().enumerate() {
-            if equations.contains(&index) {
-                continue;
-            }
-            let mut mentioned = BTreeSet::new();
-            symbols_of(&equation.lhs, &mut mentioned);
-            if mentioned.iter().any(|name| symbols.contains(name)) {
-                queue.push(index);
-            }
-        }
-        if queue.is_empty() {
-            return (equations, symbols);
-        }
-    }
-}
-
-fn symbols_of(pattern: &Pat, into: &mut BTreeSet<String>) {
-    match pattern {
-        Pat::App(name, arguments) => {
-            into.insert(name.clone());
-            for argument in arguments {
-                symbols_of(argument, into);
-            }
-        }
-        Pat::Inj(_, _, inner) | Pat::As(inner, _, _) => symbols_of(inner, into),
-        Pat::List(prefix, _, suffix) => {
-            for element in prefix.iter().chain(suffix) {
-                symbols_of(element, into);
-            }
-        }
-        Pat::Var(..) | Pat::Int(_) => {}
-    }
-}
-
-/// The equation heads whose applications can occur inside an element of `sort` in the model of
-/// the design's 3.8, as corrected by its "Revision after review 1" (R1.2): the sorts of the
-/// subterms are closed under subsorts (an injection's operand), the element sort of lists, and
-/// the argument sorts of the symbols that model interprets formally on new arguments:
-/// constructors, equation heads, and total functions and `functional` symbols whose result sort
-/// has no element in some model (otherwise the model reads such an application by a fixed old
-/// element of its sort, and the oracle's total symbols are never injective). A partial
-/// function's stuck application is `\bottom`, and a hook's result a literal.
-pub(super) fn observable_heads(definition: &Definition, sort: &str) -> BTreeSet<String> {
-    let order = definition.sort_order();
-    let surely = surely_inhabited(definition);
-    let mut reached = BTreeSet::from([sort.to_owned()]);
-    let mut stack = vec![sort.to_owned()];
-    while let Some(sort) = stack.pop() {
-        let mut next = order.get(&sort).cloned().unwrap_or_default();
-        if sort == "List" {
-            next.push("Int".into());
-        }
-        for symbol in &definition.symbols {
-            let formal = match symbol.kind {
-                Kind::Constructor | Kind::Head { .. } => true,
-                Kind::Function { total: true } | Kind::Functional => {
-                    !surely.contains(&symbol.result)
-                }
-                Kind::Function { total: false } | Kind::Hook => false,
-            };
-            if formal && symbol.result == sort {
-                next.extend(symbol.arguments.iter().cloned());
-            }
-        }
-        for sort in next {
-            if reached.insert(sort.clone()) {
-                stack.push(sort);
-            }
-        }
-    }
-    definition
-        .symbols
-        .iter()
-        .filter(|symbol| symbol.is_head() && reached.contains(&symbol.result))
-        .map(|symbol| symbol.name.clone())
-        .collect()
-}
-
-/// The sorts with an element in every model: `Int`, `Bool` and `List`, the result sort of a
-/// symbol defined on defined arguments (a constructor, or one declared total) whose argument
-/// sorts are in the set, and the supersorts of a sort in the set.
-pub(super) fn surely_inhabited(definition: &Definition) -> BTreeSet<String> {
-    let mut set = BTreeSet::from(["Int".to_owned(), "Bool".to_owned(), "List".to_owned()]);
-    loop {
-        let before = set.len();
-        for symbol in &definition.symbols {
-            if symbol.total() && symbol.arguments.iter().all(|sort| set.contains(sort)) {
-                set.insert(symbol.result.clone());
-            }
-        }
-        for (sub, sup) in &definition.subsorts {
-            if set.contains(sub) {
-                set.insert(sup.clone());
-            }
-        }
-        if set.len() == before {
-            return set;
-        }
-    }
-}
-
 /// The oracle term of a ground backend term, when it is one the oracle's language writes.
 pub(super) fn oracle_term(universe: &mut Universe<'_>, term: &Term) -> Option<Id> {
     match term.kind() {
@@ -819,53 +635,44 @@ pub(super) fn deadline() -> crate::stop::DeadlineGuard {
     )
 }
 
-/// The claims the backend makes about one ground term or generalization.
+/// The claims the backend makes about one ground term.
 struct Claims {
     token: bool,
-    /// `\ceil` simplified to `\top`; `None` when it was not asked.
-    ceil_top: Option<bool>,
+    /// `\ceil` simplified to `\top`.
+    ceil_top: bool,
 }
 
-fn claims(
-    backend: &BackendDefinition,
-    kore: &str,
-    sort: &str,
-    ask_ceil: bool,
-) -> Result<Claims, String> {
+fn claims(backend: &BackendDefinition, kore: &str, sort: &str) -> Result<Claims, String> {
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         let _deadline = deadline();
         let term = backend
             .internalize_term(&parse_pattern(kore).expect("the term parses"), &[])
             .map_err(|error| format!("{kore} does not internalize: {error:?}"))?;
         let token = backend.instance_normal(&term).is_some();
-        let ceil_top = if ask_ceil {
-            let ceil = format!(r"\ceil{{Sort{sort}{{}}, Sort{sort}{{}}}}({kore})");
-            let syntax = parse_pattern(&ceil).expect("the query parses");
-            let (predicate, _) = backend
-                .admit_unverified(&syntax, &[])
-                .internalize_predicate()
-                .expect("the query internalizes");
-            let simplified = simplify_predicate_with_solver(
-                backend,
-                &predicate,
-                &[],
-                SimplificationOptions {
-                    max_iterations: 16,
-                    ..SimplificationOptions::default()
-                },
-                &NoSolver,
-            );
-            Some(match simplified {
-                Ok(Ok(Predicate::True)) => true,
-                Ok(_) => false,
-                // A stop (the deadline, the stack guard) claims nothing.
-                Err(stop) => {
-                    stop.into_cause();
-                    false
-                }
-            })
-        } else {
-            None
+        let ceil = format!(r"\ceil{{Sort{sort}{{}}, Sort{sort}{{}}}}({kore})");
+        let syntax = parse_pattern(&ceil).expect("the query parses");
+        let (predicate, _) = backend
+            .admit_unverified(&syntax, &[])
+            .internalize_predicate()
+            .expect("the query internalizes");
+        let simplified = simplify_predicate_with_solver(
+            backend,
+            &predicate,
+            &[],
+            SimplificationOptions {
+                max_iterations: 16,
+                ..SimplificationOptions::default()
+            },
+            &NoSolver,
+        );
+        let ceil_top = match simplified {
+            Ok(Ok(Predicate::True)) => true,
+            Ok(_) => false,
+            // A stop (the deadline, the stack guard) claims nothing.
+            Err(stop) => {
+                stop.into_cause();
+                false
+            }
         };
         Ok(Claims { token, ceil_top })
     }));
@@ -885,102 +692,11 @@ pub(super) fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_default()
 }
 
-/// The simplifier's result for a ground term, if it gives one.
-fn simplified(backend: &BackendDefinition, kore: &str) -> Option<Term> {
-    catch_unwind(AssertUnwindSafe(|| {
-        let _deadline = deadline();
-        let term = backend
-            .internalize_term(&parse_pattern(kore).expect("the term parses"), &[])
-            .ok()?;
-        let result = match simplify(
-            backend,
-            &term,
-            SimplificationOptions {
-                max_iterations: 64,
-                ..SimplificationOptions::default()
-            },
-        ) {
-            Ok(result) => result.ok()?,
-            Err(stop) => {
-                stop.into_cause();
-                return None;
-            }
-        };
-        // A result with conditions (an `ensures`, a definedness obligation) is not the value.
-        (result.constraints().is_empty() && result.undefined_term.is_none()).then_some(result.term)
-    }))
-    .ok()
-    .flatten()
-}
-
-/// The subterms of `term` that carry the certificate and are equation-head applications.
-fn certified_heads(backend: &BackendDefinition, term: &Term, into: &mut Vec<Term>) {
-    if let TermKind::Application { symbol, .. } = term.kind()
-        && backend.symbols().get(&symbol.name).is_some_and(|symbol| {
-            symbol.attributes.head_role() == crate::term::HeadRole::EquationHead
-        })
-        && certified_ground_normal_form(term)
-    {
-        into.push(term.clone());
-    }
-    for child in subterms(term) {
-        certified_heads(backend, &child, into);
-    }
-}
-
-/// The immediate subterms of a backend term.
-fn subterms(term: &Term) -> Vec<Term> {
-    match term.kind() {
-        TermKind::Application { arguments, .. } => arguments.clone(),
-        TermKind::Injection { term, .. } => vec![term.clone()],
-        TermKind::And(left, right) => vec![left.clone(), right.clone()],
-        TermKind::List { heads, rest, .. } => {
-            let mut children = heads.clone();
-            if let Some((middle, tail)) = rest {
-                children.push(middle.clone());
-                children.extend(tail.iter().cloned());
-            }
-            children
-        }
-        TermKind::Map { entries, rest, .. } => entries
-            .iter()
-            .flat_map(|(key, value)| [key.clone(), value.clone()])
-            .chain(rest.iter().cloned())
-            .collect(),
-        TermKind::Set { elements, rest, .. } => elements
-            .iter()
-            .cloned()
-            .chain(rest.iter().cloned())
-            .collect(),
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => Vec::new(),
-    }
-}
-
-/// The standing of a query with respect to the taint set.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Standing {
-    /// Accepted definition, or an untainted term whose evaluation applies only untainted
-    /// equations: its claims must agree with its normal form.
-    Model,
-    /// The term holds an application of a tainted symbol: no claim.
-    Tainted,
-    /// Untainted, but its evaluation applies a tainted equation: not checked.
-    Unchecked,
-}
-
-/// Runs every check on `definition`, seeded with `seeds` and asked about `probes` (whose
-/// verdicts are returned).
-#[allow(
-    clippy::too_many_lines,
-    reason = "one pass over the claims of one definition"
-)]
-pub(super) fn check_definition(
-    label: &str,
-    definition: &Definition,
-    seeds: &[Pat],
-    probes: &[Pat],
-    rng: &mut Rng,
-) -> (Tally, Verdict) {
+/// Checks `definition` against the backend's own verdicts: V9 (the load's scope and the full
+/// check admit the same claims and warn about the same pairs) and the memo (the full check with
+/// and without its memo of condition simplifications reaches the same verdict and the same
+/// counts but the memo's own work). The verdict's acceptance and taint set are the full check's.
+pub(super) fn check_definition(label: &str, definition: &Definition) -> (Tally, Verdict) {
     let mut tally = Tally {
         definitions: 1,
         ..Tally::default()
@@ -989,7 +705,6 @@ pub(super) fn check_definition(
         tally.classes.insert(class, 1);
     }
     let mut verdict = Verdict::default();
-    let verbose = std::env::var_os("KRUST_DEFINEDNESS_ORACLE_VERBOSE").is_some();
     if std::env::var_os("KRUST_DEFINEDNESS_ORACLE_PROGRESS").is_some() {
         eprintln!("{label}");
     }
@@ -1008,9 +723,7 @@ pub(super) fn check_definition(
         }
     };
     // V9: the load's verdict (`CheckScope::Gate`) and the full check's admit the same claims and
-    // warn about the same pairs. The oracle's own expectations (acceptance, V4's one normal form,
-    // the tainted set of V6) are statements about the full check, so they are read from its
-    // verdict; the claims are read from the loaded definition below.
+    // warn about the same pairs.
     let full = backend.value_claims_in_scope(crate::confluence::CheckScope::All);
     tally.with_skipped_pair += usize::from(backend.value_claims().counts().skipped > 0);
     for difference in backend.value_claims().claim_differences(&full, &backend) {
@@ -1036,12 +749,10 @@ pub(super) fn check_definition(
     }
     tally.memo_hits += full.counts().condition_memo_hits;
     tally.memo_conditions += full.counts().simplifier_calls;
-    let value_claims = &full;
     let has_head = definition.symbols.iter().any(|symbol| symbol.is_head());
     // Without an equation head the check stops after the precondition rows: it accepts nothing.
-    verdict.accepted =
-        has_head && value_claims.unjoined().is_empty() && value_claims.violations().is_empty();
-    verdict.tainted = value_claims
+    verdict.accepted = has_head && full.unjoined().is_empty() && full.violations().is_empty();
+    verdict.tainted = full
         .tainted_symbols()
         .iter()
         .map(|name| name.to_string())
@@ -1055,47 +766,36 @@ pub(super) fn check_definition(
         .collect::<BTreeSet<_>>();
     let tainted_heads = heads.intersection(&verdict.tainted).count();
     tally.partially_tainted = usize::from(tainted_heads > 0 && tainted_heads < heads.len());
-
-    for pair in value_claims.unjoined() {
+    for pair in full.unjoined() {
         let reason = match &pair.reason {
             crate::confluence::UnjoinedReason::Unresolved(shape) => format!("unresolved {shape}"),
             reason => format!("{reason:?}"),
         };
         *tally.reasons.entry(reason).or_default() += 1;
     }
-    // V6 (a): the oracle's closure from the reported pairs.
-    let mut seeds_of_taint = BTreeSet::new();
-    for pair in value_claims.unjoined() {
-        for rule in [&pair.first, &pair.second] {
-            match equation_index(rule.attributes.label.as_deref()) {
-                Some(index) => {
-                    seeds_of_taint.insert(index);
-                }
-                None => tally.failures.push(format!(
-                    "{label}: a reported pair names an equation without the oracle's label\n{}",
-                    describe()
-                )),
-            }
-        }
-    }
-    if !has_head {
-        // Without an equation head the check runs no closure: it reports the equations the
-        // evaluator never applies, which withdraw no claim there, and taints nothing.
-        seeds_of_taint.clear();
-    }
-    let (tainted_equations, oracle_tainted) = oracle_taint(definition, seeds_of_taint);
-    if value_claims.violations().is_empty() && oracle_tainted != verdict.tainted {
-        tally.failures.push(format!(
-            "{label}: the backend taints {:?}, the oracle's closure of the same pairs {:?}\n{}",
-            verdict.tainted,
-            oracle_tainted,
-            describe()
-        ));
-    }
-    let tainted_mask = tainted_equations
-        .iter()
-        .fold(0u128, |mask, index| mask | (1u128 << index));
+    (tally, verdict)
+}
 
+/// Asks the loaded `definition` about the probe terms `probes`: for each whose evaluation under
+/// `->E` ends, in order, whether it keeps its `\ceil` obligation and whether it gets a token. A
+/// probe's expectation is stated inside the preconditions P0 and P2, or about the violation of
+/// one, so the oracle's evaluator also explores the ground terms around the probes and the
+/// instances of the equations (seeded with `seeds`), and counts the queries whose evaluation
+/// does not end (outside P0) and whether a total symbol is reached undefined on defined
+/// arguments (outside P2). A definition the backend rejects is asked nothing
+/// ([`check_definition`] reports it).
+pub(super) fn ask_probes(
+    label: &str,
+    definition: &Definition,
+    seeds: &[Pat],
+    probes: &[Pat],
+    rng: &mut Rng,
+) -> (Tally, Vec<(bool, bool)>) {
+    let mut tally = Tally::default();
+    let Ok(backend) = backend(definition) else {
+        return (tally, Vec::new());
+    };
+    let verbose = std::env::var_os("KRUST_DEFINEDNESS_ORACLE_VERBOSE").is_some();
     let mut universe = Universe::new(definition);
     let values = values(&mut universe, rng);
     let mut asked = queries(&mut universe, &values, seeds, rng);
@@ -1108,8 +808,6 @@ pub(super) fn check_definition(
             asked.insert(0, *id);
         }
     }
-    // P2: a definition that reaches a total symbol with no value on defined arguments is
-    // outside the contract.
     for id in asked.clone() {
         let mut subterms = vec![id];
         while let Some(term) = subterms.pop() {
@@ -1119,125 +817,14 @@ pub(super) fn check_definition(
             subterms.extend(universe.children(term));
         }
     }
-    // V6 (d): what every model makes undefined, from the axioms alone.
-    // Its roots are the queries, the seeds, and instances of every left-hand side by explored
-    // values, so that an equation instance showing the definition has no model is seen even when
-    // no query holds it.
-    let mut forced_roots = asked.clone();
-    for seed in seeds {
-        forced_roots.push(universe.ground(seed));
-    }
-    for equation in &definition.equations {
-        let mut variables = BTreeMap::new();
-        pattern_variables(&equation.lhs, &mut variables);
-        let candidates = variables
-            .values()
-            .map(|sort| {
-                let sort = universe.sort_id(sort);
-                candidates_of(&mut universe, &values, sort)
-            })
-            .collect::<Vec<_>>();
-        if candidates.iter().any(Vec::is_empty) {
-            continue;
-        }
-        for offset in 0..FORCED_INSTANCES {
-            let valuation = variables
-                .keys()
-                .zip(&candidates)
-                .enumerate()
-                .map(|(index, (name, candidates))| {
-                    (
-                        name.clone(),
-                        candidates[(offset + index) % candidates.len()],
-                    )
-                })
-                .collect::<HashMap<_, _>>();
-            forced_roots.push(instance_of(&mut universe, &equation.lhs, &valuation));
-        }
-    }
-    // The same P2 test on these roots: an instance there can reach a total symbol with no value
-    // on normal forms that no query holds.
-    for id in forced_roots.clone() {
-        let mut subterms = vec![id];
-        while let Some(term) = subterms.pop() {
-            if universe.violates_totality(term) {
-                tally.outside_totality = 1;
-            }
-            subterms.extend(universe.children(term));
-        }
-    }
-    let forced = super::forced::derive(&mut universe, &forced_roots);
-    if forced.inconsistent.is_some() {
-        tally.without_model = 1;
-    }
-    let forced_check = forced.inconsistent.is_none();
-    // The contract's claims are those on terms the backend's own verdict leaves untainted, whose
-    // evaluation applies no equation rooted at a symbol it taints: on a non-joined pair the
-    // evaluator may take either side, so a `\ceil` discharged through such an equation is an
-    // evaluation, not a value claim. Read from the backend's taint set, so that a closure rule
-    // that misses a class does not hide its claims here.
-    let backend_tainted = verdict
-        .tainted
-        .iter()
-        .map(|name| universe.symbol_id(name))
-        .collect::<HashSet<_>>();
-    let tainted_roots = definition
-        .equations
-        .iter()
-        .enumerate()
-        .filter(|(_, equation)| verdict.tainted.contains(equation.root()))
-        .fold(0u128, |mask, (index, _)| mask | (1u128 << index));
-    // The evaluator's documented limit (`docs/compatibility.md`, "Anywhere rules"): an equation
-    // whose left-hand side holds a declared function's application below its root is applied
-    // before that application is evaluated, so a `\ceil` discharged through it rests on an
-    // evaluation `->E` does not take, not on a value claim. Terms holding the roots of such
-    // equations are not read for `\ceil` or marker claims by V6 (d).
-    let below_root_roots = below_root_roots(definition, &universe);
-    let claimed_untainted = |universe: &mut Universe<'_>, id: Id| {
-        let mut symbols = HashSet::new();
-        universe.symbols_in(id, &mut symbols);
-        symbols.is_disjoint(&backend_tainted) && universe.normalize(id).applied & tainted_roots == 0
-    };
-    let tainted_symbols = oracle_tainted
-        .iter()
-        .map(|name| universe.symbol_id(name))
-        .collect::<HashSet<_>>();
-    let accepted = verdict.accepted;
-    let standing = |universe: &mut Universe<'_>, id: Id| -> Standing {
-        let mut symbols = HashSet::new();
-        universe.symbols_in(id, &mut symbols);
-        if symbols
-            .iter()
-            .any(|symbol| tainted_symbols.contains(symbol))
-        {
-            return Standing::Tainted;
-        }
-        let normal = universe.normalize(id);
-        if accepted || normal.applied & tainted_mask == 0 {
-            Standing::Model
-        } else {
-            Standing::Unchecked
-        }
-    };
-    let mut results = Vec::new();
-    // The claims' failures, from here on, are dropped for a definition found outside P2 by the
-    // end: its `total` declarations are false, and the contract makes no promise there.
-    let claim_failures_from = tally.failures.len();
-    for id in asked.clone() {
+    let mut answers = HashMap::new();
+    for id in asked {
         tally.queries += 1;
         let normal = universe.normalize(id);
-        if !normal.complete {
-            tally.nonterminating += 1;
-            continue;
-        }
-        if tally.outside_totality > 0 && !probe_ids.contains(&id) {
-            continue;
-        }
-        let place = standing(&mut universe, id);
-        let shown = universe.show(id);
         if verbose {
             eprintln!(
-                "{label}: {shown} -> {:?} ({place:?})",
+                "{label}: {} -> {:?}",
+                universe.show(id),
                 normal
                     .forms
                     .iter()
@@ -1245,495 +832,29 @@ pub(super) fn check_definition(
                     .collect::<Vec<_>>()
             );
         }
-        // V4, and the untainted fragment of V6 (b): one normal form.
-        if place == Standing::Model && normal.forms.len() > 1 && !has_head {
-            // No claim reads the equations of a definition without heads; the claims on a term
-            // with two normal forms are not checked against either.
+        if !normal.complete {
+            tally.nonterminating += 1;
             continue;
         }
-        if place == Standing::Model && normal.forms.len() > 1 && tally.outside_totality == 0 {
-            tally.failures.push(format!(
-                "{label}: {shown} has the normal forms {:?}{}\n{}",
-                normal
-                    .forms
-                    .iter()
-                    .map(|form| universe.show(*form))
-                    .collect::<Vec<_>>(),
-                if verdict.accepted {
-                    " in an accepted definition"
-                } else {
-                    " in the untainted fragment"
-                },
-                describe()
-            ));
+        if !probe_ids.contains(&id) {
             continue;
         }
         let sort = universe.sort_name(universe.sort_of(id)).to_owned();
-        let kore = universe.kore(id, None);
-        // The backend's evaluation of the query. Where it ends in a certified value other than
-        // the query's normal form under `->E`, the evaluator took a step `->E` does not (a
-        // function equation whose left-hand side holds a function application below its root
-        // applies before that application is evaluated): a divergence of evaluation, not of a
-        // value claim, counted and reported, and the `\ceil` discharge that rests on it is not
-        // read as a claim.
-        let evaluation = simplified(&backend, &kore);
-        let mut divergent = false;
-        if let Some(result) = &evaluation
-            && place == Standing::Model
-            && tally.outside_totality == 0
-            && let Some(result_id) = oracle_term(&mut universe, result)
-            && universe.normalize(result_id).forms != normal.forms
-        {
-            divergent = true;
-            tally.divergent += 1;
-            if tally.divergences.len() < 5 {
-                tally.divergences.push(format!(
-                    "{label}: {shown} evaluates to {}, under ->E to {:?}",
-                    universe.show(result_id),
-                    normal
-                        .forms
-                        .iter()
-                        .map(|form| universe.show(*form))
-                        .collect::<Vec<_>>(),
-                ));
+        match claims(&backend, &universe.kore(id), &sort) {
+            Ok(found) => {
+                answers.insert(id, (!found.ceil_top, found.token));
             }
-        }
-        let found = match claims(&backend, &kore, &sort, true) {
-            Ok(found) => found,
-            Err(failure) => {
-                tally
-                    .failures
-                    .push(format!("{label}: {failure}\n{}", describe()));
-                continue;
-            }
-        };
-        if probe_ids.contains(&id) {
-            verdict
-                .probes
-                .push((found.ceil_top != Some(true), found.token));
-        }
-        let defined = !normal.forms.contains(&BOTTOM);
-        let normal_form = universe.is_normal_form(id);
-        let term = backend
-            .internalize_term(&parse_pattern(&kore).expect("the term parses"), &[])
-            .expect("the term internalizes");
-        // S5: the marker's claim that an irreducible application is defined.
-        let marker_claim = matches!(universe.node_of(id), Node::App(..))
-            && backend.irreducible_application_is_defined(&term);
-        let mut failed = Vec::new();
-        let mut fail = |failure: String| failed.push(failure);
-        // V6 (d): no claim on an untainted term that every model makes undefined.
-        if forced_check && forced.undefined(id) {
-            tally.forced_undefined += 1;
-        }
-        if forced_check
-            && forced.undefined(id)
-            && tally.outside_totality == 0
-            && claimed_untainted(&mut universe, id)
-        {
-            let mut symbols = HashSet::new();
-            universe.symbols_in(id, &mut symbols);
-            let evaluated_below_root = !symbols.is_disjoint(&below_root_roots);
-            let claimed = [
-                (found.token, "instance-normal"),
-                (
-                    marker_claim && !evaluated_below_root,
-                    "an irreducible defined application",
-                ),
-                (
-                    found.ceil_top == Some(true) && !divergent && !evaluated_below_root,
-                    "defined (its \\ceil is discharged)",
-                ),
-            ];
-            for (made, what) in claimed {
-                if made {
-                    fail(format!(
-                        "{FORCED}: every model makes {shown} undefined, but it is called {what}"
-                    ));
-                }
-            }
-        }
-        match place {
-            Standing::Model if tally.outside_totality == 0 => {
-                if found.token {
-                    tally.tokens += 1;
-                    if !normal_form {
-                        fail(format!("{shown} is instance-normal but not a normal form"));
-                    }
-                }
-                if marker_claim {
-                    tally.markers += 1;
-                    if !normal_form {
-                        fail(format!(
-                            "{shown} is called an irreducible defined application but its normal forms are {:?}",
-                            normal
-                                .forms
-                                .iter()
-                                .map(|form| universe.show(*form))
-                                .collect::<Vec<_>>()
-                        ));
-                    }
-                }
-                if found.ceil_top == Some(true) && !divergent {
-                    tally.ceilings += 1;
-                    if !defined {
-                        fail(format!(
-                            "\\ceil({shown}) is discharged but {shown} is undefined"
-                        ));
-                    }
-                }
-            }
-            Standing::Tainted => {
-                if found.token {
-                    fail(format!(
-                        "{shown} holds a tainted application and is instance-normal"
-                    ));
-                } else {
-                    tally.withheld += 1;
-                }
-                if let Node::App(symbol, _) = universe.node_of(id).clone()
-                    && tainted_symbols.contains(&symbol)
-                    && marker_claim
-                {
-                    fail(format!("{shown} has a tainted root and is called defined"));
-                }
-            }
-            Standing::Model | Standing::Unchecked => {}
-        }
-        for failure in failed {
-            tally
-                .failures
-                .push(format!("{label}: {failure}\n{}", describe()));
-        }
-        // V6 (d) on generalizations: a claim on the query with a subterm defined in every model
-        // replaced by a variable holds, in particular, at that subterm.
-        if forced_check && forced.undefined(id) && tally.outside_totality == 0 {
-            forced_generalizations(
-                label,
-                &backend,
-                &mut universe,
-                (&forced, &backend_tainted),
-                id,
-                &mut tally,
-                &describe,
-            );
-        }
-        // Certificates.
-        if let Some(result) = evaluation {
-            let mut certified = Vec::new();
-            certified_heads(&backend, &result, &mut certified);
-            for term in certified {
-                let Some(certified_id) = oracle_term(&mut universe, &term) else {
-                    continue;
-                };
-                let certified_place = standing(&mut universe, certified_id);
-                if forced_check
-                    && forced.undefined(certified_id)
-                    && tally.outside_totality == 0
-                    && claimed_untainted(&mut universe, certified_id)
-                {
-                    let text = universe.show(certified_id);
-                    tally.failures.push(format!(
-                        "{label}: {FORCED}: every model makes {text} undefined, but it carries the certificate\n{}",
-                        describe()
-                    ));
-                }
-                match certified_place {
-                    Standing::Tainted => {
-                        let text = universe.show(certified_id);
-                        tally.failures.push(format!(
-                            "{label}: {text} holds a tainted application and carries the certificate\n{}",
-                            describe()
-                        ));
-                    }
-                    Standing::Model if tally.outside_totality == 0 => {
-                        tally.certificates += 1;
-                        if !universe.is_normal_form(certified_id) {
-                            let text = universe.show(certified_id);
-                            tally.failures.push(format!(
-                                "{label}: {text} carries the certificate but is not a normal form\n{}",
-                                describe()
-                            ));
-                        }
-                    }
-                    Standing::Model | Standing::Unchecked => {}
-                }
-            }
-            if place == Standing::Model
-                && certified_ground_normal_form(&result)
-                && let Some(result_id) = oracle_term(&mut universe, &result)
-            {
-                results.push((result_id, result));
-            }
-        }
-        // Generalizations: a constructor or literal subterm replaced by a variable.
-        if tally.outside_totality == 0 {
-            generalize(
-                label,
-                &backend,
-                &mut universe,
-                &values,
-                id,
-                &standing,
-                &mut tally,
-                &describe,
-            );
+            Err(failure) => tally.failures.push(format!(
+                "{label}: {failure}\n  definition:\n{}",
+                describe(definition)
+            )),
         }
     }
-    // Apartness of certified results of the same sort.
-    for (index, (left_id, left)) in results.iter().enumerate() {
-        for (right_id, right) in &results[index + 1..] {
-            if left.sort() != right.sort() {
-                continue;
-            }
-            let apart = catch_unwind(AssertUnwindSafe(|| {
-                crate::definedness::elements_are_apart(&backend, left, right)
-            }))
-            .unwrap_or(false);
-            if apart {
-                tally.apartness += 1;
-                let (left_normal, right_normal) =
-                    (universe.normalize(*left_id), universe.normalize(*right_id));
-                if left_normal.complete && left_normal.forms == right_normal.forms {
-                    tally.failures.push(format!(
-                        "{label}: {} and {} are called apart but have the same normal form\n{}",
-                        universe.show(*left_id),
-                        universe.show(*right_id),
-                        describe()
-                    ));
-                }
-            }
-        }
-    }
-    if tally.outside_totality > 0 {
-        tally.failures.truncate(claim_failures_from);
-    }
-    (tally, verdict)
-}
-
-/// The roots of the equations whose left-hand side holds a declared function's application
-/// below its root.
-fn below_root_roots(definition: &Definition, universe: &Universe<'_>) -> HashSet<u32> {
-    fn holds_function(pattern: &Pat, definition: &Definition) -> bool {
-        match pattern {
-            Pat::App(name, arguments) => {
-                definition.symbols.iter().any(|symbol| {
-                    symbol.name == *name && matches!(symbol.kind, Kind::Function { .. })
-                }) || arguments
-                    .iter()
-                    .any(|argument| holds_function(argument, definition))
-            }
-            Pat::Inj(_, _, inner) | Pat::As(inner, _, _) => holds_function(inner, definition),
-            Pat::List(prefix, _, suffix) => prefix
-                .iter()
-                .chain(suffix)
-                .any(|element| holds_function(element, definition)),
-            Pat::Var(..) | Pat::Int(_) => false,
-        }
-    }
-    definition
-        .equations
+    let answers = probe_ids
         .iter()
-        .filter(|equation| match &equation.lhs {
-            Pat::App(_, arguments) => arguments
-                .iter()
-                .any(|argument| holds_function(argument, definition)),
-            _ => false,
-        })
-        .map(|equation| universe.symbol_id(equation.root()))
-        .collect()
-}
-
-/// V6 (d) on generalizations of the query `id`, which every model makes undefined: for each of
-/// its proper subterms that every model makes defined (up to three), the query with that subterm
-/// replaced by a variable, when the backend's verdict taints none of its symbols, must get no
-/// claim that holds for every element, since the subterm is one and the instance is undefined.
-fn forced_generalizations(
-    label: &str,
-    backend: &BackendDefinition,
-    universe: &mut Universe<'_>,
-    (forced, backend_tainted): (&super::forced::Forced, &HashSet<u32>),
-    id: Id,
-    tally: &mut Tally,
-    describe: &dyn Fn() -> String,
-) {
-    let mut holes = Vec::new();
-    let mut stack = universe.children(id);
-    while let Some(subterm) = stack.pop() {
-        if forced.defined(subterm) && !holes.contains(&subterm) {
-            holes.push(subterm);
-        } else {
-            stack.extend(universe.children(subterm));
-        }
-    }
-    holes.truncate(3);
-    for hole in holes {
-        // The generalization is a claim when no symbol of it (the query without the hole) is
-        // tainted by the backend's verdict: then every equation its evaluation can apply is
-        // rooted at an untainted symbol.
-        let mut symbols = HashSet::new();
-        let mut stack = vec![id];
-        while let Some(subterm) = stack.pop() {
-            if subterm == hole {
-                continue;
-            }
-            if let Node::App(symbol, _) = universe.node_of(subterm) {
-                symbols.insert(*symbol);
-            }
-            stack.extend(universe.children(subterm));
-        }
-        if !symbols.is_disjoint(backend_tainted) {
-            continue;
-        }
-        let evaluated_below_root =
-            !symbols.is_disjoint(&below_root_roots(universe.definition, universe));
-        let sort_name = universe.sort_name(universe.sort_of(hole)).to_owned();
-        let variable = format!("VarForced:Sort{sort_name}{{}}");
-        let kore = universe.kore(id, Some((hole, &variable)));
-        let result_sort = universe.sort_name(universe.sort_of(id)).to_owned();
-        let Ok(found) = claims(backend, &kore, &result_sort, true) else {
-            continue;
-        };
-        if found.token || (found.ceil_top == Some(true) && !evaluated_below_root) {
-            tally.failures.push(format!(
-                "{label}: {FORCED}: every model makes {} undefined, but {kore} is called {} for every element\n{}",
-                universe.show(id),
-                if found.token { "instance-normal" } else { "defined" },
-                describe()
-            ));
-        }
-    }
-}
-
-/// Checks the claims on the generalizations of `id`: each subterm that is a constructor
-/// application or a literal, replaced by a variable of its sort, whose claims must hold on every
-/// explored instance.
-#[allow(clippy::too_many_arguments, reason = "the context of one query")]
-fn generalize(
-    label: &str,
-    backend: &BackendDefinition,
-    universe: &mut Universe<'_>,
-    values: &BTreeMap<u32, Vec<Id>>,
-    id: Id,
-    standing: &dyn Fn(&mut Universe<'_>, Id) -> Standing,
-    tally: &mut Tally,
-    describe: &dyn Fn() -> String,
-) {
-    let Node::App(symbol, _) = universe.node_of(id).clone() else {
-        return;
-    };
-    if !universe.definition.symbols[symbol as usize].is_head() {
-        return;
-    }
-    let mut holes = Vec::new();
-    let mut stack = universe.children(id);
-    while let Some(subterm) = stack.pop() {
-        match universe.node_of(subterm).clone() {
-            Node::App(inner, _) => {
-                if universe.definition.symbols[inner as usize].kind == Kind::Constructor {
-                    holes.push(subterm);
-                }
-                stack.extend(universe.children(subterm));
-            }
-            Node::Int(_) => holes.push(subterm),
-            _ => stack.extend(universe.children(subterm)),
-        }
-    }
-    holes.truncate(2);
-    for hole in holes {
-        let sort = universe.sort_of(hole);
-        let sort_name = universe.sort_name(sort).to_owned();
-        let variable = format!("VarGen:Sort{sort_name}{{}}");
-        let kore = universe.kore(id, Some((hole, &variable)));
-        let result_sort = universe.sort_name(universe.sort_of(id)).to_owned();
-        let found = match claims(backend, &kore, &result_sort, true) {
-            Ok(found) => found,
-            Err(failure) => {
-                tally
-                    .failures
-                    .push(format!("{label}: {failure}\n{}", describe()));
-                continue;
-            }
-        };
-        if !found.token && found.ceil_top != Some(true) {
-            continue;
-        }
-        let instances = candidates_of(universe, values, sort)
-            .into_iter()
-            .filter(|value| universe.sort_of(*value) == sort)
-            .collect::<Vec<_>>();
-        let mut checked = false;
-        for value in instances {
-            let instance = replace(universe, id, hole, value);
-            let normal = universe.normalize(instance);
-            if !normal.complete {
-                continue;
-            }
-            // An instance at which a total symbol is undefined on defined arguments puts the
-            // definition outside P2, where its `total` declarations are false.
-            let mut subterms = vec![instance];
-            let mut outside = false;
-            while let Some(subterm) = subterms.pop() {
-                outside |= universe.violates_totality(subterm);
-                subterms.extend(universe.children(subterm));
-            }
-            if outside {
-                tally.outside_totality = 1;
-                continue;
-            }
-            // An instance by a value holding a tainted application is an instance by an element
-            // the oracle does not know in the model the claim is about: not checked.
-            match standing(universe, instance) {
-                Standing::Model => {
-                    checked = true;
-                    if found.token && !universe.is_normal_form(instance) {
-                        tally.failures.push(format!(
-                            "{label}: {kore} is instance-normal but its instance {} is not a normal form\n{}",
-                            universe.show(instance),
-                            describe()
-                        ));
-                    }
-                    if found.ceil_top == Some(true) && normal.forms.contains(&BOTTOM) {
-                        tally.failures.push(format!(
-                            "{label}: \\ceil({kore}) is discharged but its instance {} is undefined\n{}",
-                            universe.show(instance),
-                            describe()
-                        ));
-                    }
-                }
-                Standing::Tainted | Standing::Unchecked => {}
-            }
-        }
-        tally.generalizations += usize::from(checked);
-    }
-}
-
-/// `id` with every occurrence of `hole` replaced by `value`.
-fn replace(universe: &mut Universe<'_>, id: Id, hole: Id, value: Id) -> Id {
-    if id == hole {
-        return value;
-    }
-    match universe.node_of(id).clone() {
-        Node::App(symbol, children) => {
-            let children = children
-                .into_iter()
-                .map(|child| replace(universe, child, hole, value))
-                .collect();
-            universe.node(Node::App(symbol, children))
-        }
-        Node::Inj(from, to, child) => {
-            let child = replace(universe, child, hole, value);
-            universe.node(Node::Inj(from, to, child))
-        }
-        Node::List(children) => {
-            let children = children
-                .into_iter()
-                .map(|child| replace(universe, child, hole, value))
-                .collect();
-            universe.node(Node::List(children))
-        }
-        Node::Bottom | Node::Int(_) | Node::Bool(_) => id,
-    }
+        .filter_map(|id| answers.get(id).copied())
+        .collect();
+    (tally, answers)
 }
 
 pub(super) fn describe(definition: &Definition) -> String {

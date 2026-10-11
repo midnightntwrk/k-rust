@@ -1,0 +1,84 @@
+[]
+// The overload family of K's regression test issue-4114-overload-injection, trimmed from krust's
+// compiled definition.kore of
+//
+//   syntax Foo ::= "foo"
+//   syntax Bar ::= Foo | "bar"
+//   syntax Bool ::= test(Foo) [function, overload(test)]
+//                 | test(Bar) [function, overload(test)]
+//   rule test(foo) => true
+//   rule test(_)   => false
+//
+// The frontend sorts `test(_)` at the greater production `test(Bar)` and relates the two
+// productions with the generated `symbol-overload` axiom. That axiom and the `test(_)` equation
+// overlap at `test(Bar)(inj(K0))`, whose reducts `test(Foo)(K0)` and `false` do not join (at
+// `foo` they are `true` and `false`), so the definition withdraws its claims for both symbols.
+module ISSUE-4114
+    sort SortFoo{} []
+    sort SortBar{} []
+    hooked-sort SortBool{} [hasDomainValues{}(), hook{}("BOOL.Bool")]
+
+    symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+
+    symbol Lblfoo'Unds'TEST'Unds'Foo{}() : SortFoo{}
+        [constructor{}(), functional{}(), injective{}()]
+    symbol Lblbar'Unds'TEST'Unds'Bar{}() : SortBar{}
+        [constructor{}(), functional{}(), injective{}()]
+    symbol Lbltest'LParUndsRParUnds'TEST'Unds'Bool'Unds'Foo{}(SortFoo{}) : SortBool{}
+        [function{}()]
+    symbol Lbltest'LParUndsRParUnds'TEST'Unds'Bool'Unds'Bar{}(SortBar{}) : SortBool{}
+        [anywhere{}(), function{}()]
+
+    axiom{R}
+        \exists{R}(
+            Val:SortBar{},
+            \equals{SortBar{}, R}(Val:SortBar{}, inj{SortFoo{}, SortBar{}}(From:SortFoo{}))
+        )
+        [subsort{SortFoo{}, SortBar{}}()]
+
+    axiom{R}
+        \equals{SortBool{}, R}(
+            Lbltest'LParUndsRParUnds'TEST'Unds'Bool'Unds'Bar{}(inj{SortFoo{}, SortBar{}}(K0:SortFoo{})),
+            Lbltest'LParUndsRParUnds'TEST'Unds'Bool'Unds'Foo{}(K0:SortFoo{})
+        )
+        [
+            symbol-overload{}(
+                Lbltest'LParUndsRParUnds'TEST'Unds'Bool'Unds'Bar{}(),
+                Lbltest'LParUndsRParUnds'TEST'Unds'Bool'Unds'Foo{}()
+            )
+        ]
+
+    // rule test(foo) => true
+    axiom{R}
+        \implies{R}(
+            \and{R}(
+                \top{R}(),
+                \and{R}(\in{SortFoo{}, R}(X0:SortFoo{}, Lblfoo'Unds'TEST'Unds'Foo{}()), \top{R}())
+            ),
+            \equals{SortBool{}, R}(
+                Lbltest'LParUndsRParUnds'TEST'Unds'Bool'Unds'Foo{}(X0:SortFoo{}),
+                \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+            )
+        )
+        [
+            UNIQUE'Unds'ID{}("3fe854c4a960671dffca2e8ceafc843dfdf55de4bf0b9a75a5b0985fdb951ba3"),
+            org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,10,25)")
+        ]
+
+    // rule test(_) => false
+    axiom{R}
+        \implies{R}(
+            \and{R}(
+                \top{R}(),
+                \and{R}(\in{SortBar{}, R}(X0:SortBar{}, Var'Unds'Gen0:SortBar{}), \top{R}())
+            ),
+            \equals{SortBool{}, R}(
+                Lbltest'LParUndsRParUnds'TEST'Unds'Bool'Unds'Bar{}(X0:SortBar{}),
+                \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+            )
+        )
+        [
+            UNIQUE'Unds'ID{}("eb5193032115bb030f05af2bc1c4c32bd5a59130715305250ea6015f3b056043"),
+            org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,3,11,26)")
+        ]
+endmodule []

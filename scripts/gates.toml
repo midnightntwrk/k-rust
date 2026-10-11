@@ -1,0 +1,361 @@
+# The gate registry: every check that a person, a schedule or a driver runs outside `cargo test`
+# is one [[gate]] entry, and asking for a check is naming its entry.
+# scripts/run-gates.sh runs entries by name, by kind (--run) or by what a change touches
+# (--changed BASE..HEAD), and logs each entry's exit status, wall time and peak RSS; an unknown
+# name fails. `scripts/run-gates.sh --list` prints the registry, `--check` validates it.
+#
+# Keys of a [[gate]]:
+#   name     unique, lowercase words joined by `-`; what a record, a driver or a person names.
+#   run      when the entry is owed:
+#              "certification"  by every change that touches one of its `paths`;
+#              "heavy"          likewise, but run by the heavy driver at a host UID with the memory
+#                               the real semantics need, rather than by the change's author;
+#              "ci"             a step of .github/workflows/ci.yml, which must run exactly its
+#                               `command`, on every push;
+#              "weekly"         a step of .github/workflows/differential.yml, which must run exactly
+#                               its `command`;
+#              "on-demand"      a tool run when its measurement is wanted, never owed; arguments
+#                               after `--` are appended to its command
+#                               (scripts/run-gates.sh algo-receipt -- --workload imp-execute).
+#   command  one shell command line, run by bash from the workspace root.
+#   paths    extended regular expressions over repository-relative paths, in the style of
+#            scripts/ci-changed-paths.sh, or `@NAME` for every pattern of [path-set.NAME]; a change
+#            that adds, edits or deletes a matching path owes the entry. Required of certification
+#            and heavy entries, optional for ci entries, absent from weekly and on-demand ones
+#            (a schedule or a request selects those). Every pattern must match a tracked file.
+#   host     "human-uid": the entry needs a user systemd manager for its memory scope, or more
+#            memory than an agent-N sandbox has; the runner records it as not run there.
+# A change to an entry's own table owes that entry too.
+#
+# Real-semantics certification protocol (manual, no CI job):
+# Run `scripts/run-gates.sh --changed BASE..HEAD` after a change; it runs every entry the change owes, and lists the host = "human-uid" ones as not run under an agent-N user.
+# The heavy driver runs `scripts/run-gates.sh --run heavy --changed BASE..HEAD` at a host UID on each integration head.
+# The scripts must use the clean manifest-pinned checkouts and matching K release enforced by reference-pins.sh.
+# Record each named case's pass/fail result, wall time, and peak RSS in the change description.
+# Each Java-backed script re-executes its complete process tree in one user systemd scope before doing work.
+# REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB and REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB tune the equal 16 GiB aggregate thresholds.
+# Swap is disabled, and Rust frontends execute directly inside the aggregate scope instead of escaping into sibling scopes.
+# REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB defaults to a whole-job 24 GiB RLIMIT_AS ceiling and applies only when user scopes are unavailable.
+# REFERENCE_DIFFERENTIAL_MEMORY_KIB independently controls the reference JVM's virtual memory and is unset by default.
+# Raise any hard ceiling only after measuring current machine headroom.
+#
+# PR description (any change that owes a certification or heavy entry):
+#   1. the summary of `scripts/run-gates.sh --changed BASE..HEAD`, one row per entry: pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py), and the cases each entry ran
+#   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label change --cases <affected cases> --log target/conformance/ratchet.toml --runs-dir target/conformance/runs` (or --all for full certification)
+#   3. the permanent multi-alias oracle-exclusion count printed by scripts/reference-differential.sh
+#
+# Each reference [[gate]] is one command and the manifest cases it runs, and this list is the only
+# record of which gate runs which case: every runnable case of a coverage section of
+# scripts/reference-differential.toml is named by a gate command or carries `manual = "<reason>"`
+# saying why no gate runs it (crates/k-rust/tests/differential_manifest.rs).
+#
+# Every reference gate observes the krust binary, and kompile itself runs backend code (hook
+# evaluation while folding constants, the backend's terms and definition), so no source krust is
+# built from is ruled out for any of them: [path-set.krust] is in every reference entry. What
+# tells the entries apart is the harness each one runs: its script, the helpers that script calls,
+# the manifest and fixtures it reads, and the comparator it builds.
+
+[path-set]
+# The sources and manifests the krust binary is built from.
+krust = [
+  '^crates/(k-rust|k-rust-backend|k-rust-kore|k-rust-regex)/(src|builtin|cparser)/',
+  '^crates/(k-rust|k-rust-backend)/build\.rs$',
+  '^crates/(k-rust|k-rust-backend|k-rust-kore|k-rust-regex)/Cargo\.toml$',
+  '^Cargo\.(toml|lock)$',
+]
+# What every reference differential script reads or runs besides its own file: the manifest, the
+# normalisations, the pins, the memory guard, the reference-output cache, the manifest validator,
+# the comparator test binary, and the local fixtures the cases name.
+reference = [
+  '^scripts/reference-differential\.toml$',
+  '^scripts/reference-normalisations\.toml$',
+  '^scripts/reference-(memory-guard|pins|cache)\.sh$',
+  '^scripts/reference_cache\.py$',
+  '^scripts/reference-manifest\.py$',
+  '^crates/k-rust/tests/reference_differential\.rs$',
+  '^crates/k-rust/tests/fixtures/reference/',
+]
+compile = ['^scripts/reference-differential\.sh$', '^scripts/reference-llvm-verification\.py$']
+kast = ['^scripts/reference-kast-differential\.sh$']
+execution = [
+  '^scripts/reference-non-imp-execution-differential\.sh$',
+  '^scripts/reference-kast-parser\.sh$',
+  '^scripts/reference-server-port\.sh$',
+]
+proof = ['^scripts/reference-proof-differential\.sh$']
+rpc = [
+  '^scripts/reference-rpc-differential\.sh$',
+  '^scripts/reference-kast-parser\.sh$',
+  '^scripts/reference-server-port\.sh$',
+]
+symbolic = ['^scripts/reference-symbolic-execution-differential\.sh$']
+mir = ['^scripts/reference-mir-execution-differential\.sh$', '^scripts/reference-mir-initial\.py$']
+# The conformance ratchet: its driver and helpers, the expectations, and the critical-pair
+# corpus gate it runs on the cases it compiled.
+conformance = [
+  '^scripts/conformance-ratchet\.sh$',
+  '^scripts/conformance/[^/]+\.(py|toml)$',
+]
+# Where the native and the portable build of k-rust can compile a definition differently: the
+# rule grammar and the parser, whose forests the two inference engines decide (a change to their
+# shared part changes what both engines are given, so it can add a refusal or a disagreement),
+# every other source with code compiled in one build only, and the feature table.
+inference = [
+  '^crates/k-rust/src/inner/',
+  '^crates/k-rust/src/(kompile/compile|kast/sort_role|backend/(mod|simplification))\.rs$',
+  '^crates/k-rust/Cargo\.toml$',
+]
+
+[[gate]]
+name = "compile-light"
+run = "certification"
+command = "scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner"
+paths = ["@krust", "@reference", "@compile"]
+
+[[gate]]
+name = "compile-fun-int-list-config"
+run = "certification"
+command = "scripts/reference-differential.sh fun-int-list-config"
+paths = ["@krust", "@reference", "@compile"]
+
+[[gate]]
+name = "compile-imp-and-casts"
+run = "certification"
+command = "scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2 semcast3 semcast4"
+paths = ["@krust", "@reference", "@compile"]
+
+[[gate]]
+name = "compile-real-semantics"
+run = "heavy"
+host = "human-uid"
+command = "REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence"
+paths = ["@krust", "@reference", "@compile"]
+
+[[gate]]
+name = "kast-real-semantics"
+run = "heavy"
+host = "human-uid"
+command = "scripts/reference-kast-differential.sh wasm mir evm-equivalence"
+paths = ["@krust", "@reference", "@kast"]
+
+[[gate]]
+name = "execution-imp"
+run = "certification"
+command = "scripts/reference-non-imp-execution-differential.sh imp collections hook-boundaries"
+paths = ["@krust", "@reference", "@execution"]
+
+[[gate]]
+name = "execution-light"
+run = "certification"
+command = "scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution"
+paths = ["@krust", "@reference", "@execution"]
+
+[[gate]]
+name = "proof-mini"
+run = "certification"
+command = "scripts/reference-proof-differential.sh mini-proof"
+paths = ["@krust", "@reference", "@proof"]
+
+[[gate]]
+name = "proof"
+run = "certification"
+command = "scripts/reference-proof-differential.sh split-proof trusted-lemma-proof trivial-proof"
+paths = ["@krust", "@reference", "@proof"]
+
+[[gate]]
+name = "rpc-imp"
+run = "certification"
+command = "scripts/reference-rpc-differential.sh imp"
+paths = ["@krust", "@reference", "@rpc"]
+
+[[gate]]
+name = "rpc-bounded-search"
+run = "certification"
+command = "scripts/reference-rpc-differential.sh bounded-search"
+paths = ["@krust", "@reference", "@rpc"]
+
+[[gate]]
+name = "rpc-trivial-result"
+run = "certification"
+command = "scripts/reference-rpc-differential.sh trivial-result-rpc"
+paths = ["@krust", "@reference", "@rpc"]
+
+[[gate]]
+name = "mir-execution"
+run = "heavy"
+host = "human-uid"
+command = "scripts/reference-mir-execution-differential.sh"
+paths = ["@krust", "@reference", "@mir"]
+
+[[gate]]
+name = "symbolic"
+run = "certification"
+command = "scripts/reference-symbolic-execution-differential.sh symbolic-depth-bound symbolic-owise"
+paths = ["@krust", "@reference", "@symbolic"]
+
+[[gate]]
+name = "conformance-ratchet"
+run = "certification"
+command = "scripts/conformance-ratchet.sh --label change --cases append --log target/conformance/ratchet.toml --runs-dir target/conformance/runs"
+paths = ["@krust", "@reference", "@conformance"]
+
+[[gate]]
+name = "compile-regression"
+run = "certification"
+command = "scripts/reference-differential.sh hook-namespaces-whitespace star-cell-heating star-cell-heating-set star-cell-map-nested-set owise-ignored-competitors exists-anon let-list-binder casted-chain softpref softpos wordstack wordstack-fn gas3 rwpref rwpref-variable anywhere2"
+paths = ["@krust", "@reference", "@compile"]
+
+[[gate]]
+name = "kast-imp"
+run = "certification"
+command = "scripts/reference-kast-differential.sh imp"
+paths = ["@krust", "@reference", "@kast"]
+
+[[gate]]
+name = "kast-regex-anchors"
+run = "certification"
+command = "scripts/reference-kast-differential.sh regex-anchor-local"
+paths = ["@krust", "@reference", "@kast"]
+
+[[gate]]
+name = "execution-cli"
+run = "certification"
+command = "scripts/reference-non-imp-execution-differential.sh io exit star-cell-map-nested-set star-cell-heating-set"
+paths = ["@krust", "@reference", "@execution"]
+
+[[gate]]
+name = "proof-imp"
+run = "certification"
+command = "scripts/reference-proof-differential.sh imp"
+paths = ["@krust", "@reference", "@proof"]
+
+[[gate]]
+name = "symbolic-collections"
+run = "certification"
+command = "scripts/reference-symbolic-execution-differential.sh symbolic-collection-frames collection-and-injection-narrowing injected-variable-narrowing"
+paths = ["@krust", "@reference", "@symbolic"]
+
+# The WASM semantics' own programs and proofs with the in-process backend (no reference tool).
+[[gate]]
+name = "wasm-execution"
+run = "heavy"
+host = "human-uid"
+command = "scripts/wasm-execution-gate.sh"
+paths = [
+  "@krust",
+  '^scripts/wasm-execution-gate\.(sh|toml|success\.kore)$',
+  '^scripts/reference-(memory-guard|pins)\.sh$',
+  '^scripts/reference-differential\.toml$',
+]
+
+# The load-time critical-pair check's verdicts and counts on whole definitions (V12): the
+# conformance ratchet compiles the manifest's conformance cases and runs the gate on them, and the
+# script compiles WASM and KEVM itself.
+[[gate]]
+name = "value-contract-corpus"
+run = "certification"
+command = "scripts/conformance-ratchet.sh --label change --cases pl-tutorial/2_languages/3_fun/1_untyped/1_environment pl-tutorial/2_languages/1_simple/1_untyped pl-tutorial/2_languages/1_simple/2_typed/1_static pl-tutorial/2_languages/1_simple/2_typed/2_dynamic pl-tutorial/2_languages/2_kool/1_untyped pl-tutorial/2_languages/2_kool/2_typed/1_dynamic pl-tutorial/2_languages/2_kool/2_typed/2_static bison-glr-bug glr2 glr3 glr4 overload issue-1090 issue-2909-allow-anywhere-haskell/llvm issue-2909-allow-anywhere-haskell/haskell issue-4142-no-symbol-overload issue-4114-overload-injection --log target/conformance/ratchet.toml --runs-dir target/conformance/runs"
+paths = [
+  "@krust",
+  "@reference",
+  "@conformance",
+  '^scripts/value-contract-corpus\.(sh|toml)$',
+  '^crates/k-rust-backend/tests/value_contract_corpus\.rs$',
+]
+
+[[gate]]
+name = "value-contract-corpus-real-semantics"
+run = "heavy"
+host = "human-uid"
+command = "scripts/value-contract-corpus.sh wasm kevm"
+paths = [
+  "@krust",
+  '^scripts/value-contract-corpus\.(sh|toml)$',
+  '^crates/k-rust-backend/tests/value_contract_corpus\.rs$',
+  '^scripts/reference-memory-guard\.sh$',
+]
+
+# The native and the portable build compile every compile case of the manifest alike, the local
+# ones and the real semantics. `--refused` is the set the portable build refuses with
+# `Z3InferenceRequired` today: a definition its hosts cannot compile. A refusal outside it fails,
+# and so does a listed case that now compiles, so the record changes with the refusals it records.
+# The compiles are library calls in one test process per build; most of the time is the builds.
+[[gate]]
+name = "build-agreement"
+run = "certification"
+command = "scripts/build-agreement.sh --refused evm-equivalence,mir,wasm"
+paths = [
+  "@inference",
+  '^scripts/build-agreement\.sh$',
+  '^crates/k-rust/tests/build_agreement\.rs$',
+  '^scripts/reference-differential\.toml$',
+]
+
+# The Python unit tests of the scripts' helpers.
+[[gate]]
+name = "script-unit-tests"
+run = "ci"
+command = "scripts/script-unit-tests.sh"
+paths = ['^scripts/(.+/)?[^/]+\.py$', '^scripts/script-unit-tests\.sh$']
+
+# The Lean proofs under lean/ and the hypothesis table that ties them to Rust tests.
+[[gate]]
+name = "lean-check"
+run = "weekly"
+command = "scripts/lean-check.sh"
+
+# Hand-run tools: each measures something when it is wanted, and none is owed by a change.
+[[gate]]
+name = "coverage"
+run = "on-demand"
+command = "scripts/coverage.sh"
+
+[[gate]]
+name = "coverage-receipt"
+run = "on-demand"
+command = "scripts/coverage-receipt.sh"
+
+[[gate]]
+name = "algo-receipt"
+run = "on-demand"
+command = "scripts/algo-receipt.sh"
+
+[[gate]]
+name = "generative-compile"
+run = "on-demand"
+command = "scripts/generative-compile.sh"
+
+[[gate]]
+name = "reference-fixtures-refresh"
+run = "on-demand"
+command = "scripts/reference-fixtures-refresh.sh"
+
+[[gate]]
+name = "conformance-driver"
+run = "on-demand"
+command = "scripts/conformance/run.sh"
+
+[[gate]]
+name = "weekly-compile"
+run = "weekly"
+command = "scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config owise-functions owise"
+
+[[gate]]
+name = "weekly-kast"
+run = "weekly"
+command = "scripts/reference-kast-differential.sh bounded-search-local crypto-local collections-local bytes-local deep-config-local deep-term-local macro-runtime-local hooked-namespaces-local star-cell-config-local owise-functions-local parametric-cast-local mini-proof-local wasm-shaped-lists-local"
+
+[[gate]]
+name = "weekly-execution"
+run = "weekly"
+command = "scripts/reference-non-imp-execution-differential.sh crypto collections bytes-ops deep-config macro-runtime bounded-search deep-term"
+
+[[gate]]
+name = "weekly-proof"
+run = "weekly"
+command = "scripts/reference-proof-differential.sh mini-proof"
+
+[[gate]]
+name = "weekly-rpc"
+run = "weekly"
+command = "scripts/reference-rpc-differential.sh bounded-search"

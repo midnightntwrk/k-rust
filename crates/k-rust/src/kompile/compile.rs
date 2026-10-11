@@ -40,7 +40,7 @@ use crate::{
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     kast::{GeneratedLabel, Sort, Term},
     kore::printer::Printer as KorePrinter,
-    outer::{InputAddressing, LoadedDefinition},
+    outer::{InputAddressing, LoadOptions, LoadedDefinition},
     provenance::{
         GeneratingPass, InputAddress, InputSentenceKind, InputSpace, input_sentence_kinds,
         stamp_input_addresses,
@@ -51,7 +51,7 @@ use crate::{
 use super::module_to_kore::module_to_kore_from_resolved_with_options_and_sources;
 use super::module_to_kore::{BUILTIN_HOOK_NAMESPACES, is_real_hook};
 use super::passes::number_sentence;
-use super::pipeline::{DeepestTerm, emission_phase, prologue_phase};
+use super::pipeline::{DeepestTerm, StageObserver, emission_phase, prologue_phase};
 use super::{ModuleToKoreOptions, rust_backend_hook_namespaces};
 
 /// Backend whose KORE input should be generated.
@@ -83,6 +83,17 @@ impl CompilationBackend {
         match self {
             Self::Llvm => "symbolic",
             Self::Rust => "concrete",
+        }
+    }
+
+    /// The options a definition compiled for this backend is loaded with: the modules marked
+    /// [`Self::excluded_module_attribute`] are left out, since this backend never runs them, and
+    /// every other option is at its default. A host sets its own sources, diagnostics policy and
+    /// parser shape on top.
+    pub fn load_options(self) -> LoadOptions {
+        LoadOptions {
+            excluded_module_attributes: vec![self.excluded_module_attribute().into()],
+            ..LoadOptions::default()
         }
     }
 
@@ -258,8 +269,8 @@ fn stage<T, E: fmt::Display>(
 
 /// Compile an in-memory, backend-filtered definition into backend-facing textual KORE artifacts.
 ///
-/// Hosts must load the definition with [`CompilationBackend::excluded_module_attribute`] before
-/// calling this function. No filesystem or external backend process is used here.
+/// Hosts must load the definition with [`CompilationBackend::load_options`] (the modules of
+/// [`CompilationBackend::excluded_module_attribute`] left out) before calling this function. No filesystem or external backend process is used here.
 pub fn compile_loaded_definition(
     loaded: &LoadedDefinition,
     options: CompileOptions,
@@ -276,10 +287,20 @@ pub fn compile_loaded_definition_timed(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<(CompiledKoreArtifacts, PhaseTimings), CompileError> {
+    compile_loaded_definition_observed(loaded, options, &mut |_, _, _| {})
+}
+
+/// [`compile_loaded_definition_timed`], reporting every transformation and emission stage to
+/// `observer` as it completes or fails.
+pub(crate) fn compile_loaded_definition_observed(
+    loaded: &LoadedDefinition,
+    options: CompileOptions,
+    observer: &mut StageObserver<'_>,
+) -> Result<(CompiledKoreArtifacts, PhaseTimings), CompileError> {
     let span_started = web_time::Instant::now();
     let mut timings = PhaseTimings::default();
     let (execution_definition, definition, diagnostics, resolved) =
-        transform_loaded_definition(loaded, &options, &mut timings)?;
+        transform_loaded_definition(loaded, &options, &mut timings, observer)?;
     // Emission walks the transformed definitions (KORE conversion, printing, provenance): it
     // runs on a stack that holds their deepest term.
     DeepestTerm::of_all([&execution_definition, &definition]).run(
@@ -855,6 +876,7 @@ fn transform_loaded_definition(
     loaded: &LoadedDefinition,
     options: &CompileOptions,
     timings: &mut PhaseTimings,
+    observer: &mut StageObserver<'_>,
 ) -> Result<(Definition, Definition, Vec<Diagnostic>, ResolvedDefinition), CompileError> {
     let (definition, resolved, diagnostics) = DeepestTerm::of(loaded.definition())
         .run(prologue_phase::DEFINITION_CHECKS, || {
@@ -871,6 +893,7 @@ fn transform_loaded_definition(
             options,
             timings,
             resolved,
+            observer,
         )?;
     // Checkpoint: search-pattern compilation and the sentence counter observe this execution
     // definition; injection, unit removal, and construction minimization apply only to emission.
@@ -881,6 +904,7 @@ fn transform_loaded_definition(
         options,
         timings,
         execution_resolved,
+        observer,
     )?;
     Ok((execution_definition, definition, diagnostics, resolved))
 }
@@ -1443,10 +1467,20 @@ mod tests {
         .unwrap();
         let options = CompileOptions::default();
 
-        let (_, first, _, _) =
-            transform_loaded_definition(&loaded, &options, &mut PhaseTimings::default()).unwrap();
-        let (_, second, _, _) =
-            transform_loaded_definition(&loaded, &options, &mut PhaseTimings::default()).unwrap();
+        let (_, first, _, _) = transform_loaded_definition(
+            &loaded,
+            &options,
+            &mut PhaseTimings::default(),
+            &mut |_, _, _| {},
+        )
+        .unwrap();
+        let (_, second, _, _) = transform_loaded_definition(
+            &loaded,
+            &options,
+            &mut PhaseTimings::default(),
+            &mut |_, _, _| {},
+        )
+        .unwrap();
         let first = origin_receipts(&first);
         let second = origin_receipts(&second);
 

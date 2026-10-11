@@ -1224,10 +1224,14 @@ mod stage_tests {
     fn a_fresh_variable_in_a_local_function_is_passed_in_by_the_enclosing_rule() {
         let run = run_to_stage(
             r#"
+module INT
+  syntax Int ::= Int "+Int" Int [function, total, symbol(_+Int_), hook(INT.add)]
+endmodule
 module MAIN
   syntax K
   syntax Int ::= r"[0-9]+" [token]
               | plus(Int, Int) [function, symbol(plus)]
+              | freshInt(Int) [function, freshGenerator, symbol(freshInt)]
   syntax KItem ::= "go" [symbol(go)]
   configuration <k> go </k>
   rule <k> go => #fun(Y => plus(Y, !X:Int))(1) ...</k> [label(go)]

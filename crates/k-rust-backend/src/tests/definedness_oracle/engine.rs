@@ -47,8 +47,6 @@ pub(super) struct Normal {
     pub(super) forms: Vec<Id>,
     /// Whether every evaluation ended within the bounds.
     pub(super) complete: bool,
-    /// The equations (bit `i` for equation `i`) some evaluation applied, at any position.
-    pub(super) applied: u128,
     /// Whether some evaluation reached an application of a total symbol to normal forms with no
     /// value: a violation of precondition P2.
     pub(super) total_undefined: bool,
@@ -70,7 +68,6 @@ impl Normal {
     fn merge(&mut self, other: &Self) {
         self.forms.extend(&other.forms);
         self.complete &= other.complete;
-        self.applied |= other.applied;
         self.total_undefined |= other.total_undefined;
     }
 
@@ -88,11 +85,6 @@ impl Normal {
 
 /// An equation that applies at a term, with its matching valuation.
 pub(super) type Applying = (usize, HashMap<String, Id>);
-
-thread_local! {
-    /// Test switch (V7): every universe built on this thread also takes outermost steps.
-    pub(super) static OUTERMOST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
 
 /// Bounds of one universe.
 const MAX_SIZE: u32 = 40;
@@ -117,8 +109,6 @@ pub(super) struct Universe<'d> {
     normal: HashMap<Id, Rc<Normal>>,
     in_progress: HashSet<Id>,
     work: usize,
-    /// Test switch (V7): also take root steps on arguments that are not normal forms.
-    pub(super) outermost_too: bool,
 }
 
 impl<'d> Universe<'d> {
@@ -175,7 +165,6 @@ impl<'d> Universe<'d> {
             normal: HashMap::new(),
             in_progress: HashSet::new(),
             work: 0,
-            outermost_too: OUTERMOST.get(),
         };
         universe.intern(Node::Bottom);
         universe
@@ -523,29 +512,14 @@ impl<'d> Universe<'d> {
                 let list = universe.node(Node::List(elements));
                 Normal::of(list)
             }),
-            Node::App(symbol, arguments) => {
-                let mut normal = Normal::of(BOTTOM);
-                normal.forms.clear();
-                if self.outermost_too && self.definition.symbols[symbol as usize].kind != Kind::Hook
-                {
-                    // The switched-off discipline: a root step before the arguments are
-                    // evaluated.
-                    let root = self.root(id, symbol, false);
-                    if !root.forms.is_empty() && root.forms != [id] {
-                        normal.merge(&root);
-                    }
+            Node::App(symbol, arguments) => self.combinations(&arguments, |universe, arguments| {
+                let application = universe.node(Node::App(symbol, arguments));
+                if application == id {
+                    universe.root(id, symbol)
+                } else {
+                    (*universe.normalize(application)).clone()
                 }
-                let evaluated = self.combinations(&arguments, |universe, arguments| {
-                    let application = universe.node(Node::App(symbol, arguments));
-                    if application == id {
-                        universe.root(id, symbol, true)
-                    } else {
-                        (*universe.normalize(application)).clone()
-                    }
-                });
-                normal.merge(&evaluated);
-                normal
-            }
+            }),
         }
     }
 
@@ -562,7 +536,6 @@ impl<'d> Universe<'d> {
         for child in children {
             let child = self.normalize(*child);
             normal.complete &= child.complete;
-            normal.applied |= child.applied;
             normal.total_undefined |= child.total_undefined;
             if child.forms.is_empty() {
                 normal.complete = false;
@@ -593,9 +566,8 @@ impl<'d> Universe<'d> {
         normal
     }
 
-    /// The root steps of the application `id` of `symbol`, whose arguments are normal forms when
-    /// `innermost`; with `innermost` off, only the reducts (no stuck reading).
-    fn root(&mut self, id: Id, symbol: u32, innermost: bool) -> Normal {
+    /// The root steps of the application `id` of `symbol`, whose arguments are normal forms.
+    fn root(&mut self, id: Id, symbol: u32) -> Normal {
         let declared = self.definition.symbols[symbol as usize].clone();
         if declared.kind == Kind::Hook {
             return self.hook(&declared.name, &self.children(id));
@@ -616,19 +588,16 @@ impl<'d> Universe<'d> {
                     let condition = self.instantiate(requires, &valuation);
                     let condition = self.normalize(condition);
                     normal.complete &= condition.complete;
-                    normal.applied |= condition.applied;
                     let truth = self.boolean(true);
                     if !condition.forms.contains(&truth) {
                         continue;
                     }
                 }
                 fired = true;
-                normal.applied |= 1u128 << index;
                 if let Some(ensures) = &equation.ensures {
                     let condition = self.instantiate(ensures, &valuation);
                     let condition = self.normalize(condition);
                     normal.complete &= condition.complete;
-                    normal.applied |= condition.applied;
                     let truth = self.boolean(true);
                     if condition.forms.iter().any(|form| *form != truth) {
                         normal.forms.push(BOTTOM);
@@ -648,9 +617,6 @@ impl<'d> Universe<'d> {
             if fired {
                 return normal;
             }
-        }
-        if !innermost {
-            return normal;
         }
         match declared.kind {
             Kind::Function { total: false } => normal.forms.push(BOTTOM),
@@ -743,21 +709,8 @@ impl<'d> Universe<'d> {
         defined && self.normalize(id).forms.contains(&BOTTOM)
     }
 
-    /// The equations of the highest priority group of `symbol`.
-    pub(super) fn first_group(&self, symbol: u32) -> Vec<usize> {
-        self.groups[symbol as usize]
-            .first()
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// The KORE text of `id`, with the subterm `hole` (if any) written as `variable`.
-    pub(super) fn kore(&self, id: Id, hole: Option<(Id, &str)>) -> String {
-        if let Some((target, variable)) = hole
-            && target == id
-        {
-            return variable.to_owned();
-        }
+    /// The KORE text of `id`.
+    pub(super) fn kore(&self, id: Id) -> String {
         match &self.nodes[id as usize] {
             Node::Bottom => panic!("no query holds \\bottom"),
             Node::Int(value) => format!(r#"\dv{{SortInt{{}}}}("{value}")"#),
@@ -767,7 +720,7 @@ impl<'d> Universe<'d> {
                 self.definition.symbols[*symbol as usize].name,
                 children
                     .iter()
-                    .map(|child| self.kore(*child, hole))
+                    .map(|child| self.kore(*child))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -775,12 +728,12 @@ impl<'d> Universe<'d> {
                 "inj{{Sort{}{{}}, Sort{}{{}}}}({})",
                 self.sort_names[*from as usize],
                 self.sort_names[*to as usize],
-                self.kore(*child, hole)
+                self.kore(*child)
             ),
             Node::List(elements) => super::language::list_kore(
                 elements
                     .iter()
-                    .map(|element| format!("listItem{{}}({})", self.kore(*element, hole)))
+                    .map(|element| format!("listItem{{}}({})", self.kore(*element)))
                     .collect(),
             ),
         }
@@ -821,16 +774,6 @@ impl<'d> Universe<'d> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-        }
-    }
-
-    /// The symbols applied in `id`.
-    pub(super) fn symbols_in(&self, id: Id, into: &mut HashSet<u32>) {
-        if let Node::App(symbol, _) = &self.nodes[id as usize] {
-            into.insert(*symbol);
-        }
-        for child in self.children(id) {
-            self.symbols_in(child, into);
         }
     }
 }

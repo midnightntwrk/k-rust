@@ -3,6 +3,7 @@
 Each subsystem directory contains small artifacts produced by the K v7.1.337 reference toolchain at revision `4a46d1231473b599c699160132fd6e76a5c46406` and the Haskell backend `0.1.155` (`38afc81`).
 Every case has a `reference.toml` that records each generated artifact's command, tool, exit code, and SHA-256 digest.
 Hand-written inputs use `[[input]]`; a documented specification answer that intentionally differs from the toolchain uses `[[expectation]]` and names its source.
+A case whose expected answer differs from the toolchain's is a recorded divergence: it sets `oracle_exception = true`, and its `oracle_exception_reason` links the `docs/compatibility.md` sections that argue it, one of which names the case.
 Tests consume the committed artifacts and therefore must not require the reference toolchain.
 
 Project-authored probe paths describe their scenarios.

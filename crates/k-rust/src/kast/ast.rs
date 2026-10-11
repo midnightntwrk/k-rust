@@ -582,6 +582,70 @@ impl Term {
         term
     }
 
+    /// The children of this term in step order, each as stored, its annotation included.
+    ///
+    /// A step is one level of a destination path ([`Term::at_path`]), taken from the term with
+    /// its annotations removed, since an annotation records facts about the node it wraps and is
+    /// not a node itself. Step 0 of a `Rewrite` is its left side and step 1 its right side; step
+    /// 0 of an `As` is its pattern and step 1 its alias; step `i` of a sequence or an application
+    /// is its item `i`. Injected labels, variables and tokens have no children.
+    pub fn children(&self) -> Vec<&Self> {
+        match self.unannotated() {
+            Self::Rewrite { left, right } => vec![left, right],
+            Self::As { pattern, alias } => vec![pattern, alias],
+            Self::Sequence(items)
+            | Self::Apply {
+                arguments: items, ..
+            } => items.iter().collect(),
+            Self::InjectedLabel(_) | Self::Variable { .. } | Self::Token { .. } => Vec::new(),
+            Self::Annotated { .. } => unreachable!("unannotated strips annotations"),
+        }
+    }
+
+    /// The mutable counterpart of [`Term::children`], in the same step order.
+    pub fn children_mut(&mut self) -> Vec<&mut Self> {
+        let mut term = self;
+        while let Self::Annotated { term: inner, .. } = term {
+            term = inner;
+        }
+        match term {
+            Self::Rewrite { left, right } => vec![&mut **left, &mut **right],
+            Self::As { pattern, alias } => vec![&mut **pattern, &mut **alias],
+            Self::Sequence(items)
+            | Self::Apply {
+                arguments: items, ..
+            } => items.iter_mut().collect(),
+            Self::InjectedLabel(_) | Self::Variable { .. } | Self::Token { .. } => Vec::new(),
+            Self::Annotated { .. } => unreachable!("the loop strips annotations"),
+        }
+    }
+
+    /// The subterm `steps` lead to from this term, one step of [`Term::children`] per level, as
+    /// stored, its annotation included; `None` when a step names no child. The empty path leads
+    /// to this term.
+    pub fn at_path(&self, steps: &[u32]) -> Option<&Self> {
+        let mut term = self;
+        for &step in steps {
+            term = term
+                .children()
+                .into_iter()
+                .nth(usize::try_from(step).ok()?)?;
+        }
+        Some(term)
+    }
+
+    /// The mutable counterpart of [`Term::at_path`], resolving `steps` the same way.
+    pub fn at_path_mut(&mut self, steps: &[u32]) -> Option<&mut Self> {
+        let mut term = self;
+        for &step in steps {
+            term = term
+                .children_mut()
+                .into_iter()
+                .nth(usize::try_from(step).ok()?)?;
+        }
+        Some(term)
+    }
+
     /// Strict structural equality used by incremental definition resolution.
     /// Semantic equality intentionally ignores compiler annotations; reuse cannot.
     pub(crate) fn identical(&self, other: &Self) -> bool {
@@ -1152,6 +1216,88 @@ mod tests {
         assert!(Arc::strong_count(&record) > DEEP / 10);
         on_stack(64 << 10, move || drop(term));
         assert_eq!(Arc::strong_count(&record), 1);
+    }
+
+    /// A node's children come in step order whatever annotates it, each with its own annotation:
+    /// a rewrite's left then right side, an alias's pattern then alias, a sequence's or an
+    /// application's items in order, and none for a leaf. A path takes one such step per level.
+    #[test]
+    fn children_come_in_step_order_and_a_path_takes_one_per_level() {
+        let sorted = |term: Term| {
+            term.with_metadata(TermMetadata {
+                sort: Some(Sort::new("S")),
+                ..TermMetadata::default()
+            })
+        };
+        let (x, y) = (sorted(Term::variable("X")), Term::variable("Y"));
+        let rewrite = sorted(Term::Rewrite {
+            left: Box::new(x.clone()),
+            right: Box::new(y.clone()),
+        });
+        let alias = Term::As {
+            pattern: Box::new(y.clone()),
+            alias: Box::new(x.clone()),
+        };
+        let cases = [
+            (rewrite.clone(), vec![&x, &y]),
+            (alias.clone(), vec![&y, &x]),
+            (
+                Term::Sequence(vec![x.clone(), y.clone(), x.clone()]),
+                vec![&x, &y, &x],
+            ),
+            (
+                sorted(Term::apply("f", vec![y.clone(), x.clone()])),
+                vec![&y, &x],
+            ),
+            (Term::InjectedLabel(Label::new("f")), vec![]),
+            (x.clone(), vec![]),
+            (
+                sorted(Term::Token {
+                    token: "1".into(),
+                    sort: Sort::new("Int"),
+                }),
+                vec![],
+            ),
+        ];
+        let same = |children: &[&Term], expected: &[&Term]| {
+            children.len() == expected.len()
+                && children
+                    .iter()
+                    .zip(expected)
+                    .all(|(child, expected)| child.identical(expected))
+        };
+        for (mut node, expected) in cases {
+            assert!(same(&node.children(), &expected), "children of {node:?}");
+            let expected = expected.into_iter().cloned().collect::<Vec<_>>();
+            let children = node
+                .children_mut()
+                .into_iter()
+                .map(|child| &*child)
+                .cloned();
+            let children = children.collect::<Vec<_>>();
+            assert!(
+                same(
+                    &children.iter().collect::<Vec<_>>(),
+                    &expected.iter().collect::<Vec<_>>()
+                ),
+                "children_mut of {node:?}"
+            );
+        }
+
+        let mut term = sorted(Term::apply("g", vec![rewrite, alias]));
+        assert!(term.at_path(&[]).is_some_and(|node| node.identical(&term)));
+        assert!(term.at_path(&[0, 1]).is_some_and(|node| node.identical(&y)));
+        assert!(term.at_path(&[1, 1]).is_some_and(|node| node.identical(&x)));
+        assert!(term.at_path(&[2]).is_none(), "g has two children");
+        assert!(
+            term.at_path(&[0, 0, 0]).is_none(),
+            "a variable has no children"
+        );
+        *term.at_path_mut(&[1, 1]).expect("the alias of the alias") = Term::variable("Z");
+        assert!(
+            term.at_path(&[1, 1])
+                .is_some_and(|node| node.identical(&Term::variable("Z")))
+        );
     }
 
     /// Taking a node apart and putting it back together gives the same node, every field

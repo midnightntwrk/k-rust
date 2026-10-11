@@ -17,16 +17,23 @@
 //! ```
 //!
 //! Each run fails on every case it did not compile that the manifest expects to compile (an
-//! `expect` other than `"reject"`), unless the error is `Z3InferenceRequired`: an error there
-//! means no build compiled the definition, so the comparison did not happen, even when both builds
-//! fail alike. The first run records each case's outcome; the second computes its own and fails
-//! on every case both builds compiled to different KORE, on every case one build rejects for a reason other
-//! than the portable build's documented `Z3InferenceRequired`, and on every case only one of the
-//! runs compiled. It prints the cases refused with `Z3InferenceRequired`: they are not a
-//! disagreement, but each is a definition the portable hosts cannot compile. The real-semantics
-//! cases (`wasm`, `mir`, `evm-equivalence`) run only when `BUILD_AGREEMENT_CASES` names them (for
-//! example `wasm,mir,evm-equivalence`); their checkouts resolve as `scripts/reference-manifest.py`
-//! resolves them, and a named case whose source cannot be read fails the run.
+//! `expect` other than `"reject"`), unless the error is the portable build's `Z3InferenceRequired`:
+//! an error there means no build compiled the definition, so the comparison did not happen, even
+//! when both builds fail alike. The native build has the engine the refusal names, so the refusal
+//! is a failure to compile there like any other error. The first run records each case's outcome;
+//! the second computes its own and fails on every case both builds compiled to different KORE, on
+//! every case one build rejects for a reason other than the portable build's documented
+//! `Z3InferenceRequired`, and on every case only one of the runs compiled. It prints the cases
+//! refused with `Z3InferenceRequired`: they are not a disagreement, but each is a definition the
+//! portable hosts cannot compile. When `BUILD_AGREEMENT_REFUSED` lists the cases the portable
+//! build is expected to refuse (comma-separated, possibly empty), the portable run also fails on
+//! every other refusal and on every listed case it compiled, so a new refusal shows and the record
+//! stays exact. The real-semantics cases (`wasm`, `mir`, `evm-equivalence`) run only when
+//! `BUILD_AGREEMENT_CASES` names them (for example `wasm,mir,evm-equivalence`), or with every
+//! local case when it is unset and `BUILD_AGREEMENT_REAL_SEMANTICS=1`; their checkouts
+//! resolve as `scripts/reference-manifest.py` resolves them, and a named case whose source cannot
+//! be read fails the run. `scripts/build-agreement.sh` runs both builds, the gate registry's
+//! `build-agreement` entry (`scripts/gates.toml`) with the recorded refusal set.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -56,8 +63,8 @@ fn digest(parts: &[&str]) -> String {
         .collect()
 }
 
-/// The real-semantics cases, which take minutes and gigabytes: compiled only when
-/// `BUILD_AGREEMENT_CASES` names them.
+/// The real-semantics cases, whose sources are the large checkouts beside the workspace: compiled
+/// only when `BUILD_AGREEMENT_CASES` names them or `BUILD_AGREEMENT_REAL_SEMANTICS=1` adds them.
 const HEAVY: [&str; 3] = ["wasm", "mir", "evm-equivalence"];
 
 /// A manifest path with its checkout placeholder replaced, as `scripts/reference-manifest.py`
@@ -207,6 +214,7 @@ fn both_builds_compile_every_local_manifest_case_alike() {
         .filter_map(Value::as_table)
         .collect::<Vec<_>>();
     let selected = env::var("BUILD_AGREEMENT_CASES").ok();
+    let real_semantics = env::var("BUILD_AGREEMENT_REAL_SEMANTICS").is_ok_and(|value| value == "1");
     if let Some(selected) = &selected {
         let unknown = selected
             .split(',')
@@ -228,7 +236,7 @@ fn both_builds_compile_every_local_manifest_case_alike() {
             let name = case["name"].as_str().unwrap_or_default();
             match selected.as_deref() {
                 Some(selected) => selected.split(',').any(|selected| selected == name),
-                None => !HEAVY.contains(&name),
+                None => real_semantics || !HEAVY.contains(&name),
             }
         })
         .map(|case| outcome(&workspace, case))
@@ -247,14 +255,17 @@ fn both_builds_compile_every_local_manifest_case_alike() {
         .filter_map(Result::ok)
         .collect::<BTreeMap<_, _>>();
     assert!(!outcomes.is_empty(), "no local compile case");
+    let native = cfg!(feature = "z3-inference");
     // A case the manifest does not expect to be rejected is a definition that compiles, so any
     // other error than the portable build's documented refusal means this build did not compile
     // it and nothing was compared; an error both builds share would otherwise read as agreement.
+    // The native build settles with Z3 what the portable build refuses, so a refusal there is an
+    // error like any other.
     let not_compiled = outcomes
         .iter()
         .filter(|(name, outcome)| {
             outcome.starts_with("error ")
-                && outcome.as_str() != "error Z3InferenceRequired"
+                && (native || outcome.as_str() != "error Z3InferenceRequired")
                 && !rejected.contains(name.as_str())
         })
         .map(|(name, outcome)| format!("{name}: {outcome}"))
@@ -264,11 +275,7 @@ fn both_builds_compile_every_local_manifest_case_alike() {
         "cases expected to compile that this build did not compile:\n{}",
         not_compiled.join("\n")
     );
-    let build = if cfg!(feature = "z3-inference") {
-        "z3-inference"
-    } else {
-        "portable"
-    };
+    let build = if native { "z3-inference" } else { "portable" };
     let rendered = outcomes
         .iter()
         .map(|(name, outcome)| format!("{name}\t{outcome}\n"))
@@ -276,6 +283,37 @@ fn both_builds_compile_every_local_manifest_case_alike() {
     eprintln!("{build} build:\n{rendered}");
     if let Some(path) = env::var_os("BUILD_AGREEMENT_RECORD") {
         fs::write(&path, &rendered).expect("record the outcomes");
+    }
+    if let (false, Ok(expected)) = (native, env::var("BUILD_AGREEMENT_REFUSED")) {
+        let expected = expected
+            .split(',')
+            .filter(|name| !name.is_empty())
+            .collect::<BTreeSet<_>>();
+        let unselected = expected
+            .iter()
+            .filter(|name| !outcomes.contains_key(**name))
+            .collect::<Vec<_>>();
+        assert!(
+            unselected.is_empty(),
+            "BUILD_AGREEMENT_REFUSED names cases this run did not select: {unselected:?}"
+        );
+        let mut changes = Vec::new();
+        for (name, outcome) in &outcomes {
+            let refused = outcome == "error Z3InferenceRequired";
+            match (refused, expected.contains(name.as_str())) {
+                (true, false) => changes.push(format!("{name}: refused, and not in the record")),
+                (false, true) => changes.push(format!(
+                    "{name}: in the record, and {outcome} in the portable build; remove it from \
+                     the record"
+                )),
+                _ => {}
+            }
+        }
+        assert!(
+            changes.is_empty(),
+            "the portable build's refusals differ from BUILD_AGREEMENT_REFUSED:\n{}",
+            changes.join("\n")
+        );
     }
     let Some(path) = env::var_os("BUILD_AGREEMENT_COMPARE") else {
         return;

@@ -20,6 +20,8 @@ const MIR_EXECUTION_SCRIPT: &str =
     include_str!("../../../scripts/reference-mir-execution-differential.sh");
 const SYMBOLIC_EXECUTION_SCRIPT_PATH: &str = "scripts/reference-symbolic-execution-differential.sh";
 const DIFFERENTIAL_WORKFLOW: &str = include_str!("../../../.github/workflows/differential.yml");
+const CI_WORKFLOW: &str = include_str!("../../../.github/workflows/ci.yml");
+const GATES: &str = include_str!("../../../scripts/gates.toml");
 const SECTIONS: [&str; 6] = ["compile", "kast", "execution", "proof", "rpc", "symbolic"];
 const JAVA_BACKED_DIFFERENTIAL_SCRIPTS: [&str; 6] = [
     COMPILE_SCRIPT,
@@ -1698,14 +1700,14 @@ fn every_gate_normalisation_is_registered() {
     let expected = (1..=28)
         .filter(|id| *id != 2)
         .chain([
-            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
+            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
         ])
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1, N3 through N28, and N30 through N46 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
+        "the gate register must contain N1, N3 through N28, and N30 through N47 (N29 is reserved); global UNIQUE_ID exclusion N2 is retired"
     );
     let row = |id: &str| {
         rows.iter()
@@ -2220,28 +2222,45 @@ fn excluded_cases_have_complete_oracle_dispositions() {
     assert_eq!(names, expected_names, "the audited exclusion set changed");
 }
 
+/// A recorded divergence from the reference is adjudicated: its reason links the
+/// docs/compatibility.md section that argues it, and that section names it and its kind. A
+/// compile case is named by its case name, a kast entry by `case:entry`.
 #[test]
-fn port_accepts_cases_are_the_adjudicated_divergences() {
+fn recorded_divergences_are_the_adjudicated_ones() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
     let compatibility = fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/compatibility.md"),
     )
     .expect("docs/compatibility.md");
-    let mut names = BTreeSet::new();
+    let mut divergences = Vec::new();
     for entry in manifest["compile"].as_array().expect("compile cases") {
-        if entry.get("expect").and_then(Value::as_str) != Some("port-accepts") {
-            continue;
+        if entry.get("expect").and_then(Value::as_str) == Some("port-accepts") {
+            let name = entry["name"].as_str().expect("compile name");
+            divergences.push((name.to_owned(), "port-accepts", entry));
         }
-        let name = entry["name"].as_str().expect("compile name");
-        names.insert(name);
-        let reason = entry["reason"].as_str().expect("port-accepts reason");
+    }
+    for case in manifest["kast"].as_array().expect("kast cases") {
+        let case_name = case["name"].as_str().expect("kast name");
+        for kind in ["port-accepts", "port-rejects"] {
+            for entry in case
+                .get(kind)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let entry_name = entry["name"].as_str().expect("kast entry name");
+                divergences.push((format!("{case_name}:{entry_name}"), kind, entry));
+            }
+        }
+    }
+    let mut names = BTreeSet::new();
+    for (name, kind, entry) in divergences {
+        let reason = entry["reason"].as_str().expect("divergence reason");
         let anchor = reason
             .split_whitespace()
             .find_map(|word| word.strip_prefix("docs/compatibility.md#"))
             .map(|anchor| anchor.trim_end_matches('.'))
-            .unwrap_or_else(|| {
-                panic!("port-accepts case {name} must link its compatibility section")
-            });
+            .unwrap_or_else(|| panic!("{kind} {name} must link its compatibility section"));
         let heading = compatibility
             .lines()
             .filter_map(|line| line.strip_prefix("## "))
@@ -2253,15 +2272,93 @@ fn port_accepts_cases_are_the_adjudicated_divergences() {
             .and_then(|rest| rest.split("\n## ").next())
             .expect("compatibility section body");
         assert!(
-            section.contains(&format!("`{name}`")) && section.contains("port-accepts"),
-            "docs/compatibility.md#{anchor} must record {name} as a port-accepts divergence",
+            section.contains(&format!("`{name}`")) && section.contains(kind),
+            "docs/compatibility.md#{anchor} must record {name} as a {kind} divergence",
         );
+        names.insert(name);
     }
     assert_eq!(
         names,
-        BTreeSet::from(["semcast3", "semcast4"]),
-        "the adjudicated port-accepts set changed",
+        BTreeSet::from(
+            [
+                "semcast3",
+                "semcast4",
+                "regex-anchor-local:end-anchor-at-the-end-of-the-text",
+                "regex-anchor-local:start-anchor-at-the-end-of-the-text",
+            ]
+            .map(String::from)
+        ),
+        "the adjudicated divergence set changed",
     );
+}
+
+#[test]
+fn differential_manifest_requires_a_reason_for_a_kast_divergence() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("manifest-kast-entries");
+    let helper = fixture.join("reference-manifest.py");
+    fs::copy(workspace.join("scripts/reference-manifest.py"), &helper).unwrap();
+    for (entry, valid) in [
+        ("[[kast.accept]]\nname = \"e\"\n", true),
+        ("[[kast.reject]]\nname = \"e\"\n", true),
+        (
+            "[[kast.port-rejects]]\nname = \"e\"\nreason = \"why\"\n",
+            true,
+        ),
+        (
+            "[[kast.port-accepts]]\nname = \"e\"\nreason = \"why\"\nreference-error = \"Scanner error\"\n",
+            true,
+        ),
+        ("[[kast.port-rejects]]\nname = \"e\"\n", false),
+        (
+            "[[kast.port-rejects]]\nname = \"e\"\nreason = \" \"\n",
+            false,
+        ),
+        (
+            "[[kast.port-rejects]]\nname = \"e\"\nreason = \"why\"\nreference-error = \"Scanner error\"\n",
+            false,
+        ),
+        (
+            "[[kast.port-accepts]]\nname = \"e\"\nreason = \"why\"\n",
+            false,
+        ),
+        (
+            "[[kast.port-accepts]]\nname = \"e\"\nreference-error = \"Scanner error\"\n",
+            false,
+        ),
+        ("[[kast.accept]]\nname = \"e\"\nreason = \"why\"\n", false),
+        (
+            "[[kast.reject]]\nname = \"e\"\nreference-error = \"Scanner error\"\n",
+            false,
+        ),
+        (
+            "[[kast.port-accept]]\nname = \"e\"\nreason = \"why\"\n",
+            false,
+        ),
+    ] {
+        fs::write(
+            fixture.join("reference-differential.toml"),
+            format!(
+                "[[kast]]\nname = \"fixture\"\nrequires = [\"reference-toolchain\"]\n\n{entry}"
+            ),
+        )
+        .unwrap();
+        let output = Command::new("python3")
+            .arg(&helper)
+            .arg("--validate")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(if valid { 0 } else { 2 }),
+            "{entry}: {stderr}"
+        );
+        if !valid {
+            assert!(stderr.contains("invalid differential manifest"), "{stderr}");
+        }
+    }
+    fs::remove_dir_all(fixture).unwrap();
 }
 
 #[test]
@@ -2445,6 +2542,163 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
 }
 
 #[test]
+fn kast_gate_fails_when_either_side_of_a_recorded_divergence_moves() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("kast-divergence-gate");
+    let k_checkout = fake_k_checkout(&fixture, &[]);
+    let fake_kompile = fixture.join("kompile");
+    write_environment_probe(&fake_kompile, "kompile", FAKE_KOMPILE_PROLOGUE);
+    // The pinned kast of the regex-anchor-local case: the agreed entries answer as recorded, and
+    // the two divergent texts answer as the environment says. Any other text, including an
+    // agreed one that lost its line end on the way, is an error.
+    let fake_kast = fixture.join("kast");
+    write_environment_probe(
+        &fake_kast,
+        "kast",
+        r#"
+while (($#)); do
+  if [[ "$1" == --expression ]]; then expression=$2; fi
+  shift
+done
+case "$expression" in
+  $'a\n' | $'b\n') echo '{}' ;;
+  $' b\n') echo "[Error] Inner Parser: Scanner error: unexpected character sequence 'b'." >&2; exit 113 ;;
+  a) echo '{}'; exit "$FAKE_KAST_A_STATUS" ;;
+  b) echo "$FAKE_KAST_B_MESSAGE" >&2; exit "$FAKE_KAST_B_STATUS" ;;
+  *) echo "unexpected expression $(printf %q "$expression")" >&2; exit 3 ;;
+esac
+"#,
+    );
+    let krust_arguments = fixture.join("krust-arguments");
+    let gate_target = fake_gate_rust_toolchain(
+        &fixture,
+        r#"printf '%s\0' "$@" >"$FAKE_KRUST_ARGUMENTS"; exit "$FAKE_KRUST_STATUS""#,
+        "",
+    );
+    let calls = fixture.join("calls");
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let script = workspace.join("scripts/reference-kast-differential.sh");
+    const PINNED: &str = "[Error] Inner Parser: Scanner error: unexpected character sequence 'b'.";
+    let run = |a: u8, b: u8, message: &str, krust: u8| {
+        let output = Command::new("bash")
+            .arg(&script)
+            .arg("regex-anchor-local")
+            .env("PATH", &path)
+            .env("K_CHECKOUT", &k_checkout)
+            .env("K_KOMPILE", &fake_kompile)
+            .env("K_KAST", &fake_kast)
+            .env("FAKE_KAST_A_STATUS", a.to_string())
+            .env("FAKE_KAST_B_STATUS", b.to_string())
+            .env("FAKE_KAST_B_MESSAGE", message)
+            .env("FAKE_KRUST_STATUS", krust.to_string())
+            .env("FAKE_KRUST_ARGUMENTS", &krust_arguments)
+            .env("KRUST_GATE_TARGET_DIR", &gate_target)
+            .env("ENVIRONMENT_CALLS", &calls)
+            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+            .output()
+            .expect("run kast divergence gate fixture");
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    };
+
+    let (status, stdout, stderr) = run(0, 113, PINNED, 0);
+    assert_eq!(
+        status,
+        Some(0),
+        "recorded divergences hold: {stdout}\n{stderr}"
+    );
+    for line in [
+        "[regex-anchor-local:start-anchor-at-the-end-of-the-text] recorded divergence: A token regex with a start anchor",
+        "[regex-anchor-local:start-anchor-at-the-end-of-the-text] reference rejection: [Error] Inner Parser: Scanner error",
+        "[regex-anchor-local:end-anchor-at-the-end-of-the-text] recorded divergence: A token regex with an end anchor",
+        "corpus passed",
+    ] {
+        assert!(stdout.contains(line), "{line}: {stdout}");
+    }
+    // krust is asked to accept the agreed and the port-accepts texts and to reject the agreed
+    // rejection and the port-rejects text, each with its line ends.
+    let arguments = fs::read(&krust_arguments).expect("krust arguments");
+    let arguments = arguments
+        .split(|byte| *byte == 0)
+        .map(|argument| String::from_utf8_lossy(argument).into_owned())
+        .collect::<Vec<_>>();
+    for expected in [
+        ["--batch-case", "end-anchor-before-a-newline", "Foo", "a\n"],
+        [
+            "--batch-case",
+            "start-anchor-at-the-start-before-a-newline",
+            "Bar",
+            "b\n",
+        ],
+        [
+            "--batch-case",
+            "start-anchor-at-the-end-of-the-text",
+            "Bar",
+            "b",
+        ],
+        [
+            "--batch-reject-case",
+            "start-anchor-after-a-space",
+            "Bar",
+            " b\n",
+        ],
+        [
+            "--batch-reject-case",
+            "end-anchor-at-the-end-of-the-text",
+            "Foo",
+            "a",
+        ],
+    ] {
+        assert!(
+            arguments.windows(4).any(|window| window == expected),
+            "krust was not given {expected:?}: {arguments:?}"
+        );
+    }
+
+    for (a, b, message, krust, diagnostic) in [
+        (
+            0,
+            0,
+            PINNED,
+            0,
+            "reference kast accepted port-accepts case regex-anchor-local:start-anchor-at-the-end-of-the-text",
+        ),
+        (
+            0,
+            1,
+            "Error: Could not reserve enough space for object heap",
+            0,
+            "lacks the recorded reference-error \"Scanner error: unexpected character sequence 'b'\"",
+        ),
+        (
+            1,
+            113,
+            PINNED,
+            0,
+            "reference kast rejected port-rejects case regex-anchor-local:end-anchor-at-the-end-of-the-text",
+        ),
+    ] {
+        let (status, stdout, stderr) = run(a, b, message, krust);
+        assert_eq!(status, Some(1), "{diagnostic}: {stdout}\n{stderr}");
+        assert!(stderr.contains(diagnostic), "{stderr}");
+        assert!(!stdout.contains("corpus passed"), "{stdout}");
+    }
+    // krust's side is its batch session, which fails when a port-accepts text is rejected or a
+    // port-rejects text accepted.
+    let (status, stdout, stderr) = run(0, 113, PINNED, 1);
+    assert_ne!(status, Some(0), "{stdout}\n{stderr}");
+    assert!(!stdout.contains("corpus passed"), "{stdout}");
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
 fn llvm_verification_normalisation_is_exact_and_refuses_existing_claims() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let fixture = environment_fixture("llvm-verification-normalisation");
@@ -2606,12 +2860,12 @@ fi
 
 #[test]
 fn manual_certification_protocol_names_required_gates() {
-    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
-    let certification = manifest["gate"]
+    let registry = GATES.parse::<Value>().expect("valid gate registry TOML");
+    let certification = registry["gate"]
         .as_array()
-        .expect("gate sets")
+        .expect("gate entries")
         .iter()
-        .filter(|gate| gate["run"].as_str() == Some("certification"))
+        .filter(|gate| matches!(gate["run"].as_str(), Some("certification" | "heavy")))
         .map(|gate| gate["command"].as_str().expect("gate command"))
         .collect::<BTreeSet<_>>();
     for command in [
@@ -2638,14 +2892,15 @@ fn manual_certification_protocol_names_required_gates() {
     }
 
     for requirement in [
-        r#"# Run the command of every [[gate]] below whose run is "certification" after a change to frontend, definition, kompile, or KORE emission behavior."#,
-        "# PR description (any change under crates/k-rust/src/{inner,kompile,outer,definition}, crates/k-rust-backend, scripts/reference-*, scripts/conformance/):",
-        "#   1. the certification gate commands below that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)",
+        r#"# Run `scripts/run-gates.sh --changed BASE..HEAD` after a change; it runs every entry the change owes, and lists the host = "human-uid" ones as not run under an agent-N user."#,
+        "# The heavy driver runs `scripts/run-gates.sh --run heavy --changed BASE..HEAD` at a host UID on each integration head.",
+        "# PR description (any change that owes a certification or heavy entry):",
+        "#   1. the summary of `scripts/run-gates.sh --changed BASE..HEAD`, one row per entry: pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py), and the cases each entry ran",
         "#   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label change --cases <affected cases> --log target/conformance/ratchet.toml --runs-dir target/conformance/runs` (or --all for full certification)",
         "#   3. the permanent multi-alias oracle-exclusion count printed by scripts/reference-differential.sh",
     ] {
         assert!(
-            MANIFEST.lines().any(|line| line == requirement),
+            GATES.lines().any(|line| line == requirement),
             "manual certification protocol must require `{requirement}`",
         );
     }
@@ -2678,19 +2933,21 @@ fn is_runnable_case(entry: &Value) -> bool {
     })
 }
 
-/// Every inconsistency between the manifest's `[[gate]]` sets and its cases.
+/// Every inconsistency between the `[[gate]]` entries of the registry (`scripts/gates.toml`) and
+/// the manifest's cases. The registry's own keys, kinds and path patterns are checked by
+/// `scripts/run-gates.sh --check` (`the_gate_registry_is_valid_against_the_workspace`).
 ///
 /// A gate command is `[NAME=value ...] script [argument ...]`, run from the workspace root. For a
 /// script of `CASE_SCRIPTS` the arguments are case names of its section, every one of which must
 /// be runnable there (the script refuses any other name before it does work), and no arguments
 /// select every runnable case. A runnable case must be selected by some gate or carry
 /// `manual = "<reason>"`; a case that some gate selects must not also claim to be manual.
-fn gate_model_failures(manifest: &Value, workspace: &Path) -> Vec<String> {
+fn gate_model_failures(registry: &Value, manifest: &Value, workspace: &Path) -> Vec<String> {
     let mut failures = Vec::new();
     let mut gated = BTreeSet::<(&str, &str)>::new();
     let mut names = BTreeSet::new();
-    let Some(gates) = manifest.get("gate").and_then(Value::as_array) else {
-        return vec!["the manifest has no [[gate]] sets".into()];
+    let Some(gates) = registry.get("gate").and_then(Value::as_array) else {
+        return vec!["the registry has no [[gate]] entries".into()];
     };
     for gate in gates {
         let Some(table) = gate.as_table() else {
@@ -2700,18 +2957,6 @@ fn gate_model_failures(manifest: &Value, workspace: &Path) -> Vec<String> {
         let name = table.get("name").and_then(Value::as_str).unwrap_or("");
         if name.is_empty() || !names.insert(name) {
             failures.push(format!("gate name `{name}` is empty or not unique"));
-        }
-        let keys = table.keys().map(String::as_str).collect::<BTreeSet<_>>();
-        if keys != BTreeSet::from(["command", "name", "run"]) {
-            failures.push(format!(
-                "gate {name} has keys {keys:?}, not command, name and run"
-            ));
-        }
-        let run = table.get("run").and_then(Value::as_str).unwrap_or("");
-        if !matches!(run, "certification" | "weekly") {
-            failures.push(format!(
-                "gate {name} has run `{run}`, not certification or weekly"
-            ));
         }
         let command = table.get("command").and_then(Value::as_str).unwrap_or("");
         let mut words = command
@@ -2795,7 +3040,8 @@ fn gate_model_failures(manifest: &Value, workspace: &Path) -> Vec<String> {
 fn every_runnable_case_belongs_to_a_gate_or_is_manual() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let failures = gate_model_failures(&manifest, &workspace);
+    let registry = GATES.parse::<Value>().expect("valid gate registry TOML");
+    let failures = gate_model_failures(&registry, &manifest, &workspace);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
@@ -2803,6 +3049,7 @@ fn every_runnable_case_belongs_to_a_gate_or_is_manual() {
 fn gate_model_rejects_unlisted_misnamed_and_falsely_manual_cases() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let registry = GATES.parse::<Value>().expect("valid gate registry TOML");
 
     let mut unlisted = manifest.clone();
     let mut probe = unlisted["compile"][0].clone();
@@ -2812,7 +3059,7 @@ fn gate_model_rejects_unlisted_misnamed_and_falsely_manual_cases() {
         .unwrap()
         .push(probe.clone());
     assert_eq!(
-        gate_model_failures(&unlisted, &workspace),
+        gate_model_failures(&registry, &unlisted, &workspace),
         ["compile case unlisted-probe is in no [[gate]] and carries no manual reason"],
     );
 
@@ -2822,7 +3069,7 @@ fn gate_model_rejects_unlisted_misnamed_and_falsely_manual_cases() {
         "manual".into(),
         Value::String("the probe is run by hand".into()),
     );
-    assert!(gate_model_failures(&manual, &workspace).is_empty());
+    assert!(gate_model_failures(&registry, &manual, &workspace).is_empty());
 
     let mut blocked = unlisted.clone();
     blocked["compile"]
@@ -2831,7 +3078,7 @@ fn gate_model_rejects_unlisted_misnamed_and_falsely_manual_cases() {
         .last_mut()
         .unwrap()["requires"] = Value::Array(vec![Value::String("semantics-support".into())]);
     assert!(
-        gate_model_failures(&blocked, &workspace).is_empty(),
+        gate_model_failures(&registry, &blocked, &workspace).is_empty(),
         "a case no script can run needs no gate"
     );
 
@@ -2842,13 +3089,13 @@ fn gate_model_rejects_unlisted_misnamed_and_falsely_manual_cases() {
         .insert("manual".into(), Value::String("stale".into()));
     let first = manifest["compile"][0]["name"].as_str().unwrap();
     assert_eq!(
-        gate_model_failures(&falsely_manual, &workspace),
+        gate_model_failures(&registry, &falsely_manual, &workspace),
         [format!(
             "compile case {first} is run by a gate but carries a manual reason"
         )],
     );
 
-    let mut misnamed = manifest.clone();
+    let mut misnamed = registry.clone();
     let gate = misnamed["gate"]
         .as_array_mut()
         .unwrap()
@@ -2856,15 +3103,15 @@ fn gate_model_rejects_unlisted_misnamed_and_falsely_manual_cases() {
         .unwrap();
     let command = format!("{} no-such-case", gate["command"].as_str().unwrap());
     gate["command"] = Value::String(command);
-    let gate_name = manifest["gate"][0]["name"].as_str().unwrap();
+    let gate_name = registry["gate"][0]["name"].as_str().unwrap();
     assert_eq!(
-        gate_model_failures(&misnamed, &workspace),
+        gate_model_failures(&misnamed, &manifest, &workspace),
         [format!(
             "gate {gate_name} names `no-such-case`, which is not a runnable compile case"
         )],
     );
 
-    let mut all_cases = unlisted.clone();
+    let mut all_cases = registry.clone();
     all_cases["gate"].as_array_mut().unwrap().push(Value::Table(
         [
             ("name".to_owned(), Value::String("compile-all".into())),
@@ -2878,7 +3125,7 @@ fn gate_model_rejects_unlisted_misnamed_and_falsely_manual_cases() {
         .collect(),
     ));
     assert!(
-        gate_model_failures(&all_cases, &workspace).is_empty(),
+        gate_model_failures(&all_cases, &unlisted, &workspace).is_empty(),
         "a case script without arguments runs every runnable case of its section"
     );
 }
@@ -2919,12 +3166,13 @@ fn workflow_script_commands(workflow: &str) -> Vec<String> {
     commands
 }
 
-/// The weekly gate sets are the differential workflow's gate steps, so the manifest stays the one
-/// record of which case runs where until the workflow reads its case lists from the manifest.
+/// The weekly entries of the gate registry are the differential workflow's gate steps, so the
+/// registry stays the one record of which case runs where until the workflow reads its case lists
+/// from it.
 #[test]
 fn weekly_gates_are_the_differential_workflow_steps() {
-    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
-    let mut weekly = manifest["gate"]
+    let registry = GATES.parse::<Value>().expect("valid gate registry TOML");
+    let mut weekly = registry["gate"]
         .as_array()
         .expect("gate sets")
         .iter()
@@ -2944,6 +3192,173 @@ fn weekly_gates_are_the_differential_workflow_steps() {
     );
 }
 
+/// A `ci` entry of the gate registry is a step of the CI workflow with the same command, so the
+/// registry's record of what runs on every push is what runs.
+#[test]
+fn ci_gates_are_ci_workflow_steps() {
+    let registry = GATES.parse::<Value>().expect("valid gate registry TOML");
+    let workflow = workflow_script_commands(CI_WORKFLOW);
+    let ci = registry["gate"]
+        .as_array()
+        .expect("gate entries")
+        .iter()
+        .filter(|gate| gate["run"].as_str() == Some("ci"))
+        .map(|gate| gate["command"].as_str().expect("gate command"))
+        .collect::<Vec<_>>();
+    assert!(!ci.is_empty(), "the registry has no ci entry");
+    for command in ci {
+        assert!(
+            workflow.iter().any(|step| step == command),
+            "the ci entry `{command}` is not a step of .github/workflows/ci.yml: {workflow:?}"
+        );
+    }
+}
+
+/// `scripts/run-gates.sh` with the given arguments, from the workspace root: its exit code and
+/// standard output and error.
+fn run_gates(arguments: &[&str]) -> (Option<i32>, String, String) {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("bash")
+        .arg(workspace.join("scripts/run-gates.sh"))
+        .args(arguments)
+        .current_dir(&workspace)
+        .output()
+        .expect("run scripts/run-gates.sh");
+    (
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// The registry's keys, kinds and patterns are well formed, every pattern matches a tracked file,
+/// and every command runs a tracked program. Since a certification or heavy entry must name
+/// `paths`, every such entry is owed by some change to a tracked file: none is reachable only by
+/// someone remembering its name.
+#[test]
+fn the_gate_registry_is_valid_against_the_workspace() {
+    let (code, stdout, stderr) = run_gates(&["--check"]);
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+}
+
+/// An owed entry whose patterns match no tracked file is owed by no change, so `--check` refuses
+/// it, as it refuses an owed entry without patterns.
+#[test]
+fn the_gate_registry_check_refuses_an_owed_entry_no_tracked_path_selects() {
+    let directory = std::env::temp_dir().join(format!(
+        "k-rust-gates-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&directory).unwrap();
+    let unmatched = directory.join("unmatched.toml");
+    fs::write(
+        &unmatched,
+        "[[gate]]\nname = \"orphan\"\nrun = \"certification\"\ncommand = \"scripts/run-gates.sh\"\npaths = ['^no/such/directory/']\n",
+    )
+    .unwrap();
+    let (code, _, stderr) = run_gates(&["--check", "--registry", unmatched.to_str().unwrap()]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(
+        stderr.contains("gate orphan: pattern '^no/such/directory/' matches no tracked file"),
+        "{stderr}"
+    );
+    let pathless = directory.join("pathless.toml");
+    fs::write(
+        &pathless,
+        "[[gate]]\nname = \"orphan\"\nrun = \"heavy\"\ncommand = \"scripts/run-gates.sh\"\n",
+    )
+    .unwrap();
+    let (code, _, stderr) = run_gates(&["--check", "--registry", pathless.to_str().unwrap()]);
+    assert_eq!(code, Some(2), "{stderr}");
+    assert!(
+        stderr.contains("gate orphan: a heavy entry needs `paths`"),
+        "{stderr}"
+    );
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// A change to the inner parser owes the gate that compares krust's parses of the real semantics
+/// with the reference's: what the protocol requires of such a change is what the runner selects.
+#[test]
+fn a_change_to_the_inner_parser_owes_kast_real_semantics() {
+    let (code, stdout, stderr) =
+        run_gates(&["--list", "--touched", "crates/k-rust/src/inner/parser.rs"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let selected = stdout
+        .lines()
+        .filter(|line| !line.starts_with(' '))
+        .filter_map(|line| line.split_whitespace().next())
+        .collect::<BTreeSet<_>>();
+    for gate in ["kast-real-semantics", "kast-imp", "compile-light"] {
+        assert!(selected.contains(gate), "{gate} not selected: {stdout}");
+    }
+    assert!(
+        !selected.contains("weekly-kast") && !selected.contains("coverage"),
+        "a change owes no scheduled or on-demand entry: {stdout}"
+    );
+    let (code, _, stderr) = run_gates(&["--list", "kast-real-semantic"]);
+    assert_eq!(code, Some(2), "an unknown name fails");
+    assert!(
+        stderr.contains("unknown gate kast-real-semantic"),
+        "{stderr}"
+    );
+}
+
+/// The two builds of k-rust can compile a definition differently only through code that one of
+/// them compiles and the other does not, or through the forests both engines are given. So a
+/// change to any source with a `z3-inference` cfg, to the native-only inference module, or to the
+/// rule grammar and parser owes the entry that compares the builds.
+#[test]
+fn a_change_to_code_compiled_in_one_build_only_owes_build_agreement() {
+    fn sources(directory: &Path, found: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(directory).expect("read source directory") {
+            let path = entry.expect("directory entry").path();
+            if path.is_dir() {
+                sources(&path, found);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                found.push(path);
+            }
+        }
+    }
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut found = Vec::new();
+    sources(&workspace.join("crates/k-rust/src"), &mut found);
+    let mut owing = found
+        .into_iter()
+        .filter(|path| {
+            fs::read_to_string(path)
+                .expect("read source")
+                .contains("feature = \"z3-inference\"")
+        })
+        .map(|path| {
+            path.strip_prefix(&workspace)
+                .expect("a workspace source")
+                .display()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert!(!owing.is_empty(), "no source has a z3-inference cfg");
+    owing.extend([
+        "crates/k-rust/src/inner/parser/z3_inference.rs".to_owned(),
+        "crates/k-rust/src/inner/parser/chart.rs".to_owned(),
+        "crates/k-rust/Cargo.toml".to_owned(),
+    ]);
+    for path in &owing {
+        let (code, stdout, stderr) = run_gates(&["--list", "--touched", path]);
+        assert_eq!(code, Some(0), "{stderr}");
+        assert!(
+            stdout
+                .lines()
+                .any(|line| line.starts_with("build-agreement ")),
+            "a change to {path} does not owe build-agreement: {stdout}"
+        );
+    }
+}
+
 #[test]
 fn workflow_script_commands_reads_folded_and_plain_steps() {
     let workflow = "jobs:\n  local:\n    steps:\n      - name: Build\n        run: cargo build\n\n      - name: Compile\n        run: >-\n          scripts/reference-differential.sh\n          append casts\n\n      - name: Install\n        run: |\n          scripts/not-a-gate.sh\n          other\n\n      - name: Proof\n        run: scripts/reference-proof-differential.sh mini-proof\n";
@@ -2953,6 +3368,129 @@ fn workflow_script_commands_reads_folded_and_plain_steps() {
             "scripts/reference-differential.sh append casts",
             "scripts/reference-proof-differential.sh mini-proof",
         ]
+    );
+}
+
+/// Every script under `scripts/` is run by something that runs: the command of a `[[gate]]` entry
+/// of the registry, a workflow step, or another script those reach (a sourced helper, an imported
+/// module, a called tool). A gate or tool that nothing reaches runs only when someone remembers
+/// it, so a change it exists to check merges unchecked. The test takes the registry commands, the
+/// workflows and the lines of crate tests that execute a command as roots, and follows every
+/// mention of a script's file name (or, for a Python module, its import) to a fixed point.
+///
+/// This is an inventory, not a record of runs: a script named by a registry entry counts as
+/// reached whether or not anything executes that entry. That every certification and heavy entry
+/// is owed by some change, and so selected by `scripts/run-gates.sh --changed`, is
+/// `the_gate_registry_is_valid_against_the_workspace`.
+#[test]
+fn every_script_is_reached_from_the_gate_registry_or_a_workflow() {
+    fn files(directory: &Path, found: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(directory).expect("read scripts directory") {
+            let path = entry.expect("directory entry").path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name != "__pycache__") {
+                    files(&path, found);
+                }
+            } else if path
+                .extension()
+                .is_some_and(|extension| extension == "sh" || extension == "py")
+            {
+                found.push(path);
+            }
+        }
+    }
+    fn rust_sources(directory: &Path, found: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(directory).expect("read tests directory") {
+            let path = entry.expect("directory entry").path();
+            if path.is_dir() {
+                rust_sources(&path, found);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                found.push(path);
+            }
+        }
+    }
+    fn mentions(text: &str, word: &str) -> bool {
+        let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+        text.match_indices(word).any(|(at, _)| {
+            !text[..at].chars().next_back().is_some_and(is_word)
+                && !text[at + word.len()..].chars().next().is_some_and(is_word)
+        })
+    }
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let registry = GATES.parse::<Value>().expect("valid gate registry TOML");
+    let mut reached_text = registry["gate"]
+        .as_array()
+        .expect("gate entries")
+        .iter()
+        .map(|gate| gate["command"].as_str().expect("gate command").to_owned())
+        .collect::<Vec<_>>()
+        .join("\n");
+    for workflow in fs::read_dir(workspace.join(".github/workflows")).expect("workflows") {
+        reached_text.push('\n');
+        reached_text.push_str(&fs::read_to_string(workflow.unwrap().path()).unwrap());
+    }
+    // The workflows run every crate's tests, so a script a test executes is reached too (even
+    // when the test runs it against fake tools: that is generous, never strict).
+    for crate_directory in fs::read_dir(workspace.join("crates")).expect("crates") {
+        let tests = crate_directory.unwrap().path().join("tests");
+        let mut sources = Vec::new();
+        if tests.is_dir() {
+            rust_sources(&tests, &mut sources);
+        }
+        for source in sources {
+            for line in fs::read_to_string(&source).unwrap().lines() {
+                if line.contains(".arg(") || line.contains("Command::new") {
+                    reached_text.push('\n');
+                    reached_text.push_str(line);
+                }
+            }
+        }
+    }
+    let mut scripts = Vec::new();
+    files(&workspace.join("scripts"), &mut scripts);
+    scripts.sort();
+    let mut reached = BTreeSet::new();
+    loop {
+        let before = reached.len();
+        for script in &scripts {
+            if reached.contains(script) {
+                continue;
+            }
+            let name = script.file_name().unwrap().to_str().unwrap();
+            let stem = script.file_stem().unwrap().to_str().unwrap();
+            let imported = script
+                .extension()
+                .is_some_and(|extension| extension == "py")
+                && (mentions(&reached_text, &format!("import {stem}"))
+                    || mentions(&reached_text, &format!("from {stem} import")));
+            // A unittest discovery over the scripts' directories runs every test module there.
+            let discovered = stem.starts_with("test_")
+                && reached_text.contains("python3 -m unittest discover")
+                && reached_text.contains("-name 'test_*.py'");
+            if mentions(&reached_text, name) || imported || discovered {
+                reached.insert(script.clone());
+                reached_text.push('\n');
+                reached_text.push_str(&fs::read_to_string(script).unwrap());
+            }
+        }
+        if reached.len() == before {
+            break;
+        }
+    }
+    let unreached = scripts
+        .iter()
+        .filter(|script| !reached.contains(*script))
+        .map(|script| {
+            script
+                .strip_prefix(&workspace)
+                .unwrap_or(script)
+                .display()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        unreached.is_empty(),
+        "scripts no [[gate]] entry, workflow or reached script runs: {unreached:#?}"
     );
 }
 
@@ -3124,8 +3662,8 @@ fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes()
         KAST_SCRIPT
             .matches("ulimit -v \"$reference_memory_kib\"")
             .count(),
-        3,
-        "reference compile, acceptance, and rejection checks must use the reference ceiling",
+        2,
+        "the reference compile and every reference parse must use the reference ceiling",
     );
 
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

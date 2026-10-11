@@ -393,6 +393,31 @@ elsewhere = [
   "draft/conformance-backlog/workers/CB-17.md (ExecutionMode::Any collection-candidate selection; ordinary execution, not search)",
 ]
 
+[[ticket]]
+id = "CB-23"
+title = "issue-1682-korePrettyPrint krun 1.test: the value the rule `a => ?_:Int` introduces is printed under a different variable than the expected output's"
+state = "open"
+investigation = "needed"
+worker = ""
+cases = ["issue-1682-korePrettyPrint"]
+measured = "2026-10-11, w4-tooling head9 run (draft/open-issues-2026-10/gates/head9/runs/1-oi-head9, label oi-head9): kompile matches (definition.kore multiset, kore-parser --verify rc 0 on both sides); krun 1.test is mismatch with divergence 'unpaired disjunct', krust printing <k> inj{SortInt{}, SortKItem{}}(Ex-hVar'QuesUnds'Gen0-b0:SortInt{}) where 1.test.out has Var'QuesUnds'Gen0:SortInt{}; the kast 2.kast step is the declined `--input kore` capability (step exclusion). The case ranks mismatch, below its accepted krust-unsupported floor, so `conformance-ratchet.sh --all` fails on it."
+work = "Decide from what the result denotes whether the name of the existential value a `?X` right-hand side introduces is observable: if it is not, the comparison must identify results up to a consistent renaming of such variables (a normalisation with its register entry and compatibility text); if it is, krust must print it under a name derived from the rule's variable. Then re-measure the case; the kast step stays excluded."
+elsewhere = [
+  "draft/open-issues-2026-10/units/w4-tooling.md (K30, surfaced when the ratchet began ranking by the non-excluded steps)",
+  "crates/k-rust/tests/conformance_ratchet.rs conformance_driver_compares_execution_text_modulo_existential_renaming (the text comparison already identifies existential renamings; the KORE disjunct comparison that reported this step did not)",
+]
+
+[[ticket]]
+id = "CB-24"
+title = "withConfig2: kompile rejects the function rule `freshIntx() => !_I:Int` (InvalidFreshConstant), a documented rule with no exclusion disposition"
+state = "open"
+investigation = "needed"
+worker = ""
+cases = ["withConfig2"]
+measured = "2026-10-11, w4-tooling head9 run (draft/open-issues-2026-10/gates/head9/runs/1-oi-head9, label oi-head9): kompile is krust-error, 'Error[InvalidFreshConstant]: Fresh variable !_I is not supported in a function rule' at test.k:10:4, so both krun steps report the missing runnable artifact. The rejection was introduced before the lane (38b7c225) and is documented in docs/compatibility.md#compiler-resolved-fresh-constants; 1.test's expected output is already a step exclusion (llvm-only), 2.test (`rule 6 => test()`, expected 7) does not use freshIntx()."
+work = "Give the case a disposition consistent with the documented rule: either an exclusion category whose compatibility section covers a definition the port rejects by a stated semantic rule (the case's every step then follows the compilation, so it is a case exclusion with a whole_case_reason), or a change that lets the compilation proceed without accepting the rule's meaningless equation so that 2.test is compared. Re-measure the case afterwards."
+elsewhere = ["draft/open-issues-2026-10/units/w4-tooling.md (K30, surfaced on the head9 run)"]
+
 # Owner choices are centralized here so implementation workers do not infer policy from stale
 # investigation prose. Every row is decided. Evidence-gated implementation selections state their
 # selection rule rather than pretending that an owner can choose correctly before the evidence exists.

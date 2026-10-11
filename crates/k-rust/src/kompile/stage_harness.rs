@@ -4,28 +4,28 @@
 //! that builds that input by hand, or by calling a few passes in an order of its choosing, checks
 //! the pass on an input the pipeline may never give it: the earlier stages add sort predicates,
 //! number sentences, lower strictness and contexts, and so on. [`run_to_stage`] instead loads a
-//! source as `kcompile --no-prelude` does, runs the prologue checks and every stage before the
-//! named one exactly as [`compile_loaded_definition`](super::compile_loaded_definition) runs them,
-//! and then runs the named stage alone. A test asserts on the stage's own output, with the input
-//! beside it to state what the stage changed, so a failure names the stage that broke its
-//! contract instead of a difference in the emitted KORE that any later stage could have caused.
+//! source with the options `kcompile --no-prelude` loads it with, compiles it with
+//! [`compile_loaded_definition`](super::compile_loaded_definition)'s own driver, and reports what
+//! the named stage received and produced in that compile. A test asserts on the stage's own
+//! output, with the input beside it to state what the stage changed, so a failure names the stage
+//! that broke its contract instead of a difference in the emitted KORE that any later stage could
+//! have caused.
 //!
-//! The sources are small and import no prelude: a test declares the syntax it needs, and a stub
-//! module (`module BOOL endmodule`) where a stage only needs a module to be present. In builds
-//! with debug assertions the pipeline's stage-boundary checks run on every stage here too.
+//! The sources are small and import no prelude: a test declares the syntax it needs, and the
+//! productions of `BOOL` or `INT` that the stages generate terms of (`_andBool_`, `_+Int_`, ...).
+//! Each source is a definition krust compiles in full, so the stage output a test checks is one
+//! the rest of the compile accepts. In builds with debug assertions the pipeline's stage-boundary
+//! checks run on every stage here too.
 
 use crate::{
     definition::{Definition, FlatModule, Sentence},
-    outer::{LoadOptions, ResolvedSource, load_for_compilation},
-    timings::PhaseTimings,
+    outer::{ResolvedSource, load_for_compilation},
 };
 
 use super::{
     CompileError, CompileOptions,
-    compile::checked_input,
-    pipeline::{
-        EMISSION_STAGES, PipelineState, Stage, TRANSFORM_STAGES, run_stages_seeded_with_resolved,
-    },
+    compile::compile_loaded_definition_observed,
+    pipeline::{EMISSION_STAGES, TRANSFORM_STAGES},
 };
 
 /// The definition one stage receives in the pipeline, and what the stage makes of it.
@@ -52,63 +52,46 @@ impl StageRun {
     }
 }
 
-/// Load `source` (main and syntax module `MAIN`, no prelude, no `requires`), compile it with the
-/// default options up to the stage named `stage` (a [`Stage::name`] of the transformation or
-/// emission table), and run that stage, carrying the pipeline state the earlier stages left.
+/// Load `source` (main and syntax module `MAIN`, no prelude, no `requires`) as `kcompile
+/// --no-prelude` loads it for the default backend, compile it with the default options, and
+/// return what the stage named `stage` (a [`Stage::name`](super::pipeline::Stage) of the
+/// transformation or emission table) received and produced in that compile.
 ///
-/// Panics when the source does not load, when an earlier stage fails, or when no stage has that
-/// name: those are faults of the test, not of the stage.
+/// Panics when no stage has that name, when the source does not load, when the compile stops
+/// before the stage, or when the stage succeeds and the rest of the compile rejects the
+/// definition: those are faults of the test's source, not of the stage.
 #[track_caller]
 pub(crate) fn run_to_stage(source: &str, stage: &str) -> StageRun {
+    locate(stage);
     let options = CompileOptions::default();
-    let (table, index) = locate(stage);
     let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
     let (loaded, _) = load_for_compilation(
         ResolvedSource::new("definition.k", source),
         "MAIN",
         Some("MAIN"),
         &mut resolver,
-        &LoadOptions::default(),
+        &options.backend.load_options(),
     )
     .unwrap_or_else(|error| panic!("the source should load: {error:?}"));
-    let mut timings = PhaseTimings::default();
-    let (definition, resolved, _) = checked_input(&loaded, &options, &mut timings)
-        .unwrap_or_else(|error| panic!("the definition checks should pass: {error:?}"));
-    let mut state = PipelineState::default();
-    let before = |stages: &[Stage], definition, resolved, state: &mut PipelineState| {
-        run_stages_seeded_with_resolved(
-            stages,
-            definition,
-            state,
-            &options,
-            &mut PhaseTimings::default(),
-            resolved,
-        )
-        .unwrap_or_else(|error| panic!("the stages before {stage:?} should succeed: {error:?}"))
+    let mut observed = None;
+    let compiled =
+        compile_loaded_definition_observed(&loaded, options, &mut |ran, input, output| {
+            if ran.name == stage {
+                observed = Some(StageRun {
+                    input: input.clone(),
+                    output: output.cloned().map_err(CompileError::clone),
+                });
+            }
+        });
+    let Some(run) = observed else {
+        panic!("the compile stopped before {stage:?}: {:?}", compiled.err());
     };
-    let (definition, resolved) = if table == Table::Emission {
-        let (definition, resolved) = before(TRANSFORM_STAGES, definition, resolved, &mut state);
-        before(&EMISSION_STAGES[..index], definition, resolved, &mut state)
-    } else {
-        before(&TRANSFORM_STAGES[..index], definition, resolved, &mut state)
-    };
-    let stages = match table {
-        Table::Transform => &TRANSFORM_STAGES[index..=index],
-        Table::Emission => &EMISSION_STAGES[index..=index],
-    };
-    let output = run_stages_seeded_with_resolved(
-        stages,
-        definition.clone(),
-        &mut state,
-        &options,
-        &mut timings,
-        resolved,
-    )
-    .map(|(output, _)| output);
-    StageRun {
-        input: definition,
-        output,
+    if run.output.is_ok()
+        && let Err(error) = compiled
+    {
+        panic!("{stage:?} succeeded and the rest of the compile rejects the source: {error:?}");
     }
+    run
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -297,6 +280,115 @@ endmodule
         assert_eq!(unique_id(&later.input), Some(numbered.clone()));
         let emission = run_to_stage(SOURCE, "remove units");
         assert_eq!(unique_id(&emission.input), Some(numbered));
+    }
+
+    /// The stage under test receives what the pipeline's earlier stages make of the source; a
+    /// source that only stubs the modules the compiler generates terms of (`module BOOL
+    /// endmodule` where a later stage generates `_andBool_`) leaves unchecked whether the tested
+    /// stage's output is something the rest of the compile accepts, and nothing would flag it
+    /// when a stage starts to depend on the declarations the stub omits. So every source a stage
+    /// test hands to [`run_to_stage`] and expects to pass its stage compiles in full, as
+    /// `kcompile --no-prelude` compiles it. [`run_to_stage`] asserts this of each source it is
+    /// given; this test reads the sources from the stage tests themselves (each raw string
+    /// holding `module MAIN` in a file that calls `run_to_stage`; a source whose test reads the
+    /// stage's error is expected to fail somewhere and is skipped), so it holds of every source
+    /// whichever stage tests a run selects.
+    #[test]
+    fn every_stage_harness_source_compiles_in_full() {
+        fn sources(directory: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(directory).expect("read the kompile sources") {
+                let path = entry.expect("directory entry").path();
+                if path.is_dir() {
+                    sources(&path, found);
+                } else if path.extension().is_some_and(|extension| extension == "rs") {
+                    found.push(path);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/kompile");
+        let mut files = Vec::new();
+        sources(&root, &mut files);
+        files.sort();
+        let literal = regex::Regex::new(r##"(?s)r#"(.*?)"#"##).unwrap();
+        let expects_error = regex::Regex::new(r"\.error\(\)|expect_err|is_err").unwrap();
+        let mut checked = 0;
+        let mut failures = Vec::new();
+        for file in files {
+            let text = std::fs::read_to_string(&file).unwrap();
+            if !text.contains("run_to_stage(") || file.ends_with("stage_harness.rs") {
+                continue;
+            }
+            for found in literal.captures_iter(&text) {
+                let whole = found.get(0).unwrap();
+                let source = &found[1];
+                if !source.contains("module MAIN") {
+                    continue;
+                }
+                let rest = &text[whole.end()..];
+                let test_rest = rest.split("#[test]").next().unwrap_or(rest);
+                if expects_error.is_match(test_rest) {
+                    continue;
+                }
+                let line = text[..whole.start()].lines().count() + 1;
+                let name = format!(
+                    "{}:{line}",
+                    file.strip_prefix(&root).unwrap_or(&file).display()
+                );
+                checked += 1;
+                let mut resolver =
+                    |_: &str, required: &str| Err(format!("unexpected require {required}"));
+                let loaded = load_for_compilation(
+                    ResolvedSource::new("definition.k", source),
+                    "MAIN",
+                    Some("MAIN"),
+                    &mut resolver,
+                    &CompileOptions::default().backend.load_options(),
+                );
+                let outcome = match loaded {
+                    Err(error) => Err(format!("does not load: {error:?}")),
+                    Ok((loaded, _)) => {
+                        super::super::compile_loaded_definition(&loaded, CompileOptions::default())
+                            .map(|_| ())
+                            .map_err(|error| format!("does not compile: {error:?}"))
+                    }
+                };
+                if let Err(message) = outcome {
+                    let message = message.chars().take(300).collect::<String>();
+                    failures.push(format!("{name}: {message}"));
+                }
+            }
+        }
+        assert!(checked > 0, "found no stage-harness sources");
+        assert!(
+            failures.is_empty(),
+            "{} of {checked} stage-harness sources do not compile in full:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    /// A stage test's source is a definition krust compiles: when the named stage succeeds and
+    /// a later stage rejects the definition, the source is at fault and the harness says so.
+    /// Here the source declares no `_andBool_`, which context lowering generates for the
+    /// strictness the stage adds, so the compile fails after the stage.
+    #[test]
+    #[should_panic(expected = "the rest of the compile rejects the source")]
+    fn a_source_a_later_stage_rejects_is_a_test_fault() {
+        let _ = run_to_stage(
+            r#"
+module BOOL
+endmodule
+module MAIN
+  syntax K
+  syntax KResult
+  syntax Val ::= "v" [symbol(v)]
+  syntax KResult ::= Val
+  syntax Exp ::= Val | plus(Exp, Exp) [strict, symbol(plus)]
+  configuration <k> v </k>
+endmodule
+"#,
+            "resolve strictness",
+        );
     }
 
     #[test]

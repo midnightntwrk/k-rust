@@ -85,6 +85,37 @@ def validate_compile_outcomes(manifest: dict) -> None:
                 )
 
 
+KAST_ENTRY_KINDS = {"accept", "reject", "port-accepts", "port-rejects"}
+
+
+def validate_kast_entries(manifest: dict) -> None:
+    """Every parse entry of a kast case is of a kind the gate runs. A recorded divergence states
+    its reason: port-accepts (k-rust accepts what the reference rejects) also names the reference
+    diagnostic it pins; port-rejects (k-rust rejects what the reference accepts) has no
+    diagnostic to pin."""
+    for case in manifest.get("kast", []):
+        name = case.get("name")
+        for kind, entries in case.items():
+            if not (isinstance(entries, list) and entries and isinstance(entries[0], dict)):
+                continue
+            if kind not in KAST_ENTRY_KINDS:
+                raise ValueError(f"unknown kast entry kind {kind!r} on kast case {name}")
+            for entry in entries:
+                label = f"{kind} entry {entry.get('name')} of kast case {name}"
+                reason = entry.get("reason")
+                reference_error = entry.get("reference-error")
+                if kind in ("port-accepts", "port-rejects"):
+                    if not isinstance(reason, str) or not reason.strip():
+                        raise ValueError(f"{label} needs a written reason")
+                elif reason is not None:
+                    raise ValueError(f"reason on {label} is only read for a recorded divergence")
+                if kind == "port-accepts":
+                    if not isinstance(reference_error, str) or not reference_error.strip():
+                        raise ValueError(f"{label} needs the reference-error it pins")
+                elif reference_error is not None:
+                    raise ValueError(f"reference-error on {label} is only read for port-accepts")
+
+
 def validate_reference_kompile_options(manifest: dict) -> None:
     """Options that change the reference definition an execution case compares against are read
     only by the execution gate, and each case that carries them states why its programs cannot
@@ -201,6 +232,7 @@ def main() -> int:
             manifest = expand(tomllib.load(source))
         validate_requirements(manifest)
         validate_compile_outcomes(manifest)
+        validate_kast_entries(manifest)
         validate_reference_kompile_options(manifest)
         validate_reference_result_simplification(manifest)
         validate_lifted_cells(manifest)

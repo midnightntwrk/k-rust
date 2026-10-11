@@ -1,7 +1,8 @@
 # The value contract's full-definition gate (V12, scripts/value-contract-corpus.sh): for each
 # definition, the load-time critical-pair check's verdict and counts (k_rust_backend::confluence).
-# A conformance case is read from the conformance driver's work tree after it compiled the case;
-# `wasm` is compiled by the script. Every key under [case.expected] is compared exactly; a change
+# A conformance case is read from the conformance driver's work tree after it compiled the case
+# (scripts/conformance-ratchet.sh runs this gate on the cases it compiled); `wasm` and `kevm` are
+# compiled by the script. Every key under [case.expected] is compared exactly; a change
 # is a precision or cost change to explain, and the manifest is regenerated with --update.
 # The counts are the load's (`CheckScope::Gate`, which classifies only the pairs with a relevant
 # equation); the `full_` keys are the full check's (`CheckScope::All`), which also names the pairs
@@ -509,6 +510,37 @@ condition_memo_refusals = 0
 full_condition_memo_refusals = 0
 
 [[case]]
+name = "issue-4114"
+definition = "conformance:tests/regression-new/issue-4114-overload-injection/krust-kompiled/definition.kore"
+[case.expected]
+equations = 135
+pairs = 1
+overlaps = 1
+separated = 0
+refuted = 0
+joined = 0
+unjoined = 1
+relevant = 1
+violations = 0
+heads = 0
+tainted_heads = 0
+tainted_symbols = 2
+several_matches = 0
+families = 1
+confluent_families = 0
+relevant_equations = 3
+skipped = 16
+full_pairs = 17
+full_unjoined = 1
+full_tainted_symbols = 2
+simplifier_calls = 0
+condition_memo_hits = 0
+full_simplifier_calls = 6
+full_condition_memo_hits = 1
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
+
+[[case]]
 name = "wasm"
 definition = "wasm"
 [case.expected]
@@ -536,5 +568,38 @@ simplifier_calls = 68
 condition_memo_hits = 57
 full_simplifier_calls = 1738
 full_condition_memo_hits = 1480
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
+
+# KEVM withdraws a claim (a relevant non-joined pair), so the manifest covers it; it is compiled
+# here and measured at a host UID (scripts/gates.toml, value-contract-corpus).
+[[case]]
+name = "kevm"
+definition = "kevm"
+[case.expected]
+equations = 1945
+pairs = 2
+overlaps = 2
+separated = 0
+refuted = 1
+joined = 0
+unjoined = 1
+relevant = 1
+violations = 0
+heads = 0
+tainted_heads = 0
+tainted_symbols = 5
+several_matches = 0
+families = 2
+confluent_families = 1
+relevant_equations = 6
+skipped = 19966
+full_pairs = 19968
+full_unjoined = 28
+full_tainted_symbols = 65
+simplifier_calls = 5
+condition_memo_hits = 2
+full_simplifier_calls = 1240
+full_condition_memo_hits = 995
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0

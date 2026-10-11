@@ -469,6 +469,15 @@ rule = "In a separate verification copy of the k-rust LLVM-target definition.kor
 justification = "The equation-head verifier requires function or functional, but a partial value production has no evidence for functional. The external LLVM backend reads function to exclude irreducible applications from values and does not read value-production to restore them, so adding function to the executed LLVM definition would change its meaning. The verification copy supplies only the verifier's required head classification and retains the marker that the Rust target uses to restore the value reading; the original output preserves LLVM value applications. See docs/compatibility.md#anywhere-rules."
 
 [[normalisation]]
+id = "N47"
+gate = "conformance kore-verify step"
+anchor = "scripts/reference-llvm-verification.py:normalize_anywhere_injective"
+anchor_symbol = "normalize_anywhere_injective"
+anchor_helpers = ["edit_symbol_declarations"]
+rule = "In the conformance driver's separate verification copy of a k-rust definition.kore only (either target; after N38 on an LLVM-target definition), add `injective{}()` to exactly the symbol declarations carrying `anywhere{}()` and no `injective` attribute, and log the number changed. The compile comparison and execution consume the original definition."
+justification = "A function equation whose argument contains an anywhere head is a valid axiom, and it is consistent when its argument pattern is normal on every instance, which the compiler's critical-pair check decides and reports at load and compile time. The verifier admits such an argument only when the head is declared injective; `injective` states that equal applications have equal arguments, which an anywhere equation of the head may falsify, so the emitted definition withholds it. Supplying it in the verification copy only changes which equation arguments the verifier admits, while every other sentence and argument is still verified, so a verifier rejection is never excluded for it. See docs/compatibility.md#anywhere-heads-in-equation-arguments."
+
+[[normalisation]]
 id = "N39"
 gate = "parsed-definition compile artifact"
 anchor = "crates/k-rust/tests/reference_differential.rs:normalize_configuration_deferred_totality_json"

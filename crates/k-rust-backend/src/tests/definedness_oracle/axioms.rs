@@ -59,7 +59,7 @@ use super::{
     language::Definition,
 };
 use crate::{
-    builtin::{BuiltinResult, evaluate_in_definition},
+    builtin::{BuiltinResult, UnsupportedHookReason, evaluate_in_definition},
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs},
@@ -868,8 +868,8 @@ fn collection(term: &Term) -> bool {
 
 /// The left value of `instance`, and whether it is the hook's. At an application of a hooked
 /// symbol whose hook applies it is the hook's result, which is what the symbol denotes there;
-/// where the hook does not apply, the equations alone give the symbol's value, and the backend's
-/// evaluation is the judge as at any other root. A collection term (the instance of a left-hand
+/// where the hook does not apply, or the backend implements no such hook, the equations alone
+/// give the symbol's value, and the backend's evaluation is the judge as at any other root. A collection term (the instance of a left-hand
 /// side the collection laws normalize to a collection pattern or a bare variable) denotes itself
 /// modulo those laws, so its value is the instance when it is a collection of claimed values
 /// that repeats no key or element (one that does is `\bottom`, and is left undecided, as on the
@@ -891,7 +891,12 @@ fn left_value(backend: &BackendDefinition, instance: &Term, run: &mut Run) -> (O
             Some(evaluate_in_definition(instance, backend))
         });
         let outcome = match hooked {
-            Some(Ok(Ok(BuiltinResult::NotApplicable))) => None,
+            // A hook the backend does not implement never applies: the equations alone give
+            // the symbol's value, as where an implemented hook does not apply.
+            Some(Ok(Ok(
+                BuiltinResult::NotApplicable
+                | BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented),
+            ))) => None,
             Some(Ok(Ok(BuiltinResult::Value(value)))) if claimed_value(&value) => {
                 Some(Outcome::Value(value))
             }
