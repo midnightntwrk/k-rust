@@ -130,6 +130,7 @@ implemented = [
   "SET.list2set",
   "SET.set2list",
   "SET.size",
+  "SET.union",
   "SET.unit",
   "STRING.base2string",
   "STRING.chr",
@@ -338,8 +339,8 @@ hooks = [
 ]
 
 [[unsupported]]
-reason = "nondeterministic choice and redundant union are not implemented"
-hooks = ["SET.choice", "SET.union"]
+reason = "nondeterministic choice is not implemented"
+hooks = ["SET.choice"]
 
 [[unsupported]]
 reason = "Unicode properties, replacement utilities, floating conversion, and UUID generation are not implemented"

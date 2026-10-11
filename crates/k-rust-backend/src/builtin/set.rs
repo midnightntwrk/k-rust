@@ -38,6 +38,7 @@ pub(super) fn evaluate(
         "SET.set2list" => to_list(arguments, result),
         "SET.size" => size(arguments),
         "SET.intersection" => intersection(arguments, result),
+        "SET.union" => union(arguments, result),
         "SET.list2set" => list_to_set(arguments, result),
         "SET.inclusion" => inclusion(arguments),
         _ => {
@@ -273,6 +274,69 @@ fn intersection(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<
     Ok(filtered(result, definition, left_elements, |element| {
         right_elements.binary_search(element).is_ok()
     }))
+}
+
+/// `S1 |Set S2`, the set of the elements of either set.
+///
+/// A value of the union holds each value of either operand once, so it is the set of the left
+/// operand's elements and of the right operand's elements that are none of the left's. That set
+/// is determined only when each element of one operand is known to be equal to, or different
+/// from, each element of the other. Constructor-like elements are both: two of them denote the
+/// same value exactly when they are the same term. So two closed sets of constructor-like
+/// elements (`concrete_set`) have a union, found by merging their sorted elements once and
+/// keeping a common element once. Any other operands give no result: an element that may or
+/// may not equal one of the other operand's makes the union's size undecided, and a set with
+/// a rest holds elements the hook cannot see.
+fn union(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
+    expect_arity("SET.union", arguments, 2)?;
+    let [left, right] = arguments else {
+        unreachable!()
+    };
+    let Some((definition, left_elements)) = concrete_set(left) else {
+        return Ok(None);
+    };
+    let Some((right_definition, right_elements)) = concrete_set(right) else {
+        return Ok(None);
+    };
+    if definition != right_definition {
+        return Ok(None);
+    }
+    let Some(into) = result.set(Some(definition)) else {
+        return Ok(None);
+    };
+    let merged = merged_once(left_elements, right_elements);
+    Ok(into
+        .owned_elements(merged, &definition.element_sort)
+        .and_then(|elements| into.build(elements, None)))
+}
+
+/// The elements of `left` and `right`, both in the order of `Term` without a repeat, in that
+/// order and holding a term that is in both once.
+fn merged_once(left: &[Term], right: &[Term]) -> Vec<Term> {
+    let mut merged = Vec::with_capacity(left.len() + right.len());
+    let (mut left_index, mut right_index) = (0, 0);
+    while let (Some(left_element), Some(right_element)) =
+        (left.get(left_index), right.get(right_index))
+    {
+        match left_element.cmp(right_element) {
+            std::cmp::Ordering::Less => {
+                merged.push(left_element.clone());
+                left_index += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                merged.push(right_element.clone());
+                right_index += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                merged.push(left_element.clone());
+                left_index += 1;
+                right_index += 1;
+            }
+        }
+    }
+    merged.extend_from_slice(&left[left_index..]);
+    merged.extend_from_slice(&right[right_index..]);
+    merged
 }
 
 fn list_to_set(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
@@ -736,6 +800,132 @@ mod tests {
                 made, searched,
                 "element {probe}: {made} elements compared, the search compares {searched}"
             );
+        }
+    }
+
+    fn hook(name: &str, arguments: &[Term]) -> BuiltinResult {
+        super::super::evaluate_hook(name, arguments)
+            .unwrap()
+            .unwrap()
+    }
+
+    /// A constructor application `name(argument)` of sort `KItem` on an `Int`.
+    fn applied(name: &str, argument: Term) -> Term {
+        Term::application(
+            Arc::new(crate::term::Symbol::constructor(
+                name,
+                vec![Sort::simple("SortInt")],
+                Sort::simple("SortKItem"),
+            )),
+            Vec::new(),
+            vec![argument],
+        )
+    }
+
+    /// The constructor-like element `n` of the pool the union tests draw from: domain values
+    /// and constructor applications, so that sets mix kinds of terms.
+    fn pooled(n: u8) -> Term {
+        if n.is_multiple_of(2) {
+            item(&n.to_string())
+        } else {
+            applied(
+                "c",
+                Term::domain_value(Sort::simple("SortInt"), n.to_string()),
+            )
+        }
+    }
+
+    /// `S1 |Set S2` as the `domains.md` equation computes it: `S1 (S2 -Set S1)`.
+    fn union_by_equation(left: &Term, right: &Term) -> BuiltinResult {
+        let BuiltinResult::Value(missing) = hook("SET.difference", &[right.clone(), left.clone()])
+        else {
+            return BuiltinResult::NotApplicable;
+        };
+        hook("SET.concat", &[left.clone(), missing])
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        /// On closed sets of constructor-like elements, the hook gives the set the equation
+        /// gives, whether the operands overlap, nest, or are disjoint.
+        #[test]
+        fn union_of_constructor_like_sets_is_the_equations_set(
+            left in proptest::collection::btree_set(0..16_u8, 0..10),
+            right in proptest::collection::btree_set(0..16_u8, 0..10),
+        ) {
+            let build = |chosen: &BTreeSet<u8>| {
+                Term::set(set_definition(), chosen.iter().copied().map(pooled).collect(), None)
+            };
+            let (left_set, right_set) = (build(&left), build(&right));
+            let union = hook("SET.union", &[left_set.clone(), right_set.clone()]);
+            proptest::prop_assert_eq!(&union, &union_by_equation(&left_set, &right_set));
+            proptest::prop_assert_eq!(
+                union,
+                BuiltinResult::Value(build(&left.union(&right).copied().collect()))
+            );
+        }
+    }
+
+    #[test]
+    fn union_keeps_a_common_element_once_and_takes_an_empty_operand_as_no_element() {
+        let cases = [
+            (set(&["a", "b"]), set(&["b", "c"]), set(&["a", "b", "c"])),
+            (set(&["a", "b"]), set(&["a", "b"]), set(&["a", "b"])),
+            (set(&["a"]), set(&["a", "b", "c"]), set(&["a", "b", "c"])),
+            (
+                set(&["a", "c"]),
+                set(&["b", "d"]),
+                set(&["a", "b", "c", "d"]),
+            ),
+            (set(&[]), set(&["a"]), set(&["a"])),
+            (set(&["a"]), set(&[]), set(&["a"])),
+            (set(&[]), set(&[]), set(&[])),
+        ];
+        for (left, right, expected) in cases {
+            assert_eq!(
+                hook("SET.union", &[left.clone(), right.clone()]),
+                BuiltinResult::Value(expected),
+                "{left:?} |Set {right:?}"
+            );
+        }
+    }
+
+    /// An element that may or may not equal one of the other operand's, or a rest whose
+    /// elements are not seen, leaves the union's elements undecided: the hook gives no result
+    /// and the equation applies as before.
+    #[test]
+    fn union_with_a_symbolic_element_or_a_rest_gives_no_result() {
+        let element_sort = Sort::simple("SortKItem");
+        let variable = Term::variable(Variable::new("X", element_sort));
+        let symbolic_application = applied(
+            "c",
+            Term::variable(Variable::new("A", Sort::simple("SortInt"))),
+        );
+        let rest = Term::variable(Variable::new("REST", Sort::simple("SortSet")));
+        let closed = set(&["a", "b"]);
+        let undecided = [
+            Term::set(set_definition(), vec![variable], None),
+            Term::set(
+                set_definition(),
+                vec![symbolic_application, item("a")],
+                None,
+            ),
+            Term::set(set_definition(), vec![item("c")], Some(rest.clone())),
+            Term::set(set_definition(), Vec::new(), Some(rest.clone())),
+            rest,
+        ];
+        for operand in undecided {
+            for arguments in [
+                [operand.clone(), closed.clone()],
+                [closed.clone(), operand.clone()],
+            ] {
+                assert_eq!(
+                    hook("SET.union", &arguments),
+                    BuiltinResult::NotApplicable,
+                    "{arguments:?}"
+                );
+            }
         }
     }
 }
