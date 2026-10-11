@@ -273,6 +273,19 @@ impl<T: Stored> Items<T> {
         }
     }
 
+    /// The pairs of items the two sequences hold at the same positions, in order, up to the end
+    /// of the shorter one. Two trees skip the nodes they hold at the same position, whose items
+    /// are the same (`Chunked::aligned`), so comparing two versions of a collection reads the
+    /// paths where they differ.
+    pub(crate) fn aligned<'a>(&'a self, other: &'a Self) -> Aligned<'a, T> {
+        Aligned(match (&self.0, &other.0) {
+            (Backing::Tree(left), Backing::Tree(right)) => {
+                AlignedBacking::Tree(left.aligned(right))
+            }
+            _ => AlignedBacking::Zip(self.iter().zip(other.iter())),
+        })
+    }
+
     /// The most item comparisons [`search_by`](Self::search_by) makes: a binary search makes at
     /// most `⌈log2 w⌉ + 1` over `w` items, a vector's is one over all of them, and a tree's is one
     /// on each node of a path from the root, over at most `B` children or items.
@@ -650,6 +663,36 @@ impl<T: Stored> DoubleEndedIterator for Iter<'_, T> {
 impl<T: Stored> ExactSizeIterator for Iter<'_, T> {}
 
 impl<T: Stored> FusedIterator for Iter<'_, T> {}
+
+/// The pairs of items two sequences hold at the same positions ([`Items::aligned`]).
+pub(crate) struct Aligned<'a, T: Stored>(AlignedBacking<'a, T>);
+
+enum AlignedBacking<'a, T: Stored> {
+    Zip(std::iter::Zip<Iter<'a, T>, Iter<'a, T>>),
+    Tree(chunked::Aligned<'a, T>),
+}
+
+impl<'a, T: Stored> Iterator for Aligned<'a, T> {
+    type Item = (&'a T, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let pair = match &mut self.0 {
+            AlignedBacking::Zip(pairs) => pairs.next(),
+            AlignedBacking::Tree(pairs) => pairs.next(),
+        };
+        #[cfg(test)]
+        if pair.is_some() {
+            ALIGNED_PAIRS.with(|count| count.set(count.get() + 1));
+        }
+        pair
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test builds: the pairs of items this thread's [`Aligned`] walks have handed over.
+    static ALIGNED_PAIRS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// The items of an [`Items`] in order, taken out of it.
 #[derive(Debug)]
@@ -1121,5 +1164,100 @@ mod tests {
             summaries <= 3 * 2 * DEFAULT_BRANCHING,
             "{summaries} entry summaries"
         );
+    }
+
+    /// Two versions of a map that share all but the path to one entry are compared on the
+    /// comparison work lists through the items of that path only: a map whose value was changed
+    /// and changed back is equal to the original, and the changed one is ordered by the value.
+    #[test]
+    fn the_comparison_work_lists_read_only_where_two_versions_of_a_map_differ() {
+        const ENTRIES: usize = 4096;
+        let map = Term::map(
+            definition(),
+            (0..ENTRIES)
+                .map(|index| (key(2 * index), value(index)))
+                .collect(),
+            None,
+        );
+        let with_value = |map: &Term, value: Term| {
+            let entries = entries(map);
+            let index = entries.search(&key(2000)).expect("a bound key");
+            Term::map_of_items(
+                definition(),
+                entries.replace_at(index, (key(2000), value)),
+                None,
+            )
+        };
+        let changed = with_value(&map, value(ENTRIES));
+        let changed_back = with_value(&changed, value(1000));
+        assert!(!Arc::ptr_eq(&map.0, &changed_back.0));
+        let pairs_during = |run: &dyn Fn()| {
+            ALIGNED_PAIRS.with(|count| count.set(0));
+            run();
+            ALIGNED_PAIRS.with(std::cell::Cell::get)
+        };
+        let equal = pairs_during(&|| {
+            assert!(crate::term::equal_terms_on_work_list(&map, &changed_back));
+        });
+        let ordered = pairs_during(&|| {
+            assert_eq!(
+                crate::term::order_terms_on_work_list(&map, &changed),
+                entries(&map).to_vec().cmp(&entries(&changed).to_vec())
+            );
+        });
+        for (comparison, pairs) in [("equality", equal), ("order", ordered)] {
+            assert!(
+                pairs <= 2 * DEFAULT_BRANCHING,
+                "{comparison}: {pairs} pairs of entries compared"
+            );
+        }
+    }
+
+    /// One version of `base` per edit list: each edit sets the value of the entry at a position
+    /// (`Some`) or removes it (`None`).
+    fn edited(base: &Term, edits: &[(usize, Option<usize>)]) -> Term {
+        let mut items = entries(base).clone();
+        for &(place, value_index) in edits {
+            if items.is_empty() {
+                break;
+            }
+            let index = place % items.len();
+            items = match value_index {
+                Some(new) => {
+                    let key = items.get(index).expect("an entry").0.clone();
+                    items.replace_at(index, (key, value(new)))
+                }
+                None => items.remove_at(index).0,
+            };
+        }
+        Term::map_of_items(definition(), items, None)
+    }
+
+    proptest::proptest! {
+        /// The comparison work lists, which skip the tree nodes two maps share, agree with the
+        /// comparison of the entry sequences on versions of one map that share most of their
+        /// nodes.
+        #[test]
+        fn the_comparison_work_lists_agree_on_versions_of_one_map(
+            size in 0usize..400,
+            left in proptest::collection::vec((proptest::prelude::any::<usize>(), proptest::option::of(0usize..3)), 0..4),
+            right in proptest::collection::vec((proptest::prelude::any::<usize>(), proptest::option::of(0usize..3)), 0..4),
+        ) {
+            let base = Term::map(
+                definition(),
+                (0..size).map(|index| (key(index), value(index % 3))).collect(),
+                None,
+            );
+            let (left, right) = (edited(&base, &left), edited(&base, &right));
+            let (left_entries, right_entries) = (entries(&left).to_vec(), entries(&right).to_vec());
+            proptest::prop_assert_eq!(
+                crate::term::equal_terms_on_work_list(&left, &right),
+                left_entries == right_entries
+            );
+            proptest::prop_assert_eq!(
+                crate::term::order_terms_on_work_list(&left, &right),
+                left_entries.cmp(&right_entries)
+            );
+        }
     }
 }

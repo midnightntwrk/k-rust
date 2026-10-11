@@ -803,36 +803,23 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         other: &Self,
         mut compare: impl FnMut(&I, &I) -> Ordering,
     ) -> Ordering {
-        let mut left = Cursor::new(self.root.as_ref());
-        let mut right = Cursor::new(other.root.as_ref());
-        loop {
-            let (step_left, step_right) = match (left.peek(), right.peek()) {
-                (None, None) => return Ordering::Equal,
-                (None, Some(_)) => return Ordering::Less,
-                (Some(_), None) => return Ordering::Greater,
-                (Some(Next::Node(l)), Some(Next::Node(r))) if Arc::ptr_eq(l, r) => {
-                    left.skip();
-                    right.skip();
-                    continue;
-                }
-                (Some(Next::Item(l)), Some(Next::Item(r))) => match compare(l, r) {
-                    Ordering::Equal => {
-                        left.skip();
-                        right.skip();
-                        continue;
-                    }
-                    unequal => return unequal,
-                },
-                // Open the taller of the two (both at an equal height), until both stand at
-                // items or at one shared node.
-                (Some(l), Some(r)) => (l.level() >= r.level(), r.level() >= l.level()),
-            };
-            if step_left {
-                left.open();
+        for (left, right) in self.aligned(other) {
+            match compare(left, right) {
+                Ordering::Equal => {}
+                unequal => return unequal,
             }
-            if step_right {
-                right.open();
-            }
+        }
+        self.len().cmp(&other.len())
+    }
+
+    /// The pairs of items the two sequences hold at the same positions, in order, up to the end
+    /// of the shorter one, but for the items of a node both hold at the same position, which are
+    /// the same items and are skipped: the walk opens a node only where the two differ, so two
+    /// versions that share all but a few paths cost those paths.
+    pub(crate) fn aligned<'a>(&'a self, other: &'a Self) -> Aligned<'a, I> {
+        Aligned {
+            left: Cursor::new(self.root.as_ref()),
+            right: Cursor::new(other.root.as_ref()),
         }
     }
 
@@ -1144,6 +1131,42 @@ impl<'a, I: Item> Cursor<'a, I> {
             Node::Leaf { items, .. } => Rest::Items(items),
             Node::Internal { children, .. } => Rest::Nodes(children),
         });
+    }
+}
+
+/// The pairs of items two sequences hold at the same positions ([`Chunked::aligned`]).
+pub(crate) struct Aligned<'a, I: Item> {
+    left: Cursor<'a, I>,
+    right: Cursor<'a, I>,
+}
+
+impl<'a, I: Item> Iterator for Aligned<'a, I> {
+    type Item = (&'a I, &'a I);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (open_left, open_right) = match (self.left.peek()?, self.right.peek()?) {
+                (Next::Node(left), Next::Node(right)) if Arc::ptr_eq(left, right) => {
+                    self.left.skip();
+                    self.right.skip();
+                    continue;
+                }
+                (Next::Item(left), Next::Item(right)) => {
+                    self.left.skip();
+                    self.right.skip();
+                    return Some((left, right));
+                }
+                // Open the taller of the two (both at an equal height), until both stand at
+                // items or at one shared node.
+                (left, right) => (left.level() >= right.level(), right.level() >= left.level()),
+            };
+            if open_left {
+                self.left.open();
+            }
+            if open_right {
+                self.right.open();
+            }
+        }
     }
 }
 

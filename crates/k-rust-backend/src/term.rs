@@ -3004,21 +3004,40 @@ pub(crate) fn equal_terms_on_work_list(left: &Term, right: &Term) -> bool {
             match children {
                 None => return false,
                 Some(None) => {}
-                Some(Some(pair)) => {
-                    next = Some(pair);
+                Some(Some(PendingEqual::Terms(left, right))) => {
+                    next = Some((left, right));
                     continue;
                 }
+                Some(Some(entries @ PendingEqual::Entries(_))) => pending.push(entries),
             }
         }
         match pending.pop() {
             None => return true,
-            Some(pair) => next = Some(pair),
+            Some(PendingEqual::Terms(left, right)) => next = Some((left, right)),
+            // The next pair of entries: the keys now, the values and the rest of the entries
+            // later.
+            Some(PendingEqual::Entries(mut entries)) => {
+                if let Some(((key, value), (other_key, other_value))) = entries.next() {
+                    pending.push(PendingEqual::Entries(entries));
+                    pending.push(PendingEqual::Terms(value, other_value));
+                    next = Some((key, other_key));
+                }
+            }
         }
     }
 }
 
+/// A comparison [`equal_terms_on_work_list`] owes: of two children, or of the entries two maps
+/// hold at the same positions, which it takes one pair at a time from a walk that skips the tree
+/// nodes the maps share (`Items::aligned`), so two versions of a map cost the paths where they
+/// differ.
+enum PendingEqual<'a> {
+    Terms(&'a Term, &'a Term),
+    Entries(items::Aligned<'a, (Term, Term)>),
+}
+
 /// What [`equal_nodes`] hands the pairs of children of two nodes to.
-type ChildPairs<'c, 'a, R> = dyn FnMut(&mut dyn Iterator<Item = (&'a Term, &'a Term)>) -> R + 'c;
+type ChildPairs<'c, 'a, R> = dyn FnMut(&mut dyn Iterator<Item = PendingEqual<'a>>) -> R + 'c;
 
 /// The fields of two kinds other than their children, compared as `TermKind`'s derived equality
 /// compares them: `None` when they differ, otherwise what `children` makes of the pairs of
@@ -3046,10 +3065,17 @@ fn equal_nodes<'a, R>(
             (None, Some(_)) | (Some(_), None) => None,
         }
     }
-    let mut queue = |pairs: &mut dyn Iterator<Item = (&'a Term, &'a Term)>| Some(children(pairs));
+    fn terms<'a>(
+        pairs: impl Iterator<Item = (&'a Term, &'a Term)>,
+    ) -> impl Iterator<Item = PendingEqual<'a>> {
+        pairs.map(|(left, right)| PendingEqual::Terms(left, right))
+    }
+    let mut queue = |owed: &mut dyn Iterator<Item = PendingEqual<'a>>| Some(children(owed));
     match (left, right) {
         (TermKind::And(left_first, left_second), TermKind::And(right_first, right_second)) => {
-            queue(&mut [(left_first, right_first), (left_second, right_second)].into_iter())
+            queue(&mut terms(
+                [(left_first, right_first), (left_second, right_second)].into_iter(),
+            ))
         }
         (
             TermKind::Application {
@@ -3063,8 +3089,8 @@ fn equal_nodes<'a, R>(
                 arguments: other_arguments,
             },
         ) => match sequence(arguments, other_arguments) {
-            Some(mut pairs) if symbol == other_symbol && sort_arguments == other_sort_arguments => {
-                queue(&mut pairs)
+            Some(pairs) if symbol == other_symbol && sort_arguments == other_sort_arguments => {
+                queue(&mut terms(pairs))
             }
             Some(_) | None => None,
         },
@@ -3075,10 +3101,10 @@ fn equal_nodes<'a, R>(
                 value: other_value,
             },
         ) => {
-            (sort == other_sort && value == other_value).then(|| children(&mut std::iter::empty()))
+            (sort == other_sort && value == other_value).then(|| queue(&mut std::iter::empty()))?
         }
         (TermKind::Variable(variable), TermKind::Variable(other)) => {
-            (variable == other).then(|| children(&mut std::iter::empty()))
+            (variable == other).then(|| queue(&mut std::iter::empty()))?
         }
         (
             TermKind::Injection {
@@ -3092,7 +3118,7 @@ fn equal_nodes<'a, R>(
                 term: other_term,
             },
         ) => (source == other_source && target == other_target)
-            .then(|| children(&mut std::iter::once((term, other_term)))),
+            .then(|| queue(&mut terms(std::iter::once((term, other_term)))))?,
         (
             TermKind::Map {
                 definition,
@@ -3109,13 +3135,8 @@ fn equal_nodes<'a, R>(
                 if definition == other_definition && entries.len() == other_entries.len() =>
             {
                 queue(
-                    &mut entries
-                        .iter()
-                        .zip(other_entries)
-                        .flat_map(|((key, value), (other_key, other_value))| {
-                            [(key, other_key), (value, other_value)]
-                        })
-                        .chain(rest),
+                    &mut std::iter::once(PendingEqual::Entries(entries.aligned(other_entries)))
+                        .chain(terms(rest.into_iter())),
                 )
             }
             Some(_) | None => None,
@@ -3142,7 +3163,7 @@ fn equal_nodes<'a, R>(
             };
             match (sequence(heads, other_heads), rest) {
                 (Some(heads), Some(rest)) if definition == other_definition => {
-                    queue(&mut heads.chain(rest.into_iter().flatten()))
+                    queue(&mut terms(heads.chain(rest.into_iter().flatten())))
                 }
                 _ => None,
             }
@@ -3163,7 +3184,7 @@ fn equal_nodes<'a, R>(
             optional(rest.as_ref(), other_rest.as_ref()),
         ) {
             (Some(elements), Some(rest)) if definition == other_definition => {
-                queue(&mut elements.chain(rest))
+                queue(&mut terms(elements.chain(rest)))
             }
             _ => None,
         },
@@ -3225,6 +3246,12 @@ pub(crate) fn order_terms_on_work_list(left: &Term, right: &Term) -> Ordering {
                         pending.extend(comparisons.rev());
                         PendingOrder::Terms(left, right)
                     }
+                    // Owed first, before what follows it; nothing is decided yet.
+                    Some(entries @ PendingOrder::Entries(_)) => {
+                        pending.extend(comparisons.rev());
+                        pending.push(entries);
+                        PendingOrder::Decided(Ordering::Equal)
+                    }
                 }
             });
             match node {
@@ -3234,6 +3261,7 @@ pub(crate) fn order_terms_on_work_list(left: &Term, right: &Term) -> Ordering {
                     next = Some((left, right));
                     continue;
                 }
+                PendingOrder::Entries(_) => unreachable!("entries are owed, not compared at once"),
             }
         }
         match pending.pop() {
@@ -3241,14 +3269,27 @@ pub(crate) fn order_terms_on_work_list(left: &Term, right: &Term) -> Ordering {
             Some(PendingOrder::Terms(left, right)) => next = Some((left, right)),
             Some(PendingOrder::Decided(Ordering::Equal)) => {}
             Some(PendingOrder::Decided(decided)) => return decided,
+            // The next pair of entries: the keys now, then the values, then the rest of the
+            // entries.
+            Some(PendingOrder::Entries(mut entries)) => {
+                if let Some(((key, value), (other_key, other_value))) = entries.next() {
+                    pending.push(PendingOrder::Entries(entries));
+                    pending.push(PendingOrder::Terms(value, other_value));
+                    next = Some((key, other_key));
+                }
+            }
         }
     }
 }
 
-/// A comparison the derived order of two nodes makes: of two children, or one already made.
+/// A comparison the derived order of two nodes makes: of two children, one already made, or of
+/// the entries two maps hold at the same positions, up to the end of the shorter map, which the
+/// work list takes one pair at a time from a walk that skips the tree nodes the maps share
+/// (`Items::aligned`), so two versions of a map cost the paths where they differ.
 enum PendingOrder<'a> {
     Terms(&'a Term, &'a Term),
     Decided(Ordering),
+    Entries(items::Aligned<'a, (Term, Term)>),
 }
 
 /// The position of a kind's variant in `TermKind`'s declaration, which the derived order
@@ -3364,14 +3405,9 @@ fn order_nodes<'a, R>(
             },
         ) => queue(
             &mut decided(definition.cmp(other_definition))
-                .chain(entries.iter().zip(other_entries).flat_map(
-                    |((key, value), (other_key, other_value))| {
-                        [
-                            PendingOrder::Terms(key, other_key),
-                            PendingOrder::Terms(value, other_value),
-                        ]
-                    },
-                ))
+                .chain(std::iter::once(PendingOrder::Entries(
+                    entries.aligned(other_entries),
+                )))
                 .chain(decided(entries.len().cmp(&other_entries.len())))
                 .chain(optional(rest.as_ref(), other_rest.as_ref())),
         ),
