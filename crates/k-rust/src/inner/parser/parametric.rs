@@ -393,16 +393,24 @@ impl Grammar {
         concretization: ParametricConcretization<'_>,
         lexical: &BTreeMap<String, KRegex>,
         source_catalog: &ProductionCatalog<'_>,
+        is_program_syntax: impl Fn(&Sentence) -> bool,
     ) -> Result<(), ParseError> {
         for family in concretization.families {
             let sentence = family.formal_source;
+            let program_text = is_program_syntax(sentence);
             // The forest identifies all instances of this source as one term production. The
             // first instance is its canonical descriptor; its origin supplies the formal
             // signature for inference, so its concrete parse-time result does not type the term.
             let term_production = self.productions.len();
             let source_production = catalog_production(source_catalog, sentence);
             for instance in family.instances {
-                self.add_instantiation(instance, lexical, source_production, term_production)?;
+                self.add_instantiation(
+                    instance,
+                    lexical,
+                    source_production,
+                    term_production,
+                    program_text,
+                )?;
             }
         }
 
@@ -424,6 +432,7 @@ impl Grammar {
         lexical: &BTreeMap<String, KRegex>,
         source_production: Option<crate::kast::ProductionIdentity>,
         term_production: usize,
+        program_text: bool,
     ) -> Result<(), ParseError> {
         let Sentence::Production {
             label,
@@ -448,6 +457,7 @@ impl Grammar {
                 source_production_text: source_production_text.as_ref(),
                 source: attributes.source(),
                 location: attributes.location(),
+                program_text,
                 ..production_options(attributes)
             },
             lexical,
@@ -503,6 +513,7 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
         user_list_nonempty: attributes.string(AttributeKey::UserList) == Some("+"),
         precedence: attributes.string(AttributeKey::Prec),
         hook: attributes.string(AttributeKey::Hook),
+        program_text: false,
     }
 }
 

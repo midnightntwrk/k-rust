@@ -2242,6 +2242,75 @@ fn reference_scan_d_upperid_token_and_variable_are_a_reported_ambiguity() {
     }));
 }
 
+/// A module whose `Toks ::= Pair [token]` and `Toks ::= Names [token]` make a token of a
+/// phrase's text, with one rule (`{rule}`) over them. Names are digits, which no lexeme of the
+/// rule grammar's own syntax scans.
+fn phrase_token_module(rule: &str) -> String {
+    format!(
+        "module MAIN
+  syntax Name ::= r\"[0-9]+\" [token]
+  syntax Pair ::= Name \".\" Name
+  syntax Names ::= List{{Name, \",\"}}
+  syntax Toks ::= Pair [token] | Names [token]
+  syntax Pgm ::= \"run\" Toks | done(Toks) | \"stop\"
+  rule {rule}
+endmodule
+"
+    )
+}
+
+fn phrase_token_rule_body(rule: &str) -> String {
+    only_rule_body(&resolve_rule_bubbles(&lowered(&phrase_token_module(rule))).unwrap())
+}
+
+fn phrase_token_rule_error(rule: &str) -> ParseError {
+    match resolve_rule_bubbles(&lowered(&phrase_token_module(rule))) {
+        Err(RuleError::Parse(error)) => error.error,
+        other => panic!("expected a parse error, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_variable_at_a_phrase_token_sort_is_a_variable_and_no_token_of_its_name() {
+    let body = phrase_token_rule_body("T:Toks => done(T)");
+    assert!(!body.contains("\"Toks\")"), "{body}");
+    assert!(body.contains("T"), "{body}");
+}
+
+#[test]
+fn a_token_literal_at_a_phrase_token_sort_is_its_only_reading() {
+    let body = phrase_token_rule_body("run #token(\"1 . 2\", \"Toks\") => stop");
+    assert!(body.contains("#token(\"1 . 2\",\"Toks\")"), "{body}");
+}
+
+#[test]
+fn a_phrase_of_program_text_in_a_rule_is_a_token_of_its_text() {
+    let body = phrase_token_rule_body("run 1 . 2 => stop");
+    assert!(body.contains("#token(\"1 . 2\",\"Toks\")"), "{body}");
+    let body = phrase_token_rule_body("run 1 , 2 , 3 => stop");
+    assert!(body.contains("#token(\"1 , 2 , 3\",\"Toks\")"), "{body}");
+}
+
+#[test]
+fn a_phrase_holding_a_rule_construct_is_no_token() {
+    // A variable, a cast, a rewrite or a list's `.Names` (the rule notation of the empty list,
+    // which a program writes as no text) spells no text of a program, so no `Toks` token holds
+    // it, and the rule has no reading at all.
+    for rule in [
+        "run 1 . X => stop",
+        "run 1 . (2:Name) => stop",
+        "run 1 . (2 => 3) => stop",
+        "run 1 , X => stop",
+        "run .Names => stop",
+    ] {
+        let error = phrase_token_rule_error(rule);
+        assert!(
+            !matches!(error, ParseError::Ambiguous { .. }),
+            "{rule}: {error:?}"
+        );
+    }
+}
+
 #[test]
 fn reference_invalid_prec_is_rejected_without_any_rule_bubble() {
     let source = include_str!("fixtures/reference/inner/tokens/invalidPrec.k");

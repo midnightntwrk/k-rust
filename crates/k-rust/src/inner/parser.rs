@@ -96,6 +96,7 @@ mod inference;
 mod lists;
 mod parametric;
 mod prediction;
+mod program_text;
 mod record;
 mod scanner;
 #[cfg(debug_assertions)]
@@ -1189,6 +1190,13 @@ struct Production {
     /// parametric origin's hook, so an instantiated machine-integer token production is still
     /// recognized as one.
     hook: Option<String>,
+    /// Whether the production is program text: syntax a program of the grammar's module writes,
+    /// as opposed to a construct the rule or configuration grammar adds to it (a variable, a
+    /// configuration variable, a `#token` literal, a cast, a rewrite, a cell, a generated
+    /// bracket, predicate or projection, a record pattern, a list's written terminator).
+    /// [`Grammar::read_token_text_as_program_text`] reads the nonterminals of the module's own
+    /// token productions through such productions only.
+    program_text: bool,
 }
 
 impl Production {
@@ -1283,6 +1291,7 @@ struct ProductionOptions<'a> {
     user_list_nonempty: bool,
     precedence: Option<&'a str>,
     hook: Option<&'a str>,
+    program_text: bool,
 }
 
 /// The most decisions of what it gives its waiting callers that one completion on this thread

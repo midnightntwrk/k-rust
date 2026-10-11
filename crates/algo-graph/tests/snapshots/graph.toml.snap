@@ -7320,6 +7320,16 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/grammar.rs"
 symbol = "Grammar::add_production"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/program_text.rs"
+symbol = "Grammar::read_token_text_as_program_text"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/program_text.rs"
+symbol = "Grammar::program_text_sort_id"
+
 [[node.cost]]
 mode = "one grammar"
 bound = "O(S x I) plus declared relation and specialization work"

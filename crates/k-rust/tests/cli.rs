@@ -12520,38 +12520,67 @@ endmodule
 }
 
 #[test]
-fn kcompile_rejects_a_configuration_variable_parsed_as_the_text_of_a_phrase_token() {
+fn a_configuration_variable_whose_sort_reaches_a_phrase_token_places_the_program() {
+    // `$PGM:Pgm` reaches the token sort `Toks` by the subsort `Pgm ::= Toks` alone; its text
+    // is no program text of `Names`, so it is the configuration variable, and the rule's `T` is
+    // a variable rather than the token `T`.
     let source = r##"
 module T-SYNTAX
   syntax Name ::= r"[a-z]+" [token]
   syntax Names ::= List{Name, ","}
   syntax Toks ::= Names [token]
-  syntax Pgm ::= Toks
+  syntax Pgm ::= Toks | done(Toks)
 endmodule
 module T
   imports T-SYNTAX
   configuration <k> $PGM:Pgm </k>
+  rule <k> T:Toks => done(T) </k>
 endmodule
 "##;
     let (root, definition) = fixture();
     fs::write(&definition, source).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args(["kcompile", "--main-module", "T", "--output-directory"])
-        .arg(root.join("compiled"))
-        .arg(&definition)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!output.status.success(), "{stderr}");
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "T"], &compiled);
+    let kore = fs::read_to_string(compiled.join("definition.kore")).unwrap();
+    assert!(!kore.contains(r#"\dv{SortToks{}}("$PGM")"#), "{kore}");
+    assert!(!kore.contains(r#"\dv{SortToks{}}("T")"#), "{kore}");
+
+    let program = root.join("program.txt");
+    fs::write(&program, "ab , cd").unwrap();
+    let krun = |depth: Option<&str>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .arg(&program)
+            .args(["--sort", "Pgm"]);
+        if let Some(depth) = depth {
+            command.args(["--depth", depth]);
+        }
+        let output = command.stdin(Stdio::null()).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let pattern = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+        k_rust::kore::printer::Printer::compact().print_pattern(&pattern)
+    };
+    let program = r#"\dv{SortToks{}}("ab , cd")"#;
+    let initial = krun(Some("0"));
     assert!(
-        stderr.contains(
-            "configuration in module \"T\" writes the configuration variable `$PGM` in cell <k> \
-             but parses it as text of a token of sort Toks"
-        ),
-        "{stderr}"
+        initial.contains(&format!(
+            "kseq{{}}(inj{{SortToks{{}}, SortKItem{{}}}}({program}), dotk{{}}())"
+        )),
+        "{initial}"
     );
-    assert!(!root.join("compiled").join("definition.kore").exists());
+    let last = krun(None);
+    assert!(
+        last.contains(&format!(
+            "kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}(Lbldone'LParUndsRParUnds'T-SYNTAX'Unds'Pgm'Unds'Toks{{}}({program})), dotk{{}}())"
+        )),
+        "{last}"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }

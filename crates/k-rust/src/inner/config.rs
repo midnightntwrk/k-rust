@@ -520,6 +520,7 @@ fn configuration_grammar(
     module: ModuleId,
 ) -> Result<Grammar, ParseError> {
     let mut visible = resolved.signature_sentences(module);
+    let signature = visible.len();
     add_implicit_ml_syntax(resolved, &mut visible);
     reject_kernel_position_contradiction(&visible)?;
     // Start sorts and #token sort strings denote in the module's full view. SortUniverse
@@ -531,8 +532,9 @@ fn configuration_grammar(
     };
     // The reference configuration grammar imports DEFAULT-LAYOUT explicitly,
     // even when the language declares a program-specific `#Layout` sort.
-    let mut grammar = Grammar::from_configuration_sentences(
+    let mut grammar = Grammar::from_configuration_view(
         visible.iter().copied(),
+        signature,
         synonyms.denotations().clone(),
     )?;
     // The sorts the per-sort productions range over: the rule grammar's universe over this
@@ -599,6 +601,7 @@ fn configuration_grammar(
     // acyclicity of the semantic subsort relation (G0-G3).
     #[cfg(debug_assertions)]
     grammar.assert_generated_sort_roles(&universe);
+    grammar.read_token_text_as_program_text();
     Ok(grammar)
 }
 
