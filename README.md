@@ -660,6 +660,7 @@ Each certification and heavy entry names the paths whose change owes it; record 
 Heavy entries (the WASM, MIR and KEVM compiles, parses and runs, the WASM execution gate and the critical-pair corpus) need a host UID with a user systemd manager; the runner lists them as not run under an `agent-N` user and exits 3.
 
 `scripts/reference-differential.toml` is the source of truth for pins, checkout paths, compiler options, compared artifacts, parser cases, execution/search programs, proof claims, RPC cases, and the six documented oracle exclusions.
+A recorded divergence, a compile case with `expect = "port-accepts"` or a kast entry under `port-accepts` or `port-rejects`, states its reason, which links the `docs/compatibility.md` section that names it; its gate runs both sides and fails when either moves.
 The scripts enforce clean checkouts at the manifest revisions and require the matching K release.
 Set `K_CHECKOUT`, `IMP_SEMANTICS_CHECKOUT`, `WASM_SEMANTICS_CHECKOUT`, `EVM_SEMANTICS_CHECKOUT`, `EVM_EQUIVALENCE_CHECKOUT`, or `MIR_SEMANTICS_CHECKOUT` when a checkout is not at its ignored workspace-default path.
 Each of the six Java-backed differential scripts re-executes its complete job in one transient user systemd scope before loading the manifest, validating pins, or starting reference and Rust phases.

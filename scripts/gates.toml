@@ -212,6 +212,12 @@ command = "scripts/reference-kast-differential.sh imp"
 paths = ["@krust", "@reference", "@kast"]
 
 [[gate]]
+name = "kast-regex-anchors"
+run = "certification"
+command = "scripts/reference-kast-differential.sh regex-anchor-local"
+paths = ["@krust", "@reference", "@kast"]
+
+[[gate]]
 name = "execution-cli"
 run = "certification"
 command = "scripts/reference-non-imp-execution-differential.sh io exit star-cell-map-nested-set star-cell-heating-set"

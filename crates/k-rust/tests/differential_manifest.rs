@@ -2222,28 +2222,45 @@ fn excluded_cases_have_complete_oracle_dispositions() {
     assert_eq!(names, expected_names, "the audited exclusion set changed");
 }
 
+/// A recorded divergence from the reference is adjudicated: its reason links the
+/// docs/compatibility.md section that argues it, and that section names it and its kind. A
+/// compile case is named by its case name, a kast entry by `case:entry`.
 #[test]
-fn port_accepts_cases_are_the_adjudicated_divergences() {
+fn recorded_divergences_are_the_adjudicated_ones() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
     let compatibility = fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/compatibility.md"),
     )
     .expect("docs/compatibility.md");
-    let mut names = BTreeSet::new();
+    let mut divergences = Vec::new();
     for entry in manifest["compile"].as_array().expect("compile cases") {
-        if entry.get("expect").and_then(Value::as_str) != Some("port-accepts") {
-            continue;
+        if entry.get("expect").and_then(Value::as_str) == Some("port-accepts") {
+            let name = entry["name"].as_str().expect("compile name");
+            divergences.push((name.to_owned(), "port-accepts", entry));
         }
-        let name = entry["name"].as_str().expect("compile name");
-        names.insert(name);
-        let reason = entry["reason"].as_str().expect("port-accepts reason");
+    }
+    for case in manifest["kast"].as_array().expect("kast cases") {
+        let case_name = case["name"].as_str().expect("kast name");
+        for kind in ["port-accepts", "port-rejects"] {
+            for entry in case
+                .get(kind)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let entry_name = entry["name"].as_str().expect("kast entry name");
+                divergences.push((format!("{case_name}:{entry_name}"), kind, entry));
+            }
+        }
+    }
+    let mut names = BTreeSet::new();
+    for (name, kind, entry) in divergences {
+        let reason = entry["reason"].as_str().expect("divergence reason");
         let anchor = reason
             .split_whitespace()
             .find_map(|word| word.strip_prefix("docs/compatibility.md#"))
             .map(|anchor| anchor.trim_end_matches('.'))
-            .unwrap_or_else(|| {
-                panic!("port-accepts case {name} must link its compatibility section")
-            });
+            .unwrap_or_else(|| panic!("{kind} {name} must link its compatibility section"));
         let heading = compatibility
             .lines()
             .filter_map(|line| line.strip_prefix("## "))
@@ -2255,15 +2272,93 @@ fn port_accepts_cases_are_the_adjudicated_divergences() {
             .and_then(|rest| rest.split("\n## ").next())
             .expect("compatibility section body");
         assert!(
-            section.contains(&format!("`{name}`")) && section.contains("port-accepts"),
-            "docs/compatibility.md#{anchor} must record {name} as a port-accepts divergence",
+            section.contains(&format!("`{name}`")) && section.contains(kind),
+            "docs/compatibility.md#{anchor} must record {name} as a {kind} divergence",
         );
+        names.insert(name);
     }
     assert_eq!(
         names,
-        BTreeSet::from(["semcast3", "semcast4"]),
-        "the adjudicated port-accepts set changed",
+        BTreeSet::from(
+            [
+                "semcast3",
+                "semcast4",
+                "regex-anchor-local:end-anchor-at-the-end-of-the-text",
+                "regex-anchor-local:start-anchor-at-the-end-of-the-text",
+            ]
+            .map(String::from)
+        ),
+        "the adjudicated divergence set changed",
     );
+}
+
+#[test]
+fn differential_manifest_requires_a_reason_for_a_kast_divergence() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("manifest-kast-entries");
+    let helper = fixture.join("reference-manifest.py");
+    fs::copy(workspace.join("scripts/reference-manifest.py"), &helper).unwrap();
+    for (entry, valid) in [
+        ("[[kast.accept]]\nname = \"e\"\n", true),
+        ("[[kast.reject]]\nname = \"e\"\n", true),
+        (
+            "[[kast.port-rejects]]\nname = \"e\"\nreason = \"why\"\n",
+            true,
+        ),
+        (
+            "[[kast.port-accepts]]\nname = \"e\"\nreason = \"why\"\nreference-error = \"Scanner error\"\n",
+            true,
+        ),
+        ("[[kast.port-rejects]]\nname = \"e\"\n", false),
+        (
+            "[[kast.port-rejects]]\nname = \"e\"\nreason = \" \"\n",
+            false,
+        ),
+        (
+            "[[kast.port-rejects]]\nname = \"e\"\nreason = \"why\"\nreference-error = \"Scanner error\"\n",
+            false,
+        ),
+        (
+            "[[kast.port-accepts]]\nname = \"e\"\nreason = \"why\"\n",
+            false,
+        ),
+        (
+            "[[kast.port-accepts]]\nname = \"e\"\nreference-error = \"Scanner error\"\n",
+            false,
+        ),
+        ("[[kast.accept]]\nname = \"e\"\nreason = \"why\"\n", false),
+        (
+            "[[kast.reject]]\nname = \"e\"\nreference-error = \"Scanner error\"\n",
+            false,
+        ),
+        (
+            "[[kast.port-accept]]\nname = \"e\"\nreason = \"why\"\n",
+            false,
+        ),
+    ] {
+        fs::write(
+            fixture.join("reference-differential.toml"),
+            format!(
+                "[[kast]]\nname = \"fixture\"\nrequires = [\"reference-toolchain\"]\n\n{entry}"
+            ),
+        )
+        .unwrap();
+        let output = Command::new("python3")
+            .arg(&helper)
+            .arg("--validate")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(if valid { 0 } else { 2 }),
+            "{entry}: {stderr}"
+        );
+        if !valid {
+            assert!(stderr.contains("invalid differential manifest"), "{stderr}");
+        }
+    }
+    fs::remove_dir_all(fixture).unwrap();
 }
 
 #[test]
@@ -2443,6 +2538,163 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
         assert!(stderr.contains(diagnostic), "{stderr}");
         assert!(!stdout.contains("corpus passed"), "{stdout}");
     }
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn kast_gate_fails_when_either_side_of_a_recorded_divergence_moves() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("kast-divergence-gate");
+    let k_checkout = fake_k_checkout(&fixture, &[]);
+    let fake_kompile = fixture.join("kompile");
+    write_environment_probe(&fake_kompile, "kompile", FAKE_KOMPILE_PROLOGUE);
+    // The pinned kast of the regex-anchor-local case: the agreed entries answer as recorded, and
+    // the two divergent texts answer as the environment says. Any other text, including an
+    // agreed one that lost its line end on the way, is an error.
+    let fake_kast = fixture.join("kast");
+    write_environment_probe(
+        &fake_kast,
+        "kast",
+        r#"
+while (($#)); do
+  if [[ "$1" == --expression ]]; then expression=$2; fi
+  shift
+done
+case "$expression" in
+  $'a\n' | $'b\n') echo '{}' ;;
+  $' b\n') echo "[Error] Inner Parser: Scanner error: unexpected character sequence 'b'." >&2; exit 113 ;;
+  a) echo '{}'; exit "$FAKE_KAST_A_STATUS" ;;
+  b) echo "$FAKE_KAST_B_MESSAGE" >&2; exit "$FAKE_KAST_B_STATUS" ;;
+  *) echo "unexpected expression $(printf %q "$expression")" >&2; exit 3 ;;
+esac
+"#,
+    );
+    let krust_arguments = fixture.join("krust-arguments");
+    let gate_target = fake_gate_rust_toolchain(
+        &fixture,
+        r#"printf '%s\0' "$@" >"$FAKE_KRUST_ARGUMENTS"; exit "$FAKE_KRUST_STATUS""#,
+        "",
+    );
+    let calls = fixture.join("calls");
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let script = workspace.join("scripts/reference-kast-differential.sh");
+    const PINNED: &str = "[Error] Inner Parser: Scanner error: unexpected character sequence 'b'.";
+    let run = |a: u8, b: u8, message: &str, krust: u8| {
+        let output = Command::new("bash")
+            .arg(&script)
+            .arg("regex-anchor-local")
+            .env("PATH", &path)
+            .env("K_CHECKOUT", &k_checkout)
+            .env("K_KOMPILE", &fake_kompile)
+            .env("K_KAST", &fake_kast)
+            .env("FAKE_KAST_A_STATUS", a.to_string())
+            .env("FAKE_KAST_B_STATUS", b.to_string())
+            .env("FAKE_KAST_B_MESSAGE", message)
+            .env("FAKE_KRUST_STATUS", krust.to_string())
+            .env("FAKE_KRUST_ARGUMENTS", &krust_arguments)
+            .env("KRUST_GATE_TARGET_DIR", &gate_target)
+            .env("ENVIRONMENT_CALLS", &calls)
+            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+            .output()
+            .expect("run kast divergence gate fixture");
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    };
+
+    let (status, stdout, stderr) = run(0, 113, PINNED, 0);
+    assert_eq!(
+        status,
+        Some(0),
+        "recorded divergences hold: {stdout}\n{stderr}"
+    );
+    for line in [
+        "[regex-anchor-local:start-anchor-at-the-end-of-the-text] recorded divergence: A token regex with a start anchor",
+        "[regex-anchor-local:start-anchor-at-the-end-of-the-text] reference rejection: [Error] Inner Parser: Scanner error",
+        "[regex-anchor-local:end-anchor-at-the-end-of-the-text] recorded divergence: A token regex with an end anchor",
+        "corpus passed",
+    ] {
+        assert!(stdout.contains(line), "{line}: {stdout}");
+    }
+    // krust is asked to accept the agreed and the port-accepts texts and to reject the agreed
+    // rejection and the port-rejects text, each with its line ends.
+    let arguments = fs::read(&krust_arguments).expect("krust arguments");
+    let arguments = arguments
+        .split(|byte| *byte == 0)
+        .map(|argument| String::from_utf8_lossy(argument).into_owned())
+        .collect::<Vec<_>>();
+    for expected in [
+        ["--batch-case", "end-anchor-before-a-newline", "Foo", "a\n"],
+        [
+            "--batch-case",
+            "start-anchor-at-the-start-before-a-newline",
+            "Bar",
+            "b\n",
+        ],
+        [
+            "--batch-case",
+            "start-anchor-at-the-end-of-the-text",
+            "Bar",
+            "b",
+        ],
+        [
+            "--batch-reject-case",
+            "start-anchor-after-a-space",
+            "Bar",
+            " b\n",
+        ],
+        [
+            "--batch-reject-case",
+            "end-anchor-at-the-end-of-the-text",
+            "Foo",
+            "a",
+        ],
+    ] {
+        assert!(
+            arguments.windows(4).any(|window| window == expected),
+            "krust was not given {expected:?}: {arguments:?}"
+        );
+    }
+
+    for (a, b, message, krust, diagnostic) in [
+        (
+            0,
+            0,
+            PINNED,
+            0,
+            "reference kast accepted port-accepts case regex-anchor-local:start-anchor-at-the-end-of-the-text",
+        ),
+        (
+            0,
+            1,
+            "Error: Could not reserve enough space for object heap",
+            0,
+            "lacks the recorded reference-error \"Scanner error: unexpected character sequence 'b'\"",
+        ),
+        (
+            1,
+            113,
+            PINNED,
+            0,
+            "reference kast rejected port-rejects case regex-anchor-local:end-anchor-at-the-end-of-the-text",
+        ),
+    ] {
+        let (status, stdout, stderr) = run(a, b, message, krust);
+        assert_eq!(status, Some(1), "{diagnostic}: {stdout}\n{stderr}");
+        assert!(stderr.contains(diagnostic), "{stderr}");
+        assert!(!stdout.contains("corpus passed"), "{stdout}");
+    }
+    // krust's side is its batch session, which fails when a port-accepts text is rejected or a
+    // port-rejects text accepted.
+    let (status, stdout, stderr) = run(0, 113, PINNED, 1);
+    assert_ne!(status, Some(0), "{stdout}\n{stderr}");
+    assert!(!stdout.contains("corpus passed"), "{stdout}");
     fs::remove_dir_all(fixture).unwrap();
 }
 
@@ -3410,8 +3662,8 @@ fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes()
         KAST_SCRIPT
             .matches("ulimit -v \"$reference_memory_kib\"")
             .count(),
-        3,
-        "reference compile, acceptance, and rejection checks must use the reference ceiling",
+        2,
+        "the reference compile and every reference parse must use the reference ceiling",
     );
 
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

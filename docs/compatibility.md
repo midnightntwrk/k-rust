@@ -478,8 +478,11 @@ A token regex `^R`, `R$` or `^R$` denotes the tokens of `R` under a condition on
 The in-process scanner and generated parsers give anchors this meaning alike (`tests/support/line_anchors.rs`).
 
 The pinned K's in-process `kast` reads `r"^b"` as also requiring a newline after the token and reads `r"a$"` as `r"a"`: it accepts `a` with no newline after it and rejects `b` at the end of the input; krust does neither.
+The kast manifest case `regex-anchor-local` parses [anchor.k](../crates/k-rust/tests/fixtures/reference/inner/regex/anchor.k), which declares those two tokens, with both and records the two as divergences: `regex-anchor-local:end-anchor-at-the-end-of-the-text` as `port-rejects` (krust rejects `a`, the reference accepts it) and `regex-anchor-local:start-anchor-at-the-end-of-the-text` as `port-accepts` (krust accepts `b`, the reference rejects it with `Scanner error: unexpected character sequence 'b'`).
+Its other entries pin where the two agree: `a` and `b` each followed by a newline are accepted, and `b` after a space is rejected.
+The kast gate runs both sides on every entry and fails when either moves.
 
-No reference-corpus definition uses an anchor. A reference differential case that does needs a declared normalisation or exclusion.
+No reference-corpus definition uses an anchor. Another reference differential case that does needs a declared normalisation, exclusion or recorded divergence.
 
 ## Compiler-resolved fresh constants
 

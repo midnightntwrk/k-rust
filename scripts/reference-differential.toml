@@ -1053,6 +1053,42 @@ name = "missing-instruction-argument"
 sort = "Stmts"
 expression = "i32.const"
 
+[[kast]]
+name = "regex-anchor-local"
+requires = ["reference-toolchain"]
+constructs = ["token-regex-anchor"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/regex/anchor.k"
+main-module = "ANCHOR"
+parser-module = "ANCHOR-SYNTAX"
+
+[[kast.accept]]
+name = "end-anchor-before-a-newline"
+sort = "Foo"
+expression = "a\n"
+
+[[kast.accept]]
+name = "start-anchor-at-the-start-before-a-newline"
+sort = "Bar"
+expression = "b\n"
+
+[[kast.reject]]
+name = "start-anchor-after-a-space"
+sort = "Bar"
+expression = " b\n"
+
+[[kast.port-rejects]]
+name = "end-anchor-at-the-end-of-the-text"
+sort = "Foo"
+expression = "a"
+reason = "A token regex with an end anchor denotes the tokens of its body that a line end follows, and the end of the text is not a line end: the text after the last newline is an unterminated line. In the text a no line end follows the token a, so it is not a Foo. k-rust rejects it; the pinned kast ignores a lone end anchor and accepts it. docs/compatibility.md#token-regex-line-anchors."
+
+[[kast.port-accepts]]
+name = "start-anchor-at-the-end-of-the-text"
+sort = "Bar"
+expression = "b"
+reference-error = "Scanner error: unexpected character sequence 'b'"
+reason = "A token regex with a start anchor denotes the tokens of its body that start the text or follow a line end, and says nothing about what follows the token. In the text b the token b starts the text, so it is a Bar. k-rust accepts it; the pinned kast also requires a newline after the token and rejects it. docs/compatibility.md#token-regex-line-anchors."
+
 [[execution]]
 name = "imp"
 requires = ["reference-toolchain"]
