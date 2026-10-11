@@ -1106,6 +1106,7 @@ mod stage_tests {
         let run = run_to_stage(
             r#"
 module INT
+  syntax Int ::= Int "+Int" Int [function, total, symbol(_+Int_), hook(INT.add)]
 endmodule
 module MAIN
   syntax K
@@ -1146,6 +1147,7 @@ endmodule
         let run = run_to_stage(
             r#"
 module INT
+  syntax Int ::= Int "+Int" Int [function, total, symbol(_+Int_), hook(INT.add)]
 endmodule
 module MAIN
   syntax K

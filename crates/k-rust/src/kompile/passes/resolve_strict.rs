@@ -753,6 +753,8 @@ mod stage_tests {
         let run = run_to_stage(
             r#"
 module BOOL
+  syntax Bool ::= Bool "andBool" Bool [function, total, symbol(_andBool_), hook(BOOL.and)]
+                | "notBool" Bool [function, total, symbol(notBool_), hook(BOOL.not)]
 endmodule
 module MAIN
   syntax K

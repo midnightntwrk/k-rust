@@ -890,9 +890,25 @@ pub(crate) fn run_stages_seeded(
     timings: &mut PhaseTimings,
     seed: Option<ResolvedDefinition>,
 ) -> Result<Definition, CompileError> {
-    run_stages_seeded_current(stages, start, state, options, timings, seed)
-        .map(Current::into_definition)
+    run_stages_seeded_current(
+        stages,
+        start,
+        state,
+        options,
+        timings,
+        seed,
+        &mut |_, _, _| {},
+    )
+    .map(Current::into_definition)
 }
+
+/// What a pipeline run reports after each stage: the stage, the definition it received, and the
+/// definition it produced (the received one when it changed nothing) or its error.
+///
+/// The pipeline runs the same stages whatever observes them, so a run observed at a stage is the
+/// run of every other caller.
+pub(crate) type StageObserver<'a> =
+    dyn FnMut(&Stage, &Definition, Result<&Definition, &CompileError>) + 'a;
 
 pub(crate) fn run_stages_seeded_with_resolved(
     stages: &[Stage],
@@ -901,8 +917,9 @@ pub(crate) fn run_stages_seeded_with_resolved(
     options: &CompileOptions,
     timings: &mut PhaseTimings,
     seed: ResolvedDefinition,
+    observer: &mut StageObserver<'_>,
 ) -> Result<(Definition, ResolvedDefinition), CompileError> {
-    run_stages_seeded_current(stages, start, state, options, timings, Some(seed))
+    run_stages_seeded_current(stages, start, state, options, timings, Some(seed), observer)
         .and_then(|current| current.into_definition_and_resolved("resolve pipeline output"))
 }
 
@@ -913,6 +930,7 @@ fn run_stages_seeded_current(
     options: &CompileOptions,
     timings: &mut PhaseTimings,
     seed: Option<ResolvedDefinition>,
+    observer: &mut StageObserver<'_>,
 ) -> Result<Current, CompileError> {
     let mut current = seed.map_or_else(
         || Current::new(start.clone()),
@@ -924,9 +942,16 @@ fn run_stages_seeded_current(
     })?;
     for stage in stages {
         let deepest = DeepestTerm::of(&current.definition);
-        let (output, next_resolved) = timings.time(stage.name, || {
+        let ran = timings.time(stage.name, || {
             deepest.run(stage.name, || run_stage(stage, &current, state, options))?
-        })?;
+        });
+        let (output, next_resolved) = match ran {
+            Ok(ran) => ran,
+            Err(error) => {
+                observer(stage, &current.definition, Err(&error));
+                return Err(error);
+            }
+        };
         #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
         {
             let checked = output.as_ref().unwrap_or(&current.definition);
@@ -934,6 +959,11 @@ fn run_stages_seeded_current(
                 measure::without_counting(|| state.checks.after(stage, checked, options));
             })?;
         }
+        observer(
+            stage,
+            &current.definition,
+            Ok(output.as_ref().unwrap_or(&current.definition)),
+        );
         if let Some(output) = output {
             current = Current::new(output);
             if let Some(resolved) = next_resolved {
@@ -1244,6 +1274,7 @@ mod tests {
             &CompileOptions::default(),
             &mut PhaseTimings::default(),
             resolved,
+            &mut |_, _, _| {},
         )
         .unwrap();
         assert_eq!(output, definition);

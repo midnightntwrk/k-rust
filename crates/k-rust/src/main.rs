@@ -1817,13 +1817,10 @@ fn load_definition_impl(
             let load_options = LoadOptions {
                 markdown_selector: options.markdown_selector.clone(),
                 implicit_sources,
-                excluded_module_attributes: backend
-                    .map(|backend| vec![backend.excluded_module_attribute().into()])
-                    .unwrap_or_default(),
                 configuration_module: configuration_module.map(str::to_owned),
-                project_root: None,
                 diagnostics: options.diagnostics,
                 bison_lists,
+                ..backend.map_or_else(LoadOptions::default, CompilationBackend::load_options)
             };
             Ok::<_, Box<dyn Error>>((resolver, entry, load_options))
         })?;
