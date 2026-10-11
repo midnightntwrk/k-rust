@@ -1896,7 +1896,7 @@ impl From<JsonProductionItem> for ProductionItem {
     }
 }
 
-/// A regex terminal's precede and follow restrictions other than [`NO_TOKEN_RESTRICTION`].
+/// A regex terminal's precede and follow restrictions other than `#`, the one that restricts nothing.
 #[derive(Debug)]
 pub struct TokenRestrictions {
     pub regex: String,

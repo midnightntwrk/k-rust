@@ -283,7 +283,7 @@ impl ProgramParser {
     }
 
     /// Parse a program read from the file `file`, the name the `#location` wrappers of its
-    /// `[locations]` sorts carry (see [`Locations`]).
+    /// `[locations]` sorts carry.
     pub fn parse_file(
         &self,
         start_sort: &Sort,

@@ -205,10 +205,10 @@ impl RegexBody {
     /// Render this regular-expression body for Flex.
     ///
     /// The pattern matches the UTF-8 encodings of the texts the body denotes, the input a
-    /// generated scanner reads: a character class and `.` each match one whole character (see
-    /// [`print_flex_utf8_set`]), and a character outside a class is its encoding, grouped so that
-    /// a repetition applies to all of it. A named reference stays a Flex `{Name}` reference, with
-    /// its name mangled by [`mangle_flex_identifier`].
+    /// generated scanner reads: a character class and `.` each match one whole character (the
+    /// byte sequences that encode exactly the characters they denote), and a character outside a
+    /// class is its encoding, grouped so that a repetition applies to all of it. A named reference
+    /// stays a Flex `{Name}` reference, with its name mangled by [`mangle_flex_identifier`].
     pub fn to_flex_string(&self) -> String {
         let mut output = String::new();
         print_flex_union(self, FlexClasses::Utf8, &mut output)
