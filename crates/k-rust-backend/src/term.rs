@@ -86,6 +86,9 @@ use rustc_hash::FxHasher;
 
 use crate::smt::SmtType;
 
+// Nothing outside the module and its tests uses the tree yet (design K22, step 1).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod chunked;
 pub mod head;
 pub mod names;
 
