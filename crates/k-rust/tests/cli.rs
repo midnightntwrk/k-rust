@@ -383,7 +383,7 @@ fn kore_exec_stops_after_a_prelude_failure_before_an_unbounded_sibling() {
     assert_eq!(output.stdout, b"");
     assert_eq!(
         output.stderr,
-        b"error: could not initialize Z3: InconsistentPrelude\n"
+        b"error: could not initialize Z3: the SMT prelude (the definition's SMT axioms and any user prelude) is unsatisfiable\n"
     );
     fs::remove_dir_all(root).unwrap();
 }
@@ -424,7 +424,7 @@ fn krun_reports_a_prelude_failure_with_an_unbounded_rewrite_rule() {
         assert_eq!(output.status.code(), Some(1), "{context}: {output:?}");
         assert_eq!(output.stdout, b"", "{context}: {output:?}");
         assert_eq!(
-            output.stderr, b"error: could not initialize Z3: InconsistentPrelude\n",
+            output.stderr, b"error: could not initialize Z3: the SMT prelude (the definition's SMT axioms and any user prelude) is unsatisfiable\n",
             "{context}: {output:?}"
         );
     }
@@ -6583,6 +6583,55 @@ endmodule []
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("Inconsistent free variable usage: X:SortInt{} and X:SortBool{}."),
+        "{stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A match the backend cannot decide is reported by its reason, stated in words: here the
+/// remainder equation between a function application in the target and a constructor in the
+/// configuration, printed as KORE.
+#[test]
+fn kore_match_disjunction_states_an_undecided_match_in_words() {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    let disjunction = root.join("disjunction.kore");
+    let pattern = root.join("pattern.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortS{} []
+  symbol a{}() : SortS{} [constructor{}()]
+  symbol f{}(SortS{}) : SortS{} [function{}()]
+endmodule []
+"#,
+    )
+    .unwrap();
+    fs::write(&disjunction, "a{}()").unwrap();
+    fs::write(&pattern, "f{}(X:SortS{})").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-match-disjunction",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--disjunction",
+            disjunction.to_str().unwrap(),
+            "--match",
+            pattern.to_str().unwrap(),
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.ends_with(
+            "KORE pattern match was indeterminate: the match left an undecided remainder:\n\
+             f{}(X:SortS{}) = a{}()\n"
+        ),
         "{stderr}"
     );
     fs::remove_dir_all(root).unwrap();

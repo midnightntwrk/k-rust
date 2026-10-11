@@ -2734,11 +2734,10 @@ mod tests {
                 schema_version: BACKEND_SCHEMA_VERSION,
             })
             .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("sorts differ after internalization"),
-            "{error}"
+        // The sorts are named as KORE sorts, as the request wrote them.
+        assert_eq!(
+            error.to_string(),
+            "antecedent and consequent sorts differ after internalization: SortS{} and SortT{}"
         );
     }
 

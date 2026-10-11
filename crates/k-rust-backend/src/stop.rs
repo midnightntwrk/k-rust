@@ -126,13 +126,20 @@ pub enum PreludeFailure {
     Unknown(Arc<str>),
 }
 
-/// The texts the surfaces print for a failed prelude: `InconsistentPrelude` and
-/// `UnknownPrelude("<reason>")`, the reason quoted and escaped.
+/// Why a solver's prelude failed, in words: it is unsatisfiable, or the solver did not decide
+/// whether it is satisfiable, followed by the solver's own reason.
 impl fmt::Display for PreludeFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Inconsistent => formatter.write_str("InconsistentPrelude"),
-            Self::Unknown(reason) => write!(formatter, "UnknownPrelude({:?})", &**reason),
+            Self::Inconsistent => formatter.write_str(
+                "the SMT prelude (the definition's SMT axioms and any user prelude) is \
+                 unsatisfiable",
+            ),
+            Self::Unknown(reason) => write!(
+                formatter,
+                "the solver did not decide whether the SMT prelude (the definition's SMT axioms \
+                 and any user prelude) is satisfiable ({reason})"
+            ),
         }
     }
 }
@@ -1467,15 +1474,17 @@ mod tests {
         );
         assert_eq!(
             PreludeFailure::Inconsistent.to_string(),
-            "InconsistentPrelude"
+            "the SMT prelude (the definition's SMT axioms and any user prelude) is unsatisfiable"
         );
         assert_eq!(
-            PreludeFailure::Unknown("a \"quoted\" reason".into()).to_string(),
-            r#"UnknownPrelude("a \"quoted\" reason")"#
+            PreludeFailure::Unknown("timeout".into()).to_string(),
+            "the solver did not decide whether the SMT prelude (the definition's SMT axioms and \
+             any user prelude) is satisfiable (timeout)"
         );
         assert_eq!(
             StopCause::SolverPrelude(PreludeFailure::Inconsistent).to_string(),
-            "could not initialize Z3: InconsistentPrelude"
+            "could not initialize Z3: the SMT prelude (the definition's SMT axioms and any user \
+             prelude) is unsatisfiable"
         );
         assert_eq!(StopCause::Cancelled.to_string(), "Request cancelled");
     }

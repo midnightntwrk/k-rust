@@ -597,7 +597,7 @@ fn a_run_reports_an_inconsistent_solver_prelude() {
         .unwrap_err();
     assert_eq!(
         error.to_string(),
-        "could not initialize Z3: InconsistentPrelude"
+        "could not initialize Z3: the SMT prelude (the definition's SMT axioms and any user prelude) is unsatisfiable"
     );
 }
 
