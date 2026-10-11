@@ -30,6 +30,18 @@ struct Compiled {
 /// Compile `source` (main module `main`, programs parsed with `syntax`) and assemble the initial
 /// configuration whose `$PGM` is `program` parsed at `sort`.
 fn compile(source: &str, main: &str, syntax: &str, sort: &str, program: &str) -> Compiled {
+    compile_bound(source, main, syntax, sort, program, &[])
+}
+
+/// [`compile`], with the other configuration variables bound to the given texts.
+fn compile_bound(
+    source: &str,
+    main: &str,
+    syntax: &str,
+    sort: &str,
+    program: &str,
+    bindings: &[(&str, &str)],
+) -> Compiled {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -49,6 +61,9 @@ fn compile(source: &str, main: &str, syntax: &str, sort: &str, program: &str) ->
     let mut assembler =
         ConfigurationAssembler::new(&grammar, main, syntax, &artifacts.configuration_variables);
     assembler.program(&Sort::new(sort), program).unwrap();
+    for (name, text) in bindings {
+        assembler.bind(name, text).unwrap();
+    }
     Compiled {
         kore: artifacts.definition_kore,
         initial: assembler.finish().unwrap(),
@@ -233,4 +248,85 @@ endmodule
     };
     assert_eq!(search(SearchTypeArg::Final), ["0"]);
     assert_eq!(search(SearchTypeArg::All), ["0", "1", "2", "3", "4"]);
+}
+
+/// Whether a String holds a surrogate code point the definition does not settle (K's string
+/// syntax writes one, KORE's literals cannot), so `chrChar(55296)` is neither a value nor
+/// undefined: the run keeps the application unevaluated, with a diagnostic naming the hook,
+/// rather than ending in `\bottom`.
+#[test]
+fn chr_of_a_surrogate_is_left_unevaluated() {
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");
+    let source = std::fs::read_to_string(fixtures.join("hook-boundaries.k")).unwrap();
+    let program = std::fs::read_to_string(fixtures.join("surrogate.hooks")).unwrap();
+    let compiled = compile(
+        &source,
+        "HOOK-BOUNDARIES",
+        "HOOK-BOUNDARIES-SYNTAX",
+        "Pgm",
+        &program,
+    );
+    let result = execute(&compiled, "HOOK-BOUNDARIES", Some(10));
+    let states = text(&result).join("\n");
+    assert!(
+        states.contains("LblchrChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Int{}(")
+            && states.contains(r#"\dv{SortInt{}}("55296")"#)
+            && !states.contains("\\bottom"),
+        "{states}"
+    );
+    let diagnostics = format!(
+        "{:?}",
+        result
+            .leaves
+            .iter()
+            .map(|leaf| &leaf.diagnostics)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        diagnostics.contains("STRING.chr") && diagnostics.contains("does not determine its value"),
+        "{diagnostics}"
+    );
+}
+
+/// A rule that writes to the `stdout` stream cell appends to its list, and with I/O off the
+/// stream buffers the concatenation of what was written: each run ends with what its rules wrote
+/// in the buffer, in order, whether literals or a value read from another cell; two rules that
+/// both apply write in two leaves, one item each.
+#[test]
+fn rules_append_their_output_to_the_stream_buffer() {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/captured-output/test.k"),
+    )
+    .unwrap();
+    let buffered = |program: &str| {
+        let compiled = compile_bound(
+            &source,
+            "CAPTURED-OUTPUT",
+            "CAPTURED-OUTPUT-SYNTAX",
+            "Pgm",
+            program,
+            &[("STDIN", "\"text\""), ("IO", "\"off\"")],
+        );
+        let result = execute(&compiled, "CAPTURED-OUTPUT", None);
+        let mut buffers = text(&result)
+            .into_iter()
+            .map(|state| {
+                let (_, buffer) = state
+                    .split_once("Lbl'Hash'buffer")
+                    .unwrap_or_else(|| panic!("{program}: no stream buffer in {state}"));
+                let string = regex::Regex::new(r#"\\dv\{SortString\{\}\}\("([^"]*)"\)"#).unwrap();
+                string
+                    .captures_iter(buffer)
+                    .map(|found| found[1].to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        buffers.sort();
+        buffers
+    };
+    assert_eq!(buffered("literal"), [["literal output"]]);
+    assert_eq!(buffered("stdin"), [["textoutput"]]);
+    assert_eq!(buffered("branch"), [["first"], ["second"]]);
 }
