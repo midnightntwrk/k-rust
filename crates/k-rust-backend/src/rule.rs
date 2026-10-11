@@ -71,7 +71,7 @@ use crate::{
     substitution::{Substitution, substitute},
     term::{
         AlgebraicAxioms, HeadRole, MapDefinition, Name, SetDefinition, Sort, Term, TermKind,
-        Variable, VariableKind,
+        Variable, VariableKind, VariableLookup,
         head::{
             CertifiedOrScanned, FixedRoot, Head, PatternReading, Shape, classify_pattern,
             classify_value,
@@ -79,6 +79,7 @@ use crate::{
         names::{
             FreshMarker, VariableProvenance, encode_variable_name, split_marker, with_fresh_marker,
         },
+        variables::disjoint,
     },
 };
 
@@ -341,15 +342,15 @@ impl Predicate {
         match self {
             Self::True | Self::False => BTreeSet::new(),
             Self::Term(term) | Self::Ceil(term) | Self::Floor(term) => {
-                term.attributes().variables.clone()
+                term.attributes().variables.to_btree_set()
             }
             Self::Equals(left, right) | Self::In(left, right) => {
-                let mut variables = left.attributes().variables.clone();
+                let mut variables = left.attributes().variables.to_btree_set();
                 variables.extend(right.attributes().variables.iter().cloned());
                 variables
             }
             Self::Absent(absence) => {
-                let mut variables = absence.key().attributes().variables.clone();
+                let mut variables = absence.key().attributes().variables.to_btree_set();
                 variables.extend(absence.rest().attributes().variables.iter().cloned());
                 variables
             }
@@ -3217,13 +3218,17 @@ fn next_apart_counter() -> u64 {
 /// role = "part"
 /// sites = ["rename_apart", "fresh_renaming"]
 /// ```
-pub(crate) fn rename_apart(
+pub(crate) fn rename_apart<S>(
     rule: &RewriteRule,
-    subject: &BTreeSet<Variable>,
+    subject: &S,
     constraints: &[Predicate],
-) -> Option<RenamedApart<RewriteRule>> {
+) -> Option<RenamedApart<RewriteRule>>
+where
+    S: VariableLookup + ?Sized,
+    for<'a> &'a S: IntoIterator<Item = &'a Variable>,
+{
     let computed = &rule.computed_attributes;
-    let term_clash = !computed.variables.is_disjoint(subject);
+    let term_clash = !disjoint(&computed.variables, subject);
     if !term_clash && computed.unbound_variables.is_empty() {
         return None;
     }
@@ -3236,7 +3241,7 @@ pub(crate) fn rename_apart(
         return None;
     }
     let mut scope = constraint_variables;
-    scope.extend(subject.iter().cloned());
+    scope.extend(subject.into_iter().cloned());
     let renaming = fresh_renaming(&computed.variables, &scope);
     let rename = |variable: &Variable| {
         renaming
@@ -4849,7 +4854,7 @@ mod tests {
         assert_eq!(base, "Eq#X");
         assert!(counter.bytes().all(|byte| byte.is_ascii_digit()));
         assert_eq!(
-            renamed.lhs.attributes().variables,
+            renamed.lhs.attributes().variables.to_btree_set(),
             BTreeSet::from([fresh.clone(), z.clone()])
         );
         assert_eq!(renamed.rhs, RuleRhs::Term(Term::variable(fresh.clone())));

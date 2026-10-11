@@ -3373,11 +3373,12 @@ fn strict_variables(
         })
     };
     match lhs {
-        Predicate::Ceil(term) => term.attributes().variables.clone(),
+        Predicate::Ceil(term) => term.attributes().variables.to_btree_set(),
         Predicate::In(left, right) => left
             .attributes()
             .variables
-            .union(&right.attributes().variables)
+            .iter()
+            .chain(&right.attributes().variables)
             .cloned()
             .collect(),
         // The absence of an undefined key, or from an undefined rest, is false.
@@ -3385,7 +3386,8 @@ fn strict_variables(
             .key()
             .attributes()
             .variables
-            .union(&absence.rest().attributes().variables)
+            .iter()
+            .chain(&absence.rest().attributes().variables)
             .cloned()
             .collect(),
         Predicate::Equals(left, right) => {
@@ -3549,7 +3551,7 @@ fn match_predicate(
             if substitution.values().any(|value| {
                 binders
                     .iter()
-                    .any(|(_, bound)| value.attributes().variables.contains(*bound))
+                    .any(|(_, bound)| value.attributes().variables.contains(bound))
             }) {
                 return PredicateMatch::Failed {
                     shared_names: false,

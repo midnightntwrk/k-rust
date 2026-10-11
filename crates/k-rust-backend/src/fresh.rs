@@ -113,7 +113,7 @@ impl RequestNames {
 
     /// Add the spellings of every variable of `pattern`, free or bound.
     pub fn add_pattern(&mut self, pattern: &Pattern) {
-        let mut variables = pattern.term.attributes().variables.clone();
+        let mut variables = pattern.term.attributes().variables.to_btree_set();
         collect_all_variables(&pattern.constraints, &mut variables);
         self.add_variables(&variables);
     }

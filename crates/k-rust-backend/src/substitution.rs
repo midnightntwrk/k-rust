@@ -57,12 +57,7 @@ use crate::{
 pub type Substitution = BTreeMap<Variable, Term>;
 
 pub fn substitute(term: &Term, substitution: &Substitution) -> Term {
-    if term
-        .attributes()
-        .variables
-        .iter()
-        .all(|variable| !substitution.contains_key(variable))
-    {
+    if term.attributes().variables.is_disjoint(substitution) {
         return term.clone();
     }
 

@@ -22,34 +22,7 @@ use super::{
     Chunked, DEFAULT_BRANCHING,
     multiset::{Multiset, Occurrences},
 };
-
-/// A set of variables that can be asked whether it holds one, and how many it holds:
-/// [`Variables::is_subset`] and [`Variables::is_disjoint`] take any of them, so a caller can test
-/// a term's variables against the set it already has (an ordered set, another term's variables,
-/// and, once terms use [`Variables`], a substitution's domain).
-pub(crate) trait VariableLookup<V> {
-    /// The number of distinct variables.
-    fn variable_count(&self) -> usize;
-
-    fn holds_variable(&self, variable: &V) -> bool;
-
-    /// Whether some variable satisfies `test`, stopping at the first that does.
-    fn any_variable(&self, test: &mut dyn FnMut(&V) -> bool) -> bool;
-}
-
-impl<V: Ord> VariableLookup<V> for BTreeSet<V> {
-    fn variable_count(&self) -> usize {
-        self.len()
-    }
-
-    fn holds_variable(&self, variable: &V) -> bool {
-        self.contains(variable)
-    }
-
-    fn any_variable(&self, test: &mut dyn FnMut(&V) -> bool) -> bool {
-        self.iter().any(test)
-    }
-}
+use crate::term::variables::{VariableLookup, disjoint};
 
 /// A persistent ordered set of variables; see the module documentation. Two sets are equal when
 /// they hold the same variables, whatever history built them.
@@ -121,11 +94,7 @@ impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
     /// Whether the two sets share no variable: the smaller set's variables are looked up in the
     /// larger one.
     pub(crate) fn is_disjoint<L: VariableLookup<V> + ?Sized>(&self, other: &L) -> bool {
-        if self.len() <= other.variable_count() {
-            !self.iter().any(|v| other.holds_variable(v))
-        } else {
-            !other.any_variable(&mut |v| self.contains(v))
-        }
+        disjoint(self, other)
     }
 
     /// The set with `variable` added, by a path copy; this set's handle when it already holds it.

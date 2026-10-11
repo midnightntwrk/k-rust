@@ -1041,7 +1041,7 @@ fn configuration_bindings(
 ) -> MatchSolution {
     let configuration_bindings = substitution
         .iter()
-        .filter(|(variable, _)| !context.rule.lhs.attributes().variables.contains(*variable))
+        .filter(|(variable, _)| !context.rule.lhs.attributes().variables.contains(variable))
         .map(|(variable, value)| {
             (
                 variable.clone(),

@@ -44,7 +44,7 @@
 //!   and `Debug` the entry needs; the entry's key is the variable, its hash the `FxHasher` hash
 //!   of the variable and count, and its summary and group summary are `()`. The term attribute
 //!   `variables` becomes a [`Variables`](variables::Variables), and `Substitution` implements
-//!   [`VariableLookup`](variables::VariableLookup) over its domain.
+//!   [`VariableLookup`](crate::term::VariableLookup) over its domain.
 //!
 //! # Fill invariant
 //!

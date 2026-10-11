@@ -72,7 +72,7 @@
 use std::{
     cell::Cell,
     cmp::Ordering,
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fmt,
     hash::{Hash, Hasher},
     sync::{Arc, LazyLock, OnceLock},
@@ -92,8 +92,10 @@ pub(crate) mod chunked;
 pub mod head;
 pub mod items;
 pub mod names;
+pub mod variables;
 
 pub use items::Items;
+pub use variables::{VariableLookup, Variables};
 
 pub type Name = Arc<str>;
 
@@ -731,7 +733,7 @@ pub enum TermKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TermAttributes {
-    pub variables: BTreeSet<Variable>,
+    pub variables: Variables,
     pub evaluated: bool,
     /// See [`TermAttributes::value_claimed`]; set only by `Term::allocate`.
     value_claimed: bool,
@@ -750,7 +752,7 @@ pub struct TermAttributes {
 impl Default for TermAttributes {
     fn default() -> Self {
         Self {
-            variables: BTreeSet::new(),
+            variables: Variables::new(),
             evaluated: true,
             value_claimed: true,
             constructor_like: false,
@@ -2644,13 +2646,7 @@ impl ChildShape {
     fn add(&mut self, child: &Term) {
         let attributes = child.attributes();
         if !attributes.variables.is_empty() {
-            if self.0.variables.is_empty() {
-                self.0.variables.clone_from(&attributes.variables);
-            } else {
-                self.0
-                    .variables
-                    .extend(attributes.variables.iter().cloned());
-            }
+            self.0.variables.add_all(&attributes.variables);
         }
         self.0.evaluated &= attributes.evaluated;
         self.0.value_claimed &= attributes.value_claimed;
@@ -2712,7 +2708,7 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
             ..TermAttributes::default()
         },
         TermKind::Variable(variable) => TermAttributes {
-            variables: BTreeSet::from([variable.clone()]),
+            variables: Variables::singleton(variable.clone()),
             ..TermAttributes::default()
         },
         TermKind::Injection { term, .. } => term.attributes().clone(),
@@ -4019,7 +4015,10 @@ mod tests {
             Vec::new(),
             vec![Term::variable(variable.clone())],
         );
-        assert_eq!(term.attributes().variables, BTreeSet::from([variable]));
+        assert_eq!(
+            term.attributes().variables.to_btree_set(),
+            std::collections::BTreeSet::from([variable])
+        );
         assert!(!term.attributes().constructor_like);
 
         let concrete = Term::application(

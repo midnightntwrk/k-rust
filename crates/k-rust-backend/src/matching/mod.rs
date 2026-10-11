@@ -631,9 +631,7 @@ pub(crate) fn match_with_settled_evidence(
         let shared = pattern
             .attributes()
             .variables
-            .intersection(&subject.attributes().variables)
-            .cloned()
-            .collect();
+            .intersection(&subject.attributes().variables);
         return MatchResult::Failed(FailReason::SharedVariables(shared));
     }
     let mut matcher = Matcher::new(
@@ -685,9 +683,7 @@ fn match_terms_with_context_and_frames(
     let shared_variables = pattern
         .attributes()
         .variables
-        .intersection(&subject.attributes().variables)
-        .cloned()
-        .collect::<BTreeSet<_>>();
+        .intersection(&subject.attributes().variables);
     // Rule application renames a rule's variables apart from the subject before matching
     // (`rule::rename_apart`), so this guard only meets callers whose two sides share one scope,
     // where a variable on both sides is one variable and needs unification.

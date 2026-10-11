@@ -16,7 +16,7 @@ use crate::{
     rule::Predicate,
     substitution::Substitution,
     term::{
-        CollectionSymbols, Sort, Term, TermKind, Variable,
+        CollectionSymbols, Sort, Term, TermKind, Variable, Variables,
         names::{FreshMarker, HookName, HookNamespace, encode_variable_name, with_fresh_marker},
     },
 };
@@ -1507,7 +1507,7 @@ impl<'t> PatternSource<'t> for External<'t> {
 impl External<'_> {
     /// A superset of the backend variables whose externalized forms occur in this pattern, when
     /// it is a term, a suffix of a collection term, or a collection item; `None` otherwise.
-    pub fn term_variables(&self) -> Option<&BTreeSet<Variable>> {
+    pub fn term_variables(&self) -> Option<&Variables> {
         match self {
             Self::Term(term) | Self::Components(term, _) | Self::Element(_, term) => {
                 Some(&term.attributes().variables)

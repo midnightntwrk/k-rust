@@ -1046,8 +1046,10 @@ fn instances(
             RuleRhs::Bottom => None,
             RuleRhs::Disjunction(_) | RuleRhs::Top | RuleRhs::Predicates(_) => continue,
         };
-        let variables = rule.lhs.attributes().variables.clone();
-        let mut free = rhs.map_or_else(BTreeSet::new, |rhs| rhs.attributes().variables.clone());
+        let variables = rule.lhs.attributes().variables.to_btree_set();
+        let mut free = rhs.map_or_else(BTreeSet::new, |rhs| {
+            rhs.attributes().variables.to_btree_set()
+        });
         for predicate in rule.requires.iter().chain(rule.ensures.iter()) {
             free.extend(predicate.free_variables());
         }

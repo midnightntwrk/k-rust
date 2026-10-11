@@ -11,10 +11,13 @@ use proptest::prelude::*;
 
 use super::edit::{height, unshared};
 use super::{DEFAULT, check_invariants, choices, fx_hash, shaped};
-use crate::term::chunked::{
-    Chunked, Item, Node,
-    multiset::{ENTRY_UPDATES, Multiset},
-    variables::{VariableLookup, Variables},
+use crate::term::{
+    VariableLookup,
+    chunked::{
+        Chunked, Item, Node,
+        multiset::{ENTRY_UPDATES, Multiset},
+        variables::Variables,
+    },
 };
 
 type Set<const B: usize> = Variables<u8, B>;

@@ -42,7 +42,7 @@ use k_rust_kore::kore::{
 // Name-level views of patterns.
 
 fn free_variables(pattern: &Pattern) -> BTreeSet<Variable> {
-    let mut variables = pattern.term.attributes().variables.clone();
+    let mut variables = pattern.term.attributes().variables.to_btree_set();
     for predicate in &pattern.constraints {
         variables.extend(predicate.free_variables());
     }
@@ -235,7 +235,7 @@ fn assert_term_round_trips(label: &str, definition: &BackendDefinition, term: &T
         "{label}: {text}"
     );
     assert_eq!(
-        back.attributes().variables,
+        back.attributes().variables.to_btree_set(),
         renamed,
         "{label}: variables of {text}"
     );
@@ -296,7 +296,7 @@ fn assert_response(
                         assert_free_names(
                             &label,
                             request,
-                            &value.attributes().variables,
+                            &value.attributes().variables.to_btree_set(),
                             &BTreeSet::new(),
                             coverage,
                         );
