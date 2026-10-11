@@ -52,10 +52,14 @@
 //! [`split_at`](Chunked::split_at) and [`union`](Chunked::union) build their results by joins of
 //! subtrees cut from the operands, and fold the group summary of each node they build over a run
 //! of children ([`of_nodes`](Chunked::of_nodes)) from those children. That is exact, but it costs
-//! the variables below the run rather than those of the cut or added items; keeping each cut
-//! node's summary by difference from the node it was cut from is left to the part of the work
-//! that moves lists and maps onto the tree, where splits and unions of symbolic collections are
-//! measured.
+//! the variables below the runs rather than those of the cut or added items, and the runs cover
+//! nearly the whole tree whatever the cut or the other operand: a split at one item, or a union
+//! with a one-item tree, folds group work in proportion to every variable occurrence of a
+//! symbolic tree. An edit that must cost its own items on a symbolic collection therefore uses
+//! the path-copying operations ([`insert`](Chunked::insert), [`remove_at`](Chunked::remove_at),
+//! [`join`](Chunked::join)); a split along the cut path and a union whose nodes keep their
+//! summaries by difference are still to be built before symbolic collections are split or
+//! united through these two.
 
 use std::{cmp::Ordering, sync::Arc};
 
@@ -454,8 +458,8 @@ impl<I: Item + Ord, const B: usize> Chunked<I, B> {
     /// its children but the first, each child is united with its part, and the results are
     /// joined in order. A child whose part is empty is kept as it is, and a run of such children
     /// is joined as one subtree over them, so the union visits only the nodes of the taller tree
-    /// whose range holds items of the other, and a union with a few items copies about what
-    /// inserting them one by one would.
+    /// whose range holds items of the other, and a union with a few items copies about the nodes
+    /// inserting them one by one would (but not their group work: see the module doc).
     pub(crate) fn union(&self, other: &Self) -> Self {
         match (&self.root, &other.root) {
             (None, _) => other.clone(),
