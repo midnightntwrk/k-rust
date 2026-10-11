@@ -4402,11 +4402,11 @@ impl PathConditionReplacements {
         replace_terms_bottom_up(&term, &self.replacements)
     }
 
+    /// Whether applying the path condition may change `term`: it mentions a variable the
+    /// substitution binds, which the smaller of its variables and the substitution's domain
+    /// decides by lookups in the other (`Variables::is_disjoint`), or it may hold a replaced term.
     fn can_change(&self, term: &Term) -> bool {
-        term.attributes()
-            .variables
-            .iter()
-            .any(|variable| self.substitution.contains_key(variable))
+        !term.attributes().variables.is_disjoint(&self.substitution)
             || (!self.replacements.is_empty()
                 && term_contains_replacement_original(term, &self.replacements))
     }
