@@ -1,0 +1,25 @@
+case = "non-ascii-stdout"
+subsystem = "cli"
+harvested_from = "hand-written krun CLI probe: console bytes of non-ASCII String characters written through a stdout stream cell; the LLVM backend's krun, since the pinned Haskell backend has no IO.write hook"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "stdout.bin"
+command = '''
+kompile test.k --backend llvm --main-module NON-ASCII-STDOUT --syntax-module NON-ASCII-STDOUT-SYNTAX --output-definition ref --warnings none >/dev/null &&
+krun program.pgm --definition ref --output none </dev/null > stdout.bin
+'''
+tool = "krun"
+exit_code = 0
+sha256 = "46f610c5610c193a41dce3f76a35234d2d3fe21ce53e45c12e1f567c75704510"
+
+[[artifact]]
+file = "escaped.stdout.bin"
+command = '''
+kompile test.k --backend llvm --main-module NON-ASCII-STDOUT --syntax-module NON-ASCII-STDOUT-SYNTAX --output-definition ref --warnings none >/dev/null &&
+krun escaped.pgm --definition ref --output none </dev/null > escaped.stdout.bin
+'''
+tool = "krun"
+exit_code = 0
+sha256 = "850f7dc43910ff890f8879c0ed26fe697c93a067ad93a7d50f466a7028a9bf4e"

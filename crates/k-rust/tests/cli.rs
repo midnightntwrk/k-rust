@@ -2356,6 +2356,55 @@ fn reference_krun_supplies_io_and_stdin_for_stream_cells() {
     assert!(!stdout.contains(r"\bottom"), "{stdout}");
 }
 
+/// krust's console bytes for `program` of the `non-ascii-stdout` reference fixture, live I/O.
+fn non_ascii_stdout(program: &str) -> Vec<u8> {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/cli/non-ascii-stdout");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("test.k").to_str().unwrap(),
+            fixtures.join(program).to_str().unwrap(),
+            "--main-module",
+            "NON-ASCII-STDOUT",
+            "--sort",
+            "Pgm",
+            "--output",
+            "none",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output.stdout
+}
+
+/// A `String` is a sequence of code points, and the console writes each as one byte, its code
+/// point (docs/compatibility.md, console input and output). `"café ÿ!"` is therefore the seven
+/// bytes the reference's krun writes for the same program (the LLVM backend's, the pinned
+/// reference backend with console I/O; `reference/cli/non-ascii-stdout/stdout.bin`).
+/// `"caf\u00e9"` is the same value as `"café"`, so krust writes the same bytes for it; the
+/// reference writes `é` as `c3 a9` there, so its console bytes depend on how the literal is
+/// spelled (`escaped.stdout.bin`).
+#[test]
+fn krun_writes_each_non_ascii_character_to_the_console_as_the_byte_of_its_code_point() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/cli/non-ascii-stdout");
+    let reference = fs::read(fixtures.join("stdout.bin")).unwrap();
+    assert_eq!(reference, b"caf\xe9 \xff!");
+    assert_eq!(non_ascii_stdout("program.pgm"), reference);
+
+    assert_eq!(non_ascii_stdout("escaped.pgm"), b"caf\xe9");
+    assert_eq!(
+        fs::read(fixtures.join("escaped.stdout.bin")).unwrap(),
+        b"caf\xc3\xa9"
+    );
+}
+
 #[test]
 fn krun_captured_output_emits_one_complete_stdout_buffer_without_kore_framing() {
     let fixture_path =
