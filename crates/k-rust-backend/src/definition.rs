@@ -1115,7 +1115,7 @@ impl fmt::Display for DefinitionError {
                      {index} of module {module} is not discharged: {failure}"
                 )
             }
-            Self::RulePattern(error) => write!(formatter, "Invalid rule pattern: {error}"),
+            Self::RulePattern(error) => write!(formatter, "Invalid pattern: {error}"),
             Self::Claim(error) => write!(formatter, "Invalid claim: {error}"),
             Self::Verification(error) => write!(formatter, "{error}"),
         }

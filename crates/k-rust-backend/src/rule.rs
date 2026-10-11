@@ -668,17 +668,20 @@ pub enum RulePatternError {
     },
 }
 
-/// What is wrong with a rule's pattern, in terms of what the pattern states.
+/// What is wrong with a pattern the backend reads as a constrained term (a rule's side, a
+/// claim's side, an execution or search state, a search pattern), in terms of what it states.
 impl std::fmt::Display for RulePatternError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MissingTerm => formatter.write_str("the right-hand side states no term"),
+            Self::MissingTerm => formatter
+                .write_str("the pattern states no term, only predicates, where a term is needed"),
             Self::TermDisjunction => formatter.write_str(
-                "a term of the rule is a disjunction (\\or) of terms where one term is needed",
+                "a term of the pattern is a disjunction (\\or) of terms where one term is needed",
             ),
             Self::UnsupportedPredicate(connective) => write!(
                 formatter,
-                "a condition of the rule uses \\{connective}, which a rule condition cannot use"
+                "a predicate of the pattern uses \\{connective}, which the backend does not read \
+                 as a predicate"
             ),
             Self::BinderSortMismatch(variable) => write!(
                 formatter,
@@ -848,8 +851,8 @@ impl std::fmt::Display for AxiomError {
             }
             Self::UnsupportedAliasRewrite(symbol) => write!(
                 formatter,
-                "the left-hand side of the rewrite is an application of {symbol}, and a rewrite \
-                 from an alias application is not supported"
+                "the left-hand side of the rewrite is an application of {symbol}, not an \\and \
+                 pattern"
             ),
             Self::MalformedEquation => {
                 formatter.write_str("the equation does not have a shape the backend reads")

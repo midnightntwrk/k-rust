@@ -1890,8 +1890,9 @@ mod tests {
     }
 
     /// A request the backend refuses is refused in words that name what is wrong: the rule
-    /// filter's unknown id, the sort an added module may not declare, the token a module's text
-    /// may not have.
+    /// filter's unknown id, the sort an added module may not declare, what an execution state
+    /// lacks or has that a constrained term may not (without saying it is a rule's), the token a
+    /// module's text may not have.
     #[test]
     fn refused_requests_are_stated_in_words() {
         let mut backend = backend();
@@ -1916,6 +1917,31 @@ mod tests {
             sorted.0,
             "could not add KORE module: an added module may not declare sorts, and this one \
              declares 'SortNew'"
+        );
+        let predicate = backend
+            .execute(ExecuteRequest::new(kore(r"\top{SortS{}}()")))
+            .unwrap_err();
+        assert_eq!(
+            predicate.0,
+            "could not internalize execution state: Invalid pattern: the pattern states no term, \
+             only predicates, where a term is needed"
+        );
+        let disjunction = backend
+            .execute(ExecuteRequest::new(kore(r"\or{SortS{}}(a{}(), b{}())")))
+            .unwrap_err();
+        assert_eq!(
+            disjunction.0,
+            "could not internalize execution state: Invalid pattern: a term of the pattern is a \
+             disjunction (\\or) of terms where one term is needed"
+        );
+        let rewrite = r"\and{SortS{}}(a{}(), \rewrites{SortS{}}(a{}(), b{}()))";
+        let rewrite = backend
+            .execute(ExecuteRequest::new(kore(rewrite)))
+            .unwrap_err();
+        assert_eq!(
+            rewrite.0,
+            "could not internalize execution state: Invalid pattern: a predicate of the pattern \
+             uses \\rewrites, which the backend does not read as a predicate"
         );
         let trailing = "module BROKEN import MAIN [] endmodule [] ]";
         let broken = backend.add_module(trailing, false).unwrap_err();
