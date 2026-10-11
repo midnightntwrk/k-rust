@@ -34,7 +34,8 @@ usage: scripts/conformance-ratchet.sh --label LABEL (--all | --cases NAME... | -
 
 Measure selected K regression-new cases, append their per-case ranks to the
 standing ratchet, and fail with status 3 if a non-excluded rank decreases
-against the previous measurement with the same driver version or if any
+against the previous measurement with the same driver version (a hash of the
+driver and its verdict module, verdicts.py beside it) or if any
 non-excluded measured case is below its initial measurement floor (its first recorded rank),
 whatever the driver version and whether or not this run lowered it.
 The versioned accepted_verdict is also a floor, even for a fresh log or driver.
@@ -319,7 +320,13 @@ fi
 
 driver_version=${CONFORMANCE_DRIVER_VERSION:-}
 if [[ -z "$driver_version" ]]; then
-  driver_version=$(git -C "$workspace" hash-object "$driver")
+  # run.py computes every case verdict through verdicts.py beside it, so the version covers both;
+  # a driver with no verdict module beside it is versioned by its own content.
+  driver_sources=("$driver")
+  if [[ -f "$(dirname "$driver")/verdicts.py" ]]; then
+    driver_sources+=("$(dirname "$driver")/verdicts.py")
+  fi
+  driver_version=$(cat "${driver_sources[@]}" | git -C "$workspace" hash-object --stdin)
 fi
 krust_sha256=$(sha256sum "$krust" | awk '{print $1}')
 test_binary_sha256=$(sha256sum "$test_binary" | awk '{print $1}')
