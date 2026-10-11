@@ -12132,16 +12132,20 @@ fn a_token_subsort_over_a_phrase_reads_the_phrase_text_as_its_token() {
     // `Wrapped` reads that text through a second token subsort. `Pairs` puts several such
     // phrases in one input, after a line-anchored token (whose scanner rejects matches), so
     // each phrase is reduced once the scanner has read past it. A phrase that starts with an
-    // empty `Names` starts at its first token all the same, not at the layout before it.
+    // empty `Names` starts at its first token all the same, not at the layout before it, and one
+    // that ends with an empty `Names` (as every `Names` phrase does) ends at its last token, not
+    // at the layout after it, wherever the next token or the end of the input comes.
     let source = r##"
 module TOKPHRASE
   syntax Name ::= r"[a-z]+" [token]
   syntax Mark ::= r"^#[a-z]+" [token]
   syntax Names ::= List{Name, ","}
-  syntax Pair ::= Name "." Name | Mark Name | Names "!" Name
+  syntax Pair ::= Name "." Name | Mark Name | Names "!" Name | Name "?" Names
   syntax MyTok ::= Pair [token]
   syntax Wrapped ::= MyTok [token]
   syntax Pairs ::= MyTok ";" Pairs | MyTok
+  syntax MyToks ::= Names [token]
+  syntax Group ::= "(" MyToks ")"
 endmodule
 "##;
     let (root, definition) = fixture();
@@ -12187,6 +12191,41 @@ endmodule
                 "Lbl'UndsSClnUndsUnds'TOKPHRASE'Unds'Pairs'Unds'MyTok'Unds'Pairs{{}}({},inj{{SortMyTok{{}}, SortPairs{{}}}}({}))",
                 token("ab.cd", "MyTok"),
                 token("! ef", "MyTok"),
+            ),
+        ),
+        (
+            "Group",
+            "( a , b  )",
+            r#"`(_)_TOKPHRASE_Group_MyToks`(#token("a , b","MyToks"))"#.to_owned(),
+            format!(
+                "Lbl'LParUndsRParUnds'TOKPHRASE'Unds'Group'Unds'MyToks{{}}({})",
+                token("a , b", "MyToks"),
+            ),
+        ),
+        (
+            "Group",
+            "(  )",
+            r#"`(_)_TOKPHRASE_Group_MyToks`(#token("","MyToks"))"#.to_owned(),
+            format!(
+                "Lbl'LParUndsRParUnds'TOKPHRASE'Unds'Group'Unds'MyToks{{}}({})",
+                token("", "MyToks"),
+            ),
+        ),
+        (
+            "MyToks",
+            " a ,\n b // c\n /* x */ ",
+            r#"#token("a ,\n b","MyToks")"#.to_owned(),
+            token("a ,\n b", "MyToks"),
+        ),
+        (
+            "Pairs",
+            "ab ? cd , ef  ;  gh ?  ; ij ? ",
+            r##"`_;__TOKPHRASE_Pairs_MyTok_Pairs`(#token("ab ? cd , ef","MyTok"),`_;__TOKPHRASE_Pairs_MyTok_Pairs`(#token("gh ?","MyTok"),#token("ij ?","MyTok")))"##.to_owned(),
+            format!(
+                "Lbl'UndsSClnUndsUnds'TOKPHRASE'Unds'Pairs'Unds'MyTok'Unds'Pairs{{}}({},Lbl'UndsSClnUndsUnds'TOKPHRASE'Unds'Pairs'Unds'MyTok'Unds'Pairs{{}}({},inj{{SortMyTok{{}}, SortPairs{{}}}}({})))",
+                token("ab ? cd , ef", "MyTok"),
+                token("gh ?", "MyTok"),
+                token("ij ?", "MyTok"),
             ),
         ),
         (
@@ -12247,6 +12286,91 @@ endmodule
             "{sort}"
         );
     }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A located token subsort is located where its text is: from the first character of its
+/// phrase's first token to the last character of its last, on both routes, whatever layout
+/// follows the phrase's empty last part.
+#[test]
+fn a_located_token_subsort_is_located_from_its_first_token_to_its_last() {
+    let source = r##"
+module TOKLOC
+  syntax Name ::= r"[a-z]+" [token]
+  syntax Names ::= List{Name, ","}
+  syntax MyToks ::= Names [token]
+  syntax MyToks [locations]
+  syntax Group ::= "(" MyToks ")"
+endmodule
+"##;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let input = root.join("program.txt");
+    fs::write(&input, "( a ,\n b  \n )").unwrap();
+    // The token's text and its start and end lines and columns, as KAST or KORE writes them.
+    let located = |output: &[u8], text: &str, int: &str| {
+        let output = String::from_utf8(output.to_vec()).unwrap();
+        let captures = Regex::new(&format!(r#"{text}.*{int}, ?{int}, ?{int}, ?{int}\)"#))
+            .unwrap()
+            .captures(&output)
+            .unwrap_or_else(|| panic!("no located token in {output}"));
+        (
+            captures[1].to_owned(),
+            (2..=5)
+                .map(|group| captures[group].parse::<u32>().unwrap())
+                .collect::<Vec<_>>(),
+        )
+    };
+
+    let in_process = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kast", definition.to_str().unwrap()])
+        .args(["--module", "TOKLOC", "--sort", "Group"])
+        .arg(&input)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        in_process.status.success(),
+        "{}",
+        String::from_utf8_lossy(&in_process.stderr)
+    );
+    assert_eq!(
+        located(
+            &in_process.stdout,
+            r#"#token\("([^"]*)","MyToks"\)"#,
+            r#"#token\("([0-9]+)","Int"\)"#,
+        ),
+        (r"a ,\n b".to_owned(), vec![1, 3, 2, 3])
+    );
+
+    let parser = root.join("parser");
+    let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kast", definition.to_str().unwrap()])
+        .args(["--module", "TOKLOC", "--sort", "Group", "--gen-parser"])
+        .arg(&parser)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let output = Command::new(&parser).arg(&input).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        located(
+            &output.stdout,
+            r#"\\dv\{SortMyToks\{\}\}\("([^"]*)"\)"#,
+            r#"\\dv\{SortInt\{\}\}\("([0-9]+)"\)"#,
+        ),
+        (r"a ,\n b".to_owned(), vec![1, 3, 2, 3])
+    );
 
     fs::remove_dir_all(root).unwrap();
 }

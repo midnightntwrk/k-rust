@@ -723,3 +723,170 @@ fn the_run_driver_searches_the_renamings_of_one_state_once() {
     assert_eq!(search(SearchType::Final), ["0"]);
     assert_eq!(search(SearchType::Star), ["0", "1", "2", "3", "4"]);
 }
+
+/// A definition with a `multiplicity="*"` cell `<r>` of collection type `COLLECTION`, and pairs
+/// of commands that read one instance written as a cell (`get`, `anyP`) and as an alias of that
+/// cell (`getA`, `anyPA`). `mk` adds an instance written as a cell, `put` one held by a variable.
+const ALIASED_INSTANCES: &str = r#"
+module TEST-SYNTAX
+  imports INT-SYNTAX
+  syntax Cmd ::= mk(Int, Int) | put(Int, Int) | get(Int) | getA(Int) | anyP() | anyPA()
+  syntax Pgm ::= Cmd | Cmd ";" Pgm
+endmodule
+
+module TEST
+  imports TEST-SYNTAX
+  imports INT
+  imports LIST
+  configuration <T> <k> $PGM:Pgm </k> <rs> <r multiplicity="*" type="COLLECTION"> <rid> 0 </rid> <v> 0 </v> </r> </rs> <out> .List </out> </T>
+
+  rule <k> C:Cmd ; P:Pgm => C ~> P ... </k>
+  rule <k> mk(I, V) => .K ... </k> <rs> ... .Bag => <r> <rid> I </rid> <v> V </v> </r> ... </rs>
+  syntax KItem ::= putR(RCell)
+  rule <k> put(I, V) => putR(<r> <rid> I </rid> <v> V </v> </r>) ... </k>
+  rule <k> putR(R) => .K ... </k> <rs> ... .Bag => R ... </rs>
+
+  rule <k> get(I) => .K ... </k> <r> <rid> I </rid> <v> V </v> </r> <out> ... .List => ListItem(V) </out>
+  rule <k> getA(I) => .K ... </k> (<r> <rid> I </rid> <v> V </v> </r> #as _R) <out> ... .List => ListItem(V) </out>
+  rule <k> anyP() => .K ... </k> <r> <rid> I </rid> ... </r> <out> ... .List => ListItem(I) </out>
+  rule <k> anyPA() => .K ... </k> (<r> <rid> I </rid> ... </r> #as _R) <out> ... .List => ListItem(I) </out>
+endmodule
+"#;
+
+/// What a program ends in on [`ALIASED_INSTANCES`] for `collection`: the leaves (or the error)
+/// of its run and the final states of its search, each with the aliased commands renamed to
+/// their unaliased partners.
+fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String, Vec<String>)> {
+    let source = ALIASED_INSTANCES.replace("COLLECTION", collection);
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("test.k", &source),
+        "TEST",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..CompilationBackend::Rust.load_options()
+        },
+    )
+    .unwrap();
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+    let frontend = loaded.into_definition();
+    let grammar = ProgramGrammar::new(&frontend).unwrap();
+    let rename = |text: String| {
+        text.replace("LblgetA'", "Lblget'")
+            .replace("LblanyPA'", "LblanyP'")
+    };
+    let print = |pattern: &serde_json::Value| {
+        rename(Printer::compact().print_pattern(&codec::from_value(pattern).unwrap()))
+    };
+    programs
+        .iter()
+        .map(|program| {
+            let mut assembler = ConfigurationAssembler::new(
+                &grammar,
+                "TEST",
+                "TEST-SYNTAX",
+                &artifacts.configuration_variables,
+            );
+            assembler.program(&Sort::new("Pgm"), program).unwrap();
+            let initial = assembler.finish().unwrap();
+            let mut backend = Backend::new(
+                &artifacts.definition_kore,
+                "TEST",
+                BackendOptions::default(),
+            )
+            .unwrap();
+            let run = match backend.execute(ExecuteRequest::new(initial.clone())) {
+                Ok(result) => result
+                    .leaves
+                    .iter()
+                    .map(|leaf| format!("{:?} {}", leaf.reason, print(&leaf.state)))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                Err(error) => format!("error: {error:?}"),
+            };
+            let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+            let mut finals = match backend.search_pattern(SearchPatternRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchPatternRequest::new(initial, target)
+            }) {
+                Ok(response) => response
+                    .matches
+                    .iter()
+                    .map(|found| print(&found.state.state))
+                    .collect(),
+                Err(error) => vec![format!("error: {error:?}")],
+            };
+            finals.sort();
+            (rename(run), finals)
+        })
+        .collect()
+}
+
+/// `P #as V` matches what `P` matches and binds `V` to it, so a rule that reads an instance of
+/// a `multiplicity="*"` cell through an alias applies exactly where the rule that writes the
+/// instance alone applies, and ends in the same configuration: on no instance (stuck), on one,
+/// and on several (each instance once in a search), for a key that is written or a variable.
+#[test]
+fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
+    let three = "mk(1,10) ; mk(2,20) ; mk(3,30) ; ";
+    let pairs = [
+        ("get(1)", "getA(1)"),
+        ("anyP()", "anyPA()"),
+        ("mk(1,10) ; get(1)", "mk(1,10) ; getA(1)"),
+        ("mk(1,10) ; get(2)", "mk(1,10) ; getA(2)"),
+        ("mk(1,10) ; anyP()", "mk(1,10) ; anyPA()"),
+        (
+            &format!("{three}get(2) ; get(3) ; get(2)"),
+            &format!("{three}getA(2) ; getA(3) ; getA(2)"),
+        ),
+        (
+            &format!("{three}get(3) ; get(3)"),
+            &format!("{three}getA(3) ; getA(3)"),
+        ),
+        (&format!("{three}get(4)"), &format!("{three}getA(4)")),
+        (&format!("{three}anyP()"), &format!("{three}anyPA()")),
+    ];
+    let programs = pairs
+        .iter()
+        .flat_map(|(cell, alias)| [*cell, *alias])
+        .collect::<Vec<_>>();
+    for collection in ["Map", "List"] {
+        let outcomes = aliased_instance_outcomes(collection, &programs);
+        for ((cell, alias), outcome) in pairs.iter().zip(outcomes.chunks(2)) {
+            assert_eq!(outcome[0], outcome[1], "{collection}: {cell} / {alias}");
+        }
+        // Not vacuous: two reads of the instance added last complete, and a search finds an
+        // instance (each of the three in a Map, whose instances are found by key).
+        let (run, _) = &outcomes[12];
+        assert!(
+            run.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())") && !run.contains("error"),
+            "{collection}: {run}"
+        );
+        let (_, finals) = &outcomes[outcomes.len() - 1];
+        assert!(
+            !finals.is_empty() && finals.iter().all(|state| !state.contains("error")),
+            "{collection}: {finals:?}"
+        );
+        if collection == "Map" {
+            assert_eq!(finals.len(), 3, "{finals:?}");
+        }
+        // A right-side variable of the cell sort in its collection is the item holding its
+        // value, as the cell written there is: the instance `put` adds is read as `mk`'s is.
+        let added = aliased_instance_outcomes(
+            collection,
+            &[
+                "mk(1,10) ; mk(2,20) ; get(2)",
+                "put(1,10) ; put(2,20) ; get(2)",
+            ],
+        );
+        assert_eq!(added[0], added[1], "{collection}");
+        assert!(
+            added[0].0.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())"),
+            "{collection}: {}",
+            added[0].0
+        );
+    }
+}
