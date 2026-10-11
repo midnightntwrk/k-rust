@@ -6389,7 +6389,7 @@ id = "parser.bison.priorities"
 provenance = "declared"
 area = "parser"
 name = "restricted-sort expansion for Bison grammar export"
-variable = "Q = restricted-sort and excluded-label pairs; P = productions"
+variable = "Q = restricted-sort and excluded-node-set pairs; J = judged operands of source productions; P = productions"
 no_counter = "Bison grammar export has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserBisonPriorities"
@@ -6407,11 +6407,6 @@ symbol = "transform_priority_and_associativity"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/bison/grammar.rs"
-symbol = "checked_operands"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/bison/grammar.rs"
 symbol = "constrain_side"
 
 [[node.sites]]
@@ -6422,7 +6417,7 @@ symbol = "restricted_sort"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/bison/grammar.rs"
-symbol = "derived_root_labels"
+symbol = "derived_root_nodes"
 
 [[node.sites]]
 crate = "k-rust"
@@ -6436,7 +6431,7 @@ symbol = "prepare_user_lists"
 
 [[node.cost]]
 mode = "one exported grammar"
-bound = "O(Q x P)"
+bound = "O((Q + J) x P)"
 
 [[node]]
 kind = "algorithm"

@@ -11,6 +11,8 @@ mod rules;
 mod sort_universe;
 
 pub use config::{ConfigError, resolve_configuration_bubbles};
+#[cfg(feature = "cli")]
+pub(crate) use parser::exclusion::{Exclusions, NodeShape};
 pub use parser::{
     AmbiguityPlace, AmbiguousParse, CyclicDerivation, DiagnosticWork, Grammar, NoParseInput,
     ParseError, TokenPrecedenceDeclaration,

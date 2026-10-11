@@ -622,14 +622,14 @@ impl Grammar {
     pub(crate) fn add_left_associative(&mut self, label: impl Into<String>) {
         let label = label.into();
         self.associativities.left.insert((label.clone(), label));
-        self.associativity_index = std::sync::OnceLock::new();
+        self.relation_index = std::sync::OnceLock::new();
     }
 
     #[cfg(test)]
     pub(crate) fn add_right_associative(&mut self, label: impl Into<String>) {
         let label = label.into();
         self.associativities.right.insert((label.clone(), label));
-        self.associativity_index = std::sync::OnceLock::new();
+        self.relation_index = std::sync::OnceLock::new();
     }
 
     pub(in crate::inner) fn add_matching_terminal_tokens(
@@ -982,7 +982,7 @@ impl Grammar {
             }
         }
         // The associativity index numbers each production's label.
-        self.associativity_index = std::sync::OnceLock::new();
+        self.relation_index = std::sync::OnceLock::new();
         self.productions.push(Production {
             result: result.clone(),
             result_id,

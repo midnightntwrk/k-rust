@@ -333,6 +333,16 @@ A GLR parser that reads the elements two ways merges the two readings of the ele
 This diverges from the pinned K, whose `--bison-lists` changes the definition: the list's constructor is declared over (list, element), its generated parser builds `cons(cons(nil, e1), e2)`, a rule written over the constructor means something else with the flag than without it, and a `List` is rejected (`Cannot use List with --bison-lists`).
 (`bounded_stack_lists_give_each_program_the_term_of_the_default_lists` and `bounded_stack_lists_read_every_list_with_the_terms_and_locations_of_the_default_lists` in [cli.rs](../crates/k-rust/tests/cli.rs).)
 
+## Generated parser disambiguation
+
+A generated parser and in-process parsing exclude the same edges: which child node may not stand at which operand of which node.
+Both read one definition of the exclusions (`inner::Exclusions` and `inner::NodeShape`): which production builds a node and which passes its child through, which operands of a node are judged (those `applyPriority` names, else the first and the last item where they are nonterminals, and none below a production with one nonterminal and no terminal, which writes nothing around its child), the side of each, and the scope, cast, priority and associativity exclusions.
+In-process parsing judges each tree with them; the exporter writes each judged operand as a copy of its sort without the excluded nodes, through the productions that pass their child through, so the generated parser never builds an excluded edge.
+So a program's acceptance under priority and associativity does not depend on which of the two parsers reads it, with one exception in grammars that hold K's own rewrite, sequence or `#let` productions:
+the generated parser excludes such a node at an end operand of a constructor outside its scope as it excludes a node of lesser priority, while in-process parsing first keeps only the readings of a phrase rooted at a rewrite, then a sequence, then a `#let`, and judges them after, so it rejects a phrase whose preferred readings all break a relation even where another reading breaks none.
+This diverges from the pinned K, whose generated parser judges the operand of a labelled production with one nonterminal and no terminal: with `syntax Top ::= Exp [symbol(wrap)]` and `syntax priority wrap > plus`, it rejects `x + x * x` as a `Top`, which its own `kast` reads as `wrap(plus(x, mul(x, x)))`; krust's generated parser and in-process parsing both read it so.
+(`generated_and_in_process_parsers_give_each_program_one_term` in [cli.rs](../crates/k-rust/tests/cli.rs); `exported_operands_are_restricted_by_the_in_process_exclusions` in [grammar.rs](../crates/k-rust/src/bison/grammar.rs).)
+
 ## Line marker productions
 
 A production of sort `#LineMarker` (`syntax #LineMarker ::= r"#line [0-9]+\\n"`) declares which text is a line marker: text that is not a token and that relocates the text after it.

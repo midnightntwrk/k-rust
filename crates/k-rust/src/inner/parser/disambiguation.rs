@@ -153,11 +153,12 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 use rustc_hash::FxHasher;
 use std::hash::{Hash, Hasher};
 
+use super::exclusion::{Exclusion, Side};
 use super::{
     AmbiguityPlace, AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts,
     ParsedTerm, Production, StructuralOrder, cmp_packed_structurally, lower_term,
 };
-use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term, TermSpan, string};
+use crate::kast::{FrontendSort, InternalLabel, Sort, Term, TermSpan, string};
 
 use super::canonical_packed_error;
 
@@ -193,37 +194,6 @@ pub(super) struct PackedPriorityMemos {
     nodes: PackedTransformMemo,
     children: PackedPriorityChildMemo,
 }
-
-/// The parent labels a nested `#KRewrite` may appear under.
-const SCOPE_REWRITE: [InternalLabel; 6] = [
-    InternalLabel::RuleRequires,
-    InternalLabel::RuleEnsures,
-    InternalLabel::RuleRequiresEnsures,
-    InternalLabel::KRewrite,
-    InternalLabel::WithConfig,
-    InternalLabel::KList,
-];
-
-/// The parent labels a nested `#KSequence` may appear under.
-const SCOPE_SEQUENCE: [InternalLabel; 6] = [
-    InternalLabel::RuleRequires,
-    InternalLabel::RuleEnsures,
-    InternalLabel::RuleRequiresEnsures,
-    InternalLabel::KRewrite,
-    InternalLabel::KSequence,
-    InternalLabel::KList,
-];
-
-/// The parent labels a nested `#let` may appear under.
-const SCOPE_LET: [InternalLabel; 7] = [
-    InternalLabel::RuleRequires,
-    InternalLabel::RuleEnsures,
-    InternalLabel::RuleRequiresEnsures,
-    InternalLabel::KRewrite,
-    InternalLabel::KSequence,
-    InternalLabel::Let,
-    InternalLabel::KList,
-];
 
 impl Grammar {
     /// Factor the forest's ambiguities before inference. Nested ambiguities are flattened into
@@ -604,7 +574,7 @@ impl Grammar {
                                 self.filter_packed_priority_child(
                                     *production,
                                     Rc::clone(child),
-                                    descriptor.judged_side(index + 1, child_count),
+                                    descriptor.shape().judged_side(index + 1, child_count),
                                     memo,
                                     child_memo,
                                 )
@@ -802,7 +772,7 @@ impl Grammar {
                         .into_iter()
                         .enumerate()
                         .map(|(index, child)| {
-                            let side = descriptor.judged_side(index + 1, child_count);
+                            let side = descriptor.shape().judged_side(index + 1, child_count);
                             self.filter_priority_child(descriptor, child, side)
                         })
                         .collect::<Result<_, _>>()?;
@@ -896,7 +866,7 @@ impl Grammar {
     /// of production `parent` at child position `position` (1-based, among the parent's
     /// nonterminals), whatever the two nodes' children are: the check
     /// [`Self::filter_packed_priority_memo`] makes at that edge
-    /// ([`Production::judged_side`]) finds a scope, cast, priority or associativity violation,
+    /// ([`NodeShape::judged_side`]) finds a scope, cast, priority or associativity violation,
     /// so no reading the filter accepts has that edge. Both productions are those of the nodes.
     /// A production that passes its child through (`build_packed_term`) builds no node, so the
     /// node at the edge is one this question does not know, and a token production builds a
@@ -904,30 +874,24 @@ impl Grammar {
     /// edges are checked only after its node is collapsed into another production's, so for
     /// one the answer is `false` too.
     pub(super) fn edge_rejects(&self, parent: usize, child: usize, position: usize) -> bool {
-        let descriptor = &self.productions[parent];
-        let child_descriptor = &self.productions[child];
-        if child_descriptor.record.is_some()
-            || child_descriptor.token
-            || child_descriptor.passes_child_through()
-        {
+        let child = self.productions[child].shape();
+        if !child.judged_as_child() {
             return false;
         }
-        let child_count = descriptor
-            .items
-            .iter()
-            .filter(|item| matches!(item, Item::NonTerminal(_)))
-            .count();
-        let Some(side) = descriptor.judged_side(position, child_count) else {
-            return false;
-        };
-        let shallow = ParsedTerm::Production {
-            production: child,
-            children: Vec::new(),
-            metadata: crate::kast::TermMetadata::default(),
-        };
-        self.child_violation(descriptor, &shallow, side).is_some()
+        let parent = self.productions[parent].shape();
+        parent
+            .judged_side(position, parent.nonterminals)
+            .is_some_and(|side| {
+                self.relation_index()
+                    .exclusions
+                    .violation(&parent, &child, side)
+                    .is_some()
+            })
     }
 
+    /// The violation the relations find at the edge between a node of `parent` and `child` on
+    /// `side` ([`Exclusions::violation`](super::exclusion::Exclusions::violation)), named by
+    /// the two nodes' labels. A leaf is in no relation.
     fn child_violation(
         &self,
         parent: &Production,
@@ -941,70 +905,25 @@ impl Grammar {
             return None;
         };
         let child = &self.productions[*child];
-        let (Some(parent_label), Some(child_label)) = (&parent.parse_label, &child.parse_label)
-        else {
-            return None;
-        };
-        let allowed_parent = |exceptions: &[InternalLabel]| {
-            // A bracket has a parse label for priority checks but no semantic klabel.
-            // The reference restricts rewrite/sequence/let scope only under klabels.
-            parent.syntactic_subsort
-                || parent.label.is_none()
-                || exceptions
-                    .iter()
-                    .any(|label| parent_label == label.as_str())
-        };
-        if child_label == InternalLabel::KRewrite.as_str() && !allowed_parent(&SCOPE_REWRITE) {
-            return Some(ParseError::Scope {
-                parent: parent_label.clone(),
-                child: child_label.clone(),
-            });
-        }
-        if child_label == InternalLabel::KSequence.as_str() && !allowed_parent(&SCOPE_SEQUENCE) {
-            return Some(ParseError::Scope {
-                parent: parent_label.clone(),
-                child: child_label.clone(),
-            });
-        }
-        if child_label == InternalLabel::Let.as_str() && !allowed_parent(&SCOPE_LET) {
-            return Some(ParseError::Scope {
-                parent: parent_label.clone(),
-                child: child_label.clone(),
-            });
-        }
-        if (parent_label == InternalLabel::SyntacticCast.as_str()
-            || matches!(
-                GeneratedLabel::of_name(parent_label),
-                Some(GeneratedLabel::SemanticCast { .. })
-            ))
-            && matches!(child.items.last(), Some(Item::NonTerminal(_)))
-        {
-            return Some(ParseError::CastPriority {
-                cast: parent_label.clone(),
-                child: child_label.clone(),
-            });
-        }
-        if self.priorities.less_than(parent_label, child_label) {
-            return Some(ParseError::Priority {
-                parent: parent_label.clone(),
-                child: child_label.clone(),
-            });
-        }
-        if side == Side::Right && self.associativity_forbids(parent_label, child_label, false) {
-            return Some(ParseError::Associativity {
-                parent: parent_label.clone(),
-                child: child_label.clone(),
-                side: "right",
-            });
-        }
-        if side == Side::Left && self.associativity_forbids(parent_label, child_label, true) {
-            return Some(ParseError::Associativity {
-                parent: parent_label.clone(),
-                child: child_label.clone(),
-                side: "left",
-            });
-        }
-        None
+        let exclusion =
+            self.relation_index()
+                .exclusions
+                .violation(&parent.shape(), &child.shape(), side)?;
+        let parent = parent.parse_label.clone()?;
+        let child = child.parse_label.clone()?;
+        Some(match exclusion {
+            Exclusion::Scope => ParseError::Scope { parent, child },
+            Exclusion::CastPriority => ParseError::CastPriority {
+                cast: parent,
+                child,
+            },
+            Exclusion::Priority => ParseError::Priority { parent, child },
+            Exclusion::Associativity(side) => ParseError::Associativity {
+                parent,
+                child,
+                side: if side == Side::Left { "left" } else { "right" },
+            },
+        })
     }
 
     /// Lower an inferred tree to the one term it denotes, or report the readings it still has.
@@ -4004,53 +3923,6 @@ fn packed_klabel_name(term: &PackedTerm) -> Option<String> {
         string::unquote_label(token).ok()
     } else {
         Some(token.clone())
-    }
-}
-
-/// The side of a parent's node at which the relation filter judges a child
-/// ([`Production::judged_side`]): associativity applies at the two ends only.
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub(super) enum Side {
-    Left,
-    Right,
-    Middle,
-}
-
-impl Production {
-    /// The side at which the relation filter judges the child at `position` (1-based, among
-    /// the children) of a node of this production that has `child_count` children, or `None`
-    /// where it judges none. This is the filter's one position selection: the node judges
-    /// nothing below it when it is a record (its edges are judged after it collapses into the
-    /// production it stands for) or a syntactic subsort (one nonterminal and no terminal); else
-    /// it judges the positions its `applyPriority` names, or by default its first and last
-    /// child where that child is the first or the last item. A judged child is on the left side
-    /// when it is the first item, on the right side when it is the last item, and in the
-    /// middle otherwise.
-    ///
-    /// Every check of an edge reads it: the filter over a completed node
-    /// ([`Grammar::filter_packed_priority`]), the edge test of the completion pruning
-    /// ([`Grammar::edge_rejects`]), and the associativity check at hand-off, which drops a
-    /// completed node before its caller packs it. So a node is rejected at an edge exactly when
-    /// the filter judges that edge, and whether a reading is accepted depends only on its own
-    /// tree, not on which other readings are packed with it.
-    pub(super) fn judged_side(&self, position: usize, child_count: usize) -> Option<Side> {
-        if self.record.is_some() || self.syntactic_subsort {
-            return None;
-        }
-        let first = position == 1 && matches!(self.items.first(), Some(Item::NonTerminal(_)));
-        let last =
-            position == child_count && matches!(self.items.last(), Some(Item::NonTerminal(_)));
-        let judged = match &self.apply_priority {
-            Some(positions) => positions.contains(&position),
-            None => first || last,
-        };
-        judged.then_some(if first {
-            Side::Left
-        } else if last {
-            Side::Right
-        } else {
-            Side::Middle
-        })
     }
 }
 

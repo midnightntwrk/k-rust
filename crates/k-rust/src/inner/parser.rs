@@ -89,6 +89,7 @@
 mod chart;
 mod cycles;
 mod disambiguation;
+pub(crate) mod exclusion;
 mod forest;
 mod grammar;
 mod inference;
@@ -104,7 +105,8 @@ mod z3_inference;
 
 use self::chart::*;
 use self::cycles::{SameSpanCycles, check_same_span_repetition};
-use self::disambiguation::{PackedPriorityMemos, Side};
+use self::disambiguation::PackedPriorityMemos;
+use self::exclusion::{Exclusions, NodeShape, Side};
 use self::forest::*;
 use self::grammar::Placeholder;
 use self::grammar::ProductionText;
@@ -1243,20 +1245,31 @@ struct Production {
 }
 
 impl Production {
-    /// Whether a node of this production is its only child itself (`build_packed_term`): an
-    /// unlabelled or transparent production with one nonterminal that is not a token, record or
-    /// bracket adds no node to the forest, so the filters judge the child wherever it stands.
-    fn passes_child_through(&self) -> bool {
-        !self.token
-            && self.record.is_none()
-            && !self.bracket
-            && (self.transparent || self.label.is_none())
-            && self
+    /// The production as the relation filter sees its node ([`NodeShape`]).
+    fn shape(&self) -> NodeShape<'_> {
+        NodeShape {
+            parse_label: self.parse_label.as_ref(),
+            labelled: self.label.is_some(),
+            token: self.token,
+            bracket: self.bracket,
+            transparent: self.transparent,
+            record: self.record.is_some(),
+            items: self.items.len(),
+            nonterminals: self
                 .items
                 .iter()
                 .filter(|item| matches!(item, Item::NonTerminal(_)))
-                .count()
-                == 1
+                .count(),
+            first_nonterminal: matches!(self.items.first(), Some(Item::NonTerminal(_))),
+            last_nonterminal: matches!(self.items.last(), Some(Item::NonTerminal(_))),
+            apply_priority: self.apply_priority.as_ref(),
+        }
+    }
+
+    /// Whether a node of this production is its only child itself (`build_packed_term`,
+    /// [`NodeShape::passes_child_through`]), so the filters judge the child wherever it stands.
+    fn passes_child_through(&self) -> bool {
+        self.shape().passes_child_through()
     }
 
     /// Whether the production recognizes machine-integer literals. A literal such as `3p8`
@@ -1467,8 +1480,9 @@ pub struct Grammar {
     layout: Layout,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
-    // Invariant: when set, this indexes `associativities`; cleared whenever they change.
-    associativity_index: OnceLock<AssociativityIndex>,
+    // Invariant: when set, this indexes `priorities` and `associativities`; cleared whenever
+    // either changes.
+    relation_index: OnceLock<RelationIndex>,
     subsort_relations: SubsortRelations,
     syntactic_subsort_relations: SubsortRelations,
     overloads: PartialOrder<ProductionIdentity>,
@@ -1485,48 +1499,34 @@ pub struct Grammar {
     role: ParserRole,
 }
 
-/// The associativity relations over the labels that take part in one, each such label numbered,
-/// so that a pair of labels, or of the productions carrying them, is looked up without hashing
-/// or copying either label.
-#[derive(Clone, Debug, Default)]
-struct AssociativityIndex {
-    /// The number of each label that occurs in a relation.
-    ids: rustc_hash::FxHashMap<String, u32>,
-    /// The number of each production's parse label, when that label occurs in a relation.
+/// The grammar's relations ([`Exclusions`]), with each production's parse label numbered when
+/// it occurs in an associativity relation, so that a pair of labels, or of the productions
+/// carrying them, is looked up without hashing or copying either label.
+#[derive(Clone, Debug)]
+struct RelationIndex {
+    exclusions: Exclusions,
+    /// The number of each production's parse label, when that label occurs in an associativity
+    /// relation.
     production_labels: Vec<Option<u32>>,
-    /// The `(parent, child)` pairs where `child` may not be `parent`'s right child (`left`
-    /// associativity).
-    left: rustc_hash::FxHashSet<(u32, u32)>,
-    /// The `(parent, child)` pairs where `child` may not be `parent`'s left child (`right`
-    /// associativity).
-    right: rustc_hash::FxHashSet<(u32, u32)>,
     /// For each production and each dot position before its end, the edge
     /// [`Grammar::associativity_edge`] selects there, computed once per grammar.
     edges: Vec<Box<[AssociativityEdge]>>,
 }
 
-impl AssociativityIndex {
-    fn new(relations: &AssociativityRelations, productions: &[Production]) -> Self {
-        let mut ids = rustc_hash::FxHashMap::<String, u32>::default();
-        let mut index = |pairs: &BTreeSet<(String, String)>| {
-            let mut id = |label: &String| {
-                let next = u32::try_from(ids.len()).expect("fewer than 2^32 labels");
-                *ids.entry(label.clone()).or_insert(next)
-            };
-            pairs
-                .iter()
-                .map(|(parent, child)| (id(parent), id(child)))
-                .collect::<rustc_hash::FxHashSet<_>>()
-        };
-        let left = index(&relations.left);
-        let right = index(&relations.right);
+impl RelationIndex {
+    fn new(
+        priorities: &PartialOrder<String>,
+        relations: &AssociativityRelations,
+        productions: &[Production],
+    ) -> Self {
+        let exclusions = Exclusions::new(priorities.clone(), relations);
         let production_labels = productions
             .iter()
             .map(|production| {
                 production
                     .parse_label
                     .as_deref()
-                    .and_then(|label| ids.get(label).copied())
+                    .and_then(|label| exclusions.associativity_id(label))
             })
             .collect::<Vec<_>>();
         let edges = productions
@@ -1539,20 +1539,18 @@ impl AssociativityIndex {
             })
             .collect();
         Self {
-            ids,
+            exclusions,
             production_labels,
-            left,
-            right,
             edges,
         }
     }
 
     fn forbids(&self, parent: u32, child: u32, left_child: bool) -> bool {
-        if left_child {
-            self.right.contains(&(parent, child))
-        } else {
-            self.left.contains(&(parent, child))
-        }
+        self.exclusions.associativity_forbids(
+            parent,
+            child,
+            if left_child { Side::Left } else { Side::Right },
+        )
     }
 }
 
@@ -1581,7 +1579,10 @@ fn associativity_edge_at(
             .count()
     };
     let position = nonterminals(&recognizer.items[..dot]) + 1;
-    match productions[node].judged_side(position, nonterminals(&recognizer.items)) {
+    match productions[node]
+        .shape()
+        .judged_side(position, nonterminals(&recognizer.items))
+    {
         Some(Side::Left) => Some((node, true)),
         Some(Side::Right) => Some((node, false)),
         Some(Side::Middle) | None => None,
@@ -1611,7 +1612,7 @@ impl Default for Grammar {
             layout: Layout::default(),
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
             associativities: AssociativityRelations::default(),
-            associativity_index: OnceLock::new(),
+            relation_index: OnceLock::new(),
             subsort_relations: SubsortRelations::default(),
             syntactic_subsort_relations: SubsortRelations::default(),
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
@@ -3201,7 +3202,7 @@ impl Grammar {
         if descriptor.token || descriptor.passes_child_through() {
             return true;
         }
-        let index = self.associativity_index();
+        let index = self.relation_index();
         let (Some(parent), Some(child)) = (
             index.production_labels[parent],
             index.production_labels[descriptor.term_production.unwrap_or(child)],
@@ -3214,7 +3215,7 @@ impl Grammar {
     /// The edge at which the associativity relations judge the node `caller` holds at its dot:
     /// the production of the node `caller` builds (`Production::term_production`), and whether
     /// the child is its left (`true`) or its right child. This is the end position the relation
-    /// filter judges there ([`Production::judged_side`]), so the check at hand-off
+    /// filter judges there ([`NodeShape::judged_side`]), so the check at hand-off
     /// ([`Self::filter_associative_boundary`]) is the filter's own associativity check of that
     /// edge, made earlier, and drops only nodes the filter would drop from that tree. `None`
     /// where the filter judges no associativity: a middle position, a position `applyPriority`
@@ -3222,15 +3223,16 @@ impl Grammar {
     /// child through (it builds no node, so the child is judged at its caller's edge), and
     /// below a production whose label is in no associativity relation.
     fn associativity_edge(&self, caller: State) -> Option<(usize, bool)> {
-        self.associativity_index().edges[caller.production]
+        self.relation_index().edges[caller.production]
             .get(caller.dot)
             .copied()
             .flatten()
     }
 
-    fn associativity_index(&self) -> &AssociativityIndex {
-        self.associativity_index
-            .get_or_init(|| AssociativityIndex::new(&self.associativities, &self.productions))
+    fn relation_index(&self) -> &RelationIndex {
+        self.relation_index.get_or_init(|| {
+            RelationIndex::new(&self.priorities, &self.associativities, &self.productions)
+        })
     }
 
     /// Whether the associativity relations forbid a node labelled `child` as the leftmost
@@ -3241,11 +3243,18 @@ impl Grammar {
         child: &str,
         left_child: bool,
     ) -> bool {
-        let index = self.associativity_index();
-        let (Some(&parent), Some(&child)) = (index.ids.get(parent), index.ids.get(child)) else {
+        let exclusions = &self.relation_index().exclusions;
+        let (Some(parent), Some(child)) = (
+            exclusions.associativity_id(parent),
+            exclusions.associativity_id(child),
+        ) else {
             return false;
         };
-        index.forbids(parent, child, left_child)
+        exclusions.associativity_forbids(
+            parent,
+            child,
+            if left_child { Side::Left } else { Side::Right },
+        )
     }
 
     /// Whether the priority filter's check of the edge between `caller`'s node and a node built

@@ -11268,7 +11268,9 @@ endmodule
 /// from both, modulo injections, or be rejected by both, and what the generated parser prints is
 /// KORE, whose string literals are printable ASCII. Programs: `[locations]` (both wrap, or
 /// neither), a non-ASCII token and a line separator matched by a negated class (a token is a
-/// sequence of characters), and a `String` token holding non-ASCII and a control character.
+/// sequence of characters), a `String` token holding non-ASCII and a control character, and
+/// operators whose nesting priority and associativity decide, among them a labelled production
+/// with one nonterminal and no terminal (`wrap`), below which neither parser judges an edge.
 #[cfg(unix)]
 #[test]
 fn generated_and_in_process_parsers_give_each_program_one_term() {
@@ -11314,6 +11316,36 @@ endmodule
         "LOC",
         "LOC-SYNTAX",
         &owned_programs(&[("x + x", true), ("x +\nx", true), ("x +", false)]),
+    );
+    const RELATIONS: &str = r#"
+module REL-SYNTAX
+  syntax Exp ::= "x" [symbol(x)]
+               | "-" Exp [symbol(neg)]
+               | Exp "*" Exp [left, symbol(mul)]
+               | Exp "+" Exp [left, symbol(plus)]
+  syntax Top ::= Exp [symbol(wrap)]
+  syntax Pgm ::= Top
+  syntax priority neg > mul > plus
+  syntax priority wrap > plus
+endmodule
+module REL
+  imports REL-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    assert_parsers_give_each_program_one_term(
+        RELATIONS,
+        "REL",
+        "REL-SYNTAX",
+        &owned_programs(&[
+            ("x + x * x", true),
+            ("x * x + x", true),
+            ("- x + x * x", true),
+            ("x + x + x", true),
+            ("x * - x * x", true),
+            ("x", true),
+            ("x + ", false),
+        ]),
     );
 }
 
