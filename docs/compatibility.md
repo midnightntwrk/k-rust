@@ -363,6 +363,7 @@ Any other value makes the token's language depend on the text around it: a prece
 No K source syntax writes such a restriction, krust's grammar has no place for one, and neither parser krust builds scans a token by its neighbours, so the KAST JSON reader refuses a document whose regex terminal states one, with a message that names the module, the production (sort, items, label, source and location) and each restriction.
 Reading the regex alone would accept a larger token language than the document states and say nothing: with an identifier regex restricted not to follow `[A-Za-z0-9_]`, `12abc` is an error, while the unrestricted regex scans it as `12` and `abc`.
 krust writes neither field.
+The Rust library's `ProductionItem::RegexTerminal` holds only its regex, and its former `precede_regex` and `follow_regex` fields are removed, since a field nothing honours would drop a restriction without a word: a library consumer that builds regex terminals from a grammar of its own that carries such restrictions refuses one that restricts something, as the KAST JSON reader does, instead of dropping it.
 The pinned K's Python reader (`pyk`'s `KRegexTerminal`) keeps only the regex and reads such a document as unrestricted, where krust refuses it.
 (`kast_json_token_restrictions_are_refused_naming_the_production` in [definition_json.rs](../crates/k-rust/tests/definition_json.rs).)
 
