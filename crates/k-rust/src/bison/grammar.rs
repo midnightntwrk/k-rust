@@ -1938,7 +1938,13 @@ do                                                        \
       (Cur).first_column = YYRHSLOC(Rhs, 1).first_column; \
       (Cur).last_line    = YYRHSLOC(Rhs, N).last_line;    \
       (Cur).last_column  = YYRHSLOC(Rhs, N).last_column;  \
-      (Cur).first_offset = YYRHSLOC(Rhs, 1).first_offset; \
+      int krust_first = 1;                                \
+      while (krust_first < (N) &&                         \
+             YYRHSLOC(Rhs, krust_first).first_offset ==   \
+               YYRHSLOC(Rhs, krust_first).last_offset)    \
+        ++krust_first;                                    \
+      (Cur).first_offset =                                \
+        YYRHSLOC(Rhs, krust_first).first_offset;          \
       (Cur).last_offset  = YYRHSLOC(Rhs, N).last_offset;  \
     }                                                     \
   else                                                    \

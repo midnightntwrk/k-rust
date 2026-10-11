@@ -12082,12 +12082,14 @@ fn a_token_subsort_over_a_phrase_reads_the_phrase_text_as_its_token() {
     // first token to its last, with the layout between them and without the layout around them.
     // `Wrapped` reads that text through a second token subsort. `Pairs` puts several such
     // phrases in one input, after a line-anchored token (whose scanner rejects matches), so
-    // each phrase is reduced once the scanner has read past it.
+    // each phrase is reduced once the scanner has read past it. A phrase that starts with an
+    // empty `Names` starts at its first token all the same, not at the layout before it.
     let source = r##"
 module TOKPHRASE
   syntax Name ::= r"[a-z]+" [token]
   syntax Mark ::= r"^#[a-z]+" [token]
-  syntax Pair ::= Name "." Name | Mark Name
+  syntax Names ::= List{Name, ","}
+  syntax Pair ::= Name "." Name | Mark Name | Names "!" Name
   syntax MyTok ::= Pair [token]
   syntax Wrapped ::= MyTok [token]
   syntax Pairs ::= MyTok ";" Pairs | MyTok
@@ -12121,6 +12123,22 @@ endmodule
             "  ab .\n cd // c\n /* x */ ",
             r#"#token("ab .\n cd","Wrapped")"#.to_owned(),
             token("ab .\n cd", "Wrapped"),
+        ),
+        (
+            "MyTok",
+            "  ! ab ",
+            r#"#token("! ab","MyTok")"#.to_owned(),
+            token("! ab", "MyTok"),
+        ),
+        (
+            "Pairs",
+            "ab.cd ;  ! ef",
+            r##"`_;__TOKPHRASE_Pairs_MyTok_Pairs`(#token("ab.cd","MyTok"),#token("! ef","MyTok"))"##.to_owned(),
+            format!(
+                "Lbl'UndsSClnUndsUnds'TOKPHRASE'Unds'Pairs'Unds'MyTok'Unds'Pairs{{}}({},inj{{SortMyTok{{}}, SortPairs{{}}}}({}))",
+                token("ab.cd", "MyTok"),
+                token("! ef", "MyTok"),
+            ),
         ),
         (
             "Pairs",
