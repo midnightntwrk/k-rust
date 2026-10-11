@@ -1063,13 +1063,20 @@ endmodule
 /// at a place the rewrite cannot either, and the choice does not prefer it there: in a match
 /// arm `syntax Arm ::= Pat "=>" Exp`, the `=>` of `match(V, p => e)` cannot be the rule's
 /// rewrite of an `Arm` (a `Pat` and an `Exp` are no `Arm`), so it is the arm, whatever other
-/// sorts the module declares; so with a token (`1`, a `Num`) or a sort written on a variable
-/// (`P:Pat`) on a side.
+/// sorts the module declares (an unused `A` beside them changes nothing); so with a token (`1`,
+/// a `Num`) or a sort written on a variable (`P:Pat`) on a side.
 #[test]
 fn a_rewrite_whose_sides_cannot_stand_at_a_place_is_not_preferred_there() {
+    for unused in ["", r#"syntax A ::= "a" [symbol(a)]"#] {
+        a_match_arm_is_read_whatever_other_sorts_the_module_declares(unused);
+    }
+}
+
+fn a_match_arm_is_read_whatever_other_sorts_the_module_declares(unused: &str) {
     let source = |rule: &str| {
         format!(
             r#"module MAIN
+  {unused}
   syntax Num ::= r"[0-9]+" [token]
   syntax Pat ::= "p" [symbol(p)] | Num
   syntax Exp ::= "e" [symbol(e)] | Num
@@ -1095,8 +1102,8 @@ endmodule
         ),
     ] {
         let definition = resolve_rule_bubbles(&lowered(&source(rule)))
-            .unwrap_or_else(|error| panic!("{rule}: {error}"));
-        assert_eq!(only_rule_body(&definition), expected, "{rule}");
+            .unwrap_or_else(|error| panic!("{unused} {rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{unused} {rule}");
     }
 }
 
