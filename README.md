@@ -644,16 +644,17 @@ scripts/reference-differential.sh casts cell-map  # selected cases
 ```
 
 The real-semantics certification protocol is manual rather than a CI job.
-Run the complete protocol after a change to frontend, definition, kompile, or KORE-emission behavior and record the named results, wall times, and peak memory in the change description:
+Every gate is an entry of the registry `scripts/gates.toml`, whose header holds the protocol, and `scripts/run-gates.sh` runs entries by name, by kind, or by what a change touches, logging each one's exit status, wall time and peak RSS:
 
 ```console
-scripts/reference-differential.sh wasm mir evm-equivalence
-scripts/reference-kast-differential.sh wasm mir evm-equivalence
-scripts/reference-non-imp-execution-differential.sh imp
-scripts/reference-proof-differential.sh imp
-scripts/reference-rpc-differential.sh imp
-scripts/reference-mir-execution-differential.sh
+scripts/run-gates.sh --changed main..HEAD           # the entries this branch owes
+scripts/run-gates.sh --list --touched crates/k-rust/src/inner/parser.rs
+scripts/run-gates.sh kast-real-semantics            # one entry by name; an unknown name fails
+scripts/run-gates.sh --run heavy --changed main..HEAD
 ```
+
+Each certification and heavy entry names the paths whose change owes it; record the runner's summary in the change description.
+Heavy entries (the WASM, MIR and KEVM compiles, parses and runs, the WASM execution gate and the critical-pair corpus) need a host UID with a user systemd manager; the runner lists them as not run under an `agent-N` user and exits 3.
 
 `scripts/reference-differential.toml` is the source of truth for pins, checkout paths, compiler options, compared artifacts, parser cases, execution/search programs, proof claims, RPC cases, and the six documented oracle exclusions.
 The scripts enforce clean checkouts at the manifest revisions and require the matching K release.

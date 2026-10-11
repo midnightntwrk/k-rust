@@ -77,3 +77,22 @@ jobs:
 
       - name: Compare JSON-RPC behavior
         run: scripts/reference-rpc-differential.sh bounded-search
+
+  lean:
+    name: Lean proofs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      # lake selects the toolchain that lean/lean-toolchain names.
+      - name: Install elan
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Check the Lean proofs
+        run: scripts/lean-check.sh

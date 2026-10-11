@@ -48,10 +48,10 @@ The `ci-checked` profile leaves out k-rust's `measure_ratchet`, whose snapshots 
 
 | When | Workflow | Checks |
 |---|---|---|
-| Every push and pull request | `ci.yml` | formatting; the benchmark harness's syntax; the MSRV `cargo check`; build and clippy with Z3; the workspace suite under nextest and checked inference (`ci-checked` profile); doc-tests; `scripts/measure-ratchet.sh`; the Node-API and WebAssembly packages' builds and tests; portable clippy; the portable subset (k-rust's library tests, `inner_parser`, `definition_regex`, and `k-rust-wasm`); `k-rust-backend` without its `z3` feature; the `wasm32` build; the dependency-free regex crate |
+| Every push and pull request | `ci.yml` | formatting; the benchmark harness's syntax; the MSRV `cargo check`; build and clippy with Z3; the workspace suite under nextest and checked inference (`ci-checked` profile); doc-tests; `scripts/measure-ratchet.sh`; the Node-API and WebAssembly packages' builds and tests; portable clippy; the portable subset (k-rust's library tests, `inner_parser`, `definition_regex`, and `k-rust-wasm`); `k-rust-backend` without its `z3` feature; the `wasm32` build; the dependency-free regex crate; the scripts' Python unit tests (`scripts/script-unit-tests.sh`) |
 | A push or pull request that changes a trigger path | `nightly.yml`, called from `ci.yml` | the full portable suite of `k-rust`, `k-rust-wasm` and `k-rust-backend`, and the system-linked Z3 acquisition check (`scripts/z3-acquisition-check.sh`), each when its own trigger paths change |
 | Every night on the default branch, or on demand | `nightly.yml` | both path-triggered checks (the portable suite with its doc-tests), `scripts/backend-smoke.sh` with the release `krust` and the pinned K release's LLVM backend, and the value-contract oracle (`crates/k-rust-backend/src/tests/definedness_oracle`) at 20,000 random definitions with a date-derived seed printed in hexadecimal |
-| Every week, or on demand | `differential.yml` | the reference differential gates of the manifest's `weekly` gate set |
+| Every week, or on demand | `differential.yml` | the reference differential gates and `scripts/lean-check.sh`, the `weekly` entries of `scripts/gates.toml` |
 
 `scripts/ci-changed-paths.sh` defines the trigger paths and decides which path-triggered checks a push or pull request needs.
 The full portable suite follows the sources and tests of `k-rust` (including the embedded prelude), `k-rust-backend` and `k-rust-wasm`, the sources of `k-rust-kore` and `k-rust-regex`, the crate manifests, the lockfile and the nextest configuration; the acquisition check follows the manifests, the lockfile, the script, `z3_acquisition.rs`, `inner_rules.rs` and `examples/z3-inference.k`; a change to the workflows or to the script triggers both.
@@ -61,17 +61,14 @@ A failed scheduled run shows only on the repository's Actions page; `gh run list
 
 ### Reference gates, the conformance ratchet, and coverage
 
-The reference gates need the pinned reference toolchain and checkouts (README, "Compatibility evidence"); choose them by the contract a change affects.
+The reference gates need the pinned reference toolchain and checkouts (README, "Compatibility evidence").
+Every gate, tool and scheduled check outside `cargo test` is an entry of `scripts/gates.toml`, and `scripts/run-gates.sh --changed BASE..HEAD` runs the entries a change owes: those with a path pattern that matches a path the change touched, or whose own entry it changed (`--list` shows the selection without running it, `--touched PATH` asks about one path).
 The reference-output cache (below) replays unchanged reference results, so a repeated run costs mostly the krust side.
 The gates build krust and the comparator with Cargo's default features, which download the Z3 release; `KRUST_GATE_Z3=system` builds them with `--no-default-features --features cli` instead, the same features linked to the Z3 the build environment provides (for example under `with-z3-static-4.16.0`); `scripts/backend-smoke.sh` follows the same selection when it builds krust itself (without `KRUST_BIN`).
 `KRUST_GATE_TARGET_DIR` and `KRUST_GATE_INVARIANT_CHECKS` (`scripts/reference-memory-guard.sh`) select the gate krust's target directory and its kompile invariant checks.
 
-| A change to | Run |
-|---|---|
-| outer loading, definitions, kompile passes, sort inference, macros, hooks, module selection, KORE emission, or the embedded prelude (`crates/k-rust/builtin/`) | the compile and kast differentials of the affected cases, then the README's real-semantics certification protocol |
-| the backend's rewriting, matching, unification, simplification, builtins, or proof search | the execution, proof and symbolic differentials of the affected cases, and the RPC differential, which also covers the `krust kore-rpc` setup in `crates/k-rust/src/main.rs`; for builtins, matching and rewriting, the MIR execution differential too; and `scripts/wasm-execution-gate.sh` |
-| the code of one subsystem in `scripts/conformance/subsystems.toml` | `scripts/conformance-ratchet.sh --cases` with that subsystem's cases |
-| the conformance driver (`scripts/conformance/`), or before merging an integration branch | `scripts/conformance-ratchet.sh --all` |
+Every reference entry is owed by any change to the sources krust is built from, since kompile itself runs backend code; the entries differ in the harness each runs.
+Beyond what the registry selects, run `scripts/conformance-ratchet.sh --cases` with a subsystem's cases (`scripts/conformance/subsystems.toml`) after a change to that subsystem's code, and `scripts/conformance-ratchet.sh --all` after a change to the conformance driver or before merging an integration branch.
 
 No workflow runs the ratchet: its LLVM recipes need the pinned reference tools under a user systemd scope (see "Manual conformance acceptance"), so even `--all` is a manual run.
 `scripts/reference-fixtures-refresh.sh` is for reference pin moves only.
