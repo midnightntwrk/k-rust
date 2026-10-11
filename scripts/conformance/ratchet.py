@@ -14,7 +14,7 @@ import tempfile
 import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from verdicts import RANK, case_verdict  # noqa: E402  (scripts/conformance/verdicts.py)
+from verdicts import RANK, case_verdict, ranked_steps  # noqa: E402  (scripts/conformance/verdicts.py)
 
 
 # The meaning of a logged rank. A run records it, and a rank recorded under another meaning is no
@@ -238,7 +238,8 @@ def ranked_case(result: dict, expectation: dict) -> tuple[str, list[str], str]:
         # The driver's own verdict: nothing was deleted, and a verdict the driver set without
         # steps (an undriven or unenumerable case) has no steps to recompute it from.
         return result["verdict"], [], ""
-    return case_verdict(kept) or "match", list(dict.fromkeys(applied)), ""
+    remaining = ranked_steps(kept, result.get("bison_parsers_only", False))
+    return case_verdict(remaining) or "match", list(dict.fromkeys(applied)), ""
 
 
 def previous_measurement(runs: list[dict], name: str) -> tuple[dict | None, dict | None]:

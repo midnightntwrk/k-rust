@@ -1409,7 +1409,12 @@ run.do_kompile = fake_kompile
 run.run_bison_parsers = fake_bison
 run.do_krun = lambda *args, **kwargs: driven.append("krun")
 result = run.run_case("glr", "ktest")
-print(json.dumps({"driven": driven, "verdict": result.verdict, "stage": result.stage}))
+import tomllib
+results = os.path.join(root, "results.toml")
+run.write_results([result], results)
+with open(results, "rb") as handle:
+    recorded = tomllib.load(handle)["case"][0].get("bison_parsers_only")
+print(json.dumps({"driven": driven, "verdict": result.verdict, "stage": result.stage, "recorded": recorded}))
 "#;
     let output = Command::new("python3")
         .args(["-c", script])
@@ -1428,6 +1433,8 @@ print(json.dumps({"driven": driven, "verdict": result.verdict, "stage": result.s
     );
     assert_eq!(observed["verdict"], "match");
     assert_eq!(observed["stage"], "bison-parser");
+    // The results say which steps ranked the case, for the ratchet to rank it alike.
+    assert_eq!(observed["recorded"], true);
 }
 
 #[test]
@@ -3652,6 +3659,46 @@ print(json.dumps({
             "first": ["match", 3, 1, "improvement", ["c"], "residual-steps"],
             "second": ["krust-unsupported", 3, ["c"], ["c"]],
         })
+    );
+}
+
+/// A run that measures only the generated Bison parsers ranks a case by its `bison-parser` steps,
+/// and records that it did; the ratchet, re-ranking a case after deleting its excluded steps,
+/// selects the same steps, so the compilation that only produces the parsers ranks in neither.
+/// The same result without the record is ranked from every remaining step.
+#[test]
+fn the_ratchet_ranks_a_bison_parser_run_by_the_steps_the_driver_ranks() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import ratchet
+
+EXCLUSION = {"step_exclusions": [{"step": "bison-parser", "out": "bad.out", "exclusion": "x", "reason": "r"}]}
+steps = [
+    {"step": "kompile", "verdict": "mismatch"},
+    {"step": "bison-parser", "out": "bad.out", "verdict": "mismatch"},
+    {"step": "bison-parser", "out": "good.out", "verdict": "match"},
+]
+print(json.dumps({
+    "bison": ratchet.ranked_case({"verdict": "mismatch", "bison_parsers_only": True, "step": steps}, EXCLUSION)[0],
+    "full": ratchet.ranked_case({"verdict": "mismatch", "step": steps}, EXCLUSION)[0],
+}))
+"#;
+    let output = Command::new("python3")
+        .args(["-I", "-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        probes,
+        serde_json::json!({"bison": "match", "full": "mismatch"})
     );
 }
 

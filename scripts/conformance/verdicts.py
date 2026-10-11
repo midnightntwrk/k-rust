@@ -28,6 +28,18 @@ def step_verdict(step: dict) -> str:
     return step.get("verdict", UNRECORDED)
 
 
+def ranked_steps(steps: list[dict], bison_parsers_only: bool) -> list[dict]:
+    """The steps a case's verdict is computed from.
+
+    A run that measures only the generated Bison parsers (`run.py --bison-parsers`) still compiles
+    each case to obtain them, but asks only whether the parsers agree, so the case is ranked by
+    its `bison-parser` steps; every other run ranks every step.
+    """
+    if bison_parsers_only:
+        return [step for step in steps if step.get("step") == "bison-parser"]
+    return steps
+
+
 def case_verdict(steps: list[dict]) -> str | None:
     """The worst verdict among `steps` (the first of equal rank), or None when there is no step.
 

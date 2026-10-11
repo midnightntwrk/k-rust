@@ -29,7 +29,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 import reference_cache  # noqa: E402  (scripts/reference_cache.py)
-from verdicts import RANK as VERDICT_RANK, case_verdict, step_verdict  # noqa: E402
+from verdicts import RANK as VERDICT_RANK, case_verdict, ranked_steps, step_verdict  # noqa: E402
 KR = str(HERE.parents[1])
 K_CHECKOUT = os.environ.get("K_CHECKOUT", f"{KR}/k")
 KBIN = os.path.dirname(os.environ["K_KOMPILE"]) if os.environ.get("K_KOMPILE") else f"{K_CHECKOUT}/result/bin"
@@ -2518,13 +2518,11 @@ def finish(case, verdict=None, reason=None):
     case.steps.extend(case.deferred_steps)
     case.deferred_steps = []
     if verdict is None:
-        ranked_steps = case.steps
-        if BISON_PARSER_ONLY:
-            ranked_steps = [step for step in case.steps if step.get("step") == "bison-parser"]
-        verdict = case_verdict(ranked_steps)
+        ranked = ranked_steps(case.steps, BISON_PARSER_ONLY)
+        verdict = case_verdict(ranked)
         if verdict is None: verdict, reason = "skipped-with-reason", "no driven steps"
         else:
-            first = next(s for s in ranked_steps if step_verdict(s) == verdict)
+            first = next(s for s in ranked if step_verdict(s) == verdict)
             reason = first.get("reason") or (f"{first.get('step')} {first.get('test', '')}".strip() + f": {verdict}")
     stages = [s.get("stage") for s in case.steps if s.get("stage")]
     stage = max(stages, key=STAGE_RANK.index) if stages else "none"
@@ -2545,6 +2543,8 @@ def write_results(cases, path=RESULTS):
         lines += ["[[case]]", f"name = {toml_str(c.name)}", f"kind = {toml_str(c.kind)}", f"backend = {toml_str(c.backend)}",
                   f"verdict = {toml_str(c.verdict)}", f"stage = {toml_str(c.stage)}", f"reason = {toml_str(c.reason or '')}",
                   f"seconds = {getattr(c, 'seconds', 0)}", f"steps = {len(c.steps)}"]
+        # The ratchet re-ranks a case from its steps and must select the same ones (verdicts.py).
+        if BISON_PARSER_ONLY: lines.append("bison_parsers_only = true")
         if getattr(c, "fallback_verdict", None):
             lines.append(f"fallback_verdict = {toml_str(c.fallback_verdict)}  # after re-parsing K/KItem programs with the sort the reference kast assigns")
             lines.append(f"fallback_stage = {toml_str(c.fallback_stage)}")
