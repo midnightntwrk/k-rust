@@ -175,6 +175,10 @@ impl Grammar {
             self.split_program_list(&sort, &list)?;
         }
         for (sort, child_sort) in injections {
+            // The injection writes a lone element as the list of it, as a program writes that
+            // list, so it is program text exactly when the list is.
+            let list_production = self.user_lists[&sort].list_production;
+            let program_text = self.productions[list_production].program_text;
             let exists = self.productions.iter().any(|production| {
                 production.result == sort
                     && production.label.is_none()
@@ -184,6 +188,7 @@ impl Grammar {
                     )
             });
             if !exists {
+                let injection = self.productions.len();
                 self.add(
                     sort,
                     vec![ProductionItem::NonTerminal {
@@ -194,6 +199,7 @@ impl Grammar {
                     false,
                     true,
                 )?;
+                self.productions[injection].program_text = program_text;
             }
         }
         Ok(())
@@ -238,6 +244,7 @@ impl Grammar {
             &items,
             label,
             ProductionOptions {
+                program_text: recursive.program_text,
                 source_production,
                 ..ProductionOptions::default()
             },
@@ -256,6 +263,7 @@ impl Grammar {
             &[ProductionItem::Terminal(String::new())],
             terminator.label.clone(),
             ProductionOptions {
+                program_text: recursive.program_text,
                 source_production: terminator.source_production,
                 source_production_text: terminator.source_production_text.as_ref(),
                 ..ProductionOptions::default()
@@ -283,6 +291,7 @@ impl Grammar {
             &singleton_items,
             recursive.label.clone(),
             ProductionOptions {
+                program_text: recursive.program_text,
                 source_production: recursive.source_production,
                 source_production_text: recursive.source_production_text.as_ref(),
                 ..ProductionOptions::default()
@@ -298,6 +307,7 @@ impl Grammar {
             .insert((list.child_sort.clone(), nonempty.clone()));
         self.syntactic_subsort_relations
             .insert((list.child_sort.clone(), nonempty.clone()));
+        let injection = self.productions.len();
         self.add(
             sort.clone(),
             vec![ProductionItem::NonTerminal {
@@ -307,7 +317,9 @@ impl Grammar {
             None,
             false,
             true,
-        )
+        )?;
+        self.productions[injection].program_text = recursive.program_text;
+        Ok(())
     }
 
     /// Keep an empty-separator program list's own terminator when it is the direct tail of that

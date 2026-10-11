@@ -15,7 +15,7 @@ pub use config::{ConfigError, resolve_configuration_bubbles};
 pub(crate) use parser::exclusion::{Exclusions, NodeShape};
 pub use parser::{
     AmbiguityPlace, AmbiguousParse, CyclicDerivation, DiagnosticWork, Grammar, NoParseInput,
-    ParseError, TokenPrecedenceDeclaration,
+    ParseError, Shadowed, ShadowedToken, TokenPrecedenceDeclaration,
 };
 #[cfg(feature = "cli")]
 pub(crate) use parser::{DEFAULT_LAYOUT, concretize_parametric_productions, parse_apply_priority};

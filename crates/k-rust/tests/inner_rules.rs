@@ -2638,16 +2638,32 @@ fn reference_scan_a_lowercase_klabel_application_resolves_to_the_user_production
 
 #[test]
 fn reference_scan_b_lowercase_identifier_is_not_a_user_token_in_rules() {
+    // A rule grammar's scanner holds K's own lexemes beside the module's, and `#LowerId`
+    // (`prec(2)`) takes `bar` from `Id`'s regex (`prec(0)`): the rule's own syntax (labels,
+    // cell names) stays writable whatever regex a module declares. The error says so and
+    // spells the `Id` token as a literal.
     let source = include_str!("fixtures/reference/inner/tokens/scan-b.k");
     let error = resolve_rule_bubbles(&lowered(source)).unwrap_err();
+    let RuleError::Parse(error) = error else {
+        panic!("expected a parse error, got {error:?}")
+    };
+    let ParseError::NoParse { ref shadowed, .. } = error.error else {
+        panic!("expected no parse, got {:?}", error.error)
+    };
+    let shadowed = shadowed.as_deref().expect("a shadowed token");
+    assert!(shadowed.failing.is_none(), "{shadowed:?}");
+    let previous = shadowed.previous.as_ref().expect("the token before `=>`");
+    assert_eq!(previous.text, "bar");
+    assert_eq!(previous.scanned_sorts, [Sort::new("#LowerId")]);
+    assert_eq!(previous.expected_sorts, [Sort::new("Id")]);
+    let message = error.error.to_string();
     assert!(
-        matches!(
-            error,
-            RuleError::Parse(ref error)
-                if matches!(error.error, ParseError::NoParse { .. })
-        ),
-        "{error:?}"
+        message.contains("The token 'bar' is read as r\"[a-z][a-zA-Z0-9]*\" (prec(2)) of sort #LowerId, not as r\"[a-zA-Z][a-zA-Z0-9_]*\" (prec(0)) of sort Id")
+            && message.ends_with("Write it #token(\"bar\", \"Id\")."),
+        "{message}"
     );
+    let literal = source.replace("rule bar => 1", "rule #token(\"bar\", \"Id\") => 1");
+    resolve_rule_bubbles(&lowered(&literal)).expect("the literal spells the Id token");
 }
 
 #[cfg(feature = "z3-inference")]
@@ -2676,6 +2692,132 @@ fn reference_scan_d_upperid_token_and_variable_are_a_reported_ambiguity() {
             .is_some_and(|production| production.contains("syntax K ::= K \":K\""))
             && alternative.term.contains("#SemanticCastToK(X)")
     }));
+}
+
+/// A module whose `Toks ::= Pair [token]` and `Toks ::= Names [token]` make a token of a
+/// phrase's text, with one rule (`{rule}`) over them. Names are digits, which no lexeme of the
+/// rule grammar's own syntax scans.
+fn phrase_token_module(rule: &str) -> String {
+    format!(
+        "module MAIN
+  syntax Name ::= r\"[0-9]+\" [token]
+  syntax Pair ::= Name \".\" Name
+  syntax Names ::= List{{Name, \",\"}}
+  syntax Toks ::= Pair [token] | Names [token]
+  syntax Pgm ::= \"run\" Toks | done(Toks) | \"stop\"
+  rule {rule}
+endmodule
+"
+    )
+}
+
+fn phrase_token_rule_body(rule: &str) -> String {
+    only_rule_body(&resolve_rule_bubbles(&lowered(&phrase_token_module(rule))).unwrap())
+}
+
+fn phrase_token_rule_error(rule: &str) -> ParseError {
+    match resolve_rule_bubbles(&lowered(&phrase_token_module(rule))) {
+        Err(RuleError::Parse(error)) => error.error,
+        other => panic!("expected a parse error, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_variable_at_a_phrase_token_sort_is_a_variable_and_no_token_of_its_name() {
+    let body = phrase_token_rule_body("T:Toks => done(T)");
+    assert!(!body.contains("\"Toks\")"), "{body}");
+    assert!(body.contains("T"), "{body}");
+}
+
+#[test]
+fn a_token_literal_at_a_phrase_token_sort_is_its_only_reading() {
+    let body = phrase_token_rule_body("run #token(\"1 . 2\", \"Toks\") => stop");
+    assert!(body.contains("#token(\"1 . 2\",\"Toks\")"), "{body}");
+}
+
+#[test]
+fn a_phrase_of_program_text_in_a_rule_is_a_token_of_its_text() {
+    let body = phrase_token_rule_body("run 1 . 2 => stop");
+    assert!(body.contains("#token(\"1 . 2\",\"Toks\")"), "{body}");
+    let body = phrase_token_rule_body("run 1 , 2 , 3 => stop");
+    assert!(body.contains("#token(\"1 , 2 , 3\",\"Toks\")"), "{body}");
+}
+
+#[test]
+fn a_lowercase_name_in_a_phrase_is_read_by_the_rule_grammar_lexeme_that_outranks_it() {
+    // With `Name ::= r"[a-z]+"`, `ab` in a rule is read as K's `#LowerId`, which outranks the
+    // module's regex at equal length, so the program text `run ab . cd` is no phrase there. A
+    // `#token` literal of `Name` is no program text and cannot stand inside the phrase, so the
+    // error says to write the whole phrase as a literal; a module whose `Name` also reads
+    // `#LowerId` writes the phrase as program text.
+    let module = |name: &str, rule: &str| {
+        format!(
+            "module MAIN
+  syntax #LowerId ::= r\"[a-z][a-zA-Z0-9]*\" [prec(2), token]
+  syntax Name ::= {name}
+  syntax Pair ::= Name \".\" Name
+  syntax Toks ::= Pair [token]
+  syntax Pgm ::= \"run\" Toks | \"stop\"
+  rule {rule}
+endmodule
+"
+        )
+    };
+    let regex = "r\"[a-z]+\" [token]";
+    let error = match resolve_rule_bubbles(&lowered(&module(regex, "run ab . cd => stop"))) {
+        Err(RuleError::Parse(error)) => error.error,
+        other => panic!("expected a parse error, got {other:?}"),
+    };
+    let ParseError::NoParse { ref shadowed, .. } = error else {
+        panic!("expected no parse, got {error:?}")
+    };
+    let shadowed = shadowed.as_deref().expect("a shadowed token");
+    assert!(shadowed.failing.is_none(), "{shadowed:?}");
+    let previous = shadowed.previous.as_ref().expect("the token before `.`");
+    assert_eq!(previous.text, "ab");
+    assert!(previous.literal_sorts.is_empty() && previous.in_phrase);
+    assert!(
+        error
+            .to_string()
+            .ends_with("write the whole phrase as a #token literal of that production's sort."),
+        "{error}"
+    );
+    let body = only_rule_body(
+        &resolve_rule_bubbles(&lowered(&module(
+            regex,
+            "run #token(\"ab . cd\", \"Toks\") => stop",
+        )))
+        .unwrap(),
+    );
+    assert!(body.contains("#token(\"ab . cd\",\"Toks\")"), "{body}");
+    let body = only_rule_body(
+        &resolve_rule_bubbles(&lowered(&module(
+            "r\"[a-z]+\" [token] | #LowerId [token]",
+            "run ab . cd => stop",
+        )))
+        .unwrap(),
+    );
+    assert!(body.contains("#token(\"ab . cd\",\"Toks\")"), "{body}");
+}
+
+#[test]
+fn a_phrase_holding_a_rule_construct_is_no_token() {
+    // A variable, a cast, a rewrite or a list's `.Names` (the rule notation of the empty list,
+    // which a program writes as no text) spells no text of a program, so no `Toks` token holds
+    // it, and the rule has no reading at all.
+    for rule in [
+        "run 1 . X => stop",
+        "run 1 . (2:Name) => stop",
+        "run 1 . (2 => 3) => stop",
+        "run 1 , X => stop",
+        "run .Names => stop",
+    ] {
+        let error = phrase_token_rule_error(rule);
+        assert!(
+            !matches!(error, ParseError::Ambiguous { .. }),
+            "{rule}: {error:?}"
+        );
+    }
 }
 
 #[test]

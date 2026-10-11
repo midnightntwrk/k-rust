@@ -246,6 +246,29 @@ impl Scanner {
             })
     }
 
+    /// Whether lexeme `lexeme` matches `input` from `position` to exactly `end`, whichever lexeme
+    /// wins there.
+    pub(super) fn matches_text(
+        &self,
+        lexeme: usize,
+        input: &str,
+        position: usize,
+        end: usize,
+    ) -> bool {
+        match_lexeme(&self.lexemes[lexeme].item, input, position) == Some(end)
+    }
+
+    /// Lexeme `lexeme` as a diagnostic names it: its spelling and its precedence.
+    pub(super) fn lexeme_description(&self, lexeme: usize) -> String {
+        let lexeme = &self.lexemes[lexeme];
+        match (&lexeme.item, lexeme.precedence) {
+            (Item::Terminal(_), i32::MAX) => {
+                format!("{} (a literal's precedence)", lexeme.item.description())
+            }
+            (item, precedence) => format!("{} (prec({precedence}))", item.description()),
+        }
+    }
+
     // IDs belong to this scanner and remain stable across append-only registration and clones.
     pub(super) fn lexeme_id(&self, item: &Item) -> Option<usize> {
         self.ids.get(&lexeme_key(item)?).copied()

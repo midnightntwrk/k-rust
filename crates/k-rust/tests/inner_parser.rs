@@ -1,5 +1,5 @@
 use k_rust::definition::{Associativity, Attributes, ProductionItem, Sentence};
-use k_rust::inner::{Grammar, NoParseInput, ParseError};
+use k_rust::inner::{Grammar, NoParseInput, ParseError, Shadowed, ShadowedToken};
 use k_rust::kast::{Label, Sort, Term};
 
 macro_rules! assert_inner_parse_snapshot {
@@ -267,6 +267,7 @@ fn no_parse_reports_the_unexpected_token_previous_token_and_absolute_span() {
                 value: "bad".into(),
             },
             previous: Some("ok".into()),
+            shadowed: None,
             span: Some(TermSpan {
                 source: SourceId(7),
                 start: 103,
@@ -327,6 +328,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
                 expected: vec!["\"done\"".into()].into(),
                 input: NoParseInput::EndOfInput,
                 previous: Some("ok".into()),
+                shadowed: None,
                 span: Some(TermSpan {
                     source: SourceId(9),
                     start: 42,
@@ -345,6 +347,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
                     value: "bad".into(),
                 },
                 previous: Some("λ".into()),
+                shadowed: None,
                 span: Some(TermSpan {
                     source: SourceId(9),
                     start: 43,
@@ -361,6 +364,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
                 expected: vec!["\"done\"".into()].into(),
                 input: NoParseInput::UnrecognizedInput { value: "?".into() },
                 previous: Some("ok".into()),
+                shadowed: None,
                 span: Some(TermSpan {
                     source: SourceId(9),
                     start: 43,
@@ -379,6 +383,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
                     value: "😀".into()
                 },
                 previous: Some("ok".into()),
+                shadowed: None,
                 span: Some(TermSpan {
                     source: SourceId(9),
                     start: 43,
@@ -417,6 +422,7 @@ fn no_parse_skips_layout_and_omits_unavailable_provenance() {
             expected: vec!["\"done\"".into()].into(),
             input: NoParseInput::EndOfInput,
             previous: Some("ok".into()),
+            shadowed: None,
             span: None,
             work_limit: None,
         }
@@ -430,6 +436,7 @@ fn no_parse_skips_layout_and_omits_unavailable_provenance() {
                 value: "bad".into(),
             },
             previous: Some("ok".into()),
+            shadowed: None,
             span: None,
             work_limit: None,
         }
@@ -454,6 +461,7 @@ fn no_parse_skips_layout_and_omits_unavailable_provenance() {
                 value: "bad".into(),
             },
             previous: None,
+            shadowed: None,
             span: None,
             work_limit: None,
         }
@@ -490,6 +498,7 @@ fn layout_token_competition_prefers_equal_length_layout() {
             expected: vec!["\"ab\"".into()].into(),
             input: NoParseInput::EndOfInput,
             previous: None,
+            shadowed: None,
             span: None,
             work_limit: None,
         })
@@ -506,6 +515,7 @@ fn layout_token_competition_prefers_strictly_longer_layout() {
             expected: vec!["\"a\"".into()].into(),
             input: NoParseInput::EndOfInput,
             previous: None,
+            shadowed: None,
             span: None,
             work_limit: None,
         })
@@ -552,6 +562,7 @@ fn layout_token_competition_global_token_blocks_nullable_root() {
             expected: vec![].into(),
             input: NoParseInput::Token { value: "ab".into() },
             previous: None,
+            shadowed: None,
             span: None,
             work_limit: None,
         })
@@ -824,6 +835,7 @@ fn prediction_reuse_preserves_layout_positions_provenance_and_rejection() {
             expected: vec!["\"x\"".into(), "Empty".into()].into(),
             input: NoParseInput::UnrecognizedInput { value: "y".into() },
             previous: Some("x".into()),
+            shadowed: None,
             span: None,
             work_limit: None,
         }),
@@ -1070,6 +1082,75 @@ fn scanner_prefers_match_length_over_precedence() {
     ])
     .unwrap();
     assert_inner_parse_snapshot!(grammar, Sort::new("Start"), "abc");
+}
+
+#[test]
+fn a_no_parse_names_an_expected_lexeme_that_lost_the_text_of_a_token_by_precedence() {
+    // `ab` is a `Name` where `use` is followed, but the scanner reads it with the `Keyword`
+    // lexeme, which matches the same text at a higher precedence; the scanner does not ask
+    // what the parse expects, so the error says which lexeme took the text.
+    let token = |prec: &str| {
+        let mut attributes = precedence(prec);
+        attributes.insert("token", serde_json::json!(""));
+        attributes
+    };
+    let grammar = Grammar::from_sentences(&[
+        production(
+            "Start",
+            vec![ProductionItem::Terminal("use".into()), nonterminal("Name")],
+            Some("use"),
+            Attributes::default(),
+        ),
+        production(
+            "Start",
+            vec![nonterminal("Keyword")],
+            None,
+            Attributes::default(),
+        ),
+        production(
+            "Name",
+            vec![ProductionItem::regex("[a-z][a-z0-9]*")],
+            None,
+            token("0"),
+        ),
+        production(
+            "Keyword",
+            vec![ProductionItem::regex("[a-z]+")],
+            None,
+            token("1"),
+        ),
+    ])
+    .unwrap();
+    let error = grammar.parse(&Sort::new("Start"), "use ab").unwrap_err();
+    let ParseError::NoParse { ref shadowed, .. } = error else {
+        panic!("expected no parse, got {error:?}")
+    };
+    assert_eq!(
+        shadowed.as_deref(),
+        Some(&Shadowed {
+            previous: None,
+            failing: Some(ShadowedToken {
+                text: "ab".into(),
+                scanned: r#"r"[a-z]+" (prec(1))"#.into(),
+                scanned_sorts: vec![Sort::new("Keyword")],
+                expected: r#"r"[a-z][a-z0-9]*" (prec(0))"#.into(),
+                expected_sorts: vec![Sort::new("Name")],
+                literal_sorts: vec![],
+                in_phrase: false,
+            }),
+        })
+    );
+    // A program grammar has no `#token` literal to suggest.
+    assert_eq!(
+        error.to_string(),
+        "Parse error: unexpected token 'ab' following token 'use'. The token 'ab' is read as \
+         r\"[a-z]+\" (prec(1)) of sort Keyword, not as r\"[a-z][a-z0-9]*\" (prec(0)) of sort \
+         Name, which the parse expects there and which matches the same text: the scanner reads \
+         one token at each position, the longest match, then the one of highest precedence, \
+         whatever the parse expects."
+    );
+    // A longer match is no shadowing: `ab1` is the one `Name` token it spells.
+    assert!(grammar.parse(&Sort::new("Start"), "use ab1").is_ok());
 }
 
 #[test]

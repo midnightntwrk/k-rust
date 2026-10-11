@@ -2426,6 +2426,7 @@ mod tests {
                         expected,
                         input,
                         previous,
+                        shadowed,
                         span,
                         work_limit,
                     }) => {
@@ -2434,7 +2435,7 @@ mod tests {
                             .map(|name| if pair && name == "P" { &operand } else { name })
                             .collect::<BTreeSet<_>>();
                         format!(
-                            "NoParse {position} {expected:?} {input:?} {previous:?} {span:?} {work_limit:?}"
+                            "NoParse {position} {expected:?} {input:?} {previous:?} {shadowed:?} {span:?} {work_limit:?}"
                         )
                     }
                     Err(error) => format!("{error:?}"),

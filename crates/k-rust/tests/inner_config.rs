@@ -474,6 +474,91 @@ fn parses_uppercase_cell_names_without_treating_them_as_variables() {
     );
 }
 
+fn resolve_source(source: &str, main_module: &str) -> Result<Definition, ConfigError> {
+    let parsed = k_rust::outer::parse("phrase-token-configuration.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, main_module).unwrap();
+    resolve_configuration_bubbles(&lowered)
+}
+
+/// Syntax in which `Toks ::= Names [token]` is a token of a phrase's text. `Names` is program
+/// text only: a configuration variable reaching `Toks` by unary productions alone is no phrase
+/// of it, and is read as the variable.
+const PHRASE_TOKEN_SYNTAX: &str = r#"
+module T-SYNTAX
+  syntax Name ::= r"[a-z]+" [token]
+  syntax Names ::= List{Name, ","}
+  syntax Toks ::= Names [token]
+  syntax Pgm ::= Toks
+  syntax Run ::= "run" Toks
+endmodule
+"#;
+
+fn configuration_body(definition: &Definition) -> String {
+    definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Configuration { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .expect("the bubble should resolve to a configuration")
+}
+
+#[test]
+fn a_configuration_variable_whose_sort_reaches_a_phrase_token_is_read_as_the_variable() {
+    let source = format!(
+        "{PHRASE_TOKEN_SYNTAX}
+module T
+  imports T-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"
+    );
+    let body = configuration_body(&resolve_source(&source, "T").unwrap());
+    assert!(
+        body.contains("#SemanticCastToPgm(#token(\"$PGM\",\"KConfigVar\"))"),
+        "{body}"
+    );
+    assert!(!body.contains("\"Toks\""), "{body}");
+}
+
+#[test]
+fn a_configuration_variable_is_read_in_every_cell_at_or_above_a_phrase_token_sort() {
+    let source = format!(
+        "{PHRASE_TOKEN_SYNTAX}
+module T
+  imports T-SYNTAX
+  configuration <t> <k> $PGM:Pgm </k> <x> $PGM:Toks </x> </t>
+endmodule
+"
+    );
+    let body = configuration_body(&resolve_source(&source, "T").unwrap());
+    assert_eq!(
+        body.matches("#token(\"$PGM\",\"KConfigVar\")").count(),
+        2,
+        "{body}"
+    );
+    assert!(!body.contains("\"Toks\""), "{body}");
+}
+
+#[test]
+fn a_phrase_of_program_text_in_a_configuration_is_a_token_of_its_text() {
+    // Names are digits, which no lexeme of the configuration grammar's own syntax scans.
+    let source = r#"
+module T
+  syntax Name ::= r"[0-9]+" [token]
+  syntax Names ::= List{Name, ","}
+  syntax Toks ::= Names [token]
+  syntax Run ::= "run" Toks
+  configuration <k> run 1 , 2 </k>
+endmodule
+"#;
+    let body = configuration_body(&resolve_source(source, "T").unwrap());
+    assert!(body.contains("#token(\"1 , 2\",\"Toks\")"), "{body}");
+}
+
 #[test]
 fn rejects_requires_clauses_after_parsing_them() {
     assert!(matches!(

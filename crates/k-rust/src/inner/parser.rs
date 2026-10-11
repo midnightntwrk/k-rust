@@ -96,6 +96,7 @@ mod inference;
 mod lists;
 mod parametric;
 mod prediction;
+mod program_text;
 mod record;
 mod scanner;
 #[cfg(debug_assertions)]
@@ -659,6 +660,56 @@ pub struct AmbiguityPlace {
     pub alternatives: Vec<AmbiguousParse>,
 }
 
+/// Why a token next to a parse failure is not the expected token its text also spells
+/// (`ParseError::NoParse`), and how a `#token` literal writes that token.
+fn write_shadowed_token(formatter: &mut fmt::Formatter<'_>, token: &ShadowedToken) -> fmt::Result {
+    fn sorts(sorts: &[Sort]) -> String {
+        match sorts {
+            [] => String::new(),
+            sorts => {
+                let names = sorts.iter().map(ToString::to_string).collect::<Vec<_>>();
+                format!(" of sort {}", names.join(" or "))
+            }
+        }
+    }
+    let ShadowedToken {
+        text,
+        scanned,
+        scanned_sorts,
+        expected,
+        expected_sorts,
+        literal_sorts,
+        in_phrase,
+    } = token;
+    write!(
+        formatter,
+        " The token '{text}' is read as {scanned}{}, not as {expected}{}, which the parse expects \
+         there and which matches the same text: the scanner reads one token at each position, \
+         the longest match, then the one of highest precedence, whatever the parse expects.",
+        sorts(scanned_sorts),
+        sorts(expected_sorts),
+    )?;
+    if !literal_sorts.is_empty() {
+        let literals = literal_sorts
+            .iter()
+            .map(|sort| {
+                format!(
+                    "#token({}, {})",
+                    crate::kast::string::quote(text),
+                    crate::kast::string::quote(&sort.to_string())
+                )
+            })
+            .collect::<Vec<_>>();
+        write!(formatter, " Write it {}.", literals.join(" or "))?;
+    } else if *in_phrase {
+        formatter.write_str(
+            " It stands in the phrase of a token production, which reads program text only: \
+             write the whole phrase as a #token literal of that production's sort.",
+        )?;
+    }
+    Ok(())
+}
+
 /// The entries of a reported subterm, numbered from 1 (`ParseError::Ambiguous`).
 fn write_ambiguous_parses(
     formatter: &mut fmt::Formatter<'_>,
@@ -711,6 +762,40 @@ pub enum NoParseInput {
     UnrecognizedInput { value: String },
 }
 
+/// A token of the input next to a parse failure whose text a lexeme the parse expected there
+/// also matches, which the scanner did not choose: it reads one token at each position, the
+/// longest match, then the one of highest precedence, then a fixed order of the lexemes, and
+/// does not ask what the parse expects. The failure then needs the token read as the lexeme
+/// that lost.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Shadowed {
+    /// The token before the failing one, when the lexeme that lost it could go on with the
+    /// failing token.
+    pub previous: Option<ShadowedToken>,
+    /// The failing token.
+    pub failing: Option<ShadowedToken>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShadowedToken {
+    pub text: String,
+    /// The lexeme the scanner read the text as, with its precedence.
+    pub scanned: String,
+    /// The sorts whose token productions read that lexeme.
+    pub scanned_sorts: Vec<Sort>,
+    /// The expected lexeme that also matches the text, with its precedence.
+    pub expected: String,
+    /// The sorts whose token productions expected that lexeme there.
+    pub expected_sorts: Vec<Sort>,
+    /// The expected sorts a `#token` literal can write at this position: none when the grammar
+    /// has no `#token` literals, or when the token stands in the phrase of a token production,
+    /// which reads program text only.
+    pub literal_sorts: Vec<Sort>,
+    /// Whether the token stands in the phrase of a token production in a grammar with `#token`
+    /// literals: that phrase is then written as a literal of its own sort as a whole.
+    pub in_phrase: bool,
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct TokenPrecedenceDeclaration {
     pub source: Option<String>,
@@ -751,7 +836,10 @@ pub enum ParseError {
         position: usize,
         expected: Box<[String]>,
         input: NoParseInput,
-        previous: Option<String>,
+        previous: Option<Box<str>>,
+        /// The token before the failing one and the failing token, when the parse expected
+        /// another lexeme there that also matches their text; boxed, as it is rarely present.
+        shadowed: Option<Box<Shadowed>>,
         span: Option<TermSpan>,
         /// The chart steps the diagnostic was limited to, when it was abandoned there
         /// (`DiagnosticWork`): the position is then where the recognition under the priority
@@ -932,6 +1020,7 @@ impl fmt::Display for ParseError {
             Self::NoParse {
                 input,
                 previous,
+                shadowed,
                 work_limit,
                 ..
             } => {
@@ -954,6 +1043,11 @@ impl fmt::Display for ParseError {
                         formatter,
                         "Scanner error: unexpected character sequence '{value}'."
                     )?,
+                }
+                if let Some(shadowed) = shadowed {
+                    for token in shadowed.previous.iter().chain(&shadowed.failing) {
+                        write_shadowed_token(formatter, token)?;
+                    }
                 }
                 if let Some(limit) = work_limit {
                     write!(
@@ -1198,6 +1292,13 @@ struct Production {
     /// parametric origin's hook, so an instantiated machine-integer token production is still
     /// recognized as one.
     hook: Option<String>,
+    /// Whether the production is program text: syntax a program of the grammar's module writes,
+    /// as opposed to a construct the rule or configuration grammar adds to it (a variable, a
+    /// configuration variable, a `#token` literal, a cast, a rewrite, a cell, a generated
+    /// bracket, predicate or projection, a record pattern, a list's written terminator).
+    /// [`Grammar::read_token_text_as_program_text`] reads the nonterminals of the module's own
+    /// token productions through such productions only.
+    program_text: bool,
 }
 
 impl Production {
@@ -1308,6 +1409,7 @@ struct ProductionOptions<'a> {
     user_list_nonempty: bool,
     precedence: Option<&'a str>,
     hook: Option<&'a str>,
+    program_text: bool,
 }
 
 /// The most decisions of what it gives its waiting callers that one completion on this thread
@@ -1822,6 +1924,7 @@ impl Grammar {
                     expected,
                     input,
                     previous,
+                    shadowed,
                     span,
                     work_limit: _,
                 } => ParseError::NoParse {
@@ -1829,6 +1932,7 @@ impl Grammar {
                     expected,
                     input,
                     previous,
+                    shadowed,
                     span,
                     work_limit: Some(limit),
                 },
@@ -3370,6 +3474,7 @@ impl Grammar {
             .into_iter()
             .collect();
         let position = self.canonical_position(input, chart_position, scanner_cache);
+        let mut failing = None;
         let (input_kind, end) = if position == input.len() {
             (NoParseInput::EndOfInput, position)
         } else {
@@ -3377,12 +3482,15 @@ impl Grammar {
                 .scanner
                 .winner(&self.layout, input, position, &mut scanner_cache[position])
             {
-                Some(ScanWinner::Token { end, .. }) => (
-                    NoParseInput::Token {
-                        value: input[position..end].to_owned(),
-                    },
-                    end,
-                ),
+                Some(ScanWinner::Token { lexeme, end }) => {
+                    failing = Some((position, end, lexeme));
+                    (
+                        NoParseInput::Token {
+                            value: input[position..end].to_owned(),
+                        },
+                        end,
+                    )
+                }
                 Some(ScanWinner::Layout { .. }) => {
                     unreachable!("the diagnostic position was canonicalized past layout")
                 }
@@ -3415,9 +3523,9 @@ impl Grammar {
             };
             let winner_end = match winner {
                 ScanWinner::Layout { end } => end,
-                ScanWinner::Token { end, .. } => {
+                ScanWinner::Token { lexeme, end } => {
                     if end <= position {
-                        previous = Some(input[cursor..end].to_owned());
+                        previous = Some((cursor, end, lexeme));
                     }
                     end
                 }
@@ -3427,11 +3535,27 @@ impl Grammar {
             }
             cursor = winner_end;
         }
+        // The previous token was read, so its reading matters only where the lexeme that lost it
+        // lets the parse go on with the failing token, which no reading of the winner does.
+        let next = match input_kind {
+            NoParseInput::Token { .. } => failing.map(|(_, _, lexeme)| Some(lexeme)),
+            NoParseInput::EndOfInput => Some(None),
+            NoParseInput::UnrecognizedInput { .. } => None,
+        };
+        let shadowed = Shadowed {
+            previous: next
+                .zip(previous)
+                .and_then(|(next, token)| self.shadowed_token(input, charts, token, Some(next))),
+            failing: failing.and_then(|token| self.shadowed_token(input, charts, token, None)),
+        };
+        let shadowed =
+            (shadowed.previous.is_some() || shadowed.failing.is_some()).then(|| Box::new(shadowed));
         ParseError::NoParse {
             position,
             expected,
             input: input_kind,
-            previous,
+            previous: previous.map(|(start, end, _)| input[start..end].into()),
+            shadowed,
             span: diagnostic_provenance.then_some(TermSpan {
                 source: provenance.source,
                 start: provenance.base_offset + position,
@@ -3440,6 +3564,121 @@ impl Grammar {
             work_limit: None,
         }
     }
+
+    /// The token `(start, end, winner)` as a [`ShadowedToken`] when the chart at its start
+    /// expects a lexeme other than `winner` that matches its text: the lexeme items of the
+    /// states there, which the recognizer relocates to the start of the token after any layout.
+    /// With `next` (the next token's lexeme, `None` at the end of the input), only a state that
+    /// could go on with that token after reading the lexeme counts.
+    fn shadowed_token(
+        &self,
+        input: &str,
+        charts: &[Chart],
+        (start, end, winner): (usize, usize, usize),
+        next: Option<Option<usize>>,
+    ) -> Option<ShadowedToken> {
+        #[derive(Default)]
+        struct Expected<'a> {
+            sorts: BTreeSet<&'a Sort>,
+            literal_sorts: BTreeSet<&'a Sort>,
+            in_phrase: bool,
+        }
+        let token_literals = self
+            .scanner
+            .lexeme_id(&Item::Terminal("#token".to_owned()))
+            .is_some();
+        let mut expected = BTreeMap::<usize, Expected<'_>>::new();
+        for state in charts.get(start)?.states.keys() {
+            let production = &self.productions[state.production];
+            let Some(Some(lexeme)) = production.item_lexeme_ids.get(state.dot) else {
+                continue;
+            };
+            if *lexeme == winner
+                || !self.scanner.matches_text(*lexeme, input, start, end)
+                || next.is_some_and(|next| !self.continues_with(charts, state, next))
+            {
+                continue;
+            }
+            let entry = expected.entry(*lexeme).or_default();
+            if !is_lexical_token_production(production) {
+                continue;
+            }
+            entry.sorts.insert(&production.result);
+            // A production recognized at another sort than its declared one is the copy that
+            // reads the phrase of a token production (`read_token_text_as_program_text`).
+            if self.sort_id(&production.result) != Some(production.result_id) {
+                entry.in_phrase = token_literals;
+            } else if token_literals {
+                entry.literal_sorts.insert(&production.result);
+            }
+        }
+        // One expected lexeme suffices to say why the token is not the one the parse expects;
+        // the lexeme of a token production is named first, as only it has a `#token` spelling.
+        let (lexeme, found) = expected
+            .iter()
+            .max_by_key(|(lexeme, found)| (!found.sorts.is_empty(), std::cmp::Reverse(**lexeme)))?;
+        let scanned_sorts = self
+            .productions
+            .iter()
+            .filter(|production| {
+                is_lexical_token_production(production)
+                    && production.item_lexeme_ids[0] == Some(winner)
+            })
+            .map(|production| &production.result)
+            .collect::<BTreeSet<_>>();
+        let owned = |sorts: &BTreeSet<&Sort>| sorts.iter().map(|sort| (*sort).clone()).collect();
+        Some(ShadowedToken {
+            text: input[start..end].to_owned(),
+            scanned: self.scanner.lexeme_description(winner),
+            scanned_sorts: owned(&scanned_sorts),
+            expected: self.scanner.lexeme_description(*lexeme),
+            expected_sorts: owned(&found.sorts),
+            literal_sorts: owned(&found.literal_sorts),
+            in_phrase: found.in_phrase && found.literal_sorts.is_empty(),
+        })
+    }
+
+    /// Whether `state`, which expects a lexeme, could go on with the token `next` (`None`: the
+    /// end of the input) once it reads that lexeme: the rest of its production can begin with
+    /// `next`, or the rest is nullable and a state waiting for its sort could, in turn. The
+    /// priority and associativity relations are not consulted.
+    fn continues_with(&self, charts: &[Chart], state: &State, next: Option<usize>) -> bool {
+        let analysis = self
+            .prediction_analysis
+            .get_or_init(|| PredictionAnalysis::new(self));
+        let mut pending = vec![State {
+            dot: state.dot + 1,
+            ..*state
+        }];
+        let mut seen = HashSet::new();
+        while let Some(state) = pending.pop() {
+            if !seen.insert(state) {
+                continue;
+            }
+            if next.is_some() && analysis.rest_can_start_with(state.production, state.dot, next) {
+                return true;
+            }
+            if !analysis.rest_is_nullable(state.production, state.dot) {
+                continue;
+            }
+            let result = self.productions[state.production].result_id;
+            match charts[state.origin].waiting.get(&result) {
+                Some(callers) => pending.extend(callers.iter().map(|caller| State {
+                    dot: caller.dot + 1,
+                    ..*caller
+                })),
+                None if next.is_none() => return true,
+                None => {}
+            }
+        }
+        false
+    }
+}
+
+/// Whether `production` is a token production of a single lexeme, whose token is that lexeme's
+/// text.
+fn is_lexical_token_production(production: &Production) -> bool {
+    production.token && matches!(production.item_lexeme_ids.as_slice(), [Some(_)])
 }
 
 static NEXT_GRAMMAR_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -3736,6 +3975,7 @@ mod chart_tests {
                         expected: vec!["\"a\"".into(), "\"b\"".into(), "Choice".into()].into(),
                         input: input_kind,
                         previous: None,
+                        shadowed: None,
                         span: None,
                         work_limit: None,
                     })
@@ -3752,6 +3992,7 @@ mod chart_tests {
                     expected: vec![].into(),
                     input: NoParseInput::UnrecognizedInput { value: "?".into() },
                     previous: None,
+                    shadowed: None,
                     span: None,
                     work_limit: None,
                 })
@@ -3818,6 +4059,7 @@ mod chart_tests {
                     expected: vec!["\"z\"".into()].into(),
                     input: NoParseInput::UnrecognizedInput { value: "?".into() },
                     previous: Some("ab".into()),
+                    shadowed: None,
                     span: None,
                     work_limit: None,
                 })
@@ -5780,7 +6022,7 @@ mod diagnostic_work_tests {
                     previous: Some(previous),
                     work_limit: Some(_),
                     ..
-                } if value == "+" && previous == "x"
+                } if value == "+" && &**previous == "x"
             ),
             "{unexplained:?}"
         );

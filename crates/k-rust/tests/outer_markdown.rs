@@ -144,6 +144,7 @@ fn markdown_rule_failures_report_the_exact_unexpected_token_location() {
                 value: "bad".into(),
             },
             previous: Some("ok".into()),
+            shadowed: None,
             span: Some(TermSpan {
                 source: k_rust::provenance::SourceId(0),
                 start: extract_fenced_k_code(source, "k")

@@ -96,8 +96,10 @@ impl Grammar {
                 erased.push((sentence.clone(), source));
             }
         }
+        let program_syntax = sentences.len();
         Self::from_collected_sentences(
             sentences.iter().collect(),
+            program_syntax,
             Some(SourceLinks {
                 catalog: source_catalog,
                 erased,
@@ -112,8 +114,10 @@ impl Grammar {
         sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
+        let program_syntax = sentences.len();
         Self::from_collected_sentences(
             sentences,
+            program_syntax,
             None,
             ParserRole::Rule,
             false,
@@ -121,22 +125,47 @@ impl Grammar {
         )
     }
 
+    #[cfg(test)]
     pub(in crate::inner) fn from_configuration_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
         sort_denotations: SortDenotations,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
-        Self::from_collected_sentences(sentences, None, ParserRole::Rule, true, sort_denotations)
+        let program_syntax = sentences.len();
+        Self::from_configuration_view(sentences, program_syntax, sort_denotations)
     }
 
+    /// The configuration grammar of `sentences`, whose first `program_syntax` sentences are the
+    /// module's own syntax ([`Production::program_text`]) and the rest syntax the configuration
+    /// grammar adds to it.
+    pub(in crate::inner) fn from_configuration_view<'a>(
+        sentences: impl IntoIterator<Item = &'a Sentence>,
+        program_syntax: usize,
+        sort_denotations: SortDenotations,
+    ) -> Result<Self, ParseError> {
+        let sentences = sentences.into_iter().collect::<Vec<_>>();
+        Self::from_collected_sentences(
+            sentences,
+            program_syntax,
+            None,
+            ParserRole::Rule,
+            true,
+            sort_denotations,
+        )
+    }
+
+    /// The rule grammar of `sentences`, whose first `program_syntax` sentences are the module's
+    /// own syntax ([`Production::program_text`]) and the rest syntax the rule grammar adds to it.
     pub(in crate::inner) fn from_rule_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
+        program_syntax: usize,
         source_catalog: &ProductionCatalog<'_>,
         sort_denotations: SortDenotations,
     ) -> Result<Self, ParseError> {
         let sentences = sentences.into_iter().collect::<Vec<_>>();
         Self::from_collected_sentences(
             sentences,
+            program_syntax,
             Some(SourceLinks::catalog(source_catalog)),
             ParserRole::Rule,
             true,
@@ -146,6 +175,7 @@ impl Grammar {
 
     fn from_collected_sentences(
         sentences: Vec<&Sentence>,
+        program_syntax: usize,
         source_links: Option<SourceLinks<'_, '_>>,
         role: ParserRole,
         include_default_layout: bool,
@@ -286,6 +316,17 @@ impl Grammar {
         // production is added, so every unary production is judged against them.
         let concretization = concretize_parametric_productions(&sentences);
         grammar.register_placeholders(&concretization);
+        // The module's own syntax, which a program of the module writes: its leading sentences,
+        // as far as they are program syntax at all (`is_program_syntax_sentence`).
+        let program_syntax = sentences
+            .iter()
+            .take(program_syntax)
+            .copied()
+            .filter(|sentence| is_program_syntax_sentence(sentence))
+            .map(std::ptr::from_ref)
+            .collect::<HashSet<_>>();
+        let is_program_syntax =
+            |sentence: &Sentence| program_syntax.contains(&std::ptr::from_ref(sentence));
         for sentence in &sentences {
             let Sentence::Production {
                 label,
@@ -334,11 +375,17 @@ impl Grammar {
                     user_list_nonempty: attributes.string(AttributeKey::UserList) == Some("+"),
                     precedence: attributes.string(AttributeKey::Prec),
                     hook: attributes.string(AttributeKey::Hook),
+                    program_text: is_program_syntax(sentence),
                 },
                 &lexical,
             )?;
         }
-        grammar.add_parametric_productions(concretization, &lexical, source_links.catalog)?;
+        grammar.add_parametric_productions(
+            concretization,
+            &lexical,
+            source_links.catalog,
+            is_program_syntax,
+        )?;
         grammar.initialize_user_lists()?;
         let original_productions = grammar.productions.len();
         for production in 0..original_productions {
@@ -662,7 +709,7 @@ impl Grammar {
         Ok(())
     }
 
-    fn identify_productive_unary_cycles(&mut self) {
+    pub(super) fn identify_productive_unary_cycles(&mut self) {
         let edges = self
             .productions
             .iter()
@@ -863,7 +910,13 @@ impl Grammar {
                 name: None,
             }],
             None,
-            ProductionOptions::default(),
+            // The bridge only lets a slot recognize a declared instance, so it writes nothing of
+            // its own: the text under it is the instance's, and whether that is program text is
+            // decided by the instance's productions.
+            ProductionOptions {
+                program_text: true,
+                ..ProductionOptions::default()
+            },
             &BTreeMap::new(),
             UnaryProduction::RecognitionBridge,
         )
@@ -1019,6 +1072,7 @@ impl Grammar {
             parametric_origin: None,
             term_production: None,
             hook: options.hook.map(str::to_owned),
+            program_text: options.program_text,
         });
         self.by_result[result_id].push(index);
         Ok(())
@@ -1321,6 +1375,26 @@ enum SubsortRelation {
     Semantic,
     /// Every non-bracket unary production, labeled or not: read by bracket-overload selection.
     Syntactic,
+}
+
+/// Whether a sentence of the module's own syntax is syntax a program writes: a production, except
+/// a cell, which is configuration structure, and a user list's written terminator (`.Names`), the
+/// rule notation of the empty list, which a program writes as no text at all.
+fn is_program_syntax_sentence(sentence: &Sentence) -> bool {
+    let Sentence::Production {
+        items, attributes, ..
+    } = sentence
+    else {
+        return false;
+    };
+    let written_list_terminator = attributes.has(AttributeKey::UserList)
+        && items
+            .iter()
+            .any(|item| matches!(item, ProductionItem::Terminal(value) if !value.is_empty()))
+        && !items
+            .iter()
+            .any(|item| matches!(item, ProductionItem::NonTerminal { .. }));
+    !attributes.has(AttributeKey::Cell) && !written_list_terminator
 }
 
 fn render_production_item(item: &ProductionItem) -> String {
@@ -1651,8 +1725,10 @@ mod tests {
                 if attributes.has(AttributeKey::Cell))
             })
             .collect::<Vec<_>>();
+        let program_syntax = parsing_sentences.len();
         let grammar = Grammar::from_rule_sentences(
             parsing_sentences,
+            program_syntax,
             &source_catalog,
             SortDenotations::default(),
         )

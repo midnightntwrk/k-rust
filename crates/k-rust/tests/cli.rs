@@ -11107,13 +11107,15 @@ endmodule
 /// either declares `[locations]` (`Val` inside `Exp`, through its injection, when both do), a
 /// term from its first token to its last, without the layout after it even when its last part is
 /// empty (`f(1, 2 )` locates `1, 2` and its empty end at the end of `2`), an empty list at the end
-/// of the token before it (`f( )` locates it after `(`), and the file name is the program path as
-/// given, `-` for standard input and `--expression`. `krun --depth 0` and the generated parser give each
-/// program one term once the injection into the start position is removed.
+/// of the token before it (`f( )` locates it after `(`), a term whose first part is empty from its
+/// first token, line and column as offset (`(  # v )` locates `# v` from `#`, not after `(`), and
+/// the file name is the program path as given, `-` for standard input and `--expression`.
+/// `krun --depth 0` and the generated parser give each program one term once the injection into
+/// the start position is removed.
 #[cfg(unix)]
 #[test]
 fn in_process_parsing_locates_located_sorts_as_the_generated_parser() {
-    const DEFINITION: &str = r#"
+    const DEFINITION: &str = r##"
 module L-SYNTAX
   imports INT-SYNTAX
   syntax Exp [locations]
@@ -11121,7 +11123,8 @@ module L-SYNTAX
   syntax Exps [locations]
   syntax Val ::= Int | "v" [symbol(v)]
   syntax Exp ::= Val | Exp "+" Exp [left, symbol(plus)] | "f" "(" Exps ")" [symbol(f)]
-               | "(" Exp ")" [bracket]
+               | "(" Exp ")" [bracket] | Opt "#" Val [symbol(hash)]
+  syntax Opt ::= "" [symbol(none)] | "o" [symbol(some)]
   syntax Exps ::= List{Exp, ","}
   syntax Pgm ::= Exp
 endmodule
@@ -11130,7 +11133,7 @@ module L
   imports K-LOCATIONS
   configuration <k> $PGM:Pgm </k>
 endmodule
-"#;
+"##;
     /// `pattern` without the injection at its root.
     fn uninjected(pattern: &Pattern) -> Pattern {
         match pattern {
@@ -11213,6 +11216,9 @@ endmodule
         "f( )",
         "f( 1 ,\n 2  \n )\n",
         "f(f( ), (v) ) + f(\n)",
+        "(  # v )",
+        "  # 1",
+        "f(\n  # v ,o # 1, #\n2)",
     ];
     for (index, program) in programs.into_iter().enumerate() {
         let input = root.join(format!("program-{index}.pgm"));
@@ -12512,6 +12518,72 @@ endmodule
     assert!(
         last.contains(&format!(
             "kseq{{}}(Lbldone'LParUndsRParUnds'TOKRUN'Unds'KItem'Unds'Pgm{{}}({program}), dotk{{}}())"
+        )),
+        "{last}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_configuration_variable_whose_sort_reaches_a_phrase_token_places_the_program() {
+    // `$PGM:Pgm` reaches the token sort `Toks` by the subsort `Pgm ::= Toks` alone; its text
+    // is no program text of `Names`, so it is the configuration variable, and the rule's `T` is
+    // a variable rather than the token `T`.
+    let source = r##"
+module T-SYNTAX
+  syntax Name ::= r"[a-z]+" [token]
+  syntax Names ::= List{Name, ","}
+  syntax Toks ::= Names [token]
+  syntax Pgm ::= Toks | done(Toks)
+endmodule
+module T
+  imports T-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+  rule <k> T:Toks => done(T) </k>
+endmodule
+"##;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "T"], &compiled);
+    let kore = fs::read_to_string(compiled.join("definition.kore")).unwrap();
+    assert!(!kore.contains(r#"\dv{SortToks{}}("$PGM")"#), "{kore}");
+    assert!(!kore.contains(r#"\dv{SortToks{}}("T")"#), "{kore}");
+
+    let program = root.join("program.txt");
+    fs::write(&program, "ab , cd").unwrap();
+    let krun = |depth: Option<&str>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .arg(&program)
+            .args(["--sort", "Pgm"]);
+        if let Some(depth) = depth {
+            command.args(["--depth", depth]);
+        }
+        let output = command.stdin(Stdio::null()).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let pattern = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+        k_rust::kore::printer::Printer::compact().print_pattern(&pattern)
+    };
+    let program = r#"\dv{SortToks{}}("ab , cd")"#;
+    let initial = krun(Some("0"));
+    assert!(
+        initial.contains(&format!(
+            "kseq{{}}(inj{{SortToks{{}}, SortKItem{{}}}}({program}), dotk{{}}())"
+        )),
+        "{initial}"
+    );
+    let last = krun(None);
+    assert!(
+        last.contains(&format!(
+            "kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}(Lbldone'LParUndsRParUnds'T-SYNTAX'Unds'Pgm'Unds'Toks{{}}({program})), dotk{{}}())"
         )),
         "{last}"
     );

@@ -512,11 +512,22 @@ fn up_sentence(
 /// The sentences the rule grammar of `module` is built from: the module's signature plus
 /// ML-SYNTAX, plus, when the signature holds a configuration's cells, the RULE-CELLS cell
 /// productions that no visible cell production already provides.
+#[cfg(test)]
 fn rule_grammar_view(resolved: &ResolvedDefinition, module: ModuleId) -> Vec<&Sentence> {
+    rule_grammar_view_and_signature(resolved, module).0
+}
+
+/// [`rule_grammar_view`] and the number of its leading sentences that are the module's
+/// signature, the syntax a program of the module writes.
+fn rule_grammar_view_and_signature(
+    resolved: &ResolvedDefinition,
+    module: ModuleId,
+) -> (Vec<&Sentence>, usize) {
     let mut visible = resolved.signature_sentences(module);
+    let signature = visible.len();
     add_implicit_ml_syntax(resolved, &mut visible);
     inject_rule_cell_sentences(resolved, &mut visible);
-    visible
+    (visible, signature)
 }
 
 /// Sentences added to the rule view independently of the module's imports.
@@ -579,7 +590,7 @@ fn inject_rule_cell_sentences<'a>(
 }
 
 fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Grammar, ParseError> {
-    let visible = rule_grammar_view(resolved, module);
+    let (visible, signature) = rule_grammar_view_and_signature(resolved, module);
     reject_kernel_position_contradiction(&visible)?;
     // Start sorts and #token sort strings denote in the module's full view. SortUniverse
     // still restricts generated casts to aliases declared in this grammar's own view.
@@ -631,16 +642,23 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
             | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
+    let is_cell = |sentence: &&Sentence| {
+        matches!(
+            sentence,
+            Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell)
+        )
+    };
     let mut parsing_sentences = visible
         .iter()
-        .filter(|sentence| {
-            !matches!(
-                sentence,
-                Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell)
-            )
-        })
+        .filter(|sentence| !is_cell(sentence))
         .map(|sentence| (*sentence).clone())
         .collect::<Vec<_>>();
+    // The parsing sentences keep the view's order, so the signature's come first; everything
+    // after them is syntax the rule grammar adds to the module's.
+    let program_syntax = visible[..signature]
+        .iter()
+        .filter(|sentence| !is_cell(sentence))
+        .count();
     let has_production_labeled = |name: &str| {
         visible.iter().any(|sentence| {
             matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == name)
@@ -680,6 +698,7 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
     // of the layout used to parse programs in the language being compiled.
     let mut grammar = Grammar::from_rule_sentences(
         parsing_sentences.iter(),
+        program_syntax,
         &source_catalog,
         synonyms.denotations().clone(),
     )?;
@@ -812,6 +831,7 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
     // acyclicity of the semantic subsort relation (G0-G3).
     #[cfg(debug_assertions)]
     grammar.assert_generated_sort_roles(&universe);
+    grammar.read_token_text_as_program_text();
     Ok(grammar)
 }
 
