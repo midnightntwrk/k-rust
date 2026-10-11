@@ -1,4 +1,4 @@
-//! A randomized differential test of the value contract against an independent oracle.
+//! Randomized tests of the value contract and of the load-time check it rests on.
 //!
 //! The contract (`docs/compatibility.md`, "Anywhere rules"; the unit design
 //! `value-contract-design.md`) reads a definition by its normal-form model `M_NF`: the ground
@@ -8,66 +8,57 @@
 //! made only at term indexes the load-time critical-pair check leaves untainted, and must hold
 //! in one model of the definition.
 //!
-//! The oracle ([`language`], [`engine`], [`forced`]) evaluates the definition's axioms with no
-//! backend code below its interface: its own matching modulo the injection and overload axioms,
-//! its own evaluator of `M_NF`, its own taint closure, and its own derivation of what every model
-//! must satisfy. It does not build the model `M'` of the closure's construction. [`checks`]
-//! compares the backend's claims with it:
+//! [`axioms`] judges the claims against the axioms they rest on, with the backend's own
+//! evaluation as the judge and no second engine: on the templates and probes below and their
+//! variants, on its own templates of the classes the oracle's language does not write (maps and
+//! sets, hooked equations, an equation indexed at a bare variable whose sort holds an equation
+//! head, two maximal common subsorts), on random definitions with those classes added, and on
+//! the FUN fixtures. `KRUST_AXIOM_HARNESS_CASES` (default [`AXIOM_CASES`]) sets its random run.
 //!
-//! - **V4.** On a definition the check accepts, every explored ground term whose evaluation ends
-//!   has exactly one normal form.
-//! - **V5.** There, every claim agrees with that normal form: a token or a certificate only on a
-//!   normal form, `\ceil` discharged only on a defined term, apartness only between different
-//!   normal forms, and a claim on a generalization (a constructor or literal subterm replaced by
-//!   a variable) only when every explored instance satisfies it.
-//! - **V6.** On a definition with non-joined pairs: (a) the oracle's closure of the reported pairs
-//!   is the backend's taint set (a second implementation of the same rule, which shows the two
-//!   agree, not that the rule is sound); (c) no claim is made on a term with a tainted
-//!   application; and (b) the claims on an untainted term whose evaluation applies only
-//!   untainted equations agree with its normal form, which is unique.
-//! - **V6 (d).** On every definition the derivation does not show to have no model: no claim on
-//!   a term that every model makes undefined, nor on a generalization of one by a subterm every
-//!   model makes defined ([`forced`]). This is the test of property (B) that reads neither the
-//!   closure nor `M_NF`, so a closure, vacuity or join rule that misses a class shows here.
+//! The oracle ([`language`], [`engine`]) evaluates a definition's axioms with no backend code
+//! below its interface: its own matching modulo the injection and overload axioms and its own
+//! evaluator of `M_NF`. It is the reference of the checks that compare the load-time check's
+//! own steps with the axioms, which a claim-level judge cannot replace: a pair the check fails
+//! to enumerate, or a unifier it misses, can leave every claim unchanged when another pair
+//! withdraws the same heads (`mutations::the_overload_switches_withdraw_no_fewer_claims`), and
+//! is still a defect of the check.
+//!
+//! - **V2, V2b** ([`unifier`]). The check's unifier and the matcher against the oracle's reading
+//!   of the axioms.
+//! - **V3** ([`completeness`]). The check enumerates every overlap of the oracle's `->E`.
+//!
+//! [`checks`] compares the backend's verdicts with each other and asks the reviewers' probes:
+//!
 //! - **V9.** On every definition, the load's verdict (`CheckScope::Gate`, which classifies only
 //!   the pairs that can change a claim) and the full check's (`CheckScope::All`) admit the same
-//!   claims at every gate site and warn about the same pairs. The expectations above (acceptance,
-//!   V4's one normal form, the tainted set of V6) are read from the full check, the claims from
-//!   the loaded definition.
+//!   claims at every gate site and warn about the same pairs.
 //! - **Memo.** On every definition, the full check with and without its memo of condition
 //!   simplifications (`ConditionMemo`) reaches the same verdict and the same counts but the
 //!   memo's hits; a second default run loads every definition without the memo.
+//! - **Probes.** The reviewers' probes ([`probes`]), whose queries every model makes undefined,
+//!   keep their `\ceil` obligations and get no token, also in variants that write the same
+//!   axioms with other variable names and equation orders. A probe's expectation is stated
+//!   inside the preconditions P0 and P2, or about the violation of one, so the oracle measures
+//!   them around the probe: a query whose evaluation does not end within the bounds is outside
+//!   P0, a definition that reaches a total symbol undefined on defined arguments is outside P2.
 //!
-//! Preconditions are measured, never assumed away: a query whose evaluation does not end within
-//! the bounds is outside P0 and counted (ceiling 10 % of queries), a definition that reaches a
-//! total symbol undefined on defined arguments is outside P2 and counted (ceiling 25 % of
-//! definitions), and a definition the backend does not internalize is a failure.
+//! A definition the backend does not internalize is a failure. The definitions are the probes,
+//! one fixed template per feature class ([`generator::templates`]), and seeded random ones.
+//! `KRUST_DEFINEDNESS_ORACLE_CASES` (default [`DEFAULT_CASES`]), `KRUST_DEFINEDNESS_ORACLE_FIRST`
+//! and `KRUST_DEFINEDNESS_ORACLE_SEED` set the random run, `KRUST_DEFINEDNESS_ORACLE_VARIANTS`
+//! the variants per probe; each accepts decimal or `0x`-prefixed hexadecimal. Run with
+//! `--nocapture` for the summaries, `KRUST_DEFINEDNESS_ORACLE_VERBOSE` for each probe query,
+//! `KRUST_DEFINEDNESS_ORACLE_KORE` for each definition's KORE text,
+//! `KRUST_DEFINEDNESS_ORACLE_PROGRESS` for each definition's label as it starts.
 //!
-//! The definitions are the reviewers' probes ([`probes`]), whose queries every model makes
-//! undefined and which must keep their obligations; variants of each that write the same axioms
-//! with other variable names and equation orders; one fixed template per feature class
-//! ([`generator::templates`]); and seeded random ones. `KRUST_DEFINEDNESS_ORACLE_CASES` (default
-//! [`DEFAULT_CASES`]), `KRUST_DEFINEDNESS_ORACLE_FIRST` and `KRUST_DEFINEDNESS_ORACLE_SEED` set
-//! the random run, `KRUST_DEFINEDNESS_ORACLE_VARIANTS` the variants per probe; each accepts
-//! decimal or `0x`-prefixed hexadecimal. Run with `--nocapture` for the summaries,
-//! `KRUST_DEFINEDNESS_ORACLE_VERBOSE` for each query, `KRUST_DEFINEDNESS_ORACLE_KORE` for each
-//! definition's KORE text, `KRUST_DEFINEDNESS_ORACLE_PROGRESS` for each definition's label as it
-//! starts.
-//!
-//! [`axioms`] checks the claims against the axioms instead, with the backend's own evaluation as
-//! the judge and no second engine, on the same templates, probes and variants, on its own
-//! templates of the classes the engine cannot evaluate (maps and sets, hooked equations, an
-//! equation indexed at a bare variable whose sort holds an equation head, two maximal common
-//! subsorts), on random definitions with those classes added, and on the FUN
-//! fixtures. `KRUST_AXIOM_HARNESS_CASES` (default [`AXIOM_CASES`]) sets its random run; the
-//! mutation tests show which switches it sees.
+//! The mutation tests ([`mutations`]) show, for each defect switch of `confluence::switches`, a
+//! test that fails with it.
 
 mod axioms;
 mod checks;
 mod completeness;
 mod corpus;
 mod engine;
-mod forced;
 mod generator;
 mod language;
 mod mutations;
@@ -76,7 +67,7 @@ mod unifier;
 
 use std::collections::BTreeMap;
 
-use checks::{Class, Tally, check_definition};
+use checks::{Class, Tally, ask_probes, check_definition};
 use language::{Definition, pattern_variables, renamed};
 use probes::Expect;
 
@@ -164,23 +155,6 @@ fn assert_bounds(tally: &Tally, cases: u64, failures: &mut Vec<String>) {
             tally.rejected
         ));
     }
-    if tally.nonterminating * 10 > tally.queries {
-        failures.push(format!(
-            "{} of {} queries outside P0 (ceiling 10 %)",
-            tally.nonterminating, tally.queries
-        ));
-    }
-    if tally.outside_totality * 4 > tally.definitions {
-        failures.push(format!(
-            "{} of {} definitions outside P2 (ceiling 25 %)",
-            tally.outside_totality, tally.definitions
-        ));
-    }
-    // V6 (d) must have something to check: queries every model of a definition with a model
-    // makes undefined (the templates of review 1's classes give some in every run).
-    if tally.forced_undefined == 0 {
-        failures.push("no query undefined in every model of a definition with a model".into());
-    }
     for class in Class::ALL {
         let count = tally.classes.get(&class).copied().unwrap_or(0);
         if count == 0 {
@@ -206,19 +180,6 @@ fn assert_bounds(tally: &Tally, cases: u64, failures: &mut Vec<String>) {
                 tally.partially_tainted, tally.definitions
             ));
         }
-        for (kind, count) in [
-            ("tokens", tally.tokens),
-            ("certificates", tally.certificates),
-            ("apartness decisions", tally.apartness),
-            ("\\ceil discharges", tally.ceilings),
-        ] {
-            if count < tally.accepted * 5 {
-                failures.push(format!(
-                    "{count} {kind} checked over {} accepted definitions (floor 5 each)",
-                    tally.accepted
-                ));
-            }
-        }
     }
 }
 
@@ -230,37 +191,23 @@ const HOOKED_HEADS: usize = 20;
 /// random definitions from `seed`, some of whose heads are hooked.
 fn run_random(first: u64, cases: u64, seed: u64) -> Tally {
     let mut total = Tally::default();
-    for (name, definition, seeds) in generator::templates() {
-        let mut rng = Rng(seed);
-        let (tally, _) = check_definition(&name, &definition, &seeds, &[], &mut rng);
+    for (name, definition, _) in generator::templates() {
+        let (tally, _) = check_definition(&name, &definition);
         total.add(tally);
         let mut hooked = definition;
         generator::hook_some_heads(&mut hooked, &mut Rng(seed), 100);
         if !hooked.hooked_heads.is_empty() {
-            let mut rng = Rng(seed);
-            let (tally, _) = check_definition(
-                &format!("{name}, heads hooked"),
-                &hooked,
-                &seeds,
-                &[],
-                &mut rng,
-            );
+            let (tally, _) = check_definition(&format!("{name}, heads hooked"), &hooked);
             total.add(tally);
         }
     }
     for case in first..first + cases {
         let mut rng = Rng(seed ^ case.wrapping_mul(0x9e37_79b9_7f4a_7c15));
-        let (mut definition, seeds) = generator::random_definition(&mut rng);
-        // Drawn from a stream of its own, so that the definitions and queries of the run are
-        // those of the same seed without hooked heads.
+        let (mut definition, _) = generator::random_definition(&mut rng);
+        // Drawn from a stream of its own, so that the definitions of the run are those of the
+        // same seed without hooked heads.
         generator::hook_some_heads(&mut definition, &mut Rng(rng.0 ^ 0x5eed_400c), HOOKED_HEADS);
-        let (tally, _) = check_definition(
-            &format!("case {case} (seed {seed:#x})"),
-            &definition,
-            &seeds,
-            &[],
-            &mut rng,
-        );
+        let (tally, _) = check_definition(&format!("case {case} (seed {seed:#x})"), &definition);
         total.add(tally);
         if total.failures.len() >= 20 {
             break;
@@ -270,7 +217,7 @@ fn run_random(first: u64, cases: u64, seed: u64) -> Tally {
 }
 
 #[test]
-fn random_definitions_keep_the_value_contract() {
+fn the_load_and_the_full_check_agree_on_random_definitions() {
     on_large_stack(|| {
         let cases = environment("KRUST_DEFINEDNESS_ORACLE_CASES", DEFAULT_CASES);
         let first = environment("KRUST_DEFINEDNESS_ORACLE_FIRST", 0);
@@ -280,9 +227,6 @@ fn random_definitions_keep_the_value_contract() {
             "{}",
             total.summary(&format!("definedness oracle (seed {seed:#x})"))
         );
-        for divergence in &total.divergences {
-            eprintln!("  {divergence}");
-        }
         let mut failures = total.failures.clone();
         assert_bounds(&total, cases, &mut failures);
         assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -290,10 +234,11 @@ fn random_definitions_keep_the_value_contract() {
 }
 
 /// The default random run with the check's memo of condition simplifications off at every load
-/// (`switches::no_condition_memo`): the claims made without it keep the contract too. The default
-/// run above loads with the memo and compares each full check with one without it.
+/// (`switches::no_condition_memo`): the load without it admits the claims the full check does
+/// too. The default run above loads with the memo and compares each full check with one without
+/// it.
 #[test]
-fn random_definitions_keep_the_value_contract_without_the_condition_memo() {
+fn the_load_and_the_full_check_agree_on_random_definitions_without_the_condition_memo() {
     use crate::confluence::switches::{self, Switches};
     on_large_stack(|| {
         let off = Switches {
@@ -316,28 +261,29 @@ fn run_probes() -> (Tally, Vec<String>) {
     let mut total = Tally::default();
     let mut unmet = Vec::new();
     for probe in probes::probes() {
-        let mut rng = Rng(DEFAULT_SEED);
-        let (tally, verdict) = check_definition(
+        let (mut tally, _) = check_definition(&probe.name, &probe.definition);
+        let (asked, answers) = ask_probes(
             &probe.name,
             &probe.definition,
             &probe.seeds,
             &probe.undefined,
-            &mut rng,
+            &mut Rng(DEFAULT_SEED),
         );
+        tally.add(asked);
         match probe.expect {
             Expect::Kept => {
                 if tally.outside_totality > 0 {
                     unmet.push(format!("{}: the oracle finds it outside P2", probe.name));
                 }
-                if verdict.probes.len() != probe.undefined.len() {
+                if answers.len() != probe.undefined.len() {
                     unmet.push(format!(
                         "{}: {} of {} queries asked",
                         probe.name,
-                        verdict.probes.len(),
+                        answers.len(),
                         probe.undefined.len()
                     ));
                 }
-                for (query, (kept, token)) in probe.undefined.iter().zip(&verdict.probes) {
+                for (query, (kept, token)) in probe.undefined.iter().zip(&answers) {
                     let query = checks::show(query);
                     if !kept {
                         unmet.push(format!("{}: \\ceil({query}) is discharged", probe.name));
@@ -372,7 +318,7 @@ fn run_probes() -> (Tally, Vec<String>) {
 /// Every reviewer probe: its queries keep their obligations (or the oracle places the
 /// definition outside the precondition the probe violates), and every check holds.
 #[test]
-fn the_reviewers_probes_keep_the_value_contract() {
+fn the_reviewers_probes_keep_their_obligations() {
     on_large_stack(|| {
         let (total, unmet) = run_probes();
         eprintln!("{}", total.summary("definedness oracle, probes"));
@@ -426,7 +372,7 @@ fn variant(definition: &Definition, rng: &mut Rng) -> Definition {
 /// Variants of every reviewer probe ([`variant`]): the checks hold for any way of writing the
 /// same axioms. `KRUST_DEFINEDNESS_ORACLE_VARIANTS` (default 2) variants per probe.
 #[test]
-fn variants_of_the_reviewers_probes_keep_the_value_contract() {
+fn variants_of_the_reviewers_probes_keep_their_obligations() {
     on_large_stack(|| {
         let variants = environment("KRUST_DEFINEDNESS_ORACLE_VARIANTS", 2);
         let seed = environment("KRUST_DEFINEDNESS_ORACLE_SEED", DEFAULT_SEED);
@@ -440,15 +386,18 @@ fn variants_of_the_reviewers_probes_keep_the_value_contract() {
                         .wrapping_mul(0x9e37_79b9_7f4a_7c15)
                     ^ number.wrapping_mul(0xbf58_476d_1ce4_e5b9));
                 let definition = variant(&probe.definition, &mut rng);
-                let (tally, verdict) = check_definition(
-                    &format!("{} (variant {number})", probe.name),
+                let label = format!("{} (variant {number})", probe.name);
+                let (mut tally, _) = check_definition(&label, &definition);
+                let (asked, answers) = ask_probes(
+                    &label,
                     &definition,
                     &probe.seeds,
                     &probe.undefined,
                     &mut rng,
                 );
+                tally.add(asked);
                 if probe.expect == Expect::Kept {
-                    for (query, (kept, token)) in probe.undefined.iter().zip(&verdict.probes) {
+                    for (query, (kept, token)) in probe.undefined.iter().zip(&answers) {
                         if !kept || *token {
                             unmet.push(format!(
                                 "{} (variant {number}): {} claimed",

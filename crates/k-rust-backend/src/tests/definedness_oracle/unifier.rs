@@ -536,7 +536,7 @@ pub(super) fn run_matcher(cases: u64, seed: u64) -> UnifierTally {
         }
         let subject_term = backend
             .internalize_term(
-                &parse_pattern(&universe.kore(subject, None)).expect("the subject parses"),
+                &parse_pattern(&universe.kore(subject)).expect("the subject parses"),
                 &[],
             )
             .expect("the subject internalizes");
