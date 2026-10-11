@@ -543,10 +543,15 @@ fn collect_term(left: &Term, right: &Term, context: &mut AlphaContext) -> Result
                 rest: rr,
             },
         ) if ld == rd && le.len() == re.len() => {
-            collect_unordered(le, re, context, |(lk, lv), (rk, rv), context| {
-                collect_term(lk, rk, context)?;
-                collect_term(lv, rv, context)
-            })?;
+            collect_unordered(
+                &le.to_vec(),
+                &re.to_vec(),
+                context,
+                |(lk, lv), (rk, rv), context| {
+                    collect_term(lk, rk, context)?;
+                    collect_term(lv, rv, context)
+                },
+            )?;
             collect_option(lr, rr, context, collect_term)
         }
         (
@@ -561,12 +566,12 @@ fn collect_term(left: &Term, right: &Term, context: &mut AlphaContext) -> Result
                 rest: rr,
             },
         ) if ld == rd => {
-            collect_slice(lh, rh, context, collect_term)?;
+            collect_slice(&lh.to_vec(), &rh.to_vec(), context, collect_term)?;
             match (lr, rr) {
                 (None, None) => Ok(()),
                 (Some((lm, lt)), Some((rm, rt))) => {
                     collect_term(lm, rm, context)?;
-                    collect_slice(lt, rt, context, collect_term)
+                    collect_slice(&lt.to_vec(), &rt.to_vec(), context, collect_term)
                 }
                 _ => Err("list rests differ".into()),
             }
@@ -583,7 +588,7 @@ fn collect_term(left: &Term, right: &Term, context: &mut AlphaContext) -> Result
                 rest: rr,
             },
         ) if ld == rd => {
-            collect_unordered(le, re, context, collect_term)?;
+            collect_unordered(&le.to_vec(), &re.to_vec(), context, collect_term)?;
             collect_option(lr, rr, context, collect_term)
         }
         _ => Err(format!("term structures differ: {left:?} versus {right:?}")),

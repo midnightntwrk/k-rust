@@ -198,7 +198,7 @@ fn check_hereditary_collisions(
         TermKind::Injection { term, .. } => visit(term),
         TermKind::Map { entries, rest, .. } => {
             for (index, (key, value)) in entries.iter().enumerate() {
-                for (other_key, _) in &entries[index + 1..] {
+                for (other_key, _) in entries.range(index + 1..) {
                     root_collision |= key == other_key;
                 }
                 visit(key);
@@ -222,7 +222,7 @@ fn check_hereditary_collisions(
         }
         TermKind::Set { elements, rest, .. } => {
             for (index, element) in elements.iter().enumerate() {
-                for other in &elements[index + 1..] {
+                for other in elements.range(index + 1..) {
                     root_collision |= element == other;
                 }
                 visit(element);

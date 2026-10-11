@@ -560,8 +560,8 @@ impl GeneratedClasses {
                 keys(entries.iter().map(|(key, _)| key).collect());
                 self.equal_keys_different_values +=
                     usize::from(entries.iter().enumerate().any(|(index, (key, value))| {
-                        entries[index + 1..]
-                            .iter()
+                        entries
+                            .range(index + 1..)
                             .any(|(other, other_value)| other == key && other_value != value)
                     }));
             }

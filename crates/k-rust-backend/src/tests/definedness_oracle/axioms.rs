@@ -925,12 +925,12 @@ fn left_value(backend: &BackendDefinition, instance: &Term, run: &mut Run) -> (O
 /// the collection `\bottom`; a collection that repeats a key or an element after its parts are
 /// evaluated, or keeps a rest, is left undecided.
 fn collection_value(backend: &BackendDefinition, term: &Term, run: &mut Run) -> Outcome {
-    fn parts(
+    fn parts<'t>(
         backend: &BackendDefinition,
-        terms: &[Term],
+        terms: impl IntoIterator<Item = &'t Term>,
         run: &mut Run,
     ) -> Result<Vec<Term>, Outcome> {
-        let mut values = Vec::with_capacity(terms.len());
+        let mut values = Vec::new();
         for term in terms {
             match collection_value(backend, term, run) {
                 Outcome::Value(value) => values.push(value),
@@ -1696,7 +1696,11 @@ mod tests {
             panic!("`setItem(mv0)` evaluates to a set")
         };
         assert!(claimed_value(&single));
-        let repeated = Term::set(Arc::clone(set), vec![elements[0].clone(); 2], None);
+        let repeated = Term::set(
+            Arc::clone(set),
+            vec![elements.first().expect("one element").clone(); 2],
+            None,
+        );
         assert!(repeated.repeated_collection_key().is_some());
         assert!(!claimed_value(&repeated));
     }

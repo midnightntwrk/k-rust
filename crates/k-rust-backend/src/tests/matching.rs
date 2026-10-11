@@ -141,8 +141,8 @@ fn a_collection_solution_states_an_element_equation_under_a_later_element_bindin
         panic!("the pattern should internalize as a set");
     };
     assert_eq!(
-        elements[0],
-        internal_term(&definition, "p{}(g{}(X:SortElement{}))"),
+        elements.first().expect("one element"),
+        &internal_term(&definition, "p{}(g{}(X:SortElement{}))"),
         "the kept element equation must precede the binding of X",
     );
 

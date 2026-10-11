@@ -416,8 +416,12 @@ fn check_wf(term: &Term) -> Result<(), String> {
         TermKind::DomainValue { .. } | TermKind::Variable(_) => Ok(()),
         TermKind::Injection { term, .. } => check_wf(term),
         TermKind::Map { entries, rest, .. } => {
-            if let Some(pair) = entries.windows(2).find(|pair| pair[0] > pair[1]) {
-                return Err(format!("map entries out of order: {pair:?}"));
+            if let Some(pair) = entries
+                .iter()
+                .zip(entries.iter().skip(1))
+                .find(|(left, right)| left > right)
+            {
+                return Err(format!("map entries out of order: {:?}", [pair.0, pair.1]));
             }
             for (key, value) in entries {
                 check_wf(key)?;
@@ -434,8 +438,12 @@ fn check_wf(term: &Term) -> Result<(), String> {
             Ok(())
         }
         TermKind::Set { elements, rest, .. } => {
-            if let Some(pair) = elements.windows(2).find(|pair| !le(&pair[0], &pair[1])) {
-                return Err(format!("set elements out of order: {pair:?}"));
+            if let Some(pair) = elements
+                .iter()
+                .zip(elements.iter().skip(1))
+                .find(|(left, right)| !le(left, right))
+            {
+                return Err(format!("set elements out of order: {:?}", [pair.0, pair.1]));
             }
             elements.iter().try_for_each(check_wf)?;
             rest.iter().try_for_each(check_wf)
@@ -543,7 +551,12 @@ fn fixed_near_misses_agree_with_equality() {
     };
     // Nilpotent concatenation: the repeats are kept, adjacent, for definedness to see.
     assert_eq!(elements.len(), 3);
-    assert!(elements.windows(2).all(|pair| pair[0] == pair[1]));
+    assert!(
+        elements
+            .iter()
+            .zip(elements.iter().skip(1))
+            .all(|(left, right)| left == right)
+    );
     assert_ne!(set(0), set(1));
     assert_ne!(set(0).cmp(&set(1)), Ordering::Equal);
     assert_eq!(set(0), set(0));

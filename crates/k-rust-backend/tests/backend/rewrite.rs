@@ -12252,7 +12252,7 @@ fn absence_in(joined: &Term) -> Predicate {
             rest: Some(rest),
         } if entries.len() == 1 => Absence::predicate(
             KeyedCollection::Map(definition.clone()),
-            entries[0].0.clone(),
+            entries.first().expect("one entry").0.clone(),
             rest.clone(),
         ),
         TermKind::Set {
@@ -12261,7 +12261,7 @@ fn absence_in(joined: &Term) -> Predicate {
             rest: Some(rest),
         } if elements.len() == 1 => Absence::predicate(
             KeyedCollection::Set(definition.clone()),
-            elements[0].clone(),
+            elements.first().expect("one element").clone(),
             rest.clone(),
         ),
         _ => panic!("one entry beside a rest: {joined:?}"),
