@@ -843,7 +843,7 @@ That response is the case's `rpc.oracle-exception` row in the [differential mani
 
 k-rust implements one theory of `_Set_`, in concrete and in symbolic evaluation: concatenation is nilpotent.
 `S1 S2` is the disjoint union, defined only when `S1` and `S2` share no element; `SetItem(X) SetItem(X)` is `\bottom`.
-The union of sets that may overlap is `|Set`, which `domains.md` defines as `S1 (S2 -Set S1)` and which is unchanged; its `SET.union` hook computes that set for two closed sets of constructor-like elements, and on any other operands the equation applies.
+The union of sets that may overlap is `|Set`, which `domains.md` defines as `S1 (S2 -Set S1)` and which is unchanged; its `SET.union` hook computes that set for two closed sets of constructor-like elements; on any other operands it gives no result, and `domains.md`'s rules for `|Set` (the `[concrete]` equation on ground operands, the `|Set` simplifications) apply as before.
 This is the theory the `domains.md` prose states ([`domains.md`](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/k-distribution/include/kframework/builtin/domains.md), "Set concatenation": "the concatenation of two sets containing elements in common is `#False`").
 It is also the theory AC matching of sets rests on: a pattern `SetItem(X) R` decomposes a set in one way per element because `X` is not in `R`.
 
