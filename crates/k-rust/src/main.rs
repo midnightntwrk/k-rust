@@ -4699,6 +4699,26 @@ mod tests {
             error,
             GeneratedIdentityMappingError::Missing { identity: missing }
         );
+        assert_eq!(
+            error.to_string(),
+            "generated element variable VarMissing is missing from the internalized match target"
+        );
+    }
+
+    #[test]
+    fn generated_identity_mapping_names_a_missing_set_variable_by_its_kore_spelling() {
+        let target = backend_pattern_with_candidates(
+            Variable::new("VarPresent", BackendSort::simple("SortInt")),
+            Vec::new(),
+        );
+        let missing = k_rust::kompile::KoreVariableIdentity::set("@VarMissing");
+        let error =
+            map_generated_anonymous_variables(&target, &BTreeSet::from([missing])).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "generated set variable @VarMissing is missing from the internalized match target"
+        );
     }
 
     #[test]
@@ -4719,6 +4739,34 @@ mod tests {
                 identity,
                 candidates: BTreeSet::from([first, second]),
             }
+        );
+        assert_eq!(
+            error.to_string(),
+            "generated element variable VarGenerated has multiple internalized sorts: SortBool{}, SortInt{}"
+        );
+    }
+
+    #[test]
+    fn a_generated_variable_absent_from_the_compiled_target_is_named_by_kind_and_kore_name() {
+        let definition = parse_kore_definition(
+            r#"[]
+            module M
+              sort SortS{} []
+            endmodule []"#,
+        )
+        .unwrap();
+        let backend = BackendDefinition::internalize(&definition, "M").unwrap();
+        let compiled = CompiledSearchPattern {
+            pattern: parse_kore_pattern("VarPresent:SortS{}").unwrap(),
+            generated_anonymous_variables: BTreeSet::from([
+                k_rust::kompile::KoreVariableIdentity::element("VarAbsent"),
+            ]),
+        };
+        let error = prepare_backend_match_target(&backend, compiled).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "generated element variable VarAbsent does not occur in the compiled match target"
         );
     }
 
