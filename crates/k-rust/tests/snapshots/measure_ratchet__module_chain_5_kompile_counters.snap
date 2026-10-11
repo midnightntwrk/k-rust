@@ -40,5 +40,5 @@ parser.chart_derivations_read = 164922
 parser.completed_nodes_hits = 98368
 parser.completed_nodes_misses = 12336
 parser.grammar_builds = 33
-parser.scanner_winner_computations = 7730
+parser.scanner_winner_computations = 7819
 parser.portable_inferences = 266

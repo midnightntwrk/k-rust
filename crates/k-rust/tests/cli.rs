@@ -12520,6 +12520,43 @@ endmodule
 }
 
 #[test]
+fn kcompile_rejects_a_configuration_variable_parsed_as_the_text_of_a_phrase_token() {
+    let source = r##"
+module T-SYNTAX
+  syntax Name ::= r"[a-z]+" [token]
+  syntax Names ::= List{Name, ","}
+  syntax Toks ::= Names [token]
+  syntax Pgm ::= Toks
+endmodule
+module T
+  imports T-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"##;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", "--main-module", "T", "--output-directory"])
+        .arg(root.join("compiled"))
+        .arg(&definition)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains(
+            "configuration in module \"T\" writes the configuration variable `$PGM` in cell <k> \
+             but parses it as text of a token of sort Toks"
+        ),
+        "{stderr}"
+    );
+    assert!(!root.join("compiled").join("definition.kore").exists());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_skips_bison_tools_when_the_configuration_has_no_pgm() {
     let (root, definition) = fixture();
     fs::write(

@@ -3,7 +3,10 @@ use std::sync::Arc;
 use k_rust::definition::{
     Attributes, Definition, FlatImport, FlatModule, ProductionItem, Sentence,
 };
-use k_rust::inner::{ConfigError, NoParseInput, ParseError, resolve_configuration_bubbles};
+use k_rust::inner::{
+    ConfigError, NoParseInput, ParseError, UnreadConfigurationVariable,
+    resolve_configuration_bubbles,
+};
 use k_rust::kast::{Label, Sort};
 use proptest::prelude::*;
 
@@ -472,6 +475,91 @@ fn parses_uppercase_cell_names_without_treating_them_as_variables() {
         source,
         &transformed.main_module().unwrap().local_sentences[1]
     );
+}
+
+fn resolve_source(source: &str, main_module: &str) -> Result<Definition, ConfigError> {
+    let parsed = k_rust::outer::parse("unread-configuration-variable.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, main_module).unwrap();
+    resolve_configuration_bubbles(&lowered)
+}
+
+/// Syntax in which `Toks ::= Names [token]` is a token of a phrase's text: in a configuration,
+/// `Names` also derives a configuration variable, so a `$X` reaching `Toks` by unary productions
+/// alone can be read as the text of a `Toks` token.
+const PHRASE_TOKEN_SYNTAX: &str = r#"
+module T-SYNTAX
+  syntax Name ::= r"[a-z]+" [token]
+  syntax Names ::= List{Name, ","}
+  syntax Toks ::= Names [token]
+  syntax Pgm ::= Toks
+  syntax Run ::= "run" Toks
+endmodule
+"#;
+
+fn unread_variable(result: Result<Definition, ConfigError>) -> UnreadConfigurationVariable {
+    match result {
+        Err(ConfigError::UnreadVariable(unread)) => *unread,
+        other => panic!("expected an unread configuration variable, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_configuration_variable_parsed_as_the_text_of_a_phrase_token_is_rejected() {
+    let source = format!(
+        "{PHRASE_TOKEN_SYNTAX}
+module T
+  imports T-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"
+    );
+    let unread = unread_variable(resolve_source(&source, "T"));
+    assert_eq!(unread.module, "T");
+    assert_eq!(unread.variable, "$PGM");
+    assert_eq!(unread.cell.as_deref(), Some("k"));
+    assert_eq!(unread.sort, Some(Sort::new("Toks")));
+    let location = unread.location.expect("the variable is located");
+    assert_eq!(
+        (location.start_line, location.start_column),
+        (12, 21),
+        "{location:?}"
+    );
+    assert_eq!(
+        ConfigError::UnreadVariable(Box::new(unread)).to_string(),
+        "configuration in module \"T\" writes the configuration variable `$PGM` in cell <k> \
+         but parses it as text of a token of sort Toks, so the initial configuration would not \
+         read `$PGM` there"
+    );
+}
+
+#[test]
+fn a_configuration_variable_read_in_one_cell_does_not_cover_its_text_taken_as_a_token_in_another() {
+    let source = format!(
+        "{PHRASE_TOKEN_SYNTAX}
+module T
+  imports T-SYNTAX
+  configuration <t> <k> $PGM:Run </k> <x> $PGM:Pgm </x> </t>
+endmodule
+"
+    );
+    let unread = unread_variable(resolve_source(&source, "T"));
+    assert_eq!(unread.variable, "$PGM");
+    assert_eq!(unread.cell.as_deref(), Some("x"));
+    assert_eq!(unread.sort, Some(Sort::new("Toks")));
+}
+
+#[test]
+fn a_configuration_variable_read_through_its_sort_and_variable_text_inside_a_token_are_accepted() {
+    let source = format!(
+        "{PHRASE_TOKEN_SYNTAX}
+module T
+  imports T-SYNTAX
+  syntax Quoted ::= r\"'[^']*'\" [token]
+  configuration <t> <k> $PGM:Run </k> <q> '$PGM' </q> </t>
+endmodule
+"
+    );
+    resolve_source(&source, "T").unwrap();
 }
 
 #[test]

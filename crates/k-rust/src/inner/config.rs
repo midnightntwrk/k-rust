@@ -31,7 +31,7 @@ use crate::definition::{
     kernel_position_cycle, push_if_inequivalent,
 };
 use crate::kast::sort_role::KernelSort;
-use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term, TermParts};
+use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term, TermParts, TermSpan};
 
 use super::location::{locate_ambiguity_places, span_location};
 use super::parser::{Grammar, ParseError};
@@ -55,6 +55,26 @@ pub enum ConfigError {
         source: Option<String>,
         location: Option<Location>,
     },
+    /// The configuration's text writes a configuration variable that its parse does not read
+    /// as one.
+    UnreadVariable(Box<UnreadConfigurationVariable>),
+}
+
+/// A configuration variable written in a configuration's text and read there as part of
+/// another token, so the compiled configuration holds that text and reads no value of the
+/// variable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnreadConfigurationVariable {
+    pub module: String,
+    pub source: Option<String>,
+    /// Where the variable is written.
+    pub location: Option<Location>,
+    /// The variable as written, `$` included.
+    pub variable: String,
+    /// The name of the innermost cell around the variable, if the parse places it in one.
+    pub cell: Option<String>,
+    /// The sort of the token the parse reads the variable's text in, if it reads it in one.
+    pub sort: Option<Sort>,
 }
 
 impl fmt::Display for ConfigError {
@@ -71,6 +91,36 @@ impl fmt::Display for ConfigError {
                 formatter,
                 "configuration in module {module:?} cannot contain a requires clause"
             ),
+            Self::UnreadVariable(unread) => {
+                let UnreadConfigurationVariable {
+                    module,
+                    variable,
+                    cell,
+                    sort,
+                    ..
+                } = &**unread;
+                write!(
+                    formatter,
+                    "configuration in module {module:?} writes the configuration variable `{variable}`"
+                )?;
+                if let Some(cell) = cell {
+                    write!(formatter, " in cell <{cell}>")?;
+                }
+                match sort {
+                    Some(sort) => write!(
+                        formatter,
+                        " but parses it as text of a token of sort {sort}"
+                    )?,
+                    None => write!(
+                        formatter,
+                        " but does not parse it as a configuration variable"
+                    )?,
+                }
+                write!(
+                    formatter,
+                    ", so the initial configuration would not read `{variable}` there"
+                )
+            }
         }
     }
 }
@@ -136,6 +186,13 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
                 grammar.parse(&Sort::new("#RuleContent"), contents)
             }
             .map_err(|error| bubble_error(&module.name, attributes, Some(contents), error))?;
+            reject_unread_configuration_variables(
+                &module.name,
+                attributes,
+                contents,
+                &grammar,
+                &parsed,
+            )?;
             *crate::definition::sentence_mut(sentence) = up_configuration(
                 &module.name,
                 parsed,
@@ -147,6 +204,134 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
     }
 
     Ok(transformed)
+}
+
+/// Reject a configuration whose text writes a configuration variable that its parse does not
+/// read as one.
+///
+/// Configuration expansion turns each configuration-variable token of a parsed configuration
+/// into a read of that variable's initial value, so a configuration reads the variables its
+/// text writes exactly through those tokens. A `$X` of the text (a token of the scanner's
+/// stream that the `KConfigVar` lexeme scans) that no such token spans was built into a token of
+/// another sort, whose value is the text it spans (a token production over a phrase): the
+/// compiled configuration would hold the text `$X` and read no value of `X`, so the value
+/// given for `$X` would be discarded. Each written occurrence is checked, so a variable read in
+/// one cell does not cover its text taken as a token in another.
+fn reject_unread_configuration_variables(
+    module: &str,
+    attributes: &Attributes,
+    contents: &str,
+    grammar: &Grammar,
+    parsed: &Term,
+) -> Result<(), ConfigError> {
+    // A token of `parsed` that carries a span, with the name of its innermost enclosing cell.
+    // Only a token can hold a written `$X`: any other leaf is built from a lexeme of its own.
+    struct Leaf<'a> {
+        span: TermSpan,
+        sort: &'a Sort,
+        cell: Option<&'a str>,
+    }
+
+    fn span_of(mut term: &Term) -> Option<TermSpan> {
+        while let Term::Annotated {
+            term: inner,
+            metadata,
+        } = term
+        {
+            if metadata.span.is_some() {
+                return metadata.span;
+            }
+            term = inner;
+        }
+        None
+    }
+
+    let config_var = KernelSort::KConfigVar.name();
+    let written = grammar.scanned_tokens_of(&Sort::new(config_var), contents);
+    if written.is_empty() {
+        return Ok(());
+    }
+    // A parse with provenance places byte zero of `contents` at the content offset; one
+    // without places it at zero.
+    let base_offset = if attributes.source_id().is_some() {
+        content_start_offset(attributes)
+    } else {
+        0
+    };
+    let mut leaves = Vec::new();
+    let mut pending = vec![(parsed, None)];
+    // Invariant: `leaves` holds the spanned tokens among the nodes visited so far, and each entry
+    // of `pending` is an unvisited node with its innermost enclosing cell; each iteration visits
+    // one node and pushes its children.
+    while let Some((term, cell)) = pending.pop() {
+        let span = span_of(term);
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is not a sentence kind; only the listed variants are special here"
+        )]
+        match term.unannotated() {
+            Term::Token { sort, .. } => {
+                if let Some(span) = span {
+                    leaves.push(Leaf { span, sort, cell });
+                }
+            }
+            Term::Apply { label, arguments } if label.is(InternalLabel::ConfigCell) => {
+                let name = arguments
+                    .first()
+                    .and_then(|start| match start.unannotated() {
+                        Term::Token { token, sort } if sort.is_frontend(FrontendSort::CellName) => {
+                            Some(token.as_str())
+                        }
+                        _ => None,
+                    });
+                pending.extend(
+                    term.children()
+                        .into_iter()
+                        .map(|child| (child, name.or(cell))),
+                );
+            }
+            _ => pending.extend(term.children().into_iter().map(|child| (child, cell))),
+        }
+    }
+    // The tokens of a parse span disjoint pieces of the text, so the only one that can cover a
+    // written variable is the last to start at or before it.
+    leaves.sort_by_key(|leaf| leaf.span.start);
+    for (start, end) in written {
+        let (start_offset, end_offset) = (base_offset + start, base_offset + end);
+        let covering = leaves
+            .partition_point(|leaf| leaf.span.start <= start_offset)
+            .checked_sub(1)
+            .map(|index| &leaves[index])
+            .filter(|leaf| end_offset <= leaf.span.end);
+        if covering.is_some_and(|leaf| {
+            leaf.sort.name == config_var
+                && (leaf.span.start, leaf.span.end) == (start_offset, end_offset)
+        }) {
+            continue;
+        }
+        let location = attributes.source_id().and_then(|source| {
+            super::location::span_location(
+                attributes,
+                contents,
+                TermSpan {
+                    source,
+                    start: content_start_offset(attributes) + start,
+                    end: content_start_offset(attributes) + end,
+                },
+            )
+        });
+        return Err(ConfigError::UnreadVariable(Box::new(
+            UnreadConfigurationVariable {
+                module: module.to_owned(),
+                source: attributes.source().map(str::to_owned),
+                location: location.or_else(|| attributes.location()),
+                variable: contents[start..end].to_owned(),
+                cell: covering.and_then(|leaf| leaf.cell).map(str::to_owned),
+                sort: covering.map(|leaf| leaf.sort.clone()),
+            },
+        )));
+    }
+    Ok(())
 }
 
 fn content_start_offset(attributes: &Attributes) -> usize {
