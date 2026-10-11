@@ -548,12 +548,13 @@ fn check_manifest(manifest: &CampaignManifest) {
                 "validation",
                 "operator",
                 "census",
+                "same_as",
             ],
         );
         keys(&mutant["validation"], &["outcome", "stage", "detail"]);
     }
     assert_eq!(value["schema"], "kink-campaign-manifest");
-    assert_eq!(value["version"], 3);
+    assert_eq!(value["version"], 4);
     assert_eq!(
         value["profile"],
         if cfg!(feature = "z3") { "z3" } else { "no-z3" }

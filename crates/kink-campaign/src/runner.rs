@@ -73,7 +73,8 @@ use kink_native::signature::{DefinitionFacts, definition_facts};
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
 use kink_native::{MutantRejection, NativeValidator, ValidatedDefinition};
 use kink_patch::{
-    CandidateDisposition, CandidateGeneration, ClaimSupport, Patch, SentenceRef, Withdrawal,
+    Baseline, CandidateDisposition, CandidateGeneration, ClaimSupport, Patch, SentenceRef,
+    Sha256Digest, Withdrawal, apply, structure_sha256,
 };
 use kink_pattern::{
     CollectionEvidence, CollectionStop, Evaluation, EvaluationContext, EvaluationOptions,
@@ -183,6 +184,9 @@ pub struct Campaign<'a> {
     pub validator: &'a NativeValidator,
     pub module: &'a str,
     pub observation: &'a [StepEventSpec],
+    /// T-CLASSIFY: must be a pure function of its term argument, independent of call
+    /// history or mutable state. Every campaign verdict, FirstKill, coverage scheduling
+    /// and evidence sharing rely on this premise.
     pub classify: &'a dyn Fn(&Pattern) -> ExecutionTerminalKind,
     pub tests: &'a [TestCase],
     pub budget: ExecutionBudget,
@@ -209,6 +213,8 @@ pub struct TestEvidence {
 /// failure stopped it before execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MutantRun {
+    /// Earlier mutant with the same structure and claim withdrawal; counted once globally.
+    pub same_as: Option<MutantId>,
     pub operator: String,
     pub written_sentences: Vec<SentenceRef>,
     pub plan: MutantPlan,
@@ -220,6 +226,8 @@ pub struct MutantRun {
 pub struct CampaignOptions {
     pub schedule: ScheduleMode,
     pub selection: SelectionPolicy,
+    /// Reuse evidence of identical compiled sides within this campaign.
+    pub share_evidence: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -241,8 +249,9 @@ pub struct CampaignRun {
 
 /// Counts the candidate statuses and selected origins left out of a score.
 ///
-/// Mutant counts are per candidate: a candidate is one distinct applicable patch and the unit
-/// of [`MutantStatus`] and [`Score`]. An origin folded onto that candidate adds no mutant.
+/// Mutant counts are per distinct structure/withdrawal group: a candidate with `same_as`
+/// adds no global mutant. Per-operator reports retain that operator's candidate counts.
+/// An origin folded onto a candidate adds no mutant.
 /// Rejections are per selected origin, including NoChange: [`CandidateGeneration::dispositions`]
 /// is per origin, and rejected patches are not retained as candidates. The two units must not
 /// be summed. Whenever `run.score` is `Some`, `killed` and `survived` equal its counts.
@@ -275,6 +284,9 @@ pub fn tally(generation: &CandidateGeneration<'_>, run: &CampaignRun) -> Option<
     }
     let mut tally = Tally::default();
     for mutant in &run.mutants {
+        if mutant.same_as.is_some() {
+            continue;
+        }
         match mutant.report.status {
             MutantStatus::Killed => tally.killed += 1,
             MutantStatus::Survived => tally.survived += 1,
@@ -331,6 +343,7 @@ pub fn run_campaign(
         &CampaignOptions {
             schedule,
             selection: SelectionPolicy::None,
+            share_evidence: true,
         },
     )
 }
@@ -486,14 +499,29 @@ pub fn run_campaign_multi(
     let mut observations = BaselineObservations {
         runtime: &mut runtime,
         observation,
+        evidence: options.share_evidence.then(BTreeMap::new),
     };
 
     let candidates = generations
         .iter()
         .flat_map(|generation| generation.candidates())
         .collect::<Vec<_>>();
-    let mut runs = Vec::with_capacity(candidates.len());
+    let mut runs: Vec<MutantRun> = Vec::with_capacity(candidates.len());
+    let mut identities: Vec<Option<(Sha256Digest, Withdrawal)>> =
+        Vec::with_capacity(candidates.len());
     for (index, candidate) in candidates.into_iter().enumerate() {
+        let identity = mutant_identity(
+            campaign.validator.baseline(),
+            &candidate.patch,
+            support.as_ref(),
+        );
+        let same_as = identity.as_ref().and_then(|identity| {
+            identities
+                .iter()
+                .position(|earlier| earlier.as_ref() == Some(identity))
+                .map(MutantId)
+        });
+        identities.push(identity);
         let execution = run_mutant(
             campaign,
             &candidate.patch,
@@ -511,7 +539,14 @@ pub fn run_campaign_multi(
             selection: execution.selection,
         };
         let report = derive_mutant_report(&plan, &manifest, schedule)?;
+        if let Some(earlier) = same_as {
+            assert_eq!(
+                report.status, runs[earlier.0].report.status,
+                "STOP: same_as statuses differ"
+            );
+        }
         runs.push(MutantRun {
+            same_as,
             operator: candidate.operator.clone(),
             written_sentences: candidate.patch.written_sentences(),
             plan,
@@ -519,7 +554,11 @@ pub fn run_campaign_multi(
             evidence: execution.evidence,
         });
     }
-    let statuses = runs.iter().map(|run| run.report.status).collect::<Vec<_>>();
+    let statuses = runs
+        .iter()
+        .filter(|run| run.same_as.is_none())
+        .map(|run| run.report.status)
+        .collect::<Vec<_>>();
     Ok(CampaignRun {
         selection: options.selection,
         baseline: baseline_evidence,
@@ -566,6 +605,45 @@ fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
 struct BaselineObservations<'a> {
     runtime: &'a mut Runtime,
     observation: StepObservation,
+    evidence: Option<BTreeMap<(EvidenceKey, String), CachedEvidence>>,
+}
+
+/// E2 compares the applied structure and the complete withdrawal value, including its patch.
+/// An unavailable identity never removes a mutant from counting.
+pub(crate) fn mutant_identity(
+    baseline: &Baseline,
+    patch: &Patch,
+    support: Option<&ClaimSupport>,
+) -> Option<(Sha256Digest, Withdrawal)> {
+    let applied = apply(baseline, patch).ok()?;
+    let structure = structure_sha256(applied.definition()).ok()?;
+    let claims = match support {
+        Some(support) => support.withdraw(baseline, patch).ok()?,
+        None => Withdrawal::default(),
+    };
+    Some((structure, claims))
+}
+
+/// E3 includes the symbolic-side choice even for a ground test.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct EvidenceKey {
+    patched: Sha256Digest,
+    symbolic: SymbolicEvidenceKey,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum SymbolicEvidenceKey {
+    Patched,
+    Unsupported,
+    Withdrawn(Sha256Digest),
+}
+
+#[derive(Clone)]
+struct CachedEvidence {
+    evidence: TestEvidence,
+    signatures_match: bool,
+    // Replaying baseline observation queries preserves its solver/prelude mutations on hits.
+    stepped: Option<SteppedExecution>,
 }
 
 struct PairedTest<'a> {
@@ -792,6 +870,17 @@ enum SymbolicSide {
 }
 
 impl MutantSides {
+    fn evidence_key(&self) -> EvidenceKey {
+        EvidenceKey {
+            patched: self.patched.digest,
+            symbolic: match &self.symbolic {
+                SymbolicSide::Patched => SymbolicEvidenceKey::Patched,
+                SymbolicSide::Unsupported => SymbolicEvidenceKey::Unsupported,
+                SymbolicSide::Withdrawn(runtime) => SymbolicEvidenceKey::Withdrawn(runtime.digest),
+            },
+        }
+    }
+
     fn edit(&self, symbolic: bool) -> &CompiledEdit {
         if symbolic {
             self.symbolic_edit.as_ref().unwrap_or(&self.patched_edit)
@@ -851,33 +940,67 @@ fn run_tests(
             });
             continue;
         }
-        let (mut mutant, cache) = sides.run(campaign, test, symbolic);
+        let key = (sides.evidence_key(), test.id.clone());
+        let cached = observations
+            .evidence
+            .as_ref()
+            .and_then(|entries| entries.get(&key))
+            .cloned();
+        let (mut mutant, cache) = match &cached {
+            Some(cached) => (
+                cached.evidence.clone(),
+                RunCache {
+                    stepped: cached.stepped.clone(),
+                    coverage: None,
+                },
+            ),
+            None => sides.run(campaign, test, symbolic),
+        };
+        // Initialize facts on both paths, including each newly prepared mutant backend.
+        let signatures_match = observations
+            .runtime
+            .facts()
+            .and_then(|baseline_facts| {
+                sides
+                    .facts(symbolic)
+                    .map(|mutant_facts| baseline_facts.signature == mutant_facts.signature)
+            })
+            .unwrap_or(false);
+        let signatures_match = cached.as_ref().map_or(signatures_match, |cached| {
+            assert_eq!(
+                signatures_match, cached.signatures_match,
+                "STOP: cached signature comparison differs"
+            );
+            cached.signatures_match
+        });
         let mut paired_baseline = baseline.clone();
-        {
-            // The baseline's pattern sides were evaluated at admission by the same function of
-            // (its stepped run, declarations, baseline signature, test initial variables), so
-            // only the mutant's are evaluated here.
-            let signatures_match = observations
-                .runtime
-                .facts()
-                .and_then(|baseline_facts| {
-                    sides
-                        .facts(symbolic)
-                        .map(|mutant_facts| baseline_facts.signature == mutant_facts.signature)
-                })
-                .unwrap_or(false);
-            if signatures_match {
-                let mutant_patterns = observations.runtime.step_sides(
-                    campaign,
-                    test,
-                    &observations.observation,
-                    cache.stepped.as_ref(),
-                );
+        if signatures_match {
+            // Always use the baseline backend, and repeat its observation queries on hits.
+            // Besides preserving its mutable solver state, this keeps later uncached bytes exact.
+            let mutant_patterns = observations.runtime.step_sides(
+                campaign,
+                test,
+                &observations.observation,
+                cache.stepped.as_ref(),
+            );
+            if cached.is_none() {
                 replace_patterns(test, &mut mutant, Some(&mutant_patterns));
-            } else {
-                replace_patterns(test, &mut paired_baseline, None);
-                replace_patterns(test, &mut mutant, None);
             }
+        } else {
+            replace_patterns(test, &mut paired_baseline, None);
+            replace_patterns(test, &mut mutant, None);
+        }
+        if cached.is_none()
+            && let Some(entries) = &mut observations.evidence
+        {
+            entries.insert(
+                key,
+                CachedEvidence {
+                    evidence: mutant.clone(),
+                    signatures_match,
+                    stepped: cache.stepped,
+                },
+            );
         }
         let run = match (&paired_baseline.run, &mutant.run) {
             (_, SideRun::Failed(kind)) => TestRun::Failed(*kind),
@@ -949,6 +1072,7 @@ enum Preparation {
 
 /// One compiled side: its backend, reused across tests, and its evaluation context.
 struct Runtime {
+    digest: Sha256Digest,
     backend: Backend,
     adapter: ExecutionAdapter,
     context: EvaluationContext,
@@ -975,6 +1099,7 @@ impl Runtime {
         };
         // Pin the build's profile so the adapter can detect an unexpected backend profile.
         Ok(Self {
+            digest: side.kore_sha256(),
             backend,
             adapter,
             context,
@@ -1492,6 +1617,192 @@ mod input_test_support;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Equal patched KORE does not identify the symbolic side: an equation metadata edit
+    /// still withdraws claims whose support it touched, while the transition-only twin does not.
+    #[test]
+    fn evidence_cache_separates_symbolic_sides_and_test_ids() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                use k_rust::kast::{Sort, Term};
+                use kink_patch::{Edit, TermRef};
+                let validator = NativeValidator::bind(
+                    input_test_support::load_path(
+                        &std::path::Path::new(input_test_support::DIR)
+                            .join("symbolic-claim-survivor.k"),
+                        "SYMPARTIAL",
+                    ),
+                    k_rust::kompile::CompileOptions::default(),
+                );
+                let baseline = validator.baseline();
+                let condition =
+                    TermRef::new(input_test_support::rule(baseline, "SYMPARTIAL.half"), [1]);
+                let main = Edit::ReplaceTerm {
+                    expected: baseline.term(&condition).unwrap().clone(),
+                    at: condition,
+                    replacement: Term::Token {
+                        token: "false".into(),
+                        sort: Sort::new("Bool"),
+                    },
+                };
+                let metadata = Edit::AddAttribute {
+                    at: input_test_support::rule(baseline, "SYMPARTIAL.d"),
+                    key: "group".into(),
+                    value: serde_json::json!("cs10"),
+                };
+                let a = Patch::new(vec![main.clone()])
+                    .unwrap()
+                    .pinned(baseline)
+                    .unwrap();
+                let b = Patch::new(vec![main, metadata])
+                    .unwrap()
+                    .pinned(baseline)
+                    .unwrap();
+                let compiled = validator.compile_baseline().unwrap();
+                assert_eq!(
+                    validator.validate(&a).unwrap().kore_sha256(),
+                    validator.validate(&b).unwrap().kore_sha256()
+                );
+                let support = ClaimSupport::new(baseline);
+                let input = input_test_support::initial_state(
+                    input_test_support::app(
+                        "Lblseq",
+                        vec![
+                            input_test_support::app(
+                                "Lblhalf",
+                                vec![input_test_support::var("X", "SortNat")],
+                            ),
+                            input_test_support::app("Lblhalt", vec![]),
+                        ],
+                    ),
+                    "SortProg",
+                );
+                let tests = ["one", "two"].map(|id| TestCase {
+                    id: id.into(),
+                    initial_state: input.clone(),
+                    oracles: vec![
+                        OracleDeclaration::new(
+                            CrashPolicy::CompareIdentity,
+                            Projection::State(StateProjection::WholeTerm),
+                        )
+                        .unwrap(),
+                    ],
+                });
+                let campaign = Campaign {
+                    validator: &validator,
+                    module: "SYMPARTIAL",
+                    observation: &[],
+                    classify: &|_| ExecutionTerminalKind::Normal,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: Some(32),
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    let mut runtime = Runtime::prepare(&campaign, &compiled)
+                        .unwrap_or_else(|_| panic!("baseline runtime"));
+                    let observation = StepObservation::new(&mut runtime.backend, vec![]).unwrap();
+                    let evidence = tests
+                        .iter()
+                        .map(|test| runtime.run(&campaign, test).0)
+                        .collect::<Vec<_>>();
+                    let coverage = tests
+                        .iter()
+                        .map(|test| TestCoverage::failed(&test.id))
+                        .collect::<Vec<_>>();
+                    let paired = tests
+                        .iter()
+                        .zip(&evidence)
+                        .zip(&coverage)
+                        .map(|((test, baseline), coverage)| {
+                            (
+                                test.id.as_str(),
+                                PairedTest {
+                                    test,
+                                    baseline,
+                                    coverage,
+                                    symbolic: true,
+                                },
+                            )
+                        })
+                        .collect();
+                    let mut observations = BaselineObservations {
+                        runtime: &mut runtime,
+                        observation,
+                        evidence: Some(BTreeMap::new()),
+                    };
+                    let (mut sides_a, claims_a) =
+                        prepare_mutant(&campaign, &a, &compiled, Some(&support)).unwrap();
+                    let (mut sides_b, claims_b) =
+                        prepare_mutant(&campaign, &b, &compiled, Some(&support)).unwrap();
+                    assert!(claims_a.withdrawn.is_empty());
+                    assert_eq!(claims_b.withdrawn.len(), 2);
+                    assert_eq!(sides_a.patched.digest, sides_b.patched.digest);
+                    assert_ne!(sides_a.evidence_key(), sides_b.evidence_key());
+                    assert!(matches!(sides_a.symbolic, SymbolicSide::Patched));
+                    assert!(matches!(sides_b.symbolic, SymbolicSide::Withdrawn(_)));
+                    let order = tests.iter().map(|test| test.id.clone()).collect::<Vec<_>>();
+                    let (_, first) = run_tests(
+                        &campaign,
+                        &mut sides_a,
+                        &paired,
+                        &order,
+                        schedule,
+                        &mut observations,
+                    );
+                    assert_eq!(first.len(), 2);
+                    assert_eq!(observations.evidence.as_ref().unwrap().len(), 2);
+                    run_tests(
+                        &campaign,
+                        &mut sides_b,
+                        &paired,
+                        &order,
+                        schedule,
+                        &mut observations,
+                    );
+                    assert_eq!(
+                        observations.evidence.as_ref().unwrap().len(),
+                        4,
+                        "different symbolic side must miss"
+                    );
+                    let key = (sides_a.evidence_key(), "one".into());
+                    let cached = observations
+                        .evidence
+                        .as_mut()
+                        .unwrap()
+                        .get_mut(&key)
+                        .unwrap();
+                    cached.evidence.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
+                    let (mut repeated, _) =
+                        prepare_mutant(&campaign, &a, &compiled, Some(&support)).unwrap();
+                    let (_, hit) = run_tests(
+                        &campaign,
+                        &mut repeated,
+                        &paired,
+                        &order,
+                        schedule,
+                        &mut observations,
+                    );
+                    assert_eq!(
+                        hit[0].run,
+                        SideRun::Failed(ExecutionFailureKind::Infrastructure),
+                        "hit must reuse post-replacement evidence"
+                    );
+                    assert_eq!(
+                        hit[1], first[1],
+                        "test-id pairing must not reuse another test's evidence"
+                    );
+                    assert_eq!(observations.evidence.as_ref().unwrap().len(), 4);
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 
     /// TV-01 input refusals use the existing BaselineOracleFailed admission path in both
     /// schedules, before classification or mutant execution; the native test pins the

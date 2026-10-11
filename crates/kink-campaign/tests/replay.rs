@@ -759,7 +759,7 @@ fn malformed_reports_and_digest_mismatches_fail_in_check_order() {
             );
         }
         let mut changed = report.value().clone();
-        changed["version"] = json!(4);
+        changed["version"] = json!(5);
         assert_eq!(
             replay(&canonical_json(&changed), "invalid artifact", &declaration),
             ReplayOutcome::Refused(ReplayRefusal::Schema)

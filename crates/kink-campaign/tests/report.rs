@@ -538,7 +538,7 @@ fn check_report(report: &CampaignReport) {
         ],
     );
     assert_eq!(v["schema"], "kink-campaign-report");
-    assert_eq!(v["version"], 3);
+    assert_eq!(v["version"], 4);
     for baseline in array(&v["baseline"]) {
         keys(baseline, &["test_id", "run"]);
         check_side_run(&baseline["run"]);

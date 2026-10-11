@@ -175,6 +175,7 @@ pub fn campaign_manifest_multi(
     let mut mutants = Vec::new();
     let mut operators = Vec::new();
     let mut differs = false;
+    let mut identities: Vec<Option<(Sha256Digest, kink_patch::Withdrawal)>> = Vec::new();
     for (operator_index, (generation, operator)) in
         input.generations.iter().zip(input.operators).enumerate()
     {
@@ -191,6 +192,14 @@ pub fn campaign_manifest_multi(
             if !candidate.patch.is_pinned() {
                 return Err(ManifestError::Unpinned);
             }
+            let identity =
+                crate::runner::mutant_identity(baseline, &candidate.patch, support.as_ref());
+            let same_as = identity.as_ref().and_then(|identity| {
+                identities
+                    .iter()
+                    .position(|earlier| earlier.as_ref() == Some(identity))
+            });
+            identities.push(identity);
             let patch_digest = candidate.patch.digest().map_err(encode)?.to_string();
             let (semantic_digest, structure_digest) = match apply(baseline, &candidate.patch) {
                 Ok(mutant) => (
@@ -256,12 +265,12 @@ pub fn campaign_manifest_multi(
                     json!({"outcome":"rejected","stage":"compilation","detail":e.stage}),
                 ),
             };
-            mutants.push(json!({"mutant_id":index,"operator":operator_index,"census":census,"patch_sha256":patch_digest,"semantic_input_sha256":semantic_digest,"structure_sha256":structure_digest,"kore_sha256":kore_digest,"validation":validation}));
+            mutants.push(json!({"mutant_id":index,"same_as":same_as,"operator":operator_index,"census":census,"patch_sha256":patch_digest,"semantic_input_sha256":semantic_digest,"structure_sha256":structure_digest,"kore_sha256":kore_digest,"validation":validation}));
         }
     }
     let backend = BackendOptions::default();
     let value = json!({
-        "schema":"kink-campaign-manifest","version":3,
+        "schema":"kink-campaign-manifest","version":4,
         "k_rust":{"revision":K_RUST_REVISION,"provenance_format":k_rust::definition::json::PROVENANCE_FORMAT,"provenance_version":k_rust::definition::json::PROVENANCE_VERSION},
         "kink":{"fingerprint":FINGERPRINT_DOMAIN,"canonical_patch":CANONICAL_PATCH_DOMAIN,"compiled_kore":COMPILED_KORE_DOMAIN},
         "profile":SolverProfile::BUILD.name(), "compile_options":"default",

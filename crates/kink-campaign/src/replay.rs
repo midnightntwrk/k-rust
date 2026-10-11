@@ -207,6 +207,7 @@ fn replay_checked(
         &CampaignOptions {
             schedule: declaration.schedule,
             selection: declaration.selection,
+            share_evidence: true,
         },
     )
     .map_err(|e| ReplayRefusal::Campaign(e.to_string()))?;

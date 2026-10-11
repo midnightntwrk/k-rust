@@ -19,7 +19,7 @@ use kink_patch::{
 };
 use serde_json::{Value, json};
 
-pub const CAMPAIGN_REPORT_VERSION: u64 = 3;
+pub const CAMPAIGN_REPORT_VERSION: u64 = 4;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignReport {
@@ -217,29 +217,45 @@ pub fn campaign_report_multi(
             selection: run.selection,
             baseline: Vec::new(),
             baseline_coverage: Vec::new(),
-            mutants: run.mutants[offset..end].to_vec(),
+            mutants: run.mutants[offset..end]
+                .iter()
+                .cloned()
+                .map(|mut mutant| {
+                    // Per-operator counts retain every candidate of that generation.
+                    mutant.same_as = None;
+                    mutant
+                })
+                .collect(),
             score: generation.scored().then(|| crate::score(&statuses)),
         };
         let count = tally(generation, &partial).ok_or(ReportError::MutantCountMismatch)?;
-        counts.killed += count.killed;
-        counts.survived += count.survived;
-        counts.equivalent += count.equivalent;
-        counts.invalid += count.invalid;
-        counts.timeout += count.timeout;
-        counts.unknown += count.unknown;
-        counts.error += count.error;
         counts.rejected_origins += count.rejected_origins;
         per_operator.push(json!({"operator":operator,"tally":tally_value(count),"score":score_value(partial.score)}));
         offset = end;
     }
-    let expected_score = generations.iter().all(|g| g.scored()).then(|| {
-        crate::score(
-            &run.mutants
-                .iter()
-                .map(|m| m.report.status)
-                .collect::<Vec<_>>(),
-        )
-    });
+    let mut distinct_statuses = Vec::new();
+    for (index, mutant) in run.mutants.iter().enumerate() {
+        if let Some(earlier) = mutant.same_as {
+            if earlier.0 >= index || run.mutants[earlier.0].report.status != mutant.report.status {
+                return Err(ReportError::ManifestMismatch);
+            }
+            continue;
+        }
+        distinct_statuses.push(mutant.report.status);
+        match mutant.report.status {
+            crate::MutantStatus::Killed => counts.killed += 1,
+            crate::MutantStatus::Survived => counts.survived += 1,
+            crate::MutantStatus::Equivalent => counts.equivalent += 1,
+            crate::MutantStatus::Invalid => counts.invalid += 1,
+            crate::MutantStatus::Timeout => counts.timeout += 1,
+            crate::MutantStatus::Unknown => counts.unknown += 1,
+            crate::MutantStatus::Error => counts.error += 1,
+        }
+    }
+    let expected_score = generations
+        .iter()
+        .all(|g| g.scored())
+        .then(|| crate::score(&distinct_statuses));
     if run.score != expected_score {
         return Err(ReportError::ManifestMismatch);
     }
@@ -267,12 +283,19 @@ pub fn campaign_report_multi(
     if entries.len() != run.mutants.len() {
         return Err(ReportError::ManifestMismatch);
     }
-    for (entry, (operator, candidate)) in entries.iter().zip(
-        generations
-            .iter()
-            .enumerate()
-            .flat_map(|(operator, g)| g.candidates().iter().map(move |c| (operator, c))),
-    ) {
+    for (index, (entry, (operator, candidate))) in entries
+        .iter()
+        .zip(
+            generations
+                .iter()
+                .enumerate()
+                .flat_map(|(operator, g)| g.candidates().iter().map(move |c| (operator, c))),
+        )
+        .enumerate()
+    {
+        if entry["same_as"] != json!(run.mutants[index].same_as.map(|id| id.0)) {
+            return Err(ReportError::ManifestMismatch);
+        }
         if entry["operator"] != operator {
             return Err(ReportError::ManifestMismatch);
         }

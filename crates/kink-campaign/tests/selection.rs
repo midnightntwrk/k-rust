@@ -185,6 +185,7 @@ fn options(schedule: ScheduleMode) -> CampaignOptions {
     CampaignOptions {
         schedule,
         selection: PRIORITIZE,
+        share_evidence: true,
     }
 }
 
@@ -2708,6 +2709,7 @@ mod theorem_end_to_end {
                     &CampaignOptions {
                         schedule,
                         selection: policy,
+                        share_evidence: true,
                     },
                 )
                 .expect("CS07 Theorem 2: an admitted none fixture stays admitted");
@@ -12135,6 +12137,7 @@ mod theorem_coupled {
                     &CampaignOptions {
                         schedule,
                         selection: policy,
+                        share_evidence: true,
                     },
                 )
                 .expect("CS07 Theorem 2: an admitted none fixture stays admitted");
@@ -12824,7 +12827,7 @@ mod theorem_report {
             ],
         );
         assert_eq!(v["schema"], "kink-campaign-report");
-        assert_eq!(v["version"], 3);
+        assert_eq!(v["version"], 4);
         for baseline in array(&v["baseline"]) {
             keys(baseline, &["test_id", "run"]);
             check_side_run(&baseline["run"]);
@@ -13669,6 +13672,7 @@ mod theorem_report {
                     &CampaignOptions {
                         schedule,
                         selection: policy,
+                        share_evidence: true,
                     },
                 )
                 .expect("CS07 Theorem 2: an admitted none fixture stays admitted");
