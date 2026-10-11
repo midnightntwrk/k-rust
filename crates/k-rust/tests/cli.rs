@@ -12,13 +12,16 @@ use std::{
 use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
 use regex::Regex;
 
+#[path = "support/execution_sources.rs"]
+mod execution_sources;
 #[path = "support/line_anchors.rs"]
 mod line_anchors;
+use execution_sources::{NO_EVALUATOR, PINNED_PLUGIN_BN128, SEARCH_BOUND};
 #[path = "support/proof_sources.rs"]
 mod proof_sources;
 use proof_sources::{
-    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_RULE, LET_PARTIAL_CONDITION, NEGATIVE_POWER,
-    UNDEFINED_STEP,
+    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_KEPT, LATER_BINDING_RECOVERED, LATER_BINDING_RULE,
+    LET_PARTIAL_CONDITION, NEGATIVE_POWER, UNDEFINED_STEP,
 };
 
 /// A `KRUST-PROVENANCE` document written by the version 7 writer (k-rust `480a0d3b`), as an
@@ -4736,30 +4739,8 @@ fn krun_does_not_reuse_a_failed_evaluation_that_read_stdin_after_the_console_mov
 /// leaves an undecided condition. `i` and `fl` hide the constants from the constant folder.
 #[test]
 fn krun_refuses_an_application_without_an_evaluator_only_where_a_run_needs_it() {
-    const SOURCE: &str = r#"
-module NOEVAL
-  imports INT
-  imports BOOL
-  imports FLOAT
-  imports K-EQUAL
-  configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= "unused" | "branch" | "used" | "decide" | "partial"
-  syntax KItem ::= r(K) | f(Float) | "pos" | "nonpos"
-  syntax Int ::= i(Int) [function, total]
-  rule i(X) => X
-  syntax Float ::= fl(Float) [function, total]
-  rule fl(X) => X
-  rule <k> unused => r(false andBool (Float2Int(expFloat(fl(1.0))) ==Int 2)) </k>
-  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else Float2Int(expFloat(fl(1.0))) #fi) </k>
-  rule <k> used => r(expFloat(fl(1.0))) </k>
-  rule <k> decide => f(expFloat(fl(1.0))) </k>
-  rule <k> partial => r(false andBool (Float2Int(logFloat(fl(2.0))) ==Int 0)) </k>
-  rule <k> f(X) => r(pos) </k> requires X >Float 0.0
-  rule <k> f(X) => r(nonpos) </k> requires X <=Float 0.0
-endmodule
-"#;
     let (root, definition) = fixture();
-    fs::write(&definition, SOURCE).unwrap();
+    fs::write(&definition, NO_EVALUATOR).unwrap();
     let run = |program: &str| {
         let input = root.join(format!("{program}.noeval"));
         fs::write(&input, program).unwrap();
@@ -4955,22 +4936,8 @@ endmodule
 /// exponent from the constant folder.
 #[test]
 fn krun_search_matches_no_condition_on_a_result_above_the_size_bound() {
-    const SOURCE: &str = r#"
-module SEARCH-BOUND
-  imports INT
-  imports BOOL
-  configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= "go" | "power"
-  syntax KItem ::= f(Int) | "done"
-  syntax Int ::= i(Int) [function, total]
-  rule i(X) => X
-  rule <k> go => f(1 <<Int i(16777217)) </k>
-  rule <k> power => f(2 ^Int i(16777217)) </k>
-  rule <k> f(_) => done </k>
-endmodule
-"#;
     let (root, definition) = fixture();
-    fs::write(&definition, SOURCE).unwrap();
+    fs::write(&definition, SEARCH_BOUND).unwrap();
     let input = root.join("go.search");
     fs::write(&input, "go").unwrap();
     let power = root.join("power.search");
@@ -7189,47 +7156,6 @@ fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
         fs::remove_dir_all(root).unwrap();
     }
 }
-
-/// A trusted lemma or rule records a condition over X, either a kept unifier equation or
-/// the definedness of a discarded partial argument, before the collection solver binds X
-/// from a set element. The application covers only instances where the condition holds of
-/// the bound value. Both lemmas are true; both main claims are false at A = 0. The rule's
-/// condition is c(B, A) = f(A).
-const LATER_BINDING_KEPT: &str = r#"
-module LEMMAKEPT
-  imports INT
-  imports SET
-  syntax Elem ::= a(Int) | b(Int)
-  syntax KItem ::= go(Set) | run(Int, Set) | done(Int)
-  configuration <k> $PGM:K </k>
-  rule <k> go(S) => run(5, S) ... </k>
-  rule <k> run(N, SetItem(a(X)) _S) => done(X) ... </k> requires N ==Int X +Int 1
-endmodule
-module LEMMAKEPT-SPEC
-  imports LEMMAKEPT
-  claim [lemma]: <k> run(X +Int 1, SetItem(a(X)) SetItem(b(_Y))) => done(X) ... </k> [trusted]
-  claim [main]: <k> go(SetItem(a(A)) SetItem(b(_B))) => done(A) ... </k>
-endmodule
-"#;
-
-const LATER_BINDING_RECOVERED: &str = r#"
-module LEMMADEF
-  imports INT
-  imports SET
-  syntax Elem ::= a(Int) | b(Int)
-  syntax KItem ::= go(Set) | run(Int, Set) | done(Int)
-  syntax Int ::= h(Int) [function, total]
-  configuration <k> $PGM:K </k>
-  rule h(_) => 7
-  rule <k> go(S) => run(7, S) ... </k>
-  rule <k> run(7, SetItem(a(X)) _S) => done(X) ... </k> requires X =/=Int 0
-endmodule
-module LEMMADEF-SPEC
-  imports LEMMADEF
-  claim [lemma]: <k> run(h(10 /Int X), SetItem(a(X)) SetItem(b(_Y))) => done(X) ... </k> [trusted]
-  claim [main]: <k> go(SetItem(a(A)) SetItem(b(_B))) => done(A) ... </k>
-endmodule
-"#;
 
 #[test]
 fn kprove_claim_condition_over_a_later_binding_is_stated_under_it() {
@@ -11879,67 +11805,6 @@ fn krun_executes_bn128_fixture_to_pinned_kore_results() {
     }
     fs::remove_dir_all(root).unwrap();
 }
-
-/// The BN128 section of `plugin/krypto.md` at blockchain-k-plugin `651a2db5`, the plugin the pinned
-/// KEVM uses, verbatim in a module of the same name: its point productions carry no `symbol`
-/// attribute, so their Kore labels are generated from the production.
-const PINNED_PLUGIN_BN128: &str = r#"
-module KRYPTO
-    imports BOOL-SYNTAX
-    imports INT-SYNTAX
-    imports LIST
-
-    syntax G1Point ::= "(" Int "," Int ")" [prefer]
-    syntax G2Point ::= "(" Int "x" Int "," Int "x" Int ")"
-    syntax G1Point ::= BN128Add(G1Point, G1Point) [function, hook(KRYPTO.bn128add)]
-                     | BN128Mul(G1Point, Int)     [function, hook(KRYPTO.bn128mul)]
-
-    syntax Bool ::= BN128AtePairing(List, List) [function, hook(KRYPTO.bn128ate)]
-
-    syntax Bool ::= isValidPoint(G1Point) [function, hook(KRYPTO.bn128valid)]
-                  | isValidPoint(G2Point) [function, symbol(isValidG2Point), hook(KRYPTO.bn128g2valid)]
-endmodule
-
-module MAIN
-  imports INT
-  imports BOOL
-  imports LIST
-  imports KRYPTO
-
-  syntax G1Point ::= alt(Int, Int, Int)
-  syntax Check ::= "valid" | "off-curve" | "other-constructor" | "g2-valid" | "add" | "mul"
-                 | "pairing"
-  syntax KItem ::= result(K)
-
-  rule <k> valid => result(isValidPoint((1, 2))) </k>
-  rule <k> off-curve => result(isValidPoint((1, 3))) </k>
-  rule <k> other-constructor => result(isValidPoint(alt(1, 2, 0))) </k>
-  rule <k> g2-valid => result(isValidPoint((
-      10857046999023057135944570762232829481370756359578518086990519993285655852781
-        x 11559732032986387107991004021392285783925812861821192530917403151452391805634,
-      8495653923123431417604973247489272438418190587263600148770280649306958101930
-        x 4082367875863433681332203403145435568316851327593401208105741076214120093531)))
-  </k>
-  rule <k> add => result(BN128Add((1, 2), (1, 2))) </k>
-  rule <k> mul => result(BN128Mul((1, 2), 2)) </k>
-  rule <k> pairing => result(BN128AtePairing(
-    ListItem((1, 2))
-      ListItem((1, 21888242871839275222246405745257275088696311157297823662689037894645226208581)),
-    ListItem((
-      10857046999023057135944570762232829481370756359578518086990519993285655852781
-        x 11559732032986387107991004021392285783925812861821192530917403151452391805634,
-      8495653923123431417604973247489272438418190587263600148770280649306958101930
-        x 4082367875863433681332203403145435568316851327593401208105741076214120093531))
-      ListItem((
-        10857046999023057135944570762232829481370756359578518086990519993285655852781
-          x 11559732032986387107991004021392285783925812861821192530917403151452391805634,
-        8495653923123431417604973247489272438418190587263600148770280649306958101930
-          x 4082367875863433681332203403145435568316851327593401208105741076214120093531))))
-  </k>
-
-  configuration <k> $PGM:Check </k>
-endmodule
-"#;
 
 #[test]
 fn krun_evaluates_bn128_hooks_on_the_pinned_plugin_point_productions() {

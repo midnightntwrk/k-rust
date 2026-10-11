@@ -33,6 +33,47 @@ module OVL-SPEC
 endmodule
 "#;
 
+/// A trusted lemma or rule records a condition over X, either a kept unifier equation or
+/// the definedness of a discarded partial argument, before the collection solver binds X
+/// from a set element. The application covers only instances where the condition holds of
+/// the bound value. Both lemmas are true; both main claims are false at A = 0. The rule's
+/// condition is c(B, A) = f(A).
+pub const LATER_BINDING_KEPT: &str = r#"
+module LEMMAKEPT
+  imports INT
+  imports SET
+  syntax Elem ::= a(Int) | b(Int)
+  syntax KItem ::= go(Set) | run(Int, Set) | done(Int)
+  configuration <k> $PGM:K </k>
+  rule <k> go(S) => run(5, S) ... </k>
+  rule <k> run(N, SetItem(a(X)) _S) => done(X) ... </k> requires N ==Int X +Int 1
+endmodule
+module LEMMAKEPT-SPEC
+  imports LEMMAKEPT
+  claim [lemma]: <k> run(X +Int 1, SetItem(a(X)) SetItem(b(_Y))) => done(X) ... </k> [trusted]
+  claim [main]: <k> go(SetItem(a(A)) SetItem(b(_B))) => done(A) ... </k>
+endmodule
+"#;
+
+pub const LATER_BINDING_RECOVERED: &str = r#"
+module LEMMADEF
+  imports INT
+  imports SET
+  syntax Elem ::= a(Int) | b(Int)
+  syntax KItem ::= go(Set) | run(Int, Set) | done(Int)
+  syntax Int ::= h(Int) [function, total]
+  configuration <k> $PGM:K </k>
+  rule h(_) => 7
+  rule <k> go(S) => run(7, S) ... </k>
+  rule <k> run(7, SetItem(a(X)) _S) => done(X) ... </k> requires X =/=Int 0
+endmodule
+module LEMMADEF-SPEC
+  imports LEMMADEF
+  claim [lemma]: <k> run(h(10 /Int X), SetItem(a(X)) SetItem(b(_Y))) => done(X) ... </k> [trusted]
+  claim [main]: <k> go(SetItem(a(A)) SetItem(b(_B))) => done(A) ... </k>
+endmodule
+"#;
+
 pub const LATER_BINDING_RULE: &str = r#"
 module RULESOLVED
   imports INT

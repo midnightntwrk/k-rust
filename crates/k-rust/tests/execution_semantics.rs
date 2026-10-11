@@ -5,16 +5,21 @@
 //! (printed KORE, exit status); the tests here compile the definition, assemble the initial
 //! configuration from the program text as `krun` does, and ask the backend for the run directly.
 
+#[path = "support/execution_sources.rs"]
+mod execution_sources;
+use execution_sources::{NO_EVALUATOR, PINNED_PLUGIN_BN128, SEARCH_BOUND};
+
 use k_rust::{
     backend::{
         Backend, BackendOptions, ExecuteRequest, ExecutionResult, HaltReasonOutput,
         SearchPatternRequest, SearchTypeArg,
     },
     builtin::embedded,
+    definition::ResolvedDefinition,
     kast::Sort,
     kompile::{
         CompilationBackend, CompileOptions, ConfigurationAssembler, ProgramGrammar,
-        compile_loaded_definition,
+        compile_loaded_definition, compile_search_pattern,
     },
     kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_with_options},
@@ -25,6 +30,25 @@ use k_rust::{
 struct Compiled {
     kore: String,
     initial: Pattern,
+    /// The parsing and execution contexts of the compilation, as `krun` reads a `--pattern`.
+    grammar: ProgramGrammar,
+    execution: ResolvedDefinition,
+}
+
+impl Compiled {
+    /// The search target `contents` (a rule body, `<k> f(X) </k> requires X >Int 0`) compiled in
+    /// `module` as `krun --pattern` compiles it.
+    fn target(&self, module: &str, contents: &str) -> Pattern {
+        compile_search_pattern(
+            self.grammar.resolved(),
+            &self.execution,
+            module,
+            contents,
+            Default::default(),
+        )
+        .unwrap()
+        .pattern
+    }
 }
 
 /// Compile `source` (main module `main`, programs parsed with `syntax`) and assemble the initial
@@ -64,9 +88,12 @@ fn compile_bound(
     for (name, text) in bindings {
         assembler.bind(name, text).unwrap();
     }
+    let initial = assembler.finish().unwrap();
     Compiled {
         kore: artifacts.definition_kore,
-        initial: assembler.finish().unwrap(),
+        initial,
+        execution: ResolvedDefinition::resolve(&artifacts.execution_definition).unwrap(),
+        grammar,
     }
 }
 
@@ -329,4 +356,258 @@ fn rules_append_their_output_to_the_stream_buffer() {
     assert_eq!(buffered("literal"), [["literal output"]]);
     assert_eq!(buffered("stdin"), [["textoutput"]]);
     assert_eq!(buffered("branch"), [["first"], ["second"]]);
+}
+
+/// The BN128 hooks evaluate on the point productions of the pinned plugin, whose KORE labels are
+/// generated from the production: membership is `true` on the generator of each group and `false`
+/// off the curve or on another constructor of `G1Point`, adding the generator to itself and
+/// multiplying it by two give the same point, and the pairing check holds. Each run ends in one
+/// `result` with the hook's value, no application left.
+#[test]
+fn the_bn128_hooks_evaluate_on_the_pinned_plugin_point_productions() {
+    let doubled = concat!(
+        r#"Lbl'LParUndsCommUndsRParUnds'KRYPTO'Unds'G1Point'Unds'Int'Unds'Int{}("#,
+        r#"\dv{SortInt{}}("1368015179489954701390400359078579693043519447331113978918064868415326638035"), "#,
+        r#"\dv{SortInt{}}("9918110051302171585080402603319702774565515993150576347155970296011118125764"))"#,
+    );
+    let boolean = |value: &str| format!(r#"\dv{{SortBool{{}}}}("{value}")"#);
+    for (check, expected) in [
+        ("valid", boolean("true")),
+        ("off-curve", boolean("false")),
+        ("other-constructor", boolean("false")),
+        ("g2-valid", boolean("true")),
+        ("add", doubled.to_owned()),
+        ("mul", doubled.to_owned()),
+        ("pairing", boolean("true")),
+    ] {
+        let compiled = compile(PINNED_PLUGIN_BN128, "MAIN", "MAIN", "Check", check);
+        let result = execute(&compiled, "MAIN", Some(10));
+        let [state] = text(&result)
+            .try_into()
+            .unwrap_or_else(|leaves| panic!("{check}: {leaves:?}"));
+        assert!(
+            state.contains("Lblresult") && state.contains(&expected),
+            "{check}: {state}"
+        );
+        assert!(
+            !state.contains("BN128") && !state.contains("isValid"),
+            "{check}: {state}"
+        );
+    }
+}
+
+/// An application of a `total` hook without an evaluator (`expFloat`) is left unevaluated with a
+/// diagnostic, so a run whose result does not depend on it ends with that result; a run that
+/// decides a condition over it, or ends on a configuration holding it, halts on the
+/// unsupported-hook reason, as does one that reaches a partial hook without an evaluator
+/// (`logFloat`), whose definedness is unknown even where the application is discarded.
+#[test]
+fn an_application_without_an_evaluator_halts_a_run_only_where_it_is_needed() {
+    let item = |sort: &str, value: &str| {
+        format!(r#"inj{{Sort{sort}{{}}, SortKItem{{}}}}(\dv{{Sort{sort}{{}}}}("{value}"))"#)
+    };
+    for (program, value) in [
+        ("unused", item("Bool", "false")),
+        ("branch", item("Int", "7")),
+    ] {
+        let compiled = compile(NO_EVALUATOR, "NOEVAL", "NOEVAL", "Pgm", program);
+        let result = execute(&compiled, "NOEVAL", Some(10));
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("{program}: {result:?}");
+        };
+        assert_eq!(
+            leaf.reason,
+            HaltReasonOutput::Stuck,
+            "{program}: {result:?}"
+        );
+        let [state] = text(&result).try_into().unwrap();
+        assert!(state.contains(&value), "{program}: {state}");
+        let diagnostics = format!("{:?}", leaf.diagnostics);
+        assert!(
+            diagnostics.contains("UnsupportedHookUnevaluated") && diagnostics.contains("FLOAT.exp"),
+            "{program}: {diagnostics}"
+        );
+    }
+    for (program, hook) in [
+        ("used", "FLOAT.exp"),
+        ("decide", "FLOAT.exp"),
+        ("partial", "FLOAT.log"),
+    ] {
+        let compiled = compile(NO_EVALUATOR, "NOEVAL", "NOEVAL", "Pgm", program);
+        let result = execute(&compiled, "NOEVAL", Some(10));
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("{program}: {result:?}");
+        };
+        assert_eq!(leaf.reason, HaltReasonOutput::UnsupportedHook, "{program}");
+        let detail = leaf.detail.as_deref().unwrap_or_default();
+        assert!(
+            detail.contains(&format!(
+                "unsupported hook '{hook}' on constructor-like arguments"
+            )),
+            "{program}: {detail}"
+        );
+        let [state] = text(&result).try_into().unwrap();
+        assert!(
+            !state.contains("Lblpos") && !state.contains("Lblnonpos"),
+            "{program}: {state}"
+        );
+    }
+}
+
+/// A search target's condition over a `^Int` result above the size bound is decided by the
+/// solver, which reads `^Int` as the interpreted power: the final `f(X)` of `power` is a solution
+/// of `X >Int 0` and not of `X <=Int 0`. One over a `<<Int` result above the bound (no
+/// interpreted encoding) is not decided either way: the search reports the state as incomplete
+/// with the unsupported-hook reason and finds no solution.
+#[test]
+fn a_search_condition_on_a_result_above_the_size_bound_is_decided_only_by_an_interpreted_hook() {
+    let search = |program: &str, condition: &str| {
+        let compiled = compile(SEARCH_BOUND, "SEARCH-BOUND", "SEARCH-BOUND", "Pgm", program);
+        let target = compiled.target(
+            "SEARCH-BOUND",
+            &format!("<k> f(X) </k> requires {condition}"),
+        );
+        let mut backend =
+            Backend::new(&compiled.kore, "SEARCH-BOUND", BackendOptions::default()).unwrap();
+        backend
+            .search_pattern(SearchPatternRequest {
+                search_type: SearchTypeArg::All,
+                ..SearchPatternRequest::new(compiled.initial, target)
+            })
+            .unwrap()
+    };
+    for (condition, solutions) in [("X >Int 0", 1), ("X <=Int 0", 0)] {
+        let response = search("power", condition);
+        assert!(
+            response.incomplete.is_empty(),
+            "{condition}: {:?}",
+            response.incomplete
+        );
+        assert_eq!(
+            response.matches.len(),
+            solutions,
+            "{condition}: {:?}",
+            response.matches
+        );
+    }
+    for condition in ["X <=Int 0", "X >Int 0"] {
+        let response = search("go", condition);
+        assert!(
+            response.matches.is_empty(),
+            "{condition}: {:?}",
+            response.matches
+        );
+        let incomplete = format!("{:?}", response.incomplete);
+        assert!(
+            incomplete.contains("INT.shl") && incomplete.contains("16777217"),
+            "{condition}: {incomplete}"
+        );
+    }
+}
+
+/// An initial configuration whose constraint is unsatisfiable (`N ==Int 0` and `N =/=Int 0`) but
+/// not simplified to `\bottom` takes the rule step, whose path constraint is then refuted: the
+/// run ends in one vacuous leaf at depth 1 whose state is `\bottom`.
+#[test]
+fn a_step_under_a_refuted_path_constraint_is_a_vacuous_leaf() {
+    const SOURCE: &str = r#"
+module MAIN
+  imports INT
+  syntax State ::= "a" | "b"
+  configuration <k> $PGM:State </k>
+  rule a => b [label(step)]
+endmodule
+"#;
+    let compiled = compile(SOURCE, "MAIN", "MAIN", "State", "a");
+    let condition = |operator: &str| {
+        format!(
+            r#"\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}({operator}{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("0")), \dv{{SortBool{{}}}}("true"))"#
+        )
+    };
+    let constrained = parse_pattern(&format!(
+        r#"\and{{SortGeneratedTopCell{{}}}}({}, \and{{SortGeneratedTopCell{{}}}}({}, {}))"#,
+        Printer::compact().print_pattern(&compiled.initial),
+        condition("Lbl'UndsEqlsEqls'Int'Unds'"),
+        condition("Lbl'UndsEqlsSlshEqls'Int'Unds'"),
+    ))
+    .unwrap();
+    let mut backend = Backend::new(&compiled.kore, "MAIN", BackendOptions::default()).unwrap();
+    let result = backend.execute(ExecuteRequest::new(constrained)).unwrap();
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("{result:?}");
+    };
+    assert_eq!((leaf.reason, leaf.depth), (HaltReasonOutput::Vacuous, 1));
+    assert_eq!(text(&result), [r"\bottom{SortGeneratedTopCell{}}()"]);
+}
+
+/// Narrowing the symbolic map of `<m>` against the `mapsel` rule's `(_K |-> _V) REST` binds the
+/// frame and the entry to fresh variables, which the result names with KORE identifiers.
+#[test]
+fn fresh_remainder_variables_are_kore_identifiers() {
+    let compiled = compile(
+        include_str!("fixtures/reference/matching/map/test.k"),
+        "TEST",
+        "TEST",
+        "Pgm",
+        "go",
+    );
+    let initial =
+        parse_pattern(include_str!("fixtures/reference/matching/map/pgm-map.kore")).unwrap();
+    let mut backend = Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
+    let result = backend
+        .execute(ExecuteRequest {
+            max_depth: Some(1),
+            ..ExecuteRequest::new(initial)
+        })
+        .unwrap();
+    let variable = regex::Regex::new(r"([^\s(),{}]+):Sort").unwrap();
+    let mut names = text(&result)
+        .iter()
+        .flat_map(|state| {
+            variable
+                .captures_iter(state)
+                .map(|found| found[1].to_owned())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
+    let kore_identifier = |name: &str| {
+        let mut characters = name.chars();
+        characters
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic())
+            && characters
+                .all(|character| character.is_ascii_alphanumeric() || "'-".contains(character))
+    };
+    assert!(names.iter().all(|name| kore_identifier(name)), "{names:?}");
+    assert!(names.contains(&"Ex-hFrame-b0".to_owned()), "{names:?}");
+    assert!(names.contains(&"VarM".to_owned()), "{names:?}");
+}
+
+/// The solver prelude of a definition holding two `smt-lemma` equations of one function with
+/// different results is inconsistent, so a run that needs the solver reports that failure as its
+/// result, though a rule could rewrite without end.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_run_reports_an_inconsistent_solver_prelude() {
+    let compiled = compile(
+        include_str!("fixtures/inconsistent-smt-prelude-loop.k"),
+        "LIVENESS-KRUN",
+        "LIVENESS-KRUN",
+        "State",
+        "start(f(0))",
+    );
+    let mut backend =
+        Backend::new(&compiled.kore, "LIVENESS-KRUN", BackendOptions::default()).unwrap();
+    let error = backend
+        .execute(ExecuteRequest {
+            max_depth: Some(10),
+            ..ExecuteRequest::new(compiled.initial)
+        })
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "could not initialize Z3: InconsistentPrelude"
+    );
 }

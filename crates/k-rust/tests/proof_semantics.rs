@@ -18,8 +18,8 @@ use k_rust::{
 #[path = "support/proof_sources.rs"]
 mod proof_sources;
 use proof_sources::{
-    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_RULE, LET_PARTIAL_CONDITION, NEGATIVE_POWER,
-    UNDEFINED_STEP,
+    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_KEPT, LATER_BINDING_RECOVERED, LATER_BINDING_RULE,
+    LET_PARTIAL_CONDITION, NEGATIVE_POWER, UNDEFINED_STEP,
 };
 
 /// The KORE of `source` compiled for proving `spec` against `definition`, as `kprove` compiles a
@@ -101,6 +101,37 @@ fn a_lower_priority_rule_applies_to_the_simplified_remainder() {
 /// The rule binds `X` only in a later argument (`c(X, Y)` is matched against `f(A)`, which no
 /// equation evaluates), so the step's condition over `X` is stated under the binding the match
 /// leaves, and the claim fails on a `bar` leaf that names no rule variable and no existential.
+/// A trusted lemma whose condition is over a variable a set element binds later applies only
+/// where the condition holds of the bound value: each lemma is proven, and each main claim,
+/// false at `A = 0`, is disproved by a stuck leaf.
+#[test]
+fn a_claim_condition_over_a_later_binding_is_stated_under_it() {
+    for (source, module) in [
+        (LATER_BINDING_KEPT, "LEMMAKEPT"),
+        (LATER_BINDING_RECOVERED, "LEMMADEF"),
+    ] {
+        let spec = format!("{module}-SPEC");
+        let kore = compile(source, &spec, module);
+        let status = |claim: &str| {
+            prove(
+                &kore,
+                &spec,
+                &format!("{spec}.{claim}"),
+                ProveRequest::default(),
+            )
+        };
+        assert_eq!(status("lemma").status, "proven", "{module}");
+        let main = status("main");
+        assert_eq!(main.status, "disproved", "{module}: {main:?}");
+        assert!(
+            main.leaves
+                .iter()
+                .any(|leaf| leaf.outcome.contains("Stuck")),
+            "{module}: {main:?}"
+        );
+    }
+}
+
 #[test]
 fn a_rule_condition_over_a_later_binding_is_stated_under_it() {
     let kore = compile(LATER_BINDING_RULE, "RULESOLVED-SPEC", "RULESOLVED");
@@ -205,4 +236,55 @@ fn a_power_no_integer_is_the_value_of_proves_nothing() {
     let status = |claim: &str| prove(&kore, "NEGPOW-SPEC", claim, ProveRequest::default()).status;
     assert_ne!(status("NEGPOW-SPEC.negative"), "proven");
     assert_eq!(status("NEGPOW-SPEC.minus-one"), "proven");
+}
+
+/// `JUMPI` on `bool2Word(X <Int 0)` branches on the sign of `X`. The claim whose target `<pc>`
+/// is the `#if` of that condition is proven, with or without a lemma about `bool2Word`, and each
+/// claim that fixes one target `<pc>` fails on the other branch: `bool2Word` has no solver
+/// translation, so the failing leaf is non-empty only modulo that abstraction and the claim
+/// fails without being disproved.
+#[test]
+fn an_implication_through_an_untranslated_function_splits_on_its_condition() {
+    const ITE: &str = include_str!("fixtures/reference/implication/ite-bug/ite-bug.k");
+    const ITE_NO_LEMMA: &str =
+        include_str!("fixtures/reference/implication/ite-bug/nolemma/ite-bug.k");
+    let cases = [
+        (
+            ITE,
+            include_str!("fixtures/reference/implication/ite-bug/passing-spec.k"),
+            "PASSING-SPEC",
+            "proven",
+        ),
+        (
+            ITE,
+            include_str!("fixtures/reference/implication/ite-bug/failing-1-spec.k"),
+            "FAILING-1-SPEC",
+            "failed",
+        ),
+        (
+            ITE,
+            include_str!("fixtures/reference/implication/ite-bug/failing-2-spec.k"),
+            "FAILING-2-SPEC",
+            "failed",
+        ),
+        (
+            ITE_NO_LEMMA,
+            include_str!("fixtures/reference/implication/ite-bug/nolemma/passing-spec.k"),
+            "PASSING-SPEC",
+            "proven",
+        ),
+    ];
+    for (definition, spec_text, spec, status) in cases {
+        let kore = compile(&format!("{definition}\n{spec_text}"), spec, "ITE-BUG");
+        let result = prove(
+            &kore,
+            spec,
+            "#0",
+            ProveRequest {
+                max_depth: Some(10),
+                ..ProveRequest::default()
+            },
+        );
+        assert_eq!(result.status, status, "{spec}: {result:?}");
+    }
 }
