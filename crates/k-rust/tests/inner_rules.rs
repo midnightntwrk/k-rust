@@ -875,6 +875,93 @@ fn a_rewrite_below_the_body_root_does_not_win_over_user_syntax_reusing_its_token
     }
 }
 
+/// Each reading of a body is judged by itself. With user syntax that reuses `=>` twice
+/// (`A "=>" A "=>" A`), `a => (b => a) + a => a` has readings rooted at either of the rule's
+/// unparenthesized `=>`, and each puts one rewrite directly below the other, which the rewrite's
+/// associativity forbids, so neither denotes a term. The reading through the user's syntax,
+/// `two(a, (b => a) + a, a)`, puts its one rewrite under parentheses, where a rewrite may stand:
+/// it is the only term the text denotes, so it is the body, with no error to report.
+#[test]
+fn a_body_whose_rewrite_readings_all_break_a_relation_reads_through_user_syntax() {
+    let source = r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+             | "b" [symbol(b)]
+             | A "*" A [left, symbol(times)]
+             > A "+" A [left, symbol(plus)]
+  syntax S ::= A "=>" A "=>" A [symbol(two)]
+  rule a => (b => a) + a => a
+endmodule
+"#;
+    let definition = resolve_rule_bubbles(&lowered(source)).unwrap();
+    assert_eq!(
+        only_rule_body(&definition),
+        "two(a(.KList),plus(b(.KList)=>a(.KList),a(.KList)),a(.KList))"
+    );
+}
+
+/// The error of a rule body none of whose readings denotes a term, in a module of plain operators
+/// that reuse no structural token.
+fn plain_rule_error(rule: &str) -> ParseError {
+    let source = format!(
+        r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+             | A "*" A [left, symbol(times)]
+             > A "+" A [left, symbol(plus)]
+  syntax KItem ::= g(K, K) [symbol(g)]
+  rule {rule}
+endmodule
+"#
+    );
+    match resolve_rule_bubbles(&lowered(&source)) {
+        Err(RuleError::Parse(error)) => error.error,
+        other => panic!("{rule}: expected a parse error, got {other:?}"),
+    }
+}
+
+/// When no reading of a body denotes a term and some derivation puts a rewrite where it has no
+/// meaning, the misplaced rewrite is reported: `a => a ~> a => a` meant `(a => a) ~> (a => a)`,
+/// and parentheses are the fix. Every derivation that keeps both rewrites out of the sequence
+/// makes one the right child of the other, but that violation only follows from moving a rewrite
+/// out of the place the user wrote it.
+#[test]
+fn a_body_with_no_reading_reports_a_misplaced_rewrite_before_another_violation() {
+    for (rule, parent) in [
+        ("a => a => a ~> a", "#KSequence"),
+        ("a => a ~> a => a", "#KSequence"),
+        ("a ~> a => a => a", "#KSequence"),
+        ("a => #let a = a #in a => a", "#let"),
+    ] {
+        assert_eq!(
+            plain_rule_error(rule),
+            ParseError::Scope {
+                parent: parent.to_owned(),
+                child: "#KRewrite".to_owned(),
+            },
+            "{rule}"
+        );
+    }
+}
+
+/// Without a derivation that breaks a scope where the readings fail, the violation of a body
+/// with no reading is the one its derivations do break there: `a => a => a` keeps every rewrite
+/// where a rewrite may stand. In `g(a => a => a, a => a + a)` only the first argument has no
+/// reading; the second has a valid one (`a => (a + a)`), so its misplaced reading
+/// (`(a => a) + a`) is not what fails, and the first argument's violation is reported.
+#[test]
+fn a_body_with_no_misplaced_construct_reports_its_own_violation() {
+    for rule in ["a => a => a", "g(a => a => a, a => a + a)"] {
+        let error = plain_rule_error(rule);
+        assert!(
+            matches!(
+                error,
+                ParseError::Associativity { ref parent, ref child, .. }
+                    if parent == "#KRewrite" && child == "#KRewrite"
+            ),
+            "{rule}: {error:?}"
+        );
+    }
+}
+
 /// `polymorphic_rhs_keeps_overload_branch_parameters_independent` (cgascap) without the
 /// prelude, so that the portable build reaches the rule: its two well-sorted readings share one
 /// maximal typing and differ in the `cap` overload and the instantiation of `ite`'s parameter.

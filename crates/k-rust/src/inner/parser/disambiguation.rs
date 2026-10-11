@@ -537,7 +537,7 @@ impl Grammar {
                     } => {
                         let descriptor = &self.productions[*production];
                         let child_count = children.len();
-                        let filtered_children = children
+                        let results = children
                             .iter()
                             .enumerate()
                             .map(|(index, child)| {
@@ -549,7 +549,25 @@ impl Grammar {
                                     child_memo,
                                 )
                             })
-                            .collect::<Result<Vec<_>, _>>()?;
+                            .collect::<Vec<_>>();
+                        // Every child is judged, so that a node failing at several children
+                        // reports a scope error when one of them has it (`canonical_packed_error`).
+                        let filtered_children = match results
+                            .iter()
+                            .filter_map(|result| result.as_ref().err())
+                            .reduce(|first, error| {
+                                if !first.is_scope() && error.is_scope() {
+                                    error
+                                } else {
+                                    first
+                                }
+                            }) {
+                            Some(error) => return Err(error.clone()),
+                            None => results
+                                .into_iter()
+                                .collect::<Result<Vec<_>, _>>()
+                                .expect("no child failed"),
+                        };
                         if filtered_children
                             .iter()
                             .zip(children)
@@ -797,6 +815,13 @@ impl Grammar {
                 metadata: crate::kast::TermMetadata::default(),
             };
             if let Some(error) = self.child_violation(&self.productions[parent], &shallow, side) {
+                // A scope error below the edge is reported before another violation at it.
+                if !error.is_scope()
+                    && let Err(below) = self.filter_packed_priority_memo(child, memo, child_memo)
+                    && below.is_scope()
+                {
+                    return Err(below);
+                }
                 return Err(error);
             }
         }

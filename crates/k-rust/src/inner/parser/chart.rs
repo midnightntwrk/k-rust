@@ -743,10 +743,24 @@ pub(super) fn completed_nodes(
     completed
 }
 
+/// The error of an ambiguity none of whose readings passes: a scope error of one of them when
+/// some reading breaks a scope ([`ParseError::is_scope`]), else the error of any reading, in
+/// each case that of the structurally least such reading, so the choice depends on the readings
+/// and not on the order they arrived in.
+///
+/// A misplaced rewrite, sequence or `#let` is the error to report where a reading breaks one:
+/// in `a => a ~> a => a`, meant as `(a => a) ~> (a => a)`, parentheses are the fix, and the
+/// associativity violation of the readings that move a rewrite out of the sequence
+/// (`a => ((a ~> a) => a)`) follows only from reading a rewrite where it was not written.
 pub(super) fn canonical_packed_error(errors: Vec<(Rc<PackedTerm>, ParseError)>) -> ParseError {
     errors
         .into_iter()
-        .min_by(|(left, _), (right, _)| cmp_packed_structurally(left, right))
+        .min_by(|(left, left_error), (right, right_error)| {
+            right_error
+                .is_scope()
+                .cmp(&left_error.is_scope())
+                .then_with(|| cmp_packed_structurally(left, right))
+        })
         .map(|(_, error)| error)
         .expect("an empty packed ambiguity had no invalid alternative")
 }

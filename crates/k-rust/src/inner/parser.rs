@@ -845,6 +845,13 @@ pub enum ParseError {
     },
 }
 
+impl ParseError {
+    /// Whether this is a rewrite, sequence or `#let` below a parent that gives it no meaning.
+    pub(crate) fn is_scope(&self) -> bool {
+        matches!(self, Self::Scope { .. })
+    }
+}
+
 impl fmt::Display for ParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
