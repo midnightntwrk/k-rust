@@ -603,6 +603,15 @@ The manual's default precedence, 0, is the default of regular-expression tokens;
 A production's `prec(N)` gives its literals precedence `N` as it gives its regular expressions, in the in-process scanner and in generated parsers alike: with `syntax Foo ::= "ab" [token, prec(-1)]` and `syntax Bar ::= r"[a-z]+" [token]`, the text `ab` is a `Bar`.
 Every production that mentions a literal declares its precedence, explicitly or by default, so a literal that one production gives `prec(-1)` and another mentions without `prec` is rejected, whichever comes first, as a regular expression with two precedences is.
 
+The scanner reads one token at each position, by these rules alone, and does not ask what the parse expects there: the token stream of a text is a lexical fact that every reading of it shares.
+A rule or configuration grammar holds K's own lexemes beside the module's: `#LowerId` and `#UpperId` (`prec(2)`), the `KLabel` and `#KVariable` spellings and, in a configuration, `#CellName` (`prec(1)`).
+They outrank a module's regular expression of the default precedence, so a cell name, a label and a variable stay writable whatever identifier regex the module declares; a module whose `syntax Name ::= r"[a-z]+" [token, prec(3)]` outranks them can no longer write `<k>`.
+So with `syntax Name ::= r"[a-z]+" [token]`, a rule's `run ab` reads `ab` as a `#LowerId`, and has no reading where a `Name` is expected, as `run ab . cd` has none for a phrase token over `Name` (the pinned reference rejects `run ab` as well).
+The parse error then names the token, the lexeme that read it and the expected lexeme that matches the same text, and spells the token as a literal, `#token("ab", "Name")`; inside a phrase, where a literal is no program text, it says to write the whole phrase as one, `#token("ab . cd", "Toks")`.
+A module that wants such names written as program text in its rules says so: `syntax Name ::= #LowerId [token]` (importing `BUILTIN-ID-TOKENS`) makes the `#LowerId` token `ab` a `Name` token of the same text, and so `run ab . cd` the `Toks` token `ab . cd`; this also adds `#LowerId` to the module's program syntax.
+The note is given for the failing token, and for the token before it when the lexeme that lost it could go on with the failing token, so a keyword that is read correctly is not reported.
+(`a_no_parse_names_an_expected_lexeme_that_lost_the_text_of_a_token_by_precedence` in [inner_parser.rs](../crates/k-rust/tests/inner_parser.rs), `reference_scan_b_lowercase_identifier_is_not_a_user_token_in_rules` and `a_lowercase_name_in_a_phrase_is_read_by_the_rule_grammar_lexeme_that_outranks_it` in [inner_rules.rs](../crates/k-rust/tests/inner_rules.rs).)
+
 ## Token regex line anchors
 
 A token regex `^R`, `R$` or `^R$` denotes the tokens of `R` under a condition on where the token is in the scanned text, not on what it contains. `^` holds when the token starts the text or follows a line end, and `$` holds when a line end follows the token. The line end is not part of the token and does not count when candidate tokens are compared by length, and the end of the text is not a line end.

@@ -186,6 +186,7 @@ fn parse_program_exposes_the_structured_noparse_diagnostic() {
                     value: "bad".into(),
                 },
                 previous: Some("ok".into()),
+                shadowed: None,
                 span: Some(TermSpan {
                     source: SourceId(7),
                     start: 3,
@@ -211,7 +212,7 @@ fn parse_program_exposes_the_structured_noparse_diagnostic() {
             previous: Some(previous),
             span: None,
             ..
-        } if value == "bad" && previous == "ok"
+        } if value == "bad" && &**previous == "ok"
     ));
     assert_eq!(
         legacy.to_string(),
