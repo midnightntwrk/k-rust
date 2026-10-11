@@ -258,6 +258,13 @@ fn map_of(n: u64) -> String {
     })
 }
 
+/// `n` bindings `index |-> V<index>`: ground keys, each bound to a variable of its own.
+fn symbolic_map_of(n: u64) -> String {
+    collection_text("mapConcat{}", "mapUnit{}", n, |index| {
+        format!(r#"mapItem{{}}(\dv{{SortInt{{}}}}("{index}"), V{index}:SortInt{{}})"#)
+    })
+}
+
 fn list_of(n: u64) -> String {
     collection_text("listConcat{}", "listUnit{}", n, |index| {
         format!(r#"listItem{{}}(\dv{{SortInt{{}}}}("{index}"))"#)
@@ -418,6 +425,24 @@ fn reading_one_map_binding_by_matching_costs_the_same_on_a_larger_map() {
     assert_step_independent_of_size("map, one binding matched per step", 256, |size| {
         shape_steps(&definition, "rstate", "cmstate", &map_of, size, 0)
     });
+}
+
+/// A map whose values are distinct variables, so that the map and every term above it carry as
+/// many variables as the map has bindings. Each step overwrites the binding of a present key,
+/// `N |-> V<N>` by `N |-> N`, so it removes one variable from the map's and the configuration's
+/// variable sets: the step changes one binding and one variable, and what it pays for the other
+/// bindings and variables must not grow with them.
+#[test]
+fn overwriting_one_symbolic_map_binding_costs_the_same_on_a_larger_map() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(COLLECTIONS);
+    assert_step_independent_of_size(
+        "symbolic map, one variable binding overwritten per step",
+        256,
+        |size| shape_steps(&definition, "mstate", "cmstate", &symbolic_map_of, size, 0),
+    );
 }
 
 // ---------- chains: one level of a nested input per unit ----------
