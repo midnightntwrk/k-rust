@@ -726,11 +726,11 @@ fn the_run_driver_searches_the_renamings_of_one_state_once() {
 
 /// A definition with a `multiplicity="*"` cell `<r>` of collection type `COLLECTION`, and pairs
 /// of commands that read one instance written as a cell (`get`, `anyP`) and as an alias of that
-/// cell (`getA`, `anyPA`). `mk` adds an instance.
+/// cell (`getA`, `anyPA`). `mk` adds an instance written as a cell, `put` one held by a variable.
 const ALIASED_INSTANCES: &str = r#"
 module TEST-SYNTAX
   imports INT-SYNTAX
-  syntax Cmd ::= mk(Int, Int) | get(Int) | getA(Int) | anyP() | anyPA()
+  syntax Cmd ::= mk(Int, Int) | put(Int, Int) | get(Int) | getA(Int) | anyP() | anyPA()
   syntax Pgm ::= Cmd | Cmd ";" Pgm
 endmodule
 
@@ -742,6 +742,9 @@ module TEST
 
   rule <k> C:Cmd ; P:Pgm => C ~> P ... </k>
   rule <k> mk(I, V) => .K ... </k> <rs> ... .Bag => <r> <rid> I </rid> <v> V </v> </r> ... </rs>
+  syntax KItem ::= putR(RCell)
+  rule <k> put(I, V) => putR(<r> <rid> I </rid> <v> V </v> </r>) ... </k>
+  rule <k> putR(R) => .K ... </k> <rs> ... .Bag => R ... </rs>
 
   rule <k> get(I) => .K ... </k> <r> <rid> I </rid> <v> V </v> </r> <out> ... .List => ListItem(V) </out>
   rule <k> getA(I) => .K ... </k> (<r> <rid> I </rid> <v> V </v> </r> #as _R) <out> ... .List => ListItem(V) </out>
@@ -870,5 +873,20 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
         if collection == "Map" {
             assert_eq!(finals.len(), 3, "{finals:?}");
         }
+        // A right-side variable of the cell sort in its collection is the item holding its
+        // value, as the cell written there is: the instance `put` adds is read as `mk`'s is.
+        let added = aliased_instance_outcomes(
+            collection,
+            &[
+                "mk(1,10) ; mk(2,20) ; get(2)",
+                "put(1,10) ; put(2,20) ; get(2)",
+            ],
+        );
+        assert_eq!(added[0], added[1], "{collection}");
+        assert!(
+            added[0].0.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())"),
+            "{collection}: {}",
+            added[0].0
+        );
     }
 }
