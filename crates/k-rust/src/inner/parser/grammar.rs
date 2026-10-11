@@ -952,6 +952,12 @@ impl Grammar {
         // values of its result sort.
         let syntactic_subsort =
             !options.bracket && matches!(items.as_slice(), [Item::NonTerminal(_)]);
+        let nonterminals = items
+            .iter()
+            .filter(|item| matches!(item, Item::NonTerminal(_)))
+            .count();
+        let first_nonterminal = matches!(items.first(), Some(Item::NonTerminal(_)));
+        let last_nonterminal = matches!(items.last(), Some(Item::NonTerminal(_)));
         let parse_label = label
             .as_ref()
             .map(|label| label.name.clone())
@@ -995,6 +1001,9 @@ impl Grammar {
             transparent: options.transparent,
             bracket: options.bracket,
             syntactic_subsort,
+            nonterminals,
+            first_nonterminal,
+            last_nonterminal,
             parse_label,
             apply_priority,
             function: options.function,

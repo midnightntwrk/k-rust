@@ -1220,6 +1220,12 @@ struct Production {
     transparent: bool,
     bracket: bool,
     syntactic_subsort: bool,
+    /// The number of nonterminal items, and whether the first and the last item are
+    /// nonterminals. The exclusions read them for every edge they judge, and `items` does not
+    /// change once the production is added, so they are counted there and `shape` copies them.
+    nonterminals: usize,
+    first_nonterminal: bool,
+    last_nonterminal: bool,
     parse_label: Option<String>,
     apply_priority: Option<BTreeSet<usize>>,
     function: bool,
@@ -1255,13 +1261,9 @@ impl Production {
             transparent: self.transparent,
             record: self.record.is_some(),
             items: self.items.len(),
-            nonterminals: self
-                .items
-                .iter()
-                .filter(|item| matches!(item, Item::NonTerminal(_)))
-                .count(),
-            first_nonterminal: matches!(self.items.first(), Some(Item::NonTerminal(_))),
-            last_nonterminal: matches!(self.items.last(), Some(Item::NonTerminal(_))),
+            nonterminals: self.nonterminals,
+            first_nonterminal: self.first_nonterminal,
+            last_nonterminal: self.last_nonterminal,
             apply_priority: self.apply_priority.as_ref(),
         }
     }
