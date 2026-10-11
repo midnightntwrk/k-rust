@@ -659,6 +659,13 @@ pub enum RulePatternError {
     /// A function argument binder whose variable, as written, has another sort than a term it
     /// binds. The variable is held in its KORE form, as [`DefinitionError`] holds its sorts.
     BinderSortMismatch(kore::Variable),
+    /// A component `\not(φ)` of a rewrite left-hand side, after alias unfolding, with a term
+    /// pattern in a predicate position of `φ`: it states that the subject is outside a set of
+    /// configurations, which no predicate of a rule expresses, so it would be misread. Carries
+    /// the sentence of the refused axiom.
+    NegatedConfiguration {
+        sentence: Box<SentenceKey>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1149,7 +1156,7 @@ fn equal_axioms(left: &ClassifiedAxiom, right: &ClassifiedAxiom) -> bool {
 /// It is keyed by name alone, and kinds and sorts are compared at every occurrence, so it is a
 /// bijection both between names and between `(name, sort)` variables.
 #[derive(Default)]
-struct VariableRenaming<'a> {
+pub(crate) struct VariableRenaming<'a> {
     forward: BTreeMap<&'a str, &'a str>,
     backward: BTreeMap<&'a str, &'a str>,
 }
@@ -1171,7 +1178,7 @@ impl<'a> VariableRenaming<'a> {
         }
     }
 
-    fn pattern(&mut self, left: &'a kore::Pattern, right: &'a kore::Pattern) -> bool {
+    pub(crate) fn pattern(&mut self, left: &'a kore::Pattern, right: &'a kore::Pattern) -> bool {
         let mut work = vec![(left, right)];
         // Invariant: every popped pair had equal node scalars under the renaming and equal
         // child counts, and `work` holds the child pairs still to compare; each pair of nodes
@@ -1416,25 +1423,33 @@ fn axiom_shape(axiom: &ClassifiedAxiom) -> u64 {
         } => patterns.extend([requires, lhs, rhs]),
     }
     for pattern in patterns {
-        walk::for_each_post_order(pattern, |node| {
-            std::mem::discriminant(node).hash(&mut hasher);
-            walk::children(node).len().hash(&mut hasher);
-            match node {
-                kore::Pattern::String(value) | kore::Pattern::DomainValue { value, .. } => {
-                    value.hash(&mut hasher);
-                }
-                kore::Pattern::Variable(variable) => {
-                    matches!(variable.kind, kore::VariableKind::Set).hash(&mut hasher);
-                }
-                kore::Pattern::Application { symbol, .. }
-                | kore::Pattern::AssociativeApplication { symbol, .. } => {
-                    symbol.name.hash(&mut hasher);
-                }
-                _ => {}
-            }
-        });
+        hash_pattern_shape(pattern, &mut hasher);
     }
     hasher.finish()
+}
+
+/// Feeds `hasher` what [`VariableRenaming::pattern`] compares literally in `pattern`: for every
+/// node its variant, symbol, domain value and child count, with variables reduced to their kind.
+/// Patterns equal under a renaming feed it the same sequence.
+pub(crate) fn hash_pattern_shape(pattern: &kore::Pattern, hasher: &mut impl std::hash::Hasher) {
+    use std::hash::Hash;
+    walk::for_each_post_order(pattern, |node| {
+        std::mem::discriminant(node).hash(hasher);
+        walk::children(node).len().hash(hasher);
+        match node {
+            kore::Pattern::String(value) | kore::Pattern::DomainValue { value, .. } => {
+                value.hash(hasher);
+            }
+            kore::Pattern::Variable(variable) => {
+                matches!(variable.kind, kore::VariableKind::Set).hash(hasher);
+            }
+            kore::Pattern::Application { symbol, .. }
+            | kore::Pattern::AssociativeApplication { symbol, .. } => {
+                symbol.name.hash(hasher);
+            }
+            _ => {}
+        }
+    });
 }
 
 /// Load only alternatives that can match licensed values.
@@ -2304,6 +2319,15 @@ fn internalize_rule_pattern_with_position(
     }
     // A dead matched term is discarded before any written condition is internalized.
     for predicate in deferred_predicates {
+        if negates_configuration(&predicate) {
+            let (_, sentence) =
+                defer_written_conditions_for.expect("written conditions were deferred");
+            return Err(DefinitionError::RulePattern(
+                RulePatternError::NegatedConfiguration {
+                    sentence: Box::new(sentence.clone()),
+                },
+            ));
+        }
         predicates.extend(
             internalize_predicates(definition, &predicate, sort_parameters, injection_role)
                 .map_err(|error| {
@@ -2583,13 +2607,55 @@ pub(crate) fn internalize_model_predicate(
     })
 }
 
-fn flatten_and<'a>(pattern: &'a kore::Pattern, output: &mut Vec<&'a kore::Pattern>) {
+pub(crate) fn flatten_and<'a>(pattern: &'a kore::Pattern, output: &mut Vec<&'a kore::Pattern>) {
     if let kore::Pattern::And { arguments, .. } = pattern {
         for argument in arguments {
             flatten_and(argument, output);
         }
     } else {
         output.push(pattern);
+    }
+}
+
+/// Whether `component` is `\not(φ)` with a term pattern in a predicate position of `φ`
+/// ([`has_term_in_predicate_position`]), so a negated predicate such as `\not(\equals(..))` is
+/// not one.
+fn negates_configuration(component: &kore::Pattern) -> bool {
+    matches!(component, kore::Pattern::Not { argument, .. } if has_term_in_predicate_position(argument))
+}
+
+/// Whether `pattern` has a term pattern in a predicate position: `pattern` itself, or reached
+/// through `\not`, `\and`, `\or`, `\implies`, `\iff`, `\exists` and `\forall`. The arguments
+/// of `\equals`, `\ceil`, `\floor` and `\in` are in term position. Such a pattern denotes a set
+/// of configurations rather than only `\top` or `\bottom`. An alias application counts as a term,
+/// whatever its body.
+pub(crate) fn has_term_in_predicate_position(pattern: &kore::Pattern) -> bool {
+    match pattern {
+        kore::Pattern::String(_)
+        | kore::Pattern::Variable(_)
+        | kore::Pattern::Application { .. }
+        | kore::Pattern::DomainValue { .. }
+        | kore::Pattern::AssociativeApplication { .. } => true,
+        kore::Pattern::Not { argument, .. } => has_term_in_predicate_position(argument),
+        kore::Pattern::And { arguments, .. } | kore::Pattern::Or { arguments, .. } => {
+            arguments.iter().any(has_term_in_predicate_position)
+        }
+        kore::Pattern::Implies { left, right, .. } | kore::Pattern::Iff { left, right, .. } => {
+            has_term_in_predicate_position(left) || has_term_in_predicate_position(right)
+        }
+        kore::Pattern::Exists { body, .. } | kore::Pattern::Forall { body, .. } => {
+            has_term_in_predicate_position(body)
+        }
+        kore::Pattern::Top { .. }
+        | kore::Pattern::Bottom { .. }
+        | kore::Pattern::Next { .. }
+        | kore::Pattern::Rewrites { .. }
+        | kore::Pattern::Mu { .. }
+        | kore::Pattern::Nu { .. }
+        | kore::Pattern::Ceil { .. }
+        | kore::Pattern::Floor { .. }
+        | kore::Pattern::Equals { .. }
+        | kore::Pattern::In { .. } => false,
     }
 }
 
