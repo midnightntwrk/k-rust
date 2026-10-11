@@ -296,7 +296,7 @@ impl Absence {
         else {
             return None;
         };
-        let [element] = &elements[..] else {
+        let (Some(element), 1) = (elements.first(), elements.len()) else {
             return None;
         };
         Some(Self::new(

@@ -76,7 +76,8 @@ use crate::{
     instance_normal::InstanceNormal,
     substitution::{Substitution, substitute},
     term::{
-        HeadRole, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable,
+        HeadRole, Items, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind,
+        Variable,
         head::{
             Fixed, FixedRoot, Head, HeadClash, NormalEvidence, NormalForms, Open, PatternReading,
             RecordedPatterns, ReleasedRoots, RigidCycle, RootComparison, classify_pattern,
@@ -1689,10 +1690,10 @@ impl<'a> Matcher<'a> {
     fn match_maps(
         &mut self,
         definition: Arc<MapDefinition>,
-        pattern_entries: &[(Term, Term)],
+        pattern_entries: &Items<(Term, Term)>,
         pattern_rest: Option<Term>,
         subject: &Term,
-        subject_entries: &[(Term, Term)],
+        subject_entries: &Items<(Term, Term)>,
         subject_rest: Option<Term>,
     ) -> Result<(), FailReason> {
         let mut pattern_entries = pattern_entries
@@ -2628,22 +2629,24 @@ fn substitute_sort_parameters(sort: &Sort, parameters: &BTreeMap<Name, Sort>) ->
     }
 }
 
-fn check_duplicate_keys(
+fn check_duplicate_keys<'a>(
     definition: &Arc<MapDefinition>,
-    entries: &[(Term, Term)],
+    entries: impl IntoIterator<Item = &'a (Term, Term), IntoIter: Clone>,
     rest: &Option<Term>,
 ) -> Result<(), FailReason> {
+    let entries = entries.into_iter();
+    let keys = entries.clone().map(|(key, _)| key);
     // The least key that occurs twice. In entries sorted by key, as `Term::map` stores them,
     // equal keys are adjacent, so one pass over neighbours finds it without copying a key;
     // entries in another order (a pattern's, after its keys were substituted) are counted.
-    let duplicate = if entries.is_sorted_by(|left, right| left.0 <= right.0) {
-        entries
-            .windows(2)
-            .find(|pair| pair[0].0 == pair[1].0)
-            .map(|pair| pair[0].0.clone())
+    let duplicate = if keys.clone().is_sorted() {
+        keys.clone()
+            .zip(keys.skip(1))
+            .find(|(left, right)| left == right)
+            .map(|(key, _)| key.clone())
     } else {
         let mut counts = BTreeMap::new();
-        for (key, _) in entries {
+        for (key, _) in entries.clone() {
             *counts.entry(key).or_insert(0usize) += 1;
         }
         counts
@@ -2654,7 +2657,7 @@ fn check_duplicate_keys(
     if let Some(key) = duplicate {
         return Err(FailReason::DuplicateKeys(
             key,
-            Term::map(definition.clone(), entries.to_vec(), rest.clone()),
+            Term::map(definition.clone(), entries.cloned().collect(), rest.clone()),
         ));
     }
     Ok(())

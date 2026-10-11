@@ -41,7 +41,9 @@ use crate::{
     condition::MatchSolution,
     definition::BackendDefinition,
     substitution::{Substitution, substitute},
-    term::{ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable},
+    term::{
+        Items, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable,
+    },
     unification::{MatchUnification, unify_from},
 };
 
@@ -429,10 +431,10 @@ fn solve_single_list_frame(
     backend: &BackendDefinition,
     definition: &Arc<ListDefinition>,
     solution: CollectionSolution,
-    closed: &[Term],
-    framed_heads: &[Term],
+    closed: &Items<Term>,
+    framed_heads: &Items<Term>,
     frame: &Term,
-    framed_tails: &[Term],
+    framed_tails: &Items<Term>,
     frame_on_subject: bool,
     narrowing: &mut Option<&mut Narrowing<'_>>,
     depth: usize,
@@ -450,21 +452,24 @@ fn solve_single_list_frame(
     let mut pairs = Vec::with_capacity(framed_heads.len() + framed_tails.len() + 1);
     if frame_on_subject {
         pairs.extend(
-            closed[..framed_heads.len()]
-                .iter()
+            closed
+                .range(..framed_heads.len())
                 .cloned()
                 .zip(framed_heads.iter().cloned()),
         );
         pairs.extend(
-            closed[frame_end..]
-                .iter()
+            closed
+                .range(frame_end..)
                 .cloned()
                 .zip(framed_tails.iter().cloned()),
         );
         pairs.push((
             Term::list(
                 definition.clone(),
-                closed[framed_heads.len()..frame_end].to_vec(),
+                closed
+                    .range(framed_heads.len()..frame_end)
+                    .cloned()
+                    .collect(),
                 None,
             ),
             frame.clone(),
@@ -474,19 +479,22 @@ fn solve_single_list_frame(
             framed_heads
                 .iter()
                 .cloned()
-                .zip(closed[..framed_heads.len()].iter().cloned()),
+                .zip(closed.range(..framed_heads.len()).cloned()),
         );
         pairs.extend(
             framed_tails
                 .iter()
                 .cloned()
-                .zip(closed[frame_end..].iter().cloned()),
+                .zip(closed.range(frame_end..).cloned()),
         );
         pairs.push((
             frame.clone(),
             Term::list(
                 definition.clone(),
-                closed[framed_heads.len()..frame_end].to_vec(),
+                closed
+                    .range(framed_heads.len()..frame_end)
+                    .cloned()
+                    .collect(),
                 None,
             ),
         ));
@@ -500,12 +508,12 @@ fn solve_two_list_frames(
     backend: &BackendDefinition,
     definition: &Arc<ListDefinition>,
     solution: CollectionSolution,
-    pattern_heads: &[Term],
+    pattern_heads: &Items<Term>,
     pattern_middle: &Term,
-    pattern_tails: &[Term],
-    subject_heads: &[Term],
+    pattern_tails: &Items<Term>,
+    subject_heads: &Items<Term>,
     subject_middle: &Term,
-    subject_tails: &[Term],
+    subject_tails: &Items<Term>,
     narrowing: &mut Option<&mut Narrowing<'_>>,
     depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
@@ -1497,8 +1505,8 @@ pub(crate) fn expand_closed_map_implication_remainders(
 
 struct ClosedMapImplicationProblem<'a> {
     pattern_definition: &'a Arc<MapDefinition>,
-    pattern_entries: &'a [(Term, Term)],
-    subject_entries: &'a [(Term, Term)],
+    pattern_entries: &'a Items<(Term, Term)>,
+    subject_entries: &'a Items<(Term, Term)>,
     subject_rest: &'a Term,
 }
 
@@ -1533,7 +1541,10 @@ impl ClosedMapImplicationProblem<'_> {
             return;
         }
 
-        let (subject_key, subject_value) = &self.subject_entries[subject_index];
+        let (subject_key, subject_value) = self
+            .subject_entries
+            .get(subject_index)
+            .expect("below the number of subject entries");
         let used = selected
             .iter()
             .map(|(index, _)| *index)
@@ -1601,44 +1612,55 @@ pub(super) enum PairRemainder {
     Right(Vec<Term>),
 }
 
-pub(super) fn pair_prefix(
-    left: &[Term],
-    right: &[Term],
-) -> (Vec<(Term, Term)>, Option<PairRemainder>) {
+/// The pairs of the first items of `left` and `right`, as many as the shorter has, and the
+/// longer one's other items.
+pub(super) fn pair_prefix<'a, L, R>(left: L, right: R) -> (Vec<(Term, Term)>, Option<PairRemainder>)
+where
+    L: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator>,
+    R: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator>,
+{
+    let (mut left, mut right) = (left.into_iter(), right.into_iter());
     let common = left.len().min(right.len());
-    let pairs = left[..common]
-        .iter()
+    let pairs = left
+        .by_ref()
+        .take(common)
         .cloned()
-        .zip(right[..common].iter().cloned())
+        .zip(right.by_ref().take(common).cloned())
         .collect();
-    let remainder = if left.len() > common {
-        Some(PairRemainder::Left(left[common..].to_vec()))
-    } else if right.len() > common {
-        Some(PairRemainder::Right(right[common..].to_vec()))
-    } else {
-        None
-    };
-    (pairs, remainder)
+    (pairs, remainder(left, right))
 }
 
-pub(super) fn pair_suffix(
-    left: &[Term],
-    right: &[Term],
-) -> (Vec<(Term, Term)>, Option<PairRemainder>) {
+/// The pairs of the last items of `left` and `right`, as many as the shorter has, and the
+/// longer one's other items.
+pub(super) fn pair_suffix<'a, L, R>(left: L, right: R) -> (Vec<(Term, Term)>, Option<PairRemainder>)
+where
+    L: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator>,
+    R: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator>,
+{
+    let (mut left, mut right) = (left.into_iter(), right.into_iter());
     let common = left.len().min(right.len());
-    let pairs = left[left.len() - common..]
-        .iter()
-        .cloned()
-        .zip(right[right.len() - common..].iter().cloned())
-        .collect();
-    let remainder = if left.len() > common {
-        Some(PairRemainder::Left(left[..left.len() - common].to_vec()))
-    } else if right.len() > common {
-        Some(PairRemainder::Right(right[..right.len() - common].to_vec()))
+    let (left_extra, right_extra) = (left.len() - common, right.len() - common);
+    let left_extra = left.by_ref().take(left_extra).collect::<Vec<_>>();
+    let right_extra = right.by_ref().take(right_extra).collect::<Vec<_>>();
+    let pairs = left.cloned().zip(right.cloned()).collect();
+    (
+        pairs,
+        remainder(left_extra.into_iter(), right_extra.into_iter()),
+    )
+}
+
+/// The items `left` or `right` has left, when one of them has some.
+fn remainder<'a>(
+    left: impl ExactSizeIterator<Item = &'a Term>,
+    right: impl ExactSizeIterator<Item = &'a Term>,
+) -> Option<PairRemainder> {
+    if left.len() > 0 {
+        Some(PairRemainder::Left(left.cloned().collect()))
+    } else if right.len() > 0 {
+        Some(PairRemainder::Right(right.cloned().collect()))
     } else {
         None
-    };
-    (pairs, remainder)
+    }
 }
 
 pub(super) fn prepend(pair: (Term, Term), mut pairs: Vec<(Term, Term)>) -> Vec<(Term, Term)> {
@@ -1654,8 +1676,11 @@ pub(super) fn binds_each_key_once(map: &Term) -> bool {
 
 /// Whether `entries`, a map term's entries in their stored `(key, value)` order, bind some key
 /// twice: the bindings of one key are adjacent there.
-fn repeats_a_key(entries: &[(Term, Term)]) -> bool {
-    entries.windows(2).any(|pair| pair[0].0 == pair[1].0)
+fn repeats_a_key(entries: &Items<(Term, Term)>) -> bool {
+    entries
+        .iter()
+        .zip(entries.iter().skip(1))
+        .any(|(left, right)| left.0 == right.0)
 }
 
 /// The entries of a pattern map and of a subject map, split by their keys.
@@ -1673,12 +1698,12 @@ pub(super) struct CommonKeys<K, V> {
 ///
 /// Both are entries in the stored order of a map term, `(key, value)` (`Term::map`), and neither
 /// binds a key twice, so the keys of each are strictly increasing: each pattern key is found in
-/// the subject by binary search, after the place of the previous one, and the subject's entries
-/// are copied once, around the places found, without comparing them. A step that reads one
+/// the subject by binary search, and the subject's entries are copied once, around the places
+/// found, without comparing them. A step that reads one
 /// binding of an `n`-entry map makes `O(log n)` key comparisons here.
-pub(super) fn split_common_keys<K: Ord + Clone, V: Clone>(
-    pattern: &[(K, V)],
-    subject: &[(K, V)],
+pub(super) fn split_common_keys<'p, K: Ord + Clone + 'p, V: Clone + 'p>(
+    pattern: impl IntoIterator<Item = &'p (K, V)>,
+    subject: &Items<(K, V)>,
 ) -> CommonKeys<K, V> {
     find_common_keys(pattern, subject).split(subject)
 }
@@ -1696,7 +1721,7 @@ pub(super) struct FoundKeys<K, V> {
 
 impl<K: Clone, V: Clone> FoundKeys<K, V> {
     /// The split, with the subject's entries outside the common keys copied once.
-    pub(super) fn split(self, subject: &[(K, V)]) -> CommonKeys<K, V> {
+    pub(super) fn split(self, subject: &Items<(K, V)>) -> CommonKeys<K, V> {
         let Self {
             values,
             pattern_only,
@@ -1707,10 +1732,10 @@ impl<K: Clone, V: Clone> FoundKeys<K, V> {
         let mut subject_only = Vec::with_capacity(subject.len() - found.len());
         let mut start = 0;
         for index in found {
-            subject_only.extend_from_slice(&subject[start..index]);
+            subject_only.extend(subject.range(start..index).cloned());
             start = index + 1;
         }
-        subject_only.extend_from_slice(&subject[start..]);
+        subject_only.extend(subject.range(start..).cloned());
         CommonKeys {
             values,
             pattern_only,
@@ -1728,7 +1753,10 @@ thread_local! {
 impl<K, V> FoundKeys<K, V> {
     /// The subject's entries outside the common keys, in order, as [`FoundKeys::split`] copies
     /// them, read in place.
-    pub(super) fn others<'s>(&'s self, subject: &'s [(K, V)]) -> impl Iterator<Item = &'s (K, V)> {
+    pub(super) fn others<'s>(
+        &'s self,
+        subject: &'s Items<(K, V)>,
+    ) -> impl Iterator<Item = &'s (K, V)> {
         let mut found = self.found.iter().copied().peekable();
         subject
             .iter()
@@ -1740,26 +1768,21 @@ impl<K, V> FoundKeys<K, V> {
 
 /// The search half of [`split_common_keys`]: `O(log n)` key comparisons per pattern key and no
 /// copy of the subject's other entries.
-pub(super) fn find_common_keys<K: Ord + Clone, V: Clone>(
-    pattern: &[(K, V)],
-    subject: &[(K, V)],
+pub(super) fn find_common_keys<'p, K: Ord + Clone + 'p, V: Clone + 'p>(
+    pattern: impl IntoIterator<Item = &'p (K, V)>,
+    subject: &Items<(K, V)>,
 ) -> FoundKeys<K, V> {
     let mut values = Vec::new();
     let mut pattern_only = Vec::new();
     let mut found = Vec::new();
-    let mut from = 0;
     for (key, value) in pattern {
-        match subject[from..].binary_search_by(|(subject_key, _)| subject_key.cmp(key)) {
-            Ok(offset) => {
-                let index = from + offset;
-                values.push((value.clone(), subject[index].1.clone()));
+        match subject.search_by(|(subject_key, _)| subject_key.cmp(key)) {
+            Ok(index) => {
+                let (_, subject_value) = subject.get(index).expect("a found entry");
+                values.push((value.clone(), subject_value.clone()));
                 found.push(index);
-                from = index + 1;
             }
-            Err(offset) => {
-                pattern_only.push((key.clone(), value.clone()));
-                from += offset;
-            }
+            Err(_) => pattern_only.push((key.clone(), value.clone())),
         }
     }
     FoundKeys {
@@ -1825,7 +1848,7 @@ mod tests {
         };
         let subject = (1..=ENTRIES)
             .map(|index| (counted(2 * index), index))
-            .collect::<Vec<_>>();
+            .collect::<Items<_>>();
         let bound = ENTRIES.ilog2() as usize + 1;
         let values_of = |entries: &[(Counted<'_>, u32)]| -> Vec<u32> {
             entries.iter().map(|(key, _)| key.value).collect()

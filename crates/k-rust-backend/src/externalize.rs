@@ -1164,7 +1164,10 @@ fn component(term: &Term, index: usize) -> External<'_> {
                 let (middle, tails) = rest.as_ref().expect("the index is below the count");
                 match index - heads.len() {
                     0 => External::Term(middle),
-                    tail => External::Element(element, &tails[tail - 1]),
+                    tail => External::Element(
+                        element,
+                        tails.get(tail - 1).expect("the index is below the count"),
+                    ),
                 }
             }
         }

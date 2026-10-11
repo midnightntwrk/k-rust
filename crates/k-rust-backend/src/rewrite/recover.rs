@@ -695,7 +695,7 @@ pub(super) fn recover_symbolic_map_key_matches(
 fn search_symbolic_map_key_matches(
     definition: &BackendDefinition,
     map_definition: &Arc<crate::term::MapDefinition>,
-    pattern_entries: &[(Term, Term)],
+    pattern_entries: &crate::term::Items<(Term, Term)>,
     pattern_rest: &Term,
     index: usize,
     remaining_subject: Vec<(Term, Term)>,
@@ -728,7 +728,9 @@ fn search_symbolic_map_key_matches(
         return;
     }
 
-    let (pattern_key, pattern_value) = &pattern_entries[index];
+    let (pattern_key, pattern_value) = pattern_entries
+        .get(index)
+        .expect("the index is below the number of pattern entries");
     let pattern_key = substitute(pattern_key, &substitution);
     // Invariant: each level drops one `remaining_subject` entry and extends the assignment.
     for subject_index in 0..remaining_subject.len() {

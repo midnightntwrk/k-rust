@@ -1323,9 +1323,10 @@ impl Term {
             return None;
         };
         elements
-            .windows(2)
-            .find(|pair| pair[0] == pair[1])
-            .map(|pair| &pair[0])
+            .iter()
+            .zip(elements.iter().skip(1))
+            .find(|(left, right)| left == right)
+            .map(|(left, _)| left)
     }
 
     /// The least key this internal map binds twice, with the same or a different value, if
@@ -1336,9 +1337,10 @@ impl Term {
             return None;
         };
         entries
-            .windows(2)
-            .find(|pair| pair[0].0 == pair[1].0)
-            .map(|pair| &pair[0].0)
+            .iter()
+            .zip(entries.iter().skip(1))
+            .find(|(left, right)| left.0 == right.0)
+            .map(|(left, _)| &left.0)
     }
 
     /// The least element (set) or key (map) this internal collection holds twice, if any: the
@@ -1934,7 +1936,10 @@ fn ceil_free(kind: &TermKind) -> bool {
             rest.is_none()
                 && entries.iter().all(|(key, value)| free(key) && free(value))
                 && share_one_key_header(entries.iter().map(|(key, _)| key))
-                && entries.windows(2).all(|pair| pair[0].0 != pair[1].0)
+                && entries
+                    .iter()
+                    .zip(entries.iter().skip(1))
+                    .all(|(left, right)| left.0 != right.0)
         }
         TermKind::List { heads, rest, .. } => {
             heads.iter().all(free)
@@ -1946,7 +1951,10 @@ fn ceil_free(kind: &TermKind) -> bool {
             rest.is_none()
                 && elements.iter().all(free)
                 && share_one_key_header(elements.iter())
-                && elements.windows(2).all(|pair| pair[0] != pair[1])
+                && elements
+                    .iter()
+                    .zip(elements.iter().skip(1))
+                    .all(|(left, right)| left != right)
         }
     }
 }
@@ -2805,7 +2813,10 @@ fn validate_attributes(kind: &TermKind, attributes: &TermAttributes, cache: Eval
             if let Some(child) = rest {
                 check_child(child);
             }
-            let collision = entries.windows(2).any(|pair| pair[0].0 == pair[1].0);
+            let collision = entries
+                .iter()
+                .zip(entries.iter().skip(1))
+                .any(|(left, right)| left.0 == right.0);
             (!collision, collision)
         }
         TermKind::List { heads, rest, .. } => {
@@ -2827,7 +2838,10 @@ fn validate_attributes(kind: &TermKind, attributes: &TermAttributes, cache: Eval
             if let Some(child) = rest {
                 check_child(child);
             }
-            let collision = elements.windows(2).any(|pair| pair[0] == pair[1]);
+            let collision = elements
+                .iter()
+                .zip(elements.iter().skip(1))
+                .any(|(left, right)| left == right);
             (!collision, collision)
         }
     };
@@ -2961,11 +2975,13 @@ fn equal_nodes<'a, R>(
     right: &'a TermKind,
     children: &mut ChildPairs<'_, 'a, R>,
 ) -> Option<R> {
-    fn sequence<'a>(
-        left: &'a [Term],
-        right: &'a [Term],
-    ) -> Option<impl Iterator<Item = (&'a Term, &'a Term)>> {
-        (left.len() == right.len()).then(|| left.iter().zip(right))
+    fn sequence<'a, L, R>(left: L, right: R) -> Option<impl Iterator<Item = (&'a Term, &'a Term)>>
+    where
+        L: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator>,
+        R: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator>,
+    {
+        let (left, right) = (left.into_iter(), right.into_iter());
+        (left.len() == right.len()).then(|| left.zip(right))
     }
     fn optional<'a>(
         left: Option<&'a Term>,
@@ -3204,17 +3220,17 @@ fn order_nodes<'a, R>(
     right: &'a TermKind,
     comparisons: &mut dyn FnMut(&mut dyn DoubleEndedIterator<Item = PendingOrder<'a>>) -> R,
 ) -> R {
-    /// A slice compared lexicographically: the pairs, then the lengths.
-    fn sequence<'a>(
-        left: &'a [Term],
-        right: &'a [Term],
-    ) -> impl DoubleEndedIterator<Item = PendingOrder<'a>> {
-        left.iter()
-            .zip(right)
+    /// A sequence compared lexicographically: the pairs, then the lengths.
+    fn sequence<'a, L, R>(left: L, right: R) -> impl DoubleEndedIterator<Item = PendingOrder<'a>>
+    where
+        L: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator + DoubleEndedIterator>,
+        R: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator + DoubleEndedIterator>,
+    {
+        let (left, right) = (left.into_iter(), right.into_iter());
+        let lengths = left.len().cmp(&right.len());
+        left.zip(right)
             .map(|(left, right)| PendingOrder::Terms(left, right))
-            .chain(std::iter::once(PendingOrder::Decided(
-                left.len().cmp(&right.len()),
-            )))
+            .chain(std::iter::once(PendingOrder::Decided(lengths)))
     }
     /// An `Option` compared as the derived order compares it: `None` first.
     fn optional<'a>(left: Option<&'a Term>, right: Option<&'a Term>) -> Option<PendingOrder<'a>> {
@@ -4128,7 +4144,7 @@ mod tests {
         };
         // An identical binding is kept too: a map binds a key once, so this map is bottom.
         assert_eq!(entries.len(), 3);
-        assert!(entries.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(entries.iter().is_sorted());
         assert_eq!(map.repeated_map_key(), Some(&one));
         assert!(!map.attributes().ceil_free());
         assert!(!map.attributes().evaluated);

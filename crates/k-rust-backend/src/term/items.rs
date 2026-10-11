@@ -15,6 +15,7 @@
 //! derived implementations of the newtype hand the vector to the vector's.
 
 use std::{
+    cmp::Ordering,
     fmt,
     iter::FusedIterator,
     ops::{Deref, RangeBounds},
@@ -96,6 +97,13 @@ impl<T> Items<T> {
 
     pub fn last(&self) -> Option<&T> {
         self.0.last()
+    }
+
+    /// In a sequence ordered as `compare` orders its items against a probe (`Less` for those
+    /// before it, `Greater` for those after it), `Ok` with the position of an item `compare`
+    /// finds equal to the probe, or `Err` with the position at which the probe would go.
+    pub fn search_by(&self, compare: impl FnMut(&T) -> Ordering) -> Result<usize, usize> {
+        self.0.binary_search_by(compare)
     }
 
     /// The number of leading items for which `before` holds, when it holds for a prefix of the
@@ -221,6 +229,13 @@ impl<T: fmt::Debug> fmt::Debug for Items<T> {
 impl<T> From<Vec<T>> for Items<T> {
     fn from(items: Vec<T>) -> Self {
         Self(items)
+    }
+}
+
+/// The items in order, as a vector.
+impl<T> From<Items<T>> for Vec<T> {
+    fn from(items: Items<T>) -> Self {
+        items.0
     }
 }
 

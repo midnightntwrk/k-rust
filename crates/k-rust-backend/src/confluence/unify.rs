@@ -827,11 +827,17 @@ impl Unifier<'_> {
                     tails
                         .iter()
                         .cloned()
-                        .zip(closed[middle_end..].iter().cloned()),
+                        .zip(closed.range(middle_end..).cloned()),
                 );
                 problem.equations.push((
                     middle.clone(),
-                    list(closed[open_heads.len()..middle_end].to_vec(), None),
+                    list(
+                        closed
+                            .range(open_heads.len()..middle_end)
+                            .cloned()
+                            .collect(),
+                        None,
+                    ),
                 ));
                 Ok(Outcome::Continue)
             }
@@ -845,10 +851,10 @@ impl Unifier<'_> {
                     // associativity and unit).
                     let shared = left_heads.len().min(right_heads.len());
                     problem.equations.extend(
-                        left_heads[..shared]
-                            .iter()
+                        left_heads
+                            .range(..shared)
                             .cloned()
-                            .zip(right_heads[..shared].iter().cloned()),
+                            .zip(right_heads.range(..shared).cloned()),
                     );
                     let (short_middle, long_heads, long_middle) =
                         if left_heads.len() <= right_heads.len() {
@@ -859,7 +865,7 @@ impl Unifier<'_> {
                     problem.equations.push((
                         short_middle.clone(),
                         list(
-                            long_heads[shared..].to_vec(),
+                            long_heads.range(shared..).cloned().collect(),
                             Some((long_middle.clone(), Vec::new())),
                         ),
                     ));
@@ -868,10 +874,10 @@ impl Unifier<'_> {
                     // Elements fixed at the back only: symmetric.
                     let shared = left_tails.len().min(right_tails.len());
                     problem.equations.extend(
-                        left_tails[left_tails.len() - shared..]
-                            .iter()
+                        left_tails
+                            .range(left_tails.len() - shared..)
                             .cloned()
-                            .zip(right_tails[right_tails.len() - shared..].iter().cloned()),
+                            .zip(right_tails.range(right_tails.len() - shared..).cloned()),
                     );
                     let (short_middle, long_tails, long_middle) =
                         if left_tails.len() <= right_tails.len() {
@@ -885,7 +891,10 @@ impl Unifier<'_> {
                             Vec::new(),
                             Some((
                                 long_middle.clone(),
-                                long_tails[..long_tails.len() - shared].to_vec(),
+                                long_tails
+                                    .range(..long_tails.len() - shared)
+                                    .cloned()
+                                    .collect(),
                             )),
                         ),
                     ));
