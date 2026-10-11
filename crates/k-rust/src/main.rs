@@ -372,11 +372,6 @@ struct KcompileArgs {
     #[arg(long, default_value_t = 10_000, value_name = "SIZE")]
     bison_stack_max_depth: u64,
 
-    /// Recognize user lists by left recursion in the generated Bison parser, so that a list's
-    /// length does not grow the parser stack; each program gets the same term.
-    #[arg(long)]
-    bison_lists: bool,
-
     /// Generate the requested Bison parser as a shared library instead of an executable.
     #[arg(long)]
     bison_parser_library: bool,
@@ -1063,7 +1058,6 @@ struct KcompileOptions {
     gen_bison_parser: bool,
     gen_glr_bison_parser: bool,
     bison_stack_max_depth: u64,
-    bison_lists: bool,
     bison_parser_library: bool,
     output_directory: PathBuf,
     emit_json: bool,
@@ -1550,7 +1544,6 @@ impl From<KcompileArgs> for KcompileOptions {
             gen_bison_parser: arguments.gen_bison_parser,
             gen_glr_bison_parser: arguments.gen_glr_bison_parser,
             bison_stack_max_depth: arguments.bison_stack_max_depth,
-            bison_lists: arguments.bison_lists,
             bison_parser_library: arguments.bison_parser_library,
             output_directory: arguments.output_directory,
             emit_json: arguments.emit_json,
@@ -1968,11 +1961,6 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
                 k_rust::bison::Options {
                     mode,
                     stack_max_depth: options.bison_stack_max_depth,
-                    lists: if options.bison_lists {
-                        k_rust::bison::ListRecursion::Left
-                    } else {
-                        k_rust::bison::ListRecursion::Right
-                    },
                     artifact: if options.bison_parser_library {
                         k_rust::bison::Artifact::SharedLibrary
                     } else {
@@ -2211,7 +2199,6 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
             k_rust::bison::Options {
                 mode,
                 stack_max_depth: options.bison_stack_max_depth,
-                lists: k_rust::bison::ListRecursion::Right,
                 artifact: k_rust::bison::Artifact::Executable,
             },
         )

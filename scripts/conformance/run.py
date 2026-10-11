@@ -885,7 +885,7 @@ def krust_kompile_args(case, rec, expect_fail=False):
     if "--no-prelude" in flags: args.append("--no-prelude")
     if "--emit-json" in flags: args.append("--emit-json")
     for flag in flags:
-        if flag in ("--gen-bison-parser", "--gen-glr-bison-parser", "--bison-lists", "--bison-parser-library"):
+        if flag in ("--gen-bison-parser", "--gen-glr-bison-parser", "--bison-parser-library"):
             args.append(flag)
     if opts.get("--bison-stack-max-depth"):
         args += ["--bison-stack-max-depth", opts["--bison-stack-max-depth"][-1]]
@@ -901,6 +901,8 @@ def krust_kompile_args(case, rec, expect_fail=False):
     per_category = [f"{k} {v}" for k in ("-W", "-Wno") for v in opts.get(k, [])]
     w2e = [f for f in flags if f in ("-w2e", "--warnings-to-errors")]
     dropped = [f for f in flags if f not in ("--no-prelude", "--emit-json", "--no-exc-wrap", "-w2e", "--warnings-to-errors", "--gen-bison-parser", "--gen-glr-bison-parser", "--bison-lists", "--bison-parser-library")]
+    if "--bison-lists" in flags:
+        dropped.append("--bison-lists (not forwarded: krust's generated parsers always read a list by left recursion, and the list's constructor stays (element, list))")
     if w2e and per_category:
         dropped.append(f"{w2e[-1]} (not forwarded next to {' '.join(per_category)}: krust has no per-category warning control, and a partial contract would promote warnings the reference disabled)")
     elif w2e and not expect_fail:

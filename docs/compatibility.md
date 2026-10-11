@@ -325,13 +325,16 @@ krust's frontend also reads a hexadecimal escape only from hexadecimal digits, s
 
 ## Generated parser list recursion
 
-`kcompile --bison-lists` chooses how a generated parser recognizes user lists, not what a list is: the definition is the one compiled without the flag, so a list's constructor keeps its signature (element, list), `syntaxDefinition.kore`, the rules, `krun`'s in-process program parser and every other artifact are unchanged, and each program gets the term the parser generated without the flag gives it, with the same `#location` wrappers.
-Without the flag a list is recognized by right recursion, each element followed by the rest of the list, and an LR parser holds every element of a list on its stack until the list ends; with it, by left recursion, each element following the elements before it, so the parser reduces as it reads and a list's length does not grow its stack.
+A generated parser recognizes every user list by left recursion: each element follows the elements before it, so an LR parser reduces as it reads and a list's length does not grow its stack, and a list far longer than `--bison-stack-max-depth` is read.
+How the parser recognizes a list is not what the list is: the list's constructor keeps its signature (element, list), `syntaxDefinition.kore`, the rules, `krun`'s in-process program parser and every other artifact do not depend on it, and each program gets the term the in-process parser gives it.
 The elements are collected in reading order, and when the list ends its term is built from the last element back: the constructor applied to each element and the list after it, from the terminator, each application written and located as the constructor's own production writes and locates it, so a list `e1, ..., en` is `cons(e1, cons(..., cons(en, nil)))`.
-A possibly-empty list (`List`) is read as its terminator or as a non-empty list, as without the flag.
-A GLR parser that reads the elements two ways merges the two readings of the elements read so far, where the parser without the flag merges the two readings of the rest of the list; both print the same readings, packed at different places.
-This diverges from the pinned K, whose `--bison-lists` changes the definition: the list's constructor is declared over (list, element), its generated parser builds `cons(cons(nil, e1), e2)`, a rule written over the constructor means something else with the flag than without it, and a `List` is rejected (`Cannot use List with --bison-lists`).
-(`bounded_stack_lists_give_each_program_the_term_of_the_default_lists` and `bounded_stack_lists_read_every_list_with_the_terms_and_locations_of_the_default_lists` in [cli.rs](../crates/k-rust/tests/cli.rs).)
+A list whose separator is empty (`NeList{E, ""}`) reads each element right after the one before it.
+A possibly-empty list (`List`) is read as its terminator or as a non-empty list.
+A GLR parser that reads the elements two ways merges (`Lblamb`) the two readings of the elements read so far, and prints every reading of the list.
+There is no option to choose the rendering: `kcompile --bison-lists`, which before chose this rendering over right recursion (each element followed by the rest of the list, whose LR parser holds every element of a list on its stack until the list ends), is removed, and passing it is a command-line error.
+This diverges from the pinned K in two ways: its generated parsers recognize lists by right recursion unless `--bison-lists` is given, so a long list can exceed its stack bound where krust's parser reads it; and its `--bison-lists` changes the definition: the list's constructor is declared over (list, element), its generated parser builds `cons(cons(nil, e1), e2)`, a rule written over the constructor means something else with the flag than without it, and a `List` is rejected (`Cannot use List with --bison-lists`).
+A generated parser's grammar (`parser.y`) for a definition with user lists therefore differs from the one krust wrote before: a list `L` of `E` is the productions `Ne#L ::= E | Ne#L sep E` and `L ::= Ne#L L#Terminator` (and `L ::= L#Terminator` for a `List`), in place of `Ne#L ::= E sep Ne#L | E L#Terminator` and `L ::= Ne#L`.
+(`generated_and_in_process_parsers_give_each_list_one_term` and `generated_parsers_read_long_lists_in_a_bounded_stack_and_every_reading_of_an_ambiguous_list` in [cli.rs](../crates/k-rust/tests/cli.rs).)
 
 ## Generated parser disambiguation
 
