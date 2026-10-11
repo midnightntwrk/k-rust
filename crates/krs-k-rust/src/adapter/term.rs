@@ -1,4 +1,4 @@
-use k_rust::kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm};
+use k_rust::kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm, TermParts};
 use krs_ir::{
     ApplicationRef, CollectionOperationSpec, GeneratedOperation, MapOperation, NodeOrigin,
     NonEmpty, SemanticId,
@@ -378,19 +378,19 @@ impl Adapter<'_> {
         let mut child_path = path.to_vec();
         child_path.push(0);
         let operand = self.term(argument, module, sentence_index, child_path, context)?;
-        let operand = match (argument.kind(), operand) {
+        let operand = match (argument.kind(), operand.into_parts()) {
             (
                 DefinitionTermKind::Map(_)
                 | DefinitionTermKind::List(_)
                 | DefinitionTermKind::Set(_),
-                NativeTerm::Apply {
+                TermParts::Apply {
                     label,
                     mut arguments,
                 },
             ) if label.name.starts_with("project:") && arguments.len() == 1 => arguments.remove(0),
-            (_, operand) => operand,
+            (_, operand) => operand.into(),
         };
-        let sort = self.sort(operation.sort(), origin)?.name;
+        let sort = std::mem::take(&mut self.sort(operation.sort(), origin)?.name);
         let label = match operation {
             GeneratedOperation::SortPredicate(_) => format!("is{sort}"),
             GeneratedOperation::SortProjection(_) => format!("project:{sort}"),

@@ -3,7 +3,7 @@ use k_rust::{
         self as native_definition, Attributes as NativeAttributes, ProductionItem as NativeItem,
         Sentence as NativeSentence,
     },
-    kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm},
+    kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm, TermParts},
 };
 use krs_ir::{
     BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationClause,
@@ -1290,10 +1290,10 @@ impl Adapter<'_> {
                     index,
                     position,
                 )?;
-                let NativeTerm::Rewrite {
+                let TermParts::Rewrite {
                     left: removed,
                     right: created,
-                } = image
+                } = image.into_parts()
                 else {
                     return Err(AdapterError::MissingReference {
                         key: instance.origin().key().clone(),
@@ -1552,12 +1552,12 @@ impl Adapter<'_> {
 /// semantic cast of the variable. k-rust generates the stream's unblocking rules only for a
 /// read in that spelling (`kompile/passes/resolve_io.rs`), as Java K's `ResolveIOStreams` does.
 fn stdin_read_item(term: NativeTerm) -> NativeTerm {
-    match term {
-        NativeTerm::Annotated { term, metadata } => NativeTerm::Annotated {
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => NativeTerm::Annotated {
             term: Box::new(stdin_read_item(*term)),
             metadata,
         },
-        NativeTerm::Apply { label, arguments } if label.name == "ListItem" => {
+        TermParts::Apply { label, arguments } if label.name == "ListItem" => {
             let arguments = arguments
                 .into_iter()
                 .map(|argument| match argument.unannotated() {
@@ -1576,7 +1576,7 @@ fn stdin_read_item(term: NativeTerm) -> NativeTerm {
                 .collect();
             NativeTerm::Apply { label, arguments }
         }
-        other => other,
+        other => other.into(),
     }
 }
 

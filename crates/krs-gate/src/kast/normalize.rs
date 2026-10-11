@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use k_rust::{
     definition::{Attributes, FlatModule, ProductionItem, Sentence},
-    kast::{Label, Sort, Term},
+    kast::{Label, Sort, Term, TermParts},
 };
 use serde_json::{Value, json};
 
@@ -283,8 +283,9 @@ impl<'a> Normalizer<'a> {
                 }
                 match object.get("node").and_then(Value::as_str) {
                     Some("KSort") => {
-                        let Term::Token { mut sort, .. } =
+                        let TermParts::Token { mut sort, .. } =
                             reader::term(&json!({"node":"KToken","token":"","sort":value}))?
+                                .into_parts()
                         else {
                             unreachable!()
                         };
@@ -296,10 +297,10 @@ impl<'a> Normalizer<'a> {
                             .take();
                     }
                     Some("KLabel") => {
-                        let Term::Apply { mut label, .. } = reader::term(
+                        let TermParts::Apply { mut label, .. } = reader::term(
                             &json!({"node":"KApply","label":value,"args":[],"arity":0}),
                         )?
-                        else {
+                        .into_parts() else {
                             unreachable!()
                         };
                         self.label(&mut label)?;

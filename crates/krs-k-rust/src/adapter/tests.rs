@@ -210,7 +210,7 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     let native_addition = adapter
         .term(&addition, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
-    assert!(matches!(native_addition, Term::Apply { label, arguments }
+    assert!(matches!(&native_addition, Term::Apply { label, arguments }
         if label.name == "_+Int_" && arguments.len() == 2));
     let empty_bytes = DefinitionTerm::application(
         node("schema14.term.empty-bytes"),
@@ -222,7 +222,7 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
         .term(&empty_bytes, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
     assert!(
-        matches!(native_empty_bytes, Term::Apply { label, arguments }
+        matches!(&native_empty_bytes, Term::Apply { label, arguments }
         if label.name == ".Bytes_BYTES-HOOKED_Bytes" && arguments.is_empty())
     );
     let bytes_update = DefinitionTerm::application(
@@ -249,7 +249,7 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
         .term(&bytes_update, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
     assert!(
-        matches!(native_bytes_update, Term::Apply { label, arguments }
+        matches!(&native_bytes_update, Term::Apply { label, arguments }
         if label.name == "_[_<-_]_BYTES-HOOKED_Bytes_Bytes_Int_Int" && arguments.len() == 3)
     );
     let bytes_pad_right = DefinitionTerm::application(
@@ -276,7 +276,7 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
         .term(&bytes_pad_right, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
     assert!(
-        matches!(native_bytes_pad_right, Term::Apply { label, arguments }
+        matches!(&native_bytes_pad_right, Term::Apply { label, arguments }
         if label.name == "padRightBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int" && arguments.len() == 3)
     );
     let bytes_substring = DefinitionTerm::application(
@@ -298,20 +298,20 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
         .term(&bytes_substring, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
     assert!(
-        matches!(native_bytes_substring, Term::Apply { label, arguments }
+        matches!(&native_bytes_substring, Term::Apply { label, arguments }
         if label.name == "substrBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int" && arguments.len() == 3)
     );
     let native_item = adapter
         .term(&item, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
-    assert!(matches!(native_item, Term::Apply { label, arguments }
+    assert!(matches!(&native_item, Term::Apply { label, arguments }
         if label.name == "_Map_"
             && matches!(arguments.as_slice(), [Term::Apply { label: left, .. }, Term::Apply { label: right, .. }]
                 if left.name == "_|->_" && right.name == "_|->_")));
     let native_update = adapter
         .term(&update, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
-    assert!(matches!(native_update, Term::Apply { label, arguments }
+    assert!(matches!(&native_update, Term::Apply { label, arguments }
         if label.name == "Map:update"
             && matches!(arguments.first(), Some(Term::Apply { label, arguments })
                 if label.name == ".Map" && arguments.is_empty())));
@@ -326,7 +326,7 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     let native_map_get = adapter
         .term(&map_get, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
-    assert!(matches!(native_map_get, Term::Apply { label, arguments }
+    assert!(matches!(&native_map_get, Term::Apply { label, arguments }
         if label.name == "project:Int"
             && matches!(arguments.as_slice(), [Term::Apply { label, arguments }]
                 if label.name == "Map:lookup" && arguments.len() == 2)));
@@ -342,7 +342,7 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
         .term(&map_in_keys, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
     assert!(
-        matches!(native_map_in_keys, Term::Apply { label, arguments }
+        matches!(&native_map_in_keys, Term::Apply { label, arguments }
         if label.name == "_in_keys(_)_MAP_Bool_KItem_Map" && arguments.len() == 2)
     );
 
@@ -378,7 +378,7 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
         .term(&set_contains, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
     assert!(
-        matches!(native_set_contains, Term::Apply { label, arguments }
+        matches!(&native_set_contains, Term::Apply { label, arguments }
         if label.name == "Set:in"
             && matches!(arguments.get(1), Some(Term::Apply { label, .. }) if label.name == "_Set_"))
     );
@@ -454,7 +454,7 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     let native_list_get = adapter
         .term(&list_get, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
-    assert!(matches!(native_list_get, Term::Apply { label, arguments }
+    assert!(matches!(&native_list_get, Term::Apply { label, arguments }
         if label.name == "project:Int"
             && matches!(arguments.as_slice(), [Term::Apply { label, arguments }]
                 if label.name == "List:get"
@@ -464,29 +464,31 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
         .term(&list_update, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
     assert!(
-        matches!(native_list_update, Term::Apply { label, arguments }
+        matches!(&native_list_update, Term::Apply { label, arguments }
         if label.name == "List:set" && arguments.len() == 3)
     );
     let native_list_size = adapter
         .term(&list_size, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
-    assert!(matches!(native_list_size, Term::Apply { label, arguments }
+    assert!(matches!(&native_list_size, Term::Apply { label, arguments }
         if label.name == "sizeList" && arguments.len() == 1));
     let native_list_make = adapter
         .term(&list_make, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
-    assert!(matches!(native_list_make, Term::Apply { label, arguments }
+    assert!(matches!(&native_list_make, Term::Apply { label, arguments }
         if label.name == "makeList(_,_)_LIST_List_Int_KItem" && arguments.len() == 2));
     let native_list_range = adapter
         .term(&list_range, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
-    assert!(matches!(native_list_range, Term::Apply { label, arguments }
-        if label.name == "List:range" && arguments.len() == 3));
+    assert!(
+        matches!(&native_list_range, Term::Apply { label, arguments }
+        if label.name == "List:range" && arguments.len() == 3)
+    );
     let native_list_update_all = adapter
         .term(&list_update_all, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
     assert!(
-        matches!(native_list_update_all, Term::Apply { label, arguments }
+        matches!(&native_list_update_all, Term::Apply { label, arguments }
         if label.name == "updateList(_,_,_)_LIST_List_List_Int_List"
             && arguments.len() == 3)
     );
@@ -823,7 +825,7 @@ fn pinned_native_prelude_evaluates_set_union() {
             .term(&union, MODULE, 0, Vec::new(), TermContext::Normal)
             .unwrap();
         assert!(
-            matches!(lowered, Term::Apply { label, .. } if label.name == "_|Set__SET_Set_Set_Set")
+            matches!(&lowered, Term::Apply { label, .. } if label.name == "_|Set__SET_Set_Set_Set")
         );
         let pattern = format!(
             "Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{{}}({}, {})",
@@ -1261,7 +1263,7 @@ fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
     let native = adapter
         .term(&term, MODULE, 0, Vec::new(), TermContext::Normal)
         .unwrap();
-    let Term::Apply { label, arguments } = native else {
+    let Term::Apply { label, arguments } = &native else {
         panic!("a multi-child parent must remain a complete application")
     };
     assert_eq!(label.name, "<parent>");
