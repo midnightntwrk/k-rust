@@ -63,6 +63,13 @@ def expectation_map(document: dict) -> dict[str, dict]:
         for exclusion in row.get("step_exclusions", []):
             if not any(key in exclusion for key in STEP_SELECTORS):
                 raise RatchetError(f"case {name} has a step exclusion without a selector")
+            # A verifier rejection is a property of the whole definition, not one comparison:
+            # accepting one of its diagnostics would hide every later one. An accepted verifier
+            # divergence is a normalisation of the verification copy instead (run.py).
+            if exclusion.get("step") == "kore-verify":
+                raise RatchetError(
+                    f"case {name} excludes a kore-verify step; normalise the verification copy instead"
+                )
         mapped[name] = row
     return mapped
 
@@ -188,9 +195,8 @@ def atomic_write(path: Path, body: str) -> None:
             os.unlink(temporary)
 
 
-# Step fields a step exclusion may select on; `verify_error` is the first diagnostic line of a
-# kore-verify step, so an exclusion names one verifier rejection rather than any.
-STEP_SELECTORS = ("test", "out", "step", "verify_error")
+# Step fields a step exclusion may select on.
+STEP_SELECTORS = ("test", "out", "step")
 
 
 def step_exclusion(step: dict, expectation: dict) -> dict | None:

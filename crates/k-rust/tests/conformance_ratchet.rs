@@ -3023,10 +3023,12 @@ print(json.dumps({
 }
 
 #[test]
-fn conformance_driver_ranks_a_verifier_rejection_after_every_step_and_excludes_only_it() {
+fn conformance_driver_ranks_a_verifier_rejection_after_every_step_and_never_excludes_it() {
     // A krust `kore-parser --verify` rejection is its own `kore-verify` step, recorded after the
-    // program steps, and the definition.kore comparison still runs; a step exclusion selecting
-    // its diagnostic then covers that rejection only, never a comparison or program divergence.
+    // program steps, and the definition.kore comparison still runs. The verifier reports one
+    // rejected sentence at a time, so an exclusion of one diagnostic would hide every later one:
+    // the expectations refuse a step exclusion of a `kore-verify` step, and the rejection ranks
+    // the case.
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = r#"
 import json, os, sys, tempfile
@@ -3034,7 +3036,6 @@ sys.path.insert(0, sys.argv[1])
 import run, ratchet
 
 ANYWHERE = "Found invalid subterm in argument of function equation:"
-EXCLUSION = {"step_exclusions": [{"step": "kore-verify", "verify_error": ANYWHERE, "exclusion": "x", "reason": "r"}]}
 
 def probe(diagnostic, comparison_rc, program_verdict):
     root = tempfile.mkdtemp()
@@ -3076,10 +3077,18 @@ def probe(diagnostic, comparison_rc, program_verdict):
     return {
         "steps": [[s["step"], s["verdict"], s.get("verify_error")] for s in case.steps],
         "verdict": case.verdict,
-        "ranked": ratchet.ranked_case(result, EXCLUSION)[0],
+        "ranked": ratchet.ranked_case(result, {})[0],
     }
 
+try:
+    ratchet.expectation_map({"case": [{"name": "c", "step_exclusions": [
+        {"step": "kore-verify", "exclusion": "x", "reason": "r"}]}]})
+    refused = None
+except ratchet.RatchetError as error:
+    refused = str(error)
+
 print(json.dumps({
+    "refused": refused,
     "alone": probe(ANYWHERE, 0, "match"),
     "program": probe(ANYWHERE, 0, "mismatch"),
     "comparison": probe(ANYWHERE, 1, "match"),
@@ -3110,8 +3119,13 @@ print(json.dumps({
         "{probes}"
     );
     assert_eq!(probes["alone"]["verdict"], "mismatch", "{probes}");
-    assert_eq!(probes["alone"]["ranked"], "match", "{probes}");
-    for key in ["program", "comparison", "other"] {
+    assert!(
+        probes["refused"]
+            .as_str()
+            .is_some_and(|error| error.contains("excludes a kore-verify step")),
+        "{probes}"
+    );
+    for key in ["alone", "program", "comparison", "other"] {
         assert_eq!(probes[key]["verdict"], "mismatch", "{probes}");
         assert_eq!(probes[key]["ranked"], "mismatch", "{key}: {probes}");
     }
@@ -3133,7 +3147,7 @@ import json, os, sys, tempfile
 sys.path.insert(0, sys.argv[1])
 import run
 
-DEFINITION = "[]\nmodule TEST\n  sort S{} []\n  symbol Lblwrap{}(S{}) : S{} [anywhere{}(), value-production{}()]\nendmodule []\n"
+DEFINITION = "[]\nmodule TEST\n  sort S{} []\n  symbol Lblwrap{}(S{}) : S{} [value-production{}()]\nendmodule []\n"
 
 def probe(backend):
     root = tempfile.mkdtemp()
@@ -3230,6 +3244,142 @@ print(json.dumps({"llvm": probe("llvm"), "haskell": probe("haskell")}))
     );
     assert_eq!(
         probes["haskell"]["steps"],
+        serde_json::json!([
+            ["kompile", "match", null],
+            [
+                "kore-verify",
+                "mismatch",
+                "Expected function symbol, but found constructor symbol:"
+            ],
+        ]),
+        "{probes}"
+    );
+}
+
+#[test]
+fn conformance_driver_verifies_a_copy_with_anywhere_heads_declared_injective() {
+    // An anywhere head is emitted without `injective`, which its anywhere equations may falsify,
+    // and the verifier admits it in an equation argument only when injective. The driver
+    // verifies a copy with `injective{}()` added to exactly the `anywhere` declarations that
+    // lack it (N47), for either target, and leaves the compared definition unchanged; any other
+    // rejection of the copy still ranks the case.
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+DEFINITION = ("[]\nmodule TEST\n  sort S{} []\n"
+              "  symbol Lblwrap{}(S{}) : S{} [anywhere{}()]\n"
+              "  symbol Lblkept{}(S{}) : S{} [anywhere{}(), injective{}()]\n"
+              "  symbol Lblfree{}(S{}) : S{} [constructor{}()]\nendmodule []\n")
+
+def probe(backend, other_rejection):
+    root = tempfile.mkdtemp()
+    case = run.Case("verify")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    with open(os.path.join(root, "test.k"), "w") as source:
+        source.write("module TEST endmodule\n")
+    verified = []
+    def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
+        if cmd[:2] == ["bash", "-c"]:
+            definition = os.path.join(root, "test-kompiled")
+            os.makedirs(definition)
+            for name, text in [("mainModule.txt", "TEST\n"), ("mainSyntaxModule.txt", "TEST\n"),
+                               ("configVars.sh", ""), ("definition.kore", "[]\n")]:
+                with open(os.path.join(definition, name), "w") as output:
+                    output.write(text)
+            return 0, "", "", 0.1, False
+        if cmd[0] == "/krust":
+            definition = os.path.join(root, "krust-kompiled")
+            os.makedirs(definition, exist_ok=True)
+            with open(os.path.join(definition, "definition.kore"), "w") as output:
+                output.write(DEFINITION)
+            os.makedirs(os.path.join(root, "krust-kompiled-runtime"), exist_ok=True)
+            return 0, "", "", 0.1, False
+        if cmd[0] == run.KORE_PARSER:
+            if "krust-kompiled" not in cmd[1]:
+                return 0, "", "", 0.1, False
+            verified.append(os.path.relpath(cmd[1], root))
+            with open(cmd[1]) as handle:
+                text = handle.read()
+            if "[anywhere{}()]" in text:
+                return 1, "", "Error:\n    Found invalid subterm in argument of function equation:\n        Lblwrap{}\n", 0.1, False
+            if other_rejection:
+                return 1, "", "Error:\n    Expected function symbol, but found constructor symbol:\n        Lblfree{}\n", 0.1, False
+            return 0, "", "", 0.1, False
+        raise AssertionError(cmd)
+    run.sh = fake_sh
+    run.run_test_binary = lambda name, env, cwd: (0, "", "")
+    run.KRUST = "/krust"
+    run.KORE_PARSER = "/kbin/kore-parser"
+    recipe = run.split_recipe(f"/kbin/kompile --backend {backend} test.k --output-definition ./test-kompiled")
+    run.do_kompile(case, recipe, False)
+    run.finish(case)
+    with open(os.path.join(root, "krust-kompiled", "definition.kore")) as handle:
+        compared = handle.read()
+    copy = os.path.join(root, "krust-kompiled", "definition.verify.kore")
+    with open(os.path.join(case.log, "kompile.krust-verify.log")) as handle:
+        log = handle.read()
+    return {
+        "steps": [[s["step"], s["verdict"], s.get("verify_error")] for s in case.steps],
+        "verified": verified,
+        "compared_unchanged": compared == DEFINITION,
+        "copy": open(copy).read() if os.path.exists(copy) else None,
+        "log": log.splitlines()[:2],
+    }
+
+print(json.dumps({
+    "haskell": probe("haskell", False),
+    "llvm": probe("llvm", False),
+    "other": probe("haskell", True),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env_remove("GHCRTS")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let expected_copy = "[]\nmodule TEST\n  sort S{} []\n  symbol Lblwrap{}(S{}) : S{} [anywhere{}(), injective{}()]\n  symbol Lblkept{}(S{}) : S{} [anywhere{}(), injective{}()]\n  symbol Lblfree{}(S{}) : S{} [constructor{}()]\nendmodule []\n";
+    for backend in ["haskell", "llvm"] {
+        let probe = &probes[backend];
+        assert_eq!(
+            probe["verified"],
+            serde_json::json!(["krust-kompiled/definition.verify.kore"]),
+            "{backend}: {probes}"
+        );
+        assert_eq!(
+            probe["steps"],
+            serde_json::json!([["kompile", "match", null]]),
+            "{backend}: {probes}"
+        );
+        assert_eq!(probe["compared_unchanged"], true, "{backend}: {probes}");
+        assert_eq!(probe["copy"], expected_copy, "{backend}: {probes}");
+    }
+    assert_eq!(
+        probes["haskell"]["log"][0],
+        "N47 verification anywhere declarations made injective: 1",
+        "{probes}"
+    );
+    assert_eq!(
+        probes["llvm"]["log"],
+        serde_json::json!([
+            "N38 LLVM verification value-production declarations: 0",
+            "N47 verification anywhere declarations made injective: 1",
+        ]),
+        "{probes}"
+    );
+    assert_eq!(
+        probes["other"]["steps"],
         serde_json::json!([
             ["kompile", "match", null],
             [

@@ -672,9 +672,11 @@ Beside `rule h(s(Y)) => h(Y) [anywhere]`, the equation `f(h(X)) => X` is reporte
 The check shows consistency, not its absence, so it also names an equation whose two terms are equal but not shown to be: `f(h(_X)) => z` is named, because the check does not apply `f`'s equation to `f(h(Y))`, whose argument is not normal on every instance.
 K's reference toolchain accepts such a definition without a warning.
 
-The `verifier-anywhere-argument` exclusion covers exactly this rejection: a `kore-verify` step whose first diagnostic is `Found invalid subterm in argument of function equation:`.
-The conformance driver records a `kore-verify` rejection as its own step after all other steps of the case and still runs the `definition.kore` comparison, so the exclusion leaves the comparison and every program step of the case ranked.
-Its limit is the verifier's: it reports only the first rejected sentence, so a later, different rejection of the same definition stays hidden until the first is resolved. For FUN this was checked by verifying again after deleting each reported axiom: exactly the `exps`, `names` and `getMatching` equations above are rejected, and the rest of the definition verifies. The Rust verifier (`k-rust-backend` `verify.rs`) does not make this check and loads the definition.
+The conformance driver therefore verifies a copy of the definition (N47 in [reference-normalisations.toml](../scripts/reference-normalisations.toml)) in which every symbol declared `anywhere` without `injective` also carries `injective{}()`; the compared and executed definition is unchanged.
+The added attribute may be false of such a symbol, which is why the emitted definition withholds it, but nothing reads the copy except the verifier, and it changes only which applications the verifier admits in an equation argument: whether those equations are consistent is the question the critical-pair check above decides at load and compile time, and its warnings remain.
+Every other sentence and every other argument of the copy is verified as emitted, so a different rejection of the same definition is reported; FUN's copy verifies completely.
+A rejection of a `kore-verify` step is never excluded ([Driver scope](#driver-scope)): the verifier reports one rejected sentence at a time, so an exclusion of one diagnostic would hide every later one.
+The Rust verifier (`k-rust-backend` `verify.rs`) does not make this check and loads the definition.
 
 ## Function applications on a left-hand side
 
@@ -1190,6 +1192,7 @@ A non-empty `exclusion`, or the `exclusion` of a step exclusion, names the categ
 Where no exclusion covers a divergent step, the non-empty `reason` records a measured port or driver gap that is pending work; the work itself is tracked outside this repository, and [testing.md](testing.md#manual-conformance-acceptance) describes how a local backlog is audited against the measurements.
 A step exclusion (`step_exclusions`) accepts the divergence of the steps its selectors name and nothing else: the ratchet ranks the case as the driver would have ranked it had those steps not run, so any other step keeps the case ranked whatever its verdict, and a case whose every step is excluded ranks as `match`.
 A case `exclusion` leaves every step of the case unranked, including steps a later driver adds, so it also needs a `whole_case_reason` stating why no step of the case can be ranked; a difference confined to some steps is a step exclusion instead.
+A `kore-verify` step is never excluded: the verifier reports one rejected sentence at a time, so accepting one diagnostic would hide every later one. An accepted verifier divergence is a normalisation of the verification copy, which leaves the verifier to judge the rest of the definition.
 
 ## Comparison contract
 

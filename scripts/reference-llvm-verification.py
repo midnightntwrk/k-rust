@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""N38: copy LLVM KORE into the declaration vocabulary of the KORE verifier."""
+"""Verification copies: KORE in the declaration vocabulary of the KORE verifier (N38, N47)."""
 
 from pathlib import Path
 import re
@@ -11,12 +11,11 @@ TOKENS = re.compile(
 )
 
 
-def normalize_llvm_value_productions(source: str) -> tuple[str, int]:
-    """Add function only to marked symbol declarations, preserving every other byte.
+def edit_symbol_declarations(source: str, addition) -> tuple[str, int]:
+    """Append `addition(name, attributes)` to the attribute list of every symbol declaration for
+    which it returns text, preserving every other byte; return the copy and the number changed.
 
-    LLVM reads irreducible value applications as values without `function`.
-    The verifier requires equation heads to carry `function` or `functional`;
-    only its copy gains the former, which makes no totality claim.
+    `attributes` lists each top-level attribute pattern of the declaration as its tokens.
     """
     tokens = []
     consumed = 0
@@ -68,17 +67,57 @@ def normalize_llvm_value_productions(source: str) -> tuple[str, int]:
             index += 1
         if index == len(tokens):
             raise ValueError(f"symbol {name} has no closing attribute bracket")
-        if ["value-production", "{", "}", "(", ")"] in patterns:
-            if any(p and p[0] in ("function", "functional") for p in patterns):
-                raise ValueError(
-                    f"LLVM value-production symbol {name} already carries function or functional"
-                )
-            edits.append(tokens[index][1])
+        text = addition(name, patterns)
+        if text is not None:
+            edits.append((tokens[index][1], text))
         index += 1
 
-    for position in reversed(edits):
-        source = source[:position] + ", function{}()" + source[position:]
+    for position, text in reversed(edits):
+        source = source[:position] + text + source[position:]
     return source, len(edits)
+
+
+def normalize_llvm_value_productions(source: str) -> tuple[str, int]:
+    """Add function only to marked symbol declarations, preserving every other byte.
+
+    LLVM reads irreducible value applications as values without `function`.
+    The verifier requires equation heads to carry `function` or `functional`;
+    only its copy gains the former, which makes no totality claim.
+    """
+
+    def addition(name, patterns):
+        if ["value-production", "{", "}", "(", ")"] not in patterns:
+            return None
+        if any(p and p[0] in ("function", "functional") for p in patterns):
+            raise ValueError(
+                f"LLVM value-production symbol {name} already carries function or functional"
+            )
+        return ", function{}()"
+
+    return edit_symbol_declarations(source, addition)
+
+
+def normalize_anywhere_injective(source: str) -> tuple[str, int]:
+    """N47: add `injective` to every `anywhere` symbol declaration that lacks it, preserving
+    every other byte.
+
+    The verifier admits an application inside a function equation's argument only when its head
+    is constructor-like or an injective `anywhere` symbol. `injective` is an axiom (equal
+    applications have equal arguments) that an `anywhere` equation of the head may falsify, so
+    the emitted definition withholds it, and whether the enclosing equation is consistent is
+    decided by the compiler's own critical-pair check at that head instead. Only the
+    verification copy gains the attribute, so the verifier checks every other sentence and
+    every other argument; nothing compared or executed reads the copy.
+    """
+
+    def addition(name, patterns):
+        if ["anywhere", "{", "}", "(", ")"] not in patterns:
+            return None
+        if any(p and p[0] == "injective" for p in patterns):
+            return None
+        return ", injective{}()"
+
+    return edit_symbol_declarations(source, addition)
 
 
 def main() -> int:

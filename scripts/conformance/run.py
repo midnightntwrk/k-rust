@@ -1048,21 +1048,26 @@ def do_kompile(case, rec, expect_fail):
                 divergence="\n".join((verr or vout).splitlines()[:DIFF_LINES]),
             )
             return step_record(case, **step)
+        # The verifier reads a separate copy of the krust definition in its declaration
+        # vocabulary; the compared and executed definition is never changed. N38 (LLVM target
+        # only): a partial value production is emitted without `function`, so that an
+        # irreducible application stays a value, and the verifier requires `function` or
+        # `functional` of an equation head; the copy adds `function{}()` to exactly the
+        # `value-production` declarations. N47: an `anywhere` head is emitted without
+        # `injective`, an axiom its anywhere equation may falsify, and the verifier admits it in
+        # an equation argument only when injective; the copy adds `injective{}()` to it, and the
+        # compiler's critical-pair check decides those equations' consistency instead.
         verify_kore = rust_kore
         verify_note = ""
-        if args[args.index("--backend") + 1] == "llvm":
-            # N38 (docs/compatibility.md): the LLVM target emits a partial value production
-            # without `function`, so that an irreducible application stays a value, and the
-            # verifier requires `function` or `functional` of an equation head. Verify a copy
-            # with `function{}()` added to exactly the `value-production` declarations; the
-            # compared and executed definition is never changed.
-            verify_kore = f"{case.dir}/krust-kompiled/definition.verify.kore"
-            try:
-                count = llvm_verification_copy(rust_kore, verify_kore)
-                verify_note = f"N38 LLVM verification value-production declarations: {count}\n"
-            except (OSError, UnicodeError, ValueError) as error:
-                verify_kore = None
-                vrc, vout, verr, vsecs, vto = 1, "", f"N38: {error}", 0.0, False
+        try:
+            verify_note = verification_copy(
+                rust_kore, f"{case.dir}/krust-kompiled/definition.verify.kore",
+                llvm=args[args.index("--backend") + 1] == "llvm")
+            if verify_note:
+                verify_kore = f"{case.dir}/krust-kompiled/definition.verify.kore"
+        except (OSError, UnicodeError, ValueError) as error:
+            verify_kore = None
+            vrc, vout, verr, vsecs, vto = 1, "", f"verification copy: {error}", 0.0, False
         if verify_kore is not None:
             vrc, vout, verr, vsecs, vto = reference_sh(
                 case, [KORE_PARSER, verify_kore], case.remaining(), "kore-parser",
@@ -1071,7 +1076,8 @@ def do_kompile(case, rec, expect_fail):
         case.logfile("kompile.krust-verify.log", verify_note + vout + "\n--- stderr ---\n" + verr)
         step["krust_verify_rc"] = vrc
         step["krust_verify_seconds"] = round(vsecs, 1)
-        step["verification"] = "kore-parser --verify" + (" (N38 copy)" if verify_note else "")
+        copy_ids = [line.split()[0] for line in verify_note.splitlines()]
+        step["verification"] = "kore-parser --verify" + (f" ({', '.join(copy_ids)} copy)" if copy_ids else "")
         if vto or vrc != 0:
             # The rejection is its own step, ranked after every other step of the case, and the
             # definition.kore comparison still runs: a step exclusion for this rejection then
@@ -2468,19 +2474,33 @@ def run_case(rel, kind):
 STAGE_RANK = ["outer-parse", "inner-parse", "kompile", "bison-parser", "kast", "krun", "search", "kprove"]
 
 
-def llvm_verification_copy(source, destination):
-    """Write the N38 verifier copy of an LLVM-target definition (scripts/reference-llvm-verification.py)
-    and return the number of declarations it marked `function`."""
+def verification_copy(source, destination, llvm):
+    """Write the verifier copy of a krust definition (scripts/reference-llvm-verification.py) when
+    a normalisation changes it, and return one note line per normalisation applied ("" when the
+    definition is verified as written).
+
+    N38 applies to an LLVM-target definition whatever it changes, so its count is always
+    reported there; N47 applies to every definition and is reported when it adds an attribute.
+    """
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "reference_llvm_verification", HERE.parent / "reference-llvm-verification.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     with open(source, "rb") as handle:
-        normalized, count = module.normalize_llvm_value_productions(handle.read().decode())
+        text = handle.read().decode()
+    notes = []
+    if llvm:
+        text, count = module.normalize_llvm_value_productions(text)
+        notes.append(f"N38 LLVM verification value-production declarations: {count}")
+    text, count = module.normalize_anywhere_injective(text)
+    if count:
+        notes.append(f"N47 verification anywhere declarations made injective: {count}")
+    if not notes:
+        return ""
     with open(destination, "wb") as handle:
-        handle.write(normalized.encode())
-    return count
+        handle.write(text.encode())
+    return "\n".join(notes) + "\n"
 
 
 def kore_verify_error(text):
