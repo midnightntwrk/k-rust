@@ -11107,13 +11107,15 @@ endmodule
 /// either declares `[locations]` (`Val` inside `Exp`, through its injection, when both do), a
 /// term from its first token to its last, without the layout after it even when its last part is
 /// empty (`f(1, 2 )` locates `1, 2` and its empty end at the end of `2`), an empty list at the end
-/// of the token before it (`f( )` locates it after `(`), and the file name is the program path as
-/// given, `-` for standard input and `--expression`. `krun --depth 0` and the generated parser give each
-/// program one term once the injection into the start position is removed.
+/// of the token before it (`f( )` locates it after `(`), a term whose first part is empty from its
+/// first token, line and column as offset (`(  # v )` locates `# v` from `#`, not after `(`), and
+/// the file name is the program path as given, `-` for standard input and `--expression`.
+/// `krun --depth 0` and the generated parser give each program one term once the injection into
+/// the start position is removed.
 #[cfg(unix)]
 #[test]
 fn in_process_parsing_locates_located_sorts_as_the_generated_parser() {
-    const DEFINITION: &str = r#"
+    const DEFINITION: &str = r##"
 module L-SYNTAX
   imports INT-SYNTAX
   syntax Exp [locations]
@@ -11121,7 +11123,8 @@ module L-SYNTAX
   syntax Exps [locations]
   syntax Val ::= Int | "v" [symbol(v)]
   syntax Exp ::= Val | Exp "+" Exp [left, symbol(plus)] | "f" "(" Exps ")" [symbol(f)]
-               | "(" Exp ")" [bracket]
+               | "(" Exp ")" [bracket] | Opt "#" Val [symbol(hash)]
+  syntax Opt ::= "" [symbol(none)] | "o" [symbol(some)]
   syntax Exps ::= List{Exp, ","}
   syntax Pgm ::= Exp
 endmodule
@@ -11130,7 +11133,7 @@ module L
   imports K-LOCATIONS
   configuration <k> $PGM:Pgm </k>
 endmodule
-"#;
+"##;
     /// `pattern` without the injection at its root.
     fn uninjected(pattern: &Pattern) -> Pattern {
         match pattern {
@@ -11213,6 +11216,9 @@ endmodule
         "f( )",
         "f( 1 ,\n 2  \n )\n",
         "f(f( ), (v) ) + f(\n)",
+        "(  # v )",
+        "  # 1",
+        "f(\n  # v ,o # 1, #\n2)",
     ];
     for (index, program) in programs.into_iter().enumerate() {
         let input = root.join(format!("program-{index}.pgm"));
