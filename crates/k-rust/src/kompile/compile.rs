@@ -384,7 +384,7 @@ fn emit_compiled(
             let mut diagnostics =
                 unadmitted_hook_namespace_diagnostics(&resolved, &hook_namespaces);
             diagnostics.extend(uninterpreted_hook_diagnostics(&resolved, &hook_namespaces));
-            diagnostics.extend(super::hook_signatures::collection_hook_diagnostics(
+            diagnostics.extend(super::hook_signatures::collection_hook_misfit_diagnostics(
                 &resolved,
                 &hook_namespaces,
             ));

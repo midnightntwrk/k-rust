@@ -110,12 +110,12 @@ fn collection_symbols(prefix: &str) -> CollectionSymbols {
 fn map_definition(index: u8) -> Arc<MapDefinition> {
     Arc::new(MapDefinition {
         symbols: collection_symbols("Map"),
-        key_sort: Arc::from(if index.is_multiple_of(DEFINITIONS) {
+        key_sort: Sort::simple(if index.is_multiple_of(DEFINITIONS) {
             "SortA"
         } else {
             "SortB"
         }),
-        value_sort: Arc::from("SortA"),
+        value_sort: Sort::simple("SortA"),
         map_sort: Arc::from("SortMap"),
     })
 }
@@ -124,7 +124,7 @@ fn map_definition(index: u8) -> Arc<MapDefinition> {
 fn list_definition(prefix: &str, index: u8) -> Arc<ListDefinition> {
     Arc::new(ListDefinition {
         symbols: collection_symbols(prefix),
-        element_sort: Arc::from(if index.is_multiple_of(DEFINITIONS) {
+        element_sort: Sort::simple(if index.is_multiple_of(DEFINITIONS) {
             "SortA"
         } else {
             "SortB"

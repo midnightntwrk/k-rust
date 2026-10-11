@@ -91,8 +91,8 @@ fn collection_symbols(prefix: &str) -> CollectionSymbols {
 fn map_definition() -> Arc<MapDefinition> {
     Arc::new(MapDefinition {
         symbols: collection_symbols("map"),
-        key_sort: "MapKey".into(),
-        value_sort: "MapValue".into(),
+        key_sort: Sort::simple("MapKey"),
+        value_sort: Sort::simple("MapValue"),
         map_sort: "MapSort".into(),
     })
 }
@@ -100,7 +100,7 @@ fn map_definition() -> Arc<MapDefinition> {
 fn list_definition() -> Arc<ListDefinition> {
     Arc::new(ListDefinition {
         symbols: collection_symbols("list"),
-        element_sort: "SomeSort".into(),
+        element_sort: Sort::simple("SomeSort"),
         list_sort: "ListSort".into(),
     })
 }
@@ -207,7 +207,7 @@ fn list_update_matching_defers_results_it_cannot_refute() {
 fn set_definition() -> Arc<k_rust_backend::term::SetDefinition> {
     Arc::new(k_rust_backend::term::SetDefinition {
         symbols: collection_symbols("set"),
-        element_sort: "SetElement".into(),
+        element_sort: Sort::simple("SetElement"),
         list_sort: "SetSort".into(),
     })
 }
@@ -379,8 +379,8 @@ fn collection_heads_fix_the_source_sort_of_differing_injections() {
     let open_map = |prefix: &str, source: &Sort| {
         let definition = Arc::new(MapDefinition {
             symbols: collection_symbols(prefix),
-            key_sort: "SomeSort".into(),
-            value_sort: "SomeSort".into(),
+            key_sort: Sort::simple("SomeSort"),
+            value_sort: Sort::simple("SomeSort"),
             map_sort: match source {
                 Sort::Application { name, .. } => name.clone(),
                 Sort::Variable(_) => unreachable!(),

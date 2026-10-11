@@ -1712,7 +1712,7 @@ mod captured_stdout_tests {
                 element: element.into(),
                 concat: format!("Lbl'Unds'{sort}'Unds'").into(),
             },
-            element_sort: "SortKItem".into(),
+            element_sort: Sort::simple("SortKItem"),
             list_sort: format!("Sort{sort}").into(),
         })
     }
@@ -1724,8 +1724,8 @@ mod captured_stdout_tests {
                 element: "Lbl'UndsPipe'-'-GT-Unds'".into(),
                 concat: "Lbl'Unds'Map'Unds'".into(),
             },
-            key_sort: "SortKItem".into(),
-            value_sort: "SortKItem".into(),
+            key_sort: Sort::simple("SortKItem"),
+            value_sort: Sort::simple("SortKItem"),
             map_sort: "SortMap".into(),
         })
     }

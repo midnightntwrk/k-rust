@@ -196,7 +196,7 @@ impl Absence {
             .map(|counter| {
                 Variable::new(
                     with_fresh_marker("Value", FreshMarker::Binder, counter),
-                    Sort::simple(map.value_sort.clone()),
+                    map.value_sort.clone(),
                 )
             })
             .find(|binder| !taken.contains(&encode_variable_name(&binder.name)))
@@ -255,9 +255,7 @@ impl Absence {
         else {
             return None;
         };
-        if binder.kind != VariableKind::Element
-            || binder.sort != Sort::simple(definition.value_sort.clone())
-        {
+        if binder.kind != VariableKind::Element || binder.sort != definition.value_sort {
             return None;
         }
         let bound = Term::variable(binder.clone());

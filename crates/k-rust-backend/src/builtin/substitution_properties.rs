@@ -475,18 +475,18 @@ impl Signature {
             set_e: constructor("setE", vec![Sort::simple("SortSet")], exp_sort()),
             map: Arc::new(MapDefinition {
                 symbols: collection_symbols("map"),
-                key_sort: "SortExp".into(),
-                value_sort: "SortExp".into(),
+                key_sort: Sort::simple("SortExp"),
+                value_sort: Sort::simple("SortExp"),
                 map_sort: "SortMap".into(),
             }),
             list: Arc::new(ListDefinition {
                 symbols: collection_symbols("list"),
-                element_sort: "SortExp".into(),
+                element_sort: Sort::simple("SortExp"),
                 list_sort: "SortList".into(),
             }),
             set: Arc::new(ListDefinition {
                 symbols: collection_symbols("set"),
-                element_sort: "SortExp".into(),
+                element_sort: Sort::simple("SortExp"),
                 list_sort: "SortSet".into(),
             }),
             facts: KVarSorts {

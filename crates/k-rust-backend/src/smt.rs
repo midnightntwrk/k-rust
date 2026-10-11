@@ -1870,8 +1870,8 @@ mod tests {
                 element: "mapItem".into(),
                 concat: "mapConcat".into(),
             },
-            key_sort: "SortKey".into(),
-            value_sort: "SortValue".into(),
+            key_sort: Sort::simple("SortKey"),
+            value_sort: Sort::simple("SortValue"),
             map_sort: "SortMap".into(),
         }));
         let variable =

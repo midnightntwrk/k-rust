@@ -1204,8 +1204,8 @@ mod tests {
                 element: "element".into(),
                 concat: "concat".into(),
             },
-            key_sort: "SortS".into(),
-            value_sort: "SortInt".into(),
+            key_sort: Sort::simple("SortS"),
+            value_sort: Sort::simple("SortInt"),
             map_sort: "SortMap".into(),
         });
         Term::map(
@@ -1271,7 +1271,7 @@ mod tests {
                 element: "listElement".into(),
                 concat: "listConcat".into(),
             },
-            element_sort: "SortS".into(),
+            element_sort: Sort::simple("SortS"),
             list_sort: "SortList".into(),
         });
         let list = Term::list(
@@ -1336,8 +1336,8 @@ mod tests {
                 element: "element".into(),
                 concat: "concat".into(),
             },
-            key_sort: "SortS".into(),
-            value_sort: "SortS".into(),
+            key_sort: Sort::simple("SortS"),
+            value_sort: Sort::simple("SortS"),
             map_sort: "SortMap".into(),
         });
         Pattern {
@@ -1397,7 +1397,7 @@ mod tests {
                 element: "setElement".into(),
                 concat: "setConcat".into(),
             },
-            element_sort: "SortS".into(),
+            element_sort: Sort::simple("SortS"),
             list_sort: "SortSet".into(),
         });
         Term::set(
@@ -1504,8 +1504,8 @@ mod tests {
                 element: "element".into(),
                 concat: "concat".into(),
             },
-            key_sort: "SortS".into(),
-            value_sort: "SortS".into(),
+            key_sort: Sort::simple("SortS"),
+            value_sort: Sort::simple("SortS"),
             map_sort: "SortMap".into(),
         });
         type Wrap<'a> = &'a dyn Fn(&str, &str) -> Predicate;
@@ -1563,7 +1563,7 @@ mod tests {
                 element: "listElement".into(),
                 concat: "listConcat".into(),
             },
-            element_sort: "SortS".into(),
+            element_sort: Sort::simple("SortS"),
             list_sort: "SortList".into(),
         });
         for (kind, wrap) in wrappers {
