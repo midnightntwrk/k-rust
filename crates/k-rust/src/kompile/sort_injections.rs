@@ -1550,8 +1550,22 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         if !matches!(hook, Some("MAP.Map" | "SET.Set" | "LIST.List")) {
             return Ok(Err(visited));
         }
-        let Term::Apply { label, arguments } = term.unannotated() else {
-            return Ok(Err(visited));
+        // `P #as V` matches what `P` matches and binds `V` to it, so an alias of an element is the
+        // collection item that holds `P`, with `V` bound to the element inside it; its key is read
+        // from `P`. A variable on a right side is a value of the element sort, so it is built as
+        // the item holding that value. A left-side variable is left as written.
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is not a sentence kind; only aliases, applications and right-side variables are elements here"
+        )]
+        let written = match term.unannotated() {
+            Term::As { pattern, .. } => match pattern.unannotated() {
+                Term::Apply { label, arguments } => Some((label, arguments)),
+                _ => return Ok(Err(visited)),
+            },
+            Term::Apply { label, arguments } => Some((label, arguments)),
+            Term::Variable { .. } if !is_lhs => None,
+            _ => return Ok(Err(visited)),
         };
         // Invariant: no production before `production` in catalog order carries both `wrapElement` and `element` with a wrapped label of sort `actual`, since the first one that does returns; each candidate scans the productions of its wrapped label once.
         for (_, production) in self.productions.productions() {
@@ -1609,17 +1623,21 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                     actual: 0,
                 });
             };
-            let key = if label.name == wrapped_label {
-                arguments
+            let key = match written {
+                Some((label, arguments)) if label.name == wrapped_label => arguments
                     .first()
                     .cloned()
                     .ok_or_else(|| SortInjectionError::InvalidArity {
                         label: label.name.clone(),
                         expected: 1,
                         actual: 0,
-                    })?
-            } else {
-                Term::apply(cell_map_key_label(expected), vec![visited.clone()])
+                    })?,
+                // An alias of some other term has no written key, and the key function applied to
+                // the alias would put a function call inside the pattern.
+                Some(_) if matches!(term.unannotated(), Term::As { .. }) => {
+                    return Ok(Err(visited));
+                }
+                Some(_) | None => Term::apply(cell_map_key_label(expected), vec![visited.clone()]),
             };
             let key = self.unmemoized(|| self.inject_with_position(&key, key_sort, is_lhs))?;
             return Ok(Ok(Term::apply(element_label, vec![key, visited])));
