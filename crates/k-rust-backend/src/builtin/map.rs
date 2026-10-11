@@ -132,7 +132,23 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
 /// twice, so the keys are strictly increasing and the order of `Term` decides both whether
 /// `key` is among them and where: a binary search finds it in `O(log n)` comparisons.
 fn place_of<K: Ord, V>(entries: &[(K, V)], key: &K) -> Result<usize, usize> {
-    entries.binary_search_by(|(existing, _)| existing.cmp(key))
+    entries.binary_search_by(|(existing, _)| {
+        #[cfg(test)]
+        compared_with_an_entry();
+        existing.cmp(key)
+    })
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test builds: the entries of a stored map this thread's `MAP` hooks have compared a key
+    /// with, by the search (`place_of`) or entry by entry (`absent`).
+    static ENTRY_COMPARISONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn compared_with_an_entry() {
+    ENTRY_COMPARISONS.with(|count| count.set(count.get() + 1));
 }
 
 /// The index of the entry of `entries` whose key is `key`, syntactically (`place_of`).
@@ -157,9 +173,11 @@ fn absent(
 ) -> bool {
     rest.is_none()
         && ((entries_constructor_like && key.attributes().constructor_like)
-            || entries
-                .iter()
-                .all(|(existing, _)| values_differ(sorts, key, existing)))
+            || entries.iter().all(|(existing, _)| {
+                #[cfg(test)]
+                compared_with_an_entry();
+                values_differ(sorts, key, existing)
+            }))
 }
 
 fn update(
@@ -991,6 +1009,59 @@ mod tests {
                 made <= bound,
                 "key {probe}: {made} comparisons, bound {bound}"
             );
+        }
+    }
+
+    /// In a constructor-like map, a hook that reads or changes one key compares it with the
+    /// entries the binary search visits and with no other: a bound key is found by the search,
+    /// and an unbound one, constructor-like too, differs from every entry without being compared
+    /// with each (`absent`). Each hook therefore makes exactly the comparisons `place_of` makes
+    /// alone, which the search's own count bounds
+    /// (`a_key_is_placed_among_the_stored_entries_by_binary_search`).
+    #[test]
+    fn a_one_key_hook_compares_its_key_only_with_the_entries_the_search_visits() {
+        const ENTRIES: u32 = 4096;
+        let definition = definition("SortMap");
+        let bindings = (1..=ENTRIES)
+            .map(|index| (2 * index, 2 * index + 1))
+            .collect::<BTreeMap<_, _>>();
+        let map = bindings_map(&definition, &bindings);
+        assert!(map.attributes().constructor_like);
+        let TermKind::Map { entries, .. } = map.kind() else {
+            unreachable!("a map term")
+        };
+        let compared_by = |run: &dyn Fn()| {
+            ENTRY_COMPARISONS.with(|count| count.set(0));
+            run();
+            ENTRY_COMPARISONS.with(Cell::get)
+        };
+        for probe in [2, ENTRIES, 2 * ENTRIES, 1, ENTRIES + 1, 2 * ENTRIES + 1] {
+            let probed = key(&probe.to_string());
+            let searched = compared_by(&|| {
+                let _ = place_of(entries, &probed);
+            });
+            for (name, arguments) in [
+                ("MAP.lookup", vec![map.clone(), probed.clone()]),
+                (
+                    "MAP.lookupOrDefault",
+                    vec![map.clone(), probed.clone(), value("0")],
+                ),
+                ("MAP.in_keys", vec![probed.clone(), map.clone()]),
+                ("MAP.update", vec![map.clone(), probed.clone(), value("0")]),
+                ("MAP.remove", vec![map.clone(), probed.clone()]),
+            ] {
+                let made = compared_by(&|| {
+                    assert_ne!(
+                        hook(name, &arguments),
+                        BuiltinResult::NotApplicable,
+                        "{name} at key {probe}"
+                    );
+                });
+                assert_eq!(
+                    made, searched,
+                    "{name} at key {probe}: {made} entries compared, the search compares {searched}"
+                );
+            }
         }
     }
 
