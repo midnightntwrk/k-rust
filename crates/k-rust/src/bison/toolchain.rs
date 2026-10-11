@@ -85,8 +85,8 @@ fn tool(variable: &str, default: &str) -> OsString {
 /// Runs one tool of the parser build for `start_sort`. A tool that exits with a status rejects
 /// its input and says why on standard error, which is reported as it is. A tool killed by a
 /// signal stopped without deciding anything about its input (an internal assertion of the tool,
-/// or an outside kill), so that is reported as a failure of the tool, with the parser it was
-/// building, before whatever it wrote.
+/// or an outside kill), so that is reported as deciding nothing about the grammar, with the
+/// parser it was building and both possible causes, before whatever it wrote.
 fn run(
     description: &str,
     executable: impl AsRef<OsStr>,
@@ -117,8 +117,9 @@ fn run(
     #[cfg(not(unix))]
     let signal = "a signal";
     let mut message = format!(
-        "{description} was killed by {signal} while building the parser of sort {start_sort}; \
-         this is a failure of {description} itself, not a rejection of the grammar"
+        "{description} was killed by {signal} while building the parser of sort {start_sort}, \
+         so it decided nothing about the grammar (an internal failure of {description}, such as \
+         an assertion, or a kill from outside it)"
     );
     if !stderr.is_empty() {
         message.push_str(&format!(", and {description} wrote: {stderr}"));
@@ -131,7 +132,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_tool_killed_by_a_signal_is_reported_as_its_own_failure_naming_the_start_sort() {
+    fn a_tool_killed_by_a_signal_is_reported_as_deciding_nothing_naming_the_start_sort() {
         let directory = std::env::temp_dir();
         let error = run(
             "bison",
@@ -147,9 +148,9 @@ mod tests {
         .to_string();
         assert_eq!(
             error,
-            "bison was killed by signal 6 while building the parser of sort Pgm; this is a \
-             failure of bison itself, not a rejection of the grammar, and bison wrote: \
-             bison: src/X.c:1: f: Assertion failed."
+            "bison was killed by signal 6 while building the parser of sort Pgm, so it decided \
+             nothing about the grammar (an internal failure of bison, such as an assertion, or a \
+             kill from outside it), and bison wrote: bison: src/X.c:1: f: Assertion failed."
         );
         let error = run(
             "bison",
