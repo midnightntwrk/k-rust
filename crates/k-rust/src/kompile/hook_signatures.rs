@@ -12,9 +12,9 @@
 //! declares no symbol the backend refuses to load, and the error names the production rather than
 //! its KORE symbol.
 //!
-//! The backend also refuses a collection whose element symbol takes an instance of a parametric
-//! sort (`MInt{64}`), because it names element (key, value) sorts by sort name; such an element
-//! symbol is rejected here too, at its production, until the backend carries those sorts whole.
+//! An element (key, value) sort may be a closed instance of a parametric sort such as `MInt{64}`:
+//! the emitted element symbol takes that instance, which is one sort, and the subsort order
+//! relates it like any other sort.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -62,11 +62,10 @@ fn non_terminal_sorts(items: &[ProductionItem]) -> Vec<Sort> {
         .collect()
 }
 
-/// One error for every element symbol of a collection sort of the main module that takes an
-/// instance of a parametric sort, and one for every production of the main module that declares
-/// a hooked symbol (a `function` whose hook namespace is builtin or in `admitted`) under whose
-/// declaration the hook gives no value of the symbol's result sort.
-pub(super) fn collection_hook_diagnostics(
+/// One error for every production of the main module that declares a hooked symbol (a
+/// `function` whose hook namespace is builtin or in `admitted`) under whose declaration the hook
+/// gives no value of the symbol's result sort.
+pub(super) fn collection_hook_misfit_diagnostics(
     definition: &ResolvedDefinition,
     admitted: &[String],
 ) -> Vec<Diagnostic> {
@@ -83,9 +82,6 @@ pub(super) fn collection_hook_diagnostics(
     };
     let sorts = definition.sort_catalog(module);
     let mut collections = BTreeMap::new();
-    let mut diagnostics = Vec::new();
-    // The collection sorts rejected for a parametric element sort, whose shape is not decided.
-    let mut undecided = BTreeSet::new();
     for (head, attributes) in sorts.attributes_by_head() {
         let hook = attributes.string(AttributeKey::Hook);
         if head.parameters() != 0 || !matches!(hook, Some("LIST.List" | "SET.Set" | "MAP.Map")) {
@@ -107,31 +103,7 @@ pub(super) fn collection_hook_diagnostics(
         let Sentence::Production { items, .. } = productions.production(*id) else {
             continue;
         };
-        let element_sorts = non_terminal_sorts(items);
-        // A closed instance of a parametric sort such as `MInt{64}` is one sort, and the backend
-        // loads a collection over it; compiling one is still refused until the compiled form of
-        // such a collection is checked from source to load.
-        if let Some(applied) = element_sorts
-            .iter()
-            .find(|sort| !sort.parameters.is_empty())
-        {
-            let (kind, roles) = if hook == Some("MAP.Map") {
-                ("map", "key and value")
-            } else {
-                ("collection", "element")
-            };
-            diagnostics.push(Diagnostic::error(
-                DiagnosticCode::UnsupportedParametricSort,
-                format!(
-                    "Production {element} is the element symbol of collection sort {}, but its {roles} sorts include the parametric sort instance {applied}: parametric {kind} element sorts are not supported.",
-                    head.as_str()
-                ),
-                productions.production(*id),
-            ));
-            undecided.insert(Sort::new(head.as_str()));
-            continue;
-        }
-        let shape = match (hook, element_sorts.as_slice()) {
+        let shape = match (hook, non_terminal_sorts(items).as_slice()) {
             (Some("LIST.List"), [element]) => CollectionShape::List(element.clone()),
             (Some("SET.Set"), [element]) => CollectionShape::Set(element.clone()),
             (Some("MAP.Map"), [key, value]) => CollectionShape::Map {
@@ -147,9 +119,9 @@ pub(super) fn collection_hook_diagnostics(
         subsorts: &subsorts,
     };
     let mut reported = BTreeSet::new();
-    // Invariant: besides the parametric element errors, `diagnostics` has one error for every
-    // label before `production` that declares a hooked symbol whose declaration
-    // `collection_hook_misfit` rejects.
+    let mut diagnostics = Vec::new();
+    // Invariant: `diagnostics` has one error for every label before `production` that declares a
+    // hooked symbol whose declaration `collection_hook_misfit` rejects.
     for (_, production) in productions.productions() {
         let Sentence::Production {
             label: Some(label),
@@ -169,12 +141,8 @@ pub(super) fn collection_hook_diagnostics(
         let Some(hook) = attributes.string(AttributeKey::Hook) else {
             continue;
         };
-        let arguments = non_terminal_sorts(items);
-        // Whether a hook fits a collection sort of undecided shape is not decided.
-        if undecided.contains(sort) || arguments.iter().any(|sort| undecided.contains(sort)) {
-            continue;
-        }
-        let Some(reason) = collection_hook_misfit(hook, &arguments, sort, &facts) else {
+        let Some(reason) = collection_hook_misfit(hook, &non_terminal_sorts(items), sort, &facts)
+        else {
             continue;
         };
         if !reported.insert(label.name.clone()) {

@@ -1666,6 +1666,64 @@ fn krun_at_kitem_matches_krun_at_the_concrete_sort() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A list whose element symbol takes the closed instance `MInt{64}` compiles to a definition
+/// that `krun` loads and runs: the list hooks build, measure and index it, and a rule matches an
+/// element of it, giving the count and the words the program put in.
+#[test]
+fn krun_runs_a_list_of_machine_words() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports MINT
+  imports INT
+  syntax MInt{64}
+  syntax WL [hook(LIST.List)]
+  syntax WL ::= WL WL [left, function, total, hook(LIST.concat), symbol(_WL_), assoc, unit(.WL), element(wItem)]
+  syntax WL ::= ".WL" [function, total, hook(LIST.unit), symbol(.WL)]
+  syntax WL ::= wItem(MInt{64}) [function, total, hook(LIST.element), symbol(wItem)]
+  syntax MInt{64} ::= WL "[" Int "]" [function, hook(LIST.get), symbol(wGet)]
+  syntax Int ::= wSize(WL) [function, total, hook(LIST.size), symbol(wSize)]
+  syntax MInt{64} ::= first(WL) [function, symbol(first)]
+  rule first(wItem(W) _:WL) => W
+  syntax Pgm ::= "go"
+  syntax KItem ::= done(Int, MInt{64}, MInt{64}) [symbol(done)]
+  configuration <k> $PGM:Pgm </k>
+  rule go => done(wSize(wItem(3p64) wItem(5p64)), (wItem(3p64) wItem(5p64))[1], first(wItem(7p64) wItem(9p64)))
+endmodule
+"#,
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "MAIN"], &compiled);
+    let program = root.join("go.main");
+    fs::write(&program, "go").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
+        .arg(&program)
+        .args(["--sort", "Pgm"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let compact: String = stdout.split_whitespace().collect();
+    assert!(
+        compact.contains(
+            r#"Lbldone{}(\dv{SortInt{}}("2"),\dv{SortMInt{Sort64{}}}("5p64"),\dv{SortMInt{Sort64{}}}("7p64"))"#
+        ),
+        "{stdout}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kast_omits_inferred_parametric_label_arguments() {
     let (root, definition) = fixture();

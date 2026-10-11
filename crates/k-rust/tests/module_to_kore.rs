@@ -3275,13 +3275,9 @@ case_tests! {
 }
 
 /// A collection whose `element` symbol takes a closed instance of a parametric sort such as
-/// `MInt{64}` is still refused by compilation, at the element production, until its compiled
-/// form is checked from source to load; the backend loads such a collection.
-fn assert_parametric_collection_element_is_a_located_error(
-    kind: &str,
-    element: &str,
-    reason: &str,
-) {
+/// `MInt{64}` compiles and loads: the instance is one sort, so it is the collection's element (key,
+/// value) sort like any other.
+fn assert_parametric_collection_element_compiles_and_loads(kind: &str, element: &str) {
     let (unit_hook, concat) = match kind {
         "MAP" => (
             "MAP.unit",
@@ -3304,22 +3300,39 @@ fn assert_parametric_collection_element_is_a_located_error(
     let source = format!(
         "module MAIN\n  imports MINT\n  imports INT\n  syntax C [hook({kind}.{collection})]\n  {concat}\n  syntax C ::= \".C\" [function, total, hook({unit_hook}), symbol(.C)]\n  syntax C ::= cItem({element}) [function, total, hook({kind}.element), symbol(cItem)]\n  syntax MInt{{64}}\nendmodule\n"
     );
-    let (start_line, message) = compile_error(&source, "MAIN");
-    assert_eq!(start_line, 7, "{message}");
-    assert!(
-        message.contains("Production cItem is the element symbol of collection sort C")
-            && message.contains(reason),
-        "{message}"
-    );
+    let artifacts = assert_compiles_and_loads(&source, "MAIN");
+    let declaration = artifacts
+        .definition_kore
+        .lines()
+        .find(|line| line.contains("symbol LblcItem{}("))
+        .expect("the element symbol is declared");
+    assert!(declaration.contains("SortMInt{Sort64{}}"), "{declaration}");
 }
 
 case_tests! {
-    a_collection_element_of_a_parametric_sort_is_a_located_error =>
-        assert_parametric_collection_element_is_a_located_error {
-        list: ("LIST", "MInt{64}", "parametric collection element sorts are not supported"),
-        set: ("SET", "MInt{64}", "parametric collection element sorts are not supported"),
-        map_key: ("MAP", "MInt{64}, Int", "parametric map element sorts are not supported"),
-        map_value: ("MAP", "Int, MInt{64}", "parametric map element sorts are not supported"),
+    a_collection_element_of_a_parametric_sort_instance_compiles_and_loads =>
+        assert_parametric_collection_element_compiles_and_loads {
+        list: ("LIST", "MInt{64}"),
+        set: ("SET", "MInt{64}"),
+        map_key: ("MAP", "MInt{64}, Int"),
+        map_value: ("MAP", "Int, MInt{64}"),
+    }
+
+    /// Whether a hook gives a value of its result sort is decided over such a collection as over
+    /// any other: an element of a list of `MInt{64}` is no `Int`.
+    #[test]
+    fn a_hook_misfit_over_it_is_a_located_error() {
+        let (start_line, message) = super::compile_error(
+            "module MAIN\n  imports MINT\n  imports INT\n  syntax MInt{64}\n  syntax C [hook(LIST.List)]\n  syntax C ::= C C [left, function, total, hook(LIST.concat), symbol(_C_), assoc, unit(.C), element(cItem)]\n  syntax C ::= \".C\" [function, total, hook(LIST.unit), symbol(.C)]\n  syntax C ::= cItem(MInt{64}) [function, total, hook(LIST.element), symbol(cItem)]\n  syntax Int ::= C \"[\" Int \"]\" [function, symbol(at), hook(LIST.get)]\nendmodule\n",
+            "MAIN",
+        );
+        assert_eq!(start_line, 9, "{message}");
+        assert!(
+            message.contains(
+                "an element of argument 1 of LIST.get, of sort MInt{64}, is the result, but MInt{64} is not Int or a subsort of it"
+            ),
+            "{message}"
+        );
     }
 }
 
