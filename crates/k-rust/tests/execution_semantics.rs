@@ -4,10 +4,15 @@
 //! returns for an initial configuration. `cli.rs` checks how `krust krun` reports these runs
 //! (printed KORE, exit status); the tests here compile the definition, assemble the initial
 //! configuration from the program text as `krun` does, and ask the backend for the run directly.
+//! A test whose result rests on a condition the solver decides needs the backend's Z3 solver
+//! (`z3-inference`): without it the step is indeterminate.
 
 #[path = "support/execution_sources.rs"]
+#[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
 mod execution_sources;
-use execution_sources::{NO_EVALUATOR, PINNED_PLUGIN_BN128, SEARCH_BOUND};
+use execution_sources::PINNED_PLUGIN_BN128;
+#[cfg(feature = "z3-inference")]
+use execution_sources::{NO_EVALUATOR, SEARCH_BOUND, SIZE_BOUND};
 
 use k_rust::{
     backend::{
@@ -26,7 +31,8 @@ use k_rust::{
 };
 
 /// A definition compiled for the Rust backend with the prelude, and the initial configuration
-/// of a program for it.
+/// of a program for it. Only the solver-dependent search test reads a target.
+#[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
 struct Compiled {
     kore: String,
     initial: Pattern,
@@ -35,6 +41,7 @@ struct Compiled {
     execution: ResolvedDefinition,
 }
 
+#[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
 impl Compiled {
     /// The search target `contents` (a rule body, `<k> f(X) </k> requires X >Int 0`) compiled in
     /// `module` as `krun --pattern` compiles it.
@@ -152,34 +159,11 @@ endmodule
 /// conjunct already decides (`guard`) or the solver decides (`decided`), or after a step that
 /// carries it (`dropped`). A result within the bound is computed
 /// (`computed`, 2^20 + 1 bits). `i` hides the constants from the constant folder.
+#[cfg(feature = "z3-inference")]
 #[test]
 fn a_run_halts_on_a_result_above_the_size_bound() {
-    const SOURCE: &str = r#"
-module BOUND
-  imports INT
-  imports BOOL
-  imports K-EQUAL
-  configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= "unusedshl" | "guard" | "decided" | "dropped" | "used" | "shl" | "computed"
-  syntax KItem ::= r(K) | f(Int) | g(Int) | "pos" | "nonpos"
-  syntax Int ::= i(Int) [function, total]
-  rule i(X) => X
-  rule <k> unusedshl => r(false andBool (1 <<Int i(16777216) >Int i(0))) </k>
-  rule <k> guard => r(1) </k> requires i(0) >Int i(1) andBool (1 <<Int i(16777216)) >Int i(0)
-  rule <k> guard => r(4) </k> [owise]
-  rule <k> decided => r(1) </k> requires 2 ^Int i(16777217) >Int i(0)
-  rule <k> decided => r(4) </k> [owise]
-  rule <k> dropped => g(1 <<Int i(16777217)) </k>
-  rule <k> g(_) => r(9) </k>
-  rule <k> used => r(2 ^Int 16777216) </k>
-  rule <k> shl => f(1 <<Int i(16777217)) </k>
-  rule <k> computed => r(2 ^Int i(1048576) >Int 0) </k>
-  rule <k> f(X) => r(pos) </k> requires X >Int 0
-  rule <k> f(X) => r(nonpos) </k> requires X <=Int 0
-endmodule
-"#;
     for (program, hook) in [("used", "INT.pow"), ("shl", "INT.shl")] {
-        let compiled = compile(SOURCE, "BOUND", "BOUND", "Pgm", program);
+        let compiled = compile(SIZE_BOUND, "BOUND", "BOUND", "Pgm", program);
         let result = execute(&compiled, "BOUND", Some(10));
         let [leaf] = result.leaves.as_slice() else {
             panic!("{program}: {result:?}");
@@ -211,7 +195,7 @@ endmodule
         ("dropped", "Int", "9"),
         ("computed", "Bool", "true"),
     ] {
-        let compiled = compile(SOURCE, "BOUND", "BOUND", "Pgm", program);
+        let compiled = compile(SIZE_BOUND, "BOUND", "BOUND", "Pgm", program);
         let result = execute(&compiled, "BOUND", Some(10));
         let [state] = text(&result)
             .try_into()
@@ -223,15 +207,8 @@ endmodule
     }
 }
 
-/// Each step of `go(M, L, N)` adds a new variable `?K` to the map and the list, by any of three
-/// equal rules, so the states at one depth are renamings of each other: their map entries differ
-/// only in the names of their keys (which order differently once the counter reaches two digits,
-/// `!10` before `!3`), while the list fixes which entry is which. So each depth is one state: the
-/// search for every state (a target that is one variable of the configuration's sort, as `krun`
-/// searches) finds the five counters once each, and the final state once.
-#[test]
-fn a_search_finds_the_renamings_of_one_state_once() {
-    const SOURCE: &str = r#"
+/// A definition each of whose steps adds a fresh key by any of three equal rules.
+const RENAMINGS: &str = r#"
 module T
   imports INT
   imports MAP
@@ -243,7 +220,16 @@ module T
   rule [rc]: <k> go(M, L, N) => go(M (?K:Int |-> 0), L ListItem(?K), N -Int 1) </k> requires N >Int 0
 endmodule
 "#;
-    let compiled = compile(SOURCE, "T", "T", "KItem", "go(.Map, .List, 4)");
+
+/// Each step of `go(M, L, N)` adds a new variable `?K` to the map and the list, by any of three
+/// equal rules, so the states at one depth are renamings of each other: their map entries differ
+/// only in the names of their keys (which order differently once the counter reaches two digits,
+/// `!10` before `!3`), while the list fixes which entry is which. So each depth is one state: the
+/// search for every state (a target that is one variable of the configuration's sort, as `krun`
+/// searches) finds the five counters once each, and the final state once.
+#[test]
+fn a_search_finds_the_renamings_of_one_state_once() {
+    let compiled = compile(RENAMINGS, "T", "T", "KItem", "go(.Map, .List, 4)");
     let counter = regex::Regex::new(r#"\("([0-9]+)"\)\), dotk\{\}\(\)"#).unwrap();
     let search = |search_type| {
         let mut backend = Backend::new(&compiled.kore, "T", BackendOptions::default()).unwrap();
@@ -401,6 +387,7 @@ fn the_bn128_hooks_evaluate_on_the_pinned_plugin_point_productions() {
 /// decides a condition over it, or ends on a configuration holding it, halts on the
 /// unsupported-hook reason, as does one that reaches a partial hook without an evaluator
 /// (`logFloat`), whose definedness is unknown even where the application is discarded.
+#[cfg(feature = "z3-inference")]
 #[test]
 fn an_application_without_an_evaluator_halts_a_run_only_where_it_is_needed() {
     let item = |sort: &str, value: &str| {
@@ -459,6 +446,7 @@ fn an_application_without_an_evaluator_halts_a_run_only_where_it_is_needed() {
 /// of `X >Int 0` and not of `X <=Int 0`. One over a `<<Int` result above the bound (no
 /// interpreted encoding) is not decided either way: the search reports the state as incomplete
 /// with the unsupported-hook reason and finds no solution.
+#[cfg(feature = "z3-inference")]
 #[test]
 fn a_search_condition_on_a_result_above_the_size_bound_is_decided_only_by_an_interpreted_hook() {
     let search = |program: &str, condition: &str| {
@@ -542,6 +530,7 @@ endmodule
 
 /// Narrowing the symbolic map of `<m>` against the `mapsel` rule's `(_K |-> _V) REST` binds the
 /// frame and the entry to fresh variables, which the result names with KORE identifiers.
+#[cfg(feature = "z3-inference")]
 #[test]
 fn fresh_remainder_variables_are_kore_identifiers() {
     let compiled = compile(
@@ -610,4 +599,127 @@ fn a_run_reports_an_inconsistent_solver_prelude() {
         error.to_string(),
         "could not initialize Z3: InconsistentPrelude"
     );
+}
+
+/// The result of `krun`'s run driver (`Backend::run_cli`) on the internalized initial
+/// configuration, with `krun`'s defaults (strategy `any`), the depth bound `depth` and the
+/// search `search` (`None` runs).
+#[cfg(feature = "z3-inference")]
+fn run_driver(
+    compiled: &Compiled,
+    main: &str,
+    depth: u64,
+    search: Option<k_rust::backend::execution::SearchRunOptions>,
+) -> Result<k_rust::backend::execution::BackendRunOutput, Box<dyn std::error::Error>> {
+    use k_rust::backend::execution::BackendRunOptions;
+    use k_rust_backend::{rewrite::ExecutionMode, simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS};
+
+    let mut backend = Backend::new(&compiled.kore, main, BackendOptions::default()).unwrap();
+    let initial = backend
+        .internalize_executable(None, &compiled.initial)
+        .unwrap();
+    let function_symbols = backend
+        .select_definition(None)
+        .unwrap()
+        .function_symbol_names();
+    backend.run_cli(
+        None,
+        initial,
+        BackendRunOptions {
+            depth,
+            max_simplification_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+            breadth_limit: None,
+            execute_to_branch: false,
+            cut_point_rules: Default::default(),
+            terminal_rules: Default::default(),
+            strategy: ExecutionMode::Any,
+            search,
+            match_target: None,
+            function_symbols,
+            stop_leaves: None,
+            step_timeout: None,
+            moving_average_timeout: false,
+            capture_stdout: false,
+            execution_input: None,
+        },
+    )
+}
+
+/// `krun`'s run driver on results above the size bound. `2 ^Int 2^24` is defined (its exponent is
+/// not negative) but not computed, so a step whose result discards it, by the short-circuit of
+/// `false andBool` (`unused`) or the branch of a decided `#if` (`branch`), ends in the one result
+/// that does not hold it, with no definedness condition over it. A step whose result holds such a
+/// value (`used`), or whose rules branch on a condition over a `<<Int` one the solver cannot
+/// decide (`shl`), halts the run at that step with the unsupported-hook reason naming the bound.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn the_run_driver_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
+    for (program, value) in [
+        (
+            "unused",
+            r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#,
+        ),
+        (
+            "branch",
+            r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("7"))"#,
+        ),
+    ] {
+        let compiled = compile(SIZE_BOUND, "BOUND", "BOUND", "Pgm", program);
+        let output = run_driver(&compiled, "BOUND", 10, None).unwrap();
+        assert_eq!(output.exit_code, 0, "{program}");
+        let result = Printer::compact().print_pattern(&output.pattern.to_pattern());
+        assert!(
+            result.contains(value) && !result.contains(r"\ceil") && !result.contains(r"\or"),
+            "{program}: {result}"
+        );
+    }
+    for (program, hook) in [("used", "INT.pow"), ("shl", "INT.shl")] {
+        let compiled = compile(SIZE_BOUND, "BOUND", "BOUND", "Pgm", program);
+        let error = run_driver(&compiled, "BOUND", 10, None)
+            .map(|output| Printer::compact().print_pattern(&output.pattern.to_pattern()))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("halted at depth 1")
+                && error.contains(&format!(
+                    "unsupported hook '{hook}' on constructor-like arguments"
+                ))
+                && error.contains("needs more than 16777216 bits"),
+            "{program}: {error}"
+        );
+    }
+}
+
+/// `krun`'s run driver searches the states of [`a_search_finds_the_renamings_of_one_state_once`]
+/// with no bound on depth: the final state once, and each of the five counters once.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn the_run_driver_searches_the_renamings_of_one_state_once() {
+    use k_rust::backend::execution::SearchRunOptions;
+    use k_rust_backend::search::SearchType;
+
+    let compiled = compile(RENAMINGS, "T", "T", "KItem", "go(.Map, .List, 4)");
+    let counter = regex::Regex::new(r#"\("([0-9]+)"\)\), dotk\{\}\(\)"#).unwrap();
+    let search = |search_type| {
+        let output = run_driver(
+            &compiled,
+            "T",
+            u64::MAX,
+            Some(SearchRunOptions {
+                search_type,
+                pattern: None,
+                bound: None,
+            }),
+        )
+        .unwrap();
+        let result = Printer::compact().print_pattern(&output.pattern.to_pattern());
+        let mut counters = counter
+            .captures_iter(&result)
+            .map(|found| found[1].to_owned())
+            .collect::<Vec<_>>();
+        counters.sort();
+        counters
+    };
+    assert_eq!(search(SearchType::Final), ["0"]);
+    assert_eq!(search(SearchType::Star), ["0", "1", "2", "3", "4"]);
 }

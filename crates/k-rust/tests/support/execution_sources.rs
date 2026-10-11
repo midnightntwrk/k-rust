@@ -109,3 +109,35 @@ module SEARCH-BOUND
   rule <k> f(_) => done </k>
 endmodule
 "#;
+
+/// `^Int` and `<<Int` results above the backend's result size bound, discarded (`unused`,
+/// `unusedshl`, `branch`), under a condition another conjunct (`guard`) or the solver (`decided`)
+/// decides, carried through a step and dropped (`dropped`), kept (`used`) or branched on (`shl`),
+/// and one within the bound (`computed`). `i` hides the constants from the constant folder.
+pub const SIZE_BOUND: &str = r#"
+module BOUND
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= "unused" | "unusedshl" | "branch" | "guard" | "decided" | "dropped" | "used" | "shl"
+               | "computed"
+  syntax KItem ::= r(K) | f(Int) | g(Int) | "pos" | "nonpos"
+  syntax Int ::= i(Int) [function, total]
+  rule i(X) => X
+  rule <k> unused => r(false andBool (2 ^Int i(16777216) >Int i(0))) </k>
+  rule <k> unusedshl => r(false andBool (1 <<Int i(16777216) >Int i(0))) </k>
+  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else 2 ^Int i(16777216) #fi) </k>
+  rule <k> guard => r(1) </k> requires i(0) >Int i(1) andBool (1 <<Int i(16777216)) >Int i(0)
+  rule <k> guard => r(4) </k> [owise]
+  rule <k> decided => r(1) </k> requires 2 ^Int i(16777217) >Int i(0)
+  rule <k> decided => r(4) </k> [owise]
+  rule <k> dropped => g(1 <<Int i(16777217)) </k>
+  rule <k> g(_) => r(9) </k>
+  rule <k> used => r(2 ^Int 16777216) </k>
+  rule <k> shl => f(1 <<Int i(16777217)) </k>
+  rule <k> computed => r(2 ^Int i(1048576) >Int 0) </k>
+  rule <k> f(X) => r(pos) </k> requires X >Int 0
+  rule <k> f(X) => r(nonpos) </k> requires X <=Int 0
+endmodule
+"#;

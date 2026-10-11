@@ -5,6 +5,10 @@
 //! exit status) on the same definitions (`support/proof_sources.rs`); the tests here compile each
 //! definition as `kprove` does and ask the backend for the result directly, so a change to what
 //! the prover concludes fails here, in the backend's terms, and not only through the rendering.
+//! The prover decides the implications these results rest on with the backend's Z3 solver
+//! (`z3-inference`), as `kprove` does; without it they are not decided.
+
+#![cfg(feature = "z3-inference")]
 
 use k_rust::{
     backend::{Backend, BackendOptions, ProofResultOutput, ProveRequest},

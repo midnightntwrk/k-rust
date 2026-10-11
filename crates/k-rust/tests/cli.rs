@@ -16,7 +16,7 @@ use regex::Regex;
 mod execution_sources;
 #[path = "support/line_anchors.rs"]
 mod line_anchors;
-use execution_sources::{NO_EVALUATOR, PINNED_PLUGIN_BN128, SEARCH_BOUND};
+use execution_sources::{NO_EVALUATOR, PINNED_PLUGIN_BN128, SEARCH_BOUND, SIZE_BOUND};
 #[path = "support/proof_sources.rs"]
 mod proof_sources;
 use proof_sources::{
@@ -4818,35 +4818,8 @@ fn krun_refuses_an_application_without_an_evaluator_only_where_a_run_needs_it() 
 /// arguments, under the 2^24-bit floor). `i` hides the constants from the constant folder.
 #[test]
 fn krun_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
-    const SOURCE: &str = r#"
-module BOUND
-  imports INT
-  imports BOOL
-  imports K-EQUAL
-  configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= "unused" | "unusedshl" | "branch" | "guard" | "decided" | "dropped" | "used" | "shl"
-               | "computed"
-  syntax KItem ::= r(K) | f(Int) | g(Int) | "pos" | "nonpos"
-  syntax Int ::= i(Int) [function, total]
-  rule i(X) => X
-  rule <k> unused => r(false andBool (2 ^Int i(16777216) >Int i(0))) </k>
-  rule <k> unusedshl => r(false andBool (1 <<Int i(16777216) >Int i(0))) </k>
-  rule <k> branch => r(#if i(1) ==Int i(1) #then 7 #else 2 ^Int i(16777216) #fi) </k>
-  rule <k> guard => r(1) </k> requires i(0) >Int i(1) andBool (1 <<Int i(16777216)) >Int i(0)
-  rule <k> guard => r(4) </k> [owise]
-  rule <k> decided => r(1) </k> requires 2 ^Int i(16777217) >Int i(0)
-  rule <k> decided => r(4) </k> [owise]
-  rule <k> dropped => g(1 <<Int i(16777217)) </k>
-  rule <k> g(_) => r(9) </k>
-  rule <k> used => r(2 ^Int 16777216) </k>
-  rule <k> shl => f(1 <<Int i(16777217)) </k>
-  rule <k> computed => r(2 ^Int i(1048576) >Int 0) </k>
-  rule <k> f(X) => r(pos) </k> requires X >Int 0
-  rule <k> f(X) => r(nonpos) </k> requires X <=Int 0
-endmodule
-"#;
     let (root, definition) = fixture();
-    fs::write(&definition, SOURCE).unwrap();
+    fs::write(&definition, SIZE_BOUND).unwrap();
     let run = |program: &str| {
         let input = root.join(format!("{program}.bound"));
         fs::write(&input, program).unwrap();
