@@ -11104,9 +11104,11 @@ endmodule
 
 /// In-process program parsing locates the terms of `[locations]` sorts as a generated parser
 /// does: a term is wrapped in `#location` at its own sort and at the sort of its position when
-/// either declares `[locations]` (`Val` inside `Exp`, through its injection, when both do), an
-/// empty list at the empty span where it stands, and the file name is the program path as given,
-/// `-` for standard input and `--expression`. `krun --depth 0` and the generated parser give each
+/// either declares `[locations]` (`Val` inside `Exp`, through its injection, when both do), a
+/// term from its first token to its last, without the layout after it even when its last part is
+/// empty (`f(1, 2 )` locates `1, 2` and its empty end at the end of `2`), an empty list at the end
+/// of the token before it (`f( )` locates it after `(`), and the file name is the program path as
+/// given, `-` for standard input and `--expression`. `krun --depth 0` and the generated parser give each
 /// program one term once the injection into the start position is removed.
 #[cfg(unix)]
 #[test]
@@ -11201,7 +11203,17 @@ endmodule
         assert_eq!(symbol.name, "kseq");
         uninjected(&arguments[0])
     };
-    let programs = ["v + 1", "f(1, 2)", "f()", "1", "(1 +\r\nv)\r+ f(3)\n"];
+    let programs = [
+        "v + 1",
+        "f(1, 2)",
+        "f()",
+        "1",
+        "(1 +\r\nv)\r+ f(3)\n",
+        "f(1, 2 )",
+        "f( )",
+        "f( 1 ,\n 2  \n )\n",
+        "f(f( ), (v) ) + f(\n)",
+    ];
     for (index, program) in programs.into_iter().enumerate() {
         let input = root.join(format!("program-{index}.pgm"));
         fs::write(&input, program).unwrap();

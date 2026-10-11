@@ -799,10 +799,12 @@ fn prediction_reuse_preserves_layout_positions_provenance_and_rejection() {
     };
     assert_eq!(arguments.len(), 3);
     let empty_identity = production_identity(&sentences[1]).expect("empty is a production");
+    // An empty node stands at the end of the token before it, or at the start of the input,
+    // not past the layout after it.
     for (child, position) in arguments.iter().zip([
-        input.find('x').unwrap(),
-        input.rfind('x').unwrap(),
-        input.len(),
+        0,
+        input.find('x').unwrap() + 1,
+        input.rfind('x').unwrap() + 1,
     ]) {
         let metadata = child.metadata().expect("nullable child retains metadata");
         assert_eq!(

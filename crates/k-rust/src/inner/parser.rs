@@ -2215,6 +2215,11 @@ impl Grammar {
         let mut charts = (0..=input.len())
             .map(|_| Chart::new(self.sorts.len()))
             .collect::<Vec<_>>();
+        // An empty node before the first token stands at the start of the input
+        // (`Chart::text_span`).
+        if start_position != 0 {
+            charts[start_position].layout_start = Some(0);
+        }
         for production in self.productions_for_id(start_id) {
             self.add_chart_state(
                 &mut charts[start_position],
@@ -2476,9 +2481,7 @@ impl Grammar {
                                     production,
                                     children,
                                     input,
-                                    state.origin,
-                                    position,
-                                    charts[position].last_token_end(state.origin, position),
+                                    charts[position].text_span(state.origin, position),
                                     provenance,
                                 );
                                 if production.term_production.is_some() {
