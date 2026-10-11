@@ -10,7 +10,7 @@ use std::{
 use proptest::prelude::*;
 
 use super::edit::height;
-use super::{DEFAULT, Entry, check_invariants, choices, entries, fx_hash, shaped};
+use super::{DEFAULT, Entry, VARIABLES, check_invariants, choices, entries, fx_hash, shaped};
 use crate::term::chunked::{
     Chunked, Group, Item, Node, NodeSummary, Summary,
     multiset::{Multiset, Occurrences},
@@ -185,7 +185,7 @@ proptest! {
     fn a_multiset_follows_its_model(steps in prop::collection::vec(step(), 0..40)) {
         multiset_history::<5>(&steps);
         multiset_history::<6>(&steps);
-        multiset_history::<DEFAULT>(&steps);
+        multiset_history::<VARIABLES>(&steps);
     }
 
     #[test]

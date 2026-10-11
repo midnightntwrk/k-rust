@@ -33,14 +33,14 @@
 use std::{collections::BTreeSet, fmt, hash::Hash, iter::FusedIterator, slice, sync::Arc};
 
 use super::{
-    Chunked, DEFAULT_BRANCHING,
+    Chunked, VARIABLE_BRANCHING,
     multiset::{Multiset, Occurrences},
 };
 use crate::term::variables::{VariableLookup, disjoint};
 
 /// A persistent ordered set of variables; see the module documentation. Two sets are equal when
 /// they hold the same variables, whatever history built them.
-pub(crate) struct Variables<V: Ord + Clone + Hash + fmt::Debug, const B: usize = DEFAULT_BRANCHING>
+pub(crate) struct Variables<V: Ord + Clone + Hash + fmt::Debug, const B: usize = VARIABLE_BRANCHING>
 {
     backing: Backing<V, B>,
 }
@@ -213,7 +213,7 @@ impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
 ///
 /// Copying the other operands' variables as they come lets a union of many small operands sort
 /// their variables once, instead of merging them one operand at a time.
-pub(crate) struct Union<'a, V: Ord + Clone + Hash + fmt::Debug, const B: usize = DEFAULT_BRANCHING>
+pub(crate) struct Union<'a, V: Ord + Clone + Hash + fmt::Debug, const B: usize = VARIABLE_BRANCHING>
 {
     largest: Option<&'a Variables<V, B>>,
     others: Vec<V>,

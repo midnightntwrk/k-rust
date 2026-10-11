@@ -10,7 +10,7 @@ use std::{
 use proptest::prelude::*;
 
 use super::edit::{height, unshared};
-use super::{DEFAULT, check_invariants, choices, fx_hash, shaped};
+use super::{DEFAULT, VARIABLES, check_invariants, choices, fx_hash, shaped};
 use crate::term::{
     VariableLookup,
     chunked::{
@@ -216,7 +216,7 @@ proptest! {
     ) {
         history::<5>(&steps, &pairs);
         history::<6>(&steps, &pairs);
-        history::<DEFAULT>(&steps, &pairs);
+        history::<VARIABLES>(&steps, &pairs);
     }
 
     #[test]
@@ -225,7 +225,7 @@ proptest! {
         right in prop::collection::vec(0u8..64, 0..40),
     ) {
         lookups_follow_the_smaller_set::<5>(&left, &right);
-        lookups_follow_the_smaller_set::<DEFAULT>(&left, &right);
+        lookups_follow_the_smaller_set::<VARIABLES>(&left, &right);
     }
 }
 

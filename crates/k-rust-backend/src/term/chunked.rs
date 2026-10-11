@@ -111,9 +111,30 @@ use std::{
     vec,
 };
 
-/// The branching factor of a [`Chunked`] that names none. Provisional: it is to be chosen by
-/// measuring the collection workloads once terms use the tree.
+/// The branching factor of a [`Chunked`] that names none: that of a map's entries.
+///
+/// An edit copies one node per level, `B` handles or items each, over `log_B n` levels, so a
+/// smaller `B` copies less per level and a larger one has fewer levels and fewer summaries. Chosen
+/// by `instructions:u` (K22 step 3e, 16, 32 and 64 with variable trees at 64): the KEVM storage
+/// loop, which holds a map of up to 16,384 slots but spends most of its size-dependent cost in a
+/// set, does not separate the three (totals within 0.05 %, its run-to-run spread); 16 costs 5.7 %
+/// less than 32 on 16,000 `MAP.update`s and 3.9 % more on the symbolic map class test, 64 costs
+/// 10.6 % more on the updates and its root, which every edit copies, widens in proportion to the
+/// map up to `B²` entries (the map class test then fails). 32 is kept.
 pub(crate) const DEFAULT_BRANCHING: usize = 32;
+
+/// The branching factor of the trees of variables: a [`Multiset`](multiset::Multiset) of
+/// variables and a [`Variables`](variables::Variables) set, which share one tree, and the size up
+/// to which a set of variables is a flat slice.
+///
+/// A rule's or a function call's variable set often holds more than 32 variables and is built,
+/// united and searched far more often than it is edited, so a larger leaf keeps such sets flat;
+/// a symbolic collection's multiset is edited by path copies, where a larger node copies more.
+/// Chosen by `instructions:u` (K22 step 3e, 32, 64 and 128 with map entries at 32): 64 costs
+/// 0.8 % less than 32 on KEVM `gfob-min`, 0.4 % less on the KEVM storage loop and 5 % more on the
+/// symbolic map class test, whose map holds up to 2,048 variables; 128 costs within 0.05 % of 64
+/// on the KEVM workloads.
+pub(crate) const VARIABLE_BRANCHING: usize = 64;
 
 /// A monoid: an associative [`combine`](Summary::combine) with an [`identity`](Summary::identity)
 /// on either side. A node stores the fold of its items' summaries, so combining the summaries of

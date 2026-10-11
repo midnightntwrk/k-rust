@@ -14,7 +14,7 @@ use std::{
     hash::{BuildHasher, Hash},
 };
 
-use super::{Chunked, DEFAULT_BRANCHING, Group, Item, Summary};
+use super::{Chunked, Group, Item, Summary, VARIABLE_BRANCHING};
 use crate::term::variables::VariableLookup;
 
 #[cfg(test)]
@@ -62,7 +62,8 @@ impl<E: Ord + Clone + Hash + fmt::Debug> Item for Occurrences<E> {
 /// removes them. Two multisets with the same occurrences are equal, whatever history built them
 /// (the sequence of entries is ordered by element and has one entry per element).
 #[derive(Clone, PartialEq)]
-pub(crate) struct Multiset<E: Ord + Clone + Hash + fmt::Debug, const B: usize = DEFAULT_BRANCHING> {
+pub(crate) struct Multiset<E: Ord + Clone + Hash + fmt::Debug, const B: usize = VARIABLE_BRANCHING>
+{
     entries: Chunked<Occurrences<E>, B>,
 }
 

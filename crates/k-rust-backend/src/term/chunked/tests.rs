@@ -20,6 +20,7 @@ mod variables;
 
 use super::{
     Chunked, DEFAULT_BRANCHING, Dismantle, Item, Node, NodeSummary, SequenceHash, Summary,
+    VARIABLE_BRANCHING,
     multiset::Multiset,
     summary::{Any, Count, Failing, Saturating, Uniform},
 };
@@ -142,6 +143,9 @@ impl Item for Entry {
 }
 
 const DEFAULT: usize = DEFAULT_BRANCHING;
+
+/// The branching factor of the production trees of variables (multisets and sets).
+const VARIABLES: usize = VARIABLE_BRANCHING;
 
 /// Check the fill invariant, the heights, and that every node's summary is the fold of its
 /// items' summaries; return the root's fold.
