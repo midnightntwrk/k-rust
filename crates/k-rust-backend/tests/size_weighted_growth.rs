@@ -36,10 +36,18 @@ use std::sync::Mutex;
 
 use k_rust_backend::{
     definition::BackendDefinition,
+    externalize::constrained_pattern,
     rewrite::{ExecutionOptions, Pattern, execute},
     simplify::{SimplificationOptions, simplify, simplify_pattern_with_solver},
     smt::{NoSolver, TranslationState},
     term::Term,
+};
+#[cfg(feature = "z3")]
+use k_rust_backend::{
+    rule::Predicate,
+    smt::{SmtSolver, Z3Solver},
+    substitution::Substitution,
+    term::Variable,
 };
 use k_rust_kore::{
     kore::parser::{parse_definition, parse_pattern},
@@ -541,7 +549,9 @@ endmodule []"#;
 
 /// `X /\ \floor(f(X)) /\ chain`, the chain `depth` levels of `shape`'s connective over
 /// `\ceil(f(X))`: `\exists` or `\forall` binding a fresh variable per level, `\implies` and `\or`
-/// with `\ceil(g(X))` as the other operand (the `\or` over a `\not`), or `\not` alone.
+/// with `\ceil(g(X))` as the other operand (the `\or` over a `\not`), `\not` alone, or `\and`
+/// and `\or` alternating with `\ceil(g(Ai))` over a fresh variable `Ai` at level `i` as the
+/// other operand, so that no operand is implied by another.
 fn predicate_chain(shape: &str, depth: u64) -> String {
     let ceil = |function: &str| {
         format!("\\ceil{{SortInt{{}}, SortInt{{}}}}({function}{{}}(X:SortInt{{}}))")
@@ -549,6 +559,10 @@ fn predicate_chain(shape: &str, depth: u64) -> String {
     let mut chain = ceil("f");
     for level in 0..depth {
         chain = match shape {
+            "andor" => format!(
+                "\\{}{{SortInt{{}}}}(\\ceil{{SortInt{{}}, SortInt{{}}}}(g{{}}(A{level}:SortInt{{}})), {chain})",
+                if level % 2 == 0 { "and" } else { "or" }
+            ),
             "exists" | "forall" => {
                 format!("\\{shape}{{SortInt{{}}}}(Y{level}:SortInt{{}}, {chain})")
             }
@@ -573,32 +587,36 @@ fn predicate_chain(shape: &str, depth: u64) -> String {
 /// needs that level, not the chain below it: the walks of one simplification of the chain visit
 /// a number of nodes linear in its depth.
 fn assert_predicate_walks_linear(shape: &str, depth: u64) {
+    assert_predicate_chain_linear(
+        shape,
+        depth,
+        "predicate nodes visited",
+        Counter::SimplifyPredicateNodesVisited,
+    );
+}
+
+/// Asserts that simplifying the `shape` chain counts `quantity` on `counter` linearly in its
+/// depth.
+fn assert_predicate_chain_linear(shape: &str, depth: u64, quantity: &str, counter: Counter) {
     let _one = ONE_AT_A_TIME
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(PREDICATE_CHAINS);
-    assert_linear(
-        &format!("{shape} chain"),
-        "predicate nodes visited",
-        depth,
-        |depth| {
-            let subject = pattern(&definition, &predicate_chain(shape, depth));
-            let before = snapshot();
-            let result = simplify_pattern_with_solver(
-                &definition,
-                &subject,
-                SimplificationOptions::default(),
-                &NoSolver,
-            )
-            .expect("no stop")
-            .expect("simplifies");
-            let visited = snapshot()
-                .delta(&before)
-                .get(Counter::SimplifyPredicateNodesVisited);
-            drop(result);
-            visited
-        },
-    );
+    assert_linear(&format!("{shape} chain"), quantity, depth, |depth| {
+        let subject = pattern(&definition, &predicate_chain(shape, depth));
+        let before = snapshot();
+        let result = simplify_pattern_with_solver(
+            &definition,
+            &subject,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("no stop")
+        .expect("simplifies");
+        let counted = snapshot().delta(&before).get(counter);
+        drop(result);
+        counted
+    });
 }
 
 #[test]
@@ -621,9 +639,165 @@ fn a_disjunction_negation_chain_visits_its_predicates_linearly_in_its_depth() {
     assert_predicate_walks_linear("ornot", 100);
 }
 
+/// A level of the chain normalizes to a conjunction nested in its parent's, and a nested
+/// conjunction is simplified under its parent's assumptions. Those assumptions do not grow with
+/// the depth: the parent's conjunct being simplified, which is not an assumption, holds `\top`
+/// in its slot meanwhile, and `\top` states nothing, so it is not copied into the nested
+/// conjunction's assumptions.
+#[test]
+fn a_disjunction_negation_chain_copies_known_predicates_linearly_in_its_depth() {
+    assert_predicate_chain_linear(
+        "ornot",
+        100,
+        "known predicates copied",
+        Counter::SimplifyKnownPredicates,
+    );
+}
+
+/// Each nested conjunction takes its conjuncts as its input, and the chain below a level is one
+/// of them: a conjunction simplification that copies its input conjuncts copies the chain below
+/// it at every level. Linear needs the copies replaced by borrowed views (K24 step 4b).
+#[test]
+#[ignore = "K24 4b: one clone per conjunction level remains"]
+fn a_disjunction_negation_chain_copies_its_conjuncts_linearly_in_its_depth() {
+    assert_predicate_chain_linear(
+        "ornot",
+        100,
+        "input conjunct nodes",
+        Counter::SimplifyConjunctNodes,
+    );
+}
+
+/// Normalizing a conjunction or a disjunction whose operands are already normalized takes them
+/// as they are, so a chain alternating the two is not normalized again below each level.
+#[test]
+fn an_alternating_conjunction_disjunction_chain_visits_its_predicates_linearly_in_its_depth() {
+    assert_predicate_walks_linear("andor", 100);
+}
+
+/// Printing an existential chain walks it a bounded number of times, not once per binder.
+///
+/// A binder is renamed for printing only when it prints like another variable of its body, so a
+/// chain whose binders and free variable all print differently is printed as it is: deciding
+/// that reads each node of the chain a bounded number of times, not the body of every binder.
+#[test]
+fn printing_an_existential_chain_visits_its_predicates_linearly_in_its_depth() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(PREDICATE_CHAINS);
+    assert_linear(
+        "printed exists chain",
+        "predicate nodes visited",
+        200,
+        |depth| {
+            let subject = pattern(&definition, &predicate_chain("exists", depth));
+            let before = snapshot();
+            let printed = constrained_pattern(&subject);
+            let visited = snapshot()
+                .delta(&before)
+                .get(Counter::SimplifyPredicateNodesVisited);
+            drop(printed);
+            visited
+        },
+    );
+}
+
 /// The control: a negation chain, linear before the predicate equations were indexed by
 /// connective, stays linear.
 #[test]
 fn a_negation_chain_visits_its_predicates_linearly_in_its_depth() {
     assert_predicate_walks_linear("not", 400);
+}
+
+// ---------- SMT queries: which conjuncts a validity check sends ----------
+
+/// The variables `X0` to `Xn` of sort `Int`, read from `TEMPLATES`.
+#[cfg(feature = "z3")]
+fn int_variables(definition: &BackendDefinition, n: u64) -> Vec<Variable> {
+    let sort = term(definition, "X:SortInt{}").sort();
+    (0..=n)
+        .map(|index| Variable::new(format!("X{index}"), sort.clone()))
+        .collect()
+}
+
+/// The bytes one validity check of `checked` under `known` allocates, on a fresh solver so that
+/// no cached answer is read.
+#[cfg(feature = "z3")]
+fn validity_check_bytes(
+    definition: &BackendDefinition,
+    known: &[Predicate],
+    checked: &[Predicate],
+) -> u64 {
+    let solver = Z3Solver::new(definition).expect("the solver starts");
+    bytes_of(|| {
+        solver
+            .check_predicates(known, &Substitution::new(), checked)
+            .expect("no stop")
+            .expect("the check translates")
+    })
+}
+
+/// Checking an existential chain reads the SMT constants of its translation once.
+///
+/// Which known facts a check needs is decided by the constants the checked predicate mentions;
+/// a binder's constant is one of them, and the constants under a binder are those of its body,
+/// so collecting them is one walk of the translation, not one walk of the body per binder.
+#[cfg(feature = "z3")]
+#[test]
+fn checking_an_existential_chain_allocates_linearly_in_its_depth() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(TEMPLATES);
+    assert_linear("SMT check of an exists chain", "bytes", 200, |depth| {
+        let variables = int_variables(&definition, depth);
+        let sort = variables[0].sort.clone();
+        let mut chain = Predicate::Equals(
+            Term::variable(variables[0].clone()),
+            Term::domain_value(sort, "1"),
+        );
+        for bound in &variables[1..] {
+            chain = Predicate::Exists(bound.clone(), Box::new(chain));
+        }
+        validity_check_bytes(&definition, &[], &[chain])
+    });
+}
+
+/// Selecting the known conjuncts linked to a check reads each conjunct's constants once.
+///
+/// The known facts `Xi = X(i+1)` are linked to a check of `X0` one after the other. The facts a
+/// check needs are those reachable from its constants through shared constants, and a search
+/// that indexes each fact by its constants reaches every fact once, however long the chain of
+/// links that reaches it.
+#[cfg(feature = "z3")]
+#[test]
+fn selecting_linked_known_conjuncts_allocates_linearly_in_their_number() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(TEMPLATES);
+    assert_linear(
+        "SMT selection of linked known facts",
+        "bytes",
+        200,
+        |links| {
+            let variables = int_variables(&definition, links);
+            let sort = variables[0].sort.clone();
+            let known = variables
+                .windows(2)
+                .map(|pair| {
+                    Predicate::Equals(
+                        Term::variable(pair[0].clone()),
+                        Term::variable(pair[1].clone()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let checked = Predicate::Equals(
+                Term::variable(variables[0].clone()),
+                Term::domain_value(sort, "1"),
+            );
+            validity_check_bytes(&definition, &known, &[checked])
+        },
+    );
 }

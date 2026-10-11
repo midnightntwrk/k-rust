@@ -24,8 +24,9 @@ use execute::execute_using;
 pub(crate) use execute::{simplify_leaf_pattern, simplify_result_pattern};
 pub use predicates::substitute_predicates;
 pub(crate) use predicates::{
-    check_concreteness, conjunctively_contains_alpha_equivalent, predicates_truth,
-    quantify_introduced_variables, violates_finite_constructor_domain,
+    check_concreteness, conjunctively_contains_alpha_equivalent, predicate_root_truth,
+    predicate_truth, predicates_truth, quantify_introduced_variables,
+    violates_finite_constructor_domain,
 };
 use predicates::{extend_unique, pattern_variable_names};
 use recover::{

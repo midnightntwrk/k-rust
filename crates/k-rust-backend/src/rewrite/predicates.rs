@@ -2,15 +2,18 @@
 //! responsibility, not an algorithm): three-valued predicate truth, alpha equivalence of
 //! quantified conditions, unique extension with an `FxHashMap` position index, substitution
 //! into predicates, constructor-domain coverage (the finite no-junk check), and the
-//! concreteness check of rule attributes. O(|predicates|) per call; no counter, no worklist
-//! beyond the binder peel.
+//! concreteness check of rule attributes. O(|predicates|) per call; no worklist beyond the binder
+//! peel. Predicate truth bumps `Counter::SimplifyPredicateNodesVisited` once per node it reads.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     hash::{Hash, Hasher},
 };
 
-use k_rust_kore::names::BuiltinSort;
+use k_rust_kore::{
+    measure::{self, Counter},
+    names::BuiltinSort,
+};
 use rustc_hash::{FxHashMap, FxHasher};
 
 use crate::{
@@ -418,7 +421,31 @@ fn constructor_pattern_covers_head(constructor: &Term, binders: &BTreeSet<Variab
         .is_some_and(|variables| variables.len() == arguments.len() && variables == *binders)
 }
 
-fn predicate_truth(predicate: &Predicate) -> Truth {
+/// The truth of `predicate` read from its top node alone: a constant is itself, an atom is
+/// decided by the atom rules of [`predicate_truth`], and a connective or quantifier is
+/// `Unknown`, whatever its operands.
+///
+/// For a predicate whose sub-predicates are all fixed points of
+/// `simplify::normalize_predicate` this equals [`predicate_truth`]: such a predicate holds no
+/// constant below its top, so every connective of it combines `Unknown`s.
+pub(crate) fn predicate_root_truth(predicate: &Predicate) -> Truth {
+    match predicate {
+        Predicate::Not(_)
+        | Predicate::And(_)
+        | Predicate::Or(_)
+        | Predicate::Implies(..)
+        | Predicate::Iff(..)
+        | Predicate::Exists(..)
+        | Predicate::Forall(..) => {
+            measure::bump(Counter::SimplifyPredicateNodesVisited);
+            Truth::Unknown
+        }
+        atom => predicate_truth(atom),
+    }
+}
+
+pub(crate) fn predicate_truth(predicate: &Predicate) -> Truth {
+    measure::bump(Counter::SimplifyPredicateNodesVisited);
     match predicate {
         Predicate::True => Truth::True,
         Predicate::False => Truth::False,

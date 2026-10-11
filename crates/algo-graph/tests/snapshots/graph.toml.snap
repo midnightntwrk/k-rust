@@ -1164,6 +1164,20 @@ symbol = "Counter::SimplifyBuiltinEvaluations"
 
 [[node]]
 kind = "observation"
+id = "SimplifyConjunctNodes"
+provenance = "table"
+area = "simplify"
+name = "SimplifyConjunctNodes"
+table = "Counter::ALL"
+registry_name = "simplify.conjunct_nodes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyConjunctNodes"
+
+[[node]]
+kind = "observation"
 id = "SimplifyEquationAttempts"
 provenance = "table"
 area = "simplify"
@@ -1189,6 +1203,20 @@ registry_name = "simplify.invocations"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/measure.rs"
 symbol = "Counter::SimplifyInvocations"
+
+[[node]]
+kind = "observation"
+id = "SimplifyKnownPredicates"
+provenance = "table"
+area = "simplify"
+name = "SimplifyKnownPredicates"
+table = "Counter::ALL"
+registry_name = "simplify.known_predicates"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyKnownPredicates"
 
 [[node]]
 kind = "observation"
@@ -2764,7 +2792,7 @@ id = "backend.simplify.predicates"
 provenance = "declared"
 area = "backend"
 name = "conjunct-set predicate normalization"
-variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; L = predicate nodes of the largest assumed conjunct other than the one being simplified"
+variable = '''b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; w = the nodes a key reads: a visited sub-predicate's top node and its operands, each through one \not; c = assumed conjuncts that share its key; k = known predicates'''
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendSimplifyPredicates"
@@ -2787,7 +2815,7 @@ symbol = "simplify_predicates_entry"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
-symbol = "predicate_conjunct_index"
+symbol = "distinct_conjuncts"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -2807,17 +2835,22 @@ symbol = "simplify_predicate_with_budget"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
-symbol = "ConjunctIndex"
+symbol = "KnownConjuncts"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "LevelConjuncts"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ShallowKey"
 
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "PredicateAssumptions"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/simplify.rs"
-symbol = "predicate_nodes_within"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -2834,17 +2867,31 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "collect_predicate_term_pairs"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "normalize_root"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "normalize_hereditary"
+
 [[node.cost]]
 mode = "one round"
-bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds"
+bound = 'n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds; per round, one copy of each input conjunct and of the k known predicates other than \top into the assumption list (the known ones are indexed borrowed), and one key per conjunct and known conjunct'
 
 [[node.cost]]
 mode = "assumption lookups"
-bound = "per visited sub-predicate and its simplified form: O(min(s, L)) to count its nodes against L, then a hash of it, and of a copy of its negation, only when s <= L; a connective chain of depth d beside assumptions of at most L nodes costs O(d x L), not O(d^2)"
+bound = "per visited sub-predicate and its simplified form: its key and its negation's, O(w) each, then one comparison with each of the c assumed conjuncts of each key, down to their first difference; the conjunct being simplified is skipped by its slot before any comparison, and no negation is built"
 
 [[node.cost]]
 mode = "predicate equations (apply_predicate_theory)"
 bound = "per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them"
+
+[[node.cost]]
+mode = "normalization of a simplified sub-predicate (normalize_root, normalize_hereditary)"
+bound = "a connective's: one level over its simplified operands, which are hereditarily normalized, reading each operand's top node only, plus the comparisons that remove repeated conjuncts of the flattened conjunction; an atom's, which may conjoin the unsimplified conditions of its terms' simplification: one bottom-up pass over that result, O(its predicate nodes) plus the same comparisons"
 
 [[node.cost]]
 mode = "ceil conjunct (known_defined_subterms)"
@@ -8986,7 +9033,19 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "backend.simplify.predicates"
+to = "SimplifyConjunctNodes"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.predicates"
 to = "SimplifyInvocations"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.predicates"
+to = "SimplifyKnownPredicates"
 provenance = "declared"
 
 [[edge]]
