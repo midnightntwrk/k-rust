@@ -1252,7 +1252,7 @@ fn write_list_action(output: &mut String, part: ListPart, sort: &Sort, nontermin
     // there (`write_list_closers`).
     writeln!(
         output,
-        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{children});\n  n->symbol = {LIST_PREFIX_SYMBOL};\n  n->sort = \"{}\";\n  n->str = false;\n  n->token = NULL;\n  n->location = {location};\n  n->hasLocation = 0;\n  n->nchildren = {children};\n  n->children[0] = ${element}.nterm;{before}\n  value_type value = {{.nterm = n}};\n  $$ = value;\n}}",
+        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{children});\n  n->symbol = {LIST_PREFIX_SYMBOL};\n  n->sort = \"{}\";\n  n->str = false;\n  n->location = {location};\n  n->hasLocation = 0;\n  n->nchildren = {children};\n  n->children[0] = ${element}.nterm;{before}\n  value_type value = {{.nterm = n}};\n  $$ = value;\n}}",
         c_kore_sort(sort)
     )
     .expect("writing to a string cannot fail");
@@ -1303,7 +1303,7 @@ fn write_list_closers(
         let closer = list_closer(sort);
         writeln!(
             output,
-            "static node *{closer}(node *prefix, node *rest, YYLTYPE end) {{\n  while (prefix) {{\n    if (prefix->symbol != {LIST_PREFIX_SYMBOL}) {{\n      YYSTYPE first = {{.nterm = {closer}(prefix->children[0], rest, end)}};\n      YYSTYPE second = {{.nterm = {closer}(prefix->children[1], rest, end)}};\n      return mergeAmb(first, second).nterm;\n    }}\n    YYLTYPE location = prefix->location;\n    location.last_line = end.last_line;\n    location.last_column = end.last_column;"
+            "static node *{closer}(node *prefix, node *rest, YYLTYPE end) {{\n  while (prefix) {{\n    if (prefix->symbol != {LIST_PREFIX_SYMBOL}) {{\n      YYSTYPE first = {{.nterm = {closer}(prefix->children[0], rest, end)}};\n      YYSTYPE second = {{.nterm = {closer}(prefix->children[1], rest, end)}};\n      return mergeAmb(first, second).nterm;\n    }}\n    YYLTYPE location = prefix->location;\n    location.last_line = end.last_line;\n    location.last_column = end.last_column;\n    location.last_offset = end.last_offset;"
         )
         .expect("writing to a string cannot fail");
         let has_location = sort_attributes(sort_catalog, sort)
@@ -1346,7 +1346,7 @@ fn write_token_action(
     let sort = c_kore_sort(sort);
     writeln!(
         output,
-        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal($1.token, {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->token = NULL;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->token = $1.token;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
+        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal($1.token, {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
         u8::from(has_location)
     )
     .expect("writing to a string cannot fail");
@@ -1459,7 +1459,7 @@ fn write_subsort_action(
         let cons = c_kore_label(&cons);
         writeln!(
             output,
-            "  node *n2 = malloc(sizeof(node));\n  n2->symbol = \"{nil}\";\n  n2->str = false;\n  n2->token = NULL;\n  n2->location = @$;\n  n2->hasLocation = 0;\n  n2->nchildren = 0;\n  n2->sort = \"{result_kore}\";\n  node *n3 = malloc(sizeof(node) + 2*sizeof(node *));\n  n3->symbol = \"{cons}\";\n  n3->str = false;\n  n3->token = NULL;\n  n3->location = @$;\n  n3->hasLocation = {};\n  n3->nchildren = 2;\n  n3->children[0] = n2;\n  n3->children[1] = $1.nterm;\n  n3->sort = \"{result_kore}\";\n  value_type value = {{.nterm = n3}};\n  $$ = value;\n}}",
+            "  node *n2 = malloc(sizeof(node));\n  n2->symbol = \"{nil}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = 0;\n  n2->nchildren = 0;\n  n2->sort = \"{result_kore}\";\n  node *n3 = malloc(sizeof(node) + 2*sizeof(node *));\n  n3->symbol = \"{cons}\";\n  n3->str = false;\n  n3->location = @$;\n  n3->hasLocation = {};\n  n3->nchildren = 2;\n  n3->children[0] = n2;\n  n3->children[1] = $1.nterm;\n  n3->sort = \"{result_kore}\";\n  value_type value = {{.nterm = n3}};\n  $$ = value;\n}}",
             placements.has_location
         )
         .expect("writing to a string cannot fail");
@@ -1475,8 +1475,11 @@ fn write_subsort_action(
     Ok(())
 }
 
-/// A token subsort (`syntax MyStr ::= String [token]`) reads its child's text as a token of its
-/// own sort, so its literal is that text decoded by its own sort's hook, not the child's literal.
+/// A token subsort (`syntax MyStr ::= String [token]`) reads the input text its child's phrase
+/// spans as a token of its own sort, so its literal is that text decoded by its own sort's hook,
+/// not the child's literal, and a phrase that no token production read (`syntax MyTok ::= Pair
+/// [token]`) is a token of the sort all the same. The text runs from the first character of the
+/// phrase's first token to the last of its last, with the layout between them.
 fn write_token_subsort_action(
     output: &mut String,
     sort: &Sort,
@@ -1488,7 +1491,7 @@ fn write_token_subsort_action(
     let sort = c_kore_sort(sort);
     writeln!(
         output,
-        "{{\n  char *error = NULL;\n  char *literal = $1.nterm->token ? krust_kore_literal($1.nterm->token, {kind}, \"{sort_name}\", &error) : NULL;\n  if (!literal) {{\n    yyerror(&@$, scanner, error ? error : \"the phrase of a token subsort of sort {sort_name} is not a token\");\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->token = NULL;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->token = $1.nterm->token;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
+        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal(krust_read_text(&@1), {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
         u8::from(has_location)
     )
     .expect("writing to a string cannot fail");
@@ -1510,7 +1513,7 @@ fn write_labeled_action(
 ) -> Result<(), GrammarError> {
     writeln!(
         output,
-        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{});\n  n->str = false;\n  n->token = NULL;\n  n->location = {};\n  n->nchildren = {};",
+        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{});\n  n->str = false;\n  n->location = {};\n  n->nchildren = {};",
         operands.len(),
         placements.location,
         operands.len()
@@ -1935,6 +1938,14 @@ do                                                        \
       (Cur).first_column = YYRHSLOC(Rhs, 1).first_column; \
       (Cur).last_line    = YYRHSLOC(Rhs, N).last_line;    \
       (Cur).last_column  = YYRHSLOC(Rhs, N).last_column;  \
+      int krust_first = 1;                                \
+      while (krust_first < (N) &&                         \
+             YYRHSLOC(Rhs, krust_first).first_offset ==   \
+               YYRHSLOC(Rhs, krust_first).last_offset)    \
+        ++krust_first;                                    \
+      (Cur).first_offset =                                \
+        YYRHSLOC(Rhs, krust_first).first_offset;          \
+      (Cur).last_offset  = YYRHSLOC(Rhs, N).last_offset;  \
     }                                                     \
   else                                                    \
     {                                                     \
@@ -1943,12 +1954,14 @@ do                                                        \
         YYRHSLOC(Rhs, 0).last_line;                       \
       (Cur).first_column = (Cur).last_column =           \
         YYRHSLOC(Rhs, 0).last_column;                     \
+      (Cur).first_offset = (Cur).last_offset =           \
+        YYRHSLOC(Rhs, 0).last_offset;                     \
     }                                                     \
 while (0)
 "#,
     );
     output.push_str(
-        "%}\n\n%define api.value.type {union value_type}\n%define api.pure\n%define lr.type ielr\n%lex-param {void *scanner} \n%parse-param {void *scanner} \n%locations\n%initial-action {\n  @$.filename = filename;\n  @$.first_line = @$.first_column = @$.last_line = @$.last_column = 1;\n}\n",
+        "%}\n\n%define api.value.type {union value_type}\n%define api.pure\n%define lr.type ielr\n%lex-param {void *scanner} \n%parse-param {void *scanner} \n%locations\n%initial-action {\n  @$.filename = filename;\n  @$.first_line = @$.first_column = @$.last_line = @$.last_column = 1;\n  @$.first_offset = @$.last_offset = 0;\n}\n",
     );
     if mode == Mode::Glr {
         output.push_str("%glr-parser\n");

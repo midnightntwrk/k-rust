@@ -1,6 +1,8 @@
 #ifndef NODE_H
 #define NODE_H
 
+#include <stddef.h>
+
 typedef struct YYLTYPE YYLTYPE;
 struct YYLTYPE {
   char *filename;
@@ -8,6 +10,10 @@ struct YYLTYPE {
   int first_column;
   int last_line;
   int last_column;
+  /* The span in bytes of the input, from the first byte to the byte after the last, that the
+     scanner read for the located phrase; `krust_read_text` gives its text. */
+  size_t first_offset;
+  size_t last_offset;
 };
 
 #define YYLTYPE struct YYLTYPE
@@ -15,15 +21,11 @@ struct YYLTYPE {
 #include "parser.tab.h"
 
 #include <stdbool.h>
-#include <stddef.h>
 
 typedef struct node {
   char *symbol;
   char *sort;
   bool str;
-  /* The text a token production read, on the `\dv` node of a token or of a token subsort, which
-     decodes it by its own sort; NULL on every other node. */
-  char *token;
   size_t nchildren;
   bool hasLocation;
   YYLTYPE location;
@@ -49,5 +51,12 @@ enum krust_token_kind {
    a literal of that kind; `*error` is then a message naming `sort`. */
 char *krust_kore_literal(
     const char *token, enum krust_token_kind kind, const char *sort, char **error);
+
+/* Append the `length` bytes at `text`, which the scanner read next, to the input read so far,
+   and set the byte span of `location` to the place they take in it. */
+void krust_read(YYLTYPE *location, const char *text, size_t length);
+
+/* The input text the byte span of `location` covers, NUL-terminated, in memory the caller owns. */
+char *krust_read_text(const YYLTYPE *location);
 
 #endif

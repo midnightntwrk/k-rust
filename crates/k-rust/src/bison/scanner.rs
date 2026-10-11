@@ -361,7 +361,9 @@ static const char *krust_terminator_rest(const unsigned char *text, size_t lengt
 }
 
 /// The user-code function behind `KRUST_LOCATE` (see [`Scanner::render`]): set the location of
-/// the matched text and move the line and column past it.
+/// the matched text and move the line and column past it. Every byte of the input is matched by
+/// exactly one action that runs it (a rejected match does not run it), so `krust_read` keeps the
+/// input in order and gives the location its byte span there.
 ///
 /// A location numbers lines and columns from 1, counts a column per Unicode scalar value (per
 /// UTF-8 byte that does not continue a sequence), and ends at the column after the last character,
@@ -380,6 +382,7 @@ const LOCATE: &str = "static void krust_locate(yyscan_t yyscanner, YYLTYPE *loca
   int index = 0;\n\
   location->first_line = yylineno;\n\
   location->first_column = yycolumn + 1;\n\
+  krust_read(location, yytext, (size_t)yyleng);\n\
   if (yyextra) {\n\
     size_t rest = strlen(yyextra);\n\
     if (strncmp(yytext, yyextra, rest) == 0)\n\
