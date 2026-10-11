@@ -38,6 +38,7 @@ pub(super) fn evaluate(
         "SET.set2list" => to_list(arguments, result),
         "SET.size" => size(arguments),
         "SET.intersection" => intersection(arguments, result),
+        "SET.union" => union(arguments, result),
         "SET.list2set" => list_to_set(arguments, result),
         "SET.inclusion" => inclusion(arguments),
         _ => {
@@ -132,17 +133,70 @@ fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<
     let TermKind::Set { elements, rest, .. } = set.kind() else {
         return Ok(None);
     };
-    if elements.contains(element) {
+    if place_of(elements, element).is_ok() {
         Ok(Some(bool_term(true)))
-    } else if rest.is_none()
-        && elements
-            .iter()
-            .all(|existing| values_differ(sorts, element, existing))
-    {
+    } else if absent(
+        sorts,
+        element,
+        elements,
+        set.attributes().constructor_like,
+        rest,
+    ) {
         Ok(Some(bool_term(false)))
     } else {
         Ok(None)
     }
+}
+
+/// The place of `element` among `elements`, syntactically: `Ok` with the index of an element
+/// that is the same term, or `Err` with the index at which it would go.
+///
+/// `elements` are the elements of a set argument as `Term::set` stores them, in the order of
+/// `Term`, under which two terms compare equal exactly when they are the same term, so a binary
+/// search decides whether `element` is among them in `O(log n)` comparisons.
+fn place_of(elements: &[Term], element: &Term) -> Result<usize, usize> {
+    elements.binary_search_by(|existing| {
+        #[cfg(test)]
+        compared_with_an_element();
+        existing.cmp(element)
+    })
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test builds: the elements of a set this thread's `SET.in` has compared an element with,
+    /// by the search (`place_of`) or element by element (`absent`).
+    static ELEMENT_COMPARISONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn compared_with_an_element() {
+    ELEMENT_COMPARISONS.with(|count| count.set(count.get() + 1));
+}
+
+/// Whether `element`, which is none of `elements` syntactically, is a value the set does not
+/// hold.
+///
+/// Without a rest, the set holds its elements and nothing else. Strict operands make apartness
+/// a difference of values, so an element different from each of the set's is absent. Two
+/// constructor-like terms denote different values exactly when they differ syntactically, so
+/// when `element` and every element of the set are constructor-like (`set_constructor_like`:
+/// the set's own attribute, which holds only when each of its elements is constructor-like),
+/// `element` differs from each already; otherwise it is compared with each element.
+fn absent(
+    sorts: Option<&SortGraph>,
+    element: &Term,
+    elements: &[Term],
+    set_constructor_like: bool,
+    rest: &Option<Term>,
+) -> bool {
+    rest.is_none()
+        && ((set_constructor_like && element.attributes().constructor_like)
+            || elements.iter().all(|existing| {
+                #[cfg(test)]
+                compared_with_an_element();
+                values_differ(sorts, element, existing)
+            }))
 }
 
 /// The set of the elements of `definition`'s concrete set `left` that `keep` admits, in the
@@ -222,6 +276,69 @@ fn intersection(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<
     }))
 }
 
+/// `S1 |Set S2`, the set of the elements of either set.
+///
+/// A value of the union holds each value of either operand once, so it is the set of the left
+/// operand's elements and of the right operand's elements that are none of the left's. That set
+/// is determined only when each element of one operand is known to be equal to, or different
+/// from, each element of the other. Constructor-like elements are both: two of them denote the
+/// same value exactly when they are the same term. So two closed sets of constructor-like
+/// elements (`concrete_set`) have a union, found by merging their sorted elements once and
+/// keeping a common element once. Any other operands give no result: an element that may or
+/// may not equal one of the other operand's makes the union's size undecided, and a set with
+/// a rest holds elements the hook cannot see.
+fn union(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
+    expect_arity("SET.union", arguments, 2)?;
+    let [left, right] = arguments else {
+        unreachable!()
+    };
+    let Some((definition, left_elements)) = concrete_set(left) else {
+        return Ok(None);
+    };
+    let Some((right_definition, right_elements)) = concrete_set(right) else {
+        return Ok(None);
+    };
+    if definition != right_definition {
+        return Ok(None);
+    }
+    let Some(into) = result.set(Some(definition)) else {
+        return Ok(None);
+    };
+    let merged = merged_once(left_elements, right_elements);
+    Ok(into
+        .owned_elements(merged, &definition.element_sort)
+        .and_then(|elements| into.build(elements, None)))
+}
+
+/// The elements of `left` and `right`, both in the order of `Term` without a repeat, in that
+/// order and holding a term that is in both once.
+fn merged_once(left: &[Term], right: &[Term]) -> Vec<Term> {
+    let mut merged = Vec::with_capacity(left.len() + right.len());
+    let (mut left_index, mut right_index) = (0, 0);
+    while let (Some(left_element), Some(right_element)) =
+        (left.get(left_index), right.get(right_index))
+    {
+        match left_element.cmp(right_element) {
+            std::cmp::Ordering::Less => {
+                merged.push(left_element.clone());
+                left_index += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                merged.push(right_element.clone());
+                right_index += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                merged.push(left_element.clone());
+                left_index += 1;
+                right_index += 1;
+            }
+        }
+    }
+    merged.extend_from_slice(&left[left_index..]);
+    merged.extend_from_slice(&right[right_index..]);
+    merged
+}
+
 fn list_to_set(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("SET.list2set", arguments, 1)?;
     let TermKind::List {
@@ -289,6 +406,8 @@ fn concrete_set(term: &Term) -> Option<(&Arc<SetDefinition>, &[Term])> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
+
     use crate::term::{CollectionMetadata, CollectionSymbols, ListDefinition, Sort, Variable};
 
     fn shape(name: &str) -> Arc<ListDefinition> {
@@ -513,6 +632,300 @@ mod tests {
                 Ok(BuiltinResult::Bottom),
                 "{hook}"
             );
+        }
+    }
+
+    /// `SET.in` decided by comparing the element with each element of the set: syntactic
+    /// membership, else absence when there is no rest and the element is apart from each.
+    fn membership_by_scan(element: &Term, set: &Term) -> Option<bool> {
+        let TermKind::Set { elements, rest, .. } = set.kind() else {
+            return None;
+        };
+        if elements.contains(element) {
+            Some(true)
+        } else if rest.is_none()
+            && elements
+                .iter()
+                .all(|existing| values_differ(None, element, existing))
+        {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    fn membership(element: &Term, set: &Term) -> Option<bool> {
+        contains(&[element.clone(), set.clone()], None)
+            .unwrap()
+            .map(|answer| answer == bool_term(true))
+    }
+
+    /// Sets of every size up to 33 hold the even numbers below twice their size; membership of
+    /// every number up to one past the last is what the set says. The elements' text order
+    /// (`"10"` before `"2"`) is not their numeric order, and the search follows the terms'
+    /// order, not the numbers'.
+    #[test]
+    fn membership_answers_the_elements_at_every_place_in_sets_of_every_size() {
+        for size in 0..=33_u32 {
+            let held = (0..size).map(|index| 2 * index).collect::<BTreeSet<_>>();
+            let texts = held.iter().map(u32::to_string).collect::<Vec<_>>();
+            let collection = set(&texts.iter().map(String::as_str).collect::<Vec<_>>());
+            assert!(collection.attributes().constructor_like);
+            for probe in 0..=2 * size + 1 {
+                let probed = item(&probe.to_string());
+                assert_eq!(
+                    super::super::evaluate_hook("SET.in", &[probed.clone(), collection.clone()])
+                        .unwrap()
+                        .unwrap(),
+                    BuiltinResult::Value(bool_term(held.contains(&probe))),
+                    "size {size}, element {probe}"
+                );
+                assert_eq!(
+                    membership(&probed, &collection),
+                    membership_by_scan(&probed, &collection),
+                    "size {size}, element {probe}"
+                );
+            }
+        }
+    }
+
+    /// Every set drawn from ground elements, a variable and symbolic constructor applications,
+    /// closed or with a rest, answers membership of each of those elements and of others exactly
+    /// as comparing with each element does: present, absent, and undecided alike. The shortcut
+    /// applies only to constructor-like elements of constructor-like sets; a symbolic element
+    /// either way leaves the comparison with each element to decide.
+    #[test]
+    fn membership_of_symbolic_elements_and_sets_is_decided_as_by_comparing_with_each_element() {
+        let int = Sort::simple("SortInt");
+        let element_sort = Sort::simple("SortKItem");
+        let application = |name, argument: Term| {
+            Term::application(
+                Arc::new(crate::term::Symbol::constructor(
+                    name,
+                    vec![int.clone()],
+                    element_sort.clone(),
+                )),
+                Vec::new(),
+                vec![argument],
+            )
+        };
+        let symbolic = |name| Term::variable(Variable::new(name, int.clone()));
+        let one = Term::domain_value(int.clone(), "1");
+        let pool = [
+            item("0"),
+            item("1"),
+            item("2"),
+            Term::variable(Variable::new("X", element_sort.clone())),
+            application("a", symbolic("A")),
+            application("a", one.clone()),
+            application("b", symbolic("B")),
+        ];
+        let probes = pool.iter().cloned().chain([
+            item("3"),
+            Term::variable(Variable::new("Y", element_sort.clone())),
+            application("a", symbolic("C")),
+            application("b", one),
+            application("c", symbolic("D")),
+        ]);
+        let probes = probes.collect::<Vec<_>>();
+        let rest = Term::variable(Variable::new("REST", Sort::simple("SortSet")));
+        let mut answers = BTreeMap::<Option<bool>, usize>::new();
+        for chosen in 0..1_u32 << pool.len() {
+            let elements = pool
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| chosen & (1 << index) != 0)
+                .map(|(_, element)| element.clone())
+                .collect::<Vec<_>>();
+            for rest in [None, Some(rest.clone())] {
+                let collection = Term::set(set_definition(), elements.clone(), rest);
+                for probed in &probes {
+                    let answer = membership(probed, &collection);
+                    assert_eq!(
+                        answer,
+                        membership_by_scan(probed, &collection),
+                        "{probed:?} in {collection:?}"
+                    );
+                    *answers.entry(answer).or_default() += 1;
+                }
+            }
+        }
+        assert_eq!(
+            answers.keys().copied().collect::<Vec<_>>(),
+            [None, Some(false), Some(true)],
+            "every outcome is exercised"
+        );
+    }
+
+    /// In a constructor-like set, `SET.in` compares a constructor-like element with the elements
+    /// the binary search visits and with no other: a held element is found by the search, and
+    /// one not held differs from every element without being compared with each (`absent`).
+    /// The search's own count bounds those comparisons by `ilog2(n) + 1`.
+    #[test]
+    fn membership_compares_the_element_only_with_the_elements_the_search_visits() {
+        const ELEMENTS: u32 = 4096;
+        let texts = (1..=ELEMENTS)
+            .map(|index| (2 * index).to_string())
+            .collect::<Vec<_>>();
+        let collection = set(&texts.iter().map(String::as_str).collect::<Vec<_>>());
+        assert!(collection.attributes().constructor_like);
+        let TermKind::Set { elements, .. } = collection.kind() else {
+            unreachable!("a set term")
+        };
+        let compared_by = |run: &dyn Fn()| {
+            ELEMENT_COMPARISONS.with(|count| count.set(0));
+            run();
+            ELEMENT_COMPARISONS.with(std::cell::Cell::get)
+        };
+        let bound = ELEMENTS.ilog2() as usize + 1;
+        for probe in [2, ELEMENTS, 2 * ELEMENTS, 1, ELEMENTS + 1, 2 * ELEMENTS + 1] {
+            let probed = item(&probe.to_string());
+            let searched = compared_by(&|| {
+                let _ = place_of(elements, &probed);
+            });
+            assert!(
+                searched <= bound,
+                "element {probe}: the search compares {searched}, bound {bound}"
+            );
+            let made = compared_by(&|| {
+                assert_eq!(
+                    super::super::evaluate_hook("SET.in", &[probed.clone(), collection.clone()])
+                        .unwrap()
+                        .unwrap(),
+                    BuiltinResult::Value(bool_term(probe % 2 == 0)),
+                    "element {probe}"
+                );
+            });
+            assert_eq!(
+                made, searched,
+                "element {probe}: {made} elements compared, the search compares {searched}"
+            );
+        }
+    }
+
+    fn hook(name: &str, arguments: &[Term]) -> BuiltinResult {
+        super::super::evaluate_hook(name, arguments)
+            .unwrap()
+            .unwrap()
+    }
+
+    /// A constructor application `name(argument)` of sort `KItem` on an `Int`.
+    fn applied(name: &str, argument: Term) -> Term {
+        Term::application(
+            Arc::new(crate::term::Symbol::constructor(
+                name,
+                vec![Sort::simple("SortInt")],
+                Sort::simple("SortKItem"),
+            )),
+            Vec::new(),
+            vec![argument],
+        )
+    }
+
+    /// The constructor-like element `n` of the pool the union tests draw from: domain values
+    /// and constructor applications, so that sets mix kinds of terms.
+    fn pooled(n: u8) -> Term {
+        if n.is_multiple_of(2) {
+            item(&n.to_string())
+        } else {
+            applied(
+                "c",
+                Term::domain_value(Sort::simple("SortInt"), n.to_string()),
+            )
+        }
+    }
+
+    /// `S1 |Set S2` as the `domains.md` equation computes it: `S1 (S2 -Set S1)`.
+    fn union_by_equation(left: &Term, right: &Term) -> BuiltinResult {
+        let BuiltinResult::Value(missing) = hook("SET.difference", &[right.clone(), left.clone()])
+        else {
+            return BuiltinResult::NotApplicable;
+        };
+        hook("SET.concat", &[left.clone(), missing])
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        /// On closed sets of constructor-like elements, the hook gives the set the equation
+        /// gives, whether the operands overlap, nest, or are disjoint.
+        #[test]
+        fn union_of_constructor_like_sets_is_the_equations_set(
+            left in proptest::collection::btree_set(0..16_u8, 0..10),
+            right in proptest::collection::btree_set(0..16_u8, 0..10),
+        ) {
+            let build = |chosen: &BTreeSet<u8>| {
+                Term::set(set_definition(), chosen.iter().copied().map(pooled).collect(), None)
+            };
+            let (left_set, right_set) = (build(&left), build(&right));
+            let union = hook("SET.union", &[left_set.clone(), right_set.clone()]);
+            proptest::prop_assert_eq!(&union, &union_by_equation(&left_set, &right_set));
+            proptest::prop_assert_eq!(
+                union,
+                BuiltinResult::Value(build(&left.union(&right).copied().collect()))
+            );
+        }
+    }
+
+    #[test]
+    fn union_keeps_a_common_element_once_and_takes_an_empty_operand_as_no_element() {
+        let cases = [
+            (set(&["a", "b"]), set(&["b", "c"]), set(&["a", "b", "c"])),
+            (set(&["a", "b"]), set(&["a", "b"]), set(&["a", "b"])),
+            (set(&["a"]), set(&["a", "b", "c"]), set(&["a", "b", "c"])),
+            (
+                set(&["a", "c"]),
+                set(&["b", "d"]),
+                set(&["a", "b", "c", "d"]),
+            ),
+            (set(&[]), set(&["a"]), set(&["a"])),
+            (set(&["a"]), set(&[]), set(&["a"])),
+            (set(&[]), set(&[]), set(&[])),
+        ];
+        for (left, right, expected) in cases {
+            assert_eq!(
+                hook("SET.union", &[left.clone(), right.clone()]),
+                BuiltinResult::Value(expected),
+                "{left:?} |Set {right:?}"
+            );
+        }
+    }
+
+    /// An element that may or may not equal one of the other operand's, or a rest whose
+    /// elements are not seen, leaves the union's elements undecided: the hook gives no result
+    /// and the equation applies as before.
+    #[test]
+    fn union_with_a_symbolic_element_or_a_rest_gives_no_result() {
+        let element_sort = Sort::simple("SortKItem");
+        let variable = Term::variable(Variable::new("X", element_sort));
+        let symbolic_application = applied(
+            "c",
+            Term::variable(Variable::new("A", Sort::simple("SortInt"))),
+        );
+        let rest = Term::variable(Variable::new("REST", Sort::simple("SortSet")));
+        let closed = set(&["a", "b"]);
+        let undecided = [
+            Term::set(set_definition(), vec![variable], None),
+            Term::set(
+                set_definition(),
+                vec![symbolic_application, item("a")],
+                None,
+            ),
+            Term::set(set_definition(), vec![item("c")], Some(rest.clone())),
+            Term::set(set_definition(), Vec::new(), Some(rest.clone())),
+            rest,
+        ];
+        for operand in undecided {
+            for arguments in [
+                [operand.clone(), closed.clone()],
+                [closed.clone(), operand.clone()],
+            ] {
+                assert_eq!(
+                    hook("SET.union", &arguments),
+                    BuiltinResult::NotApplicable,
+                    "{arguments:?}"
+                );
+            }
         }
     }
 }

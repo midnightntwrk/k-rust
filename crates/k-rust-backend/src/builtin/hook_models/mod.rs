@@ -277,7 +277,9 @@ fn result_collection(hook: &str) -> Option<CollectionMetadata> {
             Some(CollectionMetadata::List(list_definition()))
         }
         "SET.concat" | "SET.element" | "SET.unit" | "SET.difference" | "SET.intersection"
-        | "SET.list2set" | "MAP.keys" => Some(CollectionMetadata::Set(set_definition())),
+        | "SET.union" | "SET.list2set" | "MAP.keys" => {
+            Some(CollectionMetadata::Set(set_definition()))
+        }
         "MAP.element" | "MAP.unit" | "MAP.update" | "MAP.updateAll" | "MAP.remove"
         | "MAP.removeAll" | "MAP.concat" => Some(CollectionMetadata::Map(map_definition())),
         _ => None,

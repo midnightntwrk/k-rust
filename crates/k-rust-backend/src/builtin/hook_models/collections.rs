@@ -498,7 +498,7 @@ fn map_values_follow_the_order_of_keys_list() {
 // ---------------------------------------------------------------------------------------------
 // SET
 
-const SET_HOOKS: [&str; 10] = [
+const SET_HOOKS: [&str; 11] = [
     "SET.concat",
     "SET.element",
     "SET.unit",
@@ -509,6 +509,7 @@ const SET_HOOKS: [&str; 10] = [
     "SET.intersection",
     "SET.list2set",
     "SET.inclusion",
+    "SET.union",
 ];
 
 fn set_case(draw: &mut Draw<'_>) -> Case {
@@ -521,7 +522,7 @@ fn set_case(draw: &mut Draw<'_>) -> Case {
         "SET.in" => vec![element(draw, env), set(draw, env)],
         "SET.set2list" | "SET.size" => vec![set(draw, env)],
         "SET.list2set" => vec![list(draw, env)],
-        "SET.concat" | "SET.difference" | "SET.intersection" | "SET.inclusion" => {
+        "SET.concat" | "SET.difference" | "SET.intersection" | "SET.inclusion" | "SET.union" => {
             let first = set(draw, env);
             let second = related_set(draw, env, &first);
             if draw.chance(4) {
@@ -560,6 +561,9 @@ fn set_model(hook: &str, arguments: &[Val]) -> Spec {
         }
         ("SET.list2set", [List(list)]) => Spec::value(Set(list.iter().cloned().collect())),
         ("SET.inclusion", [Set(left), Set(right)]) => Spec::value(Bool(left.is_subset(right))),
+        ("SET.union", [Set(left), Set(right)]) => {
+            Spec::value(Set(left.union(right).cloned().collect()))
+        }
         _ => panic!("no SET model for {hook} on {arguments:?}"),
     }
 }

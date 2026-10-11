@@ -93,7 +93,7 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
         "LIST.get" => (&[Source(Kind::List), Read], Gives::Member),
         "SET.unit" => (&[], set),
         "SET.element" => (&[Element], set),
-        "SET.concat" => (&[Elements(Kind::Set), Elements(Kind::Set)], set),
+        "SET.concat" | "SET.union" => (&[Elements(Kind::Set), Elements(Kind::Set)], set),
         "SET.difference" | "SET.intersection" => (&[Elements(Kind::Set), Read], set),
         "SET.list2set" => (&[Elements(Kind::List)], set),
         "SET.set2list" => (&[Elements(Kind::Set)], list),
