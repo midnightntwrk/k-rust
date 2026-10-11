@@ -666,14 +666,7 @@ impl Backend {
                     executable: attributes.executable,
                     label: attributes.label.clone(),
                     priority: attributes.priority,
-                    origins: attributes
-                        .origins
-                        .iter()
-                        .map(|origin| CompiledRuleOriginOutput {
-                            source: origin.source.clone(),
-                            location: origin.location.clone(),
-                        })
-                        .collect(),
+                    origins: attributes.origins.iter().map(Into::into).collect(),
                     shared_identity: identity_counts[attributes.unique_id.as_str()] > 1,
                 }
             })
@@ -2734,11 +2727,10 @@ mod tests {
                 schema_version: BACKEND_SCHEMA_VERSION,
             })
             .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("sorts differ after internalization"),
-            "{error}"
+        // The sorts are named as KORE sorts, as the request wrote them.
+        assert_eq!(
+            error.to_string(),
+            "antecedent and consequent sorts differ after internalization: SortS{} and SortT{}"
         );
     }
 

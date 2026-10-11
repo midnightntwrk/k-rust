@@ -4619,7 +4619,8 @@ endmodule
         assert_eq!(fault["error"]["code"], -32002, "{fault:#}");
         assert_eq!(fault["error"]["message"], "Runtime error", "{fault:#}");
         assert_eq!(
-            fault["error"]["data"]["error"], "could not initialize Z3: InconsistentPrelude",
+            fault["error"]["data"]["error"],
+            "could not initialize Z3: the SMT prelude (the definition's SMT axioms and any user prelude) is unsatisfiable",
             "{fault:#}"
         );
         assert!(fault["error"]["data"].get("term").is_none(), "{fault:#}");
@@ -4662,7 +4663,8 @@ endmodule
                 "{response:#}"
             );
             assert_eq!(
-                response["error"]["data"]["error"], "could not initialize Z3: InconsistentPrelude",
+                response["error"]["data"]["error"],
+                "could not initialize Z3: the SMT prelude (the definition's SMT axioms and any user prelude) is unsatisfiable",
                 "{response:#}"
             );
         }
@@ -4797,7 +4799,8 @@ endmodule
         assert_eq!(fault["error"]["code"], -32002, "{fault:#}");
         assert_eq!(fault["error"]["message"], "Runtime error", "{fault:#}");
         assert_eq!(
-            fault["error"]["data"]["error"], "could not initialize Z3: InconsistentPrelude",
+            fault["error"]["data"]["error"],
+            "could not initialize Z3: the SMT prelude (the definition's SMT axioms and any user prelude) is unsatisfiable",
             "{fault:#}"
         );
     }

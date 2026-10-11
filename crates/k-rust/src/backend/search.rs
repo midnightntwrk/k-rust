@@ -108,7 +108,10 @@ impl Backend {
             match_disjunction(definition, target, alternatives)
                 .map_err(super::simplification::stopped_operation)?
                 .map_err(|error| {
-                    BackendError(format!("KORE pattern match was indeterminate: {error:?}"))
+                    BackendError(format!(
+                        "KORE pattern match was indeterminate: {}",
+                        error.at(&target.term.sort())
+                    ))
                 })
         })
     }

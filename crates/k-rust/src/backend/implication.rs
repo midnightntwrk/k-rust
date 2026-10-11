@@ -172,9 +172,9 @@ fn check_kore(
                 .map_err(error("could not internalize implication consequent"))?;
             if antecedent_pattern.term.sort() != consequent_pattern.term.sort() {
                 return Err(BackendError(format!(
-                    "antecedent and consequent sorts differ after internalization: {:?} and {:?}",
-                    antecedent_pattern.term.sort(),
-                    consequent_pattern.term.sort()
+                    "antecedent and consequent sorts differ after internalization: {} and {}",
+                    externalize::sort(&antecedent_pattern.term.sort()),
+                    externalize::sort(&consequent_pattern.term.sort())
                 )));
             }
             check_implication_with_existentials_complete(
