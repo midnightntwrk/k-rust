@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import subprocess
 import tempfile
@@ -74,6 +76,18 @@ class SelectionTest(unittest.TestCase):
         selected = run_gates.select(self.gates, touched=[], changed_entries={"weekly"})
         self.assertEqual(names(selected), ["weekly"])
         self.assertEqual(selected[0][1], "its registry entry changed")
+
+
+class HostTest(unittest.TestCase):
+    def test_a_host_uid_entry_is_recorded_as_not_run_in_a_sandbox_and_the_run_exits_3(self):
+        real = next(gate for gate in run_gates.parse(REGISTRY) if gate.name == "real")
+        with tempfile.TemporaryDirectory() as directory:
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                status = run_gates.run([(real, "named")], Path(directory), [], sandbox=True)
+            summary = (Path(directory) / "summary.toml").read_text()
+        self.assertEqual(status, 3)
+        self.assertIn("real: not run: needs a host-UID run", output.getvalue())
+        self.assertIn('status = "not-run"', summary)
 
 
 class RegistryTest(unittest.TestCase):
