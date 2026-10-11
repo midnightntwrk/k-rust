@@ -158,7 +158,7 @@ use super::{
     AmbiguityPlace, AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts,
     ParsedTerm, Production, StructuralOrder, cmp_packed_structurally, lower_term,
 };
-use crate::kast::{FrontendSort, InternalLabel, Sort, Term, TermSpan, string};
+use crate::kast::{FrontendSort, InternalLabel, ProductionIdentity, Sort, Term, TermSpan, string};
 
 use super::canonical_packed_error;
 
@@ -1333,7 +1333,12 @@ impl Grammar {
         key: &Key,
         sets: &ReadingSets,
     ) -> Result<Term, ParseError> {
-        self.build_least(sets.keyed_least(readings, key), sets)
+        let text = |production| {
+            self.source_production_texts
+                .get(&production)
+                .map(|text| text.as_str())
+        };
+        self.build_least(sets.keyed_least(readings, key, &text), sets)
     }
 
     /// The term a least view stands for (`ReadingSets::resolve`), built from its root down:
@@ -3310,7 +3315,18 @@ impl ReadingSets {
     /// The least reading of `readings` with root key `key`, which some of them have: a
     /// product's least, a concatenation's least word of the key's length, or the least of the
     /// alternatives' with that key.
-    fn keyed_least<'a>(&'a self, readings: &'a Readings, key: &Key) -> LeastView<'a> {
+    ///
+    /// Alternatives whose least readings are one term built by different productions of one
+    /// label (overloads) are ordered by the text of their root's production (`text`, `None`
+    /// for a production without one first), so that the production an entry names
+    /// (`Grammar::reading_entries`) is that of the least text, not of the alternative the
+    /// forest happens to list first.
+    fn keyed_least<'a, 't>(
+        &'a self,
+        readings: &'a Readings,
+        key: &Key,
+        text: &dyn Fn(ProductionIdentity) -> Option<&'t str>,
+    ) -> LeastView<'a> {
         let index = match readings {
             Readings::One(term) => return LeastView::Term(term),
             Readings::Several(index) => *index,
@@ -3326,15 +3342,33 @@ impl ReadingSets {
             SetNode::Union(alternatives) => alternatives
                 .iter()
                 .filter(|alternative| self.keys(alternative).contains(key))
-                .map(|alternative| self.keyed_least(alternative, key))
+                .map(|alternative| self.keyed_least(alternative, key, text))
                 .reduce(|least, view| {
-                    if self.compare(view, least).is_lt() {
+                    let root_text = |view| self.root_production(view).and_then(text);
+                    if self
+                        .compare(view, least)
+                        .then_with(|| root_text(view).cmp(&root_text(least)))
+                        .is_lt()
+                    {
                         view
                     } else {
                         least
                     }
                 })
                 .expect("an alternative has the key"),
+        }
+    }
+
+    /// The production a view's root comes from, as its metadata names it.
+    fn root_production(&self, view: LeastView<'_>) -> Option<ProductionIdentity> {
+        match self.resolve(view) {
+            LeastView::Term(term) => term.metadata().and_then(|metadata| metadata.production),
+            LeastView::Node(index) | LeastView::Word(index, _) => match &self.nodes[index] {
+                SetNode::Product { metadata, .. } | SetNode::Concat { metadata, .. } => {
+                    metadata.production
+                }
+                SetNode::Union(_) => None,
+            },
         }
     }
 
