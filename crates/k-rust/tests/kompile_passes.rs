@@ -7145,6 +7145,35 @@ fn rejects_an_alias_outside_its_parent_whose_cell_cannot_take_its_place() {
     }
 }
 
+// The pattern of an alias is matched, not rewritten (the rule's right side holds the alias's
+// variable where the alias is), so a rule whose cell written beside an alias outside its parent
+// belongs inside the aliased cell and holds a rewrite has no right side for that rewrite, and is
+// rejected as the same rule written with the rewrite inside the alias is.
+#[test]
+fn rejects_a_rewrite_placed_inside_an_alias_outside_its_parent() {
+    let configuration = r#"<k> $PGM:Int </k> <u> <ux> 0 </ux> <w> <wx> 0 </wx> <l multiplicity="*" type="List"> <lx> 0 </lx> </l> </w> </u>"#;
+    for (rule, message) in [
+        (
+            "<k> 0 => 1 </k> (<u> <ux> 1 </ux> ... </u> #as U) <wx> 3 => 4 </wx>",
+            "Cell <wx> written beside <u> belongs inside it: the configuration allows only one <u> there, and it is written as the alias U, which names the cell the rule matches, so the rewrite placed inside it has no right side",
+        ),
+        (
+            "<k> 0 => 1 </k> (<u> <ux> 1 </ux> ... </u> #as U) <l> <lx> 3 </lx> </l> <wx> 3 => 4 </wx>",
+            "Cell <wx> written beside <u> belongs inside it: the configuration allows only one <u> there, and it is written as the alias U, which names the cell the rule matches, so the rewrite placed inside it has no right side",
+        ),
+        (
+            "<k> 0 => 1 </k> (<u> <ux> 1 </ux> (<w> <wx> 1 </wx> ... </w> #as W) ... </u> #as U) <l> <lx> 3 => 4 </lx> </l>",
+            "Cell <l> written beside <w> belongs inside it: the configuration allows only one <w> there, and it is written as the alias W, which names the cell the rule matches, so the rewrite placed inside it has no right side",
+        ),
+    ] {
+        let errors = concretized_cell_rule(configuration, rule).expect_err(rule);
+        assert!(
+            errors.iter().any(|error| error.contains(message)),
+            "{rule}: {errors:?}"
+        );
+    }
+}
+
 // An item written among a cell's children outside any rewrite is placed by the same rule as one
 // on a rewrite side, so an item no child holds is rejected with the same message, located in the
 // cell's body.

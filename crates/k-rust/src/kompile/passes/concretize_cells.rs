@@ -1788,8 +1788,34 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             // `P #as V` denotes the one cell `P` and binds `V` to it, so the cells that belong
             // inside it complete `P`, and `V` names that completed cell, the one the configuration
             // makes the only holder of `added` (the empty bags beside `P` denote nothing).
+            let name = |sort: Sort| self.model.cells[&sort].label.name.clone();
+            let holder = self.model.sort_for_term(cell).map(name).unwrap_or_default();
+            let has_rewrite = |term: &Term| {
+                let mut found = false;
+                term.visit_preorder(&mut |part| {
+                    found |= matches!(part.unannotated(), Term::Rewrite { .. });
+                });
+                found
+            };
+            let item = added
+                .iter()
+                .find(|(item, _)| has_rewrite(item))
+                .or_else(|| added.first())
+                .and_then(|(item, _)| self.model.slot_sort(item))
+                .map(name)
+                .unwrap_or_default();
             let (completed, riders) =
                 self.place_in_written_cell(((*cell).clone(), ancestor_riders), added)?;
+            // An alias is matched, never rewritten: `V` names the cell the rule matches, and the
+            // right side of the rule holds `V` where the alias is, so a rewrite placed inside `P`
+            // would have no right side. The written pattern holds none (a rewrite written inside
+            // an `#as` pattern is rejected before completion), so any rewrite here was placed.
+            if has_rewrite(&completed) {
+                return Err(format!(
+                    "Cell {item} written beside {holder} belongs inside it: the configuration allows only one {holder} there, and it is written as the alias {}, which names the cell the rule matches, so the rewrite placed inside it has no right side",
+                    alias_name(alias)
+                ));
+            }
             let aliased = Term::As {
                 pattern: Box::new(completed),
                 alias: alias.clone(),
