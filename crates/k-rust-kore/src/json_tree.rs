@@ -559,21 +559,23 @@ impl Formatter for CappedPrettyFormatter {
     }
 }
 
-/// The pretty JSON text of `value`, in the layout of [`CappedPrettyFormatter`].
+/// The pretty JSON text of `value`, in the capped pretty layout: two spaces of indentation per
+/// level of nesting, up to a fixed cap.
 pub fn to_string_pretty<T: ?Sized + Serialize>(value: &T) -> serde_json::Result<String> {
     let bytes = to_vec_pretty(value)?;
     Ok(String::from_utf8(bytes).expect("serde_json writes UTF-8"))
 }
 
-/// The pretty JSON text of `value` as bytes, in the layout of [`CappedPrettyFormatter`].
+/// The pretty JSON text of `value` as bytes, in the capped pretty layout of
+/// [`to_string_pretty`].
 pub fn to_vec_pretty<T: ?Sized + Serialize>(value: &T) -> serde_json::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     to_writer_pretty(&mut bytes, value)?;
     Ok(bytes)
 }
 
-/// Write the pretty JSON text of `value` to `writer`, in the layout of
-/// [`CappedPrettyFormatter`].
+/// Write the pretty JSON text of `value` to `writer`, in the capped pretty layout of
+/// [`to_string_pretty`].
 pub fn to_writer_pretty<W: io::Write, T: ?Sized + Serialize>(
     writer: W,
     value: &T,
@@ -584,7 +586,8 @@ pub fn to_writer_pretty<W: io::Write, T: ?Sized + Serialize>(
     ))
 }
 
-/// The JSON text of `root`, compact or pretty ([`CappedPrettyFormatter`]).
+/// The JSON text of `root`, compact or pretty (the capped pretty layout of
+/// [`to_string_pretty`]).
 pub fn to_string(root: &Node, pretty: bool) -> String {
     let mut output = Vec::new();
     let written = if pretty {
