@@ -132,17 +132,70 @@ fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<
     let TermKind::Set { elements, rest, .. } = set.kind() else {
         return Ok(None);
     };
-    if elements.contains(element) {
+    if place_of(elements, element).is_ok() {
         Ok(Some(bool_term(true)))
-    } else if rest.is_none()
-        && elements
-            .iter()
-            .all(|existing| values_differ(sorts, element, existing))
-    {
+    } else if absent(
+        sorts,
+        element,
+        elements,
+        set.attributes().constructor_like,
+        rest,
+    ) {
         Ok(Some(bool_term(false)))
     } else {
         Ok(None)
     }
+}
+
+/// The place of `element` among `elements`, syntactically: `Ok` with the index of an element
+/// that is the same term, or `Err` with the index at which it would go.
+///
+/// `elements` are the elements of a set argument as `Term::set` stores them, in the order of
+/// `Term`, under which two terms compare equal exactly when they are the same term, so a binary
+/// search decides whether `element` is among them in `O(log n)` comparisons.
+fn place_of(elements: &[Term], element: &Term) -> Result<usize, usize> {
+    elements.binary_search_by(|existing| {
+        #[cfg(test)]
+        compared_with_an_element();
+        existing.cmp(element)
+    })
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test builds: the elements of a set this thread's `SET.in` has compared an element with,
+    /// by the search (`place_of`) or element by element (`absent`).
+    static ELEMENT_COMPARISONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn compared_with_an_element() {
+    ELEMENT_COMPARISONS.with(|count| count.set(count.get() + 1));
+}
+
+/// Whether `element`, which is none of `elements` syntactically, is a value the set does not
+/// hold.
+///
+/// Without a rest, the set holds its elements and nothing else. Strict operands make apartness
+/// a difference of values, so an element different from each of the set's is absent. Two
+/// constructor-like terms denote different values exactly when they differ syntactically, so
+/// when `element` and every element of the set are constructor-like (`set_constructor_like`:
+/// the set's own attribute, which holds only when each of its elements is constructor-like),
+/// `element` differs from each already; otherwise it is compared with each element.
+fn absent(
+    sorts: Option<&SortGraph>,
+    element: &Term,
+    elements: &[Term],
+    set_constructor_like: bool,
+    rest: &Option<Term>,
+) -> bool {
+    rest.is_none()
+        && ((set_constructor_like && element.attributes().constructor_like)
+            || elements.iter().all(|existing| {
+                #[cfg(test)]
+                compared_with_an_element();
+                values_differ(sorts, element, existing)
+            }))
 }
 
 /// The set of the elements of `definition`'s concrete set `left` that `keep` admits, in the
@@ -289,6 +342,8 @@ fn concrete_set(term: &Term) -> Option<(&Arc<SetDefinition>, &[Term])> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
+
     use crate::term::{CollectionMetadata, CollectionSymbols, ListDefinition, Sort, Variable};
 
     fn shape(name: &str) -> Arc<ListDefinition> {
@@ -512,6 +567,174 @@ mod tests {
                 evaluate(hook, &arguments, None, into(&lists())),
                 Ok(BuiltinResult::Bottom),
                 "{hook}"
+            );
+        }
+    }
+
+    /// `SET.in` decided by comparing the element with each element of the set: syntactic
+    /// membership, else absence when there is no rest and the element is apart from each.
+    fn membership_by_scan(element: &Term, set: &Term) -> Option<bool> {
+        let TermKind::Set { elements, rest, .. } = set.kind() else {
+            return None;
+        };
+        if elements.contains(element) {
+            Some(true)
+        } else if rest.is_none()
+            && elements
+                .iter()
+                .all(|existing| values_differ(None, element, existing))
+        {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    fn membership(element: &Term, set: &Term) -> Option<bool> {
+        contains(&[element.clone(), set.clone()], None)
+            .unwrap()
+            .map(|answer| answer == bool_term(true))
+    }
+
+    /// Sets of every size up to 33 hold the even numbers below twice their size; membership of
+    /// every number up to one past the last is what the set says. The elements' text order
+    /// (`"10"` before `"2"`) is not their numeric order, and the search follows the terms'
+    /// order, not the numbers'.
+    #[test]
+    fn membership_answers_the_elements_at_every_place_in_sets_of_every_size() {
+        for size in 0..=33_u32 {
+            let held = (0..size).map(|index| 2 * index).collect::<BTreeSet<_>>();
+            let texts = held.iter().map(u32::to_string).collect::<Vec<_>>();
+            let collection = set(&texts.iter().map(String::as_str).collect::<Vec<_>>());
+            assert!(collection.attributes().constructor_like);
+            for probe in 0..=2 * size + 1 {
+                let probed = item(&probe.to_string());
+                assert_eq!(
+                    super::super::evaluate_hook("SET.in", &[probed.clone(), collection.clone()])
+                        .unwrap()
+                        .unwrap(),
+                    BuiltinResult::Value(bool_term(held.contains(&probe))),
+                    "size {size}, element {probe}"
+                );
+                assert_eq!(
+                    membership(&probed, &collection),
+                    membership_by_scan(&probed, &collection),
+                    "size {size}, element {probe}"
+                );
+            }
+        }
+    }
+
+    /// Every set drawn from ground elements, a variable and symbolic constructor applications,
+    /// closed or with a rest, answers membership of each of those elements and of others exactly
+    /// as comparing with each element does: present, absent, and undecided alike. The shortcut
+    /// applies only to constructor-like elements of constructor-like sets; a symbolic element
+    /// either way leaves the comparison with each element to decide.
+    #[test]
+    fn membership_of_symbolic_elements_and_sets_is_decided_as_by_comparing_with_each_element() {
+        let int = Sort::simple("SortInt");
+        let element_sort = Sort::simple("SortKItem");
+        let application = |name, argument: Term| {
+            Term::application(
+                Arc::new(crate::term::Symbol::constructor(
+                    name,
+                    vec![int.clone()],
+                    element_sort.clone(),
+                )),
+                Vec::new(),
+                vec![argument],
+            )
+        };
+        let symbolic = |name| Term::variable(Variable::new(name, int.clone()));
+        let one = Term::domain_value(int.clone(), "1");
+        let pool = [
+            item("0"),
+            item("1"),
+            item("2"),
+            Term::variable(Variable::new("X", element_sort.clone())),
+            application("a", symbolic("A")),
+            application("a", one.clone()),
+            application("b", symbolic("B")),
+        ];
+        let probes = pool.iter().cloned().chain([
+            item("3"),
+            Term::variable(Variable::new("Y", element_sort.clone())),
+            application("a", symbolic("C")),
+            application("b", one),
+            application("c", symbolic("D")),
+        ]);
+        let probes = probes.collect::<Vec<_>>();
+        let rest = Term::variable(Variable::new("REST", Sort::simple("SortSet")));
+        let mut answers = BTreeMap::<Option<bool>, usize>::new();
+        for chosen in 0..1_u32 << pool.len() {
+            let elements = pool
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| chosen & (1 << index) != 0)
+                .map(|(_, element)| element.clone())
+                .collect::<Vec<_>>();
+            for rest in [None, Some(rest.clone())] {
+                let collection = Term::set(set_definition(), elements.clone(), rest);
+                for probed in &probes {
+                    let answer = membership(probed, &collection);
+                    assert_eq!(
+                        answer,
+                        membership_by_scan(probed, &collection),
+                        "{probed:?} in {collection:?}"
+                    );
+                    *answers.entry(answer).or_default() += 1;
+                }
+            }
+        }
+        assert_eq!(
+            answers.keys().copied().collect::<Vec<_>>(),
+            [None, Some(false), Some(true)],
+            "every outcome is exercised"
+        );
+    }
+
+    /// In a constructor-like set, `SET.in` compares a constructor-like element with the elements
+    /// the binary search visits and with no other: a held element is found by the search, and
+    /// one not held differs from every element without being compared with each (`absent`).
+    /// The search's own count bounds those comparisons by `ilog2(n) + 1`.
+    #[test]
+    fn membership_compares_the_element_only_with_the_elements_the_search_visits() {
+        const ELEMENTS: u32 = 4096;
+        let texts = (1..=ELEMENTS)
+            .map(|index| (2 * index).to_string())
+            .collect::<Vec<_>>();
+        let collection = set(&texts.iter().map(String::as_str).collect::<Vec<_>>());
+        assert!(collection.attributes().constructor_like);
+        let TermKind::Set { elements, .. } = collection.kind() else {
+            unreachable!("a set term")
+        };
+        let compared_by = |run: &dyn Fn()| {
+            ELEMENT_COMPARISONS.with(|count| count.set(0));
+            run();
+            ELEMENT_COMPARISONS.with(std::cell::Cell::get)
+        };
+        let bound = ELEMENTS.ilog2() as usize + 1;
+        for probe in [2, ELEMENTS, 2 * ELEMENTS, 1, ELEMENTS + 1, 2 * ELEMENTS + 1] {
+            let probed = item(&probe.to_string());
+            let searched = compared_by(&|| {
+                let _ = place_of(elements, &probed);
+            });
+            assert!(
+                searched <= bound,
+                "element {probe}: the search compares {searched}, bound {bound}"
+            );
+            let made = compared_by(&|| {
+                assert_eq!(
+                    super::super::evaluate_hook("SET.in", &[probed.clone(), collection.clone()])
+                        .unwrap()
+                        .unwrap(),
+                    BuiltinResult::Value(bool_term(probe % 2 == 0)),
+                    "element {probe}"
+                );
+            });
+            assert_eq!(
+                made, searched,
+                "element {probe}: {made} elements compared, the search compares {searched}"
             );
         }
     }
