@@ -2674,35 +2674,57 @@ fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttr
     for term in terms {
         shape.add(term);
     }
-    shape.0
+    shape.finish()
 }
 
-/// The conjunctive shape of a node's immediate children, accumulated once per child.
-struct ChildShape(TermAttributes);
+/// The conjunctive shape of a node's immediate children, accumulated once per child, and the
+/// union of their variables, which shares the largest child set's handle.
+struct ChildShape<'a> {
+    attributes: TermAttributes,
+    variables: variables::Union<'a>,
+}
 
-impl ChildShape {
+impl<'a> ChildShape<'a> {
     /// The flags are conjunctions over child terms. Their identity is true, which is essential
     /// for nullary constructors and empty builtin collections to be recognized as concrete
     /// constructor-like values.
     fn new() -> Self {
-        Self(TermAttributes {
+        Self::of(TermAttributes {
             constructor_like: true,
             concrete_after_normalization: true,
             ..TermAttributes::default()
         })
     }
 
-    #[inline]
-    fn add(&mut self, child: &Term) {
-        let attributes = child.attributes();
-        if !attributes.variables.is_empty() {
-            self.0.variables.add_all(&attributes.variables);
+    /// The shape starting from `attributes`, whose variables are ignored: the variables are
+    /// those given to [`add_variables`](Self::add_variables) and [`add`](Self::add).
+    fn of(attributes: TermAttributes) -> Self {
+        Self {
+            attributes,
+            variables: variables::Union::new(),
         }
-        self.0.evaluated &= attributes.evaluated;
-        self.0.value_claimed &= attributes.value_claimed;
-        self.0.constructor_like &= attributes.constructor_like;
-        self.0.concrete_after_normalization &= attributes.concrete_after_normalization;
-        self.0.can_be_evaluated &= attributes.can_be_evaluated;
+    }
+
+    fn add_variables(&mut self, variables: &'a Variables) {
+        self.variables.add(variables);
+    }
+
+    #[inline]
+    fn add(&mut self, child: &'a Term) {
+        let attributes = child.attributes();
+        self.variables.add(&attributes.variables);
+        self.attributes.evaluated &= attributes.evaluated;
+        self.attributes.value_claimed &= attributes.value_claimed;
+        self.attributes.constructor_like &= attributes.constructor_like;
+        self.attributes.concrete_after_normalization &= attributes.concrete_after_normalization;
+        self.attributes.can_be_evaluated &= attributes.can_be_evaluated;
+    }
+
+    fn finish(self) -> TermAttributes {
+        TermAttributes {
+            variables: self.variables.finish(),
+            ..self.attributes
+        }
     }
 }
 
@@ -2768,8 +2790,8 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
             // repeated key follows its first binding) are equal.
             let summary = entries.summary();
             collision_root = summary.collision;
-            let mut shape = ChildShape(TermAttributes {
-                variables: summary.group.elements().cloned().collect(),
+            let entry_variables = Variables::of_multiset(&summary.group);
+            let mut shape = ChildShape::of(TermAttributes {
                 evaluated: summary.extra.holds(Flag::Evaluated),
                 value_claimed: summary.extra.holds(Flag::ValueClaimed),
                 constructor_like: summary.extra.holds(Flag::ConstructorLike),
@@ -2777,10 +2799,11 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
                 can_be_evaluated: summary.extra.holds(Flag::CanBeEvaluated),
                 ..TermAttributes::default()
             });
+            shape.add_variables(&entry_variables);
             if let Some(rest) = rest {
                 shape.add(rest);
             }
-            shape.0
+            shape.finish()
         }
         TermKind::List { heads, rest, .. } => combine_attributes(
             heads.iter().chain(
@@ -2800,7 +2823,7 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
             if let Some(rest) = rest {
                 shape.add(rest);
             }
-            shape.0
+            shape.finish()
         }
     };
     if collision_root {

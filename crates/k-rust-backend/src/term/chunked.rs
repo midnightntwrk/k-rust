@@ -43,7 +43,8 @@
 //!   collection are the elements of its root's multiset). `Variable` brings the `Ord`, `Hash`
 //!   and `Debug` the entry needs; the entry's key is the variable, its hash the `FxHasher` hash
 //!   of the variable and count, and its summary and group summary are `()`. The term attribute
-//!   `variables` becomes a [`Variables`](variables::Variables), and `Substitution` implements
+//!   `variables` is a [`Variables`](variables::Variables) (a set of at most `B` variables is a
+//!   shared slice instead of a tree), and `Substitution` implements
 //!   [`VariableLookup`](crate::term::VariableLookup) over its domain.
 //!
 //! # Fill invariant

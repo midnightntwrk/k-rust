@@ -92,7 +92,7 @@ fn check_variables<const B: usize>(tree: &Chunked<Entry, B>, model: &[Entry]) {
             .eq(counts.iter())
     );
     let set = Variables::of_multiset(&root);
-    assert!(set.entries().shares_root(root.entries()));
+    assert!(super::variables::views(&set, &root));
     assert_eq!(set.to_btree_set(), counts.into_keys().collect());
 }
 

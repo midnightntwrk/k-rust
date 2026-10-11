@@ -1262,4 +1262,47 @@ mod tests {
             );
         }
     }
+
+    /// A map's variables are the support of its entries' variable multiset, sharing its tree,
+    /// and a term whose only symbolic child is the map shares the map's set: building it copies
+    /// none of the map's variables. A term with another symbolic child holds the union. A small
+    /// set is shared the same way: a term around one variable holds that variable's set.
+    #[test]
+    fn a_term_around_a_symbolic_map_shares_its_variable_set() {
+        let map = Term::map(
+            definition(),
+            (0..1000)
+                .map(|index| (key(index), variable(&format!("V{index}"), "SortValue")))
+                .collect(),
+            None,
+        );
+        let variables = &map.attributes().variables;
+        assert_eq!(variables.len(), 1000);
+        assert!(
+            variables.shares_handle(&crate::term::Variables::of_multiset(
+                &entries(&map).summary().group
+            ))
+        );
+        let ground = Term::and(map.clone(), value(0));
+        assert!(ground.attributes().variables.shares_handle(variables));
+        let x = variable("X", "SortValue");
+        let symbolic = Term::and(map.clone(), x.clone());
+        let union = &symbolic.attributes().variables;
+        assert_eq!(union.len(), 1001);
+        assert_eq!(
+            union.to_btree_set(),
+            variables
+                .iter()
+                .chain(x.attributes().variables.iter())
+                .cloned()
+                .collect()
+        );
+        let around = Term::and(value(0), x.clone());
+        assert!(
+            around
+                .attributes()
+                .variables
+                .shares_handle(&x.attributes().variables)
+        );
+    }
 }
