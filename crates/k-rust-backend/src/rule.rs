@@ -386,6 +386,11 @@ pub struct ComputedRuleAttributes {
     /// spelling (`equation_unbound_result_variables`); empty for a rewrite rule. An instance
     /// of such an equation is not used (`ConditionIndeterminacy::UnboundResultVariables`).
     pub unbound_result_variables: Vec<String>,
+    /// The rests of the left-hand side's map patterns that no part of the rule reads: each
+    /// occurs once in the left-hand side and nowhere else in the rule, and no concreteness
+    /// attribute constrains it (`unread_map_frames`). An equation's match leaves them unbound
+    /// when the subject map is `ceil_free` (`matching::match_equation_in_definition`).
+    pub unread_map_frames: BTreeSet<Variable>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2961,6 +2966,14 @@ fn make_rule(
         computed_attributes.variables,
         computed_attributes.unbound_variables,
     ) = rule_variable_sets(&lhs, &rhs, &requires, &ensures, &existentials);
+    computed_attributes.unread_map_frames = unread_map_frames(
+        &lhs,
+        &rhs,
+        &requires,
+        &ensures,
+        &existentials,
+        &attributes.concreteness,
+    );
     RewriteRule {
         lhs,
         lhs_alternative,
@@ -3251,6 +3264,7 @@ pub(crate) fn rename_apart(
             variables: rename_set(&computed.variables),
             unbound_variables: rename_set(&computed.unbound_variables),
             unbound_result_variables: computed.unbound_result_variables.clone(),
+            unread_map_frames: rename_set(&computed.unread_map_frames),
         },
         existentials: rename_set(&rule.existentials),
     };
@@ -3442,6 +3456,94 @@ pub(crate) fn rule_variable_sets(
         .filter(|variable| !bound.contains(variable) && !existentials.contains(variable))
         .collect();
     (all, unbound)
+}
+
+/// The variables of `lhs` that are the rest of one of its map patterns and whose binding no
+/// part of the rule reads: each has the sort of the map it is the rest of, occurs once in `lhs`,
+/// and occurs nowhere in `rhs`, `requires`, `ensures` or `existentials`, free or bound, and no
+/// concreteness attribute constrains it.
+///
+/// Such a variable `M` in `(K1 |-> V1) ... (Kn |-> Vn) M` stands for "the rest of the map",
+/// which exists, of the map's sort, for every map that binds the keys the pattern names; the
+/// instance the rule takes at a match is the same whatever `M` is bound to. A match that has
+/// found those keys therefore need not build the rest to bind it. One occurrence matters: a
+/// second occurrence in `lhs` compares the two rests, and that comparison reads the binding.
+/// A concreteness attribute reads it too, as `rewrite::predicates::check_concreteness` does,
+/// and `Concreteness::All` constrains every variable of `lhs`.
+fn unread_map_frames(
+    lhs: &Term,
+    rhs: &RuleRhs,
+    requires: &[Predicate],
+    ensures: &[Predicate],
+    existentials: &BTreeSet<Variable>,
+    concreteness: &Concreteness,
+) -> BTreeSet<Variable> {
+    fn visit(term: &Term, frames: &mut Vec<Variable>, occurrences: &mut Vec<Variable>) {
+        match term.kind() {
+            TermKind::Variable(variable) => occurrences.push(variable.clone()),
+            TermKind::Map {
+                rest: Some(rest), ..
+            } => {
+                if let TermKind::Variable(variable) = rest.kind()
+                    && variable.sort == term.sort()
+                {
+                    frames.push(variable.clone());
+                }
+            }
+            _ => {}
+        }
+        for child in crate::term::immediate_children(term.kind()) {
+            visit(child, frames, occurrences);
+        }
+    }
+    if matches!(concreteness, Concreteness::All(_)) {
+        return BTreeSet::new();
+    }
+    let mut frames = Vec::new();
+    let mut occurrences = Vec::new();
+    visit(lhs, &mut frames, &mut occurrences);
+    if frames.is_empty() {
+        return BTreeSet::new();
+    }
+    let mut read = existentials.clone();
+    match rhs {
+        RuleRhs::Term(term) => read.extend(term.attributes().variables.iter().cloned()),
+        RuleRhs::Disjunction(alternatives) => {
+            for alternative in alternatives {
+                read.extend(alternative.term.attributes().variables.iter().cloned());
+                collect_all_variables(alternative.ensures.iter(), &mut read);
+            }
+        }
+        RuleRhs::Predicates(predicates) => collect_all_variables(predicates, &mut read),
+        RuleRhs::Top | RuleRhs::Bottom => {}
+    }
+    collect_all_variables(requires, &mut read);
+    collect_all_variables(ensures, &mut read);
+    let constrained = |variable: &Variable| match concreteness {
+        Concreteness::Unconstrained => false,
+        Concreteness::All(_) => true,
+        Concreteness::Some(constrained) => {
+            let unmarked = split_marker(
+                &variable.name,
+                &[VariableProvenance::Rule, VariableProvenance::Equation],
+            )
+            .1
+            .into_owned();
+            constrained.contains_key(&(Name::from(unmarked), variable.sort.clone()))
+        }
+    };
+    frames
+        .into_iter()
+        .filter(|frame| {
+            occurrences
+                .iter()
+                .filter(|variable| *variable == frame)
+                .count()
+                == 1
+                && !read.contains(frame)
+                && !constrained(frame)
+        })
+        .collect()
 }
 
 /// Every variable of `predicates`, free or bound by a quantifier.

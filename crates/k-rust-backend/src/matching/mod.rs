@@ -56,8 +56,8 @@ pub(crate) use collections::{
 #[cfg(test)]
 pub(crate) use collections::cancel_common_opaque_chunks;
 use collections::{
-    CommonKeys, MapRemainder, PairRemainder, binds_each_key_once, is_opaque_concat,
-    list_update_cannot_match, pair_prefix, pair_suffix, prepend, split_common_keys,
+    CommonKeys, MapRemainder, PairRemainder, binds_each_key_once, find_common_keys,
+    is_opaque_concat, list_update_cannot_match, pair_prefix, pair_suffix, prepend,
 };
 
 use std::{
@@ -529,6 +529,28 @@ pub fn match_terms_in_definition(
     )
 }
 
+/// [`match_terms_in_definition`] in `Evaluate` mode for an equation's left-hand side `pattern`,
+/// whose map frames in `unread_frames` nothing else in the equation reads
+/// (`rule::unread_map_frames`). Such a frame is left unbound where the subject map is
+/// `ceil_free` and the pattern's keys are all found in it, instead of being bound to a copy of
+/// the subject's other entries ([`Matcher::match_maps`]).
+pub(crate) fn match_equation_in_definition(
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    unread_frames: &BTreeSet<Variable>,
+) -> MatchResult {
+    match_terms_with_context_and_frames(
+        MatchMode::Evaluate,
+        definition.sort_graph(),
+        Some(definition),
+        pattern,
+        subject,
+        true,
+        unread_frames,
+    )
+}
+
 pub(crate) fn match_term_pairs_in_definition(
     mode: MatchMode,
     definition: &BackendDefinition,
@@ -630,6 +652,26 @@ fn match_terms_with_context(
     subject: &Term,
     equation_root: bool,
 ) -> MatchResult {
+    match_terms_with_context_and_frames(
+        mode,
+        sorts,
+        definition,
+        pattern,
+        subject,
+        equation_root,
+        &NO_FRAMES,
+    )
+}
+
+fn match_terms_with_context_and_frames(
+    mode: MatchMode,
+    sorts: &SortGraph,
+    definition: Option<&BackendDefinition>,
+    pattern: &Term,
+    subject: &Term,
+    equation_root: bool,
+    unread_frames: &BTreeSet<Variable>,
+) -> MatchResult {
     let _span = measure::algorithm_span(Algorithm::BackendMatchingSyntactic);
     measure::bump(Counter::MatchingProblems);
     if pattern == subject {
@@ -665,11 +707,14 @@ fn match_terms_with_context(
         definition,
         VecDeque::from([(pattern.clone(), subject.clone())]),
     );
+    matcher.unread_frames = unread_frames;
     if equation_root {
         matcher.normal_forms.given.equation_root(subject.clone());
     }
     matcher.finish(|| vec![(pattern.clone(), subject.clone())])
 }
+
+static NO_FRAMES: BTreeSet<Variable> = BTreeSet::new();
 
 struct Matcher<'a> {
     mode: MatchMode,
@@ -684,6 +729,8 @@ struct Matcher<'a> {
     tentative_arguments: bool,
     /// The oracle that classifies subject terms as the values they denote.
     normal_forms: SubjectNormalForms<'a>,
+    /// Map frames of the pattern whose binding nothing reads ([`match_equation_in_definition`]).
+    unread_frames: &'a BTreeSet<Variable>,
 }
 
 /// Subject applications (these handles, not equal terms) whose root is taken as it stands: the
@@ -812,6 +859,7 @@ impl<'a> Matcher<'a> {
                 settled: None,
                 instance_normal: FxHashMap::default(),
             },
+            unread_frames: &NO_FRAMES,
         }
     }
 
@@ -1664,11 +1712,29 @@ impl<'a> Matcher<'a> {
         // The pattern's keys are pairwise different now, so ordering its entries by key alone
         // gives them the stored order of a map's entries.
         pattern_entries.sort_by(|left, right| left.0.cmp(&right.0));
+        let found = find_common_keys(&pattern_entries, subject_entries);
+        // The subject binds every key the pattern names, so the pattern's rest would be bound to
+        // the subject's other entries, a map of the rest's sort. When nothing in the equation
+        // reads that binding (`rule::unread_map_frames`), the instance is the same without it:
+        // its one other use, the binding's definedness obligation (`ceil_term` of the bound
+        // term, `condition::EquationInstance::new`), is empty, since a sub-map of a `ceil_free`
+        // map is `ceil_free` (its entries are a subset, its keys still strictly increase, its
+        // rest is the same). So the rest is not built.
+        if found.pattern_only.is_empty()
+            && subject.attributes().ceil_free()
+            && pattern_rest.as_ref().is_some_and(|rest| {
+                matches!(rest.kind(), TermKind::Variable(variable)
+                    if self.unread_frames.contains(variable))
+            })
+        {
+            self.queue.extend(found.values);
+            return Ok(());
+        }
         let CommonKeys {
             mut values,
             pattern_only,
             subject_only,
-        } = split_common_keys(&pattern_entries, subject_entries);
+        } = found.split(subject_entries);
 
         let pattern = MapRemainder::new(pattern_only, pattern_rest);
         let subject = MapRemainder::new(subject_only, subject_rest);
