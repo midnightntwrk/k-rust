@@ -3209,15 +3209,16 @@ impl Grammar {
     /// alternatives share is transformed once and stays shared.
     /// Priority runs after collapse because generated record productions deliberately defer edge
     /// checks until they have exposed their original production.
-    /// The preference among a rule body's readings (`Grammar::prefer_structural_body_readings`)
-    /// runs after those checks, so it chooses only among readings that denote a term.
+    /// The preference for K's rewrite, sequence and `#let` at every position
+    /// (`Grammar::prefer_structural_readings`) runs after those checks, so it chooses only among
+    /// readings that denote a term.
     fn prepare_packed_forest(
         &self,
         forest: Rc<PackedTerm>,
         priority_memos: &RefCell<PackedPriorityMemos>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         let forest = self.check_packed_forest(forest, priority_memos)?;
-        let forest = self.prefer_structural_body_readings(forest);
+        let forest = self.prefer_structural_readings(forest);
         let forest = self.factor_pre_inference_packed_ambiguities(forest);
         let forest = self.push_top_lhs_packed_ambiguity_up(forest);
         Ok(forest)

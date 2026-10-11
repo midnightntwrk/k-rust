@@ -2139,7 +2139,9 @@ mod tests {
     /// `(result, form, left, right, token, applyPriority, duplicate, scope)`:
     /// - `result`, `left`, `right` pick `S0` or `S1` for the result and the operands;
     /// - `form` 0 is infix (`left token right`), 1 prefix (`token right`), 2 postfix
-    ///   (`left token`), 3 a labelled unary production `S1 ::= S0`;
+    ///   (`left token`), 3 a labelled unary production `S1 ::= S0`, 4 a circumfix
+    ///   (`"[" left "]"`), whose operand is not at an end, so that a rewrite or sequence may
+    ///   stand below it unless its `applyPriority` names that operand;
     /// - `token` picks one of `+ * # -`;
     /// - `applyPriority` 1 or 2 names that one position of an infix operator, 0 none;
     /// - `duplicate` adds the same items under another label;
@@ -2158,17 +2160,18 @@ mod tests {
             2 => "~>",
             _ => OPERATOR_TOKENS[usize::from(token % 4)],
         };
-        match (form % 4, scope) {
+        match (form % 5, scope) {
             (_, 1 | 2) | (0, _) => vec![operand(left), terminal(token), operand(right)],
             (1, _) => vec![terminal(token), operand(right)],
             (2, _) => vec![operand(left), terminal(token)],
+            (4, _) => vec![terminal("["), operand(left), terminal("]")],
             _ => vec![nt("S0")],
         }
     }
 
     fn operator_result(operator: &GeneratedOperator) -> String {
         let &(result, form, _, _, _, _, _, scope) = operator;
-        if form % 4 == 3 && scope == 0 {
+        if form % 5 == 3 && scope == 0 {
             // A unary production in the direction of `S1 ::= S0`, so that it closes no cycle.
             "S1".to_owned()
         } else {
@@ -2472,10 +2475,12 @@ mod tests {
         #![proptest_config(ProptestConfig::with_cases(OPERATOR_GRAMMAR_CASES))]
 
         /// The structured pruning generator: an operator grammar (infix, prefix and postfix
-        /// operators over two sorts, labelled unary productions, duplicates of an operator under
-        /// another label, `applyPriority` naming one end, priorities, associativity groups, and
-        /// rewrites and sequences, which are scope errors below an operator), with a labelled
-        /// start production or a pass-through one, and its metamorphic pair, the same grammar
+        /// operators over two sorts, labelled unary productions, circumfix productions,
+        /// duplicates of an operator under another label, `applyPriority` naming one operand,
+        /// priorities, associativity groups, and rewrites and sequences, which are scope errors
+        /// at an end of an operator and may stand inside a circumfix, below the parse's root,
+        /// where the choice of the rewrite or sequence reading is made as at the root), with a
+        /// labelled start production or a pass-through one, and its metamorphic pair, the same grammar
         /// with one operand of one operator written through an unlabelled pass-through
         /// (`P ::= S`): both parse alike and prune alike ([`pass_through_pair_outcome`]). The
         /// input is a sentence of the grammar when `choices` derive one; with two rewrite or
@@ -2488,7 +2493,7 @@ mod tests {
         #[test]
         fn an_operator_grammar_and_its_pass_through_pair_parse_alike(
             operators in prop::collection::vec(
-                (0u8..2, 0u8..4, 0u8..2, 0u8..2, 0u8..4, 0u8..3, any::<bool>(), 0u8..3),
+                (0u8..2, 0u8..5, 0u8..2, 0u8..2, 0u8..4, 0u8..3, any::<bool>(), 0u8..3),
                 1..6,
             ),
             levels in prop::collection::btree_map(0usize..12, 0u8..3, 0..6),
@@ -2499,9 +2504,9 @@ mod tests {
             labelled_start in any::<bool>(),
             inlined in (any::<prop::sample::Index>(), 0usize..2),
             choices in prop::collection::vec(any::<u8>(), 0..12),
-            random_input in prop::collection::vec(0usize..7, 0..9),
+            random_input in prop::collection::vec(0usize..9, 0..9),
         ) {
-            let tokens = ["a", "+", "*", "#", "-", "=>", "~>"];
+            let tokens = ["a", "+", "*", "#", "-", "=>", "~>", "[", "]"];
             let input = operator_sentence(&operators, &choices).unwrap_or_else(|| {
                 random_input
                     .iter()
@@ -2584,9 +2589,11 @@ mod tests {
 
     /// Under `S1 ::= S1 "~>" S0` (a sequence) and `S1 ::= S0 "+" S1 [applyPriority(1)]`,
     /// `a + a ~> a ~> a` has three readings: sequences of three items and of two, and a sum
-    /// whose right operand, which `applyPriority(1)` leaves unjudged, is a sequence. With the
-    /// sequence's left operand written through `P ::= S1` the trees are the same, and so is the
-    /// report: one entry per root key.
+    /// whose right operand, which `applyPriority(1)` leaves unjudged, is a sequence. Below the
+    /// labelled start the sequence is chosen over the sum; then the outer sequence's left
+    /// operand, `a + a ~> a`, is a sequence or a sum, and the sequence is chosen there too
+    /// ([`Grammar::prefer_structural_readings`]). With the sequence's left operand written
+    /// through `P ::= S1` the trees are the same, and so is the choice.
     #[test]
     fn an_ambiguity_report_does_not_depend_on_a_pass_through_below_a_sequence() {
         let operators: Vec<GeneratedOperator> =
@@ -2602,21 +2609,19 @@ mod tests {
         .unwrap();
         assert_eq!(
             outcome.as_deref(),
-            Some(concat!(
-                r#"ambiguous {"o1(atom(.KList),atom(.KList))~>atom(.KList)~>atom(.KList)", "#,
-                r#""o1(atom(.KList),atom(.KList)~>atom(.KList))~>atom(.KList)", "#,
-                r#""o1(atom(.KList),atom(.KList)~>atom(.KList)~>atom(.KList))"}"#,
-            ))
+            Some("start(o1(atom(.KList),atom(.KList))~>atom(.KList)~>atom(.KList))")
         );
     }
 
     /// Under `S0 ::= S0 "=>" S1` (a rewrite), `S1 ::= S0 [o1]`, `S1 ::= S0 [o2]` and
     /// `S1 ::= S1 "+" S0 [o3]`, `a => a => a + a` has readings rooted at the rewrite and at
-    /// `o1` and `o2`, which as syntactic subsorts judge no child, so `o3(o1(a => a => a), a)` is
-    /// one of them. Writing `o3`'s left operand through `P ::= S1` changes no tree and no
-    /// entry of the report. The forest has more trees than a build without Z3 types
-    /// (`PORTABLE_AMBIGUITY_TREE_LIMIT`), so the test needs the native inference
-    /// (`docs/testing.md`).
+    /// `o1`, `o2` and `o3` (`o3(o1(a => a => a), a)`: `o1` and `o2`, syntactic subsorts, judge no
+    /// child). Below the labelled start the readings rooted at the rewrite are chosen; they
+    /// split the text at either `=>`, so they share no position below the root and stay an
+    /// ambiguity, reported at the places they differ. Writing `o3`'s left operand through
+    /// `P ::= S1` changes no tree and no entry of the report. The forest has more trees than a
+    /// build without Z3 types (`PORTABLE_AMBIGUITY_TREE_LIMIT`), so the test needs the native
+    /// inference (`docs/testing.md`).
     #[cfg(feature = "z3-inference")]
     #[test]
     fn an_ambiguity_report_does_not_depend_on_a_pass_through_above_a_rewrite() {
@@ -2635,14 +2640,31 @@ mod tests {
             "a => a => a + a",
         )
         .unwrap();
+        assert_eq!(outcome.as_deref(), Some("ambiguous {}"));
+        let original = operator_grammar(&operators, &BTreeMap::new(), &[], true, None).unwrap();
+        let Err(ParseError::Ambiguous { places, .. }) = filtered(&original, "a => a => a + a")
+        else {
+            panic!("`a => a => a + a` has two rewrite readings");
+        };
+        let terms = places
+            .iter()
+            .map(|place| {
+                place
+                    .alternatives
+                    .iter()
+                    .map(|entry| entry.term.as_str())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
         assert_eq!(
-            outcome.as_deref(),
-            Some(concat!(
-                r#"ambiguous {"atom(.KList)=>atom(.KList)=>o3(atom(.KList),atom(.KList))", "#,
-                r#""o1(atom(.KList)=>atom(.KList)=>o3(atom(.KList),atom(.KList)))", "#,
-                r#""o2(atom(.KList)=>atom(.KList)=>o3(atom(.KList),atom(.KList)))", "#,
-                r#""o3(o1(atom(.KList)=>atom(.KList)=>atom(.KList)),atom(.KList))"}"#,
-            ))
+            terms,
+            [
+                vec!["atom(.KList)=>atom(.KList)", "atom(.KList)"],
+                vec![
+                    "atom(.KList)=>o3(atom(.KList),atom(.KList))",
+                    "o3(atom(.KList),atom(.KList))"
+                ],
+            ]
         );
     }
 
@@ -2676,11 +2698,11 @@ mod tests {
 
     /// Under `S0 ::= S0 "=>" S0` (a rewrite) and `S0 ::= S0 "~>" S0 [applyPriority(2)]` (a
     /// sequence, whose left operand is unjudged), `a => a ~> a` has two readings, the rewrite of
-    /// `a` to `a ~> a` and the sequence of `a => a` and `a`. Where the parse is rooted at the
-    /// sentence (a pass-through start production, as a rule body is) the reading rooted at the
-    /// rewrite is chosen ([`Grammar::prefer_structural_body_readings`]); below a labelled start
-    /// production nothing chooses and both are reported. The choice is made per tree by its
-    /// root, so writing the rewrite's right operand through `P ::= S0` changes neither.
+    /// `a` to `a ~> a` and the sequence of `a => a` and `a`. The reading rooted at the rewrite is
+    /// chosen ([`Grammar::prefer_structural_readings`]), whether the parse is rooted at the
+    /// sentence (a pass-through start production, as a rule body is) or the sentence is the
+    /// operand of a labelled start production, below the parse's root. The choice is made per
+    /// tree, so writing the rewrite's right operand through `P ::= S0` changes neither.
     #[test]
     fn a_rewrite_reading_does_not_depend_on_a_pass_through_at_its_operand() {
         let operators: Vec<GeneratedOperator> =
@@ -2702,11 +2724,40 @@ mod tests {
         );
         assert_eq!(
             outcome(true).as_deref(),
-            Some(concat!(
-                r#"ambiguous {"``atom(.KList)=>atom(.KList)``~>atom(.KList)", "#,
-                r#""atom(.KList)=>atom(.KList)~>atom(.KList)"}"#,
-            ))
+            Some("start(atom(.KList)=>atom(.KList)~>atom(.KList))")
         );
+    }
+
+    /// Inside a circumfix `S0 ::= "[" S0 "]" [o0]`, whose operand is not at an end, a rewrite and
+    /// a sequence may stand, so `[ a => a ~> a ]` has the same two readings as `a => a ~> a`
+    /// below `o0`, and the reading rooted at the rewrite is chosen there, below the parse's root.
+    /// Writing the circumfix's operand through `P ::= S0` puts a pass-through above both readings
+    /// and changes nothing.
+    #[test]
+    fn a_rewrite_reading_below_the_root_does_not_depend_on_a_pass_through_above_it() {
+        let operators: Vec<GeneratedOperator> = vec![
+            (0, 4, 0, 0, 0, 0, false, 0),
+            (0, 0, 0, 0, 0, 0, false, 1),
+            (0, 0, 0, 0, 0, 2, false, 2),
+        ];
+        for labelled_start in [false, true] {
+            let outcome = pass_through_pair_outcome(
+                &operators,
+                &BTreeMap::new(),
+                &[],
+                labelled_start,
+                (0, 0),
+                "[ a => a ~> a ]",
+            )
+            .unwrap();
+            let expected = "o0(atom(.KList)=>atom(.KList)~>atom(.KList))";
+            let expected = if labelled_start {
+                format!("start({expected})")
+            } else {
+                expected.to_owned()
+            };
+            assert_eq!(outcome.as_deref(), Some(expected.as_str()));
+        }
     }
 
     /// Two rewrites of one label, `S0 ::= S0 "=>" S1` and `S0 ::= S1 "=>" S0`, beside

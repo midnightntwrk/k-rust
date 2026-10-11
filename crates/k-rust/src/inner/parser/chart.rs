@@ -634,7 +634,7 @@ fn factor_derivations(derivations: &mut BTreeSet<Derivation>) {
     derivations.extend(unspanned);
 }
 
-fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
+pub(super) fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
     crate::stack::guarded(|| match &term.node {
         PackedNode::Production { metadata, .. }
         | PackedNode::InstantiatedProduction { metadata, .. } => metadata.span,
