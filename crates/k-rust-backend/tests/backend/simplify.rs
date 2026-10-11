@@ -5,7 +5,7 @@ use k_rust_backend::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     rewrite::Pattern,
-    rule::{Predicate, RuleOrigin},
+    rule::Predicate,
     simplify::*,
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     stop::Stoppable,
@@ -17,24 +17,12 @@ use k_rust_kore::measure::{Counter, snapshot};
 
 // Explicit imports shadow the glob: these tests arm no stop and assert on the failure layer.
 use crate::support::{
-    ground_cell_set_definition, ground_overload_definition,
+    first_origin, ground_cell_set_definition, ground_overload_definition,
     unstopped::{
         simplify, simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
         simplify_predicate_with_solver, simplify_predicates_with_solver, simplify_with_solver,
     },
 };
-
-/// The first written sentence of the axiom `unique_id` of `definition`, which an
-/// `UndecidedCondition` of its equations carries.
-fn first_origin(definition: &BackendDefinition, unique_id: &str) -> Option<RuleOrigin> {
-    let mut axioms = definition
-        .classified_axioms()
-        .iter()
-        .filter(|axiom| axiom.attributes().unique_id == unique_id);
-    let axiom = axioms.next().expect("the axiom is in the definition");
-    assert!(axioms.next().is_none(), "one axiom has the id {unique_id}");
-    axiom.attributes().origins.first().cloned()
-}
 
 fn definition(axioms: &str) -> BackendDefinition {
     let source = format!(
@@ -2461,6 +2449,7 @@ fn a_requires_with_a_disjunctive_result_records_the_rule_condition_failure() {
     assert_eq!(result, input, "the guarded equation must stay unapplied");
     let failed = BackendDiagnostic::RuleConditionFailed {
         rule_id: "guarded".to_owned(),
+        origin: first_origin(&definition, "guarded"),
         failure: SimplificationError::DisjunctiveResult {
             rule_id: "or-equation".to_owned(),
             alternatives: 2,

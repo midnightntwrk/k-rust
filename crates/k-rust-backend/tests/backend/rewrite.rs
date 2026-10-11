@@ -14,7 +14,7 @@ use k_rust_backend::{
     diagnostic::{self, BackendDiagnostic},
     fresh::FreshCounter,
     rewrite::*,
-    rule::{Predicate, Theory},
+    rule::{Predicate, RuleOrigin, Theory},
     search::{
         PatternMatch, PatternMatchError, ResultModality, match_disjunction,
         match_disjunction_with_solver,
@@ -44,7 +44,7 @@ use k_rust_kore::{
 use sha2::{Digest, Sha256};
 
 use crate::support::{
-    ScriptedQuery, ScriptedSolver, ceil_div_definition, ground_cell_set_definition,
+    ScriptedQuery, ScriptedSolver, ceil_div_definition, first_origin, ground_cell_set_definition,
     ground_overload_definition, internal_term,
     unstopped::{rewrite_step, rewrite_step_sequential_with_solver, rewrite_step_with_solver},
 };
@@ -5180,11 +5180,12 @@ fn predicates_budget_exhausted(limit: usize) -> BackendDiagnostic {
 /// What constructing the `lower-grow` candidate emits: the definedness obligation of
 /// `grow(tag(50))` exhausts the budget through the `grow` equation's condition, and so does
 /// the right-hand side itself.
-fn lower_grow_diagnostics() -> Vec<BackendDiagnostic> {
+fn lower_grow_diagnostics(definition: &BackendDefinition) -> Vec<BackendDiagnostic> {
     vec![
         predicates_budget_exhausted(1),
         BackendDiagnostic::RuleConditionUnsimplified {
             rule_id: "grow".to_owned(),
+            origin: first_origin(definition, "grow"),
             limit: 1,
         },
         term_budget_exhausted(1),
@@ -5235,10 +5236,10 @@ fn a_step_attributes_a_candidates_own_work_to_that_candidate_only() {
     let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
     let undefined = undefined_step_leaf(&result, "lower-grow");
     assert_eq!(lower.halt_reason, HaltReason::Stuck);
-    assert_eq!(lower.diagnostics, lower_grow_diagnostics());
+    assert_eq!(lower.diagnostics, lower_grow_diagnostics(&definition));
     assert_eq!(first.halt_reason, HaltReason::Stuck);
     assert_eq!(first.diagnostics, []);
-    assert_eq!(undefined.diagnostics, lower_grow_diagnostics());
+    assert_eq!(undefined.diagnostics, lower_grow_diagnostics(&definition));
     // The lower rule was applied to the remainder `not (X < 0)`: the undefined step keeps it,
     // beside the failing obligation.
     assert!(
@@ -5269,12 +5270,12 @@ fn a_breadth_bound_frontier_state_carries_the_diagnostics_of_its_derivation() {
     assert_eq!(result.leaves.len(), 3, "{:#?}", result.leaves);
     assert_eq!(
         undefined_step_leaf(&result, "lower-grow").diagnostics,
-        lower_grow_diagnostics()
+        lower_grow_diagnostics(&definition)
     );
     let lower = leaf_ending_in(&result, "held");
     let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
     assert_eq!(lower.halt_reason, HaltReason::BreadthBound);
-    assert_eq!(lower.diagnostics, lower_grow_diagnostics());
+    assert_eq!(lower.diagnostics, lower_grow_diagnostics(&definition));
     assert_eq!(first.halt_reason, HaltReason::BreadthBound);
     assert_eq!(first.diagnostics, []);
 }
@@ -5299,7 +5300,7 @@ fn a_branch_leaf_reports_each_candidates_diagnostics_on_that_candidate() {
             result.leaves
         );
     };
-    assert_eq!(undefined.diagnostics, lower_grow_diagnostics());
+    assert_eq!(undefined.diagnostics, lower_grow_diagnostics(&definition));
     assert!(
         matches!(&undefined.halt_reason, HaltReason::Trivial { rule_id: Some(rule), .. } if rule == "lower-grow")
     );
@@ -5318,7 +5319,7 @@ fn a_branch_leaf_reports_each_candidates_diagnostics_on_that_candidate() {
     assert_eq!(
         candidates,
         [
-            ("lower-grow", lower_grow_diagnostics()),
+            ("lower-grow", lower_grow_diagnostics(&definition)),
             ("first", Vec::new())
         ]
     );
@@ -5509,7 +5510,7 @@ fn a_right_hand_side_alternatives_own_work_stays_on_its_candidate() {
         assert_eq!(explored.leaves.len(), 2, "{mode:?}: {:#?}", explored.leaves);
         assert_eq!(
             leaf_ending_in(&explored, "held").diagnostics,
-            lower_grow_diagnostics(),
+            lower_grow_diagnostics(&definition),
             "{mode:?}"
         );
         assert_eq!(
@@ -5535,7 +5536,10 @@ fn a_right_hand_side_alternatives_own_work_stays_on_its_candidate() {
         .iter()
         .map(|branch| branch.diagnostics.clone())
         .collect::<Vec<_>>();
-    assert_eq!(candidates, [lower_grow_diagnostics(), Vec::new()]);
+    assert_eq!(
+        candidates,
+        [lower_grow_diagnostics(&definition), Vec::new()]
+    );
 }
 
 const GROW_AND_MISSING: &str = r#"
@@ -5602,8 +5606,8 @@ fn a_non_applicable_attempts_work_is_on_no_path() {
     assert!(
         matches!(&undefined.halt_reason, HaltReason::Trivial { rule_id: Some(rule), .. } if rule == "earlier")
     );
-    assert_eq!(undefined.diagnostics, lower_grow_diagnostics());
-    assert_eq!(leaf.diagnostics, lower_grow_diagnostics());
+    assert_eq!(undefined.diagnostics, lower_grow_diagnostics(&definition));
+    assert_eq!(leaf.diagnostics, lower_grow_diagnostics(&definition));
     assert!(collected.contains(&missing_hook()), "{collected:?}");
 }
 
@@ -5851,7 +5855,7 @@ fn a_candidates_diagnostics_keep_emission_order_across_units() {
 
     let grown = leaf_ending_in(&result, "held");
     let mut expected = vec![missing_hook()];
-    expected.extend(lower_grow_diagnostics());
+    expected.extend(lower_grow_diagnostics(&definition));
     assert_eq!(grown.diagnostics, expected);
 }
 
@@ -6499,6 +6503,18 @@ struct EquationRequiresRun {
     result: ExecutionResult,
     diagnostics: Vec<BackendDiagnostic>,
     counters: k_rust_kore::measure::Snapshot,
+    /// The first sentence of each `prepare` equation's axiom, by its id.
+    prepare_origins: Vec<(&'static str, Option<RuleOrigin>)>,
+}
+
+impl EquationRequiresRun {
+    fn prepare_origin(&self, rule_id: &str) -> Option<RuleOrigin> {
+        self.prepare_origins
+            .iter()
+            .find(|(id, _)| *id == rule_id)
+            .map(|(_, origin)| origin.clone())
+            .expect("a prepare equation")
+    }
 }
 
 fn run_equation_requires_budget(
@@ -6525,10 +6541,15 @@ fn run_equation_requires_budget(
                 },
             )
         });
+        let counters = snapshot().delta(&before);
         EquationRequiresRun {
             result,
             diagnostics,
-            counters: snapshot().delta(&before),
+            counters,
+            prepare_origins: ["prepare-ok", "prepare-overflow"]
+                .into_iter()
+                .map(|id| (id, first_origin(&definition, id)))
+                .collect(),
         }
     })
 }
@@ -6565,7 +6586,8 @@ fn assert_indeterminate_on_unevaluated_prepare(result: &ExecutionResult) {
 /// The diagnostics are exactly one budget exhaustion over `Predicates` for each `prepare`
 /// equation, each qualified by the equation it left unapplied; the repeated attempts on the same
 /// redex report the same fact once.
-fn assert_only_prepare_exhaustions(diagnostics: &[BackendDiagnostic], limit: usize) {
+fn assert_only_prepare_exhaustions(run: &EquationRequiresRun, limit: usize) {
+    let diagnostics = run.diagnostics.as_slice();
     let exhaustion = BackendDiagnostic::SimplificationBudgetExhausted {
         limit,
         subject: BudgetSubject::Predicates,
@@ -6575,6 +6597,7 @@ fn assert_only_prepare_exhaustions(diagnostics: &[BackendDiagnostic], limit: usi
             exhaustion.clone(),
             BackendDiagnostic::RuleConditionUnsimplified {
                 rule_id: rule_id.to_owned(),
+                origin: run.prepare_origin(rule_id),
                 limit,
             },
         ]
@@ -6592,7 +6615,7 @@ fn equation_requires_budget_exhaustion_is_diagnosed_and_keeps_the_halt() {
     let run = run_equation_requires_budget(SizeEquations::Simplification, ChainTail::Nil, 64, 1);
 
     assert_indeterminate_on_unevaluated_prepare(&run.result);
-    assert_only_prepare_exhaustions(&run.diagnostics, 1);
+    assert_only_prepare_exhaustions(&run, 1);
     // The single leaf's path emitted every diagnostic; it records each distinct one once, so the
     // budget exhaustion the two qualified rules share appears once, before both qualifiers.
     let mut path = Vec::new();
@@ -6619,7 +6642,7 @@ fn equation_requires_exhaustion_at_the_default_budget_is_diagnosed() {
     );
 
     assert_indeterminate_on_unevaluated_prepare(&run.result);
-    assert_only_prepare_exhaustions(&run.diagnostics, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
+    assert_only_prepare_exhaustions(&run, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
 }
 
 #[test]
@@ -6694,7 +6717,7 @@ fn symbolic_function_recursion_still_stops_at_the_budget() {
     );
 
     assert_indeterminate_on_unevaluated_prepare(&run.result);
-    assert_only_prepare_exhaustions(&run.diagnostics, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
+    assert_only_prepare_exhaustions(&run, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
 }
 
 #[test]

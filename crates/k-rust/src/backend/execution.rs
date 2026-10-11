@@ -42,8 +42,8 @@ use k_rust_backend::{
         match_disjunction_with_solver, search_pattern_disjunction_with_solver,
     },
     simplify::{
-        BudgetSubject, ConditionIndeterminacy, ContradictedTotal, SimplificationOptions,
-        simplify_pattern_with_solver,
+        BudgetSubject, ConditionIndeterminacy, ContradictedTotal, SimplificationError,
+        SimplificationOptions, simplify_pattern_with_solver,
     },
     smt::SmtSolver,
     stop::StopCause,
@@ -710,6 +710,36 @@ fn undecided_predicate_message(
     )
 }
 
+/// The warning for a `RuleConditionUnsimplified` diagnostic, naming the rule as
+/// [`rule_description`] does.
+fn rule_condition_unsimplified_message(
+    definition: &BackendDefinition,
+    rule_id: &str,
+    origin: Option<&RuleOrigin>,
+    limit: usize,
+    depth: u64,
+) -> String {
+    format!(
+        "condition of rule {} was decided without full simplification at depth {depth} after budget {limit} was exhausted",
+        rule_description(definition, rule_id, origin)
+    )
+}
+
+/// The warning for a `RuleConditionFailed` diagnostic, naming the rule as [`rule_description`]
+/// does.
+fn rule_condition_failed_message(
+    definition: &BackendDefinition,
+    rule_id: &str,
+    origin: Option<&RuleOrigin>,
+    failure: &SimplificationError,
+    depth: u64,
+) -> String {
+    format!(
+        "condition of rule {} was decided without full simplification at depth {depth} because simplifying it failed ({failure}); the rule may have been left unapplied",
+        rule_description(definition, rule_id, origin)
+    )
+}
+
 fn report_diagnostics<'a>(
     definition: &BackendDefinition,
     diagnostics: impl IntoIterator<Item = &'a BackendDiagnostic>,
@@ -754,11 +784,27 @@ fn report_diagnostics<'a>(
                 "warning: {}",
                 undecided_predicate_message(predicate, reason, result_sort, depth)
             ),
-            BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit } => eprintln!(
-                "warning: condition of rule {rule_id} was decided without full simplification at depth {depth} after budget {limit} was exhausted"
+            BackendDiagnostic::RuleConditionUnsimplified {
+                rule_id,
+                origin,
+                limit,
+            } => eprintln!(
+                "warning: {}",
+                rule_condition_unsimplified_message(
+                    definition,
+                    rule_id,
+                    origin.as_ref(),
+                    *limit,
+                    depth
+                )
             ),
-            BackendDiagnostic::RuleConditionFailed { rule_id, failure } => eprintln!(
-                "warning: condition of rule {rule_id} was decided without full simplification at depth {depth} because simplifying it failed ({failure}); the rule may have been left unapplied"
+            BackendDiagnostic::RuleConditionFailed {
+                rule_id,
+                origin,
+                failure,
+            } => eprintln!(
+                "warning: {}",
+                rule_condition_failed_message(definition, rule_id, origin.as_ref(), failure, depth)
             ),
             BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason } => eprintln!(
                 "warning: hook {hook} was left unevaluated at depth {depth} ({reason}); the result may not be fully simplified"
@@ -2249,6 +2295,84 @@ mod undecided_reason_tests {
             [
                 "at sentence index 4 (zero-based) of module MAIN",
                 "at test.k:7:3"
+            ]
+        );
+    }
+
+    /// The warnings for a rule condition decided unsimplified name the rule as every other
+    /// warning does, so two rules that share the id `UNKNOWN` are named by their own sentences.
+    #[test]
+    fn rule_condition_warnings_name_an_unnamed_rule_by_its_own_sentence() {
+        let syntax = k_rust_kore::kore::parser::parse_definition(
+            r#"[] module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}(), functional{}()]
+                symbol f{}(SortS{}) : SortS{} [function{}()]
+                symbol g{}(SortS{}) : SortS{} [function{}()]
+                axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                    f{}(X:SortS{}), \and{SortS{}}(a{}(), \top{SortS{}}())))
+                    [simplification{}()]
+                axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                    g{}(X:SortS{}), \and{SortS{}}(a{}(), \top{SortS{}}())))
+                    [simplification{}(),
+                     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(test.k)"),
+                     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,20)")]
+            endmodule []"#,
+        )
+        .expect("the definition parses");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes");
+        let origins = definition
+            .classified_axioms()
+            .iter()
+            .map(|axiom| axiom.attributes())
+            .filter(|attributes| attributes.unique_id == "UNKNOWN")
+            .map(|attributes| attributes.origins.first().cloned())
+            .collect::<Vec<_>>();
+        let unsimplified = origins
+            .iter()
+            .map(|origin| {
+                super::rule_condition_unsimplified_message(
+                    &definition,
+                    "UNKNOWN",
+                    origin.as_ref(),
+                    3,
+                    2,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            unsimplified,
+            [
+                "condition of rule at sentence index 4 (zero-based) of module MAIN was decided without full simplification at depth 2 after budget 3 was exhausted",
+                "condition of rule at test.k:7:3 was decided without full simplification at depth 2 after budget 3 was exhausted",
+            ]
+        );
+        let failure = k_rust_backend::simplify::SimplificationError::DisjunctiveResult {
+            rule_id: "or-equation".to_owned(),
+            alternatives: 2,
+        };
+        let failed = origins
+            .iter()
+            .map(|origin| {
+                super::rule_condition_failed_message(
+                    &definition,
+                    "UNKNOWN",
+                    origin.as_ref(),
+                    &failure,
+                    2,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            failed,
+            [
+                format!(
+                    "condition of rule at sentence index 4 (zero-based) of module MAIN was decided without full simplification at depth 2 because simplifying it failed ({failure}); the rule may have been left unapplied"
+                ),
+                format!(
+                    "condition of rule at test.k:7:3 was decided without full simplification at depth 2 because simplifying it failed ({failure}); the rule may have been left unapplied"
+                ),
             ]
         );
     }

@@ -4,13 +4,25 @@ use std::{cell::RefCell, collections::VecDeque};
 
 use k_rust_backend::{
     definition::BackendDefinition,
-    rule::Predicate,
+    rule::{Predicate, RuleOrigin},
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     stop::{self, CancellationToken, Stoppable},
     substitution::Substitution,
     term::Term,
 };
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+/// The first written sentence of the one axiom of `definition` whose id is `unique_id`, as a
+/// diagnostic about that axiom names it.
+pub fn first_origin(definition: &BackendDefinition, unique_id: &str) -> Option<RuleOrigin> {
+    let mut axioms = definition
+        .classified_axioms()
+        .iter()
+        .filter(|axiom| axiom.attributes().unique_id == unique_id);
+    let axiom = axioms.next().expect("the axiom is in the definition");
+    assert!(axioms.next().is_none(), "one axiom has the id {unique_id}");
+    axiom.attributes().origins.first().cloned()
+}
 
 /// One ordered query made to [`ScriptedSolver`].
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -83,7 +83,13 @@ pub enum BackendDiagnostic {
     /// Always recorded in a collection right after the `SimplificationBudgetExhausted` with
     /// subject `Predicates` that it qualifies; in an execution path's list, which keeps each
     /// distinct diagnostic once, it follows that exhaustion but not necessarily directly.
-    RuleConditionUnsimplified { rule_id: String, limit: usize },
+    RuleConditionUnsimplified {
+        rule_id: String,
+        /// The first written sentence of the rule's axiom, as for `UndecidedCondition`: rules
+        /// that share the `rule_id` `UNKNOWN` are told apart by it.
+        origin: Option<RuleOrigin>,
+        limit: usize,
+    },
     /// Simplifying the side conditions of an application attempt of the rule `rule_id` failed
     /// with `failure`, so they were decided in their unsimplified form. They are the same
     /// condition, so the decision is sound, but it may be weaker: the rule may be left unapplied
@@ -92,6 +98,9 @@ pub enum BackendDiagnostic {
     /// same instance fails the same way.
     RuleConditionFailed {
         rule_id: String,
+        /// The first written sentence of the rule's axiom, as for `UndecidedCondition`: rules
+        /// that share the `rule_id` `UNKNOWN` are told apart by it.
+        origin: Option<RuleOrigin>,
         failure: SimplificationError,
     },
     UnsupportedHookUnevaluated {
@@ -229,22 +238,41 @@ pub(crate) enum Subject {
 enum EmissionKind {
     /// `emit(diagnostic)`.
     Single(BackendDiagnostic),
-    /// `emit_rule_condition_budget_exhausted(rule_id, limit)`: the budget exhaustion over
-    /// `Predicates` followed by the `RuleConditionUnsimplified` qualifying it.
-    RuleConditionBudgetExhausted { rule_id: String, limit: usize },
+    /// `emit_rule_condition_budget_exhausted(rule_id, origin, limit)`: the budget exhaustion
+    /// over `Predicates` followed by the `RuleConditionUnsimplified` qualifying it.
+    RuleConditionBudgetExhausted {
+        rule_id: String,
+        origin: Option<RuleOrigin>,
+        limit: usize,
+    },
 }
 
 impl EmissionKind {
-    fn records_rule_condition(&self, rule_id: &str, limit: usize) -> bool {
+    /// Whether this emission reports the budget exhaustion `limit` of the rule named by
+    /// `rule_id` and `origin`. The id alone does not name a rule: axioms with neither a label
+    /// nor a `UNIQUE_ID` all have the id `UNKNOWN`, and one such rule's exhaustion says nothing
+    /// about another's.
+    fn records_rule_condition(
+        &self,
+        rule_id: &str,
+        origin: Option<&RuleOrigin>,
+        limit: usize,
+    ) -> bool {
         match self {
             Self::Single(BackendDiagnostic::RuleConditionUnsimplified {
                 rule_id: existing_rule,
+                origin: existing_origin,
                 limit: existing_limit,
             })
             | Self::RuleConditionBudgetExhausted {
                 rule_id: existing_rule,
+                origin: existing_origin,
                 limit: existing_limit,
-            } => existing_rule == rule_id && *existing_limit == limit,
+            } => {
+                existing_rule == rule_id
+                    && existing_origin.as_ref() == origin
+                    && *existing_limit == limit
+            }
             Self::Single(_) => false,
         }
     }
@@ -268,14 +296,20 @@ pub fn emit(diagnostic: BackendDiagnostic) {
     record_in_sink(EmissionKind::Single(diagnostic));
 }
 
-/// Record that simplifying the side conditions of `rule_id` exhausted the budget `limit`: a
-/// `SimplificationBudgetExhausted` over `Predicates` qualified by `RuleConditionUnsimplified`.
+/// Record that simplifying the side conditions of the rule `rule_id`, whose axiom's first
+/// written sentence is `origin`, exhausted the budget `limit`: a `SimplificationBudgetExhausted`
+/// over `Predicates` qualified by `RuleConditionUnsimplified`.
 ///
 /// The simplifier re-attempts a rule each time it meets the same redex, so the pair is recorded
 /// once per rule and limit in a collection; repeated attempts report the same fact.
-pub(crate) fn emit_rule_condition_budget_exhausted(rule_id: &str, limit: usize) {
+pub(crate) fn emit_rule_condition_budget_exhausted(
+    rule_id: &str,
+    origin: Option<&RuleOrigin>,
+    limit: usize,
+) {
     record_in_sink(EmissionKind::RuleConditionBudgetExhausted {
         rule_id: rule_id.to_owned(),
+        origin: origin.cloned(),
         limit,
     });
 }
@@ -360,9 +394,15 @@ fn record(emissions: &mut Vec<Emission>, emission: Emission) {
                 )
             })
         }
-        EmissionKind::RuleConditionBudgetExhausted { rule_id, limit } => emissions
-            .iter()
-            .any(|existing| existing.kind.records_rule_condition(rule_id, *limit)),
+        EmissionKind::RuleConditionBudgetExhausted {
+            rule_id,
+            origin,
+            limit,
+        } => emissions.iter().any(|existing| {
+            existing
+                .kind
+                .records_rule_condition(rule_id, origin.as_ref(), *limit)
+        }),
         EmissionKind::Single(failed @ BackendDiagnostic::RuleConditionFailed { .. }) => {
             emissions.iter().any(
                 |existing| matches!(&existing.kind, EmissionKind::Single(other) if other == failed),
@@ -383,7 +423,11 @@ fn sequenced(emissions: Vec<Emission>) -> Vec<Sequenced> {
                 position,
                 diagnostic,
             }),
-            EmissionKind::RuleConditionBudgetExhausted { rule_id, limit } => {
+            EmissionKind::RuleConditionBudgetExhausted {
+                rule_id,
+                origin,
+                limit,
+            } => {
                 diagnostics.push(Sequenced {
                     position,
                     diagnostic: BackendDiagnostic::SimplificationBudgetExhausted {
@@ -393,7 +437,11 @@ fn sequenced(emissions: Vec<Emission>) -> Vec<Sequenced> {
                 });
                 diagnostics.push(Sequenced {
                     position,
-                    diagnostic: BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit },
+                    diagnostic: BackendDiagnostic::RuleConditionUnsimplified {
+                        rule_id,
+                        origin,
+                        limit,
+                    },
                 });
             }
         }
@@ -994,6 +1042,7 @@ mod tests {
     fn rule_condition(rule_id: &str, limit: usize) -> BackendDiagnostic {
         BackendDiagnostic::RuleConditionUnsimplified {
             rule_id: rule_id.to_owned(),
+            origin: None,
             limit,
         }
     }
@@ -1014,6 +1063,7 @@ mod tests {
     fn condition_failed(rule_id: &str, alternatives: usize) -> BackendDiagnostic {
         BackendDiagnostic::RuleConditionFailed {
             rule_id: rule_id.to_owned(),
+            origin: None,
             failure: SimplificationError::DisjunctiveResult {
                 rule_id: "or-equation".to_owned(),
                 alternatives,
@@ -1163,21 +1213,52 @@ mod tests {
         assert_eq!(outer, expected);
     }
 
+    /// Rules that share the id `UNKNOWN` are distinct rules: the budget exhaustion of one is
+    /// recorded even when another's, at the same limit, already is, and each one's is recorded
+    /// once.
+    #[test]
+    fn a_rule_condition_exhaustion_is_recorded_once_per_rule_named_by_id_and_origin() {
+        let origin = |line: usize| RuleOrigin {
+            source: Some("Source(test.k)".to_owned()),
+            location: Some(format!("Location({line},3,{line},20)")),
+            sentence: Some(("MAIN".into(), line)),
+        };
+        let unsimplified = |line| BackendDiagnostic::RuleConditionUnsimplified {
+            rule_id: "UNKNOWN".to_owned(),
+            origin: Some(origin(line)),
+            limit: 3,
+        };
+        let ((), recorded) = collect(|| {
+            emit_rule_condition_budget_exhausted("UNKNOWN", Some(&origin(3)), 3);
+            emit_rule_condition_budget_exhausted("UNKNOWN", Some(&origin(4)), 3);
+            emit_rule_condition_budget_exhausted("UNKNOWN", Some(&origin(3)), 3);
+        });
+        assert_eq!(
+            recorded,
+            [
+                predicates_exhausted(3),
+                unsimplified(3),
+                predicates_exhausted(3),
+                unsimplified(4),
+            ]
+        );
+    }
+
     /// The emissions every nesting below performs, in order: two batches, each of which a nested
     /// collection may capture.
     fn first_batch() {
         emit(hook("INT.pow", UnsupportedHookReason::NotImplemented));
         emit(term_exhausted(3));
-        emit_rule_condition_budget_exhausted("r1", 3);
+        emit_rule_condition_budget_exhausted("r1", None, 3);
         emit(predicates_exhausted(3));
     }
 
     fn second_batch() {
         emit(hook("INT.pow", out_of_range()));
         emit(term_exhausted(3));
-        emit_rule_condition_budget_exhausted("r1", 3);
+        emit_rule_condition_budget_exhausted("r1", None, 3);
         emit(predicates_exhausted(3));
-        emit_rule_condition_budget_exhausted("r2", 3);
+        emit_rule_condition_budget_exhausted("r2", None, 3);
         emit(hook("INT.log2", UnsupportedHookReason::NotImplemented));
     }
 
@@ -1274,10 +1355,10 @@ mod tests {
     #[test]
     fn separately_emitted_rule_condition_diagnostics_forward_as_they_were_emitted() {
         let emissions = || {
-            emit_rule_condition_budget_exhausted("r1", 3);
+            emit_rule_condition_budget_exhausted("r1", None, 3);
             emit(predicates_exhausted(3));
             emit(rule_condition("r1", 3));
-            emit_rule_condition_budget_exhausted("r1", 3);
+            emit_rule_condition_budget_exhausted("r1", None, 3);
         };
         let ((), direct) = collect(emissions);
         let expected = vec![
@@ -1289,12 +1370,12 @@ mod tests {
         assert_eq!(direct, expected);
 
         let ((), forwarded) = collect(|| {
-            emit_rule_condition_budget_exhausted("r1", 3);
+            emit_rule_condition_budget_exhausted("r1", None, 3);
             collect(|| {
                 emit(predicates_exhausted(3));
                 emit(rule_condition("r1", 3));
             });
-            collect(|| emit_rule_condition_budget_exhausted("r1", 3));
+            collect(|| emit_rule_condition_budget_exhausted("r1", None, 3));
         });
         assert_eq!(forwarded, expected);
     }
@@ -1305,7 +1386,7 @@ mod tests {
             let ((), first) = collect_unit(|| {
                 emit(term_exhausted(1));
                 collect_unit(|| emit(term_exhausted(2)));
-                emit_rule_condition_budget_exhausted("r1", 3);
+                emit_rule_condition_budget_exhausted("r1", None, 3);
             });
             let ((), second) = collect_unit(|| emit(hook("H", out_of_range())));
             (first, second)

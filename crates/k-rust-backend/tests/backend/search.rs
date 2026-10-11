@@ -17,7 +17,7 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::parse_definition;
 
-use crate::support::{ceil_div_definition, internal_term};
+use crate::support::{ceil_div_definition, first_origin, internal_term};
 
 /// A definition over constructors `start`, `a`, `b`, `c`, `ok` with:
 /// - `g(X) = g(g(X))`, a simplification equation under which simplifying any `g` application
@@ -119,7 +119,11 @@ fn term_exhausted(limit: usize) -> BackendDiagnostic {
     }
 }
 
-fn condition_exhausted(rule_id: &str, limit: usize) -> [BackendDiagnostic; 2] {
+fn condition_exhausted(
+    definition: &BackendDefinition,
+    rule_id: &str,
+    limit: usize,
+) -> [BackendDiagnostic; 2] {
     [
         BackendDiagnostic::SimplificationBudgetExhausted {
             limit,
@@ -127,6 +131,7 @@ fn condition_exhausted(rule_id: &str, limit: usize) -> [BackendDiagnostic; 2] {
         },
         BackendDiagnostic::RuleConditionUnsimplified {
             rule_id: rule_id.to_owned(),
+            origin: first_origin(definition, rule_id),
             limit,
         },
     ]
@@ -273,8 +278,8 @@ fn a_collector_around_search_sees_every_diagnostic_of_every_path() {
             )
         });
         let expected = [
-            condition_exhausted("norm-c", 3),
-            condition_exhausted(rule_id, 3),
+            condition_exhausted(&definition, "norm-c", 3),
+            condition_exhausted(&definition, rule_id, 3),
         ]
         .concat();
         assert_eq!(collected_states, expected, "{symbol}");
@@ -312,12 +317,16 @@ fn a_deduplicated_state_keeps_the_diagnostics_of_its_recorded_path() {
             "to-c" => assert_eq!(state.diagnostics, [], "{rules:?}"),
             "to-norm" => assert_eq!(
                 state.diagnostics,
-                condition_exhausted("norm-c", 3),
+                condition_exhausted(&definition, "norm-c", 3),
                 "{rules:?}"
             ),
             other => panic!("unexpected rule {other}"),
         }
-        assert_eq!(collected, condition_exhausted("norm-c", 3), "{rules:?}");
+        assert_eq!(
+            collected,
+            condition_exhausted(&definition, "norm-c", 3),
+            "{rules:?}"
+        );
     }
 }
 
@@ -359,11 +368,14 @@ fn a_match_records_its_own_diagnostics_apart_from_its_state() {
     for found in &states.matches {
         let path = match head(&found.state.pattern) {
             "b" => Vec::new(),
-            "c" => condition_exhausted("norm-c", 3).to_vec(),
+            "c" => condition_exhausted(&definition, "norm-c", 3).to_vec(),
             other => panic!("unexpected match on {other}"),
         };
         assert_eq!(found.state.diagnostics, path);
-        assert_eq!(found.diagnostics, condition_exhausted("check-ok", 3));
+        assert_eq!(
+            found.diagnostics,
+            condition_exhausted(&definition, "check-ok", 3)
+        );
     }
 
     assert_eq!(paths.incomplete, []);
@@ -371,11 +383,14 @@ fn a_match_records_its_own_diagnostics_apart_from_its_state() {
     for found in &paths.matches {
         let path = match head(&found.witness.pattern) {
             "b" => Vec::new(),
-            "c" => condition_exhausted("norm-c", 3).to_vec(),
+            "c" => condition_exhausted(&definition, "norm-c", 3).to_vec(),
             other => panic!("unexpected match on {other}"),
         };
         assert_eq!(found.witness.diagnostics, path);
-        assert_eq!(found.diagnostics, condition_exhausted("check-ok", 3));
+        assert_eq!(
+            found.diagnostics,
+            condition_exhausted(&definition, "check-ok", 3)
+        );
     }
 }
 
@@ -400,8 +415,8 @@ fn an_undecided_match_reports_its_diagnostics_on_the_incomplete_entry() {
         options(SearchType::Final),
     );
 
-    let [stall_predicates, stall_rule] = condition_exhausted("stall-ok", 3);
-    let [_, norm_rule] = condition_exhausted("norm-c", 3);
+    let [stall_predicates, stall_rule] = condition_exhausted(&definition, "stall-ok", 3);
+    let [_, norm_rule] = condition_exhausted(&definition, "norm-c", 3);
     for (matches, incomplete) in [
         (states.matches.len(), &states.incomplete),
         (paths.matches.len(), &paths.incomplete),

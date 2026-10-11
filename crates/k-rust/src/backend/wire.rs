@@ -512,16 +512,24 @@ pub enum BackendDiagnosticOutput<K = Value> {
         limit: usize,
         subject: BudgetSubjectOutput,
     },
+    /// Simplifying the side conditions of the rule `rule_id` exhausted the budget `limit`, so
+    /// they were decided in their unsimplified form. `origin` names the rule as it does for
+    /// `UndecidedCondition`: rules whose id is `UNKNOWN` are told apart by it.
     RuleConditionUnsimplified {
         #[serde(rename = "ruleId")]
         rule_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<CompiledRuleOriginOutput>,
         limit: usize,
     },
     /// Simplifying the rule's side conditions failed with `failure`, so they were decided in
     /// their unsimplified form, and the rule may be left unapplied because of that failure.
+    /// `origin` names the rule as it does for `UndecidedCondition`.
     RuleConditionFailed {
         #[serde(rename = "ruleId")]
         rule_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<CompiledRuleOriginOutput>,
         failure: SearchFailureOutput<K>,
     },
     UnsupportedHookUnevaluated {
@@ -1294,15 +1302,24 @@ fn diagnostic_output<K: WireKore>(
                 },
             }
         }
-        BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit } => {
-            BackendDiagnosticOutput::RuleConditionUnsimplified { rule_id, limit }
-        }
-        BackendDiagnostic::RuleConditionFailed { rule_id, failure } => {
-            BackendDiagnosticOutput::RuleConditionFailed {
-                rule_id,
-                failure: simplification_failure_output(failure, result_sort)?,
-            }
-        }
+        BackendDiagnostic::RuleConditionUnsimplified {
+            rule_id,
+            origin,
+            limit,
+        } => BackendDiagnosticOutput::RuleConditionUnsimplified {
+            rule_id,
+            origin: origin.as_ref().map(Into::into),
+            limit,
+        },
+        BackendDiagnostic::RuleConditionFailed {
+            rule_id,
+            origin,
+            failure,
+        } => BackendDiagnosticOutput::RuleConditionFailed {
+            rule_id,
+            origin: origin.as_ref().map(Into::into),
+            failure: simplification_failure_output(failure, result_sort)?,
+        },
         BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason } => {
             BackendDiagnosticOutput::UnsupportedHookUnevaluated {
                 hook,
@@ -2107,7 +2124,9 @@ mod tests {
             serde_json::json!({"kind":"simplification-budget-exhausted","limit":3,"subject":"term"}),
             serde_json::json!({"kind":"simplification-budget-exhausted","limit":3,"subject":"predicates"}),
             serde_json::json!({"kind":"rule-condition-unsimplified","ruleId":"r","limit":3}),
+            serde_json::json!({"kind":"rule-condition-unsimplified","ruleId":"UNKNOWN","origin":{"source":"Source(test.k)","location":"Location(3,3,3,20)"},"limit":3}),
             serde_json::json!({"kind":"rule-condition-failed","ruleId":"r","failure":{"kind":"conflicting-results","rules":["e","e"]}}),
+            serde_json::json!({"kind":"rule-condition-failed","ruleId":"UNKNOWN","origin":{"source":"Source(test.k)","location":"Location(3,3,3,20)"},"failure":{"kind":"conflicting-results","rules":["e","e"]}}),
             serde_json::json!({"kind":"unsupported-hook-unevaluated","hook":"H.f","reason":"no evaluator"}),
         ];
         for reason in reasons {
@@ -2167,6 +2186,7 @@ mod tests {
             let output = diagnostic_output::<Value>(
                 BackendDiagnostic::RuleConditionFailed {
                     rule_id: "guarded".into(),
+                    origin: None,
                     failure,
                 },
                 &sort,
@@ -2183,7 +2203,7 @@ mod tests {
         assert_typescript_variant_fields(
             "BackendDiagnostic",
             "rule-condition-failed",
-            &["ruleId", "failure"],
+            &["ruleId", "origin?", "failure"],
         );
     }
 
@@ -2334,6 +2354,63 @@ mod tests {
             "BackendDiagnostic",
             "undecided-condition",
             &["ruleId", "origin?", "reason", "predicates", "ruleVariables"],
+        );
+    }
+
+    /// A rule condition decided unsimplified names its rule's first written sentence as an
+    /// undecided condition does, so rules that share the id `UNKNOWN` are told apart; the field
+    /// is omitted when the backend has no sentence for the rule.
+    #[test]
+    fn rule_condition_diagnostics_name_their_rules_first_sentence_on_the_wire() {
+        use k_rust_backend::{rule::RuleOrigin, simplify::SimplificationError};
+
+        let sort = Sort::simple("SortS");
+        let origin = RuleOrigin {
+            source: Some("Source(test.k)".into()),
+            location: Some("Location(7,3,7,20)".into()),
+            sentence: Some(("MAIN".into(), 4)),
+        };
+        let unsimplified: fn(Option<RuleOrigin>) -> BackendDiagnostic =
+            |origin| BackendDiagnostic::RuleConditionUnsimplified {
+                rule_id: "UNKNOWN".into(),
+                origin,
+                limit: 3,
+            };
+        let failed: fn(Option<RuleOrigin>) -> BackendDiagnostic =
+            |origin| BackendDiagnostic::RuleConditionFailed {
+                rule_id: "UNKNOWN".into(),
+                origin,
+                failure: SimplificationError::DisjunctiveResult {
+                    rule_id: "or-equation".into(),
+                    alternatives: 2,
+                },
+            };
+        for diagnostic in [unsimplified, failed] {
+            let located =
+                diagnostic_output::<Value>(diagnostic(Some(origin.clone())), &sort).unwrap();
+            let value = serde_json::to_value(&located).unwrap();
+            assert_eq!(
+                value["origin"],
+                serde_json::json!({"source": "Source(test.k)", "location": "Location(7,3,7,20)"})
+            );
+            assert_eq!(
+                serde_json::from_value::<BackendDiagnosticOutput>(value).unwrap(),
+                located
+            );
+            let unlocated =
+                serde_json::to_value(diagnostic_output::<Value>(diagnostic(None), &sort).unwrap())
+                    .unwrap();
+            assert!(unlocated.get("origin").is_none(), "{unlocated}");
+        }
+        assert_typescript_variant_fields(
+            "BackendDiagnostic",
+            "rule-condition-unsimplified",
+            &["ruleId", "origin?", "limit"],
+        );
+        assert_typescript_variant_fields(
+            "BackendDiagnostic",
+            "rule-condition-failed",
+            &["ruleId", "origin?", "failure"],
         );
     }
 
