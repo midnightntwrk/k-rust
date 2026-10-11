@@ -86,7 +86,8 @@ use rustc_hash::FxHasher;
 
 use crate::smt::SmtType;
 
-// Nothing outside the module and its tests uses the tree yet (design K22, step 1).
+// Map entries use the tree (design K22, step 3); parts of it that only the set, list and
+// variable-set steps will use are still read by its tests alone.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) mod chunked;
 pub mod head;
@@ -94,6 +95,7 @@ pub mod items;
 pub mod names;
 pub mod variables;
 
+use items::Flag;
 pub use items::Items;
 pub use variables::{VariableLookup, Variables};
 
@@ -931,9 +933,11 @@ impl TermKind {
             Self::And(left, right) => deep(left) || deep(right),
             Self::Injection { term, .. } => deep(term),
             Self::Application { arguments, .. } => arguments.iter().any(deep),
+            // Whether the entries hold a deep subterm is not stored; when their tree's root is
+            // shared, dropping the node only releases it, and otherwise the work list frees the
+            // nodes it owns.
             Self::Map { entries, rest, .. } => {
-                entries.iter().any(|(key, value)| deep(key) || deep(value))
-                    || rest.as_ref().is_some_and(deep)
+                entries.may_free_items() || rest.as_ref().is_some_and(deep)
             }
             Self::List { heads, rest, .. } => {
                 heads.iter().any(deep)
@@ -970,10 +974,10 @@ impl TermKind {
             Self::Injection { term, .. } => take(term),
             Self::Application { arguments, .. } => arguments.into_iter().for_each(&mut take),
             Self::Map { entries, rest, .. } => {
-                for (key, value) in entries {
+                entries.dismantle(|(key, value)| {
                     take(key);
                     take(value);
-                }
+                });
                 rest.into_iter().for_each(&mut take);
             }
             Self::List { heads, rest, .. } => {
@@ -1100,9 +1104,9 @@ impl Term {
                 if symbol.name == definition.symbols.concat
                     && let [left, right] = arguments.as_slice()
                 {
-                    let (mut entries, left_rest) = map_parts(&definition, left);
+                    let (left_entries, left_rest) = map_parts(&definition, left);
                     let (right_entries, right_rest) = map_parts(&definition, right);
-                    entries.extend(right_entries);
+                    let entries = left_entries.union(&right_entries);
                     let rest = match (left_rest, right_rest) {
                         (None, rest) | (rest, None) => rest,
                         (Some(left), Some(right)) => Some(Self::application_raw(
@@ -1111,7 +1115,7 @@ impl Term {
                             vec![left, right],
                         )),
                     };
-                    return Self::map(definition, entries, rest);
+                    return Self::map_of_items(definition, entries, rest);
                 }
             }
             CollectionMetadata::List(definition) => {
@@ -1201,29 +1205,38 @@ impl Term {
     /// as `\bottom`. A caller that builds a map from bindings that may repeat a key with intent
     /// to overwrite (`MAP.updateAll`) resolves the repeats itself.
     ///
-    /// A map term holds its entries in one vector, so building one of `n` entries costs `O(n)`:
-    /// the copy of the entries, their order (`order_collection`), and the attributes synthesized
-    /// from every entry, and the map it replaces is freed entry by entry. A hook that updates an
-    /// `n`-entry map therefore pays `O(n)` per update, and a run that grows a map by `n` updates
-    /// pays `O(n^2)`; a step that carries a map without updating it builds no map.
+    /// A map term holds its entries in a persistent tree ([`Items`]). The `k` entries given are
+    /// ordered (`order_collection`); when `rest` is a map of the same definition, they are
+    /// united with its tree, which copies only the nodes whose range receives one of them
+    /// (`O(k log(n/k + 1))` nodes for an `n`-entry rest) and shares the others, and otherwise
+    /// they are loaded into a new tree. The map's attributes are read from the root's summary,
+    /// not from the entries, so adding one binding to an `n`-entry map costs `O(log n)` nodes.
     pub fn map(
         definition: Arc<MapDefinition>,
         mut entries: Vec<(Self, Self)>,
         rest: Option<Self>,
     ) -> Self {
-        let (nested_entries, rest) = match rest {
+        order_collection(&mut entries);
+        Self::map_of_items(definition, Items::from_vec(entries), rest)
+    }
+
+    /// [`Term::map`] of entries already in order, as a tree.
+    fn map_of_items(
+        definition: Arc<MapDefinition>,
+        entries: Items<(Self, Self)>,
+        rest: Option<Self>,
+    ) -> Self {
+        let (entries, rest) = match rest {
             Some(rest) => match rest.kind() {
                 TermKind::Map {
                     definition: nested,
-                    entries,
-                    rest,
-                } if nested == &definition => (entries.to_vec(), rest.clone()),
-                _ => (Vec::new(), Some(rest)),
+                    entries: nested_entries,
+                    rest: nested_rest,
+                } if nested == &definition => (nested_entries.union(&entries), nested_rest.clone()),
+                _ => (entries, Some(rest)),
             },
-            None => (Vec::new(), None),
+            None => (entries, None),
         };
-        entries.extend(nested_entries);
-        order_collection(&mut entries);
         if entries.is_empty()
             && let Some(rest) = rest
         {
@@ -1231,7 +1244,7 @@ impl Term {
         }
         Self::new(TermKind::Map {
             definition,
-            entries: entries.into(),
+            entries,
             rest,
         })
     }
@@ -1333,11 +1346,14 @@ impl Term {
 
     /// The least key this internal map binds twice, with the same or a different value, if
     /// any. Such a map is `\bottom` (`Term::map`); the entries are sorted, so a repeat is
-    /// adjacent.
+    /// adjacent, and the summary of the entries says whether there is one.
     pub(crate) fn repeated_map_key(&self) -> Option<&Self> {
         let TermKind::Map { entries, .. } = self.kind() else {
             return None;
         };
+        if !entries.summary().collision {
+            return None;
+        }
         entries
             .iter()
             .zip(entries.iter().skip(1))
@@ -1840,7 +1856,7 @@ fn set_kind_attributes(kind: &TermKind, attributes: &mut TermAttributes) {
 /// [`TermAttributes::value_claimed`] is then that of its children, which the mark extends to
 /// the root.
 fn marked_attributes(source: &Term, kind: &TermKind, value: bool) -> TermAttributes {
-    let children_certified = combine_attributes(immediate_children(kind)).value_claimed;
+    let children_certified = children_value_claimed(kind);
     if matches!(kind, TermKind::Application { .. }) {
         let mut attributes = source.attributes().clone();
         #[cfg(debug_assertions)]
@@ -1865,7 +1881,22 @@ fn marked_attributes(source: &Term, kind: &TermKind, value: bool) -> TermAttribu
     }
 }
 
-/// The immediate children of a node of kind `kind`, as `synthesize_attributes` combines them.
+/// Whether every immediate child of a node of kind `kind` has
+/// [`TermAttributes::value_claimed`]; a map's entries answer from their summary.
+fn children_value_claimed(kind: &TermKind) -> bool {
+    match kind {
+        TermKind::Map { entries, rest, .. } => {
+            entries.summary().extra.holds(Flag::ValueClaimed)
+                && rest
+                    .as_ref()
+                    .is_none_or(|rest| rest.attributes().value_claimed)
+        }
+        _ => combine_attributes(immediate_children(kind)).value_claimed,
+    }
+}
+
+/// The immediate children of a node of kind `kind`: the terms whose stored attributes
+/// `synthesize_attributes` combines (a map's keys and values through their tree's summary).
 pub(crate) fn immediate_children(kind: &TermKind) -> Vec<&Term> {
     match kind {
         TermKind::And(left, right) => vec![left, right],
@@ -1889,7 +1920,8 @@ pub(crate) fn immediate_children(kind: &TermKind) -> Vec<&Term> {
 }
 
 /// The `ceil_free` attribute of a node with this kind, from its children's stored attributes, in
-/// time linear in the number of children.
+/// time linear in the number of children; for a map, from its entries' summary, which holds the
+/// same conjunction, key header and repeated-key test over them.
 ///
 /// Meaning: when it is true, the definedness walk (`definedness::ceil_term_walk`) returns no
 /// predicate for the term, whatever the definition. Each arm follows from what the walk emits
@@ -1934,14 +1966,14 @@ fn ceil_free(kind: &TermKind) -> bool {
         TermKind::Injection { term, .. } => free(term),
         TermKind::DomainValue { .. } => true,
         TermKind::Variable(variable) => variable.kind == VariableKind::Element,
+        // The entries' summary: each key and value `ceil_free`, the keys' one header, and no
+        // repeated key (adjacent keys differ).
         TermKind::Map { entries, rest, .. } => {
+            let summary = entries.summary();
             rest.is_none()
-                && entries.iter().all(|(key, value)| free(key) && free(value))
-                && share_one_key_header(entries.iter().map(|(key, _)| key))
-                && entries
-                    .iter()
-                    .zip(entries.iter().skip(1))
-                    .all(|(left, right)| left.0 != right.0)
+                && summary.extra.holds(Flag::CeilFree)
+                && summary.extra.keys_share_one_header()
+                && !summary.collision
         }
         TermKind::List { heads, rest, .. } => {
             heads.iter().all(free)
@@ -2003,6 +2035,12 @@ fn fold_children<B>(kind: &TermKind, init: B, mut step: impl FnMut(B, &Term) -> 
 /// `lean/KRust/TermAttributes.lean`; `tests::lean_bridge` compares the stored attribute with it at
 /// every subterm.
 fn has_macro_or_alias(kind: &TermKind) -> bool {
+    if let TermKind::Map { entries, rest, .. } = kind {
+        return entries.summary().extra.has_macro_or_alias()
+            || rest
+                .as_ref()
+                .is_some_and(|rest| rest.attributes().has_macro_or_alias);
+    }
     let own =
         matches!(kind, TermKind::Application { symbol, .. } if symbol.attributes.macro_or_alias);
     fold_children(kind, own, |found, child| {
@@ -2021,6 +2059,15 @@ fn k_cells(kind: &TermKind) -> u8 {
         && symbol.is(WellKnownSymbol::KCell)
     {
         return 1;
+    }
+    // Saturating at 2 after each child is saturating the sum, so the entries' saturated sum
+    // stands for theirs.
+    if let TermKind::Map { entries, rest, .. } = kind {
+        return rest
+            .iter()
+            .fold(entries.summary().extra.k_cells(), |count, rest| {
+                (count + rest.attributes().k_cells).min(2)
+            });
     }
     fold_children(kind, 0, |count, child| {
         (count + child.attributes().k_cells).min(2)
@@ -2490,14 +2537,16 @@ fn canonical_int_text(value: KoreString) -> KoreString {
         .map_or(value, |integer| integer.to_string().into())
 }
 
-fn map_parts(definition: &Arc<MapDefinition>, term: &Term) -> (Vec<(Term, Term)>, Option<Term>) {
+/// The entries and the rest of `term` as an operand of a concatenation of maps of `definition`:
+/// those of a map of the definition (its tree, shared), and no entries otherwise.
+fn map_parts(definition: &Arc<MapDefinition>, term: &Term) -> (Items<(Term, Term)>, Option<Term>) {
     match term.kind() {
         TermKind::Map {
             definition: found,
             entries,
             rest,
-        } if found == definition => (entries.to_vec(), rest.clone()),
-        _ => (Vec::new(), Some(term.clone())),
+        } if found == definition => (entries.clone(), rest.clone()),
+        _ => (Items::new(), Some(term.clone())),
     }
 }
 
@@ -2713,16 +2762,20 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
         },
         TermKind::Injection { term, .. } => term.attributes().clone(),
         TermKind::Map { entries, rest, .. } => {
-            // Entries are sorted by key, so a repeated key follows its first binding; the
-            // collision test shares the single pass over the children.
-            let mut shape = ChildShape::new();
-            let mut previous_key = None;
-            for (key, value) in entries {
-                collision_root |= previous_key == Some(key);
-                previous_key = Some(key);
-                shape.add(key);
-                shape.add(value);
-            }
+            // The entries' summary: the conjunctions over their keys and values, the variables
+            // they mention, and whether two adjacent keys (entries are sorted by key, so a
+            // repeated key follows its first binding) are equal.
+            let summary = entries.summary();
+            collision_root = summary.collision;
+            let mut shape = ChildShape(TermAttributes {
+                variables: summary.group.elements().cloned().collect(),
+                evaluated: summary.extra.holds(Flag::Evaluated),
+                value_claimed: summary.extra.holds(Flag::ValueClaimed),
+                constructor_like: summary.extra.holds(Flag::ConstructorLike),
+                concrete_after_normalization: summary.extra.holds(Flag::ConcreteAfterNormalization),
+                can_be_evaluated: summary.extra.holds(Flag::CanBeEvaluated),
+                ..TermAttributes::default()
+            });
             if let Some(rest) = rest {
                 shape.add(rest);
             }
@@ -2801,19 +2854,22 @@ fn validate_attributes(kind: &TermKind, attributes: &TermAttributes, cache: Eval
             check_child(term);
             (true, false)
         }
+        // The entries through their summary, which `chunked` keeps equal to the fold of the
+        // entries' own: reading them here would make every map allocation linear in debug
+        // builds.
         TermKind::Map { entries, rest, .. } => {
-            for (key, value) in entries {
-                check_child(key);
-                check_child(value);
-            }
+            let summary = entries.summary();
+            assert!(!attributes.constructor_like || summary.extra.holds(Flag::ConstructorLike));
+            assert!(
+                !attributes.concrete_after_normalization
+                    || summary.extra.holds(Flag::ConcreteAfterNormalization)
+            );
             if let Some(child) = rest {
                 check_child(child);
             }
-            let collision = entries
-                .iter()
-                .zip(entries.iter().skip(1))
-                .any(|(left, right)| left.0 == right.0);
-            (!collision, collision)
+            child_evaluated &= summary.extra.holds(Flag::Evaluated);
+            child_certified &= summary.extra.holds(Flag::ValueClaimed);
+            (!summary.collision, summary.collision)
         }
         TermKind::List { heads, rest, .. } => {
             for child in heads {

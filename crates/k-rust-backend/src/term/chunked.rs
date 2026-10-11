@@ -318,7 +318,7 @@ impl<I: Item> NodeSummary<I> {
     }
 
     /// The fold of the items' summaries, cloning only the first and the last item.
-    fn of_items(items: &[I]) -> Self {
+    pub(crate) fn of_items(items: &[I]) -> Self {
         Self::of_items_with(items, fold_groups(items.iter().map(Item::group)))
     }
 
@@ -628,8 +628,64 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         }
     }
 
+    /// In a sequence ordered as `compare` orders its items against a probe (`Less` for those
+    /// before it, `Greater` for those after it), `Ok` with the position of an item `compare`
+    /// finds equal to the probe, or `Err` with the position at which the probe would go, as
+    /// `slice::binary_search_by` answers. Each internal node on the path picks its child by a
+    /// binary search over the children's last items, and the leaf by one over its items, so
+    /// `compare` is called about `log2` of the width of each node on one path.
+    pub(crate) fn search_by(
+        &self,
+        mut compare: impl FnMut(&I) -> Ordering,
+    ) -> Result<usize, usize> {
+        let Some(mut node) = self.root.as_deref() else {
+            return Err(0);
+        };
+        let mut position = 0;
+        loop {
+            match node {
+                Node::Internal { children, .. } => {
+                    // Every child before the first whose last item is not below the probe lies
+                    // wholly below it.
+                    let index = children.partition_point(|child| {
+                        compare(child.summary().last.as_ref().expect("a node has items"))
+                            == Ordering::Less
+                    });
+                    position += children[..index]
+                        .iter()
+                        .map(|child| child.summary().count)
+                        .sum::<usize>();
+                    match children.get(index) {
+                        Some(child) => node = child,
+                        None => return Err(position),
+                    }
+                }
+                Node::Leaf { items, .. } => {
+                    return items
+                        .binary_search_by(compare)
+                        .map(|offset| position + offset)
+                        .map_err(|offset| position + offset);
+                }
+            }
+        }
+    }
+
     pub(crate) fn to_vec(&self) -> Vec<I> {
         self.iter().cloned().collect()
+    }
+
+    /// The number of nodes on a path from the root to a leaf: 0 for the empty sequence.
+    #[cfg(test)]
+    pub(crate) fn levels(&self) -> usize {
+        self.root.as_ref().map_or(0, |root| root.height() + 1)
+    }
+
+    /// Whether this is the only handle of the root: dropping it then frees the root, and the
+    /// nodes below it that no other tree shares.
+    pub(crate) fn owns_root(&self) -> bool {
+        self.root
+            .as_ref()
+            .is_some_and(|root| Arc::strong_count(root) == 1)
     }
 
     /// Whether the two sequences are one tree: both empty, or holding the same root node.
@@ -786,6 +842,7 @@ impl<I: Item, const B: usize> Drop for Chunked<I, B> {
 ///
 /// The front and the back each descend from the root on their own; the number of items left
 /// stops them before they cross.
+#[derive(Clone)]
 pub(crate) struct Iter<'a, I: Item> {
     front: Vec<slice::Iter<'a, Arc<Node<I>>>>,
     front_items: slice::Iter<'a, I>,

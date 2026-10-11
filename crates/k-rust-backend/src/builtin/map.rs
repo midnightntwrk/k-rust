@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     matching::SortGraph,
-    term::{Items, MapDefinition, Term, TermKind},
+    term::{Items, MapDefinition, Term, TermKind, items::Stored},
 };
 
 pub(super) fn evaluate(
@@ -133,7 +133,10 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
 /// `(key, value)`, and `evaluate` answers `\bottom` before a hook sees a map that binds a key
 /// twice, so the keys are strictly increasing and the order of `Term` decides both whether
 /// `key` is among them and where: a binary search finds it in `O(log n)` comparisons.
-fn place_of<K: Ord, V>(entries: &Items<(K, V)>, key: &K) -> Result<usize, usize> {
+fn place_of<K: Ord, V>(entries: &Items<(K, V)>, key: &K) -> Result<usize, usize>
+where
+    (K, V): Stored,
+{
     entries.search_by(|(existing, _)| {
         #[cfg(test)]
         compared_with_an_entry();
@@ -154,7 +157,10 @@ fn compared_with_an_entry() {
 }
 
 /// The index of the entry of `entries` whose key is `key`, syntactically (`place_of`).
-fn bound_at<K: Ord, V>(entries: &Items<(K, V)>, key: &K) -> Option<usize> {
+fn bound_at<K: Ord, V>(entries: &Items<(K, V)>, key: &K) -> Option<usize>
+where
+    (K, V): Stored,
+{
     place_of(entries, key).ok()
 }
 
@@ -968,10 +974,11 @@ mod tests {
         }
     }
 
-    /// Every one-key hook finds its key in a stored map with `place_of`, a binary search over the
+    /// Every one-key hook finds its key in a stored map with `place_of`, a search over the
     /// strictly increasing keys: a key bound in the map and a key that would go before, between or
-    /// after its keys are each placed with at most `ilog2(n) + 1` key comparisons, the search's
-    /// own count, not one comparison per entry.
+    /// after its keys are each placed with at most the comparisons of one binary search per node
+    /// on a path of the entries' tree (`Items::search_comparison_bound`), logarithmic in the
+    /// number of entries, not one comparison per entry.
     #[test]
     fn a_key_is_placed_among_the_stored_entries_by_binary_search() {
         const ENTRIES: u32 = 4096;
@@ -983,7 +990,7 @@ mod tests {
         let entries = (1..=ENTRIES)
             .map(|index| (counted(2 * index), index))
             .collect::<Items<_>>();
-        let bound = ENTRIES.ilog2() as usize + 1;
+        let bound = entries.search_comparison_bound();
         for (probe, expected) in [
             (2, Ok(0)),
             (2 * ENTRIES / 2, Ok(ENTRIES as usize / 2 - 1)),

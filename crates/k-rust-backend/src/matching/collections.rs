@@ -43,6 +43,7 @@ use crate::{
     substitution::{Substitution, substitute},
     term::{
         Items, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable,
+        items::Stored,
     },
     unification::{MatchUnification, unify_from},
 };
@@ -1704,7 +1705,10 @@ pub(super) struct CommonKeys<K, V> {
 pub(super) fn split_common_keys<'p, K: Ord + Clone + 'p, V: Clone + 'p>(
     pattern: impl IntoIterator<Item = &'p (K, V)>,
     subject: &Items<(K, V)>,
-) -> CommonKeys<K, V> {
+) -> CommonKeys<K, V>
+where
+    (K, V): Stored,
+{
     find_common_keys(pattern, subject).split(subject)
 }
 
@@ -1719,7 +1723,10 @@ pub(super) struct FoundKeys<K, V> {
     found: Vec<usize>,
 }
 
-impl<K: Clone, V: Clone> FoundKeys<K, V> {
+impl<K: Clone, V: Clone> FoundKeys<K, V>
+where
+    (K, V): Stored,
+{
     /// The split, with the subject's entries outside the common keys copied once.
     pub(super) fn split(self, subject: &Items<(K, V)>) -> CommonKeys<K, V> {
         let Self {
@@ -1750,7 +1757,10 @@ thread_local! {
     pub(crate) static SPLIT_COPIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-impl<K, V> FoundKeys<K, V> {
+impl<K, V> FoundKeys<K, V>
+where
+    (K, V): Stored,
+{
     /// The subject's entries outside the common keys, in order, as [`FoundKeys::split`] copies
     /// them, read in place.
     pub(super) fn others<'s>(
@@ -1771,7 +1781,10 @@ impl<K, V> FoundKeys<K, V> {
 pub(super) fn find_common_keys<'p, K: Ord + Clone + 'p, V: Clone + 'p>(
     pattern: impl IntoIterator<Item = &'p (K, V)>,
     subject: &Items<(K, V)>,
-) -> FoundKeys<K, V> {
+) -> FoundKeys<K, V>
+where
+    (K, V): Stored,
+{
     let mut values = Vec::new();
     let mut pattern_only = Vec::new();
     let mut found = Vec::new();
@@ -1832,8 +1845,9 @@ mod tests {
     use super::*;
     use crate::counted::Counted;
 
-    /// A pattern that binds one key of an `n`-entry subject finds it with at most
-    /// `ilog2(n) + 1` key comparisons, the binary search's own count, and the subject's other
+    /// A pattern that binds one key of an `n`-entry subject finds it with at most the
+    /// comparisons of one binary search per node on a path of the subject's tree
+    /// (`Items::search_comparison_bound`, logarithmic in `n`), and the subject's other
     /// entries are copied around the place found without being compared: one comparison per entry
     /// would mean the subject was scanned or reordered. A key the subject does not bind costs no
     /// more, and leaves the subject whole. Reading the other entries in place (`others`) gives
@@ -1849,7 +1863,7 @@ mod tests {
         let subject = (1..=ENTRIES)
             .map(|index| (counted(2 * index), index))
             .collect::<Items<_>>();
-        let bound = ENTRIES.ilog2() as usize + 1;
+        let bound = subject.search_comparison_bound();
         let values_of = |entries: &[(Counted<'_>, u32)]| -> Vec<u32> {
             entries.iter().map(|(key, _)| key.value).collect()
         };
