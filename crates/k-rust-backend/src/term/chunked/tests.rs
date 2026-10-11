@@ -13,6 +13,8 @@ use std::{
 use proptest::prelude::*;
 use rustc_hash::FxHasher;
 
+mod edit;
+
 use super::{
     Chunked, DEFAULT_BRANCHING, Dismantle, Item, Node, NodeSummary, SequenceHash, Summary,
 };
@@ -86,7 +88,14 @@ const DEFAULT: usize = DEFAULT_BRANCHING;
 fn check_invariants<I: Item, const B: usize>(tree: &Chunked<I, B>) -> NodeSummary<I> {
     match &tree.root {
         None => NodeSummary::identity(),
-        Some(root) => check_node::<I, B>(root, true),
+        Some(root) => {
+            let fold = check_node::<I, B>(root, true);
+            assert!(
+                fold.count > B || root.height() == 0,
+                "a sequence of at most B items is one leaf"
+            );
+            fold
+        }
     }
 }
 
@@ -181,6 +190,9 @@ fn random_leaves<I: Item, const B: usize>(
 ) -> Vec<Arc<Node<I>>> {
     if items.is_empty() {
         return Vec::new();
+    }
+    if items.len() <= B {
+        return vec![Arc::new(Node::leaf(items))];
     }
     let mut items = items.into_iter();
     random_parts(items.len(), Chunked::<I, B>::MIN_FILL, B, choices)

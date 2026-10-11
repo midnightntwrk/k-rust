@@ -2,16 +2,16 @@
 //!
 //! [`Chunked`] holds a sequence of items in a tree whose leaves are vectors of at most `B` items
 //! and whose internal nodes hold at most `B` children. Nodes are shared behind [`Arc`], so a
-//! clone shares the whole tree and a later persistent update (not in this module yet) will copy
-//! only the nodes it changes. The tree is the representation planned for the items of a map, a
+//! clone shares the whole tree and a persistent edit copies only the nodes it changes. The tree is the representation planned for the items of a map, a
 //! set and a list term, and for the variable sets of term attributes (design K22, revision 2).
 //!
 //! # State of this module
 //!
-//! This is the first part of the tree: nodes, the fill invariant, bulk loading, length,
-//! double-ended iteration, access by position, ordered search, equality, order, a hash
-//! independent of the tree's shape, and a drop that needs only constant stack. Splitting,
-//! joining, union, seeks and `rebuild_where` come in the next part. Nothing outside this module
+//! The tree has nodes, the fill invariant, bulk loading, length, double-ended iteration, access
+//! by position, ordered search, equality, order, a hash independent of the tree's shape, a drop
+//! that needs only constant stack, and the persistent edits of [`edit`]: inserting and removing
+//! one item by path copy, splitting at a position or a key, joining, and the union of two
+//! ordered sequences. Seeks and `rebuild_where` come in a later part. Nothing outside this module
 //! and its tests uses it until terms move to it, so its declaration in `term.rs` allows dead code
 //! outside test builds; test builds keep the lint, so every item here is at least tested.
 //!
@@ -44,6 +44,11 @@
 //! least 5: below it `a` is 1, a non-root internal node may then have a single child, and the
 //! height is no longer bounded by the logarithm of the length.
 //!
+//! A sequence of at most `B` items is a single leaf, whatever built it, so a small collection is
+//! one node. Only a root of height 1 can hold that few items over several leaves (a tree of
+//! height 2 holds at least `2a²` items, more than `B`), and the edits replace such a root by the
+//! one leaf of its items.
+//!
 //! # Summaries
 //!
 //! Every node stores a [`NodeSummary`]: the number of items below it, its first and last item,
@@ -68,6 +73,7 @@
 //! the tree. An item type whose values hold trees of their own (a list of lists) takes them apart
 //! through the same work list, [`Dismantle`], so a deep nesting is freed in constant stack too.
 
+mod edit;
 #[cfg(test)]
 mod tests;
 
