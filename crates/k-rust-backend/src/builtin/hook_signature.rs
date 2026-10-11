@@ -205,7 +205,8 @@ impl<'c, C: Fn(&Sort) -> Option<&'c CollectionMetadata>> SortFacts for LoadedSor
 }
 
 /// Why a symbol `argument_sorts -> result_sort` hooked to `hook` denotes no value of
-/// `result_sort` in general, or `None` when it does or `hook` is no hook of [`signature`].
+/// `result_sort` in general, or `None` when it does or `hook` is not a collection hook that
+/// builds a collection or returns one of a collection's elements.
 pub fn misfit<F: SortFacts>(
     hook: &str,
     argument_sorts: &[F::Sort],
