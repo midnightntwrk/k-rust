@@ -7,6 +7,7 @@ pub mod nesting;
 mod priority_conjunct;
 mod verify;
 
+pub mod allowance;
 pub mod builtin;
 pub mod claim;
 pub mod condition;
@@ -35,5 +36,7 @@ pub mod unification;
 
 #[cfg(test)]
 mod counted;
+#[cfg(test)]
+mod peak_memory;
 #[cfg(test)]
 mod tests;

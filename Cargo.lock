@@ -1067,6 +1067,7 @@ dependencies = [
  "k-rust-kore",
  "k256",
  "lean-conformance",
+ "libc",
  "num-bigint",
  "num-traits",
  "petgraph",
