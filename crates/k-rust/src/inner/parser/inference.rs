@@ -145,19 +145,13 @@ pub(super) trait Lowering<T> {
     /// The result for the inferred trees, packed as one owned tree.
     fn lower(&self, inferred: ParsedTerm) -> Result<T, ParseError>;
 
-    /// The result for an inferred packed forest when it is known from the forest itself,
-    /// without the owned tree, which can have exponentially more nodes than the forest. Only
-    /// the Z3 engine infers a forest as a whole; the portable one infers tree by tree.
-    #[cfg(feature = "z3-inference")]
-    fn lower_packed(&self, _inferred: &Rc<PackedTerm>) -> Option<Result<T, ParseError>> {
-        None
-    }
-
-    /// The result for an inferred packed forest.
+    /// The result for an inferred packed forest. Only the Z3 engine infers a forest as a whole;
+    /// the portable one infers tree by tree. By default, the result for its trees as one owned
+    /// tree, which can have exponentially more nodes than the forest; the parse's lowering
+    /// overrides it to lower the forest itself.
     #[cfg(feature = "z3-inference")]
     fn lower_forest(&self, inferred: &Rc<PackedTerm>) -> Result<T, ParseError> {
-        self.lower_packed(inferred)
-            .unwrap_or_else(|| self.lower(inferred.unpack()))
+        self.lower(inferred.unpack())
     }
 }
 

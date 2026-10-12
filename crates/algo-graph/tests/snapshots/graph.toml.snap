@@ -4784,6 +4784,20 @@ symbol = "PackedTerm"
 
 [[node]]
 kind = "representation"
+id = "k_rust::inner::parser::forest::PackedTerm [sorted forest]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::inner::parser::forest::PackedTerm"
+type_path = "k_rust::inner::parser::forest::PackedTerm"
+role = "sorted forest"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "PackedTerm"
+
+[[node]]
+kind = "representation"
 id = "k_rust::inner::parser::forest::ParsedTerm [sorted tree]"
 provenance = "declared"
 area = "kompile"
@@ -6669,7 +6683,7 @@ symbol = "AmbiguousParse"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::resolve_ambiguities_node"
+symbol = "Grammar::packed_readings"
 
 [[node.sites]]
 crate = "k-rust"
@@ -6797,7 +6811,7 @@ id = "parser.disambiguation.filter_overloads"
 provenance = "declared"
 area = "parser"
 name = "overload and prefer-or-avoid filtering"
-variable = "N = session nodes reachable from the forest, with those the pass builds (the subsets it keeps of an ambiguity and what factoring makes of them); R = productions in the grammar; A = alternatives of one ambiguity; f = the factoring of one kept subset (parser.disambiguation.factor_packed, shared by the session); P = distinct tuples of nodes the alternatives have at the positions of their common prefix; F = their frontier positions; O = owned nodes of a tree"
+variable = "N = session nodes reachable from the forest, with those the pass builds (the subsets it keeps of an ambiguity and what factoring makes of them); R = productions in the grammar; A = alternatives of one ambiguity; f = the factoring of one kept subset (parser.disambiguation.factor_packed, shared by the session); P = distinct tuples of nodes the alternatives have at the positions of their common prefix; F = their frontier positions"
 no_counter = "overload and preference filtering has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -6806,12 +6820,7 @@ registry_name = "ParserDisambiguationFilterOverloads"
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::filter_overloads_prefer_avoid"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::filter_overloads_prefer_avoid"
+symbol = "Grammar::filter_packed_overloads_prefer_avoid"
 
 [[node.sites]]
 crate = "k-rust"
@@ -6846,17 +6855,13 @@ bound = "O(R) to collect the sources of the prefer and avoid productions, then e
 mode = "frontier step of one ambiguity that factoring leaves with A >= 2 alternatives"
 bound = "fewer than A rounds of O(A x P) header comparisons and O(A x F) classifications, then one f and equality test when it removed an alternative"
 
-[[node.cost]]
-mode = "one parsed tree (filter_overloads_prefer_avoid)"
-bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
-
 [[node]]
 kind = "algorithm"
 id = "parser.disambiguation.insert_empty_lists"
 provenance = "declared"
 area = "parser"
 name = "insertion of implicit empty user lists"
-variable = "N = session nodes reachable from the forest, with the singleton lists the pass builds; E = their child edges; S = distinct sorts a node is expected at; C = candidate list instantiations; O = owned nodes of a tree"
+variable = "N = session nodes reachable from the forest, with the singleton lists the pass builds; E = their child edges; S = distinct sorts a node is expected at; C = candidate list instantiations"
 no_counter = "empty-list insertion has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -6865,12 +6870,7 @@ registry_name = "ParserDisambiguationInsertEmptyLists"
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/lists.rs"
-symbol = "Grammar::add_empty_lists"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/lists.rs"
-symbol = "Grammar::add_empty_lists"
+symbol = "Grammar::add_packed_empty_lists"
 
 [[node.sites]]
 crate = "k-rust"
@@ -6910,10 +6910,6 @@ symbol = "Grammar::singleton_list"
 [[node.cost]]
 mode = "one packed forest"
 bound = "O((N + E) x S x C), each node's result, wrapping and list sort computed once per expected sort, plus one PartialOrder::new over the subsort relations the first time a grammar needs its order, and the structural ordering of an ambiguity's alternatives only where they fail or two results are equal as terms"
-
-[[node.cost]]
-mode = "one parsed tree (add_empty_lists)"
-bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
 
 [[node]]
 kind = "algorithm"
@@ -6981,7 +6977,7 @@ id = "parser.disambiguation.remove_brackets_casts"
 provenance = "declared"
 area = "parser"
 name = "removal of brackets and syntactic casts"
-variable = "N = session nodes reachable from the forest; E = their child edges and alternatives; O = owned nodes of a tree"
+variable = "N = session nodes reachable from the forest; E = their child edges and alternatives"
 no_counter = "bracket and syntactic-cast removal has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -6990,12 +6986,7 @@ registry_name = "ParserDisambiguationRemoveBracketsCasts"
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::remove_brackets_and_syntactic_casts"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::remove_brackets_and_syntactic_casts"
+symbol = "Grammar::remove_packed_brackets_and_syntactic_casts"
 
 [[node.sites]]
 crate = "k-rust"
@@ -7010,10 +7001,6 @@ symbol = "Grammar::remove_brackets_and_syntactic_casts_node"
 [[node.cost]]
 mode = "one packed forest"
 bound = "O(N + E), each node's result computed once"
-
-[[node.cost]]
-mode = "one parsed tree (remove_brackets_and_syntactic_casts)"
-bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
 
 [[node]]
 kind = "algorithm"
@@ -7047,7 +7034,7 @@ id = "parser.disambiguation.resolve_ambiguity"
 provenance = "declared"
 area = "parser"
 name = "resolution and reporting of remaining ambiguity"
-variable = "N = owned nodes; A = ambiguity alternatives; F = nodes of an inferred packed forest; R = productions in the grammar"
+variable = "N = session nodes that reach resolution; A = ambiguity alternatives; O = owned nodes of a tree; F = nodes of an inferred packed forest; G = their child edges and alternatives; R = productions in the grammar"
 no_counter = "final ambiguity resolution has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -7056,22 +7043,12 @@ registry_name = "ParserDisambiguationResolveAmbiguity"
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::resolve_ambiguities"
+symbol = "Grammar::lower_inferred_session"
 
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::resolve_ambiguities"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::resolve_ambiguities_node"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::factor_ambiguities"
+symbol = "Grammar::lower_inferred_session"
 
 [[node.sites]]
 crate = "k-rust"
@@ -7081,7 +7058,7 @@ symbol = "Grammar::lower_inferred_forest"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::joins_token_text"
+symbol = "Grammar::resolve_packed_ambiguities"
 
 [[node.sites]]
 crate = "k-rust"
@@ -7089,12 +7066,16 @@ file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::packed_readings"
 
 [[node.cost]]
-mode = "one parsed tree"
-bound = "O(N) lowering (parser.lower.term) when every ambiguity has one reading; otherwise each node's readings are an expression over its children's, built once per structure: a product, the union of an ambiguity node's alternatives (equal terms merged by hash, O(A) per node), or the concatenation a `~>` node splices, with only the string tokens of a #KToken node's two children paired; the report is polynomial in N and never lists or counts the readings: each question it asks a node (root keys, subterms at a position of the readings of one key, items at an index of the words of one length, least reading, least word of a length) is answered once per node and argument from its children's answers, an item of a concatenation in O(N^2) over its children and the lengths before them, and it builds one term per entry it lists"
+mode = "nodes of a lowering session (lower_inferred_session)"
+bound = "the passes before resolution, each its packed-forest bound over the session nodes (those it is given and those the passes build), then each node's readings once, after one O(N) walk that counts the edges reaching each node: its one term, lowered once (parser.lower.term), taken over by the parent of a node one edge reaches and copied for all but the last of several, or an expression over its children's, built once per structure: a product, the union of an ambiguity node's alternatives in their structural order (equal terms merged by hash, O(A) per node), or the concatenation a `~>` node splices, with only the string tokens of a #KToken node's two children paired; the report is polynomial in N and never lists or counts the readings: each question it asks a node (root keys, subterms at a position of the readings of one key, items at an index of the words of one length, least reading, least word of a length) is answered once per node and argument from its children's answers, an item of a concatenation in O(N^2) over its children and the lengths before them, and it builds one term per entry it lists"
 
 [[node.cost]]
-mode = "one inferred packed forest (z3)"
-bound = "O(F) to count its trees; with several, the passes before resolution on the forest in one lowering session (each its packed-forest bound over the session nodes, those of the forest and those the passes build), O(F) to find a #KToken node, then the readings, the error and the report as for a parsed tree with F in place of N, each node's readings built once, plus the structural ordering of each ambiguity's alternatives; a forest of one tree or of one reading, or with a #KToken node, is unpacked and lowered as a parsed tree"
+mode = "one parsed tree (lower_inferred)"
+bound = "O(O) to pack the tree into a session, where equal subtrees become one node, then the session bound with N <= O"
+
+[[node.cost]]
+mode = "one inferred packed forest (z3, lower_inferred_forest)"
+bound = "O(F + G) to intern the forest into a session, then the session bound; no owned tree of its trees is built, whatever their number"
 
 [[node]]
 kind = "algorithm"
@@ -7127,7 +7108,7 @@ id = "parser.disambiguation.resolve_terminators"
 provenance = "declared"
 area = "parser"
 name = "resolution of overloaded list terminators"
-variable = "N = session nodes reachable from the forest; E = their child edges; L = user lists; R = productions in the grammar; K = those nodes that are nullary and whose source production is overloaded; O = owned nodes of a tree"
+variable = "N = session nodes reachable from the forest; E = their child edges; L = user lists; R = productions in the grammar; K = those nodes that are nullary and whose source production is overloaded"
 no_counter = "overloaded-terminator resolution has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -7136,12 +7117,7 @@ registry_name = "ParserDisambiguationResolveTerminators"
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::resolve_overloaded_terminators"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::resolve_overloaded_terminators"
+symbol = "Grammar::resolve_packed_overloaded_terminators"
 
 [[node.sites]]
 crate = "k-rust"
@@ -7161,10 +7137,6 @@ symbol = "Grammar::least_overloaded_terminator"
 [[node.cost]]
 mode = "one packed forest"
 bound = "O(N + E x L + K x R), each node's result computed once, plus the structural ordering of each ambiguity's alternatives and of the terminator alternatives at a program list's tail, whose pair comparisons the session shares"
-
-[[node.cost]]
-mode = "one parsed tree (resolve_overloaded_terminators)"
-bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
 
 [[node]]
 kind = "algorithm"
@@ -10146,6 +10118,12 @@ provenance = "declared"
 [[edge]]
 kind = "consumes"
 from = "parser.disambiguation.resolve_ambiguity"
+to = "k_rust::inner::parser::forest::PackedTerm [sorted forest]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "parser.disambiguation.resolve_ambiguity"
 to = "k_rust::inner::parser::forest::ParsedTerm [sorted tree]"
 provenance = "declared"
 
@@ -10268,6 +10246,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "parser.inference.z3"
 to = "ParserZ3EncodingBuilds"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "parser.inference.z3"
+to = "k_rust::inner::parser::forest::PackedTerm [sorted forest]"
 provenance = "declared"
 
 [[edge]]

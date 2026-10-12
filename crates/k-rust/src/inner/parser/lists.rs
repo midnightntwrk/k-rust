@@ -18,8 +18,8 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.insert_empty_lists"
 //! name = "insertion of implicit empty user lists"
-//! sites = ["Grammar::add_empty_lists", "Grammar::add_packed_empty_lists", "Grammar::complete_packed_lists", "Grammar::complete_packed_list_child", "Grammar::wrap_packed_list_child", "Grammar::packed_list_sort", "Grammar::list_instantiation", "Grammar::singleton_list"]
-//! variable = "N = session nodes reachable from the forest, with the singleton lists the pass builds; E = their child edges; S = distinct sorts a node is expected at; C = candidate list instantiations; O = owned nodes of a tree"
+//! sites = ["Grammar::add_packed_empty_lists", "Grammar::complete_packed_lists", "Grammar::complete_packed_list_child", "Grammar::wrap_packed_list_child", "Grammar::packed_list_sort", "Grammar::list_instantiation", "Grammar::singleton_list"]
+//! variable = "N = session nodes reachable from the forest, with the singleton lists the pass builds; E = their child edges; S = distinct sorts a node is expected at; C = candidate list instantiations"
 //! counters = []
 //! no_counter = "empty-list insertion has no dedicated counter"
 //! span = "per problem"
@@ -27,10 +27,6 @@
 //! [[cost]]
 //! mode = "one packed forest"
 //! bound = "O((N + E) x S x C), each node's result, wrapping and list sort computed once per expected sort, plus one PartialOrder::new over the subsort relations the first time a grammar needs its order, and the structural ordering of an ambiguity's alternatives only where they fail or two results are equal as terms"
-//!
-//! [[cost]]
-//! mode = "one parsed tree (add_empty_lists)"
-//! bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
 //! ```
 //!
 //! The constructors and terminators a user-list declaration (`List{S, ","}`) implies, and the
@@ -49,14 +45,14 @@ use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term};
 use crate::names::BuiltinSort;
 
-#[cfg(test)]
-use super::ParsedParts;
 use super::disambiguation::collect_in_structural_order;
 use super::parametric::substitute_sort;
 use super::{
     Grammar, Item, LoweringSession, PackedNode, PackedTerm, ParametricOrigin, ParseError,
-    ParsedTerm, ParserRole, ProductionOptions, StructuralOrder, TermMetadata,
+    ParserRole, ProductionOptions, StructuralOrder, TermMetadata,
 };
+#[cfg(test)]
+use super::{ParsedParts, ParsedTerm};
 
 /// The list sorts ([`Grammar::list_sort`]) computed for one node of a tree that list completion
 /// is reading, by expected sort, and those of the node's children, kept beside the node as
@@ -402,12 +398,12 @@ impl Grammar {
 
     /// Reconstruct the real list nodes of an owned tree; see [`Self::add_packed_empty_lists`],
     /// which this runs on the tree's packed form.
+    #[cfg(test)]
     pub(super) fn add_empty_lists(
         &self,
         term: ParsedTerm,
         expected: &Sort,
     ) -> Result<ParsedTerm, ParseError> {
-        #[cfg(test)]
         let tree = self.add_empty_lists_tree(term.clone(), expected);
         let mut session = LoweringSession::default();
         let packed = session.intern_parsed(&term);
@@ -415,7 +411,6 @@ impl Grammar {
         let completed = self
             .add_packed_empty_lists(&mut session, &packed, expected)
             .map(|completed| completed.unpack());
-        #[cfg(test)]
         assert!(
             match (&completed, &tree) {
                 (Ok(completed), Ok(tree)) => completed.identical(tree),
@@ -832,7 +827,7 @@ impl Grammar {
     /// The owned-tree form of [`Self::add_packed_empty_lists`], which the tests check the packed
     /// pass against.
     #[cfg(test)]
-    fn add_empty_lists_tree(
+    pub(super) fn add_empty_lists_tree(
         &self,
         term: ParsedTerm,
         expected: &Sort,

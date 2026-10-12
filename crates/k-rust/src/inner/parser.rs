@@ -2866,14 +2866,33 @@ impl Grammar {
         })
     }
 
-    /// The post-inference passes that turn a sort-inferred tree into the parsed term.
+    /// The post-inference passes that turn a sort-inferred tree into the parsed term, run on
+    /// the tree's packed form (`Grammar::lower_inferred_session`).
     fn lower_inferred(&self, inferred: ParsedTerm, start: &Sort) -> Result<Term, ParseError> {
-        let resolved = self.resolve_overloaded_terminators(inferred)?;
-        let filtered = self.filter_overloads_prefer_avoid(resolved);
-        let listed = self.add_empty_lists(filtered, start)?;
-        let cleaned = self.remove_brackets_and_syntactic_casts(listed);
-        let cleaned = self.factor_ambiguities(cleaned);
-        self.resolve_ambiguities(cleaned)
+        #[cfg(test)]
+        let tree = self.lower_inferred_tree(inferred.clone(), start);
+        let mut session = forest::LoweringSession::default();
+        let packed = session.intern_parsed(&inferred);
+        drop(inferred);
+        let lowered = self.lower_inferred_session(&mut session, &packed, start);
+        #[cfg(test)]
+        assert!(
+            disambiguation::same_result(&lowered, &tree),
+            "lowering the packed tree differs from lowering the owned tree:\n{lowered:?}\n{tree:?}"
+        );
+        lowered
+    }
+
+    /// The owned-tree form of [`Self::lower_inferred`], each pass on the owned tree, which the
+    /// tests check the packed passes against.
+    #[cfg(test)]
+    fn lower_inferred_tree(&self, inferred: ParsedTerm, start: &Sort) -> Result<Term, ParseError> {
+        let resolved = self.resolve_overloaded_terminators_tree(inferred)?;
+        let filtered = self.filter_overloads_prefer_avoid_tree(resolved);
+        let listed = self.add_empty_lists_tree(filtered, start)?;
+        let cleaned = self.remove_brackets_and_syntactic_casts_tree(listed);
+        let cleaned = self.factor_ambiguities_tree(cleaned);
+        self.resolve_ambiguities_tree(cleaned)
     }
 
     /// Whether `advanced`, an item a nonempty completion ending at the current position
@@ -3788,8 +3807,8 @@ fn term_metadata(
 }
 
 /// The lowering of a parse's inferred trees, `Grammar::lower_inferred`, which lowers an
-/// inferred forest from the forest when that gives its trees' result
-/// (`Grammar::lower_inferred_forest`), so that the parse does not build their owned tree.
+/// inferred forest from the forest itself (`Grammar::lower_inferred_forest`), so that the parse
+/// never builds the owned tree of its trees.
 struct InferredLowering<'a> {
     grammar: &'a Grammar,
     start: &'a Sort,
@@ -3801,19 +3820,19 @@ impl inference::Lowering<Term> for InferredLowering<'_> {
     }
 
     #[cfg(feature = "z3-inference")]
-    fn lower_packed(&self, inferred: &Rc<PackedTerm>) -> Option<Result<Term, ParseError>> {
-        let lowered = self.grammar.lower_inferred_forest(inferred, self.start)?;
+    fn lower_forest(&self, inferred: &Rc<PackedTerm>) -> Result<Term, ParseError> {
+        let lowered = self.grammar.lower_inferred_forest(inferred, self.start);
         // The tests check the forest's result against the trees' wherever building them is
         // affordable.
         #[cfg(test)]
         if inference::packed_tree_count(inferred) <= 1 << 12 {
-            assert_eq!(
-                lowered,
-                self.lower(inferred.unpack()),
-                "lowering the forest differs from lowering its trees"
+            let trees = self.lower(inferred.unpack());
+            assert!(
+                disambiguation::same_result(&lowered, &trees),
+                "lowering the forest differs from lowering its trees:\n{lowered:?}\n{trees:?}"
             );
         }
-        Some(lowered)
+        lowered
     }
 }
 
@@ -4620,13 +4639,15 @@ mod chart_tests {
         let materialized = grammar
             .materialize_packed_forest(shared)
             .expect("the retained packed diamond satisfies post-parse checks");
+        // Materialization's own unpacking; factoring the owned tree below unpacks its result.
+        let unpacked = unpacked_nodes();
         let materialized = grammar
             .resolve_applications(materialized)
             .expect("the factored diamond contains no applications");
         let materialized =
             grammar.push_top_lhs_ambiguity_up(grammar.factor_ambiguities(materialized));
 
-        assert_eq!(unpacked_nodes(), 1 + depth * 4);
+        assert_eq!(unpacked, 1 + depth * 4);
         assert_eq!(materialized, baseline);
     }
 
