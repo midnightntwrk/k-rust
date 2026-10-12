@@ -38,8 +38,8 @@
 //! ```toml algorithm
 //! id = "parser.forest.intern"
 //! name = "hash-consing of the nodes of a lowering session"
-//! sites = ["LoweringSession::intern", "LoweringSession::intern_parsed"]
-//! variable = "B = session nodes with the interned node's fingerprint; C = the interned node's children or alternatives; O = owned nodes of a tree"
+//! sites = ["LoweringSession::intern", "LoweringSession::intern_parsed", "LoweringSession::intern_forest"]
+//! variable = "B = session nodes with the interned node's fingerprint; C = the interned node's children or alternatives; O = owned nodes of a tree; F = nodes of a packed forest; G = their child edges"
 //! counters = []
 //! no_counter = "session interning has no dedicated counter"
 //!
@@ -50,6 +50,10 @@
 //! [[cost]]
 //! mode = "LoweringSession::intern_parsed"
 //! bound = "O(O) node constructions and interns"
+//!
+//! [[cost]]
+//! mode = "LoweringSession::intern_forest"
+//! bound = "O(F + G): each node interned once, after its children"
 //! ```
 //!
 //! ```toml algorithm
@@ -714,6 +718,78 @@ impl LoweringSession {
             };
             self.intern(packed)
         })
+    }
+
+    /// The session node of a packed forest, with the forest's sharing: each node of `forest`
+    /// is interned once, after its children. A node over unchanged children is itself, so
+    /// unpacking the result gives the forest's trees, ambiguity nodes where the forest has them.
+    #[cfg(feature = "z3-inference")]
+    pub(super) fn intern_forest(&mut self, forest: &Rc<PackedTerm>) -> Rc<PackedTerm> {
+        let mut interned = rustc_hash::FxHashMap::default();
+        self.intern_forest_node(&mut interned, forest)
+    }
+
+    #[cfg(feature = "z3-inference")]
+    fn intern_forest_node(
+        &mut self,
+        interned: &mut rustc_hash::FxHashMap<*const PackedTerm, Rc<PackedTerm>>,
+        term: &Rc<PackedTerm>,
+    ) -> Rc<PackedTerm> {
+        if let Some(known) = interned.get(&Rc::as_ptr(term)) {
+            return Rc::clone(known);
+        }
+        let node = crate::stack::guarded(|| {
+            let mut nodes = |nodes: &[Rc<PackedTerm>]| {
+                let interned = nodes
+                    .iter()
+                    .map(|node| self.intern_forest_node(interned, node))
+                    .collect::<Vec<_>>();
+                let unchanged = nodes
+                    .iter()
+                    .zip(&interned)
+                    .all(|(node, interned)| Rc::ptr_eq(node, interned));
+                (!unchanged).then_some(interned)
+            };
+            match &term.node {
+                PackedNode::Term(_) => Rc::clone(term),
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => match nodes(children) {
+                    None => Rc::clone(term),
+                    Some(children) => {
+                        PackedTerm::production(*production, children, metadata.clone())
+                    }
+                },
+                PackedNode::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                } => match nodes(children) {
+                    None => Rc::clone(term),
+                    Some(children) => PackedTerm::instantiated_production(
+                        *production,
+                        parameters.clone(),
+                        children,
+                        metadata.clone(),
+                    ),
+                },
+                PackedNode::Ambiguity(alternatives) => {
+                    let alternatives = alternatives.iter().cloned().collect::<Vec<_>>();
+                    match nodes(&alternatives) {
+                        None => Rc::clone(term),
+                        Some(alternatives) => {
+                            PackedTerm::alternatives(alternatives.into_iter().collect())
+                        }
+                    }
+                }
+            }
+        });
+        let node = self.intern(node);
+        interned.insert(Rc::as_ptr(term), Rc::clone(&node));
+        node
     }
 }
 

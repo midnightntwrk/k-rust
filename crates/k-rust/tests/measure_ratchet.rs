@@ -788,10 +788,10 @@ const SENTENCES_REWRITE: u64 = 2300;
 const COMPLETION_CANDIDATES_CHAIN_15: u64 = 1710;
 /// Casted rule chain of 15 operands: 2990 agenda pops.
 const AGENDA_POPS_CHAIN_15: u64 = 3290;
-/// Casted rule chain of 15 operands: 188 unpacked nodes, 47 to unpack the inferred forest and
-/// the rest to unpack the results of terminator resolution, overload and preference filtering
-/// and bracket removal, which run on the packed form of the inferred tree.
-const UNPACKED_NODES_CHAIN_15: u64 = 207;
+/// Casted rule chain of 15 operands: 235 unpacked nodes, 47 to unpack the inferred forest and
+/// the rest to unpack the results of terminator resolution, overload and preference filtering,
+/// list completion and bracket removal, which run on the packed form of the inferred tree.
+const UNPACKED_NODES_CHAIN_15: u64 = 259;
 /// One bubble of `LARGE_AMBIGUOUS_RULE`: 10 Z3 checks, as one `1 + 2 * 3` bubble took while Z3
 /// typed every ambiguous forest (8 before the admissible parameter vectors
 /// were chosen per inclusion-maximal set of live ambiguity readings, which costs a check

@@ -6856,7 +6856,7 @@ id = "parser.disambiguation.insert_empty_lists"
 provenance = "declared"
 area = "parser"
 name = "insertion of implicit empty user lists"
-variable = "N = tree nodes; C = candidate list instantiations"
+variable = "N = session nodes reachable from the forest, with the singleton lists the pass builds; E = their child edges; S = distinct sorts a node is expected at; C = candidate list instantiations; O = owned nodes of a tree"
 no_counter = "empty-list insertion has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -6875,11 +6875,45 @@ symbol = "Grammar::add_empty_lists"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/lists.rs"
-symbol = "Grammar::add_empty_lists_with_order"
+symbol = "Grammar::add_packed_empty_lists"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::complete_packed_lists"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::complete_packed_list_child"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::wrap_packed_list_child"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::packed_list_sort"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::list_instantiation"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::singleton_list"
 
 [[node.cost]]
-mode = "one parsed tree"
-bound = "O(N x C), plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
+mode = "one packed forest"
+bound = "O((N + E) x S x C), each node's result, wrapping and list sort computed once per expected sort, plus one PartialOrder::new over the subsort relations the first time a grammar needs its order, and the structural ordering of an ambiguity's alternatives only where they fail or two results are equal as terms"
+
+[[node.cost]]
+mode = "one parsed tree (add_empty_lists)"
+bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
 
 [[node]]
 kind = "algorithm"
@@ -7042,12 +7076,12 @@ symbol = "Grammar::factor_ambiguities"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::packed_ambiguity_report"
+symbol = "Grammar::lower_inferred_forest"
 
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::lowering_only_repacks"
+symbol = "Grammar::joins_token_text"
 
 [[node.sites]]
 crate = "k-rust"
@@ -7060,7 +7094,7 @@ bound = "O(N) lowering (parser.lower.term) when every ambiguity has one reading;
 
 [[node.cost]]
 mode = "one inferred packed forest (z3)"
-bound = "O(F + R) to check that the passes before resolution only repack its trees; when they do and it has several readings, the readings and the report as for a parsed tree with F in place of N, each node's readings built once, plus the structural ordering of each ambiguity's alternatives; otherwise the forest is unpacked and lowered as a parsed tree"
+bound = "O(F) to count its trees; with several, the passes before resolution on the forest in one lowering session (each its packed-forest bound over the session nodes, those of the forest and those the passes build), O(F) to find a #KToken node, then the readings, the error and the report as for a parsed tree with F in place of N, each node's readings built once, plus the structural ordering of each ambiguity's alternatives; a forest of one tree or of one reading, or with a #KToken node, is unpacked and lowered as a parsed tree"
 
 [[node]]
 kind = "algorithm"
@@ -7275,7 +7309,7 @@ id = "parser.forest.intern"
 provenance = "declared"
 area = "parser"
 name = "hash-consing of the nodes of a lowering session"
-variable = "B = session nodes with the interned node's fingerprint; C = the interned node's children or alternatives; O = owned nodes of a tree"
+variable = "B = session nodes with the interned node's fingerprint; C = the interned node's children or alternatives; O = owned nodes of a tree; F = nodes of a packed forest; G = their child edges"
 no_counter = "session interning has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserForestIntern"
@@ -7295,6 +7329,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/forest.rs"
 symbol = "LoweringSession::intern_parsed"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "LoweringSession::intern_forest"
+
 [[node.cost]]
 mode = "LoweringSession::intern"
 bound = "one hash lookup and O(B x C) pointer comparisons; B is 1 unless fingerprints collide"
@@ -7302,6 +7341,10 @@ bound = "one hash lookup and O(B x C) pointer comparisons; B is 1 unless fingerp
 [[node.cost]]
 mode = "LoweringSession::intern_parsed"
 bound = "O(O) node constructions and interns"
+
+[[node.cost]]
+mode = "LoweringSession::intern_forest"
+bound = "O(F + G): each node interned once, after its children"
 
 [[node]]
 kind = "algorithm"

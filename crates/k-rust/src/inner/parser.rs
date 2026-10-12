@@ -3787,9 +3787,9 @@ fn term_metadata(
     }
 }
 
-/// The lowering of a parse's inferred trees, `Grammar::lower_inferred`, which reports an
-/// ambiguity from the packed forest when its trees would report the same one
-/// (`Grammar::packed_ambiguity_report`), so that the parse does not build their owned tree.
+/// The lowering of a parse's inferred trees, `Grammar::lower_inferred`, which lowers an
+/// inferred forest from the forest when that gives its trees' result
+/// (`Grammar::lower_inferred_forest`), so that the parse does not build their owned tree.
 struct InferredLowering<'a> {
     grammar: &'a Grammar,
     start: &'a Sort,
@@ -3802,17 +3802,18 @@ impl inference::Lowering<Term> for InferredLowering<'_> {
 
     #[cfg(feature = "z3-inference")]
     fn lower_packed(&self, inferred: &Rc<PackedTerm>) -> Option<Result<Term, ParseError>> {
-        let report = self.grammar.packed_ambiguity_report(inferred)?;
-        // The tests check the report against the trees' wherever building them is affordable.
+        let lowered = self.grammar.lower_inferred_forest(inferred, self.start)?;
+        // The tests check the forest's result against the trees' wherever building them is
+        // affordable.
         #[cfg(test)]
         if inference::packed_tree_count(inferred) <= 1 << 12 {
             assert_eq!(
-                Err(report.clone()),
+                lowered,
                 self.lower(inferred.unpack()),
-                "the packed report differs from the trees' report"
+                "lowering the forest differs from lowering its trees"
             );
         }
-        Some(Err(report))
+        Some(lowered)
     }
 }
 
