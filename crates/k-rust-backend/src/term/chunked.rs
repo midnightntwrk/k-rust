@@ -63,6 +63,15 @@
 //! height 2 holds at least `2a²` items, more than `B`), and the edits replace such a root by the
 //! one leaf of its items.
 //!
+//! That leaf is behind an [`Arc`] like any node, not held inline in the term. Holding it inline
+//! would save one allocation and one indirection per small collection, at the price of a second
+//! representation in every edit, seek and walk. Measured on the small workloads (K22 step 7b:
+//! IMP and KEVM execution, the KEVM one-slot control, the WASM execution gate), the whole of this
+//! module's code is about 0.1 % of a WASM program's instructions (0.2 % at most on the KEVM
+//! workloads), and the allocations of collection trees about 3 % of its allocations, so the
+//! saving is bounded by a few tenths of a percent; the small-workload costs were in the variable
+//! sets and in the walks around the trees, and were removed there.
+//!
 //! # Summaries
 //!
 //! Every node stores a [`NodeSummary`]: the number of items below it, its first and last item,
