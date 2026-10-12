@@ -698,7 +698,7 @@ impl MapCollectionProblem<'_> {
     fn search(
         &self,
         index: usize,
-        remaining: Vec<(Term, Term)>,
+        remaining: Items<(Term, Term)>,
         frame_entries: Vec<(Term, Term)>,
         solution: CollectionSolution,
         narrowing: &mut Option<&mut Narrowing<'_>>,
@@ -721,8 +721,8 @@ impl MapCollectionProblem<'_> {
         // Backtracking assignment of pattern entry `index` to each unassigned subject entry; each
         // level consumes one subject entry, so the depth is at most the number of pattern entries.
         // Invariant: `solution` matches every assigned pair; `remaining` holds the unassigned ones.
-        for subject_index in 0..remaining.len() {
-            let (subject_key, subject_value) = &remaining[subject_index];
+        // A candidate's unassigned entries are `remaining` without it, one removal by path copy.
+        for (subject_index, (subject_key, subject_value)) in remaining.iter().enumerate() {
             let key_solutions = match solve_term_pair(
                 self.mode,
                 self.backend,
@@ -757,11 +757,9 @@ impl MapCollectionProblem<'_> {
                     }
                 };
                 for solution in value_solutions {
-                    let mut next_remaining = remaining.clone();
-                    next_remaining.remove(subject_index);
                     self.search(
                         index + 1,
-                        next_remaining,
+                        remaining.remove_at(subject_index).0,
                         frame_entries.clone(),
                         solution,
                         narrowing,
@@ -797,7 +795,7 @@ impl MapCollectionProblem<'_> {
     #[allow(clippy::too_many_arguments)]
     fn finish(
         &self,
-        remaining: Vec<(Term, Term)>,
+        remaining: Items<(Term, Term)>,
         frame_entries: Vec<(Term, Term)>,
         solution: CollectionSolution,
         narrowing: &mut Option<&mut Narrowing<'_>>,
@@ -806,7 +804,7 @@ impl MapCollectionProblem<'_> {
     ) {
         if frame_entries.is_empty() {
             if let Some(rest) = &self.rest {
-                let subject = Term::map(
+                let subject = Term::map_of_items(
                     self.definition.clone(),
                     remaining,
                     self.subject_rest.clone(),
@@ -933,7 +931,7 @@ impl MapCollectionProblem<'_> {
                 return;
             }
         };
-        let remainder = Term::map(self.definition.clone(), remaining, Some(fresh_term));
+        let remainder = Term::map_of_items(self.definition.clone(), remaining, Some(fresh_term));
         for mut solution in assigned_solutions {
             solution.fresh.insert(fresh.clone());
             match solve_term_pair(
@@ -1519,24 +1517,25 @@ impl ClosedMapImplicationProblem<'_> {
         solutions: &mut Vec<Vec<(Term, Term)>>,
     ) {
         if subject_index == self.subject_entries.len() {
+            // The pattern's entries no subject entry selected: its tree with the selected ones
+            // removed, last first so that the positions still to remove do not move.
             let selected_indices = selected
                 .iter()
                 .map(|(index, _)| *index)
                 .collect::<BTreeSet<_>>();
-            let remaining = self
-                .pattern_entries
+            let remaining = selected_indices
                 .iter()
-                .enumerate()
-                .filter(|(index, _)| !selected_indices.contains(index))
-                .map(|(_, entry)| entry.clone())
-                .collect();
+                .rev()
+                .fold(self.pattern_entries.clone(), |entries, &index| {
+                    entries.remove_at(index).0
+                });
             let mut equations = selected
                 .into_iter()
                 .flat_map(|(_, equations)| equations)
                 .collect::<Vec<_>>();
             equations.push((
                 self.subject_rest.clone(),
-                Term::map(self.pattern_definition.clone(), remaining, None),
+                Term::map_of_items(self.pattern_definition.clone(), remaining, None),
             ));
             solutions.push(equations);
             return;
@@ -1676,22 +1675,24 @@ pub(super) fn binds_each_key_once(map: &Term) -> bool {
 }
 
 /// Whether `entries`, a map term's entries in their stored `(key, value)` order, bind some key
-/// twice: the bindings of one key are adjacent there.
+/// twice: the bindings of one key are adjacent there, so the summary's adjacent-key flag
+/// (`collision`) says it without reading the entries.
 fn repeats_a_key(entries: &Items<(Term, Term)>) -> bool {
-    entries
-        .iter()
-        .zip(entries.iter().skip(1))
-        .any(|(left, right)| left.0 == right.0)
+    entries.summary().collision
 }
 
 /// The entries of a pattern map and of a subject map, split by their keys.
-pub(super) struct CommonKeys<K, V> {
+pub(super) struct CommonKeys<K, V>
+where
+    (K, V): Stored,
+{
     /// The pattern's and the subject's values of each key both bind, in key order.
     pub(super) values: Vec<(V, V)>,
     /// The pattern's entries whose key the subject does not bind, in key order.
     pub(super) pattern_only: Vec<(K, V)>,
-    /// The subject's entries whose key the pattern does not bind, in key order.
-    pub(super) subject_only: Vec<(K, V)>,
+    /// The subject's entries whose key the pattern does not bind, in key order: the subject's
+    /// tree without the common keys' entries.
+    pub(super) subject_only: Items<(K, V)>,
 }
 
 /// The keys `pattern` and `subject` bind both, syntactically, and the entries of each outside
@@ -1699,9 +1700,10 @@ pub(super) struct CommonKeys<K, V> {
 ///
 /// Both are entries in the stored order of a map term, `(key, value)` (`Term::map`), and neither
 /// binds a key twice, so the keys of each are strictly increasing: each pattern key is found in
-/// the subject by binary search, and the subject's entries are copied once, around the places
-/// found, without comparing them. A step that reads one
-/// binding of an `n`-entry map makes `O(log n)` key comparisons here.
+/// the subject by binary search, and the subject's other entries are the subject's tree with the
+/// found entries removed, each removal a path copy that shares every node off its path. A step
+/// that reads one binding of an `n`-entry map makes `O(log n)` key comparisons here and builds
+/// `O(log n)` nodes.
 pub(super) fn split_common_keys<'p, K: Ord + Clone + 'p, V: Clone + 'p>(
     pattern: impl IntoIterator<Item = &'p (K, V)>,
     subject: &Items<(K, V)>,
@@ -1713,7 +1715,7 @@ where
 }
 
 /// The keys `pattern` and `subject` bind both, as [`split_common_keys`] finds them, before the
-/// subject's other entries are copied.
+/// subject's other entries are taken apart from them.
 pub(super) struct FoundKeys<K, V> {
     /// As [`CommonKeys::values`].
     pub(super) values: Vec<(V, V)>,
@@ -1727,22 +1729,17 @@ impl<K: Clone, V: Clone> FoundKeys<K, V>
 where
     (K, V): Stored,
 {
-    /// The split, with the subject's entries outside the common keys copied once.
+    /// The split: the subject's other entries are its tree with the found entries removed,
+    /// last first so that the positions of the ones still to remove do not move.
     pub(super) fn split(self, subject: &Items<(K, V)>) -> CommonKeys<K, V> {
         let Self {
             values,
             pattern_only,
             found,
         } = self;
-        #[cfg(test)]
-        SPLIT_COPIES.with(|copies| copies.set(copies.get() + subject.len() - found.len()));
-        let mut subject_only = Vec::with_capacity(subject.len() - found.len());
-        let mut start = 0;
-        for index in found {
-            subject_only.extend(subject.range(start..index).cloned());
-            start = index + 1;
-        }
-        subject_only.extend(subject.range(start..).cloned());
+        let subject_only = found.iter().rev().fold(subject.clone(), |entries, &index| {
+            entries.remove_at(index).0
+        });
         CommonKeys {
             values,
             pattern_only,
@@ -1751,33 +1748,26 @@ where
     }
 }
 
-#[cfg(test)]
-thread_local! {
-    /// Test builds: the subject entries this thread's [`FoundKeys::split`]s have copied.
-    pub(crate) static SPLIT_COPIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-impl<K, V> FoundKeys<K, V>
-where
-    (K, V): Stored,
-{
-    /// The subject's entries outside the common keys, in order, as [`FoundKeys::split`] copies
-    /// them, read in place.
-    pub(super) fn others<'s>(
-        &'s self,
-        subject: &'s Items<(K, V)>,
-    ) -> impl Iterator<Item = &'s (K, V)> {
-        let mut found = self.found.iter().copied().peekable();
-        subject
+impl FoundKeys<Term, Term> {
+    /// Whether every key of `subject` outside the common ones is constructor-like: the subject's
+    /// count of other keys (its summary's `symbolic_keys`) is all among the found entries, which
+    /// are read by position, so the other entries are not read.
+    pub(super) fn others_constructor_like(&self, subject: &Items<(Term, Term)>) -> bool {
+        let found_symbolic = self
+            .found
             .iter()
-            .enumerate()
-            .filter(move |(index, _)| found.next_if_eq(index).is_none())
-            .map(|(_, entry)| entry)
+            .filter(|&&index| {
+                subject
+                    .get(index)
+                    .is_some_and(|(key, _)| !key.attributes().constructor_like)
+            })
+            .count();
+        subject.symbolic_keys() == found_symbolic
     }
 }
 
 /// The search half of [`split_common_keys`]: `O(log n)` key comparisons per pattern key and no
-/// copy of the subject's other entries.
+/// node of the subject built.
 pub(super) fn find_common_keys<'p, K: Ord + Clone + 'p, V: Clone + 'p>(
     pattern: impl IntoIterator<Item = &'p (K, V)>,
     subject: &Items<(K, V)>,
@@ -1805,36 +1795,42 @@ where
     }
 }
 
+/// The entries of one side of a map match that the other side's keys did not bind
+/// syntactically, and that side's rest. The entries are a map's tree, so whether they hold a key
+/// that is not constructor-like, and which, is read from its summary (`symbolic_keys`) and by
+/// seeking the subtrees that count one, without reading the constructor-like keys.
 pub(super) struct MapRemainder {
-    pub(super) concrete: Vec<(Term, Term)>,
-    pub(super) symbolic: Vec<(Term, Term)>,
+    pub(super) entries: Items<(Term, Term)>,
     pub(super) rest: Option<Term>,
 }
 
 impl MapRemainder {
-    pub(super) fn new(entries: Vec<(Term, Term)>, rest: Option<Term>) -> Self {
-        let (concrete, symbolic) = entries
-            .into_iter()
-            .partition(|(key, _)| key.attributes().constructor_like);
-        Self {
-            concrete,
-            symbolic,
-            rest,
-        }
+    pub(super) fn new(entries: Items<(Term, Term)>, rest: Option<Term>) -> Self {
+        Self { entries, rest }
+    }
+
+    /// The number of entries whose key is not constructor-like.
+    pub(super) fn symbolic(&self) -> usize {
+        self.entries.symbolic_keys()
+    }
+
+    /// The number of entries whose key is constructor-like.
+    pub(super) fn concrete(&self) -> usize {
+        self.entries.len() - self.symbolic()
+    }
+
+    /// The first entry, in the map's order, whose key is not constructor-like.
+    pub(super) fn first_symbolic(&self) -> Option<&(Term, Term)> {
+        self.entries.symbolic_keyed().next()
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.concrete.is_empty() && self.symbolic.is_empty() && self.rest.is_none()
+        self.entries.is_empty() && self.rest.is_none()
     }
 
+    /// The map of these entries and this rest: the tree is kept as it is.
     pub(super) fn to_term(&self, definition: Arc<MapDefinition>) -> Term {
-        let entries = self
-            .concrete
-            .iter()
-            .chain(&self.symbolic)
-            .cloned()
-            .collect();
-        Term::map(definition, entries, self.rest.clone())
+        Term::map_of_items(definition, self.entries.clone(), self.rest.clone())
     }
 }
 
@@ -1848,10 +1844,10 @@ mod tests {
     /// A pattern that binds one key of an `n`-entry subject finds it with at most the
     /// comparisons of one binary search per node on a path of the subject's tree
     /// (`Items::search_comparison_bound`, logarithmic in `n`), and the subject's other
-    /// entries are copied around the place found without being compared: one comparison per entry
-    /// would mean the subject was scanned or reordered. A key the subject does not bind costs no
-    /// more, and leaves the subject whole. Reading the other entries in place (`others`) gives
-    /// the ones the split copies, again without comparing them.
+    /// entries are its tree without the found one, a removal that compares only the adjacent
+    /// keys of the nodes it rebuilds on one path (`Items::path_copy_comparison_bound`): one
+    /// comparison per entry would mean the subject was scanned, reordered or rebuilt. A key the
+    /// subject does not bind costs no more, and leaves the subject whole, sharing its tree.
     #[test]
     fn one_pattern_key_is_found_in_the_subject_by_binary_search() {
         const ENTRIES: u32 = 4096;
@@ -1878,21 +1874,27 @@ mod tests {
             let pattern = [(counted(probe), 0)];
             comparisons.set(0);
             let found = find_common_keys(&pattern, &subject);
-            let others = found
-                .others(&subject)
-                .map(|(key, _)| key.value)
-                .collect::<Vec<_>>();
+            let made = comparisons.get();
+            assert!(
+                made <= bound,
+                "key {probe}: {made} comparisons, bound {bound}"
+            );
+            comparisons.set(0);
             let CommonKeys {
                 values,
                 pattern_only,
                 subject_only,
             } = found.split(&subject);
             let made = comparisons.get();
+            let path_bound = subject.path_copy_comparison_bound();
             assert!(
-                made <= bound,
-                "key {probe}: {made} comparisons, bound {bound}"
+                made <= path_bound,
+                "key {probe}: the split made {made} comparisons, bound {path_bound}"
             );
-            assert_eq!(others, values_of(&subject_only), "key {probe}");
+            if !bound_in_subject {
+                assert!(subject_only.shares_root(&subject), "key {probe}");
+            }
+            let subject_only = subject_only.to_vec();
             let expected_rest: Vec<u32> = (1..=ENTRIES)
                 .map(|index| 2 * index)
                 .filter(|&key| key != probe)

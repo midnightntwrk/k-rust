@@ -325,6 +325,75 @@ fn nested_collection_remainder_is_solved_by_the_collection_solver() {
     assert_eq!(one_solutions.len(), 1, "{one_solutions:#?}");
 }
 
+/// A pattern binding with a variable key, `KEY |-> VALUE REST`, against a closed `n`-entry map
+/// has one candidate per subject entry, and each candidate's frame, the binding of `REST`, is the
+/// subject's tree without that entry: a removal, which summarizes only the entries of the nodes
+/// it rebuilds on one path (at most `2B` of them, in a leaf and the sibling it may be merged
+/// with), not the `n - 1` entries of a frame built anew.
+#[test]
+fn each_candidate_frame_of_a_symbolic_key_is_one_removal_from_the_subject() {
+    const ENTRIES: usize = 1024;
+    let definition = collection_definition();
+    let one = internal_term(
+        &definition,
+        r#"mapItem{}(\dv{SortKey{}}("0"), \dv{SortValue{}}("0"))"#,
+    );
+    let TermKind::Map {
+        definition: map, ..
+    } = one.kind()
+    else {
+        panic!("a map item should internalize as a map");
+    };
+    let key =
+        |index: usize| internal_term(&definition, &format!(r#"\dv{{SortKey{{}}}}("{index:05}")"#));
+    let value =
+        |index: usize| internal_term(&definition, &format!(r#"\dv{{SortValue{{}}}}("{index}")"#));
+    let subject = Term::map(
+        map.clone(),
+        (0..ENTRIES)
+            .map(|index| (key(index), value(index)))
+            .collect(),
+        None,
+    );
+    let pattern = internal_term(
+        &definition,
+        "mapConcat{}(mapItem{}(KEY:SortKey{}, VALUE:SortValue{}), REST:SortMap{})",
+    );
+    let mut solutions = None;
+    let summarized = crate::term::items::entry_summaries_during(|| {
+        solutions = solve_with_test_frames(&definition, &[(pattern, subject.clone())]);
+    });
+    let solutions = solutions.expect("a closed subject map is decided");
+    assert_eq!(solutions.len(), ENTRIES);
+    let bound = ENTRIES * 2 * crate::term::chunked::DEFAULT_BRANCHING;
+    assert!(
+        summarized <= bound,
+        "{summarized} entry summaries for {ENTRIES} candidates, bound {bound}"
+    );
+    let TermKind::Map {
+        entries: subject_entries,
+        ..
+    } = subject.kind()
+    else {
+        unreachable!()
+    };
+    let rest = Variable::new("REST", Sort::simple("SortMap"));
+    let key_variable = Variable::new("KEY", Sort::simple("SortKey"));
+    for solution in &solutions {
+        let substitution = solution.matched.substitution();
+        let bound_key = substitution.get(&key_variable).expect("KEY is bound");
+        let index = subject_entries
+            .search(bound_key)
+            .expect("KEY is bound to a subject key");
+        let expected = Term::map_of_items(map.clone(), subject_entries.remove_at(index).0, None);
+        assert_eq!(
+            substitution.get(&rest),
+            Some(&expected),
+            "KEY = {bound_key:?}"
+        );
+    }
+}
+
 #[test]
 fn deferred_collection_pairs_are_solved_to_a_fixed_point() {
     let definition = collection_definition();
@@ -1217,8 +1286,9 @@ fn a_conjunction_under_an_injection_matches_a_value_of_a_subsort() {
 }
 
 /// A constructor-like pattern key that a map with constructor-like keys does not bind refutes the
-/// match from the keys alone: the subject's other entries, which the refutation does not name,
-/// are not copied, so the failure costs the search and not the size of the subject.
+/// match from the keys alone: no map of the subject's other entries, which the refutation does
+/// not name, is built (no entry summarized), so the failure costs the search and not the size of
+/// the subject.
 #[test]
 fn a_ground_key_missing_from_a_ground_map_fails_without_copying_its_other_entries() {
     const ENTRIES: u32 = 4096;
@@ -1238,16 +1308,16 @@ fn a_ground_key_missing_from_a_ground_map_fails_without_copying_its_other_entrie
             rest,
         );
         for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
-            crate::matching::SPLIT_COPIES.with(|copies| copies.set(0));
+            let summarized = crate::term::items::entry_summaries_during(|| {
+                assert_eq!(
+                    match_terms(mode, &sort_graph(), &pattern, &subject),
+                    MatchResult::Failed(FailReason::KeyNotFound(key(ENTRIES + 1))),
+                    "{mode:?}"
+                );
+            });
             assert_eq!(
-                match_terms(mode, &sort_graph(), &pattern, &subject),
-                MatchResult::Failed(FailReason::KeyNotFound(key(ENTRIES + 1))),
-                "{mode:?}"
-            );
-            assert_eq!(
-                crate::matching::SPLIT_COPIES.with(std::cell::Cell::get),
-                0,
-                "{mode:?}: the subject's other entries were copied"
+                summarized, 0,
+                "{mode:?}: a map of the subject's other entries was built"
             );
         }
     }

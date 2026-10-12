@@ -46,8 +46,6 @@
 //! point of `crate::matching` keeps its path.
 
 mod collections;
-#[cfg(test)]
-pub(crate) use collections::SPLIT_COPIES;
 
 pub(crate) use collections::{
     CollectionMatches, CollectionSolution, Narrowing, expand_closed_map_implication_remainders,
@@ -1680,9 +1678,12 @@ impl<'a> Matcher<'a> {
     /// rest are `subject_entries` and `subject_rest`.
     ///
     /// The pattern's keys are taken under the substitution so far, which may reorder them or
-    /// make two of them equal; the subject's entries are as `Term::map` stores them, so its keys
-    /// are found by search (`split_common_keys`), and only the entries outside the common keys
-    /// are copied.
+    /// make two of them equal; the subject's entries are as `Term::map` stores them, a tree in
+    /// key order, so its keys are found by search (`find_common_keys`), and its entries outside
+    /// the common keys are its tree with the found entries removed by path copy
+    /// (`FoundKeys::split`): a match that binds `k` keys of an `n`-entry subject builds
+    /// `O(k log n)` nodes and shares the others. Whether the subject repeats a key is read from
+    /// its tree's summary.
     fn match_maps(
         &mut self,
         definition: Arc<MapDefinition>,
@@ -1698,7 +1699,7 @@ impl<'a> Matcher<'a> {
             .collect::<Vec<_>>();
         check_duplicate_keys(&definition, &pattern_entries, &pattern_rest)?;
         if !binds_each_key_once(subject) {
-            check_duplicate_keys(&definition, subject_entries, &subject_rest)?;
+            check_stored_duplicate_keys(&definition, subject_entries, &subject_rest)?;
         }
 
         if pattern_rest
@@ -1710,7 +1711,7 @@ impl<'a> Matcher<'a> {
         {
             return self.defer(
                 Term::map(definition.clone(), pattern_entries, pattern_rest),
-                Term::map(definition, subject_entries.to_vec(), subject_rest),
+                Term::map_of_items(definition, subject_entries.clone(), subject_rest),
             );
         }
 
@@ -1739,18 +1740,17 @@ impl<'a> Matcher<'a> {
         // subject has no rest (which could bind it) and every other key of the subject is
         // constructor-like too, is bound by no subject entry at all:
         // distinct constructor-like terms denote distinct values. The match fails on that key,
-        // decided from key attributes alone, before the subject's other entries are copied: the
-        // failure names the key and nothing else, since no reader of a failed match needs the
-        // subject's remainder. A constructor-like map has constructor-like keys.
+        // decided from key attributes alone, before the subject's other entries are taken apart
+        // from the found ones: the failure names the key and nothing else, since no reader of a
+        // failed match needs the subject's remainder. A constructor-like map has constructor-like
+        // keys; otherwise the subject's summary counts the keys that are not.
         if let Some((key, _)) = found
             .pattern_only
             .iter()
             .find(|(key, _)| key.attributes().constructor_like)
             && subject_rest.is_none()
             && (subject.attributes().constructor_like
-                || found
-                    .others(subject_entries)
-                    .all(|(key, _)| key.attributes().constructor_like))
+                || found.others_constructor_like(subject_entries))
         {
             return Err(FailReason::KeyNotFound(key.clone()));
         }
@@ -1760,7 +1760,8 @@ impl<'a> Matcher<'a> {
             subject_only,
         } = found.split(subject_entries);
 
-        let pattern = MapRemainder::new(pattern_only, pattern_rest);
+        // The pattern's other entries are in key order (sorted above), the stored order.
+        let pattern = MapRemainder::new(Items::from_vec(pattern_only), pattern_rest);
         let subject = MapRemainder::new(subject_only, subject_rest);
         let mut rest = self.match_map_remainders(&definition, pattern, subject)?;
         values.append(&mut rest);
@@ -1881,17 +1882,17 @@ impl<'a> Matcher<'a> {
         pattern: MapRemainder,
         subject: MapRemainder,
     ) -> Result<Vec<(Term, Term)>, FailReason> {
-        if !pattern.concrete.is_empty() {
+        if pattern.concrete() > 0 {
             // `match_maps` refutes a pattern key that a subject without a rest and with
             // constructor-like keys only lacks.
-            debug_assert!(!subject.symbolic.is_empty() || subject.rest.is_some());
+            debug_assert!(subject.symbolic() > 0 || subject.rest.is_some());
             self.defer(
                 pattern.to_term(definition.clone()),
                 subject.to_term(definition.clone()),
             )?;
             return Ok(Vec::new());
         }
-        if pattern.symbolic.is_empty() && pattern.rest.is_none() {
+        if pattern.symbolic() == 0 && pattern.rest.is_none() {
             if subject.is_empty() {
                 return Ok(Vec::new());
             }
@@ -1907,17 +1908,12 @@ impl<'a> Matcher<'a> {
                 subject.to_term(definition.clone()),
             ));
         }
-        if pattern.symbolic.len() == 1
-            && subject.concrete.len() + subject.symbolic.len() == 1
-            && subject.rest.is_none()
-        {
-            let (pattern_key, pattern_value) = pattern.symbolic[0].clone();
-            let (subject_key, subject_value) = subject
-                .concrete
-                .first()
-                .or_else(|| subject.symbolic.first())
-                .unwrap()
+        if pattern.symbolic() == 1 && subject.entries.len() == 1 && subject.rest.is_none() {
+            let (pattern_key, pattern_value) = pattern
+                .first_symbolic()
+                .expect("one symbolic entry")
                 .clone();
+            let (subject_key, subject_value) = subject.entries.first().expect("one entry").clone();
             let mut problems = vec![(pattern_key, subject_key), (pattern_value, subject_value)];
             if let Some(rest) = pattern.rest {
                 problems.push((
@@ -1927,12 +1923,11 @@ impl<'a> Matcher<'a> {
             }
             return Ok(problems);
         }
-        if !pattern.symbolic.is_empty() {
+        if pattern.symbolic() > 0 {
             if subject.is_empty()
                 || (pattern.rest.is_none()
                     && self.mode != MatchMode::Rewrite
-                    && subject.concrete.is_empty()
-                    && subject.symbolic.is_empty()
+                    && subject.entries.is_empty()
                     && subject
                         .rest
                         .as_ref()
@@ -2657,6 +2652,29 @@ fn check_duplicate_keys<'a>(
         ));
     }
     Ok(())
+}
+
+/// [`check_duplicate_keys`] for the entries of a map term, a tree in their stored order, whose
+/// repeated keys are adjacent: the summary's adjacent-key flag (`collision`) says whether there
+/// is one, so the entries are read only to name the least repeated key of a map that has one.
+fn check_stored_duplicate_keys(
+    definition: &Arc<MapDefinition>,
+    entries: &Items<(Term, Term)>,
+    rest: &Option<Term>,
+) -> Result<(), FailReason> {
+    if !entries.summary().collision {
+        return Ok(());
+    }
+    let key = entries
+        .iter()
+        .zip(entries.iter().skip(1))
+        .find(|(left, right)| left.0 == right.0)
+        .map(|(left, _)| left.0.clone())
+        .expect("a collision is a pair of adjacent entries of one key");
+    Err(FailReason::DuplicateKeys(
+        key,
+        Term::map_of_items(definition.clone(), entries.clone(), rest.clone()),
+    ))
 }
 
 /// A set that holds an element twice is `\bottom` (set concatenation is nilpotent, `Term::set`),

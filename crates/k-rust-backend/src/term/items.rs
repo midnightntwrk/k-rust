@@ -298,6 +298,28 @@ impl<T: Stored> Items<T> {
         }
     }
 
+    /// The most item comparisons one insertion or removal at a position makes: none in a
+    /// vector, and in a tree those of the summaries of the nodes it builds on one path, each of
+    /// which compares the keys of its adjacent items or children (`collision`); a node built
+    /// from a node and its sibling, when one would fall below the fill minimum, holds fewer than
+    /// `2B` of them.
+    #[cfg(test)]
+    pub(crate) fn path_copy_comparison_bound(&self) -> usize {
+        match &self.0 {
+            Backing::Vec(_) => 0,
+            Backing::Tree(tree) => tree.levels() * 2 * chunked::DEFAULT_BRANCHING,
+        }
+    }
+
+    /// Whether the two sequences are trees holding the same root node.
+    #[cfg(test)]
+    pub(crate) fn shares_root(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Backing::Tree(left), Backing::Tree(right)) => left.shares_root(right),
+            _ => false,
+        }
+    }
+
     /// The summary of the whole sequence: the root's for a tree, the identity for the empty
     /// sequence, and the fold of the items for a vector (which reads every item).
     pub(crate) fn summary(&self) -> Cow<'_, NodeSummary<T>> {
@@ -389,19 +411,29 @@ impl<T: Stored + Keyed<Key = Term> + Item<Summary = ItemSummary>> Items<T> {
     /// subtrees whose summary counts such a key, so the `s` items are reached through their
     /// ancestors, `O(s log n)` nodes; a vector is filtered.
     pub(crate) fn symbolic_keyed(&self) -> impl Iterator<Item = &T> {
+        self.symbolic_keyed_at().map(|(_, item)| item)
+    }
+
+    /// [`symbolic_keyed`](Self::symbolic_keyed), each item with its position.
+    pub(crate) fn symbolic_keyed_at(&self) -> impl Iterator<Item = (usize, &T)> {
         let (vector, tree) = match &self.0 {
             // No descent when the root's summary counts none.
             Backing::Tree(_) if self.symbolic_keys() == 0 => (None, None),
-            Backing::Vec(items) => (Some(items.iter().filter(|item| symbolic_key(*item))), None),
+            Backing::Vec(items) => (
+                Some(
+                    items
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, item)| symbolic_key(*item)),
+                ),
+                None,
+            ),
             Backing::Tree(tree) => (
                 None,
-                Some(
-                    tree.seek(chunked::seek::Where::new(
-                        |summary: &NodeSummary<T>| summary.extra.symbolic_keys() > 0,
-                        |item: &T| symbolic_key(item),
-                    ))
-                    .map(|(_, item)| item),
-                ),
+                Some(tree.seek(chunked::seek::Where::new(
+                    |summary: &NodeSummary<T>| summary.extra.symbolic_keys() > 0,
+                    |item: &T| symbolic_key(item),
+                ))),
             ),
         };
         vector
