@@ -422,6 +422,7 @@ dependencies = [
  "kink-campaign",
  "kink-native",
  "kink-patch",
+ "kink-pattern",
  "serde_json",
 ]
 

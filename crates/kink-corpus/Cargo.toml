@@ -13,6 +13,7 @@ k-rust.workspace = true
 kink-native.workspace = true
 kink-patch.workspace = true
 kink-campaign.workspace = true
+kink-pattern.workspace = true
 serde_json.workspace = true
 
 [features]
