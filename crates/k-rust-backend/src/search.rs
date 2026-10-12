@@ -102,8 +102,9 @@ use crate::{
     fresh::{FreshCounter, RequestNames},
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
-        AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
-        TraceKind, Truth, UndecidedStep, predicates_truth, rewrite_step_with_options,
+        AppliedRule, IndeterminateReason, InitialDefinedness, Pattern, RemainderBranch,
+        RewriteResult, TraceEntry, TraceKind, Truth, UndecidedStep, initial_definedness,
+        predicates_truth, rewrite_step_restricted, rewrite_step_with_options,
         simplify_result_pattern, stuck,
     },
     rule::Predicate,
@@ -908,8 +909,8 @@ fn search_graph_collecting(
             continue;
         }
         // An initial state whose own definedness is refuted is skipped for the same reason: it
-        // has no instance either.
-        match initial_state_is_empty(
+        // has no instance either. Otherwise its decided definedness restricts its step.
+        let defined_where = match initial_state_definedness(
             definition,
             &state,
             is_rewritable,
@@ -917,13 +918,13 @@ fn search_graph_collecting(
             solver,
             &mut diagnostics,
         ) {
-            Ok(true) => continue,
-            Ok(false) => {}
+            Ok(None) => continue,
+            Ok(Some(defined_where)) => defined_where,
             Err(stop) => publish_stop!(
                 materialize_search_state(state, observation_head, &diagnostics, &observation_log),
                 stop
             ),
-        }
+        };
         // A duplicate takes its own path's diagnostics with it: the state kept for this key
         // reports the path recorded first, like its trace.
         if !expanded.insert((
@@ -1012,6 +1013,7 @@ fn search_graph_collecting(
         let (rewrite, step_diagnostics) = step_search_state(
             definition,
             &state.pattern,
+            &defined_where,
             kind,
             &mut fresh_counter,
             &options,
@@ -1209,41 +1211,56 @@ impl SearchWorkState {
     }
 }
 
-/// Whether `state`, popped as `is_rewritable`, is an initial state with no instance by its own
-/// definedness (I7'); the decision's diagnostics join `diagnostics`.
+/// The decided definedness of `state`, popped as `is_rewritable`, which restricts what its step
+/// leaves over, or `None` for an initial state with no instance by its own definedness (I7');
+/// the decisions' diagnostics join `diagnostics`.
 ///
 /// A pattern `t ∧ φ` denotes `⌈t⌉ ∧ t ∧ φ`. An initial state is the caller's pattern, whose
 /// facts (the members of its knowledge that are not among its constraints) nothing has decided,
 /// so a refuted fact means it has no instance, exactly as constraints simplified to `\bottom` do.
-/// A successor needs no decision: the step that produced it decided its right-hand side's
+/// Otherwise the obligations of `t` that `φ` leaves open ([`initial_definedness`]) are where it
+/// is defined: its instances where they fail are no states, so its step offers no lower
+/// priority, remainder or stuck result any of them, and a
+/// [`BackendDiagnostic::UndefinedInitialInstances`] on its path names them. A successor needs no
+/// decision (none is returned): the step that produced it decided its right-hand side's
 /// definedness, and term simplification conjoins its own obligations. The initial states are
 /// exactly the rewritable states at depth 0, since a successor is queued at its step's depth + 1
 /// and a step's remainder, which carries its state's term, at the step's depth as `Remaining`.
-fn initial_state_is_empty(
+fn initial_state_definedness(
     definition: &BackendDefinition,
     state: &SearchState,
     is_rewritable: bool,
     max_simplification_iterations: usize,
     solver: &dyn SmtSolver,
     diagnostics: &mut PathDiagnostics,
-) -> Stoppable<bool> {
+) -> Stoppable<Option<Vec<Predicate>>> {
     if state.depth != 0 || !is_rewritable {
-        return Ok(false);
+        return Ok(Some(Vec::new()));
     }
+    let options = SimplificationOptions {
+        max_iterations: max_simplification_iterations,
+        ..SimplificationOptions::default()
+    };
     let (verdict, emitted) = diagnostic::collect(|| {
-        UndecidedFacts::of_pattern(definition, &state.pattern).decide(
-            definition,
-            SimplificationOptions {
-                max_iterations: max_simplification_iterations,
-                ..SimplificationOptions::default()
-            },
-            solver,
-        )
+        UndecidedFacts::of_pattern(definition, &state.pattern).decide(definition, options, solver)
     });
     diagnostics.extend(&emitted);
-    Ok(match verdict? {
-        FactsVerdict::Refuted => true,
-        FactsVerdict::NotRefuted(_) => false,
+    if let FactsVerdict::Refuted = verdict? {
+        return Ok(None);
+    }
+    let (definedness, emitted) =
+        diagnostic::collect(|| initial_definedness(definition, &state.pattern, options, solver));
+    diagnostics.extend(&emitted);
+    Ok(match definedness? {
+        InitialDefinedness::Undefined => None,
+        InitialDefinedness::Where(definedness) => {
+            if !definedness.is_empty() {
+                diagnostics.extend(&[BackendDiagnostic::UndefinedInitialInstances {
+                    definedness: definedness.clone(),
+                }]);
+            }
+            Some(definedness)
+        }
     })
 }
 
@@ -1265,18 +1282,20 @@ fn materialize_search_state(
 fn step_search_state(
     definition: &BackendDefinition,
     pattern: &Pattern,
+    defined_where: &[Predicate],
     kind: QueuedStateKind,
     fresh_counter: &mut FreshCounter,
     options: &SearchOptions,
     solver: &dyn SmtSolver,
 ) -> (Stoppable<RewriteResult>, Vec<BackendDiagnostic>) {
     diagnostic::collect(|| match kind {
-        QueuedStateKind::Rewritable => rewrite_step_with_options(
+        QueuedStateKind::Rewritable => rewrite_step_restricted(
             definition,
             pattern,
             fresh_counter,
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
+            defined_where,
         ),
         QueuedStateKind::Remaining(None) => stuck(definition, pattern),
         QueuedStateKind::Remaining(Some(undecided)) => Ok(undecided.into_result(pattern.clone())),
@@ -1676,7 +1695,7 @@ fn search_paths_collecting(
         if predicates_truth(&path.state.pattern.constraints) == Truth::False {
             continue;
         }
-        match initial_state_is_empty(
+        let defined_where = match initial_state_definedness(
             definition,
             &path.state,
             is_rewritable,
@@ -1684,10 +1703,10 @@ fn search_paths_collecting(
             solver,
             &mut path.diagnostics,
         ) {
-            Ok(true) => continue,
-            Ok(false) => {}
+            Ok(None) => continue,
+            Ok(Some(defined_where)) => defined_where,
             Err(stop) => publish_stop!(stop),
-        }
+        };
         // A path that reaches a state it already visited, up to the names of the variables the
         // request did not name, is a cycle: the state's continuations are those of the earlier
         // visit, renamed.
@@ -1764,6 +1783,7 @@ fn search_paths_collecting(
         let (rewrite, step_diagnostics) = step_search_state(
             definition,
             &path.state.pattern,
+            &defined_where,
             path.kind.clone(),
             &mut fresh_counter,
             &options,

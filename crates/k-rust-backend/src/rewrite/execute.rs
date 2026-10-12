@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "bounded execution"
-//! bound = "O(states), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None); each state performs one term simplification, predicate pass, and rewrite step, plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step, and a state stopped at max_depth is simplified once more"
+//! bound = "O(states), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None); each state performs one term simplification, predicate pass, and rewrite step, plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step, and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
@@ -69,10 +69,11 @@ use crate::{
 
 use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionOptions, ExecutionResult, HaltReason,
-    IndeterminateReason, InitialSimplificationStatus, Pattern, RemainderBranch, RewriteResult,
-    TraceEntry, TraceKind, TrivialApplication, Truth, UndecidedStep, applied_trivial_halt,
-    normalize_pattern_substitution, predicates_truth, retain_substitution_predicates,
-    rewrite_step_with_optional_execution, stuck, trivial_halt, vacuous_halt,
+    IndeterminateReason, InitialDefinedness, InitialSimplificationStatus, Pattern, RemainderBranch,
+    RewriteResult, SubjectDefinedness, TraceEntry, TraceKind, TrivialApplication, Truth,
+    UndecidedStep, applied_trivial_halt, initial_definedness, normalize_pattern_substitution,
+    predicates_truth, retain_substitution_predicates, rewrite_step_with_optional_execution, stuck,
+    trivial_halt, vacuous_halt,
 };
 
 pub(super) fn execute_using(
@@ -171,6 +172,7 @@ impl<'a> Execution<'a> {
                     io: initial_io.clone(),
                     io_enabled,
                     is_initial_input: true,
+                    defined_where: Vec::new(),
                     diagnostics: diagnostics.empty_like(),
                 }
             })
@@ -570,6 +572,9 @@ impl<'a> Execution<'a> {
                     Ok(FactsVerdict::NotRefuted(_)) => {}
                     Err(stop) => return Err(self.stopped_leaf(state, stop)),
                 }
+                if !self.options.assume_initial_defined {
+                    state = self.restrict_to_defined_instances(state)?;
+                }
             }
         }
         if predicates_truth(&state.pattern.constraints) == Truth::False
@@ -609,6 +614,48 @@ impl<'a> Execution<'a> {
         Ok(state)
     }
 
+    /// The initial configuration, which the run does not assume defined, restricted to its
+    /// defined instances ([`initial_definedness`]): with none it is a `Vacuous` leaf, counted as
+    /// simplified to `\bottom`; otherwise its open obligations restrict what its step leaves
+    /// over (`ExecutionState::defined_where`), named by an
+    /// [`BackendDiagnostic::UndefinedInitialInstances`] on its path.
+    fn restrict_to_defined_instances(
+        &mut self,
+        mut state: ExecutionState,
+    ) -> Phase<ExecutionState> {
+        let (definedness, diagnostics) = diagnostic::collect(|| {
+            initial_definedness(
+                self.definition,
+                &state.pattern,
+                SimplificationOptions {
+                    max_iterations: self.options.max_simplification_iterations,
+                    ..SimplificationOptions::default()
+                },
+                self.solver,
+            )
+        });
+        state.diagnostics.extend(&diagnostics);
+        match definedness {
+            Ok(InitialDefinedness::Undefined) => {
+                self.bottom_initial_simplifications += 1;
+                let halt_reason = vacuous_halt(state.depth, &state.pattern, &state.trace, None);
+                Err(state.leaf(halt_reason, &self.observation_log))
+            }
+            Ok(InitialDefinedness::Where(definedness)) => {
+                if !definedness.is_empty() {
+                    state
+                        .diagnostics
+                        .extend(&[BackendDiagnostic::UndefinedInitialInstances {
+                            definedness: definedness.clone(),
+                        }]);
+                    state.defined_where = definedness;
+                }
+                Ok(state)
+            }
+            Err(stop) => Err(self.stopped_leaf(state, stop)),
+        }
+    }
+
     /// E4: one priority-grouped rewrite step (backend.rewrite.step) under the option's mode.
     fn step(&mut self, state: &ExecutionState) -> Stoppable<RewriteResult> {
         rewrite_step_with_optional_execution(
@@ -618,7 +665,11 @@ impl<'a> Execution<'a> {
             SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
             self.solver,
             self.options.mode,
-            self.options.assume_initial_defined,
+            if self.options.assume_initial_defined {
+                SubjectDefinedness::Assumed
+            } else {
+                SubjectDefinedness::Where(&state.defined_where)
+            },
             state.io_enabled.then_some(&state.io),
         )
     }
@@ -1651,6 +1702,7 @@ fn commit_applied(
     state.pattern = applied.pattern;
     state.depth += 1;
     state.is_initial_input = false;
+    state.defined_where = Vec::new();
     state
 }
 
@@ -1705,6 +1757,7 @@ fn commit_remainder(
     state.pattern = remainder.pattern;
     state.kind = ExecutionStateKind::Remaining(remainder.indeterminate);
     state.is_initial_input = false;
+    state.defined_where = Vec::new();
     state
 }
 
@@ -1727,6 +1780,10 @@ struct ExecutionState {
     /// Whether the console capability remains available on this concrete execution prefix.
     io_enabled: bool,
     is_initial_input: bool,
+    /// The decided definedness of an initial configuration the run does not assume defined
+    /// (`Execution::restrict_to_defined_instances`), which restricts what its step leaves over;
+    /// empty on every other state.
+    defined_where: Vec<Predicate>,
     /// The backend diagnostics of the work this path went through so far, shared with the
     /// paths it forked from.
     diagnostics: PathDiagnostics,

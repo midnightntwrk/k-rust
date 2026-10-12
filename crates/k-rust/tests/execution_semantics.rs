@@ -974,3 +974,191 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
         );
     }
 }
+
+/// A definition whose configurations hold a map with a symbolic rest or a partial `Int`
+/// operation, so that some instances of a symbolic initial configuration are undefined, and one
+/// rule whose `requires` is partial on a defined configuration.
+#[cfg(feature = "z3-inference")]
+const UNDEFINED_INSTANCES: &str = r#"
+module UD-SYNTAX
+  imports INT-SYNTAX
+  imports STRING-SYNTAX
+  imports MAP
+  syntax Pgm ::= stm(Map) [symbol(stm)] | stl(Map) [symbol(stl)] | sti(Int) [symbol(sti)]
+               | stz(Int) [symbol(stz)] | stc(Int, Int) [symbol(stc)]
+               | donem(Int) [symbol(donem)] | donei(Int) [symbol(donei)] | zero() [symbol(zero)]
+               | pos() [symbol(pos)] | other() [symbol(other)]
+endmodule
+
+module UD
+  imports UD-SYNTAX
+  imports INT
+  imports MAP
+  imports STRING
+  configuration <k> $PGM:Pgm </k>
+  rule <k> stm(("a" |-> V:Int) _M) => donem(V) ... </k>
+  rule <k> stl(("a" |-> V:Int) _M) => donem(V) ... </k>
+  rule <k> stl(_) => other() ... </k> [owise]
+  rule <k> sti(I:Int) => donei(I) ... </k>
+  rule <k> stz(0) => zero() ... </k>
+  rule <k> stc(X, Y) => pos() ... </k> requires X /Int Y >Int 0
+endmodule
+"#;
+
+/// The initial configuration `<k> PROGRAM </k>` of [`UNDEFINED_INSTANCES`], `program` in KORE.
+#[cfg(feature = "z3-inference")]
+fn undefined_instances_initial(program: &str) -> Pattern {
+    parse_pattern(&format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}({program}), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
+    ))
+    .unwrap()
+}
+
+/// A configuration `t ∧ φ` denotes only its defined instances, so where a subterm of the
+/// initial configuration is undefined there is no configuration: no rule is stuck on it and no
+/// result reports it. `("a" |-> 0) R` is undefined where `"a"` is a key of `R`, and
+/// `X /Int Y` where `Y` is 0. Execution (both strategies), a search and `krun`'s run driver
+/// report only the defined instances' results, each restricted where the step leaves it over:
+/// `stm` has the one result `donem(0)`, with no stuck leaf for the duplicated key; `stl`'s
+/// `owise` rule is not given those instances, so no `other()` appears; `sti` has `donei` only,
+/// and `stz`'s stuck remainder states `Y` is not 0. Each run names the condition in an
+/// `UndefinedInitialInstances` diagnostic. A `requires` undefined on a defined configuration is
+/// the rule's own condition: `stc(X, Y)` keeps its stuck remainder, which includes `Y` = 0,
+/// and has no such diagnostic.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
+    use k_rust::backend::{BackendDiagnosticOutput, ExecutionStrategy};
+
+    let map = r#"Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("a")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))), VarR:SortMap{})"#;
+    let quotient = r#"Lbl'UndsSlsh'Int'Unds'{}(VarX:SortInt{}, VarY:SortInt{})"#;
+    let y_is_not_zero = r#"\not{SortGeneratedTopCell{}}(\equals{SortInt{}, SortGeneratedTopCell{}}(VarY:SortInt{}, \dv{SortInt{}}("0")))"#;
+    let cases = [
+        // (program, the term heads of its results, a constraint every result states, whether
+        // the initial configuration has undefined instances)
+        (
+            format!("Lblstm{{}}({map})"),
+            vec!["Lbldonem"],
+            "in'Unds'keys",
+            true,
+        ),
+        (
+            format!("Lblstl{{}}({map})"),
+            vec!["Lbldonem"],
+            "in'Unds'keys",
+            true,
+        ),
+        (
+            format!("Lblsti{{}}({quotient})"),
+            vec!["Lbldonei"],
+            y_is_not_zero,
+            true,
+        ),
+        (
+            format!("Lblstz{{}}({quotient})"),
+            vec!["Lblstz", "Lblzero"],
+            "",
+            true,
+        ),
+        (
+            "Lblstc{}(VarX:SortInt{}, VarY:SortInt{})".to_owned(),
+            vec!["Lblpos", "Lblstc"],
+            "",
+            false,
+        ),
+    ];
+    let mut compiled = compile(UNDEFINED_INSTANCES, "UD", "UD-SYNTAX", "Pgm", "zero()");
+    let heads = |state: &str| {
+        let mut heads = [
+            "Lbldonem", "Lbldonei", "Lblstm", "Lblstl", "Lblsti", "Lblstz", "Lblstc",
+        ]
+        .into_iter()
+        .chain(["Lblzero", "Lblpos", "Lblother"])
+        .filter(|head| state.contains(&format!("{head}{{}}(")))
+        .collect::<Vec<_>>();
+        heads.sort();
+        heads
+    };
+    for (program, results, stated, undefined) in &cases {
+        let initial = undefined_instances_initial(program);
+        for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+            let mut backend =
+                Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
+            let result = backend
+                .execute(ExecuteRequest {
+                    strategy,
+                    ..ExecuteRequest::new(initial.clone())
+                })
+                .unwrap();
+            let states = text(&result);
+            let mut found = states
+                .iter()
+                .flat_map(|state| heads(state))
+                .collect::<Vec<_>>();
+            found.sort();
+            assert_eq!(&found, results, "{program} {strategy:?}: {states:#?}");
+            assert!(
+                states.iter().all(|state| state.contains(stated)),
+                "{program} {strategy:?}: {states:#?}"
+            );
+            assert!(
+                result
+                    .leaves
+                    .iter()
+                    .all(|leaf| leaf.reason == HaltReasonOutput::Stuck),
+                "{program} {strategy:?}"
+            );
+            for leaf in &result.leaves {
+                assert_eq!(
+                    leaf.diagnostics.iter().any(|diagnostic| matches!(
+                        diagnostic,
+                        BackendDiagnosticOutput::UndefinedInitialInstances { .. }
+                    )),
+                    *undefined,
+                    "{program} {strategy:?}: {:?}",
+                    leaf.diagnostics
+                );
+            }
+        }
+        if *program == format!("Lblstz{{}}({quotient})") {
+            let mut backend =
+                Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
+            let result = backend
+                .execute(ExecuteRequest::new(initial.clone()))
+                .unwrap();
+            let stuck = text(&result)
+                .into_iter()
+                .find(|state| state.contains("Lblstz{}("))
+                .unwrap();
+            assert!(stuck.contains(y_is_not_zero), "{stuck}");
+        }
+        let mut backend = Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
+        let response = backend
+            .search(SearchRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchRequest::new(initial.clone())
+            })
+            .unwrap();
+        assert!(response.incomplete.is_empty(), "{:?}", response.incomplete);
+        let mut found = response
+            .states
+            .iter()
+            .flat_map(|found| {
+                heads(&Printer::compact().print_pattern(&codec::from_value(&found.state).unwrap()))
+            })
+            .collect::<Vec<_>>();
+        found.sort();
+        assert_eq!(&found, results, "{program} search");
+        compiled.initial = initial;
+        let output = run_driver(&compiled, "UD", u64::MAX, None).unwrap();
+        let result = Printer::compact().print_pattern(&output.pattern.to_pattern());
+        let mut found = heads(&result);
+        found.sort();
+        // `krun`'s `any` strategy follows one of `stz`'s and `stc`'s two branches.
+        assert!(
+            !found.is_empty() && found.iter().all(|head| results.contains(head)),
+            "{program} krun: {result}"
+        );
+        assert!(result.contains(stated), "{program} krun: {result}");
+    }
+}

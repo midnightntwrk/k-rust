@@ -563,6 +563,12 @@ pub enum BackendDiagnosticOutput<K = Value> {
         hook: String,
         reason: String,
     },
+    /// The initial configuration, which the request did not assume defined, is defined only
+    /// where `definedness` holds (`BackendDiagnostic::UndefinedInitialInstances`): its other
+    /// instances denote no configuration and have no result.
+    UndefinedInitialInstances {
+        definedness: Vec<K>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1351,6 +1357,14 @@ fn diagnostic_output<K: WireKore>(
             BackendDiagnosticOutput::UnsupportedHookUnevaluated {
                 hook,
                 reason: reason.to_string(),
+            }
+        }
+        BackendDiagnostic::UndefinedInitialInstances { definedness } => {
+            BackendDiagnosticOutput::UndefinedInitialInstances {
+                definedness: definedness
+                    .iter()
+                    .map(|predicate| encode_predicate(predicate, result_sort))
+                    .collect::<Result<_, _>>()?,
             }
         }
     })

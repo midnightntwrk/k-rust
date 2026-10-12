@@ -517,6 +517,7 @@ export type BackendDiagnostic =
       failure: SearchFailure
     }
   | { kind: 'unsupported-hook-unevaluated'; hook: string; reason: string }
+  | { kind: 'undefined-initial-instances'; definedness: Kore[] }
 
 export type SmtFailure =
   | { kind: 'translation'; error: TranslationFailure }

@@ -296,6 +296,8 @@ for name in "${selected[@]}"; do
         K_DIFFERENTIAL_MODULE="$main_module"
         K_DIFFERENTIAL_INITIAL_PATTERN="$pattern"
         K_RUST_KRUST="$krust"
+        # N48: the reference search decides whether an unpaired reference disjunct is empty.
+        K_REFERENCE_KORE_EXEC="$kore_exec"
       )
       if [[ -n "$oracle_exclusion" ]]; then
         comparison_environment+=(

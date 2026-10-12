@@ -5518,9 +5518,14 @@ fn executed_kore_matches_the_reference_backend() {
     let module = env::var("K_DIFFERENTIAL_MODULE").unwrap_or_else(|_| "MAIN".into());
     let definition = definition.as_deref().map(Path::new);
     let krust = definition.map(|_| implication_krust());
+    let reference_kore_exec = env::var_os("K_REFERENCE_KORE_EXEC");
     let oracle = definition
         .zip(krust.as_deref())
-        .map(|(definition, krust)| ImplicationOracle { krust, definition });
+        .map(|(definition, krust)| ImplicationOracle {
+            krust,
+            definition,
+            reference_kore_exec: reference_kore_exec.as_deref().map(Path::new),
+        });
     // N26: an any-strategy port result is compared as a member of the reference all-strategy
     // result set; the exclusions are about reference leaves, which membership already tolerates.
     let strategy = env::var("K_DIFFERENTIAL_STRATEGY");
@@ -6943,6 +6948,7 @@ fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names(
         Some(ImplicationOracle {
             krust: &oracle,
             definition: &definition,
+            reference_kore_exec: None,
         }),
         "TEST",
     );
@@ -6952,6 +6958,91 @@ fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names(
         calls.lines().count() >= 3,
         "the identity candidate fails before the aligned one succeeds: {calls}"
     );
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// N48: a reference disjunct with no port partner is dropped only when the reference's own
+/// search, run from it, returns `\bottom`; a fake `kore-exec` answers so for a disjunct holding
+/// `empty`, and echoes any other. A nonempty unpaired reference disjunct, a port disjunct the
+/// reference lacks, and a run without the reference `kore-exec` still fail, and the fake is asked
+/// only about the unpaired reference disjunct.
+#[test]
+fn execution_comparator_drops_a_reference_disjunct_only_when_the_reference_search_finds_it_empty() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = env::temp_dir().join(format!(
+        "k-rust-emptiness-fake-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).unwrap();
+    let calls = directory.join("calls");
+    let kore_exec = directory.join("kore-exec");
+    let krust = directory.join("krust");
+    fs::write(
+        &kore_exec,
+        format!(
+            "#!/usr/bin/env bash\nwhile (($#)); do case $1 in --pattern) p=$2;; --output) o=$2;; esac; shift; done\ncat \"$p\" >>{calls}; printf '\\n' >>{calls}\nif grep -q 'empty{{}}' \"$p\"; then printf '\\\\bottom{{S{{}}}}()\\n' >\"$o\"; else cat \"$p\" >\"$o\"; fi\n",
+            calls = calls.display()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        &krust,
+        "#!/usr/bin/env bash\nprintf '{\"status\":\"valid\"}\\n'\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for path in [&kore_exec, &krust] {
+            let mut permissions = fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).unwrap();
+        }
+    }
+    let definition = directory.join("definition.kore");
+    fs::write(&definition, "[]").unwrap();
+    let with_reference = ImplicationOracle {
+        krust: &krust,
+        definition: &definition,
+        reference_kore_exec: Some(&kore_exec),
+    };
+    let without_reference = ImplicationOracle {
+        reference_kore_exec: None,
+        ..with_reference
+    };
+    let pattern = |text: &str| normalize_execution_pattern(parse_pattern(text).unwrap());
+    let kept = r"\and{S{}}(t{}(), \top{S{}}())";
+    let empty = r"\and{S{}}(empty{}(), \top{S{}}())";
+    let other = r"\and{S{}}(other{}(), \top{S{}}())";
+    let actual = pattern(kept);
+    let reference = pattern(&format!(r"\or{{S{{}}}}({kept}, {empty})"));
+
+    compare_execution_modulo_implication(&reference, &actual, Some(with_reference), "TEST")
+        .expect("the reference search finds the unpaired disjunct empty");
+    let asked = fs::read_to_string(&calls).unwrap();
+    assert_eq!(asked.lines().count(), 1, "{asked}");
+    assert!(asked.contains("empty{}"), "{asked}");
+
+    let error =
+        compare_execution_modulo_implication(&reference, &actual, Some(without_reference), "TEST")
+            .expect_err("without the reference kore-exec nothing is dropped");
+    assert!(error.contains("unpaired disjunct"), "{error}");
+    let nonempty = pattern(&format!(r"\or{{S{{}}}}({kept}, {other})"));
+    let error =
+        compare_execution_modulo_implication(&nonempty, &actual, Some(with_reference), "TEST")
+            .expect_err("a reference disjunct the reference search finds is kept");
+    assert!(error.contains("unpaired disjunct"), "{error}");
+    let error = compare_execution_modulo_implication(
+        &pattern(kept),
+        &pattern(&format!(r"\or{{S{{}}}}({kept}, {empty})")),
+        Some(with_reference),
+        "TEST",
+    )
+    .expect_err("a port disjunct is never dropped");
+    assert!(error.contains("unpaired disjunct"), "{error}");
     fs::remove_dir_all(directory).unwrap();
 }
 
@@ -7062,6 +7153,7 @@ fn execution_comparator_never_asks_the_port_simplifier_to_drop_disjuncts() {
     let oracle = ImplicationOracle {
         krust: &krust,
         definition: &definition,
+        reference_kore_exec: None,
     };
     let pattern = |text: &str| normalize_execution_pattern(parse_pattern(text).unwrap());
 
@@ -8104,6 +8196,16 @@ fn pair_disjuncts(
                 !paired[*index] && split_constrained(pool_disjunct).0 == driving_term
             })
         else {
+            // N48: a reference disjunct that denotes no configuration adds nothing to the
+            // disjunction, when the reference itself finds it has no instance.
+            if matches!(driver, PairingDriver::Reference)
+                && reference_finds_no_instance(oracle, driving_disjunct, module)?
+            {
+                println!(
+                    "N48: dropped a reference disjunct whose instances the reference search finds none of: {driving_term}"
+                );
+                continue;
+            }
             return Err(match driver {
                 PairingDriver::Reference => format!("unpaired disjunct: {driving_term}"),
                 PairingDriver::Actual => format!("unpaired port disjunct: {driving_term}"),
@@ -8484,12 +8586,15 @@ fn is_predicate_pattern(pattern: &Pattern) -> bool {
 }
 
 /// What the implication fallback (N15) runs: the `krust` executable that proves the claims, and
-/// the definition it proves them in. Both are explicit so a test can substitute a fake `krust`
-/// without touching the process environment, which every concurrently running test reads.
+/// the definition it proves them in; and, where the gate supplies it, the reference `kore-exec`
+/// whose search mode decides whether a reference disjunct has an instance (N48). All are explicit
+/// so a test can substitute fakes without touching the process environment, which every
+/// concurrently running test reads.
 #[derive(Clone, Copy)]
 struct ImplicationOracle<'a> {
     krust: &'a Path,
     definition: &'a Path,
+    reference_kore_exec: Option<&'a Path>,
 }
 
 /// The `krust` executable the execution comparison proves implications with: `K_RUST_KRUST`,
@@ -8501,6 +8606,90 @@ fn implication_krust() -> std::path::PathBuf {
         .expect(
             "set K_RUST_KRUST: this build has no krust binary (cargo builds it only with the cli feature)",
         )
+}
+
+/// N48: whether the reference's own search mode finds no instance of `disjunct`, a reference
+/// result disjunct (a term under constraints): `kore-exec --search` of a variable, `STAR` at depth
+/// 0, from the disjunct returns `\bottom`. A pattern `t ∧ φ` denotes `⌈t⌉ ∧ t ∧ φ`, and the
+/// reference's search assumes its initial pattern defined, so `\bottom` there means the
+/// disjunct's constraints refute its own term's definedness: it is empty, and a disjunction
+/// denotes the same configurations with or without it. The decision is the reference's, never
+/// the port's, so a branch the port loses is not excused by the port's own reasoning. Without a
+/// reference `kore-exec`, or for a disjunct whose sort its top conjunction does not name, nothing
+/// is found empty.
+fn reference_finds_no_instance(
+    oracle: Option<ImplicationOracle>,
+    disjunct: &Pattern,
+    module: &str,
+) -> Result<bool, String> {
+    let (
+        Some(ImplicationOracle {
+            definition,
+            reference_kore_exec: Some(kore_exec),
+            ..
+        }),
+        Pattern::And { sort, .. },
+    ) = (oracle, disjunct)
+    else {
+        return Ok(false);
+    };
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock before Unix epoch: {error}"))?
+        .as_nanos();
+    let directory = env::temp_dir().join(format!(
+        "k-rust-execution-emptiness-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).map_err(|error| format!("create emptiness fixture: {error}"))?;
+    let disjunct_path = directory.join("disjunct.kore");
+    let target_path = directory.join("target.kore");
+    let output_path = directory.join("output.kore");
+    let result = (|| {
+        fs::write(&disjunct_path, disjunct.to_string())
+            .map_err(|error| format!("write emptiness disjunct: {error}"))?;
+        let target = Pattern::And {
+            sort: sort.clone(),
+            arguments: vec![
+                parse_pattern(&format!("VarResult:{sort}"))
+                    .map_err(|error| format!("emptiness target: {error}"))?,
+                Pattern::Top { sort: sort.clone() },
+            ],
+        };
+        fs::write(&target_path, target.to_string())
+            .map_err(|error| format!("write emptiness target: {error}"))?;
+        let output = Command::new(kore_exec)
+            .env("GHCRTS", "-N1")
+            .arg(definition)
+            .arg("--module")
+            .arg(module)
+            .arg("--pattern")
+            .arg(&disjunct_path)
+            .arg("--search")
+            .arg(&target_path)
+            .arg("--searchType")
+            .arg("STAR")
+            .arg("--depth")
+            .arg("0")
+            .arg("--output")
+            .arg(&output_path)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|error| format!("run {} for emptiness: {error}", kore_exec.display()))?;
+        if !output.status.success() {
+            return Err(format!(
+                "reference emptiness search failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        let found = fs::read_to_string(&output_path)
+            .map_err(|error| format!("read reference emptiness search: {error}"))?;
+        let found = parse_pattern(&found)
+            .map_err(|error| format!("parse reference emptiness search: {error}"))?;
+        Ok(matches!(found, Pattern::Bottom { .. }))
+    })();
+    let _ = fs::remove_dir_all(directory);
+    result
 }
 
 fn prove_implication_both_ways(

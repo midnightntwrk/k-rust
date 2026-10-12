@@ -740,11 +740,24 @@ fn rule_condition_failed_message(
     )
 }
 
+/// The warning for an `UndefinedInitialInstances` diagnostic: the condition the initial
+/// configuration's definedness needs, and that its other instances have no result.
+fn undefined_initial_instances_message(definedness: &[Predicate], result_sort: &Sort) -> String {
+    format!(
+        "the initial configuration is undefined unless [{}] holds; its instances where this fails denote no configuration and have no result",
+        printed_predicates(definedness, result_sort),
+    )
+}
+
+/// Print the warnings of `diagnostics`, one result's path, each once. A diagnostic about the
+/// initial configuration is on every result's path; `run_wide` keeps those already printed for
+/// another result of the run, so each is printed once per run.
 fn report_diagnostics<'a>(
     definition: &BackendDefinition,
     diagnostics: impl IntoIterator<Item = &'a BackendDiagnostic>,
     result_sort: &Sort,
     depth: u64,
+    run_wide: &mut HashSet<&'a BackendDiagnostic>,
 ) {
     let mut seen = HashSet::new();
     for diagnostic in diagnostics {
@@ -752,6 +765,14 @@ fn report_diagnostics<'a>(
             continue;
         }
         match diagnostic {
+            BackendDiagnostic::UndefinedInitialInstances { definedness } => {
+                if run_wide.insert(diagnostic) {
+                    eprintln!(
+                        "warning: {}",
+                        undefined_initial_instances_message(definedness, result_sort)
+                    );
+                }
+            }
             BackendDiagnostic::SimplificationBudgetExhausted { limit, subject } => {
                 let subject = match subject {
                     BudgetSubject::Term => "the term",
@@ -1192,12 +1213,14 @@ fn run_backend_with_solver(
             ))
             .into());
         }
+        let mut run_wide = HashSet::new();
         for matched in &result.matches {
             report_diagnostics(
                 backend,
                 matched.state.diagnostics.iter().chain(&matched.diagnostics),
                 &matched.state.pattern.term.sort(),
                 matched.state.depth,
+                &mut run_wide,
             );
         }
         return Ok(BackendRunOutput {
@@ -1286,12 +1309,14 @@ fn run_backend_with_solver(
         ))
         .into());
     }
+    let mut run_wide = HashSet::new();
     for leaf in &execution.leaves {
         report_diagnostics(
             backend,
             &leaf.diagnostics,
             &leaf.pattern.term.sort(),
             leaf.depth,
+            &mut run_wide,
         );
     }
     if let Some(path) = options.stop_leaves {

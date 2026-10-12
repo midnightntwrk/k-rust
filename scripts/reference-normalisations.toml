@@ -332,6 +332,18 @@ justification = "Both parsers locate the same tokens, but number lines and colum
 env = "K_BISON_PARSER_COMPARISON=locations"
 
 [[normalisation]]
+id = "N48"
+gate = "symbolic execution"
+anchor = "crates/k-rust/tests/reference_differential.rs:reference_finds_no_instance"
+anchor_symbol = "reference_finds_no_instance"
+anchor_helpers = [
+  "pair_disjuncts",
+  "executed_kore_matches_the_reference_backend",
+]
+rule = "When the gate supplies the reference kore-exec (K_REFERENCE_KORE_EXEC), drop a reference result disjunct that pairs with no port disjunct only when the reference's own search mode, run from that disjunct (`kore-exec --search VarResult --searchType STAR --depth 0`), returns `\\bottom`, and log each one dropped. A port disjunct is never dropped, and no port tool decides the emptiness."
+justification = "A pattern `t ∧ φ` denotes `⌈t⌉ ∧ t ∧ φ`, and the reference's search assumes its initial pattern defined, so `\\bottom` there means the disjunct's constraints refute its own term's definedness: it is empty, and the disjunction denotes the same configurations with or without it. The pinned reference's execute mode reports the instances of a symbolic initial configuration on which the configuration is itself undefined as a stuck leaf; k-rust reports no leaf for them and names the condition in a diagnostic. The decision is the reference's, so a branch the port loses is not excused by the port's own reasoning. See docs/compatibility.md#undefined-instances-of-the-initial-configuration."
+
+[[normalisation]]
 id = "N26"
 gate = "execution"
 anchor = "crates/k-rust/tests/reference_differential.rs:compare_execution_any_membership"

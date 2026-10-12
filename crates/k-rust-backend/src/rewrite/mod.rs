@@ -761,6 +761,115 @@ impl InitialSimplificationStatus {
     }
 }
 
+/// What a rewrite step knows of its subject's definedness.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SubjectDefinedness<'a> {
+    /// The caller assumes the subject defined: its `⌈t⌉` is known while the rules' conditions
+    /// are decided (`ExecutionOptions::assume_initial_defined`).
+    Assumed,
+    /// Not assumed. The subject denotes its defined instances only, those where these decided
+    /// obligations hold ([`initial_definedness`]); none are given when nothing beyond its
+    /// constraints is decided. The rules of the first priority that applies see the subject as
+    /// it is, so a successor carries the obligations its own step states; what the step leaves
+    /// over (its remainder, the part offered to lower priorities or to the later rules of an
+    /// `Any` step, a subject no rule applies to) is restricted to the instances where they hold,
+    /// since the others are no configuration to rewrite or to report.
+    Where(&'a [Predicate]),
+}
+
+impl<'a> SubjectDefinedness<'a> {
+    pub(crate) const NOTHING_DECIDED: Self = Self::Where(&[]);
+
+    pub(crate) const fn of_assumption(assumed: bool) -> Self {
+        if assumed {
+            Self::Assumed
+        } else {
+            Self::NOTHING_DECIDED
+        }
+    }
+
+    pub(crate) const fn assumed(self) -> bool {
+        matches!(self, Self::Assumed)
+    }
+
+    /// The obligations that restrict what the step leaves over; none when assumed, since the
+    /// rules then decide their conditions under the subject's whole definedness.
+    pub(crate) const fn restriction(self) -> &'a [Predicate] {
+        match self {
+            Self::Assumed => &[],
+            Self::Where(obligations) => obligations,
+        }
+    }
+}
+
+/// `pattern` restricted to the instances where `obligations` hold.
+pub(crate) fn restricted_to(pattern: &Pattern, obligations: &[Predicate]) -> Pattern {
+    let mut restricted = pattern.clone();
+    extend_unique(&mut restricted.constraints, obligations.iter().cloned());
+    restricted
+}
+
+/// Where the initial configuration of a run that does not assume it defined is defined
+/// ([`initial_definedness`]).
+pub(crate) enum InitialDefinedness {
+    /// No instance satisfying the constraints is defined: the configuration denotes nothing.
+    Undefined,
+    /// The configuration is defined exactly on its instances where these obligations hold; none
+    /// when its constraints establish its definedness.
+    Where(Vec<Predicate>),
+}
+
+/// The definedness of the initial configuration `t ∧ φ` of an execution or a search that does
+/// not assume it defined.
+///
+/// A configuration pattern denotes its defined instances only, `⌈t⌉ ∧ t ∧ φ`: where a subterm
+/// of `t` is undefined (a partial application outside its domain, a map whose keys coincide) the
+/// application holding it is undefined too, and the instance is no configuration. Such an
+/// instance has no successor, so no rule is stuck on it, and it is no result. The obligations
+/// `⌈t⌉` are therefore decided under `φ` before the first step: refuted, the configuration has no
+/// instance; otherwise the obligations left open restrict what its step leaves over
+/// ([`SubjectDefinedness::Where`]), so that no remainder, lower priority or stuck leaf is given
+/// the instances where they fail. A rule's own conditions are not obligations of `t`: an
+/// instance on which a `requires` is undefined is a configuration all the same, and stays stuck
+/// where no rule applies to it. A failed simplification states the obligations as `⌈t⌉` gives
+/// them, which denote the same instances.
+pub(crate) fn initial_definedness(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<InitialDefinedness> {
+    let obligations = crate::definedness::ceil_term(definition, &pattern.term)
+        .into_iter()
+        .filter(|obligation| !pattern.constraints.contains(obligation))
+        .collect::<Vec<_>>();
+    if obligations.is_empty() {
+        return Ok(InitialDefinedness::Where(obligations));
+    }
+    Ok(
+        match simplify_predicates_with_solver(
+            definition,
+            &obligations,
+            &pattern.constraints,
+            options,
+            solver,
+        )? {
+            Ok(simplified) if predicates_truth(&simplified) == Truth::False => {
+                InitialDefinedness::Undefined
+            }
+            Ok(simplified) => InitialDefinedness::Where(
+                simplified
+                    .into_iter()
+                    .filter(|obligation| {
+                        obligation != &Predicate::True && !pattern.constraints.contains(obligation)
+                    })
+                    .collect(),
+            ),
+            Err(_failure) => InitialDefinedness::Where(obligations),
+        },
+    )
+}
+
 pub fn execute(
     definition: &BackendDefinition,
     initial: Pattern,
@@ -969,6 +1078,28 @@ pub(crate) fn rewrite_step_with_options(
     )
 }
 
+/// [`rewrite_step_with_options`] on a subject defined where `defined_where` holds
+/// ([`SubjectDefinedness::Where`]).
+pub(crate) fn rewrite_step_restricted(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut FreshCounter,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    defined_where: &[Predicate],
+) -> Stoppable<RewriteResult> {
+    rewrite_step_with_optional_execution(
+        definition,
+        pattern,
+        fresh_counter,
+        simplification_options,
+        solver,
+        ExecutionMode::All,
+        SubjectDefinedness::Where(defined_where),
+        None,
+    )
+}
+
 pub(crate) fn rewrite_step_sequential_with_options(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -1015,6 +1146,7 @@ pub(crate) fn rewrite_step_sequential_tracking_dropped(
         fresh_counter,
         simplification_options,
         solver,
+        &[],
         None,
         Some(&mut determinism),
     )?;
@@ -1037,7 +1169,7 @@ pub(crate) fn rewrite_step_with_mode(
         simplification_options,
         solver,
         mode,
-        assume_initial_defined,
+        SubjectDefinedness::of_assumption(assume_initial_defined),
         None,
     )
 }
@@ -1050,7 +1182,7 @@ fn rewrite_step_with_optional_execution(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     mode: ExecutionMode,
-    assume_initial_defined: bool,
+    subject_definedness: SubjectDefinedness<'_>,
     io: Option<&ExecutionIoState>,
 ) -> Stoppable<RewriteResult> {
     if let Some(symbol) = pattern.macro_or_alias_symbol() {
@@ -1069,15 +1201,18 @@ fn rewrite_step_with_optional_execution(
             fresh_counter,
             simplification_options,
             solver,
-            assume_initial_defined,
+            subject_definedness,
             io,
         ),
+        // The sequential step decides its rules' conditions without assuming the subject
+        // defined, whatever the caller assumes.
         ExecutionMode::Any => rewrite_step_any(
             definition,
             pattern,
             fresh_counter,
             simplification_options,
             solver,
+            subject_definedness.restriction(),
             io,
             None,
         ),
