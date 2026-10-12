@@ -684,6 +684,19 @@ The comment's class excludes `\n` through `\r` (line feed, vertical tab, form fe
 This diverges from the pinned K's default layout, `//[^\n\r]*` and `[\ \n\r\t]`: there the comment in `a // c` U+2028 `b` runs on to the next `\n` or `\r` and takes `b` with it, and a vertical tab, form feed, U+0085, U+2028 or U+2029 outside a comment is a scanner error.
 (`the_default_line_comment_ends_at_every_line_end_a_location_counts` in [cli.rs](../crates/k-rust/tests/cli.rs), which runs both scanners; `the_default_layout_is_the_default_layout_module_of_the_prelude`, `the_default_line_comment_ends_at_every_line_terminator` and `every_line_terminator_is_default_layout` in [scanner.rs](../crates/k-rust/src/inner/parser/scanner.rs).)
 
+## Definition text layout
+
+A definition is one text: its module, import, syntax and `requires` sentences and attribute lists surround the bubbles of its rules, claims, contexts and configurations, which are parsed with the default layout (see "Default layout line ends").
+krust reads the text around the bubbles with that same layout, so a character is layout everywhere in a definition or nowhere: whitespace is space, tab and every line terminator, a `//` comment ends at the first line end, and a `/* */` comment at the first `*/`.
+A bubble ends before a sentence keyword that this whitespace separates from it, so U+2028 between the end of a rule and the next `rule` ends the first rule as a newline does, and a character that is no layout, such as U+00A0, separates no outer tokens, as it separates no tokens in a rule.
+A `//` comment on the last line of the text ends with the text, as the default layout's comment `//[^…]*` does.
+The positions of the outer syntax (sentence and bubble locations, the outer parser's errors) count lines as every other location does, so a location in a file whose lines end in `\r` is on its line.
+An unquoted attribute value, such as `a b` in `[foo(a b)]`, ends on its line: any line end in it is an error, as a `\n` is.
+
+This diverges from the pinned K's outer lexer, which ends `//` only at `\n` or `\r`, rejects a final `//` comment without a line end, and rejects a vertical tab, form feed, U+0085, U+2028 or U+2029 between outer tokens; in a bubble, a vertical tab or form feed before the next sentence ends its compilation with an internal `NegativeArraySizeException`, and the other three are a scanner error of the rule.
+krust before this change read the text around bubbles with every Unicode `White_Space` character as whitespace (U+00A0 and U+2003 between `module` and its name were accepted) while splitting bubbles at ASCII space, tab, `\r` and `\n` only, and counted outer lines at `\n` only: in a file whose lines end in `\r`, an undefined sort on line 3 was reported at `1:51` where the pinned K reports `3:18`, which krust now reports too.
+(`outer_whitespace_is_the_default_layouts_whitespace` and `outer_line_comments_end_where_the_default_layouts_do` in [parser.rs](../crates/k-rust/src/outer/parser.rs); `line_comments_end_at_every_line_end`, `outer_tokens_and_bubbles_split_at_the_same_whitespace`, `outer_positions_count_every_line_terminator` and `unquoted_attribute_values_end_on_their_line` in [outer_parser.rs](../crates/k-rust/tests/outer_parser.rs).)
+
 ## Compiler-resolved fresh constants
 
 Within one rule or context, each distinct `!` variable receives a distinct consecutive offset from the generated counter and every occurrence of the same full variable name reuses that offset.
