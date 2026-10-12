@@ -1,5 +1,21 @@
 //! Concrete `MAP` hooks: per-call operations on the internal map representation; a
 //! responsibility, not an algorithm; no counter of its own, no worklist.
+//!
+//! Each hook is a few operations of the persistent tree that holds the map's entries (card
+//! `backend.term.chunked`), so for a map argument of `n` entries, `s` of them with a key that is
+//! not constructor-like, and `m` items in the other collection argument (the smaller operand of
+//! `concat`):
+//!
+//! - `size`: `O(1)`, the root summary's count; `element`, `unit`: `O(1)`.
+//! - `lookup`, `lookupOrDefault`, `in_keys`: one search, `O(log n)`. A key the search does not find
+//!   is decided absent by `absent`: a constructor-like key is compared with the `s` other keys
+//!   only, `O(s log n)`; a key that is not constructor-like with every entry, `O(n)`.
+//! - `update`, `remove`: one search and one path copy, `O(log n)`.
+//! - `updateAll`, `removeAll`: one search and one path copy per item of the second argument,
+//!   `O(m log n)`; `inclusion`: one search in the right map per entry of the left, `O(m log n)`.
+//! - `concat`: the union of the two trees, `O(m log(n/m + 1))`, a repeated key read from the
+//!   union's summary.
+//! - `keys`, `keys_list`, `values`: `O(n)`, the size of the result.
 
 use std::borrow::Cow;
 

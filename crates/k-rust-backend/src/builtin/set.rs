@@ -1,5 +1,19 @@
 //! Deterministic `SET` hooks: per-call operations on the internal set representation; a
 //! responsibility, not an algorithm; no counter of its own, no worklist.
+//!
+//! Each hook is a few operations of the persistent tree that holds the set's elements (card
+//! `backend.term.chunked`), so for a set argument of `n` elements, `s` of them not
+//! constructor-like, and `m` elements in the smaller of two set arguments:
+//!
+//! - `size`: `O(1)`, the root summary's count; `element`, `unit`: `O(1)`.
+//! - `in`: one search, `O(log n)`; an element the search does not find is decided absent as a map
+//!   key is (`MAP` hooks): `O(s log n)` for a constructor-like element, `O(n)` otherwise.
+//! - `concat`: the union of the two trees, `O(m log(n/m + 1))`, a repeated element read from the
+//!   union's summary.
+//! - `union`, `difference`, `intersection`: one search (and a path copy, or one item of a
+//!   bulk-loaded result) per element of the smaller operand, `O(m log n)`; `inclusion`: one search
+//!   in the right set per element of the left, `O(m log n)` for `m` left elements.
+//! - `set2list`, `list2set`: `O(n)` and `O(n log n)`, the size of the result.
 
 use std::sync::Arc;
 

@@ -1696,7 +1696,7 @@ symbol = "BackendDefinition::discharge_rewrite_definedness"
 
 [[node.cost]]
 mode = "one term (ceil_term)"
-bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys, O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, and same_apart_skeleton against each group of the same hash) and, per key, the later keys to check: O(m) to scan them when fewer later keys of its group are skipped than checked, otherwise O(g log m + c log c) to gather and sort the c later keys of other groups and of equal keys; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
+bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once and the items of a collection that are not ceil_free reached through its summaries, O(log m) each, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys other than one without rest whose keys share one header and repeat none (read from its summary, no key obligation), O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, and same_apart_skeleton against each group of the same hash) and, per key, the later keys to check: O(m) to scan them when fewer later keys of its group are skipped than checked, otherwise O(g log m + c log c) to gather and sort the c later keys of other groups and of equal keys; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
 
 [[node.cost]]
 mode = "one rule or equation condition (condition_definedness)"
@@ -2123,8 +2123,16 @@ mode = "maps and sets"
 bound = "O((n+1)^k) solve_term_pair assignments with narrowing, O(n^k) without"
 
 [[node.cost]]
+mode = "frame of one map or set assignment (the subject without the assigned items)"
+bound = "O(k log n): one removal from the subject's tree per assigned item"
+
+[[node.cost]]
 mode = "lists"
 bound = "O(h) solve_term_pair calls per list pair"
+
+[[node.cost]]
+mode = "list frame (the closed side without the items outside the frames)"
+bound = "O(log n): two cuts of the closed side's tree"
 
 [[node.cost]]
 mode = "deferred pair sweep (solve_collection_pairs_from_solution)"
@@ -2185,7 +2193,7 @@ id = "backend.matching.syntactic"
 provenance = "declared"
 area = "backend"
 name = "sort-aware one-way first-order matching by pair decomposition"
-variable = "p = pairs popped, bounded by |pattern| plus subject-side And duplications and one map_queue postponement per map pair; a = pair arity; s = bindings in the substitution; t = size of a bound term"
+variable = "p = pairs popped, bounded by |pattern| plus subject-side And duplications and one map_queue postponement per map pair; a = pair arity; s = bindings in the substitution; t = size of a bound term; k = items a collection pattern names; n = items of the subject collection"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendMatchingSyntactic"
@@ -2227,12 +2235,35 @@ symbol = "Matcher::match_one"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "Matcher::match_maps"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "Matcher::match_sets"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "Matcher::match_lists"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/apply.rs"
 symbol = "initial_match"
 
 [[node.cost]]
 mode = "one matching problem"
 bound = "O(p x (a + s x t))"
+
+[[node.cost]]
+mode = "a map or set pattern against a subject without rest (match_maps, match_sets): its items found and its rest bound"
+bound = "O(k log n): one search per pattern item and one removal per found item, the rest sharing the subject's other nodes; a ground item missing from a ground subject fails without a removal"
+
+[[node.cost]]
+mode = "a list pattern's items at either end (match_lists)"
+bound = "O(k + log n): k item pairs and one cut of the longer side"
 
 [[node]]
 kind = "algorithm"
@@ -2911,7 +2942,7 @@ id = "backend.simplify.term"
 provenance = "declared"
 area = "backend"
 name = "innermost equational simplification to a budgeted fixed point"
-variable = "r = rounds; t = term nodes; c = candidate equations per node"
+variable = "r = rounds; t = term nodes; c = candidate equations per node; n = items of a collection; u = items of a collection the summaries admit"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendSimplifyTerm"
@@ -3009,6 +3040,10 @@ symbol = "apply_theory_noting_cuts"
 [[node.cost]]
 mode = "one term lineage"
 bound = "O(r x |t| x c), with the rounds that are not determined ground function-theory steps bounded by max_iterations; determined ground steps are bounded only by the definition's own computation, the caller's interrupt, and the stack guard"
+
+[[node.cost]]
+mode = "the items of a map, set or list of n items (simplify_children)"
+bound = "O(u log n) nodes for the u items that are not evaluated or mention a variable the path condition binds, found by the items' summaries; every item when the path condition replaces terms, which no summary locates"
 
 [[node.cost]]
 mode = "rule condition"
@@ -3133,7 +3168,7 @@ id = "backend.substitution.apply"
 provenance = "declared"
 area = "backend"
 name = "simultaneous substitution with attribute-guided skipping"
-variable = "t = term size; v = variables of a visited subterm; s = bindings of the applied substitution; o = bindings of the old substitution in compose"
+variable = "t = term size; v = variables of a visited subterm; s = bindings of the applied substitution; o = bindings of the old substitution in compose; n = items of a collection; u = items of a collection that mention a bound variable"
 no_counter = "TermConstructed measures resulting term construction only and is not dedicated to substitution"
 span = "none"
 table = "Algorithm::ALL"
@@ -3157,6 +3192,10 @@ symbol = "compose"
 [[node.cost]]
 mode = "one term"
 bound = "O(t x v log s), with O(1) skipping of variable-free subterms"
+
+[[node.cost]]
+mode = "the items of a map, set or list of n items (rebuild_where, map_where)"
+bound = "O(u log n) nodes for the u items that mention a bound variable, plus a meet test of each entered node's variable multiset with the substitution; a subtree whose variables the substitution does not bind is not entered"
 
 [[node.cost]]
 mode = "compose"
@@ -3227,6 +3266,257 @@ symbol = "normalize_match_condition"
 [[node.cost]]
 mode = "search result normalization"
 bound = "O(c^2 x t), plus for each solved binding whose value is not ceil_free one ceil_term walk of the value and O((c + f) x t) membership comparisons per obligation it yields, and, when f > 0, O(f x t) per solved binding to eliminate it from the facts (a binding from the subject's own constraints) or to move the facts it rewrites into the constraints (any other binding, which also reads the variable sets of the c constraints)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.term.chunked"
+provenance = "declared"
+area = "backend"
+name = "persistent B+-tree of item chunks with monoid summaries per node"
+variable = "n = items of the tree (of the larger operand of a join or union); k = items of the smaller operand of a union; s = items a seek wants; u = items a rebuild changes; D = items of two compared versions outside the nodes they share; d = distinct variables of the items an edit adds or removes; V = distinct variables of the tree's items; m = variables of a union of variable sets outside its largest operand. The branching factor B is a constant (32 for collection items, 64 for variable trees), so a node is O(1) work"
+no_counter = "a tree operation is part of the hook, match, substitution or simplification that calls it, which carry the counters; test builds bound the summaries an operation computes (entry and multiset-entry counts), and tests/size_weighted_growth.rs bounds the bytes a rewrite step allocates on a larger collection"
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendTermChunked"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::insert_at"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::remove_at"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::join"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::split_at"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::split_at_key"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::insert"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::remove"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::union"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::cut"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/multiset.rs"
+symbol = "Multiset"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/multiset.rs"
+symbol = "Multiset::add"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/multiset.rs"
+symbol = "Multiset::remove"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/multiset.rs"
+symbol = "merge_entries"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/multiset.rs"
+symbol = "subtract_entries"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/seek.rs"
+symbol = "Chunked::seek"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/seek.rs"
+symbol = "Chunked::range"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/seek.rs"
+symbol = "Chunked::map_where"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/seek.rs"
+symbol = "Chunked::replace_at"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/seek.rs"
+symbol = "Chunked::rebuild_where"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/seek.rs"
+symbol = "Where"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/variables.rs"
+symbol = "Variables"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/variables.rs"
+symbol = "Variables::of_multiset"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/variables.rs"
+symbol = "Variables::contains"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/variables.rs"
+symbol = "Union"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/variables.rs"
+symbol = "Union::finish"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked::from_vec"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked::get"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked::search"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked::search_by"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked::iter"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked::aligned"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked::eq_by"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked::cmp_by"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked::drop"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "NodeSummary"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "SequenceHash"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Dismantle"
+
+[[node.cost]]
+mode = "insert, remove or replace one item (a path copy)"
+bound = "O(log n) nodes copied, plus O(d log V) per copied node for its variable multiset (a rebalanced node amortized over the edits below it)"
+
+[[node.cost]]
+mode = "search by key, access by position, a cursor or range start"
+bound = "O(log n)"
+
+[[node.cost]]
+mode = "length, hash, root summary (what a collection term's attributes read)"
+bound = "O(1)"
+
+[[node.cost]]
+mode = "split at a position or key; join two trees"
+bound = "O(log n) nodes, plus at each level of a split the variables of its lighter side"
+
+[[node.cost]]
+mode = "union of two ordered trees (a map or set built on a tree rest, _Map_, _Set_)"
+bound = "O(k log(n/k + 1)) nodes copied, plus the added items' variables at each copied node"
+
+[[node.cost]]
+mode = "seek by summary (unevaluated, failing ceil_free, symbolic key, k cell, variables meeting a substitution)"
+bound = "O(s log n) nodes read, O(1) when the root summary admits nothing"
+
+[[node.cost]]
+mode = "map_where, rebuild_where (substitution and simplifier rebuilds)"
+bound = "O(u log n) nodes copied, plus one insertion per changed item no longer in order"
+
+[[node.cost]]
+mode = "equality or order of two versions (aligned walk)"
+bound = "O(D + log n) item comparisons and node visits; nodes both reach at one position are skipped"
+
+[[node.cost]]
+mode = "drop of a version"
+bound = "its unshared nodes (O(log n) after a one-item edit), in constant stack"
+
+[[node.cost]]
+mode = "bulk load, full iteration, to_vec"
+bound = "O(n)"
+
+[[node.cost]]
+mode = "variable set of a term built above its children (Variables, Union)"
+bound = "O(1) when one child holds them all; O(m log V) when the largest child's set is a tree; O(V) merge when every operand has at most B variables"
 
 [[node]]
 kind = "algorithm"
@@ -3454,6 +3744,30 @@ symbol = "PassInput::resolved_raw"
 
 [[node]]
 kind = "observation"
+id = "crates/k-rust-backend/src/term/chunked/tests.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/term/chunked/tests.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/tests.rs"
+symbol = "crates/k-rust-backend/src/term/chunked/tests.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/term/items.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/term/items.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "crates/k-rust-backend/src/term/items.rs"
+
+[[node]]
+kind = "observation"
 id = "crates/k-rust-backend/src/tests/definedness.rs"
 provenance = "declared"
 area = "backend"
@@ -3475,6 +3789,18 @@ name = "crates/k-rust-backend/tests/backend/term_order.rs"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/tests/backend/term_order.rs"
 symbol = "crates/k-rust-backend/tests/backend/term_order.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/tests/size_weighted_growth.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/tests/size_weighted_growth.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/tests/size_weighted_growth.rs"
+symbol = "crates/k-rust-backend/tests/size_weighted_growth.rs"
 
 [[node]]
 kind = "observation"
@@ -8054,6 +8380,85 @@ symbol = "remove_unit"
 
 [[node]]
 kind = "invariant"
+id = "representation.backend.items"
+provenance = "declared"
+area = "backend"
+name = "the items of a collection term in a persistent tree with a root summary"
+invariant = "An Items is a Chunked tree under its fill invariant, and every node's summary is the fold of its items' summaries: the count, the first and last item, the repeated-key flag, the sequence hash, the ItemSummary (the counts of items failing each attribute flag, the key header, the symbolic-key count, the macro flag and the saturated k-cell count) and the multiset of the variables the items mention, so the root summary is that of the whole sequence and the attributes of a collection term read it in place of its items. The ordered edits (insert, remove, union, rebuild_where) keep the items in nondecreasing item order with repeated items and keys adjacent, which is the order of a map's entries and of a set's elements; the positional edits keep the given order of a list's items. Equality, order and hash are those of the item sequence, whatever the tree's shape."
+type_path = "k_rust_backend::term::Items"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::from_vec"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::summary"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::insert"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::remove"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::union"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::rebuild_where"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::map_where"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::insert_at"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::remove_at"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::replace_at"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::split_at"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/items.rs"
+symbol = "Items::join"
+
+[[node]]
+kind = "invariant"
 id = "representation.backend.term"
 provenance = "declared"
 area = "backend"
@@ -9163,6 +9568,24 @@ provenance = "declared"
 
 [[edge]]
 kind = "measured-by"
+from = "backend.term.chunked"
+to = "crates/k-rust-backend/src/term/chunked/tests.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.term.chunked"
+to = "crates/k-rust-backend/src/term/items.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.term.chunked"
+to = "crates/k-rust-backend/tests/size_weighted_growth.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
 from = "backend.unification.syntactic"
 to = "UnificationProblems"
 provenance = "declared"
@@ -10215,6 +10638,18 @@ from = "remove units"
 to = "minimize term construction"
 provenance = "table"
 order = 50
+
+[[edge]]
+kind = "measured-by"
+from = "representation.backend.items"
+to = "crates/k-rust-backend/src/term/chunked/tests.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "representation.backend.items"
+to = "crates/k-rust-backend/src/term/items.rs"
+provenance = "declared"
 
 [[edge]]
 kind = "measured-by"

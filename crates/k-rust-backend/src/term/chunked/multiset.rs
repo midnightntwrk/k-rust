@@ -67,6 +67,13 @@ pub(crate) struct Multiset<E: Ord + Clone + Hash + fmt::Debug, const B: usize = 
     entries: Chunked<Occurrences<E>, B>,
 }
 
+/// The variable multiset each node keeps by difference (module documentation).
+///
+/// ```toml algorithm-site
+/// id = "backend.term.chunked"
+/// role = "part"
+/// sites = ["Multiset", "Multiset::add", "Multiset::remove", "merge_entries", "subtract_entries"]
+/// ```
 impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Multiset<E, B> {
     pub(crate) const fn new() -> Self {
         Self {

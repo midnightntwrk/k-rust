@@ -2,7 +2,7 @@
 //! id = "backend.substitution.apply"
 //! name = "simultaneous substitution with attribute-guided skipping"
 //! sites = ["substitute", "compose"]
-//! variable = "t = term size; v = variables of a visited subterm; s = bindings of the applied substitution; o = bindings of the old substitution in compose"
+//! variable = "t = term size; v = variables of a visited subterm; s = bindings of the applied substitution; o = bindings of the old substitution in compose; n = items of a collection; u = items of a collection that mention a bound variable"
 //! counters = []
 //! no_counter = "TermConstructed measures resulting term construction only and is not dedicated to substitution"
 //! span = "none"
@@ -10,6 +10,10 @@
 //! [[cost]]
 //! mode = "one term"
 //! bound = "O(t x v log s), with O(1) skipping of variable-free subterms"
+//!
+//! [[cost]]
+//! mode = "the items of a map, set or list of n items (rebuild_where, map_where)"
+//! bound = "O(u log n) nodes for the u items that mention a bound variable, plus a meet test of each entered node's variable multiset with the substitution; a subtree whose variables the substitution does not bind is not entered"
 //!
 //! [[cost]]
 //! mode = "compose"

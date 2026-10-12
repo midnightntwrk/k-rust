@@ -158,6 +158,13 @@ impl<G: Group> Difference<G> {
     }
 }
 
+/// The seeks, ranges and item-wise rebuilds of the tree (module documentation).
+///
+/// ```toml algorithm-site
+/// id = "backend.term.chunked"
+/// role = "part"
+/// sites = ["Chunked::seek", "Chunked::range", "Chunked::map_where", "Chunked::replace_at", "Chunked::rebuild_where", "Where"]
+/// ```
 impl<I: Item, const B: usize> Chunked<I, B> {
     /// The items `seek` wants, with their positions, in order. The descent enters only the
     /// subtrees `seek` admits.

@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "backend.matching.syntactic"
 //! name = "sort-aware one-way first-order matching by pair decomposition"
-//! sites = ["match_terms_with_context", "match_terms", "match_terms_in_definition", "match_term_pairs_in_definition", "Matcher::run", "Matcher::match_one"]
-//! variable = "p = pairs popped, bounded by |pattern| plus subject-side And duplications and one map_queue postponement per map pair; a = pair arity; s = bindings in the substitution; t = size of a bound term"
+//! sites = ["match_terms_with_context", "match_terms", "match_terms_in_definition", "match_term_pairs_in_definition", "Matcher::run", "Matcher::match_one", "Matcher::match_maps", "Matcher::match_sets", "Matcher::match_lists"]
+//! variable = "p = pairs popped, bounded by |pattern| plus subject-side And duplications and one map_queue postponement per map pair; a = pair arity; s = bindings in the substitution; t = size of a bound term; k = items a collection pattern names; n = items of the subject collection"
 //! counters = ["MatchingProblems", "MatchingPairs"]
 //! span = "per problem"
 //! consumes = [{ type = "k_rust_backend::matching::collections::CollectionSolution", role = "collection solution" }]
@@ -11,6 +11,14 @@
 //! [[cost]]
 //! mode = "one matching problem"
 //! bound = "O(p x (a + s x t))"
+//!
+//! [[cost]]
+//! mode = "a map or set pattern against a subject without rest (match_maps, match_sets): its items found and its rest bound"
+//! bound = "O(k log n): one search per pattern item and one removal per found item, the rest sharing the subject's other nodes; a ground item missing from a ground subject fails without a removal"
+//!
+//! [[cost]]
+//! mode = "a list pattern's items at either end (match_lists)"
+//! bound = "O(k + log n): k item pairs and one cut of the longer side"
 //! ```
 //!
 //! ```toml algorithm

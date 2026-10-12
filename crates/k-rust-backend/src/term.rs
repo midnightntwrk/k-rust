@@ -90,8 +90,10 @@ use rustc_hash::FxHasher;
 
 use crate::smt::SmtType;
 
-// Map entries use the tree (design K22, step 3); parts of it that only the set, list and
-// variable-set steps will use are still read by its tests alone.
+// Every map, set and list term and every variable set is held in the tree (design K22). A few
+// of its general operations (a split or a removal by key, some methods of the persistent
+// variable set, two summary readers) have no caller outside its tests, which check them
+// against models, so dead code is allowed outside test builds.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) mod chunked;
 pub mod head;

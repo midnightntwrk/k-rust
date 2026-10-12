@@ -1,5 +1,18 @@
 //! Concrete `LIST` hooks: per-call operations on the internal list
 //! representation; a responsibility, not an algorithm; no counter of its own, no worklist.
+//!
+//! Each hook is a few operations of the persistent positional tree that holds the list's items
+//! (card `backend.term.chunked`), so for a list argument of `n` items:
+//!
+//! - `size`: `O(1)`, the root summary's count; `element`, `unit`: `O(1)`.
+//! - `get`: one descent by position, `O(log n)` where a vector read in `O(1)`; measured on a
+//!   rewrite loop reading every item of lists of 2,000 to 16,000 items, a read costs about the
+//!   same (177 K instructions, the rewrite step) with either, so the descent is not visible.
+//! - `concat`: one join, `O(log n)` for `n` the longer operand's items.
+//! - `update`: one path copy, `O(log n)`; `range`: two splits, `O(log n)`; `updateAll`: two
+//!   splits and two joins, `O(log n)` for `n` the longer operand's items.
+//! - `make`: a bulk load of the `n` copies, `O(n)`; `in`: a scan, `O(n)` (no summary orders the
+//!   items of a list by value).
 
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;

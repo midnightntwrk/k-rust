@@ -53,6 +53,13 @@ enum Backing<V: Ord + Clone + Hash + fmt::Debug, const B: usize> {
     Tree(Chunked<Occurrences<V>, B>),
 }
 
+/// The persistent variable set (module documentation).
+///
+/// ```toml algorithm-site
+/// id = "backend.term.chunked"
+/// role = "part"
+/// sites = ["Variables", "Variables::of_multiset", "Variables::contains", "Union", "Union::finish"]
+/// ```
 impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
     /// The empty set.
     pub(crate) const fn new() -> Self {

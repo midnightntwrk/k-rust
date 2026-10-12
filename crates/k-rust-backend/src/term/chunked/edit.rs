@@ -112,6 +112,13 @@ fn child_group<I: Item>(child: &Arc<Node<I>>) -> I::Group {
     child.summary().group.clone()
 }
 
+/// The persistent edits of the tree (module documentation).
+///
+/// ```toml algorithm-site
+/// id = "backend.term.chunked"
+/// role = "part"
+/// sites = ["Chunked::insert_at", "Chunked::remove_at", "Chunked::join", "Chunked::split_at", "Chunked::split_at_key", "Chunked::insert", "Chunked::remove", "Chunked::union", "Chunked::cut"]
+/// ```
 impl<I: Item, const B: usize> Chunked<I, B> {
     /// The tree whose root is `node`. Any node is a valid root: a node other than the root
     /// holds at least `MIN_FILL` items or children, and `MIN_FILL` is at least 2. A node of

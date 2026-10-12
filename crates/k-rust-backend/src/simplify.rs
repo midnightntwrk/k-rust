@@ -2,7 +2,7 @@
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
 //! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory", "apply_theory_noting_cuts"]
-//! variable = "r = rounds; t = term nodes; c = candidate equations per node"
+//! variable = "r = rounds; t = term nodes; c = candidate equations per node; n = items of a collection; u = items of a collection the summaries admit"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
 //! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
@@ -10,6 +10,10 @@
 //! [[cost]]
 //! mode = "one term lineage"
 //! bound = "O(r x |t| x c), with the rounds that are not determined ground function-theory steps bounded by max_iterations; determined ground steps are bounded only by the definition's own computation, the caller's interrupt, and the stack guard"
+//!
+//! [[cost]]
+//! mode = "the items of a map, set or list of n items (simplify_children)"
+//! bound = "O(u log n) nodes for the u items that are not evaluated or mention a variable the path condition binds, found by the items' summaries; every item when the path condition replaces terms, which no summary locates"
 //!
 //! [[cost]]
 //! mode = "rule condition"

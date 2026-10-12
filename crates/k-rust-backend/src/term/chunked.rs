@@ -2,20 +2,73 @@
 //!
 //! [`Chunked`] holds a sequence of items in a tree whose leaves are vectors of at most `B` items
 //! and whose internal nodes hold at most `B` children. Nodes are shared behind [`Arc`], so a
-//! clone shares the whole tree and a persistent edit copies only the nodes it changes. The tree is the representation planned for the items of a map, a
-//! set and a list term, and for the variable sets of term attributes (design K22, revision 2).
+//! clone shares the whole tree and a persistent edit copies only the nodes it changes. It is the
+//! representation of the items of every map, set and list term ([`Items`](crate::term::Items))
+//! and of the variable sets of term attributes ([`Variables`](crate::term::Variables)) (design
+//! K22, revision 2):
 //!
-//! # State of this module
+//! ```toml algorithm
+//! id = "backend.term.chunked"
+//! name = "persistent B+-tree of item chunks with monoid summaries per node"
+//! sites = ["Chunked", "Chunked::from_vec", "Chunked::get", "Chunked::search", "Chunked::search_by", "Chunked::iter", "Chunked::aligned", "Chunked::eq_by", "Chunked::cmp_by", "Chunked::drop", "NodeSummary", "SequenceHash", "Dismantle"]
+//! variable = "n = items of the tree (of the larger operand of a join or union); k = items of the smaller operand of a union; s = items a seek wants; u = items a rebuild changes; D = items of two compared versions outside the nodes they share; d = distinct variables of the items an edit adds or removes; V = distinct variables of the tree's items; m = variables of a union of variable sets outside its largest operand. The branching factor B is a constant (32 for collection items, 64 for variable trees), so a node is O(1) work"
+//! counters = []
+//! no_counter = "a tree operation is part of the hook, match, substitution or simplification that calls it, which carry the counters; test builds bound the summaries an operation computes (entry and multiset-entry counts), and tests/size_weighted_growth.rs bounds the bytes a rewrite step allocates on a larger collection"
+//! span = "none"
+//! tests = ["crates/k-rust-backend/src/term/chunked/tests.rs", "crates/k-rust-backend/src/term/items.rs", "crates/k-rust-backend/tests/size_weighted_growth.rs"]
 //!
-//! The tree has nodes, the fill invariant, bulk loading, length, double-ended iteration, access
-//! by position, ordered search, equality, order, a hash independent of the tree's shape, a drop
-//! that needs only constant stack, the persistent edits of [`edit`] (inserting and removing one
-//! item by path copy, splitting at a position or a key, joining, and the union of two ordered
-//! sequences), the per-node summaries of [`summary`] and the group summaries kept by difference
-//! ([`Group`], [`multiset`]), the seeks, ranges and item-wise rebuilds of [`seek`], and the
-//! shared variable sets of [`variables`]. Nothing outside this module and its tests uses it until
-//! terms move to it, so its declaration in `term.rs` allows dead code outside test builds; test
-//! builds keep the lint, so every item here is at least tested.
+//! [[cost]]
+//! mode = "insert, remove or replace one item (a path copy)"
+//! bound = "O(log n) nodes copied, plus O(d log V) per copied node for its variable multiset (a rebalanced node amortized over the edits below it)"
+//!
+//! [[cost]]
+//! mode = "search by key, access by position, a cursor or range start"
+//! bound = "O(log n)"
+//!
+//! [[cost]]
+//! mode = "length, hash, root summary (what a collection term's attributes read)"
+//! bound = "O(1)"
+//!
+//! [[cost]]
+//! mode = "split at a position or key; join two trees"
+//! bound = "O(log n) nodes, plus at each level of a split the variables of its lighter side"
+//!
+//! [[cost]]
+//! mode = "union of two ordered trees (a map or set built on a tree rest, _Map_, _Set_)"
+//! bound = "O(k log(n/k + 1)) nodes copied, plus the added items' variables at each copied node"
+//!
+//! [[cost]]
+//! mode = "seek by summary (unevaluated, failing ceil_free, symbolic key, k cell, variables meeting a substitution)"
+//! bound = "O(s log n) nodes read, O(1) when the root summary admits nothing"
+//!
+//! [[cost]]
+//! mode = "map_where, rebuild_where (substitution and simplifier rebuilds)"
+//! bound = "O(u log n) nodes copied, plus one insertion per changed item no longer in order"
+//!
+//! [[cost]]
+//! mode = "equality or order of two versions (aligned walk)"
+//! bound = "O(D + log n) item comparisons and node visits; nodes both reach at one position are skipped"
+//!
+//! [[cost]]
+//! mode = "drop of a version"
+//! bound = "its unshared nodes (O(log n) after a one-item edit), in constant stack"
+//!
+//! [[cost]]
+//! mode = "bulk load, full iteration, to_vec"
+//! bound = "O(n)"
+//!
+//! [[cost]]
+//! mode = "variable set of a term built above its children (Variables, Union)"
+//! bound = "O(1) when one child holds them all; O(m log V) when the largest child's set is a tree; O(V) merge when every operand has at most B variables"
+//! ```
+//!
+//! Every operation is persistent: it returns new trees and leaves its operands valid, sharing
+//! with them every node it did not change. The costs above count nodes, each `O(B)` items or
+//! handles and its summary; the group summary of a copied node costs the difference the edit
+//! makes ([`Group`]), not what lies below it. A few general operations (a split or a removal by
+//! key, some methods of the persistent variable set) have no caller outside the tests, which
+//! check every operation against a `Vec`, `BTreeMap` or multiset model, so the declaration in
+//! `term.rs` allows dead code outside test builds.
 //!
 //! # Items
 //!

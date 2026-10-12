@@ -28,6 +28,27 @@
 //! equal sequences built by different edits hash alike, and computing it costs a node's summary
 //! rather than a pass over the items.
 //!
+//! What every value holds, whichever edit built it:
+//!
+//! ```toml algorithm-representation
+//! id = "representation.backend.items"
+//! name = "the items of a collection term in a persistent tree with a root summary"
+//! type = "k_rust_backend::term::Items"
+//! sites = ["Items", "Items::from_vec", "Items::summary", "Items::insert", "Items::remove", "Items::union", "Items::rebuild_where", "Items::map_where", "Items::insert_at", "Items::remove_at", "Items::replace_at", "Items::split_at", "Items::join"]
+//! invariant = """\
+//! An Items is a Chunked tree under its fill invariant, and every node's summary is the fold of \
+//! its items' summaries: the count, the first and last item, the repeated-key flag, the sequence \
+//! hash, the ItemSummary (the counts of items failing each attribute flag, the key header, the \
+//! symbolic-key count, the macro flag and the saturated k-cell count) and the multiset of the \
+//! variables the items mention, so the root summary is that of the whole sequence and the \
+//! attributes of a collection term read it in place of its items. The ordered edits (insert, \
+//! remove, union, rebuild_where) keep the items in nondecreasing item order with repeated items \
+//! and keys adjacent, which is the order of a map's entries and of a set's elements; the \
+//! positional edits keep the given order of a list's items. Equality, order and hash are those of \
+//! the item sequence, whatever the tree's shape."""
+//! tests = ["crates/k-rust-backend/src/term/items.rs", "crates/k-rust-backend/src/term/chunked/tests.rs"]
+//! ```
+//!
 //! # Crate-private bound
 //!
 //! The item types are bounded by the crate's own `Item`, which names the tree's summary types

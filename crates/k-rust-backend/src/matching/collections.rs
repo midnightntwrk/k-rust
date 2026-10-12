@@ -16,8 +16,16 @@
 //! bound = "O((n+1)^k) solve_term_pair assignments with narrowing, O(n^k) without"
 //!
 //! [[cost]]
+//! mode = "frame of one map or set assignment (the subject without the assigned items)"
+//! bound = "O(k log n): one removal from the subject's tree per assigned item"
+//!
+//! [[cost]]
 //! mode = "lists"
 //! bound = "O(h) solve_term_pair calls per list pair"
+//!
+//! [[cost]]
+//! mode = "list frame (the closed side without the items outside the frames)"
+//! bound = "O(log n): two cuts of the closed side's tree"
 //!
 //! [[cost]]
 //! mode = "deferred pair sweep (solve_collection_pairs_from_solution)"
@@ -28,7 +36,9 @@
 //! O(n^k) assignments worst case for k pattern elements against n subject elements (exponential in
 //! k, the number of pattern elements left after cancellation); A(U) matching over lists by a
 //! length-fixed frame split, one pair solve per element outside the frames; opaque-concatenation
-//! cancellation;
+//! cancellation. A frame is never copied: a map or set frame is the subject's tree with the
+//! assigned items removed, a list frame a cut of the closed side, so a frame costs the logarithm
+//! of the subject's size, not its size;
 //! `Counter::MatchingCollectionProblems`. The per-pair rules (sorts, overloads,
 //! injections) stay in `solve_term_pair`, which is why no generic AC matcher replaces this.
 
