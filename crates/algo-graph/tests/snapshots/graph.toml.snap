@@ -7191,7 +7191,7 @@ id = "parser.disambiguation.insert_empty_lists"
 provenance = "declared"
 area = "parser"
 name = "insertion of implicit empty user lists"
-variable = "N = session nodes reachable from the forest, with the singleton lists the pass builds; E = their child edges; S = distinct sorts a node is expected at; C = candidate list instantiations"
+variable = "N = session nodes reachable from the forest, with the singleton lists the pass builds; E = their child edges; S = distinct sorts a node is expected at; C = candidate list instantiations; Q = combinations of the classes of one node's children, a child's trees classed by the list sort the node asks of them and, under a rewrite, by their parsed sort"
 no_counter = "empty-list insertion has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -7230,6 +7230,21 @@ symbol = "Grammar::packed_list_sort"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::add_packed_empty_lists_each_tree"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::complete_node_each_tree"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::list_sort_classes"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
 symbol = "Grammar::list_instantiation"
 
 [[node.sites]]
@@ -7240,6 +7255,10 @@ symbol = "Grammar::singleton_list"
 [[node.cost]]
 mode = "one packed forest"
 bound = "O((N + E) x S x C), each node's result, wrapping and list sort computed once per expected sort, plus one PartialOrder::new over the subsort relations the first time a grammar needs its order, and the structural ordering of an ambiguity's alternatives only where they fail or two results are equal as terms"
+
+[[node.cost]]
+mode = "each tree of a packed forest (add_packed_empty_lists_each_tree)"
+bound = "O((N + E) x S x Q x C), N counting the class forests the pass builds: each node's trees completed, and classed by list sort, once per expected sort and combination of its children's classes, a class having one sort, so Q is at most the subsort order's sorts to the node's arity; never once per tree"
 
 [[node]]
 kind = "algorithm"
@@ -7364,7 +7383,7 @@ id = "parser.disambiguation.resolve_ambiguity"
 provenance = "declared"
 area = "parser"
 name = "resolution and reporting of remaining ambiguity"
-variable = "N = session nodes that reach resolution; A = ambiguity alternatives; O = owned nodes of a tree; F = nodes of an inferred packed forest; G = their child edges and alternatives; R = productions in the grammar"
+variable = "N = session nodes that reach resolution; A = ambiguity alternatives; O = owned nodes of a tree; F = nodes of an inferred packed forest; G = their child edges and alternatives; R = productions in the grammar; T = terms of one node's trees, each lowered alone, that differ only in an annotation, a one-item sequence against its item or a token's text; a = largest arity"
 no_counter = "final ambiguity resolution has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -7388,6 +7407,16 @@ symbol = "Grammar::lower_inferred_forest"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::lower_each_inferred_tree"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::each_tree_terms"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::resolve_packed_ambiguities"
 
 [[node.sites]]
@@ -7406,6 +7435,10 @@ bound = "O(O) to pack the tree into a session, where equal subtrees become one n
 [[node.cost]]
 mode = "one inferred packed forest (lower_inferred_forest): one Z3 inferred, or the join of two parts' inferred forests when sorts decide among every reading (infer_without_structural_preference)"
 bound = "O(F + G) to intern the forest into a session, then the session bound; no owned tree of its trees is built, whatever their number"
+
+[[node.cost]]
+mode = "each tree of an inferred packed forest lowered alone (lower_each_inferred_tree), for a typing group whose trees instantiate formal parameters differently"
+bound = "O(F + G) to intern the forest, the per-tree forms of terminator resolution and list completion (parser.disambiguation.resolve_terminators, parser.disambiguation.insert_empty_lists), then each node's terms once: O(A x T) per ambiguity node and T^a lowerings (parser.lower.term) per production node, stopping at the first node where two terms differ in a way no ancestor can undo; no tree is built, whatever their number"
 
 [[node]]
 kind = "algorithm"
@@ -7457,6 +7490,11 @@ symbol = "Grammar::resolve_packed_overloaded_terminators"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_packed_overloaded_terminators_each_tree"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::resolve_overloaded_terminators_node"
 
 [[node.sites]]
@@ -7467,6 +7505,10 @@ symbol = "Grammar::least_overloaded_terminator"
 [[node.cost]]
 mode = "one packed forest"
 bound = "O(N + E x L + K x R), each node's result computed once, plus the structural ordering of each ambiguity's alternatives and of the terminator alternatives at a program list's tail, whose pair comparisons the session shares"
+
+[[node.cost]]
+mode = "each tree of a packed forest (resolve_packed_overloaded_terminators_each_tree)"
+bound = "the packed-forest bound, plus, at a program list's tail, one node for the alternatives of the ambiguity there, nested ones included, each mapped on its own"
 
 [[node]]
 kind = "algorithm"
@@ -7992,7 +8034,7 @@ id = "parser.inference.portable"
 provenance = "declared"
 area = "parser"
 name = "portable sort inference by bound propagation"
-variable = "V = sort-bound vertices (of a forest: variables); E = bound edges; S = concrete sorts among the bounds (of a forest: sorts of the subsort order); I = instances of an ambiguous forest, a node with one context its ancestors give it; a = largest arity; W = distinct typings of the trees of one instance; M = maximal typings; G = trees of a typing group whose trees instantiate formal parameters differently"
+variable = "V = sort-bound vertices (of a forest: variables); E = bound edges; S = concrete sorts among the bounds (of a forest: sorts of the subsort order); I = instances of an ambiguous forest, a node with one context its ancestors give it; a = largest arity; W = distinct typings of the trees of one instance; M = maximal typings; P = nodes of the forest of a typing group whose trees instantiate formal parameters differently"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferencePortable"
@@ -8058,7 +8100,7 @@ bound = "O(V x E)"
 
 [[node.cost]]
 mode = "ambiguous monomorphic forest"
-bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus one lowering per tree, up to the first that lowers differently, for the G trees of a typing group whose trees instantiate formal parameters differently, each tree built when it is lowered; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it; the sorts' numbering, and each sort's down and up sets (S/64 words each), are built once per grammar, the first time a decision reads them (SortTable)"
+bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus, for a typing group whose trees instantiate formal parameters differently, the lowering of each of its trees alone computed on its forest of P nodes (parser.disambiguation.resolve_ambiguity, mode each tree), polynomial in P and independent of its number of trees; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it; the sorts' numbering, and each sort's down and up sets (S/64 words each), are built once per grammar, the first time a decision reads them (SortTable)"
 
 [[node.cost]]
 mode = "variable realization"

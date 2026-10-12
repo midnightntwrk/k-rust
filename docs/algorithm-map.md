@@ -87,7 +87,7 @@ Representation flow into [prepared definition manifest], [compiled definition]:
 - [1] parser.inference.portable — O(V x E) +2 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/inference.rs `Grammar::infer_sorts_portable`
 - [1] parser.inference.z3 — O(H + G^2 + R) plus one clone of the grammar's… +7 modes — in: [packed forest] → out: [sorted forest], [sorted tree] — at k-rust/inner/parser/z3_inference.rs `Grammar::infer_packed_forest_z3`
 - [2] parser.bubble.configurations — O(r + D + g + sum over b of p) — in: [lowered source] → out: [parsed configuration bubbles] — at k-rust/inner/config.rs `resolve_configuration_bubbles`
-- [2] parser.disambiguation.resolve_ambiguity — the passes before resolution, each its… +2 modes — in: [sorted forest], [sorted tree] → out: [parsed term] — at k-rust/inner/parser/disambiguation.rs `Grammar::lower_inferred_session`
+- [2] parser.disambiguation.resolve_ambiguity — the passes before resolution, each its… +3 modes — in: [sorted forest], [sorted tree] → out: [parsed term] — at k-rust/inner/parser/disambiguation.rs `Grammar::lower_inferred_session`
 - [3] definition.configuration.expand — O(N + G x (log G + k x eq) + M^2 + C x D) plus… — in: [parsed configuration bubbles] → out: [expanded configurations] — at k-rust/definition/configuration.rs `expand_configurations`
 - [4] parser.bubble.rules — O(g + sum over b of p) — in: [expanded configurations] → out: [parsed rule bubbles] — at k-rust/inner/rules.rs `resolve_rule_bubbles`
 - [5] = definition.resolve.imports (phase 15)
@@ -183,13 +183,13 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.disambiguation.collapse_records — O(N + X x F) plus the structural ordering of each… — at k-rust/inner/parser/record.rs `Grammar::collapse_packed_record_productions`
 - parser.disambiguation.factor_packed — O(N x A), plus the structural ordering that… +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::factor_pre_inference_packed_ambiguities`
 - parser.disambiguation.filter_overloads — O(R) to collect the sources of the prefer and… +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::filter_packed_overloads_prefer_avoid`
-- parser.disambiguation.insert_empty_lists — O((N + E) x S x C), each node's result, wrapping… — at k-rust/inner/parser/lists.rs `Grammar::add_packed_empty_lists`
+- parser.disambiguation.insert_empty_lists — O((N + E) x S x C), each node's result, wrapping… +1 mode — at k-rust/inner/parser/lists.rs `Grammar::add_packed_empty_lists`
 - parser.disambiguation.lift_top_lhs — O(N) — at k-rust/inner/parser/disambiguation.rs `Grammar::push_top_lhs_packed_ambiguity_up`
 - parser.disambiguation.priority — O(N) +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::filter_packed_priority`
 - parser.disambiguation.remove_brackets_casts — O(N + E), each node's result computed once — at k-rust/inner/parser/disambiguation.rs `Grammar::remove_packed_brackets_and_syntactic_casts`
 - parser.disambiguation.reserve_names — O(N) — at k-rust/inner/parser/forest.rs `packed_variable_names`
 - parser.disambiguation.resolve_applications — O(N x R) to find each label's arities, plus O(N x… — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
-- parser.disambiguation.resolve_terminators — O(N + E x L + K x R), each node's result computed… — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_overloaded_terminators`
+- parser.disambiguation.resolve_terminators — O(N + E x L + K x R), each node's result computed… +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_overloaded_terminators`
 - parser.earley.recognize — O(B x s) chart allocation plus O(p x d) plus the… +3 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`
 - parser.forest.cycle_check — O(N) expected (hashed visited set and build table) — at k-rust/inner/parser/cycles.rs `check_same_span_repetition`
 - parser.forest.intern — one hash lookup and O(B x C) pointer comparisons… +2 modes — at k-rust/inner/parser/forest.rs `LoweringSession::intern`

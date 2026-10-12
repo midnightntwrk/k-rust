@@ -1686,9 +1686,7 @@ mod tests {
 
     use proptest::prelude::*;
 
-    #[cfg(feature = "z3-inference")]
-    use super::super::super::ParseError;
-    use super::super::super::{Grammar, PackedTerm, ParametricOrigin};
+    use super::super::super::{Grammar, PackedTerm, ParametricOrigin, ParseError};
     use super::super::tests::assert_forest_decision_agrees;
     use crate::definition::{Attributes, ProductionItem};
     use crate::kast::{Label, Sort, Term, TermMetadata, TermSpan};
@@ -2006,6 +2004,32 @@ mod tests {
             );
             let top = Sort::new(["K", "Int", "Exp", "Bool"][top]);
             assert_forest_decision_agrees(&grammar, &forest, &top, anywhere);
+            // Each kept group's trees lowered each alone on the forest, as the parameter split
+            // reads them, against each tree built and lowered alone.
+            let lower = super::super::super::InferredLowering {
+                grammar: &grammar,
+                start: &top,
+            };
+            let required = || ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            };
+            for group in grammar
+                .decide_forest(&forest, &top, anywhere, &required)
+                .into_iter()
+                .flatten()
+            {
+                let each = grammar.lower_each_inferred_tree(&group.term, &top);
+                let alone = super::super::lower_each_tree_by_listing(&lower, &group.term);
+                prop_assert!(
+                    match (&each, &alone) {
+                        (Some(each), Some(alone)) => each.identical(alone),
+                        (None, None) => true,
+                        _ => false,
+                    },
+                    "{each:?}\n{alone:?}"
+                );
+            }
             // Z3 compares typings over the variables of the whole forest, while the portable
             // decision gives a variable absent from a tree the top sort there, and Z3 does not
             // decide an anywhere rule whose left-hand side is ambiguous; so the engines are
@@ -2018,14 +2042,13 @@ mod tests {
                     .map(|tree| variables(&grammar, tree))
                     .collect::<Option<BTreeSet<_>>>()
                     .is_some_and(|sets| sets.len() == 1)
+                && let Some(checked) =
+                    grammar.checked_ambiguous_parse(&forest, &top, anywhere, &lower)
             {
-                let lower = |tree| grammar.lower_inferred(tree, &top);
-                if let Some(checked) = grammar.checked_ambiguous_parse(&forest, &top, anywhere, &lower) {
-                    prop_assert!(
-                        !matches!(checked, Err(ParseError::InferenceEngineDisagreement { .. })),
-                        "{checked:?}"
-                    );
-                }
+                prop_assert!(
+                    !matches!(checked, Err(ParseError::InferenceEngineDisagreement { .. })),
+                    "{checked:?}"
+                );
             }
         }
     }

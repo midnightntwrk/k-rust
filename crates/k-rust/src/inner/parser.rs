@@ -4173,6 +4173,26 @@ impl inference::Lowering<Term> for InferredLowering<'_> {
         }
         lowered
     }
+
+    fn lower_each_tree(&self, inferred: &Rc<PackedTerm>) -> Result<Option<Term>, ParseError> {
+        let lowered = self.grammar.lower_each_inferred_tree(inferred, self.start);
+        // The tests check the forest's result against its trees' wherever listing them is
+        // affordable.
+        #[cfg(test)]
+        if inference::packed_tree_count(inferred) <= 1 << 12 {
+            let trees = inference::lower_each_tree_by_listing(self, inferred);
+            assert!(
+                match (&lowered, &trees) {
+                    (Some(lowered), Some(trees)) => lowered.identical(trees),
+                    (None, None) => true,
+                    _ => false,
+                },
+                "lowering each tree on the forest differs from lowering each tree alone:\n\
+                 {lowered:?}\n{trees:?}"
+            );
+        }
+        Ok(lowered)
+    }
 }
 
 /// The term a completed production denotes over its lowered children.

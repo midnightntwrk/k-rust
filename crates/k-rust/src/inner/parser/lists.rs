@@ -18,8 +18,8 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.insert_empty_lists"
 //! name = "insertion of implicit empty user lists"
-//! sites = ["Grammar::add_packed_empty_lists", "Grammar::complete_packed_lists", "Grammar::complete_packed_list_child", "Grammar::wrap_packed_list_child", "Grammar::packed_list_sort", "Grammar::list_instantiation", "Grammar::singleton_list"]
-//! variable = "N = session nodes reachable from the forest, with the singleton lists the pass builds; E = their child edges; S = distinct sorts a node is expected at; C = candidate list instantiations"
+//! sites = ["Grammar::add_packed_empty_lists", "Grammar::complete_packed_lists", "Grammar::complete_packed_list_child", "Grammar::wrap_packed_list_child", "Grammar::packed_list_sort", "Grammar::add_packed_empty_lists_each_tree", "Grammar::complete_node_each_tree", "Grammar::list_sort_classes", "Grammar::list_instantiation", "Grammar::singleton_list"]
+//! variable = "N = session nodes reachable from the forest, with the singleton lists the pass builds; E = their child edges; S = distinct sorts a node is expected at; C = candidate list instantiations; Q = combinations of the classes of one node's children, a child's trees classed by the list sort the node asks of them and, under a rewrite, by their parsed sort"
 //! counters = []
 //! no_counter = "empty-list insertion has no dedicated counter"
 //! span = "per problem"
@@ -27,6 +27,10 @@
 //! [[cost]]
 //! mode = "one packed forest"
 //! bound = "O((N + E) x S x C), each node's result, wrapping and list sort computed once per expected sort, plus one PartialOrder::new over the subsort relations the first time a grammar needs its order, and the structural ordering of an ambiguity's alternatives only where they fail or two results are equal as terms"
+//!
+//! [[cost]]
+//! mode = "each tree of a packed forest (add_packed_empty_lists_each_tree)"
+//! bound = "O((N + E) x S x Q x C), N counting the class forests the pass builds: each node's trees completed, and classed by list sort, once per expected sort and combination of its children's classes, a class having one sort, so Q is at most the subsort order's sorts to the node's arity; never once per tree"
 //! ```
 //!
 //! The constructors and terminators a user-list declaration (`List{S, ","}`) implies, and the
@@ -360,7 +364,11 @@ impl Grammar {
 
     /// The terminator production of the empty-separator program list whose recursive production
     /// is `parent`, when `child_index` is that production's tail position.
-    fn program_list_tail_terminator(&self, parent: usize, child_index: usize) -> Option<usize> {
+    pub(super) fn program_list_tail_terminator(
+        &self,
+        parent: usize,
+        child_index: usize,
+    ) -> Option<usize> {
         if self.role != ParserRole::Program {
             return None;
         }
@@ -739,6 +747,389 @@ impl Grammar {
         sort
     }
 
+    /// List completion of every tree of a packed forest on its own, as a forest: the trees of
+    /// the result are exactly the trees [`Self::add_packed_empty_lists`] makes of each tree of
+    /// `term` alone at `expected`, and the error is some tree's when one fails.
+    ///
+    /// The packed pass completes a forest as one tree whose ambiguities are nodes: where a
+    /// node reads its children's sorts (the list instantiation of a parametric node, the list
+    /// sort of a rewrite's sides, the wrapping of a child into a singleton list) it reads an
+    /// ambiguity child as `K`, while each tree reads there the sort of the alternative it
+    /// takes. So here a node's child is first partitioned by what the node reads of each of
+    /// its trees, the list sort at the sort the node asks it at and the parsed sort, both
+    /// functions of the tree's root and, for a parametric root, of the same reads one level
+    /// down (`Grammar::list_sort_classes`). The node is then completed once per combination of
+    /// its children's classes, each class exactly as the packed pass completes a tree whose
+    /// child there has that class's sorts, and the results are the alternatives of one
+    /// ambiguity. Classes are memoized by session node and expected sort, and a node's classes
+    /// are at most the distinct sorts its trees have, so the forest is completed in time
+    /// polynomial in its nodes, whatever the number of its trees.
+    pub(super) fn add_packed_empty_lists_each_tree(
+        &self,
+        session: &mut LoweringSession,
+        term: &Rc<PackedTerm>,
+        expected: &Sort,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        let subsorts =
+            self.subsort_relations
+                .order()
+                .map_err(|cycle| ParseError::CircularSubsorts {
+                    path: cycle.path.clone(),
+                })?;
+        let mut lists = EachTreeLists::default();
+        self.complete_each_tree(session, &mut lists, subsorts, term, expected)
+    }
+
+    /// The trees of `term` completed at `expected`, each alone
+    /// ([`Self::add_packed_empty_lists_each_tree`]), memoized in `lists`.
+    fn complete_each_tree(
+        &self,
+        session: &mut LoweringSession,
+        lists: &mut EachTreeLists,
+        subsorts: &PartialOrder<Sort>,
+        term: &Rc<PackedTerm>,
+        expected: &Sort,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        if let Some((_, known)) = lists
+            .completed
+            .get(&Rc::as_ptr(term))
+            .and_then(|known| known.iter().find(|(sort, _)| sort == expected))
+        {
+            return Ok(Rc::clone(known));
+        }
+        let result = crate::stack::guarded(|| match &term.node {
+            PackedNode::Term(_) => Ok(Rc::clone(term)),
+            PackedNode::Ambiguity(alternatives) => {
+                let completed = alternatives
+                    .iter()
+                    .map(|alternative| {
+                        self.complete_each_tree(session, lists, subsorts, alternative, expected)
+                    })
+                    .collect::<Result<BTreeSet<_>, _>>()?;
+                Ok(session.intern(PackedTerm::alternatives(completed)))
+            }
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => self.complete_node_each_tree(
+                session,
+                lists,
+                subsorts,
+                *production,
+                None,
+                children,
+                metadata,
+                expected,
+            ),
+            PackedNode::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => self.complete_node_each_tree(
+                session,
+                lists,
+                subsorts,
+                *production,
+                Some(parameters),
+                children,
+                metadata,
+                expected,
+            ),
+        })?;
+        lists
+            .completed
+            .entry(Rc::as_ptr(term))
+            .or_default()
+            .push((expected.clone(), Rc::clone(&result)));
+        Ok(result)
+    }
+
+    /// The trees of one node of `production` (instantiated at `parameters`) over `children`,
+    /// completed at `expected`, each alone: one completion per combination of what the node
+    /// reads of its children's trees, as `Grammar::complete_packed_lists_node` completes a
+    /// tree.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the node's parts, as the packed pass matches them, and the pass state"
+    )]
+    fn complete_node_each_tree(
+        &self,
+        session: &mut LoweringSession,
+        lists: &mut EachTreeLists,
+        subsorts: &PartialOrder<Sort>,
+        production: usize,
+        parameters: Option<&Vec<Sort>>,
+        children: &[Rc<PackedTerm>],
+        metadata: &TermMetadata,
+        expected: &Sort,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        let descriptor = &self.productions[production];
+        let origin = parameters.and(descriptor.parametric_origin.as_ref());
+        let reads_rewrite_sides = descriptor
+            .label
+            .as_ref()
+            .is_some_and(|label| label.is(InternalLabel::KRewrite));
+        // Each child's trees, by the list sort the instantiation asks of them and by the
+        // parsed sort a rewrite reads: `(list sort, parsed sort, trees)`.
+        let queries = origin.map(|origin| list_child_expectations(origin, Some(expected)));
+        let mut classes = Vec::with_capacity(children.len());
+        for (index, child) in children.iter().enumerate() {
+            let by_list_sort = match queries.as_ref().filter(|queries| index < queries.len()) {
+                Some(queries) => self
+                    .list_sort_classes(session, lists, subsorts, child, queries[index].as_ref())?
+                    .iter()
+                    .map(|(sort, trees)| (Some(sort.clone()), Rc::clone(trees)))
+                    .collect(),
+                None => vec![(None, Rc::clone(child))],
+            };
+            let mut child_classes = Vec::new();
+            for (list_sort, trees) in by_list_sort {
+                if reads_rewrite_sides {
+                    for (parsed, trees) in
+                        root_classes(session, &trees, |root| packed_parsed_sort(self, root))
+                    {
+                        child_classes.push((list_sort.clone(), Some(parsed), trees));
+                    }
+                } else {
+                    child_classes.push((list_sort, None, trees));
+                }
+            }
+            classes.push(child_classes);
+        }
+        let wraps = parameters.is_some() || !shields_children(descriptor);
+        let mut completed_nodes = BTreeSet::new();
+        for combination in combinations(&classes) {
+            let expected_children = match origin {
+                Some(origin) => {
+                    self.list_instantiation(
+                        origin,
+                        parameters.expect("an origin is read only for an instantiated node"),
+                        Some(expected),
+                        children.len(),
+                        subsorts,
+                        |index, _| {
+                            Ok(combination[index]
+                                .0
+                                .clone()
+                                .expect("every asked child is classed by its list sort"))
+                        },
+                    )?
+                    .0
+                }
+                None => nonterminal_sorts(descriptor).into_iter().cloned().collect(),
+            };
+            check_list_arity(descriptor, expected_children.len(), children.len())?;
+            let rewrite_sort = if reads_rewrite_sides {
+                self.rewrite_list_sort(
+                    descriptor,
+                    combination.iter().map(|(_, parsed, _)| {
+                        parsed
+                            .clone()
+                            .expect("a rewrite's sides are classed by sort")
+                    }),
+                )
+            } else {
+                None
+            };
+            let mut completed = Vec::with_capacity(children.len());
+            for ((_, _, trees), expected_child) in combination.iter().zip(&expected_children) {
+                let expected_child = rewrite_sort.as_ref().unwrap_or(expected_child);
+                completed.push(self.complete_child_each_tree(
+                    session,
+                    lists,
+                    subsorts,
+                    trees,
+                    expected_child,
+                    wraps,
+                )?);
+            }
+            let node = match parameters {
+                Some(parameters) => PackedTerm::instantiated_production(
+                    production,
+                    parameters.clone(),
+                    completed,
+                    metadata.clone(),
+                ),
+                None => PackedTerm::production(production, completed, metadata.clone()),
+            };
+            completed_nodes.insert(session.intern(node));
+        }
+        Ok(session.intern(PackedTerm::ambiguity(completed_nodes)))
+    }
+
+    /// The trees of `child` at a position expected at `expected`, each wrapped into the
+    /// singleton list its position needs when `wraps` and then completed below, each alone:
+    /// whether a tree is wrapped, and into which list, depends on its list sort there and on
+    /// whether its root is a bracket ([`Self::wrap_packed_list_child`]).
+    fn complete_child_each_tree(
+        &self,
+        session: &mut LoweringSession,
+        lists: &mut EachTreeLists,
+        subsorts: &PartialOrder<Sort>,
+        child: &Rc<PackedTerm>,
+        expected: &Sort,
+        wraps: bool,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        if !(wraps && self.user_lists.contains_key(expected)) {
+            return self.complete_each_tree(session, lists, subsorts, child, expected);
+        }
+        let mut completed = BTreeSet::new();
+        for (child_sort, trees) in self
+            .list_sort_classes(session, lists, subsorts, child, Some(expected))?
+            .iter()
+        {
+            let by_bracket = root_classes(session, trees, |root| {
+                matches!(&root.node, PackedNode::Production { production, .. }
+                    if self.productions[*production].bracket)
+            });
+            for (bracket, trees) in by_bracket {
+                let wrapped = match self.singleton_list(bracket, child_sort, expected, subsorts)? {
+                    None => trees,
+                    Some((list, terminator)) => {
+                        let terminator = session.intern(PackedTerm::production(
+                            terminator,
+                            Vec::new(),
+                            TermMetadata::default(),
+                        ));
+                        let children = if list.left_associative {
+                            vec![terminator, trees]
+                        } else {
+                            vec![trees, terminator]
+                        };
+                        session.intern(PackedTerm::production(
+                            list.list_production,
+                            children,
+                            TermMetadata::default(),
+                        ))
+                    }
+                };
+                completed
+                    .insert(self.complete_each_tree(session, lists, subsorts, &wrapped, expected)?);
+            }
+        }
+        Ok(session.intern(PackedTerm::ambiguity(completed)))
+    }
+
+    /// The trees of `term` by their list sort at `expected` ([`Self::packed_list_sort`] of each
+    /// tree alone), each class as the forest of its trees: a tree's list sort is its root's
+    /// parsed sort, except at a parametric root, where it is the instantiation's result from
+    /// the list sorts of the root's children, so such a root's trees are classed by the
+    /// combinations of its children's classes. Memoized in `lists` by node and expected sort.
+    fn list_sort_classes(
+        &self,
+        session: &mut LoweringSession,
+        lists: &mut EachTreeLists,
+        subsorts: &PartialOrder<Sort>,
+        term: &Rc<PackedTerm>,
+        expected: Option<&Sort>,
+    ) -> Result<ListSortClasses, ParseError> {
+        if let Some((_, known)) = lists
+            .sorts
+            .get(&Rc::as_ptr(term))
+            .and_then(|known| known.iter().find(|(sort, _)| sort.as_ref() == expected))
+        {
+            return Ok(Rc::clone(known));
+        }
+        let result = crate::stack::guarded(|| {
+            let classes: Vec<(Sort, Rc<PackedTerm>)> = match &term.node {
+                PackedNode::Ambiguity(alternatives) => {
+                    let mut by_sort = BTreeMap::<Sort, BTreeSet<Rc<PackedTerm>>>::new();
+                    for alternative in alternatives {
+                        for (sort, trees) in self
+                            .list_sort_classes(session, lists, subsorts, alternative, expected)?
+                            .iter()
+                        {
+                            by_sort
+                                .entry(sort.clone())
+                                .or_default()
+                                .insert(Rc::clone(trees));
+                        }
+                    }
+                    by_sort
+                        .into_iter()
+                        .map(|(sort, trees)| (sort, session.intern(PackedTerm::ambiguity(trees))))
+                        .collect()
+                }
+                PackedNode::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                } if self.productions[*production].parametric_origin.is_some() => {
+                    let origin = self.productions[*production]
+                        .parametric_origin
+                        .as_ref()
+                        .expect("matched above");
+                    let k = Sort::new("K");
+                    let expected = list_sort_expectation(expected, &k, subsorts);
+                    let queries = list_child_expectations(origin, expected);
+                    let mut classes = Vec::with_capacity(children.len());
+                    for (index, child) in children.iter().enumerate() {
+                        classes.push(match queries.get(index) {
+                            Some(query) => self
+                                .list_sort_classes(session, lists, subsorts, child, query.as_ref())?
+                                .iter()
+                                .map(|(sort, trees)| (Some(sort.clone()), Rc::clone(trees)))
+                                .collect(),
+                            None => vec![(None, Rc::clone(child))],
+                        });
+                    }
+                    let mut by_sort = BTreeMap::<Sort, BTreeSet<Rc<PackedTerm>>>::new();
+                    for combination in combinations(&classes) {
+                        let (_, sort) = self.list_instantiation(
+                            origin,
+                            parameters,
+                            expected,
+                            children.len(),
+                            subsorts,
+                            |index, _| {
+                                Ok(combination[index]
+                                    .0
+                                    .clone()
+                                    .expect("every asked child is classed by its list sort"))
+                            },
+                        )?;
+                        let node = session.intern(PackedTerm::instantiated_production(
+                            *production,
+                            parameters.clone(),
+                            combination
+                                .iter()
+                                .map(|(_, trees)| Rc::clone(trees))
+                                .collect(),
+                            metadata.clone(),
+                        ));
+                        by_sort.entry(sort).or_default().insert(node);
+                    }
+                    by_sort
+                        .into_iter()
+                        .map(|(sort, trees)| (sort, session.intern(PackedTerm::ambiguity(trees))))
+                        .collect()
+                }
+                _ => vec![(self.packed_list_sort_of_root(term), Rc::clone(term))],
+            };
+            Ok::<_, ParseError>(Rc::from(classes))
+        })?;
+        lists
+            .sorts
+            .entry(Rc::as_ptr(term))
+            .or_default()
+            .push((expected.cloned(), Rc::clone(&result)));
+        Ok(result)
+    }
+
+    /// The list sort of a tree whose root is `root`, not an ambiguity and not a parametric node,
+    /// as [`Self::packed_list_sort`] reads it.
+    fn packed_list_sort_of_root(&self, root: &PackedTerm) -> Sort {
+        match &root.node {
+            PackedNode::InstantiatedProduction { production, .. } => {
+                self.productions[*production].result.clone()
+            }
+            _ => packed_parsed_sort(self, root),
+        }
+    }
+
     /// The single sort of a user list among the parsed sorts of a `#KRewrite` node's sides,
     /// at which both sides are then expected: rewrite operands are parsed through generic K
     /// productions, but sort inference still requires both sides to share the function result
@@ -1082,34 +1473,15 @@ impl Grammar {
         subsorts: &PartialOrder<Sort>,
         mut child_sort: impl FnMut(usize, Option<&Sort>) -> Result<Sort, ParseError>,
     ) -> Result<(Vec<Sort>, Sort), ParseError> {
-        let fresh = origin
-            .parameters
-            .iter()
-            .map(|parameter| {
-                (*parameter == origin.result)
-                    .then(|| expected.cloned())
-                    .flatten()
-            })
-            .collect::<Vec<_>>();
-        let fresh_substitution = origin
-            .parameters
-            .iter()
-            .zip(&fresh)
-            .filter_map(|(parameter, sort)| Some((parameter.clone(), sort.clone()?)))
-            .collect::<BTreeMap<_, _>>();
-        let declared = origin
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                ProductionItem::NonTerminal { sort, .. } => Some(sort),
-                ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
-            })
-            .collect::<Vec<_>>();
+        let fresh = fresh_list_parameters(origin, expected);
+        let declared = declared_list_sorts(origin);
         let mut bounds = BTreeMap::<Sort, Vec<Sort>>::new();
-        for (index, declared_sort) in declared.iter().take(arity).enumerate() {
-            let child_expected = substitute_sort(declared_sort, &fresh_substitution);
-            let child_expected = (!mentions_parameter(&child_expected, &origin.parameters))
-                .then_some(child_expected);
+        for (index, (declared_sort, child_expected)) in declared
+            .iter()
+            .zip(list_child_expectations(origin, expected))
+            .take(arity)
+            .enumerate()
+        {
             let actual = child_sort(index, child_expected.as_ref())?;
             match_parameters(origin, declared_sort, &actual, &mut bounds, subsorts);
         }
@@ -1322,6 +1694,55 @@ fn has_visible_terminal(production: &super::Production) -> bool {
     })
 }
 
+/// The fresh sort of each formal parameter of `origin` at a node expected at `expected`: the
+/// expected sort for the result parameter, nothing for the others.
+fn fresh_list_parameters(origin: &ParametricOrigin, expected: Option<&Sort>) -> Vec<Option<Sort>> {
+    origin
+        .parameters
+        .iter()
+        .map(|parameter| {
+            (*parameter == origin.result)
+                .then(|| expected.cloned())
+                .flatten()
+        })
+        .collect()
+}
+
+/// The declared sort of each nonterminal of `origin`, in order.
+fn declared_list_sorts(origin: &ParametricOrigin) -> Vec<&Sort> {
+    origin
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+        })
+        .collect()
+}
+
+/// The sort at which `Grammar::list_instantiation` asks the list sort of each child of a node
+/// of `origin` expected at `expected`: its declared sort with the result parameter at the
+/// expected sort, `None` where that sort still mentions a parameter. A function of the node's
+/// production and expected sort only, never of its children.
+fn list_child_expectations(
+    origin: &ParametricOrigin,
+    expected: Option<&Sort>,
+) -> Vec<Option<Sort>> {
+    let fresh_substitution = origin
+        .parameters
+        .iter()
+        .zip(fresh_list_parameters(origin, expected))
+        .filter_map(|(parameter, sort)| Some((parameter.clone(), sort?)))
+        .collect::<BTreeMap<_, _>>();
+    declared_list_sorts(origin)
+        .into_iter()
+        .map(|declared| {
+            let child_expected = substitute_sort(declared, &fresh_substitution);
+            (!mentions_parameter(&child_expected, &origin.parameters)).then_some(child_expected)
+        })
+        .collect()
+}
+
 fn nonterminal_sorts(production: &super::Production) -> Vec<&Sort> {
     production
         .items
@@ -1455,6 +1876,61 @@ impl PackedLists {
     }
 }
 
+/// What one per-tree list completion keeps by session node (each a node the session keeps
+/// alive): the classes of its trees by list sort, and what its trees complete to, both by
+/// expected sort ([`Grammar::add_packed_empty_lists_each_tree`]).
+#[derive(Default)]
+struct EachTreeLists {
+    sorts: rustc_hash::FxHashMap<*const PackedTerm, Vec<(Option<Sort>, ListSortClasses)>>,
+    completed: rustc_hash::FxHashMap<*const PackedTerm, Vec<(Sort, Rc<PackedTerm>)>>,
+}
+
+/// The trees of a node by list sort: each sort with the forest of the trees that have it.
+type ListSortClasses = Rc<[(Sort, Rc<PackedTerm>)]>;
+
+/// The trees of `term` by a property of their root, `key`, each class as the forest of its
+/// trees: an ambiguity's trees are those of its alternatives, nested ambiguities included, and
+/// any other node is the root of each of its trees.
+fn root_classes<K: Ord>(
+    session: &mut LoweringSession,
+    term: &Rc<PackedTerm>,
+    key: impl Fn(&PackedTerm) -> K,
+) -> Vec<(K, Rc<PackedTerm>)> {
+    let mut by_key = BTreeMap::<K, BTreeSet<Rc<PackedTerm>>>::new();
+    let mut pending = vec![Rc::clone(term)];
+    // Invariant: the trees of `term` are those of `pending` and of the classes so far.
+    while let Some(next) = pending.pop() {
+        match &next.node {
+            PackedNode::Ambiguity(alternatives) => pending.extend(alternatives.iter().cloned()),
+            _ => {
+                by_key.entry(key(&next)).or_default().insert(next);
+            }
+        }
+    }
+    by_key
+        .into_iter()
+        .map(|(key, roots)| (key, session.intern(PackedTerm::ambiguity(roots))))
+        .collect()
+}
+
+/// Every choice of one class per position of `classes`, in order.
+fn combinations<C: Clone>(classes: &[Vec<C>]) -> Vec<Vec<C>> {
+    let mut combinations = vec![Vec::with_capacity(classes.len())];
+    for position in classes {
+        combinations = combinations
+            .into_iter()
+            .flat_map(|prefix| {
+                position.iter().map(move |class| {
+                    let mut combination = prefix.clone();
+                    combination.push(class.clone());
+                    combination
+                })
+            })
+            .collect();
+    }
+    combinations
+}
+
 fn list_error(message: impl Into<String>) -> ParseError {
     ParseError::UserList {
         message: message.into(),
@@ -1466,6 +1942,7 @@ mod tests {
     use super::*;
     use crate::definition::{Attributes, Sentence, SortDenotations};
     use crate::kast::{Label, TermMetadata};
+    use proptest::prelude::*;
     use serde_json::json;
 
     macro_rules! assert_list_parse_snapshot {
@@ -1851,6 +2328,351 @@ mod tests {
         };
         let labels = [find("a"), find("f"), find("g"), find("h")];
         (grammar, labels)
+    }
+
+    /// The trees `add_packed_empty_lists_each_tree` makes of a forest, against each tree of the
+    /// forest completed alone ([`Grammar::add_empty_lists`]): the same set of trees, or both
+    /// fail. Returns the trees, none when both fail.
+    fn assert_completes_each_tree(
+        grammar: &Grammar,
+        forest: &Rc<PackedTerm>,
+        expected: &Sort,
+    ) -> BTreeSet<ParsedTerm> {
+        let mut session = LoweringSession::default();
+        let forest = session.intern_forest(forest);
+        let each = grammar
+            .add_packed_empty_lists_each_tree(&mut session, &forest, expected)
+            .map(|completed| {
+                super::super::inference::expand_packed_trees(&completed)
+                    .into_iter()
+                    .collect::<BTreeSet<_>>()
+            });
+        let alone = super::super::inference::expand_packed_trees(&forest)
+            .into_iter()
+            .map(|tree| grammar.add_empty_lists(tree, expected))
+            .collect::<Result<BTreeSet<_>, _>>();
+        match (each, alone) {
+            (Ok(each), Ok(alone)) => {
+                assert_eq!(each, alone);
+                each
+            }
+            (Err(_), Err(_)) => BTreeSet::new(),
+            (each, alone) => panic!("each tree: {each:?}\nalone: {alone:?}"),
+        }
+    }
+
+    /// Below a node that reads its children's sorts, each tree of an ambiguity is completed with
+    /// the sort of the alternative it takes, where the packed pass reads the ambiguity as `K`.
+    /// `box` expects a list: the tree whose child is the element `a` wraps it into a singleton
+    /// list, the tree whose child is already a list keeps it. Below the parametric `pair{P}`,
+    /// whose result is the least sort of its two children, `pair(a, a)` is an `Exp` that `box`
+    /// wraps and `pair(a, a,.Exps)` is a list it does not; the packed pass reads the ambiguity
+    /// as `K`, a bound that no instance fitting the list position `box` expects holds, and
+    /// fails.
+    #[test]
+    fn completing_each_tree_of_a_forest_reads_the_sorts_of_its_own_alternatives() {
+        let parameter = Sort::new("P");
+        let [recursive, terminator] = list("Exps", "Exp", false);
+        let grammar = Grammar::from_sentences(&[
+            production(
+                "Exp",
+                vec![ProductionItem::Terminal("a".into())],
+                Some("a"),
+                false,
+            ),
+            recursive,
+            terminator,
+            production(
+                "Box",
+                vec![ProductionItem::Terminal("box".into()), nonterminal("Exps")],
+                Some("box"),
+                false,
+            ),
+            Sentence::Production {
+                label: Some(Label::new("pair")),
+                parameters: vec![parameter.clone()],
+                sort: parameter.clone(),
+                items: vec![
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: parameter,
+                        name: None,
+                    },
+                ],
+                attributes: Attributes::default(),
+            },
+        ])
+        .unwrap();
+        let find = |label: &str| {
+            grammar
+                .productions
+                .iter()
+                .position(|production| {
+                    production
+                        .parametric_origin
+                        .as_ref()
+                        .and_then(|origin| origin.label.as_ref())
+                        .or(production.label.as_ref())
+                        .is_some_and(|candidate| candidate.name == label)
+                })
+                .unwrap()
+        };
+        let node = |production, children| {
+            PackedTerm::production(production, children, TermMetadata::default())
+        };
+        let a = node(find("a"), Vec::new());
+        let list = node(
+            find("cons"),
+            vec![Rc::clone(&a), node(find("nil"), Vec::new())],
+        );
+        let element_or_list = PackedTerm::ambiguity(BTreeSet::from([Rc::clone(&a), list]));
+        let boxed = |child| node(find("box"), vec![child]);
+        let pair = PackedTerm::instantiated_production(
+            find("pair"),
+            vec![Sort::new("K")],
+            vec![Rc::clone(&element_or_list), a],
+            TermMetadata::default(),
+        );
+        // The trees whose `pair` node `box` wraps into a singleton list.
+        let cons = find("cons");
+        let wrapped = |trees: &BTreeSet<ParsedTerm>| {
+            trees
+                .iter()
+                .filter(|tree| {
+                    matches!(tree, ParsedTerm::Production { children, .. }
+                        if matches!(&children[..], [ParsedTerm::Production { production, children: list, .. }]
+                            if *production == cons
+                                && matches!(list.first(), Some(ParsedTerm::InstantiatedProduction { .. }))))
+                })
+                .count()
+        };
+        let top = Sort::new("Box");
+
+        let direct = assert_completes_each_tree(&grammar, &boxed(element_or_list), &top);
+        let below_pair = assert_completes_each_tree(&grammar, &boxed(pair.clone()), &top);
+
+        assert_eq!(
+            direct.len(),
+            1,
+            "both trees complete to `box(a,.Exps)`: {direct:?}"
+        );
+        assert_eq!(wrapped(&below_pair), 1, "{below_pair:?}");
+        let mut session = LoweringSession::default();
+        let packed = session.intern_forest(&boxed(pair));
+        assert!(matches!(
+            grammar.add_packed_empty_lists(&mut session, &packed, &top),
+            Err(ParseError::SortInference { message }) if message.contains("least upper bound")
+        ));
+    }
+
+    /// A forest over a grammar with a user list, a node expecting it, a parametric `pair{P}`, a
+    /// rewrite and a bracket, with ambiguities anywhere: every node that reads a child's sort
+    /// can meet an ambiguity there.
+    #[derive(Clone, Debug)]
+    enum Shape {
+        A,
+        Nil,
+        Cons(Box<Shape>, Box<Shape>),
+        Box(Box<Shape>),
+        Pair(Box<Shape>, Box<Shape>),
+        Rewrite(Box<Shape>, Box<Shape>),
+        Bracket(Box<Shape>),
+        Ambiguity(Vec<Shape>),
+    }
+
+    fn shape() -> impl Strategy<Value = Shape> {
+        prop_oneof![Just(Shape::A), Just(Shape::Nil)].prop_recursive(4, 24, 3, |inner| {
+            let two = || (inner.clone(), inner.clone());
+            prop_oneof![
+                two().prop_map(|(left, right)| Shape::Cons(Box::new(left), Box::new(right))),
+                inner.clone().prop_map(|child| Shape::Box(Box::new(child))),
+                two().prop_map(|(left, right)| Shape::Pair(Box::new(left), Box::new(right))),
+                two().prop_map(|(left, right)| Shape::Rewrite(Box::new(left), Box::new(right))),
+                inner
+                    .clone()
+                    .prop_map(|child| Shape::Bracket(Box::new(child))),
+                prop::collection::vec(inner, 2..4).prop_map(Shape::Ambiguity),
+            ]
+        })
+    }
+
+    fn shape_grammar() -> Grammar {
+        let parameter = Sort::new("P");
+        let [recursive, terminator] = list("Exps", "Exp", false);
+        let mut grammar = Grammar::from_sentences(&[
+            production(
+                "Exp",
+                vec![ProductionItem::Terminal("a".into())],
+                Some("a"),
+                false,
+            ),
+            recursive,
+            terminator,
+            production(
+                "Box",
+                vec![ProductionItem::Terminal("box".into()), nonterminal("Exps")],
+                Some("box"),
+                false,
+            ),
+            production(
+                "K",
+                vec![
+                    nonterminal("K"),
+                    ProductionItem::Terminal("=>".into()),
+                    nonterminal("K"),
+                ],
+                Some("#KRewrite"),
+                false,
+            ),
+            Sentence::Production {
+                label: Some(Label::new("pair")),
+                parameters: vec![parameter.clone()],
+                sort: parameter.clone(),
+                items: vec![
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: parameter,
+                        name: None,
+                    },
+                ],
+                attributes: Attributes::default(),
+            },
+        ])
+        .unwrap();
+        grammar
+            .add_bracket(
+                Sort::new("Exp"),
+                vec![
+                    ProductionItem::Terminal("(".into()),
+                    nonterminal("Exp"),
+                    ProductionItem::Terminal(")".into()),
+                ],
+                None,
+            )
+            .unwrap();
+        grammar
+    }
+
+    fn pack_shape(grammar: &Grammar, shape: &Shape) -> Rc<PackedTerm> {
+        let find = |label: &str| {
+            grammar
+                .productions
+                .iter()
+                .position(|production| {
+                    production
+                        .parametric_origin
+                        .as_ref()
+                        .and_then(|origin| origin.label.as_ref())
+                        .or(production.label.as_ref())
+                        .is_some_and(|candidate| candidate.name == label)
+                })
+                .unwrap()
+        };
+        let node = |label: &str, children: Vec<Rc<PackedTerm>>| {
+            PackedTerm::production(find(label), children, TermMetadata::default())
+        };
+        let pack = |shape: &Shape| pack_shape(grammar, shape);
+        match shape {
+            Shape::A => node("a", Vec::new()),
+            Shape::Nil => node("nil", Vec::new()),
+            Shape::Cons(left, right) => node("cons", vec![pack(left), pack(right)]),
+            Shape::Box(child) => node("box", vec![pack(child)]),
+            Shape::Pair(left, right) => PackedTerm::instantiated_production(
+                find("pair"),
+                vec![Sort::new("K")],
+                vec![pack(left), pack(right)],
+                TermMetadata::default(),
+            ),
+            Shape::Rewrite(left, right) => node("#KRewrite", vec![pack(left), pack(right)]),
+            Shape::Bracket(child) => PackedTerm::production(
+                grammar
+                    .productions
+                    .iter()
+                    .position(|production| production.bracket)
+                    .unwrap(),
+                vec![pack(child)],
+                TermMetadata::default(),
+            ),
+            Shape::Ambiguity(alternatives) => {
+                PackedTerm::ambiguity(alternatives.iter().map(pack).collect())
+            }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// List completion of each tree on the forest makes exactly the trees that completing
+        /// each tree alone makes, or fails exactly when a tree's completion fails.
+        #[test]
+        fn completing_each_tree_on_the_forest_agrees_with_completing_each_tree_alone(
+            shape in shape(),
+            expected in 0usize..4,
+        ) {
+            let grammar = shape_grammar();
+            let forest = pack_shape(&grammar, &shape);
+            let expected = Sort::new(["Box", "Exps", "Exp", "K"][expected]);
+            assert_completes_each_tree(&grammar, &forest, &expected);
+        }
+    }
+
+    /// At the tail of a program list, the packed terminator pass keeps the terminator
+    /// alternative of an ambiguity for every tree, which drops the other alternative; each tree
+    /// alone keeps its own tail, so the per-tree pass maps each alternative there.
+    #[test]
+    fn resolving_each_trees_terminators_keeps_each_trees_own_tail() {
+        let mut grammar = list_grammar(false);
+        grammar.role = ParserRole::Program;
+        let find = |label: &str| {
+            grammar
+                .productions
+                .iter()
+                .position(|production| {
+                    production
+                        .label
+                        .as_ref()
+                        .is_some_and(|candidate| candidate.name == label)
+                })
+                .unwrap()
+        };
+        let node = |label: &str, children: Vec<Rc<PackedTerm>>| {
+            PackedTerm::production(find(label), children, TermMetadata::default())
+        };
+        let nil = || node("nil", Vec::new());
+        let tail = PackedTerm::ambiguity(BTreeSet::from([
+            nil(),
+            node("cons", vec![node("a", Vec::new()), nil()]),
+        ]));
+        let forest = node("cons", vec![node("a", Vec::new()), tail]);
+        let trees = |forest: &Rc<PackedTerm>| {
+            super::super::inference::expand_packed_trees(forest)
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+        };
+        let alone = super::super::inference::expand_packed_trees(&forest)
+            .into_iter()
+            .map(|tree| grammar.resolve_overloaded_terminators(tree))
+            .collect::<Result<BTreeSet<_>, _>>()
+            .expect("each tree resolves");
+        let mut session = LoweringSession::default();
+        let interned = session.intern_forest(&forest);
+
+        let each = grammar
+            .resolve_packed_overloaded_terminators_each_tree(&mut session, &interned)
+            .expect("each tree resolves");
+        let packed = grammar
+            .resolve_packed_overloaded_terminators(&mut session, &interned)
+            .expect("the forest resolves");
+
+        assert_eq!(alone.len(), 2);
+        assert_eq!(trees(&each), alone);
+        assert_eq!(trees(&packed).len(), 1);
     }
 
     #[test]
