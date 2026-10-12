@@ -745,10 +745,10 @@ module TEST
   configuration <T> <k> $PGM:Pgm </k> <rs> <r multiplicity="*" type="COLLECTION"> <rid> 0 </rid> <v> 0 </v> </r> </rs> <out> .List </out> </T>
 
   rule <k> C:Cmd ; P:Pgm => C ~> P ... </k>
-  rule <k> mk(I, V) => .K ... </k> <rs> ... .Bag => <r> <rid> I </rid> <v> V </v> </r> ... </rs>
+  rule <k> mk(I, V) => .K ... </k> <rs> (.Bag => <r> <rid> I </rid> <v> V </v> </r>) ... </rs>
   syntax KItem ::= putR(RCell)
   rule <k> put(I, V) => putR(<r> <rid> I </rid> <v> V </v> </r>) ... </k>
-  rule <k> putR(R) => .K ... </k> <rs> ... .Bag => R ... </rs>
+  rule <k> putR(R) => .K ... </k> <rs> (.Bag => R) ... </rs>
 
   rule <k> get(I) => .K ... </k> <r> <rid> I </rid> <v> V </v> </r> <out> ... .List => ListItem(V) </out>
   rule <k> getA(I) => .K ... </k> (<r> <rid> I </rid> <v> V </v> </r> #as _R) <out> ... .List => ListItem(V) </out>
@@ -1274,21 +1274,23 @@ fn a_right_side_alias_of_a_map_cell_instance_is_keyed_by_the_key_its_pattern_mat
 }
 
 /// The instances of a `type="List"` cell collection keep their order, and a rule states the
-/// position of an instance it writes only among the items written side by side in one cell body,
-/// which come first, followed by the rest of the list that the cell's `...` stands for, wherever
-/// that `...` is written (`docs/compatibility.md#cells-written-inside-another-cell`). After three
-/// `mk` commands, each adding an instance at the front, the list is `3 2 1`:
-/// - `get(I)` writes one instance without its position (parent and frame supplied by
-///   completion), so it reads the front instance: `get(3)` rewrites, `get(2)` and `get(1)` are
+/// position of an instance it writes among the items written side by side in one cell body and
+/// the rest of the list that the cell's `...` stands for, placed where that `...` is written
+/// (`docs/compatibility.md#cells-written-inside-another-cell`). After three `mk` commands, each
+/// adding an instance at the front, the list is `3 2 1`:
+/// - `get(I)` writes one instance without its parent, which completion builds with the rest after
+///   the instance, so it reads the front instance: `get(3)` rewrites, `get(2)` and `get(1)` are
 ///   stuck;
 /// - `last()` writes `<rs> ... <r> .. </r> </rs>` and `dropLast()` writes
-///   `<rs> ... (<r> .. </r> => .Bag) </rs>`: the leading `...` is the same rest of the list, so
-///   they read and remove the front instance too, and `mkLast` adds at the front.
+///   `<rs> ... (<r> .. </r> => .Bag) </rs>`: the leading `...` is the part of the list before the
+///   instance, so they read and remove the back instance, and `mkLast` adds at the back.
 ///
-/// The reference execution differential case `list-cell-positions`
-/// (`scripts/reference-differential.toml`) runs the same programs on this fixture.
+/// Each program is run, and searched for its final states, which are the run's one leaf. The
+/// reference execution differential case `list-cell-positions`
+/// (`scripts/reference-differential.toml`) runs the same programs on this fixture; the pinned
+/// reference acts at the front for the leading `...`, a recorded divergence.
 #[test]
-fn a_list_cell_instance_is_matched_at_the_front_of_its_collection() {
+fn a_list_cell_frame_stands_for_the_rest_of_the_list_where_it_is_written() {
     const SOURCE: &str = include_str!("fixtures/reference/execution/list-cell-positions/test.k");
     const MAIN: &str = "LIST-CELL-POSITIONS";
     let run = |program: &str| {
@@ -1296,6 +1298,21 @@ fn a_list_cell_instance_is_matched_at_the_front_of_its_collection() {
         let result = execute(&compiled, MAIN, None);
         let states = text(&result);
         assert_eq!(states.len(), 1, "{program}: {states:?}");
+        let mut backend = Backend::new(&compiled.kore, MAIN, BackendOptions::default()).unwrap();
+        let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+        let finals = backend
+            .search_pattern(SearchPatternRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchPatternRequest::new(compiled.initial.clone(), target)
+            })
+            .unwrap()
+            .matches
+            .iter()
+            .map(|found| {
+                Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(finals, states, "{program}: search-final");
         (
             (result.leaves[0].reason, result.leaves[0].depth),
             states.into_iter().next().unwrap(),
@@ -1353,18 +1370,94 @@ fn a_list_cell_instance_is_matched_at_the_front_of_its_collection() {
 
     let (leaf, last) = run(&format!("{three}last()"));
     assert_eq!(leaf, (HaltReasonOutput::Stuck, 7), "{last}");
-    assert!(last.contains(empty_k) && out(&last, &[3]), "{last}");
+    assert!(last.contains(empty_k) && out(&last, &[1]), "{last}");
+    assert_eq!(ids(&last), [3, 2, 1], "{last}");
 
     let (leaf, dropped) = run(&format!("{three}dropLast() ; dropLast()"));
     assert_eq!(leaf, (HaltReasonOutput::Stuck, 9), "{dropped}");
     assert!(
-        dropped.contains(empty_k) && out(&dropped, &[3, 2]),
+        dropped.contains(empty_k) && out(&dropped, &[1, 2]),
         "{dropped}"
     );
-    assert_eq!(ids(&dropped), [1], "{dropped}");
+    assert_eq!(ids(&dropped), [3], "{dropped}");
 
+    // `mkLast(2,20)` puts `2` behind `1`, so `get(2)`, which reads the front, is stuck on it.
     let (leaf, added) = run("mk(1,10) ; mkLast(2,20) ; get(2)");
+    assert_eq!(leaf, (HaltReasonOutput::Stuck, 4), "{added}");
+    assert!(
+        !added.contains(empty_k) && added.contains("Lblget'") && out(&added, &[]),
+        "{added}"
+    );
+    assert_eq!(ids(&added), [1, 2], "{added}");
+    let (leaf, added) = run("mk(1,10) ; mkLast(2,20) ; last()");
     assert_eq!(leaf, (HaltReasonOutput::Stuck, 5), "{added}");
-    assert!(added.contains(empty_k) && out(&added, &[20]), "{added}");
-    assert_eq!(ids(&added), [2, 1], "{added}");
+    assert!(added.contains(empty_k) && out(&added, &[2]), "{added}");
+}
+
+/// A cell written with `...` on both sides of items of its `type="List"` collection would match
+/// them anywhere in the list, between two parts of it the rule does not divide; the rule is
+/// rejected with a located error naming the cell, while the same items with the `...` on one side,
+/// and `...` on both sides of a cell holding no item of the list, compile.
+#[test]
+fn a_list_cell_frame_written_on_both_sides_of_its_items_is_rejected() {
+    const SOURCE: &str = include_str!("fixtures/reference/execution/list-cell-positions/test.k");
+    // The rule, added to the main module (the source's last).
+    let with_rule = |rule: &str| {
+        let end = SOURCE.rfind("endmodule").unwrap();
+        format!("{}  {rule}\n{}", &SOURCE[..end], &SOURCE[end..])
+    };
+    let compile_rule = |rule: &str| {
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let source = with_rule(rule);
+        let loaded = load_with_options(
+            ResolvedSource::new("test.k", &source),
+            "LIST-CELL-POSITIONS",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                ..CompilationBackend::Rust.load_options()
+            },
+        )
+        .unwrap();
+        compile_loaded_definition(&loaded, CompileOptions::default()).map(|_| ())
+    };
+    let rule_line =
+        u32::try_from(SOURCE[..SOURCE.rfind("endmodule").unwrap()].lines().count()).unwrap() + 1;
+    for rule in [
+        "rule <k> last() => .K ... </k> <rs> ... <r> <rid> I </rid> ... </r> ... </rs>",
+        "rule <k> mkLast(I, V) => .K ... </k> <rs> ... (.Bag => <r> <rid> I </rid> <v> V </v> </r>) ... </rs>",
+    ] {
+        let error = compile_rule(rule).expect_err(rule);
+        let [diagnostic] = error.diagnostics.as_slice() else {
+            panic!("{rule}: {error}");
+        };
+        assert_eq!(
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidCellConcretization,
+            "{rule}"
+        );
+        assert_eq!(diagnostic.source.as_deref(), Some("test.k"), "{rule}");
+        assert_eq!(
+            diagnostic.location.map(|location| location.start_line),
+            Some(rule_line),
+            "{rule}"
+        );
+        assert!(
+            diagnostic
+                .message
+                .contains("<rs> is written with ... on both sides")
+                && diagnostic.message.contains("<r> cells")
+                && diagnostic.message.contains("one of its ends"),
+            "{rule}: {}",
+            diagnostic.message
+        );
+    }
+    for rule in [
+        "rule <k> last() => .K ... </k> <rs> <r> <rid> I </rid> ... </r> ... </rs>",
+        "rule <T> ... <k> last() => .K ... </k> ... </T>",
+    ] {
+        compile_rule(rule).unwrap_or_else(|error| panic!("{rule}: {error}"));
+    }
 }

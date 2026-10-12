@@ -829,6 +829,19 @@ struct Concretizer<'use_, 'definition> {
     /// The number of incomplete parent cells completed so far in the last sentence, which
     /// identifies the written parent a lifted cell comes from ([`MovedCell::origin`]).
     completed_parents: std::cell::Cell<usize>,
+    /// The frames `...` of the last sentence's written parent cells that are not written after
+    /// the items only, by the name of the variable each compiles to, with where it is written
+    /// and the label of its cell ([`Self::insert_rest`]).
+    rest_sides: BTreeMap<String, (RestSide, String)>,
+}
+
+/// Where the frame `...` of a parent cell is written, when not after the items only.
+#[derive(Clone, Copy)]
+enum RestSide {
+    /// Before the items only (`<rs> ... <r> R </r> </rs>`).
+    Leading,
+    /// On both sides of the items (`<rs> ... <r> R </r> ... </rs>`).
+    Both,
 }
 
 /// A cell written inside a parent cell that the configuration does not place it under, lifted
@@ -893,6 +906,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             conjoins_fragment: false,
             moved_cells: RefCell::new(Vec::new()),
             completed_parents: std::cell::Cell::new(0),
+            rest_sides: BTreeMap::new(),
         }
     }
 
@@ -903,6 +917,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         self.fresh = FreshNames::for_sentence(&sentence);
         self.generated.clear();
         self.fragments.clear();
+        self.rest_sides.clear();
         self.conjoins_fragment = false;
         self.moved_cells.borrow_mut().clear();
         self.concretize_sentence(sentence).map_err(|message| {
@@ -1254,9 +1269,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             if wrapped_left == **left {
                 return Ok(term);
             }
-            return Ok(incomplete_cell(&root.label, true, term, true));
+            // As in `make_parents`, the frame of a built cell follows the cells it holds.
+            return Ok(incomplete_cell(&root.label, false, term, true));
         }
-        Ok(incomplete_cell(&root.label, true, term, true))
+        Ok(incomplete_cell(&root.label, false, term, true))
     }
 
     fn ml_result_sort_children(
@@ -2077,7 +2093,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// Whether an item of `items`, the body of a written cell of `parent` that cells written
     /// elsewhere are placed into, may be or hold an instance of `sort` in the collection those
     /// cells join: a cell they continue into ([`Self::continuation`]) is looked into, without
-    /// its frame, which is the rest of that collection, after the placed cells; every other item
+    /// its frame, which is the rest of that collection, beside the placed cells; every other item
     /// is decided by [`Self::item_may_hold`], a term of unknown cell sort on a side of the rule
     /// by [`Self::unknown_may_hold`] on that side.
     fn body_may_hold(&self, parent: &Cell, items: &[&Term], sort: &Sort) -> bool {
@@ -2289,8 +2305,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     .unzip();
                 let riders =
                     self.insert_lifted(parent, &mut body, riders.into_iter().flatten().collect())?;
+                // The rule writes no `...` in a cell completion builds, so its frame is placed
+                // after the cells it holds, as a frame written after them is.
                 Ok((
-                    incomplete_cell(&parent.label, open, make_body(body), open),
+                    incomplete_cell(&parent.label, false, make_body(body), open),
                     riders,
                 ))
             })
@@ -3170,7 +3188,19 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         });
                     }
                 } else {
-                    contents.push(self.fresh_variable(None, "_DotVar"));
+                    let rest = self.fresh_variable(None, "_DotVar");
+                    if let Term::Variable { name, .. } = &rest
+                        && open_left
+                    {
+                        let side = if open_right {
+                            RestSide::Both
+                        } else {
+                            RestSide::Leading
+                        };
+                        self.rest_sides
+                            .insert(name.clone(), (side, label.name.clone()));
+                    }
+                    contents.push(rest);
                 }
             }
             return Ok(Term::Apply {
@@ -3488,9 +3518,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 Term::Variable { name, .. } => name,
                 _ => unreachable!(),
             };
+            let rest = self.rest_sides.get(variable_name).cloned();
             if let Some(info) = self.fragments.get(variable_name) {
                 for (sort, split) in info.split.clone() {
-                    self.insert_child(&mut ordered, sort, split, cell)?;
+                    self.insert_rest(&mut ordered, sort, split, cell, rest.as_ref())?;
                 }
                 continue;
             }
@@ -3505,7 +3536,13 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 [] => {}
                 [child] => {
                     let variable = set_variable_sort(variable, child.value_sort.clone());
-                    self.insert_child(&mut ordered, child.sort.clone(), variable, cell)?;
+                    self.insert_rest(
+                        &mut ordered,
+                        child.sort.clone(),
+                        variable,
+                        cell,
+                        rest.as_ref(),
+                    )?;
                 }
                 _ => {
                     return Err(format!(
@@ -3795,6 +3832,56 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             ordered.insert(sort, item);
         }
         Ok(())
+    }
+
+    /// Place `term`, the part of a term of unknown cell sort written in a body of `cell` that
+    /// stands for children of sort `sort`, after the items of `ordered` placed there, as
+    /// [`Self::insert_child`] does; when `term` is a frame `...` (`rest`, where it is written)
+    /// and `sort` is an ordered (`type="List"`) `multiplicity="*"` child, place it where it is
+    /// written instead.
+    ///
+    /// The instances of a list are in an order the rule matches, and the frame stands for the
+    /// instances no item written beside it is: written before the items, it is the part of the
+    /// list before them (`<rs> ... <r> R </r> </rs>` writes `R` last), and written after them,
+    /// the part after them. Written on both sides of items of the list, it would stand for the
+    /// instances on either side of them, two parts of one list whose division the rule does not
+    /// state, and the rule is rejected: an instance of a list is written at one of its ends.
+    fn insert_rest(
+        &self,
+        ordered: &mut BTreeMap<Sort, Term>,
+        sort: Sort,
+        term: Term,
+        cell: &Cell,
+        rest: Option<&(RestSide, String)>,
+    ) -> Result<(), String> {
+        let ordered_child = cell.children.iter().find(|child| {
+            child.sort == sort && child.multiplicity == Multiplicity::Star && child.ordered
+        });
+        match (rest, ordered_child) {
+            (Some((RestSide::Leading, _)), Some(child)) => {
+                let placed = match ordered.remove(&sort) {
+                    Some(items) => {
+                        let concat = child.concat.as_ref().ok_or_else(|| {
+                            format!("No concatenation label for repeated cell {sort}")
+                        })?;
+                        Term::Apply {
+                            label: concat.clone(),
+                            arguments: vec![term, items],
+                        }
+                    }
+                    None => term,
+                };
+                ordered.insert(sort, placed);
+                Ok(())
+            }
+            (Some((RestSide::Both, written)), Some(child)) if ordered.contains_key(&sort) => {
+                let instance = &self.model.cells[&child.sort].label.name;
+                Err(format!(
+                    "The cell {written} is written with ... on both sides of items of its type=\"List\" collection of {instance} cells: a rule matches an instance of a list at one of its ends, so write ... before the items to match them at the end of the list, or after them to match them at its front"
+                ))
+            }
+            _ => self.insert_child(ordered, sort, term, cell),
+        }
     }
 
     fn fresh_variable(&mut self, sort: Option<Sort>, prefix: &str) -> Term {

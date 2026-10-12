@@ -1,10 +1,11 @@
 // The instances of a type="List" cell collection keep their order, and a rule states the
-// position of an instance it writes only among the items written side by side in one cell body,
-// which come first, followed by the rest of the list that the cell's ... stands for, wherever that
-// ... is written (docs/compatibility.md#cells-written-inside-another-cell).
-// mk adds an instance at the front. get writes one instance without its position, so it reads the
-// front instance. last, dropLast and mkLast write a leading ... before the instance; that ... is
-// the same rest of the list, so they too read, remove and add at the front.
+// position of an instance it writes among the items written side by side in one cell body and the
+// rest of the list that the cell's ... stands for, placed where that ... is written: before the
+// items when it is written before them, after them otherwise
+// (docs/compatibility.md#cells-written-inside-another-cell).
+// mk adds an instance at the front. get writes one instance without its parent, which completion
+// builds with the rest after the instance, so it reads the front instance. last, dropLast and
+// mkLast write the ... before the instance, so they read, remove and add at the back.
 module LIST-CELL-POSITIONS-SYNTAX
   imports INT-SYNTAX
   syntax Cmd ::= mk(Int, Int) | get(Int) | mkLast(Int, Int) | last() | dropLast()

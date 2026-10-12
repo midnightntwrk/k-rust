@@ -8060,11 +8060,13 @@ fn rejects_a_term_holding_list_cells_placed_beside_written_instances() {
 }
 
 // The <fr> written beside <a> goes into the one <p> of the one <a>. Only what that <p> may hold
-// can be part of its list; the frame of the written <p> is the rest of the list, after the placed
-// <fr>, as for a <fr> written in it.
+// can be part of its list; the frame of the written <p> is the rest of the list, placed where it is
+// written, as for a <fr> written in it: after the placed <fr>, or before it when the frame is
+// written before the items.
 #[test]
 fn places_a_list_cell_written_beside_its_only_possible_ancestor_only_beside_items_outside_its_list()
 {
+    let placed = r#"`<fr>`(`<v>`(#token("2","Int")))"#;
     for (item, in_list) in [
         ("<p> <y> 1 </y> ... </p>", false),
         ("<p> ... <y> 1 </y> </p>", false),
@@ -8092,10 +8094,17 @@ fn places_a_list_cell_written_beside_its_only_possible_ancestor_only_beside_item
             );
         } else {
             let body = result.unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
-            assert!(
-                body.contains(r#"`_FrCellList_`(`<fr>`(`<v>`(#token("2","Int"))),_"#),
-                "{rule}: {body}"
-            );
+            let list = if item.starts_with("<p> ...") {
+                // `_FrCellList_`(_DotVarN,<fr>): the frame first.
+                body.find("`_FrCellList_`(_DotVar").is_some_and(|start| {
+                    body[start..]
+                        .find(&format!(",{placed})"))
+                        .is_some_and(|end| !body[start..start + end].contains(','))
+                })
+            } else {
+                body.contains(&format!("`_FrCellList_`({placed},_"))
+            };
+            assert!(list, "{rule}: {body}");
         }
     }
 }
