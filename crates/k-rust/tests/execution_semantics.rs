@@ -17,7 +17,7 @@ use execution_sources::{NO_EVALUATOR, SEARCH_BOUND, SIZE_BOUND};
 use k_rust::{
     backend::{
         Backend, BackendOptions, ExecuteRequest, ExecutionResult, HaltReasonOutput,
-        SearchPatternRequest, SearchTypeArg,
+        SearchPatternRequest, SearchRequest, SearchTypeArg,
     },
     builtin::embedded,
     definition::ResolvedDefinition,
@@ -224,9 +224,11 @@ endmodule
 /// Each step of `go(M, L, N)` adds a new variable `?K` to the map and the list, by any of three
 /// equal rules, so the states at one depth are renamings of each other: their map entries differ
 /// only in the names of their keys (which order differently once the counter reaches two digits,
-/// `!10` before `!3`), while the list fixes which entry is which. So each depth is one state: the
-/// search for every state (a target that is one variable of the configuration's sort, as `krun`
-/// searches) finds the five counters once each, and the final state once.
+/// `!10` before `!3`, and so do the sides of the equalities that keep two keys apart), while the
+/// list fixes which entry is which. So each depth is one state: the search for every state (a
+/// target that is one variable of the configuration's sort, as `krun` searches) finds the five
+/// counters once each, and the final state once, and so does the search for states without a
+/// target.
 #[test]
 fn a_search_finds_the_renamings_of_one_state_once() {
     let compiled = compile(RENAMINGS, "T", "T", "KItem", "go(.Map, .List, 4)");
@@ -261,6 +263,35 @@ fn a_search_finds_the_renamings_of_one_state_once() {
     };
     assert_eq!(search(SearchTypeArg::Final), ["0"]);
     assert_eq!(search(SearchTypeArg::All), ["0", "1", "2", "3", "4"]);
+    let states = |search_type| {
+        let mut backend = Backend::new(&compiled.kore, "T", BackendOptions::default()).unwrap();
+        let response = backend
+            .search(SearchRequest {
+                search_type,
+                ..SearchRequest::new(compiled.initial.clone())
+            })
+            .unwrap();
+        assert!(response.incomplete.is_empty(), "{:?}", response.incomplete);
+        let mut counters = response
+            .states
+            .iter()
+            .map(|found| {
+                let text =
+                    Printer::compact().print_pattern(&codec::from_value(&found.state).unwrap());
+                let [counter] = counter
+                    .captures_iter(&text)
+                    .map(|found| found[1].to_owned())
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap_or_else(|found| panic!("{found:?} in {text}"));
+                counter
+            })
+            .collect::<Vec<_>>();
+        counters.sort();
+        counters
+    };
+    assert_eq!(states(SearchTypeArg::Final), ["0"]);
+    assert_eq!(states(SearchTypeArg::All), ["0", "1", "2", "3", "4"]);
 }
 
 /// Whether a String holds a surrogate code point the definition does not settle (K's string
