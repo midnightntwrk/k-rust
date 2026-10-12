@@ -73,6 +73,13 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+thread_local! {
+    /// The state keys this thread has computed ([`RequestNames::state_key`]), so a test can
+    /// tell whether a caller computed a key it never compares.
+    pub(crate) static STATE_KEYS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The printed spellings of every variable, free or bound, of the patterns of one request.
 ///
 /// A name read from KORE never equals a name the backend makes (`term::names`), but it may be
@@ -161,6 +168,8 @@ impl RequestNames {
     /// Conversely, two such renamings of one state have equal keys, except where
     /// [`RequestNames::canonical`] gives up its search.
     pub(crate) fn state_key(&self, pattern: &Pattern) -> Pattern {
+        #[cfg(test)]
+        STATE_KEYS.with(|keys| keys.set(keys.get() + 1));
         let object = Object {
             variables: &[],
             terms: &[&pattern.term],
