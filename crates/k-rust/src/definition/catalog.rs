@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "definition.catalog.production"
 //! name = "production-catalog construction"
-//! sites = ["ResolvedDefinition::production_catalog", "ProductionCatalog::from_deduplicated_arcs", "ProductionCatalog::from_arc_productions", "ProductionCatalog", "ProductionCatalog::new", "ProductionCatalog::from_visible", "build_indexes"]
+//! sites = ["ResolvedDefinition::production_catalog", "ProductionCatalog::from_deduplicated_arcs", "ProductionCatalog::from_arc_productions", "ProductionCatalog::from_productions", "ProductionCatalog", "ProductionCatalog::new", "ProductionCatalog::from_visible", "build_indexes"]
 //! variable = "n = visible productions; l = local productions; k = productions sharing one SentenceKey or ProductionKey bucket; eq = sentence-equivalence cost; p = canonical production payload bytes"
 //! counters = ["KompileProductionCatalogsBuilt", "KompileProductionIdentityDigests", "KompileSentenceEquivalenceChecks"]
 //! consumes = [{ type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" }]

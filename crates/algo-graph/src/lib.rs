@@ -38,7 +38,7 @@ pub use atlas::{
     SampledLadderRow, SampledShare, ShareRow, StaleAlgorithm, Staleness, UncardedRow, WorkloadCost,
     amdahl_ceiling, atlas, check_staleness, fit_power_law, read_atlas_index, receipt_graph,
 };
-use cards::{Card, CardKind, Representation, SourceIndex};
+use cards::{Card, CardKind, CountedSite, CounterClaims, Representation, SourceIndex};
 pub use coverage::{
     COVERAGE_SCHEMA_VERSION, Coverage, CoveredFile, CoveredFunction, canonical_coverage_toml,
     normalize_export, read_coverage,
@@ -418,6 +418,7 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
             ));
         }
     }
+    add_counted_sites(&mut nodes, &cards, &index, &mut failures);
     for variant in counter_registry.keys() {
         if !claimed_counters.contains(variant) {
             report.push(format!("unclaimed counter {variant}"));
@@ -1198,6 +1199,42 @@ fn described_phase(description: StageDescription, sequence: usize) -> Node {
         registry_name: None,
         sequence: Some(sequence),
         lean: Vec::new(),
+    }
+}
+
+/// Add each item that bumps a claimed counter, outside every named site of the counter's
+/// claimants, to the sites of every claimant ([`CounterClaims`]), after the cards' named sites.
+fn add_counted_sites(
+    nodes: &mut BTreeMap<(String, String), Node>,
+    cards: &[Card],
+    index: &SourceIndex,
+    failures: &mut Vec<String>,
+) {
+    let claims = CounterClaims::new(cards);
+    for (file, facts) in &index.files {
+        for bump in &facts.counter_bumps {
+            match claims.place(file, bump) {
+                CountedSite::Unclaimed | CountedSite::Named => {}
+                CountedSite::Counted { symbol, algorithms } => {
+                    let site = Anchor {
+                        crate_name: cards::crate_name(file).unwrap_or_default(),
+                        file: file.clone(),
+                        symbol: symbol.to_owned(),
+                    };
+                    for algorithm in algorithms {
+                        if let Some(node) = nodes.get_mut(&(algorithm.clone(), "algorithm".to_owned()))
+                        {
+                            extend_unique(&mut node.sites, [site.clone()]);
+                        }
+                    }
+                }
+                CountedSite::Unnameable { algorithms } => failures.push(format!(
+                    "{file}: Counter::{} is bumped outside every item a site symbol names, so no claimant of it ({}) can name the work it counts",
+                    bump.counter,
+                    algorithms.iter().map(String::as_str).collect::<Vec<_>>().join(", ")
+                )),
+            }
+        }
     }
 }
 

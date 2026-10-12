@@ -27,6 +27,8 @@ pub struct Node {
     pub area: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The items its cards name, then, for an algorithm, its counted sites: the items that bump a
+    /// counter it claims where no claimant's card names them (`CounterClaims`).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub sites: Vec<Anchor>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
