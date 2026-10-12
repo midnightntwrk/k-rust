@@ -209,28 +209,28 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
         feature: "GroundFloatFolding",
         unavailable_on: &[Route::NativeRust, Route::NativeLlvm, Route::Browser],
         reason: "the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal",
-        evidence: "k-rust 2e8667cd kompile/passes/constant_folding.rs refuses FLOAT.* folding without the mpfr-folding feature, which KRS does not enable (FRONTEND_CAPABILITIES.mpfr_folding)",
+        evidence: "k-rust d86f2c10 kompile/passes/constant_folding.rs refuses FLOAT.* folding without the mpfr-folding feature, which KRS does not enable (FRONTEND_CAPABILITIES.mpfr_folding)",
     },
     // upstream k-rust/float-beyond-binary64
     RouteCapability {
         feature: "FloatPrecisionBeyondBinary64",
         unavailable_on: &[Route::NativeRust, Route::NativeLlvm, Route::Browser],
         reason: "k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
-        evidence: "k-rust 2e8667cd k-rust-backend builtin/float.rs rejects other precisions and exponent ranges",
+        evidence: "k-rust d86f2c10 k-rust-backend builtin/float.rs rejects other precisions and exponent ranges",
     },
     // upstream k-rust/console-write-through-execute: the backend API performs no host IO.
     RouteCapability {
         feature: "ConsoleIO",
         unavailable_on: &[Route::Browser],
         reason: "the browser route has no standard input or output; run it with `krs run` or Java K's krun",
-        evidence: "the browser lesson runtime executes requests through the k-rust backend API, which performs no host IO (k-rust 2e8667cd docs/compatibility.md: RPC does not perform host IO)",
+        evidence: "the browser lesson runtime executes requests through the k-rust backend API, which performs no host IO (k-rust d86f2c10 docs/compatibility.md: RPC does not perform host IO)",
     },
     // upstream k/llvm-no-existentials (reviewed, not a request: concrete execution by design).
     RouteCapability {
         feature: "RuleExistential",
         unavailable_on: &[Route::NativeLlvm, Route::JavaLlvmReference],
         reason: "concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell",
-        evidence: "Java kompile --backend llvm rejects a rule with a `?X` right-hand-side variable (K tutorial lesson 1.21); the Haskell backend and k-rust execute it symbolically (k-rust 2e8667cd docs/compatibility.md: existential right-hand-side variables follow K's Haskell policy)",
+        evidence: "Java kompile --backend llvm rejects a rule with a `?X` right-hand-side variable (K tutorial lesson 1.21); the Haskell backend and k-rust execute it symbolically (k-rust d86f2c10 docs/compatibility.md: existential right-hand-side variables follow K's Haskell policy)",
     },
     // upstream k/llvm-kompile-parametric-function-segfault
     RouteCapability {
@@ -252,14 +252,14 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
         feature: "UserAlgebraicMatching",
         unavailable_on: &Route::ALL,
         reason: "no pinned backend matches modulo user-declared `assoc`, `comm`, `idem`, or `unit` axioms; use the builtin List, Set, or Map sorts, whose hooks implement them",
-        evidence: "reserved for KF-019, which KRS does not implement: on `syntax Bag ::= Bag \"&\" Bag [assoc, comm, unit(bagNil)]` Java K 7.1.337's LLVM backend matches the symbol as a free constructor (the axioms are silently weakened), kore-exec rejects function equations over it, and k-rust 2e8667cd drops the axioms at load and leaves the symbol uninterpreted (k-rust-backend/src/rule.rs; docs/compatibility.md)",
+        evidence: "reserved for KF-019, which KRS does not implement: on `syntax Bag ::= Bag \"&\" Bag [assoc, comm, unit(bagNil)]` Java K 7.1.337's LLVM backend matches the symbol as a free constructor (the axioms are silently weakened), kore-exec rejects function equations over it, and k-rust d86f2c10 drops the axioms at load and leaves the symbol uninterpreted (k-rust-backend/src/rule.rs; docs/compatibility.md)",
     },
     // upstream k-rust/console-write-through-execute
     RouteCapability {
         feature: "ConsoleWriteHook",
         unavailable_on: &[Route::NativeRust, Route::Browser],
         reason: "the in-process k-rust backend gives `#write` and `#putc` no console state, so they cannot run; append to a `stream = \"stdout\"` cell instead, or run the emitted K with Java K's krun or build with --backend llvm",
-        evidence: "k-rust 2e8667cd docs/compatibility.md (console IO): only ordinary committed execution performs IO.write and IO.putc, pure simplification gets no console state, and RPC performs no host IO; at k-rust 195a7718 `krs run` stopped with `unsupported-hook` after rewriting to `#write(1, \"hi\\n\")` (probe, 2026-10-10). llvm-kompile 7.1.337 on the same definition's native LLVM KORE built an interpreter that printed `hi` and `A`, as Java K's krun does, so native-llvm keeps them",
+        evidence: "k-rust d86f2c10 docs/compatibility.md (console IO): only ordinary committed execution performs IO.write and IO.putc, pure simplification gets no console state, and RPC performs no host IO; at k-rust 195a7718 `krs run` stopped with `unsupported-hook` after rewriting to `#write(1, \"hi\\n\")` (probe, 2026-10-10). llvm-kompile 7.1.337 on the same definition's native LLVM KORE built an interpreter that printed `hi` and `A`, as Java K's krun does, so native-llvm keeps them",
     },
 ];
 
