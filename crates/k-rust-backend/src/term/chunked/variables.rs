@@ -135,6 +135,25 @@ impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
         }
     }
 
+    /// The variable at `index` in order, in time logarithmic in the set's size.
+    pub(crate) fn get(&self, index: usize) -> Option<&V> {
+        match &self.backing {
+            Backing::Empty => None,
+            Backing::Slice(variables) => variables.get(index),
+            Backing::Tree(entries) => entries.get(index).map(|entry| &entry.element),
+        }
+    }
+
+    /// The number of leading variables for which `before` holds, when it holds for a prefix of
+    /// the ordered variables and for none after it, in time logarithmic in the set's size.
+    pub(crate) fn partition_point(&self, mut before: impl FnMut(&V) -> bool) -> usize {
+        match &self.backing {
+            Backing::Empty => 0,
+            Backing::Slice(variables) => variables.partition_point(before),
+            Backing::Tree(entries) => entries.partition_point(|entry| before(&entry.element)),
+        }
+    }
+
     /// The variables as an owned ordered set, in time linear in their number.
     pub(crate) fn to_btree_set(&self) -> BTreeSet<V> {
         self.iter().cloned().collect()

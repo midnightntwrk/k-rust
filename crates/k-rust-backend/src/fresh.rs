@@ -16,8 +16,12 @@
 //! bound = "O(c) per name, amortized O(1)"
 //!
 //! [[cost]]
-//! mode = "avoid-set construction at a site (freshen_existentials, mint_unbound_rule_variables, freshen_claim, rename_apart); an alias binder renamed to avoid capture looks its candidates up in the names of its alias body, laid out at load, and in the names of the form {base}Alias{digits} of the variables the unfolding has built, recorded as it builds them, one lookup each, and resumes from the last candidate of its base name, so each candidate is tried once per unfolding (alias Expander::rename_to_avoid_capture)"
+//! mode = "avoid-set construction at a site (freshen_claim, rename_apart, the recovery paths); an alias binder renamed to avoid capture looks its candidates up in the names of its alias body, laid out at load, and in the names of the form {base}Alias{digits} of the variables the unfolding has built, recorded as it builds them, one lookup each, and resumes from the last candidate of its base name, so each candidate is tried once per unfolding (alias Expander::rename_to_avoid_capture)"
 //! bound = "O(v log v) per call before the retry loop"
+//!
+//! [[cost]]
+//! mode = "names a rewrite step mints apart from its state (freshen_existentials, mint_unbound_rule_variables through rewrite::StateNames): the state term's variable set and the bound terms' are looked up, not copied; the path condition's free variable names are collected"
+//! bound = "O(p log p) per step that mints, for p free variables of the path condition, plus O(g log v) per candidate name for g kinds and sorts among the v variables of the state and the bound terms; a rule that mints nothing returns at once"
 //!
 //! [[cost]]
 //! mode = "state and solution keys (RequestNames::state_key, RequestNames::solution_key)"
@@ -1077,13 +1081,13 @@ impl FreshCounter {
         &self.request
     }
 
-    /// The first `{base}!{marker}{counter}` from this request's counter that is not in `avoid`
-    /// and that no variable of the request is spelled as, added to `avoid`.
+    /// The first `{base}!{marker}{counter}` from this request's counter that `avoid` does not
+    /// hold and that no variable of the request is spelled as, taken in `avoid`.
     pub(crate) fn mint(
         &mut self,
         base: &str,
         marker: FreshMarker,
-        avoid: &mut BTreeSet<Name>,
+        avoid: &mut (impl NamesToAvoid + ?Sized),
     ) -> String {
         // Invariant: `next` only grows, so at most |avoid| + |request| + 1 names are tried.
         loop {
@@ -1092,10 +1096,23 @@ impl FreshCounter {
                 .next
                 .checked_add(1)
                 .expect("a request mints fewer than 2^64 names");
-            if !self.request.spells(&name) && avoid.insert(name.as_str().into()) {
+            if !self.request.spells(&name) && avoid.take(&name) {
                 return name;
             }
         }
+    }
+}
+
+/// The names a mint must not take: those of the variables it must stay apart from, and the
+/// names it has taken.
+pub(crate) trait NamesToAvoid {
+    /// Takes `name` when it is not held: whether it was free.
+    fn take(&mut self, name: &str) -> bool;
+}
+
+impl NamesToAvoid for BTreeSet<Name> {
+    fn take(&mut self, name: &str) -> bool {
+        self.insert(name.into())
     }
 }
 
@@ -1107,7 +1124,7 @@ impl FreshCounter {
 /// counter alone makes the name new.
 pub(crate) fn fresh_variable(
     variable: &Variable,
-    names_to_avoid: &mut BTreeSet<Name>,
+    names_to_avoid: &mut (impl NamesToAvoid + ?Sized),
     counter: &mut FreshCounter,
 ) -> Term {
     let base = variable

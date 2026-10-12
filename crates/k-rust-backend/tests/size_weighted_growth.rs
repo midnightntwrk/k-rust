@@ -195,6 +195,7 @@ module MAIN
     symbol fstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
     symbol bstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
     symbol ustate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
+    symbol nstate{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
     symbol cmstate{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
     symbol clstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
     symbol csstate{}(SortInt{}, SortSet{}) : SortState{} [constructor{}()]
@@ -266,6 +267,13 @@ module MAIN
             listUpdate{}(L:SortList{}, \dv{SortInt{}}("0"), N:SortInt{})
         )
     ) [label{}("list-update")]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(nstate{}(N:SortInt{}, M:SortMap{}), \top{SortState{}}()),
+        nstate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            mapUpdate{}(M:SortMap{}, N:SortInt{}, Y:SortInt{})
+        )
+    ) [label{}("map-new-name")]
     axiom{} \rewrites{SortState{}}(
         \and{SortState{}}(cmstate{}(N:SortInt{}, C:SortMap{}), \top{SortState{}}()),
         cmstate{}(plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")), C:SortMap{})
@@ -561,6 +569,33 @@ fn overwriting_one_symbolic_map_binding_costs_the_same_on_a_larger_map() {
         1024,
         |size| {
             steps_from(&definition, "mstate", &symbolic_map_of, size, 0).saturating_sub(steps_from(
+                &definition,
+                "cmstate",
+                &map_of,
+                size,
+                0,
+            ))
+        },
+    );
+}
+
+/// A rule that introduces a variable: each step overwrites the binding of a present key,
+/// `N |-> V<N>`, by `N |-> Y` for a `Y` the left-hand side does not bind, which the step names
+/// apart from every variable of the state. The map and every term above it carry as many
+/// variables as the map has bindings, and the new name must differ from all of them; what the
+/// step pays to find one must not grow with them. The carry subtracted is a ground map's, as for
+/// [`overwriting_one_symbolic_map_binding_costs_the_same_on_a_larger_map`].
+#[test]
+fn naming_a_new_variable_beside_a_symbolic_map_costs_the_same_on_a_larger_map() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(COLLECTIONS);
+    assert_step_independent_of_size(
+        "symbolic map, one binding overwritten by a new variable per step",
+        1024,
+        |size| {
+            steps_from(&definition, "nstate", &symbolic_map_of, size, 0).saturating_sub(steps_from(
                 &definition,
                 "cmstate",
                 &map_of,

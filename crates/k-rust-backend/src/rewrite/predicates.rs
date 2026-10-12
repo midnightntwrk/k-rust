@@ -209,6 +209,52 @@ pub(crate) fn check_concreteness(
     })
 }
 
+/// The names a rewrite step mints apart from: those of a state's free variables, and of the
+/// variables of the terms a rule's match bound, looked up rather than copied.
+///
+/// The state's term holds the configuration's variables, as many as the configuration has, and
+/// a match may bind a variable to a large part of it; a copy of their names at each step that
+/// mints would cost a step `O(V)` for `V` of them. Their sets are kept as they are and each
+/// candidate name is looked up in them (`Variables::holds_name`, `O(g log V)` for `g` kinds and
+/// sorts); the names of the path condition's free variables, and those minted, are held as a set.
+/// A name is held exactly when it is in the set [`pattern_variable_names`] gives, extended by the
+/// bound terms' variables' names, so a mint takes the same names as from that set.
+pub(super) struct StateNames<'a> {
+    sets: Vec<&'a crate::term::Variables>,
+    names: BTreeSet<crate::term::Name>,
+}
+
+impl<'a> StateNames<'a> {
+    /// The names of `pattern`'s free variables.
+    pub(super) fn of(pattern: &'a Pattern) -> Self {
+        Self {
+            sets: vec![&pattern.term.attributes().variables],
+            names: pattern
+                .constraints
+                .iter()
+                .flat_map(Predicate::free_variables)
+                .map(|variable| variable.name)
+                .collect(),
+        }
+    }
+
+    /// These names and those of `term`'s variables.
+    pub(super) fn with_variables_of(mut self, term: &'a Term) -> Self {
+        let variables = &term.attributes().variables;
+        if !variables.is_empty() {
+            self.sets.push(variables);
+        }
+        self
+    }
+}
+
+impl crate::fresh::NamesToAvoid for StateNames<'_> {
+    fn take(&mut self, name: &str) -> bool {
+        !self.sets.iter().any(|variables| variables.holds_name(name))
+            && self.names.insert(name.into())
+    }
+}
+
 pub(super) fn pattern_variable_names(pattern: &Pattern) -> BTreeSet<crate::term::Name> {
     pattern_free_variables(pattern)
         .into_iter()

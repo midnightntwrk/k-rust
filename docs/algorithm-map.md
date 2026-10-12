@@ -130,7 +130,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.definition.closure — at most h rounds, each O(|S| x |C|) +1 mode — at backend/definition.rs `build_sort_graph`
 - backend.execution.captured_stdout — O(d + l + b * h) term visits and buffer copies… — at k-rust/backend/execution.rs `captured_stdout_buffer`
 - backend.fresh.object_language — O((t + r) x log s) opacity pre-pass, then O((k +… +1 mode — at backend/builtin/substitution.rs `evaluate`
-- backend.fresh.variables — O(c log v) per name, amortized O(log v) with one… +4 modes — at backend/fresh.rs `FreshCounter::mint`
+- backend.fresh.variables — O(c log v) per name, amortized O(log v) with one… +5 modes — at backend/fresh.rs `FreshCounter::mint`
 - backend.implication.check — O(r) matching problems and antecedent… +1 mode — in: [match result], [extracted substitution] — at backend/implication.rs `check_established`
 - backend.matching.relation_query — O(c x log |S|) +2 modes — at backend/matching/mod.rs `SortGraph::check_subsort`
 - backend.rewrite.apply — one matching problem, at most one is_sat query… +1 mode — in: [match result], [extracted substitution] — at backend/rewrite/apply.rs `apply_rule_with_match`

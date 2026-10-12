@@ -110,6 +110,36 @@ impl Variables {
         self.0.contains(variable)
     }
 
+    /// Whether the set holds a variable spelled `name`, of any kind and sort.
+    ///
+    /// Variables are ordered by kind, then sort, then name, so those of one kind and sort are a
+    /// run ordered by name: each run is found by a binary search from the end of the one
+    /// before, and searched for `name`. The time is `O(g log n)` for `g` kinds and sorts among
+    /// the `n` variables, where a copy of the names would be `O(n)`; `g` is bounded by the
+    /// definition's sorts, not by the term.
+    pub(crate) fn holds_name(&self, name: &str) -> bool {
+        let mut start = 0;
+        while let Some(first) = self.0.get(start) {
+            let run = (&first.kind, &first.sort);
+            let end = self
+                .0
+                .partition_point(|variable| (&variable.kind, &variable.sort) <= run);
+            let at = self.0.partition_point(|variable| {
+                (&variable.kind, &variable.sort, variable.name.as_ref()) < (run.0, run.1, name)
+            });
+            if at < end
+                && self
+                    .0
+                    .get(at)
+                    .is_some_and(|variable| variable.name.as_ref() == name)
+            {
+                return true;
+            }
+            start = end;
+        }
+        false
+    }
+
     /// The variables as an owned ordered set.
     pub fn to_btree_set(&self) -> BTreeSet<Variable> {
         self.0.to_btree_set()
@@ -253,3 +283,54 @@ impl DoubleEndedIterator for Iter<'_> {
 impl ExactSizeIterator for Iter<'_> {}
 
 impl FusedIterator for Iter<'_> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::term::{Sort, VariableKind};
+
+    /// `holds_name` agrees with a scan of the names, on sets backed by a slice and by a tree,
+    /// whose variables of one name come in several kinds and sorts, for names held in one run
+    /// only, in several, and in none (before, between and after the runs).
+    #[test]
+    fn a_name_is_held_exactly_when_some_variable_of_any_kind_or_sort_is_spelled_so() {
+        let sorts = ["SortA", "SortB", "SortC"].map(Sort::simple);
+        for count in [1, 7, 200] {
+            let variables: Variables = (0..count)
+                .flat_map(|index| {
+                    let sorts = &sorts;
+                    [VariableKind::Element, VariableKind::Set]
+                        .into_iter()
+                        .enumerate()
+                        .flat_map(move |(kind_index, kind)| {
+                            sorts
+                                .iter()
+                                .enumerate()
+                                // Each run holds every third index, starting where its kind and
+                                // sort say, so that most names are in some runs and not others.
+                                .filter(move |(sort_index, _)| {
+                                    (index + kind_index + sort_index) % 3 == 0
+                                })
+                                .map(move |(_, sort)| Variable {
+                                    kind,
+                                    sort: sort.clone(),
+                                    name: format!("V{index:04}").into(),
+                                })
+                        })
+                })
+                .collect();
+            for index in 0..count + 2 {
+                for name in [format!("V{index:04}"), format!("V{index:04}x")] {
+                    assert_eq!(
+                        variables.holds_name(&name),
+                        variables.iter().any(|variable| *variable.name == *name),
+                        "{name} in a set of {} variables",
+                        variables.len()
+                    );
+                }
+            }
+            assert!(!variables.holds_name("A"));
+            assert!(!variables.holds_name("Z"));
+        }
+    }
+}
