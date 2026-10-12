@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "ambiguous monomorphic forest"
-//! bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus one lowering per tree for the G trees of a typing group whose trees instantiate formal parameters differently; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it"
+//! bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus one lowering per tree, up to the first that lowers differently, for the G trees of a typing group whose trees instantiate formal parameters differently, each tree built when it is lowered; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it"
 //!
 //! [[cost]]
 //! mode = "variable realization"
@@ -167,7 +167,8 @@ pub(super) trait Lowering<T> {
 
     /// The one result every tree of an inferred packed forest has when lowered alone, `None`
     /// when two trees' results differ (`LoweredTerm::same_lowering`) or a tree's lowering fails.
-    /// By default each tree is lowered on its own, which costs one lowering per tree:
+    /// By default each tree is built and lowered on its own (`packed_trees`), which costs one
+    /// lowering per tree up to the first that differs or fails:
     /// the post-inference passes are no function of a forest's nodes alone where an ambiguity
     /// stands below a node they read the sorts of its children at (list completion instantiates
     /// a parametric production from its children's sorts, and an ambiguity has none), so the
@@ -177,9 +178,11 @@ pub(super) trait Lowering<T> {
     where
         T: LoweredTerm,
     {
-        let mut lowered = expand_packed_trees(inferred)
-            .into_iter()
-            .map(|tree| self.lower(tree));
+        // A forest whose trees `usize` cannot count cannot be checked tree by tree.
+        let Some(trees) = packed_trees(inferred) else {
+            return Ok(None);
+        };
+        let mut lowered = trees.map(|tree| self.lower(tree));
         let Some(Ok(first)) = lowered.next() else {
             return Ok(None);
         };
@@ -1839,34 +1842,104 @@ fn engine_disagreement<T: std::fmt::Debug>(
 /// The number of complete trees of a packed forest, saturating at `usize::MAX`. Shared nodes
 /// are counted once each, so the count costs time linear in the forest's distinct nodes.
 pub(super) fn packed_tree_count(term: &Rc<PackedTerm>) -> usize {
-    fn count(term: &Rc<PackedTerm>, memo: &mut HashMap<*const PackedTerm, usize>) -> usize {
-        crate::stack::guarded(|| {
-            if let Some(count) = memo.get(&Rc::as_ptr(term)) {
-                return *count;
+    tree_counts(term, &mut HashMap::new())
+}
+
+/// The tree count of `term` and of every node below it, recorded in `memo`, saturating at
+/// `usize::MAX`.
+fn tree_counts(term: &Rc<PackedTerm>, memo: &mut HashMap<*const PackedTerm, usize>) -> usize {
+    crate::stack::guarded(|| {
+        if let Some(count) = memo.get(&Rc::as_ptr(term)) {
+            return *count;
+        }
+        let result = match &term.node {
+            PackedNode::Term(_) => 1,
+            PackedNode::Ambiguity(alternatives) => {
+                alternatives.iter().fold(0usize, |total, alternative| {
+                    total.saturating_add(tree_counts(alternative, memo))
+                })
             }
-            let result = match &term.node {
-                PackedNode::Term(_) => 1,
-                PackedNode::Ambiguity(alternatives) => {
-                    alternatives.iter().fold(0usize, |total, alternative| {
-                        total.saturating_add(count(alternative, memo))
-                    })
+            PackedNode::Production { children, .. }
+            | PackedNode::InstantiatedProduction { children, .. } => {
+                children.iter().fold(1usize, |total, child| {
+                    total.saturating_mul(tree_counts(child, memo))
+                })
+            }
+        };
+        memo.insert(Rc::as_ptr(term), result);
+        result
+    })
+}
+
+/// The complete trees of a packed forest in the order of `expand_packed_trees`, each built only
+/// when it is read, so a caller that stops at a tree pays for no later one and holds one tree at
+/// a time; `None` when `usize` cannot count them. Tree `index` is read off the tree counts of
+/// the nodes: an ambiguity's trees are its alternatives' in turn, and a production's are the
+/// combinations of its children's trees with the last child varying fastest.
+pub(super) fn packed_trees(term: &Rc<PackedTerm>) -> Option<impl Iterator<Item = ParsedTerm>> {
+    fn nth(
+        term: &Rc<PackedTerm>,
+        mut index: usize,
+        counts: &HashMap<*const PackedTerm, usize>,
+    ) -> ParsedTerm {
+        crate::stack::guarded(|| {
+            let count = |term: &Rc<PackedTerm>| counts[&Rc::as_ptr(term)];
+            let children_at = |children: &[Rc<PackedTerm>], mut index: usize| {
+                let mut indexes = vec![0; children.len()];
+                for (slot, child) in indexes.iter_mut().zip(children).rev() {
+                    *slot = index % count(child);
+                    index /= count(child);
                 }
-                PackedNode::Production { children, .. }
-                | PackedNode::InstantiatedProduction { children, .. } => {
-                    children.iter().fold(1usize, |total, child| {
-                        total.saturating_mul(count(child, memo))
-                    })
-                }
+                children
+                    .iter()
+                    .zip(indexes)
+                    .map(|(child, index)| nth(child, index, counts))
+                    .collect()
             };
-            memo.insert(Rc::as_ptr(term), result);
-            result
+            match &term.node {
+                PackedNode::Term(leaf) => ParsedTerm::Term(leaf.clone()),
+                PackedNode::Ambiguity(alternatives) => {
+                    for alternative in alternatives {
+                        if index < count(alternative) {
+                            return nth(alternative, index, counts);
+                        }
+                        index -= count(alternative);
+                    }
+                    unreachable!("a tree index is below its forest's tree count")
+                }
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => ParsedTerm::Production {
+                    production: *production,
+                    children: children_at(children, index),
+                    metadata: metadata.clone(),
+                },
+                PackedNode::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                } => ParsedTerm::InstantiatedProduction {
+                    production: *production,
+                    parameters: parameters.clone(),
+                    children: children_at(children, index),
+                    metadata: metadata.clone(),
+                },
+            }
         })
     }
-    count(term, &mut HashMap::new())
+    let mut counts = HashMap::new();
+    let total = tree_counts(term, &mut counts);
+    // A saturated count is no count; below a root with trees, every count is at most the root's.
+    let term = Rc::clone(term);
+    (total < usize::MAX).then(move || (0..total).map(move |index| nth(&term, index, &counts)))
 }
 
 /// The complete trees of a packed forest. The caller bounds their number with
 /// `packed_tree_count`.
+#[cfg(test)]
 pub(super) fn expand_packed_trees(term: &Rc<PackedTerm>) -> Vec<ParsedTerm> {
     fn expand(
         term: &Rc<PackedTerm>,
@@ -2087,6 +2160,7 @@ fn factor_trees(trees: BTreeSet<ParsedTerm>) -> ParsedTerm {
 }
 
 /// Every choice of one tree per child position, in order.
+#[cfg(test)]
 fn child_combinations(children: Vec<Rc<Vec<ParsedTerm>>>) -> Vec<Vec<ParsedTerm>> {
     let mut combinations = vec![Vec::with_capacity(children.len())];
     for options in children {
@@ -2347,6 +2421,45 @@ mod tests {
             sort: Sort::new(sort),
             name: None,
         }
+    }
+
+    /// The split check builds and lowers the trees of a group one at a time and stops at the
+    /// first that lowers differently from the first tree, so a refusal pays for no later tree:
+    /// here the forest has 2^32 trees, and its first two differ in their last leaf.
+    #[test]
+    fn the_split_check_stops_at_the_first_tree_that_lowers_differently() {
+        let leaves = |names: &[&str]| {
+            PackedTerm::ambiguity(
+                names
+                    .iter()
+                    .map(|name| PackedTerm::leaf(Term::variable(*name)))
+                    .collect(),
+            )
+        };
+        let mut forest = leaves(&["X", "Y"]);
+        for _ in 0..5 {
+            forest = PackedTerm::production(
+                0,
+                vec![Rc::clone(&forest), Rc::clone(&forest)],
+                TermMetadata::default(),
+            );
+        }
+        assert_eq!(packed_tree_count(&forest), 1 << 32);
+        let lowered = std::cell::Cell::new(0);
+        let lower = |tree: ParsedTerm| {
+            lowered.set(lowered.get() + 1);
+            Ok::<_, ParseError>(tree)
+        };
+        assert_eq!(lower.lower_each_tree(&forest), Ok(None));
+        assert_eq!(lowered.get(), 2);
+        lowered.set(0);
+        let forest = leaves(&["X", "Y", "Z"]);
+        let same = |_: ParsedTerm| {
+            lowered.set(lowered.get() + 1);
+            Ok::<_, ParseError>(ParsedTerm::Term(Term::variable("X")))
+        };
+        assert!(matches!(same.lower_each_tree(&forest), Ok(Some(_))));
+        assert_eq!(lowered.get(), 3);
     }
 
     fn parametric_rewrite_grammar() -> (Grammar, usize, usize, usize, usize) {

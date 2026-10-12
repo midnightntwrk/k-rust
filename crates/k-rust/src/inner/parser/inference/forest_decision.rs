@@ -1931,6 +1931,13 @@ mod tests {
                 .filter(|index| grammar.productions[*index].bracket)
                 .collect::<Vec<_>>();
             let forest = pack(&tree, &productions, &brackets, &mut 0);
+            // The trees read one at a time are the expanded trees, in order.
+            prop_assert_eq!(
+                super::super::packed_trees(&forest)
+                    .expect("a generated forest has few trees")
+                    .collect::<Vec<_>>(),
+                super::super::expand_packed_trees(&forest)
+            );
             let top = Sort::new(["K", "Int", "Exp", "Bool"][top]);
             assert_forest_decision_agrees(&grammar, &forest, &top, anywhere);
             // Z3 compares typings over the variables of the whole forest, while the portable
