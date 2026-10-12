@@ -703,25 +703,35 @@ impl<I: Item + Ord, const B: usize> Chunked<I, B> {
 /// sites = ["Chunked::add_by_key", "Chunked::reduce_by_key"]
 /// ```
 impl<I: Item<Group = ()>, const B: usize> Chunked<I, B> {
-    /// The part of `batch`, ordered by key, that falls in `children[slot]`'s range: the keys
-    /// below the next child's first key, all of the rest for the last child. `batch` keeps what
-    /// is left.
-    fn part_for<'b>(children: &[Arc<Node<I>>], slot: usize, batch: &mut &'b [I]) -> &'b [I] {
-        let part = match children.get(slot + 1) {
-            Some(next) => {
-                let bound = next
-                    .summary()
-                    .first
-                    .as_ref()
-                    .expect("a node has items")
-                    .key();
-                batch.partition_point(|item| item.key() < bound)
-            }
-            None => batch.len(),
-        };
-        let (part, rest) = batch.split_at(part);
-        *batch = rest;
-        part
+    /// The parts of `batch`, ordered by key, that fall in the ranges of `children`, each with
+    /// its child's slot, in order, for the children that receive a nonempty part: a part holds
+    /// the keys from its child's first key (any key, for the first child) to below the next
+    /// child's. Each part's child is found by a search over the children's first keys, so a
+    /// batch of a few keys compares `O(log B)` keys per part, not one per child.
+    fn batch_parts<'b>(
+        children: &'b [Arc<Node<I>>],
+        mut batch: &'b [I],
+    ) -> impl Iterator<Item = (usize, &'b [I])> + 'b {
+        fn first_key<I: Item>(child: &Arc<Node<I>>) -> &I::Key {
+            child
+                .summary()
+                .first
+                .as_ref()
+                .expect("a node has items")
+                .key()
+        }
+        let mut from = 0;
+        std::iter::from_fn(move || {
+            let key = batch.first()?.key();
+            let slot = from + children[from + 1..].partition_point(|child| first_key(child) <= key);
+            let end = children.get(slot + 1).map_or(batch.len(), |next| {
+                batch.partition_point(|item| item.key() < first_key(next))
+            });
+            let (part, rest) = batch.split_at(end);
+            batch = rest;
+            from = slot + 1;
+            Some((slot, part))
+        })
     }
 
     /// The sequence with the items of `added`, ordered by key with one per key, put in: an item
@@ -745,33 +755,36 @@ impl<I: Item<Group = ()>, const B: usize> Chunked<I, B> {
     ) -> Vec<Arc<Node<I>>> {
         match &**node {
             Node::Leaf { items, .. } => {
+                // Each added item's place is searched for, so a few items added to a full leaf
+                // compare keys `O(log B)` times each, and the runs between them are copied.
                 let mut merged = Vec::with_capacity(items.len() + added.len());
-                let mut added = added.iter().peekable();
-                for item in items {
-                    while let Some(before) = added.next_if(|new| new.key() < item.key()) {
-                        merged.push(before.clone());
+                let mut rest = items.as_slice();
+                for new in added {
+                    let before = rest.partition_point(|item| item.key() < new.key());
+                    merged.extend_from_slice(&rest[..before]);
+                    rest = &rest[before..];
+                    match rest.split_first() {
+                        Some((held, after)) if held.key() == new.key() => {
+                            merged.push(merge(held, new));
+                            rest = after;
+                        }
+                        _ => merged.push(new.clone()),
                     }
-                    merged.push(match added.next_if(|new| new.key() == item.key()) {
-                        Some(same) => merge(item, same),
-                        None => item.clone(),
-                    });
                 }
-                merged.extend(added.cloned());
+                merged.extend_from_slice(rest);
                 Self::cut(merged, (), Item::group, Node::leaf_with)
             }
             Node::Internal {
                 height, children, ..
             } => {
-                let mut batch = added;
-                let mut united = Vec::with_capacity(children.len());
-                for (slot, child) in children.iter().enumerate() {
-                    let part = Self::part_for(children, slot, &mut batch);
-                    if part.is_empty() {
-                        united.push(child.clone());
-                    } else {
-                        united.extend(Self::add_into(child, part, merge));
-                    }
+                let mut united = Vec::with_capacity(children.len() + 1);
+                let mut next = 0;
+                for (slot, part) in Self::batch_parts(children, added) {
+                    united.extend_from_slice(&children[next..slot]);
+                    united.extend(Self::add_into(&children[slot], part, merge));
+                    next = slot + 1;
                 }
+                united.extend_from_slice(&children[next..]);
                 Self::cut(united, (), child_group, |children, ()| {
                     Node::internal_with(*height, children, ())
                 })
@@ -816,18 +829,22 @@ impl<I: Item<Group = ()>, const B: usize> Chunked<I, B> {
     ) -> Option<Arc<Node<I>>> {
         match &**node {
             Node::Leaf { items, .. } => {
+                // As in `add_into`, each reduced item's place is searched for.
                 let mut left = Vec::with_capacity(items.len());
-                let mut reduced = reduced.iter().peekable();
-                for item in items {
-                    match reduced.next_if(|old| old.key() == item.key()) {
-                        Some(old) => left.extend(reduce(item, old)),
-                        None => left.push(item.clone()),
-                    }
+                let mut rest = items.as_slice();
+                for old in reduced {
+                    let before = rest.partition_point(|item| item.key() < old.key());
+                    left.extend_from_slice(&rest[..before]);
+                    let Some((held, after)) = rest[before..]
+                        .split_first()
+                        .filter(|(held, _)| held.key() == old.key())
+                    else {
+                        panic!("a reduction names only keys the sequence holds")
+                    };
+                    left.extend(reduce(held, old));
+                    rest = after;
                 }
-                assert!(
-                    reduced.next().is_none(),
-                    "a reduction names only keys the sequence holds"
-                );
+                left.extend_from_slice(rest);
                 (!left.is_empty()).then(|| Arc::new(Node::leaf_with(left, ())))
             }
             Node::Internal {
@@ -851,22 +868,23 @@ impl<I: Item<Group = ()>, const B: usize> Chunked<I, B> {
                         }
                     }
                 };
-                let mut batch = reduced;
+                let take = |kept: &mut Vec<Arc<Node<I>>>, child: Arc<Node<I>>| match kept.last() {
+                    Some(last) if short(last) || short(&child) => join_last(kept, &child),
+                    _ => kept.push(child),
+                };
                 let mut kept: Vec<Arc<Node<I>>> = Vec::with_capacity(children.len());
-                for (slot, child) in children.iter().enumerate() {
-                    let part = Self::part_for(children, slot, &mut batch);
-                    let child = if part.is_empty() {
-                        child.clone()
-                    } else {
-                        match Self::reduce_in(child, part, reduce) {
-                            Some(child) => child,
-                            None => continue,
-                        }
-                    };
-                    match kept.last() {
-                        Some(last) if short(last) || short(&child) => join_last(&mut kept, &child),
-                        _ => kept.push(child),
+                let mut next = 0;
+                for (slot, part) in Self::batch_parts(children, reduced) {
+                    for child in &children[next..slot] {
+                        take(&mut kept, child.clone());
                     }
+                    if let Some(child) = Self::reduce_in(&children[slot], part, reduce) {
+                        take(&mut kept, child);
+                    }
+                    next = slot + 1;
+                }
+                for child in &children[next..] {
+                    take(&mut kept, child.clone());
                 }
                 if kept.len() > 1 && kept.last().is_some_and(short) {
                     let last = kept.pop().expect("a last node");
