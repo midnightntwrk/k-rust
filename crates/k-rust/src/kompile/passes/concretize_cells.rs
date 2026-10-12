@@ -3945,8 +3945,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// matches divide the instances between them in a way the rule does not state, and an item
     /// written between them could be any instance, so the rule is rejected, as it is when the
     /// frame is written on both sides of items, standing for the two parts on either side of
-    /// them. A list built on the right side of a rewrite is not matched: it is the concatenation
-    /// of its parts, any number of which are variables.
+    /// them. A list built on the right side of a rule's rewrite is not matched: it is the
+    /// concatenation of its parts, any number of which are variables. A claim's right side, the
+    /// pattern its final states are checked against, is accepted on the same terms; two parts
+    /// there state an item anywhere in the list, which the prover does not decide.
     fn place_lists(
         &self,
         ordered: &mut BTreeMap<Sort, Term>,
