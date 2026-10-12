@@ -450,55 +450,28 @@ fn solve_single_list_frame(
         return Some(Vec::new());
     }
 
-    let mut pairs = Vec::with_capacity(framed_heads.len() + framed_tails.len() + 1);
+    let heads_end = framed_heads.len();
+    // The closed side's items between the framed side's heads and tails, cut from its tree.
+    let framed = Term::list_of_items(
+        definition.clone(),
+        closed
+            .split_at(heads_end)
+            .1
+            .split_at(frame_end - heads_end)
+            .0,
+        None,
+    );
+    let mut pairs = Vec::with_capacity(heads_end + framed_tails.len() + 1);
+    let closed_ends = closed
+        .range(..heads_end)
+        .zip(framed_heads.iter())
+        .chain(closed.range(frame_end..).zip(framed_tails.iter()));
     if frame_on_subject {
-        pairs.extend(
-            closed
-                .range(..framed_heads.len())
-                .cloned()
-                .zip(framed_heads.iter().cloned()),
-        );
-        pairs.extend(
-            closed
-                .range(frame_end..)
-                .cloned()
-                .zip(framed_tails.iter().cloned()),
-        );
-        pairs.push((
-            Term::list(
-                definition.clone(),
-                closed
-                    .range(framed_heads.len()..frame_end)
-                    .cloned()
-                    .collect(),
-                None,
-            ),
-            frame.clone(),
-        ));
+        pairs.extend(closed_ends.map(|(known, other)| (known.clone(), other.clone())));
+        pairs.push((framed, frame.clone()));
     } else {
-        pairs.extend(
-            framed_heads
-                .iter()
-                .cloned()
-                .zip(closed.range(..framed_heads.len()).cloned()),
-        );
-        pairs.extend(
-            framed_tails
-                .iter()
-                .cloned()
-                .zip(closed.range(frame_end..).cloned()),
-        );
-        pairs.push((
-            frame.clone(),
-            Term::list(
-                definition.clone(),
-                closed
-                    .range(framed_heads.len()..frame_end)
-                    .cloned()
-                    .collect(),
-                None,
-            ),
-        ));
+        pairs.extend(closed_ends.map(|(known, other)| (other.clone(), known.clone())));
+        pairs.push((frame.clone(), framed));
     }
     solve_ordered_term_pairs(mode, backend, solution, pairs, narrowing, depth)
 }
@@ -526,15 +499,16 @@ fn solve_two_list_frames(
     let (mut pairs, head_remainder) = pair_prefix(pattern_heads, subject_heads);
     let (tail_pairs, tail_remainder) = pair_suffix(pattern_tails, subject_tails);
     pairs.extend(tail_pairs);
+    let none = Items::new;
     let (pattern_extra_heads, subject_extra_heads) = match head_remainder {
-        Some(PairRemainder::Left(terms)) => (terms, Vec::new()),
-        Some(PairRemainder::Right(terms)) => (Vec::new(), terms),
-        None => (Vec::new(), Vec::new()),
+        Some(PairRemainder::Left(terms)) => (terms, none()),
+        Some(PairRemainder::Right(terms)) => (none(), terms),
+        None => (none(), none()),
     };
     let (pattern_extra_tails, subject_extra_tails) = match tail_remainder {
-        Some(PairRemainder::Left(terms)) => (terms, Vec::new()),
-        Some(PairRemainder::Right(terms)) => (Vec::new(), terms),
-        None => (Vec::new(), Vec::new()),
+        Some(PairRemainder::Left(terms)) => (terms, none()),
+        Some(PairRemainder::Right(terms)) => (none(), terms),
+        None => (none(), none()),
     };
     let pattern_has_extra = !pattern_extra_heads.is_empty() || !pattern_extra_tails.is_empty();
     let subject_has_extra = !subject_extra_heads.is_empty() || !subject_extra_tails.is_empty();
@@ -543,7 +517,7 @@ fn solve_two_list_frames(
     }
     let middle_pair = if pattern_has_extra {
         (
-            Term::list(
+            Term::list_of_items(
                 definition.clone(),
                 pattern_extra_heads,
                 Some((pattern_middle.clone(), pattern_extra_tails)),
@@ -553,7 +527,7 @@ fn solve_two_list_frames(
     } else if subject_has_extra {
         (
             pattern_middle.clone(),
-            Term::list(
+            Term::list_of_items(
                 definition.clone(),
                 subject_extra_heads,
                 Some((subject_middle.clone(), subject_extra_tails)),
@@ -1605,59 +1579,54 @@ pub(super) fn list_update_cannot_match(pattern: &Term, subject: &Term) -> bool {
 }
 
 pub(super) enum PairRemainder {
-    Left(Vec<Term>),
-    Right(Vec<Term>),
+    Left(Items<Term>),
+    Right(Items<Term>),
 }
 
 /// The pairs of the first items of `left` and `right`, as many as the shorter has, and the
-/// longer one's other items.
-pub(super) fn pair_prefix<'a, L, R>(left: L, right: R) -> (Vec<(Term, Term)>, Option<PairRemainder>)
-where
-    L: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator>,
-    R: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator>,
-{
-    let (mut left, mut right) = (left.into_iter(), right.into_iter());
+/// longer one's other items, cut from its tree: `O(k + log n)` for `k` pairs of sequences of up
+/// to `n` items, so a pattern `ListItem(X) L` takes its frame from the subject's nodes.
+pub(super) fn pair_prefix(
+    left: &Items<Term>,
+    right: &Items<Term>,
+) -> (Vec<(Term, Term)>, Option<PairRemainder>) {
     let common = left.len().min(right.len());
     let pairs = left
-        .by_ref()
-        .take(common)
+        .range(..common)
         .cloned()
-        .zip(right.by_ref().take(common).cloned())
+        .zip(right.range(..common).cloned())
         .collect();
-    (pairs, remainder(left, right))
+    let remainder = if left.len() > common {
+        Some(PairRemainder::Left(left.split_at(common).1))
+    } else if right.len() > common {
+        Some(PairRemainder::Right(right.split_at(common).1))
+    } else {
+        None
+    };
+    (pairs, remainder)
 }
 
 /// The pairs of the last items of `left` and `right`, as many as the shorter has, and the
-/// longer one's other items.
-pub(super) fn pair_suffix<'a, L, R>(left: L, right: R) -> (Vec<(Term, Term)>, Option<PairRemainder>)
-where
-    L: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator>,
-    R: IntoIterator<Item = &'a Term, IntoIter: ExactSizeIterator>,
-{
-    let (mut left, mut right) = (left.into_iter(), right.into_iter());
+/// longer one's other items, cut from its tree, as [`pair_prefix`] from the other end.
+pub(super) fn pair_suffix(
+    left: &Items<Term>,
+    right: &Items<Term>,
+) -> (Vec<(Term, Term)>, Option<PairRemainder>) {
     let common = left.len().min(right.len());
     let (left_extra, right_extra) = (left.len() - common, right.len() - common);
-    let left_extra = left.by_ref().take(left_extra).collect::<Vec<_>>();
-    let right_extra = right.by_ref().take(right_extra).collect::<Vec<_>>();
-    let pairs = left.cloned().zip(right.cloned()).collect();
-    (
-        pairs,
-        remainder(left_extra.into_iter(), right_extra.into_iter()),
-    )
-}
-
-/// The items `left` or `right` has left, when one of them has some.
-fn remainder<'a>(
-    left: impl ExactSizeIterator<Item = &'a Term>,
-    right: impl ExactSizeIterator<Item = &'a Term>,
-) -> Option<PairRemainder> {
-    if left.len() > 0 {
-        Some(PairRemainder::Left(left.cloned().collect()))
-    } else if right.len() > 0 {
-        Some(PairRemainder::Right(right.cloned().collect()))
+    let pairs = left
+        .range(left_extra..)
+        .cloned()
+        .zip(right.range(right_extra..).cloned())
+        .collect();
+    let remainder = if left_extra > 0 {
+        Some(PairRemainder::Left(left.split_at(left_extra).0))
+    } else if right_extra > 0 {
+        Some(PairRemainder::Right(right.split_at(right_extra).0))
     } else {
         None
-    }
+    };
+    (pairs, remainder)
 }
 
 pub(super) fn prepend(pair: (Term, Term), mut pairs: Vec<(Term, Term)>) -> Vec<(Term, Term)> {

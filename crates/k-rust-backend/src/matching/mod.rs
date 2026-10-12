@@ -1053,14 +1053,10 @@ impl<'a> Matcher<'a> {
                 },
             ) if left == right => self.match_lists(
                 left.clone(),
-                left_heads.to_vec(),
-                left_rest
-                    .clone()
-                    .map(|(middle, tails)| (middle, tails.to_vec())),
-                right_heads.to_vec(),
-                right_rest
-                    .clone()
-                    .map(|(middle, tails)| (middle, tails.to_vec())),
+                left_heads,
+                left_rest.clone(),
+                right_heads,
+                right_rest.clone(),
             ),
             (
                 TermKind::Set {
@@ -1554,17 +1550,24 @@ impl<'a> Matcher<'a> {
             })
     }
 
+    /// Match the list `pattern_heads` with `pattern_rest` against the list `subject_heads` with
+    /// `subject_rest`, items at the same position from either end paired.
+    ///
+    /// The pairs are as many as the shorter side has at that end, and what the longer side holds
+    /// beyond them is its tree cut there (`pair_prefix`, `pair_suffix`), so a pattern that names
+    /// `k` items at the ends of an `n`-item subject beside a rest variable binds the rest to a
+    /// list sharing the subject's nodes, `O(k + log n)`, whatever `n` is.
     fn match_lists(
         &mut self,
         definition: Arc<ListDefinition>,
-        pattern_heads: Vec<Term>,
-        pattern_rest: Option<(Term, Vec<Term>)>,
-        subject_heads: Vec<Term>,
-        subject_rest: Option<(Term, Vec<Term>)>,
+        pattern_heads: &Items<Term>,
+        pattern_rest: Option<(Term, Items<Term>)>,
+        subject_heads: &Items<Term>,
+        subject_rest: Option<(Term, Items<Term>)>,
     ) -> Result<(), FailReason> {
-        let (mut problems, head_remainder) = pair_prefix(&pattern_heads, &subject_heads);
-        let empty = || Term::list(definition.clone(), Vec::new(), None);
-        let list = |heads, rest| Term::list(definition.clone(), heads, rest);
+        let (mut problems, head_remainder) = pair_prefix(pattern_heads, subject_heads);
+        let empty = || Term::list_of_items(definition.clone(), Items::new(), None);
+        let list = |heads, rest| Term::list_of_items(definition.clone(), heads, rest);
 
         let mut rest_problems = match (pattern_rest, subject_rest, head_remainder) {
             (None, None, None) => Vec::new(),
@@ -1580,18 +1583,18 @@ impl<'a> Matcher<'a> {
                 if narrowable {
                     let pattern_heads = match remainder {
                         Some(PairRemainder::Left(heads)) => heads,
-                        None => Vec::new(),
+                        None => Items::new(),
                         Some(PairRemainder::Right(_)) => unreachable!("excluded above"),
                     };
-                    self.defer(list(pattern_heads, None), list(Vec::new(), Some(rest)))?;
+                    self.defer(list(pattern_heads, None), list(Items::new(), Some(rest)))?;
                     Vec::new()
                 } else {
                     let (left, right) = match remainder {
                         Some(PairRemainder::Left(heads)) => {
-                            (list(heads, None), list(Vec::new(), Some(rest)))
+                            (list(heads, None), list(Items::new(), Some(rest)))
                         }
                         Some(PairRemainder::Right(heads)) => (empty(), list(heads, Some(rest))),
-                        None => (empty(), list(Vec::new(), Some(rest))),
+                        None => (empty(), list(Items::new(), Some(rest))),
                     };
                     return Err(FailReason::DifferentValues(left, right));
                 }
@@ -1601,7 +1604,7 @@ impl<'a> Matcher<'a> {
             }
             (Some(rest), None, None) => {
                 return Err(FailReason::DifferentValues(
-                    list(Vec::new(), Some(rest)),
+                    list(Items::new(), Some(rest)),
                     empty(),
                 ));
             }
@@ -1617,7 +1620,7 @@ impl<'a> Matcher<'a> {
                     None => prepend((middle, empty()), tail_pairs),
                     Some(PairRemainder::Left(extra)) => {
                         return Err(FailReason::DifferentValues(
-                            list(Vec::new(), Some((middle, extra))),
+                            list(Items::new(), Some((middle, extra))),
                             empty(),
                         ));
                     }
@@ -1632,14 +1635,14 @@ impl<'a> Matcher<'a> {
                     Some(PairRemainder::Left(heads)) => {
                         self.defer(
                             list(heads, Some((pattern_middle, pattern_tails))),
-                            list(Vec::new(), Some((subject_middle, subject_tails))),
+                            list(Items::new(), Some((subject_middle, subject_tails))),
                         )?;
                         Vec::new()
                     }
                     remainder => {
                         let subject_heads = match remainder {
                             Some(PairRemainder::Right(heads)) => heads,
-                            _ => Vec::new(),
+                            _ => Items::new(),
                         };
                         let (tail_pairs, tail_remainder) =
                             pair_suffix(&pattern_tails, &subject_tails);
@@ -1647,14 +1650,14 @@ impl<'a> Matcher<'a> {
                             None => prepend(
                                 (
                                     pattern_middle,
-                                    list(subject_heads, Some((subject_middle, Vec::new()))),
+                                    list(subject_heads, Some((subject_middle, Items::new()))),
                                 ),
                                 tail_pairs,
                             ),
                             Some(PairRemainder::Left(extra)) => {
                                 self.defer(
-                                    list(Vec::new(), Some((pattern_middle, extra))),
-                                    list(subject_heads, Some((subject_middle, Vec::new()))),
+                                    list(Items::new(), Some((pattern_middle, extra))),
+                                    list(subject_heads, Some((subject_middle, Items::new()))),
                                 )?;
                                 Vec::new()
                             }
