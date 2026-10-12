@@ -12,7 +12,7 @@
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
-//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_readings, inference, then through lower_inferred resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity); when inference rejects every reading the structural choice kept after it removed some, infer_without_structural_preference infers over every admitted reading once more, and once per part of each position where their ranks differ until one has two well-sorted parts, which no card carries yet"
+//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_readings, inference, then one lowering session over the inferred forest or tree, lower_inferred_session: resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor_packed, resolve_ambiguity); when inference rejects every reading the structural choice kept after it removed some, infer_without_structural_preference infers over every admitted reading once more, and once per part of each position where their ranks differ until one has two well-sorted parts, which no card carries yet"
 //!
 //! [[cost]]
 //! mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
@@ -27,15 +27,13 @@
 //! id = "parser.lower.term"
 //! name = "lowering of parsed terms into KAST"
 //! sites = ["lower_term"]
-//! variable = "N = parsed tree nodes"
+//! variable = "N = nodes of the term of one reading"
 //! counters = []
 //! no_counter = "term lowering has no dedicated counter"
-//! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
-//! produces = [{ type = "k_rust::kast::Term", role = "parsed term" }]
 //! span = "none"
 //!
 //! [[cost]]
-//! mode = "one parsed tree"
+//! mode = "the term of one reading, node by node as resolution (parser.disambiguation.resolve_ambiguity) reaches it"
 //! bound = "O(N), each node built from its lowered children, which it takes over without copying"
 //! ```
 //!
@@ -83,8 +81,8 @@
 //! Each attempt is O(pops * dispatch cost): `ParserChartAgendaPops` counts pops,
 //! `ParserChartPredictionAttempts` plus the skipped-prediction counters count predictor work,
 //! and `ParserParseAttempts` includes a possible FIRST-filtered then unfiltered retry.
-//! Completion builds the packed forest; normalization, sort inference, tree disambiguation,
-//! and lowering run in that order after recognition.
+//! Completion builds the packed forest; its normalization, sort inference, and the lowering
+//! session's disambiguation and lowering run in that order after recognition.
 
 mod chart;
 mod cycles;

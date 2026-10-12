@@ -121,6 +121,7 @@
 //! counters = []
 //! no_counter = "final ambiguity resolution has no dedicated counter"
 //! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }, { type = "k_rust::inner::parser::forest::PackedTerm", role = "sorted forest" }]
+//! produces = [{ type = "k_rust::kast::Term", role = "parsed term" }]
 //! span = "per problem"
 //!
 //! [[cost]]
