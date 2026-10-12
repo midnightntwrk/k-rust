@@ -10812,6 +10812,58 @@ endmodule
     );
 }
 
+/// U+0000 is a character like any other: a token whose text holds it is that whole text, in
+/// every kind of literal and in a token subsort's phrase, and its literal holds the character.
+/// A generated scanner keeps such a text whole whether it reads its input in chunks or, for an
+/// anchored rule, all at once.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_reads_a_token_holding_u0000_as_the_in_process_parser_does() {
+    for anchored in [false, true] {
+        let mark = if anchored {
+            "  syntax Mark ::= r\"^%[^ \\\\n]+\" [token]\n  syntax Pgm ::= \"k\" Mark\n"
+        } else {
+            ""
+        };
+        let definition = format!(
+            r#"
+module NUL-SYNTAX
+  syntax String [hook(STRING.String)]
+  syntax String ::= r"[\\\"](([^\\\"\\\\])|([\\\\][^\\n]))*[\\\"]" [token]
+  syntax Bytes [hook(BYTES.Bytes)]
+  syntax Bytes ::= r"b[\\\"](([^\\\"\\\\])|([\\\\][^\\n]))*[\\\"]" [token]
+  syntax Name ::= r"~[^ \\n]+" [token]
+  syntax MyName ::= Name [token]
+  syntax Pgm ::= "s" String | "y" Bytes | "n" Name | "m" MyName
+{mark}endmodule
+
+module NUL
+  imports NUL-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#
+        );
+        let mut programs = vec![
+            ("s \"a\0b\"", true),
+            ("s \"\0\"", true),
+            ("y b\"a\0b\"", true),
+            ("n ~a\0b", true),
+            ("n ~\0", true),
+            ("m ~a\0b", true),
+            ("n ~a\0 b", false),
+        ];
+        if anchored {
+            programs.push(("k\n%a\0b", true));
+        }
+        assert_parsers_give_each_program_one_term(
+            &definition,
+            "NUL",
+            "NUL-SYNTAX",
+            &owned_programs(&programs),
+        );
+    }
+}
+
 /// An anchored token that ends where a scanner reading its input in 8 KiB chunks would end a
 /// chunk must still see the newline after it.
 #[cfg(unix)]

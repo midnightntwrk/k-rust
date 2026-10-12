@@ -281,16 +281,7 @@ static int krust_at_line_end(yyscan_t yyscanner);\n\
             rule.render(&mut output, "");
         }
         for (token, rule) in self.tokens.iter().zip(&rules) {
-            rule.render(
-                &mut output,
-                &format!(
-                    "  int kind = {};\n\
-  *((char **)yylval) = malloc(strlen(yytext) + 1);\n\
-  strcpy(*((char **)yylval), yytext);\n\
-  return kind;\n",
-                    token.kind + 1
-                ),
-            );
+            rule.render(&mut output, &format!("  return {};\n", token.kind + 1));
         }
         output.push_str("%%\n\n");
         output.push_str(&line_terminator_table());
@@ -597,7 +588,14 @@ mod tests {
             scanner.kind(&left_items[0]).unwrap(),
             scanner.kind(&right_items[0]).unwrap()
         );
-        assert_eq!(scanner.render().unwrap().matches("return kind;").count(), 1);
+        assert_eq!(
+            scanner
+                .render()
+                .unwrap()
+                .matches("KRUST_LOCATE;\n  return ")
+                .count(),
+            1
+        );
     }
 
     fn token_production(regex: &str) -> Sentence {
