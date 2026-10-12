@@ -24,7 +24,7 @@
 //!
 //! [[cost]]
 //! mode = "cmp_packed_structurally"
-//! bound = "O(P x A log A)"
+//! bound = "O(P x A) plus one sort of the alternatives of each compared ambiguity, O(A log A) comparisons"
 //!
 //! [[cost]]
 //! mode = "packed_terms_in_structural_order"
@@ -32,7 +32,28 @@
 //!
 //! [[cost]]
 //! mode = "StructuralOrder::sorted, the orderings of one pass"
-//! bound = "every distinct node pair the pass's orderings reach is compared once, O(A log A) per compared ambiguity pair, plus O(n log n) memo lookups per ordered set"
+//! bound = "every distinct node pair the pass's orderings reach is compared once, O(A) per compared ambiguity pair after each compared ambiguity's alternatives are sorted once, O(A log A), plus O(n log n) memo lookups per ordered set"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.forest.intern"
+//! name = "hash-consing of the nodes of a lowering session"
+//! sites = ["LoweringSession::intern", "LoweringSession::intern_parsed", "LoweringSession::intern_forest"]
+//! variable = "B = session nodes with the interned node's key (its fingerprint and the identities of its children or alternatives, or its own for a leaf); C = the interned node's children or alternatives; O = owned nodes of a tree; F = nodes of a packed forest; G = their child edges"
+//! counters = []
+//! no_counter = "session interning has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "LoweringSession::intern"
+//! bound = "one hash lookup and O(B x C) pointer comparisons; B is 1 unless keys collide"
+//!
+//! [[cost]]
+//! mode = "LoweringSession::intern_parsed"
+//! bound = "O(O) node constructions and interns"
+//!
+//! [[cost]]
+//! mode = "LoweringSession::intern_forest"
+//! bound = "O(F + G): each node interned once, after its children"
 //! ```
 //!
 //! ```toml algorithm
@@ -490,6 +511,14 @@ impl PackedTerm {
                 .next()
                 .expect("one packed alternative exists");
         }
+        Self::alternatives(alternatives)
+    }
+
+    /// The ambiguity node over exactly `alternatives`, even when there is only one: the packed
+    /// form of an owned `ParsedTerm::Ambiguity` as written, which [`Self::ambiguity`] would
+    /// collapse. A pass that rebuilds an owned ambiguity over its rewritten alternatives keeps
+    /// such a node when they become equal, and the pass after it may read the difference.
+    pub(super) fn alternatives(alternatives: BTreeSet<Rc<Self>>) -> Rc<Self> {
         let mut fingerprint = Fingerprint::new(3);
         for alternative in &alternatives {
             fingerprint.write_u64(alternative.fingerprint);
@@ -577,8 +606,12 @@ pub(super) fn cmp_packed_structurally(
 #[derive(Default)]
 pub(super) struct StructuralOrder {
     pairs: rustc_hash::FxHashMap<(*const PackedTerm, *const PackedTerm), std::cmp::Ordering>,
-    /// Every node a recorded pair names, kept alive while the pairs are, so that no other node
-    /// takes its address meanwhile.
+    /// The alternatives of each compared ambiguity in structural order, so that an ambiguity
+    /// compared with many others is sorted once: the order of its alternatives is a function of
+    /// the ambiguity.
+    alternatives: rustc_hash::FxHashMap<*const PackedTerm, Rc<[Rc<PackedTerm>]>>,
+    /// Every node a recorded pair or sorted ambiguity names, kept alive while the records are,
+    /// so that no other node takes its address meanwhile.
     nodes: rustc_hash::FxHashMap<*const PackedTerm, Rc<PackedTerm>>,
 }
 
@@ -592,11 +625,260 @@ impl StructuralOrder {
         compare_packed_structurally(left, right, self)
     }
 
+    /// Whether `left` and `right` are equal as terms, which is `PackedTerm` equality: their
+    /// fingerprints agree and the memoized structural order finds them equal.
+    pub(super) fn equal(&mut self, left: &Rc<PackedTerm>, right: &Rc<PackedTerm>) -> bool {
+        Rc::ptr_eq(left, right)
+            || (left.fingerprint == right.fingerprint && self.cmp(left, right).is_eq())
+    }
+
     /// `terms` in the order of [`cmp_packed_structurally`].
     pub(super) fn sorted(&mut self, terms: &BTreeSet<Rc<PackedTerm>>) -> Vec<Rc<PackedTerm>> {
         let mut terms = terms.iter().cloned().collect::<Vec<_>>();
         terms.sort_by(|left, right| self.cmp(left, right));
         terms
+    }
+}
+
+/// The state one lowering of a sort-inferred forest shares across its passes.
+///
+/// Its interner holds one node per header over child nodes. Every node a pass builds goes
+/// through [`Self::intern`], whose children are session nodes already: a node with an equal
+/// header (variant, production, parameters and metadata, all compared in full) over the same
+/// child nodes, or an ambiguity over the same alternative nodes, is the node the session already
+/// has. A leaf is its own node: `Term` equality ignores annotations, which the lowered term
+/// keeps, so two leaves are one node only where the forest shares them. A pass memoized by node
+/// address therefore computes its result once per node of the forest and once per node it
+/// rebuilds over the same children, however many times it rebuilds it. The table keeps every
+/// node it returned alive until the session ends, so no memoized address is reused meanwhile.
+#[derive(Default)]
+pub(super) struct LoweringSession {
+    /// The session's nodes by [`intern_key`]; one bucket holds the nodes of one key.
+    nodes: rustc_hash::FxHashMap<u64, Vec<Rc<PackedTerm>>>,
+    /// The structural order of session nodes, shared by every pass that orders alternatives.
+    pub(super) order: StructuralOrder,
+    /// Each node's factored form, shared by every pass that factors ambiguities: factoring is a
+    /// function of the node. Each entry keeps its node alive beside its address.
+    pub(super) factored: PackedNodeResults,
+}
+
+/// The results of a pass for packed nodes by the nodes' addresses, each entry holding its node
+/// so that the address is not reused while the entry exists.
+pub(super) type PackedNodeResults =
+    rustc_hash::FxHashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>;
+
+impl LoweringSession {
+    /// The session node with the structure of `term`, whose children or alternatives must be
+    /// session nodes: `term` itself when the session has no such node yet.
+    pub(super) fn intern(&mut self, term: Rc<PackedTerm>) -> Rc<PackedTerm> {
+        let bucket = self.nodes.entry(intern_key(&term)).or_default();
+        if let Some(existing) = bucket.iter().find(|existing| {
+            Rc::ptr_eq(existing, &term) || same_header_over_same_nodes(&existing.node, &term.node)
+        }) {
+            return Rc::clone(existing);
+        }
+        bucket.push(Rc::clone(&term));
+        term
+    }
+
+    /// The session node of an owned tree as written: an ambiguity of one alternative stays an
+    /// ambiguity ([`PackedTerm::alternatives`]), so that unpacking it gives `term` back.
+    pub(super) fn intern_parsed(&mut self, term: &ParsedTerm) -> Rc<PackedTerm> {
+        crate::stack::guarded(|| {
+            let packed = match term {
+                ParsedTerm::Term(leaf) => PackedTerm::leaf(leaf.clone()),
+                ParsedTerm::Production {
+                    production,
+                    children,
+                    metadata,
+                } => PackedTerm::production(
+                    *production,
+                    children
+                        .iter()
+                        .map(|child| self.intern_parsed(child))
+                        .collect(),
+                    metadata.clone(),
+                ),
+                ParsedTerm::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                } => PackedTerm::instantiated_production(
+                    *production,
+                    parameters.clone(),
+                    children
+                        .iter()
+                        .map(|child| self.intern_parsed(child))
+                        .collect(),
+                    metadata.clone(),
+                ),
+                ParsedTerm::Ambiguity(alternatives) => PackedTerm::alternatives(
+                    alternatives
+                        .iter()
+                        .map(|alternative| self.intern_parsed(alternative))
+                        .collect(),
+                ),
+            };
+            self.intern(packed)
+        })
+    }
+
+    /// The session node of a packed forest, with the forest's sharing: each node of `forest`
+    /// is interned once, after its children. A node over unchanged children is itself, so
+    /// unpacking the result gives the forest's trees, ambiguity nodes where the forest has them.
+    #[cfg(feature = "z3-inference")]
+    pub(super) fn intern_forest(&mut self, forest: &Rc<PackedTerm>) -> Rc<PackedTerm> {
+        let mut interned = rustc_hash::FxHashMap::default();
+        self.intern_forest_node(&mut interned, forest)
+    }
+
+    #[cfg(feature = "z3-inference")]
+    fn intern_forest_node(
+        &mut self,
+        interned: &mut rustc_hash::FxHashMap<*const PackedTerm, Rc<PackedTerm>>,
+        term: &Rc<PackedTerm>,
+    ) -> Rc<PackedTerm> {
+        if let Some(known) = interned.get(&Rc::as_ptr(term)) {
+            return Rc::clone(known);
+        }
+        let node = crate::stack::guarded(|| {
+            let mut nodes = |nodes: &[Rc<PackedTerm>]| {
+                let interned = nodes
+                    .iter()
+                    .map(|node| self.intern_forest_node(interned, node))
+                    .collect::<Vec<_>>();
+                let unchanged = nodes
+                    .iter()
+                    .zip(&interned)
+                    .all(|(node, interned)| Rc::ptr_eq(node, interned));
+                (!unchanged).then_some(interned)
+            };
+            match &term.node {
+                PackedNode::Term(_) => Rc::clone(term),
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => match nodes(children) {
+                    None => Rc::clone(term),
+                    Some(children) => {
+                        PackedTerm::production(*production, children, metadata.clone())
+                    }
+                },
+                PackedNode::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                } => match nodes(children) {
+                    None => Rc::clone(term),
+                    Some(children) => PackedTerm::instantiated_production(
+                        *production,
+                        parameters.clone(),
+                        children,
+                        metadata.clone(),
+                    ),
+                },
+                PackedNode::Ambiguity(alternatives) => {
+                    let alternatives = alternatives.iter().cloned().collect::<Vec<_>>();
+                    match nodes(&alternatives) {
+                        None => Rc::clone(term),
+                        Some(alternatives) => {
+                            PackedTerm::alternatives(alternatives.into_iter().collect())
+                        }
+                    }
+                }
+            }
+        });
+        let node = self.intern(node);
+        interned.insert(Rc::as_ptr(term), Rc::clone(&node));
+        node
+    }
+}
+
+/// The key under which [`LoweringSession::intern`] looks a node up: its fingerprint and the
+/// identities of its children or alternatives, or a leaf's own identity. Two nodes it makes the
+/// same are equal in both, so they share a key, and nodes that differ only in which of several
+/// equal leaves they are over (a token repeated through a term, the singleton lists built over
+/// each copy) do not share a bucket: the fingerprint alone, which ignores identity, would put
+/// every one of them in one bucket and make interning them quadratic in their number.
+fn intern_key(term: &Rc<PackedTerm>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = rustc_hash::FxHasher::default();
+    term.fingerprint.hash(&mut hasher);
+    match &term.node {
+        PackedNode::Term(_) => Rc::as_ptr(term).hash(&mut hasher),
+        PackedNode::Production { children, .. }
+        | PackedNode::InstantiatedProduction { children, .. } => {
+            for child in children {
+                Rc::as_ptr(child).hash(&mut hasher);
+            }
+        }
+        PackedNode::Ambiguity(alternatives) => {
+            for alternative in alternatives {
+                Rc::as_ptr(alternative).hash(&mut hasher);
+            }
+        }
+    }
+    hasher.finish()
+}
+
+/// Whether two nodes have equal headers (variant, production, parameters, metadata) over the
+/// same child nodes, or are ambiguities over the same alternative nodes. Two distinct leaves are
+/// never the same node here ([`LoweringSession`]).
+fn same_header_over_same_nodes(left: &PackedNode, right: &PackedNode) -> bool {
+    let same_nodes = |left: &[Rc<PackedTerm>], right: &[Rc<PackedTerm>]| {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(left, right)| Rc::ptr_eq(left, right))
+    };
+    match (left, right) {
+        (
+            PackedNode::Production {
+                production: left_production,
+                children: left_children,
+                metadata: left_metadata,
+            },
+            PackedNode::Production {
+                production: right_production,
+                children: right_children,
+                metadata: right_metadata,
+            },
+        ) => {
+            left_production == right_production
+                && left_metadata == right_metadata
+                && same_nodes(left_children, right_children)
+        }
+        (
+            PackedNode::InstantiatedProduction {
+                production: left_production,
+                parameters: left_parameters,
+                children: left_children,
+                metadata: left_metadata,
+            },
+            PackedNode::InstantiatedProduction {
+                production: right_production,
+                parameters: right_parameters,
+                children: right_children,
+                metadata: right_metadata,
+            },
+        ) => {
+            left_production == right_production
+                && left_parameters == right_parameters
+                && left_metadata == right_metadata
+                && same_nodes(left_children, right_children)
+        }
+        (PackedNode::Ambiguity(left), PackedNode::Ambiguity(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| Rc::ptr_eq(left, right))
+        }
+        _ => false,
     }
 }
 
@@ -677,13 +959,11 @@ fn compare_packed_structurally(
                 (PackedNode::Term(left), PackedNode::Term(right)) => left.cmp(right),
                 (PackedNode::Term(_), PackedNode::Ambiguity(_)) => Ordering::Less,
                 (PackedNode::Ambiguity(_), PackedNode::Term(_)) => Ordering::Greater,
-                (PackedNode::Ambiguity(left), PackedNode::Ambiguity(right)) => {
-                    let mut left = left.iter().cloned().collect::<Vec<_>>();
-                    let mut right = right.iter().cloned().collect::<Vec<_>>();
-                    left.sort_by(|left, right| compare(left, right, memo));
-                    right.sort_by(|left, right| compare(left, right, memo));
+                (PackedNode::Ambiguity(_), PackedNode::Ambiguity(_)) => {
+                    let left = sorted_alternatives(left, memo);
+                    let right = sorted_alternatives(right, memo);
                     left.iter()
-                        .zip(&right)
+                        .zip(right.iter())
                         .map(|(left, right)| compare(left, right, memo))
                         .find(|ordering| !ordering.is_eq())
                         .unwrap_or_else(|| left.len().cmp(&right.len()))
@@ -695,6 +975,28 @@ fn compare_packed_structurally(
             memo.nodes.entry(key.1).or_insert_with(|| Rc::clone(right));
             ordering
         })
+    }
+
+    /// The alternatives of `ambiguity` in structural order, sorted once per memo.
+    fn sorted_alternatives(
+        ambiguity: &Rc<PackedTerm>,
+        memo: &mut StructuralOrder,
+    ) -> Rc<[Rc<PackedTerm>]> {
+        let identity = Rc::as_ptr(ambiguity);
+        if let Some(sorted) = memo.alternatives.get(&identity) {
+            return Rc::clone(sorted);
+        }
+        let PackedNode::Ambiguity(alternatives) = &ambiguity.node else {
+            unreachable!("only ambiguities have alternatives to sort")
+        };
+        let mut sorted = alternatives.iter().cloned().collect::<Vec<_>>();
+        sorted.sort_by(|left, right| compare(left, right, memo));
+        let sorted = Rc::<[Rc<PackedTerm>]>::from(sorted);
+        memo.alternatives.insert(identity, Rc::clone(&sorted));
+        memo.nodes
+            .entry(identity)
+            .or_insert_with(|| Rc::clone(ambiguity));
+        sorted
     }
 
     compare(left, right, order)
@@ -811,6 +1113,67 @@ pub(super) fn unpacked_nodes() -> usize {
 pub(super) type Derivation = Vec<Rc<PackedTerm>>;
 
 impl ParsedTerm {
+    /// Equality that also compares the annotations of leaves, which `==` ignores as `Term`
+    /// equality does: the tests check that a pass on the packed form of a tree gives the tree
+    /// pass's result in every field the lowered term keeps.
+    #[cfg(test)]
+    pub(super) fn identical(&self, other: &Self) -> bool {
+        crate::stack::guarded(|| match (self, other) {
+            (
+                Self::Production {
+                    production: left_production,
+                    children: left_children,
+                    metadata: left_metadata,
+                },
+                Self::Production {
+                    production: right_production,
+                    children: right_children,
+                    metadata: right_metadata,
+                },
+            ) => {
+                left_production == right_production
+                    && left_metadata == right_metadata
+                    && left_children.len() == right_children.len()
+                    && left_children
+                        .iter()
+                        .zip(right_children)
+                        .all(|(left, right)| left.identical(right))
+            }
+            (
+                Self::InstantiatedProduction {
+                    production: left_production,
+                    parameters: left_parameters,
+                    children: left_children,
+                    metadata: left_metadata,
+                },
+                Self::InstantiatedProduction {
+                    production: right_production,
+                    parameters: right_parameters,
+                    children: right_children,
+                    metadata: right_metadata,
+                },
+            ) => {
+                left_production == right_production
+                    && left_parameters == right_parameters
+                    && left_metadata == right_metadata
+                    && left_children.len() == right_children.len()
+                    && left_children
+                        .iter()
+                        .zip(right_children)
+                        .all(|(left, right)| left.identical(right))
+            }
+            (Self::Term(left), Self::Term(right)) => left.identical(right),
+            (Self::Ambiguity(left), Self::Ambiguity(right)) => {
+                left.len() == right.len()
+                    && left
+                        .iter()
+                        .zip(right)
+                        .all(|(left, right)| left.identical(right))
+            }
+            _ => false,
+        })
+    }
+
     #[cfg(test)]
     pub(super) fn leaf(&self) -> Option<&Term> {
         match self {
@@ -972,6 +1335,19 @@ mod tests {
                 }
             }
             prop_assert_eq!(cmp_packed_structurally(&left, &left), std::cmp::Ordering::Equal);
+            // One order shared by many comparisons reuses its pairs and sorted ambiguities and
+            // orders every pair as a fresh one does.
+            let mut order = StructuralOrder::default();
+            for (first, second) in [
+                (&middle, &left),
+                (&left, &right),
+                (&right, &middle),
+                (&left, &middle),
+                (&right, &left),
+                (&middle, &right),
+            ] {
+                prop_assert_eq!(order.cmp(first, second), cmp_packed_structurally(first, second));
+            }
             if cmp_packed_structurally(&left, &middle).is_le()
                 && cmp_packed_structurally(&middle, &right).is_le()
             {
@@ -1128,5 +1504,29 @@ mod tests {
 
         assert_ne!(left.cmp(&right), std::cmp::Ordering::Equal);
         assert_ne!(left, right);
+    }
+
+    /// Copies of one leaf, equal as terms, are distinct session nodes, as are equal nodes over
+    /// different copies (`f(x)` over each); the interner keeps each in its own bucket, so a term
+    /// that repeats a token many times is interned in time linear in its size, not quadratic in
+    /// the copies.
+    #[test]
+    fn interning_copies_of_an_equal_leaf_keeps_one_node_per_bucket() {
+        let copies = 1000;
+        let node = |production: usize, children: Vec<ParsedTerm>| ParsedTerm::Production {
+            production,
+            children,
+            metadata: TermMetadata::default(),
+        };
+        let tree = (0..copies).fold(variable("x"), |tree, _| {
+            node(1, vec![node(0, vec![variable("x")]), tree])
+        });
+        let mut session = LoweringSession::default();
+
+        let packed = session.intern_parsed(&tree);
+
+        assert_eq!(session.nodes.values().map(Vec::len).max(), Some(1));
+        assert_eq!(session.nodes.len(), 3 * copies + 1);
+        assert!(packed.unpack() == tree);
     }
 }

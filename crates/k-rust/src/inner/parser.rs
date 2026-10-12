@@ -12,7 +12,7 @@
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
-//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_readings, inference, then through lower_inferred resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity); when inference rejects every reading the structural choice kept after it removed some, infer_without_structural_preference infers over every admitted reading once more, and once per part of each position where their ranks differ until one has two well-sorted parts, which no card carries yet"
+//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_readings, inference, then one lowering session over the inferred forest or tree, lower_inferred_session: resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor_packed, resolve_ambiguity); when inference rejects every reading the structural choice kept after it removed some, infer_without_structural_preference infers over every admitted reading once more, and once per part of each position where their ranks differ until one has two well-sorted parts, which no card carries yet"
 //!
 //! [[cost]]
 //! mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
@@ -27,15 +27,13 @@
 //! id = "parser.lower.term"
 //! name = "lowering of parsed terms into KAST"
 //! sites = ["lower_term"]
-//! variable = "N = parsed tree nodes"
+//! variable = "N = nodes of the term of one reading"
 //! counters = []
 //! no_counter = "term lowering has no dedicated counter"
-//! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
-//! produces = [{ type = "k_rust::kast::Term", role = "parsed term" }]
 //! span = "none"
 //!
 //! [[cost]]
-//! mode = "one parsed tree"
+//! mode = "the term of one reading, node by node as resolution (parser.disambiguation.resolve_ambiguity) reaches it"
 //! bound = "O(N), each node built from its lowered children, which it takes over without copying"
 //! ```
 //!
@@ -83,8 +81,8 @@
 //! Each attempt is O(pops * dispatch cost): `ParserChartAgendaPops` counts pops,
 //! `ParserChartPredictionAttempts` plus the skipped-prediction counters count predictor work,
 //! and `ParserParseAttempts` includes a possible FIRST-filtered then unfiltered retry.
-//! Completion builds the packed forest; normalization, sort inference, tree disambiguation,
-//! and lowering run in that order after recognition.
+//! Completion builds the packed forest; its normalization, sort inference, and the lowering
+//! session's disambiguation and lowering run in that order after recognition.
 
 mod chart;
 mod cycles;
@@ -2866,14 +2864,33 @@ impl Grammar {
         })
     }
 
-    /// The post-inference passes that turn a sort-inferred tree into the parsed term.
+    /// The post-inference passes that turn a sort-inferred tree into the parsed term, run on
+    /// the tree's packed form (`Grammar::lower_inferred_session`).
     fn lower_inferred(&self, inferred: ParsedTerm, start: &Sort) -> Result<Term, ParseError> {
-        let resolved = self.resolve_overloaded_terminators(inferred)?;
-        let filtered = self.filter_overloads_prefer_avoid(resolved);
-        let listed = self.add_empty_lists(filtered, start)?;
-        let cleaned = self.remove_brackets_and_syntactic_casts(listed);
-        let cleaned = self.factor_ambiguities(cleaned);
-        self.resolve_ambiguities(cleaned)
+        #[cfg(test)]
+        let tree = self.lower_inferred_tree(inferred.clone(), start);
+        let mut session = forest::LoweringSession::default();
+        let packed = session.intern_parsed(&inferred);
+        drop(inferred);
+        let lowered = self.lower_inferred_session(&mut session, &packed, start);
+        #[cfg(test)]
+        assert!(
+            disambiguation::same_result(&lowered, &tree),
+            "lowering the packed tree differs from lowering the owned tree:\n{lowered:?}\n{tree:?}"
+        );
+        lowered
+    }
+
+    /// The owned-tree form of [`Self::lower_inferred`], each pass on the owned tree, which the
+    /// tests check the packed passes against.
+    #[cfg(test)]
+    fn lower_inferred_tree(&self, inferred: ParsedTerm, start: &Sort) -> Result<Term, ParseError> {
+        let resolved = self.resolve_overloaded_terminators_tree(inferred)?;
+        let filtered = self.filter_overloads_prefer_avoid_tree(resolved);
+        let listed = self.add_empty_lists_tree(filtered, start)?;
+        let cleaned = self.remove_brackets_and_syntactic_casts_tree(listed);
+        let cleaned = self.factor_ambiguities_tree(cleaned);
+        self.resolve_ambiguities_tree(cleaned)
     }
 
     /// Whether `advanced`, an item a nonempty completion ending at the current position
@@ -3787,9 +3804,9 @@ fn term_metadata(
     }
 }
 
-/// The lowering of a parse's inferred trees, `Grammar::lower_inferred`, which reports an
-/// ambiguity from the packed forest when its trees would report the same one
-/// (`Grammar::packed_ambiguity_report`), so that the parse does not build their owned tree.
+/// The lowering of a parse's inferred trees, `Grammar::lower_inferred`, which lowers an
+/// inferred forest from the forest itself (`Grammar::lower_inferred_forest`), so that the parse
+/// never builds the owned tree of its trees.
 struct InferredLowering<'a> {
     grammar: &'a Grammar,
     start: &'a Sort,
@@ -3801,18 +3818,19 @@ impl inference::Lowering<Term> for InferredLowering<'_> {
     }
 
     #[cfg(feature = "z3-inference")]
-    fn lower_packed(&self, inferred: &Rc<PackedTerm>) -> Option<Result<Term, ParseError>> {
-        let report = self.grammar.packed_ambiguity_report(inferred)?;
-        // The tests check the report against the trees' wherever building them is affordable.
+    fn lower_forest(&self, inferred: &Rc<PackedTerm>) -> Result<Term, ParseError> {
+        let lowered = self.grammar.lower_inferred_forest(inferred, self.start);
+        // The tests check the forest's result against the trees' wherever building them is
+        // affordable.
         #[cfg(test)]
         if inference::packed_tree_count(inferred) <= 1 << 12 {
-            assert_eq!(
-                Err(report.clone()),
-                self.lower(inferred.unpack()),
-                "the packed report differs from the trees' report"
+            let trees = self.lower(inferred.unpack());
+            assert!(
+                disambiguation::same_result(&lowered, &trees),
+                "lowering the forest differs from lowering its trees:\n{lowered:?}\n{trees:?}"
             );
         }
-        Some(Err(report))
+        lowered
     }
 }
 
@@ -4619,13 +4637,15 @@ mod chart_tests {
         let materialized = grammar
             .materialize_packed_forest(shared)
             .expect("the retained packed diamond satisfies post-parse checks");
+        // Materialization's own unpacking; factoring the owned tree below unpacks its result.
+        let unpacked = unpacked_nodes();
         let materialized = grammar
             .resolve_applications(materialized)
             .expect("the factored diamond contains no applications");
         let materialized =
             grammar.push_top_lhs_ambiguity_up(grammar.factor_ambiguities(materialized));
 
-        assert_eq!(unpacked_nodes(), 1 + depth * 4);
+        assert_eq!(unpacked, 1 + depth * 4);
         assert_eq!(materialized, baseline);
     }
 

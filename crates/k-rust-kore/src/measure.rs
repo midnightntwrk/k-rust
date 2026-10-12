@@ -142,6 +142,8 @@ algorithms! {
     ParserForestPack => "parser.forest.pack",
     /// Structural ordering of packed parse forests.
     ParserForestOrder => "parser.forest.order",
+    /// Hash-consing of the nodes of a lowering session.
+    ParserForestIntern => "parser.forest.intern",
     /// Same-span repetition check of packed nodes built by cyclic productions.
     ParserForestCycleCheck => "parser.forest.cycle_check",
     /// Completed-node memoization for Earley charts.

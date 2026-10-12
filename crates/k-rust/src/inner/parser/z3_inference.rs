@@ -8,10 +8,10 @@
 //!     "Encoding::seed_model", "Encoding::maximal_models", "Encoding::admissible_parameters",
 //!     "Encoding::maximal_live_set", "Encoding::enumerate_parameters", "LivenessGraph::indicators",
 //!     "Encoding::read_model", "or_all"]
-//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = parameter vectors enumerated for one maximal typing, at most 256, of which the admissible ones are kept; I = reading classes of the ambiguities of the term constraint (alternatives equal up to bracket erasure, one live-reading indicator each); L = inclusion-maximal live sets of one maximal typing; F = formal parameters of the term"
+//! variable = "H = sort heads; G = ground sorts; N = term nodes (of an inferred packed forest, its nodes, each encoded and given each model once per expected sort and cast context it is reached at, never once per tree); M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = parameter vectors enumerated for one maximal typing, at most 256, of which the admissible ones are kept; I = reading classes of the ambiguities of the term constraint (alternatives equal up to bracket erasure, one live-reading indicator each); L = inclusion-maximal live sets of one maximal typing; F = formal parameters of the term"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
-//! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
+//! produces = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "sorted forest" }, { type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //! span = "per problem"
 //! lean = ["KRust.SubsortEncoding.new_equiv", "KRust.MaximalModels.maximal_models_spec", "KRust.MaximalModels.runs_agree_up_to_pref", "KRust.MaximalModels.runs_agree_candidates"]
 //!
@@ -21,7 +21,7 @@
 //!
 //! [[cost]]
 //! mode = "one inference"
-//! bound = "O(N x M + c)"
+//! bound = "O(N x M + c), plus the structural order of the forest's ambiguities (parser.forest.order), one StructuralOrder shared by the identities, the term constraint and every model application of the inference"
 //!
 //! [[cost]]
 //! mode = "unsatisfiable replay"
@@ -85,7 +85,7 @@ use crate::names::BuiltinSort;
 
 use super::{
     Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts, ParsedTerm, Production,
-    cmp_packed_structurally, inferred_variable_name, packed_terms_in_structural_order,
+    StructuralOrder, inferred_variable_name,
 };
 
 use domain::{DomainSolver, check};
@@ -204,6 +204,12 @@ struct Encoding<'a> {
     /// term passes through an alternative of that class.
     reading_indicators: Vec<Bool>,
     packed_ids: HashMap<*const PackedTerm, usize>,
+    /// The structural order of the forest's nodes, shared by every step of one packed
+    /// inference that orders the alternatives of an ambiguity (the preorder of `packed_ids`,
+    /// the term constraint, model application). The order of two nodes is a function of the
+    /// two nodes, so each pair is compared once per inference rather than once per ambiguity
+    /// above it.
+    order: RefCell<StructuralOrder>,
     anywhere: bool,
     top_rewrite_paths: TopRewrites,
     top_rewrite_ids: HashSet<*const PackedTerm>,
@@ -1324,7 +1330,7 @@ impl<'a> Encoding<'a> {
         let mut term_sorts = TermSorts::default();
         collect_packed_term_sorts(term, &mut term_sorts.heads, &mut term_sorts.ground);
         let mut encoding = Self::new_with_term_sorts(grammar, top_sort, anywhere, &term_sorts)?;
-        encoding.packed_ids = packed_term_ids(term);
+        encoding.packed_ids = packed_term_ids(term, encoding.order.get_mut());
         Ok(encoding)
     }
 
@@ -1410,6 +1416,7 @@ impl<'a> Encoding<'a> {
             liveness: LivenessGraph::default(),
             reading_indicators: Vec::new(),
             packed_ids: HashMap::new(),
+            order: RefCell::default(),
             anywhere,
             top_rewrite_paths: TopRewrites::default(),
             top_rewrite_ids: HashSet::new(),
@@ -1632,7 +1639,7 @@ impl<'a> Encoding<'a> {
             }
             let result = (|| match &term.node {
                 PackedNode::Ambiguity(alternatives) => {
-                    let mut alternatives = packed_terms_in_structural_order(alternatives);
+                    let mut alternatives = self.order.get_mut().sorted(alternatives);
                     if self.incremental {
                         // The replay explains one alternative of an ambiguity. Keeping one
                         // alternative of each ambiguity only removes readings, so the constraints
@@ -3053,7 +3060,8 @@ impl<'a> Encoding<'a> {
                 PackedNode::Ambiguity(alternatives) => {
                     let mut retained = BTreeSet::new();
                     let mut errors = Vec::new();
-                    for alternative in packed_terms_in_structural_order(alternatives) {
+                    let alternatives = self.order.borrow_mut().sorted(alternatives);
+                    for alternative in alternatives {
                         match self.apply_model_packed(
                             Rc::clone(&alternative),
                             expected,
@@ -3075,7 +3083,9 @@ impl<'a> Encoding<'a> {
                     if retained.is_empty() {
                         Err(errors
                             .into_iter()
-                            .min_by(|(left, _), (right, _)| cmp_packed_structurally(left, right))
+                            .min_by(|(left, _), (right, _)| {
+                                self.order.borrow_mut().cmp(left, right)
+                            })
                             .map(|(_, error)| error)
                             .unwrap_or_else(|| {
                                 z3_error("all ambiguity alternatives were ill-sorted")
@@ -3852,10 +3862,18 @@ fn collect_packed_term_sorts(
     }
 }
 
-fn packed_term_ids(root: &Rc<PackedTerm>) -> HashMap<*const PackedTerm, usize> {
+fn packed_term_ids(
+    root: &Rc<PackedTerm>,
+    order: &mut StructuralOrder,
+) -> HashMap<*const PackedTerm, usize> {
     // Invariant: `ids` assigns one stable preorder number to every visited identity; recursion
     // only descends into an identity absent from the map.
-    fn visit(term: &Rc<PackedTerm>, ids: &mut HashMap<*const PackedTerm, usize>, next: &mut usize) {
+    fn visit(
+        term: &Rc<PackedTerm>,
+        ids: &mut HashMap<*const PackedTerm, usize>,
+        next: &mut usize,
+        order: &mut StructuralOrder,
+    ) {
         crate::stack::guarded(|| {
             let identity = Rc::as_ptr(term);
             if ids.contains_key(&identity) {
@@ -3866,12 +3884,12 @@ fn packed_term_ids(root: &Rc<PackedTerm>) -> HashMap<*const PackedTerm, usize> {
             match &term.node {
                 PackedNode::Production { children, .. } => {
                     for child in children {
-                        visit(child, ids, next);
+                        visit(child, ids, next, order);
                     }
                 }
                 PackedNode::Ambiguity(alternatives) => {
-                    for alternative in packed_terms_in_structural_order(alternatives) {
-                        visit(&alternative, ids, next);
+                    for alternative in order.sorted(alternatives) {
+                        visit(&alternative, ids, next, order);
                     }
                 }
                 PackedNode::Term(_) => {}
@@ -3883,7 +3901,7 @@ fn packed_term_ids(root: &Rc<PackedTerm>) -> HashMap<*const PackedTerm, usize> {
     }
 
     let mut ids = HashMap::new();
-    visit(root, &mut ids, &mut 0);
+    visit(root, &mut ids, &mut 0, order);
     ids
 }
 
