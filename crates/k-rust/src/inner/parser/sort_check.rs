@@ -11,7 +11,7 @@
 //! build without debug assertions.
 //!
 //! The check reads the grammar's semantic subsort relation, in which scaffolding sorts do stand:
-//! `KBott ::= #KVariable` makes a variable a bottom term, and `#Rule<S> ::= S` makes every `S` a
+//! `KBott ::= #KVariable` makes a variable a bottom term, and `#Rule:S ::= S` makes every `S` a
 //! rule pattern of sort `S`. Those pairs are exactly what G2 and G3 read, through the order of the
 //! relation; G0 asserts first that the relation is acyclic, so that order always exists.
 

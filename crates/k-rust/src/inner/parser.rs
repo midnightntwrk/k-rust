@@ -3084,7 +3084,7 @@ impl Grammar {
     /// as in [`Self::completion_useful`]. A node is `(origin, production, stands for)`: each
     /// edge is judged with the production of the node the filters will see there
     /// ([`Self::stands_for`]), so that a sum that becomes an operand through an unlabelled
-    /// production (`#RuleE ::= E` in a rule grammar whose argument positions admit rewrites) is
+    /// production (`#Rule:E ::= E` in a rule grammar whose argument positions admit rewrites) is
     /// judged as the sum.
     ///
     /// The answer depends on the node, the final chart `origin` and `after`, and a later

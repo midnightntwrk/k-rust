@@ -4868,7 +4868,6 @@ fn fun_over_an_inner_rewrite_takes_the_preferred_fun2() {
 }
 
 /// The rule bodies of `source`'s main module `TEST`, loaded with the prelude.
-#[cfg(feature = "z3-inference")]
 fn test_rule_bodies(source: &str, name: &str) -> Vec<String> {
     let loaded = load_with_prelude(source, name, "TEST")
         .unwrap_or_else(|error| panic!("{name} should load: {error:?}"));
@@ -4955,6 +4954,26 @@ fn bracketed_parametric_term_below_k_lowers_like_the_bare_term() {
     let bare = test_rule_bodies(&rule("0 #And 1"), "bare.k");
     assert_eq!(bracketed, bare);
     assert!(bare.iter().any(|body| body.contains("#And(")), "{bare:?}");
+}
+
+#[test]
+fn a_user_sort_named_like_a_rule_scaffolding_sort_adds_no_reading() {
+    // A rule grammar gives each sort `S` a scaffolding sort where a rewrite of `S` stands. A user
+    // sort `Body` or `Content` must not make that sort the rule body's own `#RuleBody` or
+    // `#RuleContent`, or every rule body also reads as a rewrite at the user's sort.
+    let rule = |sorts: &str| {
+        format!(
+            "module TEST\n  imports INT\n  imports ML-SYNTAX\n{sorts}  \
+             syntax Local ::= local(Int)\n  configuration <k> $PGM:K </k>\n  \
+             rule #Ceil({{X}}:>Local) => #Ceil(X) [simplification]\nendmodule\n"
+        )
+    };
+    let named = test_rule_bodies(
+        &rule("  syntax Body ::= body(Int)\n  syntax Content ::= content(Int)\n"),
+        "named.k",
+    );
+    let plain = test_rule_bodies(&rule(""), "plain.k");
+    assert_eq!(named, plain);
 }
 
 #[cfg(feature = "z3-inference")]
@@ -5085,7 +5104,6 @@ fn sort_parameter_choice_erased_by_lowering_compiles() {
     );
 }
 
-#[cfg(feature = "z3-inference")]
 fn rule_bodies(loaded: &k_rust::outer::LoadedDefinition) -> Vec<String> {
     loaded
         .definition()
