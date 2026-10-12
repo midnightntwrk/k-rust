@@ -1595,7 +1595,7 @@ fn engine_disagreement<T: std::fmt::Debug>(
 
 /// The number of complete trees of a packed forest, saturating at `usize::MAX`. Shared nodes
 /// are counted once each, so the count costs time linear in the forest's distinct nodes.
-fn packed_tree_count(term: &Rc<PackedTerm>) -> usize {
+pub(super) fn packed_tree_count(term: &Rc<PackedTerm>) -> usize {
     fn count(term: &Rc<PackedTerm>, memo: &mut HashMap<*const PackedTerm, usize>) -> usize {
         crate::stack::guarded(|| {
             if let Some(count) = memo.get(&Rc::as_ptr(term)) {
