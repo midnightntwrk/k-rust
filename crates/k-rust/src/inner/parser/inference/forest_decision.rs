@@ -47,8 +47,10 @@
 //! independent ambiguities that choose sorts for their own variables keep one summary each and
 //! the decision stays linear in the forest where listing its trees would be exponential.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
+use std::sync::OnceLock;
 
 use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
@@ -119,15 +121,90 @@ impl Sorts {
     }
 }
 
-/// The sorts of one decision, numbered so that a sort's number exceeds the number of every sort
-/// below it: the subsort order's elements in its linear extension (`PartialOrder::sorted_elements`,
-/// lesser first), then each sort outside the order as it is met, which is related only to itself.
-struct SortIndex<'o> {
-    order: &'o PartialOrder<Sort>,
+/// The sorts of a subsort order, numbered so that a sort's number exceeds the number of every
+/// sort below it: the order's elements in its linear extension (`PartialOrder::sorted_elements`,
+/// lesser first), then `K` and `KBott` when the order does not hold them, each related only to
+/// itself. Each sort's down and up sets are computed when a decision first asks for them.
+///
+/// Everything here is a function of the order alone, so a grammar builds one table beside its
+/// order and every forest decision over that grammar shares it
+/// (`SubsortRelations::sort_table`); a decision numbers the sorts it meets outside the table
+/// after it ([`SortIndex`]).
+#[derive(Clone, Debug)]
+pub(in crate::inner::parser) struct SortTable {
     sorts: Vec<Sort>,
     ids: HashMap<Sort, usize>,
-    down: HashMap<usize, Sorts>,
-    up: HashMap<usize, Sorts>,
+    down: Box<[OnceLock<Sorts>]>,
+    up: Box<[OnceLock<Sorts>]>,
+    /// The sorts below `K` and not below `KBott`, the interval every variable starts from.
+    variable: OnceLock<Sorts>,
+    k: usize,
+    k_bott: usize,
+}
+
+impl SortTable {
+    pub(in crate::inner::parser) fn new(order: &PartialOrder<Sort>) -> Self {
+        let mut sorts = order.sorted_elements().to_vec();
+        let mut ids = sorts
+            .iter()
+            .enumerate()
+            .map(|(index, sort)| (sort.clone(), index))
+            .collect::<HashMap<_, _>>();
+        let mut number = |sort: Sort| {
+            *ids.entry(sort.clone()).or_insert_with(|| {
+                sorts.push(sort);
+                sorts.len() - 1
+            })
+        };
+        let k = number(Sort::new("K"));
+        let k_bott = number(Sort::frontend(FrontendSort::KBott));
+        let unset = || (0..sorts.len()).map(|_| OnceLock::new()).collect();
+        Self {
+            down: unset(),
+            up: unset(),
+            sorts,
+            ids,
+            variable: OnceLock::new(),
+            k,
+            k_bott,
+        }
+    }
+
+    /// The number of down and up sets computed so far.
+    #[cfg(test)]
+    pub(in crate::inner::parser) fn computed_sets(&self) -> usize {
+        self.down
+            .iter()
+            .chain(self.up.iter())
+            .filter(|set| set.get().is_some())
+            .count()
+    }
+
+    /// The sorts at most `id`, or at least `id` when `up`, of the table's sort `id`.
+    fn bounds(&self, order: &PartialOrder<Sort>, id: usize, up: bool) -> &Sorts {
+        let sets = if up { &self.up } else { &self.down };
+        sets[id].get_or_init(|| {
+            let sort = &self.sorts[id];
+            if !order.contains(sort) {
+                return Sorts::from_indices([id]);
+            }
+            let bounds = if up {
+                order.upper_bounds([sort])
+            } else {
+                order.lower_bounds([sort])
+            };
+            Sorts::from_indices(bounds.iter().map(|sort| self.ids[sort]))
+        })
+    }
+}
+
+/// The sorts of one decision: the grammar's [`SortTable`], then each sort outside it as the
+/// decision meets it, which is related only to itself.
+struct SortIndex<'o> {
+    order: &'o PartialOrder<Sort>,
+    table: &'o SortTable,
+    outside: Vec<Sort>,
+    outside_ids: HashMap<Sort, usize>,
     k: usize,
     k_bott: usize,
 }
@@ -140,91 +217,76 @@ enum Realized {
 }
 
 impl<'o> SortIndex<'o> {
-    fn new(order: &'o PartialOrder<Sort>) -> Self {
-        let sorts = order.sorted_elements().to_vec();
-        let ids = sorts
-            .iter()
-            .enumerate()
-            .map(|(index, sort)| (sort.clone(), index))
-            .collect();
-        let mut index = Self {
+    fn new(order: &'o PartialOrder<Sort>, table: &'o SortTable) -> Self {
+        Self {
             order,
-            sorts,
-            ids,
-            down: HashMap::new(),
-            up: HashMap::new(),
-            k: 0,
-            k_bott: 0,
-        };
-        index.k = index.id(&Sort::new("K"));
-        index.k_bott = index.id(&Sort::frontend(FrontendSort::KBott));
-        index
+            table,
+            outside: Vec::new(),
+            outside_ids: HashMap::new(),
+            k: table.k,
+            k_bott: table.k_bott,
+        }
     }
 
     fn id(&mut self, sort: &Sort) -> usize {
-        if let Some(id) = self.ids.get(sort) {
+        if let Some(id) = self
+            .table
+            .ids
+            .get(sort)
+            .or_else(|| self.outside_ids.get(sort))
+        {
             return *id;
         }
-        let id = self.sorts.len();
-        self.sorts.push(sort.clone());
-        self.ids.insert(sort.clone(), id);
+        let id = self.table.sorts.len() + self.outside.len();
+        self.outside.push(sort.clone());
+        self.outside_ids.insert(sort.clone(), id);
         id
     }
 
     fn sort(&self, id: usize) -> &Sort {
-        &self.sorts[id]
+        match id.checked_sub(self.table.sorts.len()) {
+            None => &self.table.sorts[id],
+            Some(outside) => &self.outside[outside],
+        }
     }
 
     fn le(&self, lesser: usize, greater: usize) -> bool {
-        lesser == greater
-            || self
-                .order
-                .less_than(&self.sorts[lesser], &self.sorts[greater])
+        lesser == greater || self.down(greater).contains(lesser)
     }
 
     fn domain(&self, id: usize) -> bool {
-        self.sorts[id].in_inference_domain()
+        self.sort(id).in_inference_domain()
+    }
+
+    fn bounds(&self, id: usize, up: bool) -> Cow<'o, Sorts> {
+        if id < self.table.sorts.len() {
+            Cow::Borrowed(self.table.bounds(self.order, id, up))
+        } else {
+            Cow::Owned(Sorts::from_indices([id]))
+        }
     }
 
     /// The sorts at most `id`.
-    fn down(&mut self, id: usize) -> Sorts {
-        if let Some(set) = self.down.get(&id) {
-            return set.clone();
-        }
-        let set = if self.order.contains(&self.sorts[id]) {
-            let below = self.order.lower_bounds([&self.sorts[id]]);
-            Sorts::from_indices(below.iter().map(|sort| self.ids[sort]))
-        } else {
-            Sorts::from_indices([id])
-        };
-        self.down.insert(id, set.clone());
-        set
+    fn down(&self, id: usize) -> Cow<'o, Sorts> {
+        self.bounds(id, false)
     }
 
     /// The sorts at least `id`.
-    fn up(&mut self, id: usize) -> Sorts {
-        if let Some(set) = self.up.get(&id) {
-            return set.clone();
-        }
-        let set = if self.order.contains(&self.sorts[id]) {
-            let above = self.order.upper_bounds([&self.sorts[id]]);
-            Sorts::from_indices(above.iter().map(|sort| self.ids[sort]))
-        } else {
-            Sorts::from_indices([id])
-        };
-        self.up.insert(id, set.clone());
-        set
+    fn up(&self, id: usize) -> Cow<'o, Sorts> {
+        self.bounds(id, true)
     }
 
     /// The interval of a variable before any occurrence: below `K` and not below `KBott`.
-    fn variable_interval(&mut self) -> Sorts {
-        let (k, k_bott) = (self.k, self.k_bott);
-        self.down(k).and_not(&self.down(k_bott))
+    fn variable_interval(&self) -> Sorts {
+        self.table
+            .variable
+            .get_or_init(|| self.down(self.k).and_not(&self.down(self.k_bott)))
+            .clone()
     }
 
     /// The greatest element of `interval`: the highest-numbered element is maximal, and it is
     /// the greatest exactly when every element is below it.
-    fn realize(&mut self, interval: &Sorts) -> Realized {
+    fn realize(&self, interval: &Sorts) -> Realized {
         let Some(top) = interval.highest() else {
             return Realized::Empty;
         };
@@ -391,9 +453,13 @@ impl Grammar {
         required: &impl Fn() -> ParseError,
     ) -> Result<Vec<DecidedGroup>, ParseError> {
         let order = self.sort_order().map_err(PortableError::into_parse_error)?;
+        let table = self
+            .subsort_relations
+            .sort_table()
+            .expect("a relation with an order has a sort table");
         let mut decision = ForestDecision {
             grammar: self,
-            index: SortIndex::new(order),
+            index: SortIndex::new(order, table),
             explicitly_anywhere,
             summaries: HashMap::new(),
             variables: HashMap::new(),
@@ -1205,7 +1271,7 @@ impl ForestDecision<'_> {
                     let below = self.index.down(*sort);
                     Some(match met {
                         Some(met) => met.and(&below),
-                        None => below,
+                        None => below.into_owned(),
                     })
                 })
                 .expect("a nonempty base")

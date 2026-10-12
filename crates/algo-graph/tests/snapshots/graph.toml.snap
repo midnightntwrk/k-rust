@@ -8058,7 +8058,7 @@ bound = "O(V x E)"
 
 [[node.cost]]
 mode = "ambiguous monomorphic forest"
-bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus one lowering per tree, up to the first that lowers differently, for the G trees of a typing group whose trees instantiate formal parameters differently, each tree built when it is lowered; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it"
+bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus one lowering per tree, up to the first that lowers differently, for the G trees of a typing group whose trees instantiate formal parameters differently, each tree built when it is lowered; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it; the sorts' numbering, and each sort's down and up sets (S/64 words each), are built once per grammar, the first time a decision reads them (SortTable)"
 
 [[node.cost]]
 mode = "variable realization"

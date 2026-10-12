@@ -113,6 +113,7 @@ use self::grammar::catalog_production;
 pub(super) use self::grammar::named_projection_productions;
 #[cfg(feature = "z3-inference")]
 use self::grammar::{render_added_production, render_production};
+use self::inference::SortTable;
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -1596,12 +1597,14 @@ fn chart_completion_candidates() -> usize {
 /// A grammar's subsort relation with the partial order it generates, built on first use.
 ///
 /// The order is a function of the relation alone, so every parse over one grammar shares one
-/// construction. Mutable access goes through `DerefMut`, which discards the built order, so the
-/// order can never describe an earlier relation.
+/// construction, and so does the portable forest decision's numbering of its sorts. Mutable access
+/// goes through `DerefMut`, which discards both, so neither can describe an earlier relation.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SubsortRelations {
     relations: BTreeSet<(Sort, Sort)>,
     order: OnceLock<Result<PartialOrder<Sort>, PartialOrderCycle<Sort>>>,
+    // Invariant: when set, this is `SortTable::new` of `order`; discarded with it.
+    sort_table: OnceLock<SortTable>,
 }
 
 impl SubsortRelations {
@@ -1610,6 +1613,14 @@ impl SubsortRelations {
         self.order
             .get_or_init(|| PartialOrder::new(self.relations.iter().cloned()))
             .as_ref()
+    }
+
+    /// The order's sorts numbered for the portable forest decision, with their down and up sets
+    /// (`SortTable`), built on first use like the order, so every forest decision over one
+    /// grammar shares one table; `None` when the relation has a cycle.
+    fn sort_table(&self) -> Option<&SortTable> {
+        let order = self.order().ok()?;
+        Some(self.sort_table.get_or_init(|| SortTable::new(order)))
     }
 }
 
@@ -1624,6 +1635,7 @@ impl std::ops::Deref for SubsortRelations {
 impl std::ops::DerefMut for SubsortRelations {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.order.take();
+        self.sort_table.take();
         &mut self.relations
     }
 }

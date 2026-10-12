@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "ambiguous monomorphic forest"
-//! bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus one lowering per tree, up to the first that lowers differently, for the G trees of a typing group whose trees instantiate formal parameters differently, each tree built when it is lowered; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it"
+//! bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus one lowering per tree, up to the first that lowers differently, for the G trees of a typing group whose trees instantiate formal parameters differently, each tree built when it is lowered; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it; the sorts' numbering, and each sort's down and up sets (S/64 words each), are built once per grammar, the first time a decision reads them (SortTable)"
 //!
 //! [[cost]]
 //! mode = "variable realization"
@@ -48,6 +48,8 @@ use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, TermSpan};
 
 mod forest_decision;
+
+pub(super) use forest_decision::SortTable;
 
 use super::{
     Grammar, Item, LoweringSession, PackedNode, PackedTerm, ParseError, ParsedParts, ParsedTerm,
@@ -2945,6 +2947,44 @@ mod tests {
             1,
             "one tree survives: {decided:?}"
         );
+    }
+
+    #[test]
+    fn forest_decisions_over_one_grammar_share_its_sort_table() {
+        // The sorts' numbering and their down and up sets are functions of the subsort order:
+        // the first decision fills the grammar's table, a second decision of the same forest
+        // computes no set again, and a change to the relation discards the table with the order.
+        let top = Sort::new("Good");
+        let (mut grammar, forest) = independent_ambiguities(2);
+        let decide = |grammar: &Grammar| {
+            grammar
+                .infer_ambiguous_sorts_portable(&forest, &top, false, &Ok)
+                .expect("the all-`big` tree is kept")
+        };
+        let first = decide(&grammar);
+        let table = grammar
+            .subsort_relations
+            .sort_table
+            .get()
+            .expect("the decision built the grammar's table");
+        let computed = table.computed_sets();
+        assert!(computed > 0, "the decision read no sort's bounds");
+        let table: *const SortTable = table;
+        assert_eq!(decide(&grammar), first);
+        let shared = grammar
+            .subsort_relations
+            .sort_table
+            .get()
+            .expect("the table is kept");
+        assert!(
+            std::ptr::eq(table, shared),
+            "the second decision built another table"
+        );
+        assert_eq!(shared.computed_sets(), computed);
+        grammar
+            .subsort_relations
+            .insert((Sort::new("Fresh"), Sort::new("Good")));
+        assert!(grammar.subsort_relations.sort_table.get().is_none());
     }
 
     /// Two well-sorted trees, `big(Y)` and `small(Y)` beside `big(_)`, whose anonymous variable
