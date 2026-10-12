@@ -834,6 +834,11 @@ pub struct SearchResponse<K = Value> {
     pub states: Vec<SearchStateOutput<K>>,
     pub effects: Vec<EffectOutput>,
     pub incomplete: Vec<IncompleteSearchOutput<K>>,
+    /// Every initial state had no instance before any step (its constraints, a fact of its
+    /// knowledge or its term's definedness refuted), so the search started from no
+    /// configuration; omitted when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial_bottom: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -845,6 +850,9 @@ pub struct PathSearchResponse<K = Value> {
     pub witnesses: Vec<PathWitnessOutput<K>>,
     pub effects: Vec<EffectOutput>,
     pub incomplete: Vec<IncompleteSearchOutput<K>>,
+    /// As [`SearchResponse::initial_bottom`]; omitted when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial_bottom: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -869,6 +877,9 @@ pub struct PatternSearchResponse<K = Value> {
     pub matches: Vec<SearchMatchOutput<K>>,
     pub effects: Vec<EffectOutput>,
     pub incomplete: Vec<IncompleteSearchOutput<K>>,
+    /// As [`SearchResponse::initial_bottom`]; omitted when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial_bottom: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -893,6 +904,9 @@ pub struct PathPatternSearchResponse<K = Value> {
     pub matches: Vec<PathSearchMatchOutput<K>>,
     pub effects: Vec<EffectOutput>,
     pub incomplete: Vec<IncompleteSearchOutput<K>>,
+    /// As [`SearchResponse::initial_bottom`]; omitted when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial_bottom: bool,
 }
 
 pub(super) trait WireKore: Sized {
@@ -1781,6 +1795,7 @@ pub(super) fn search_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
+        initial_bottom: result.initial_bottom,
     })
 }
 
@@ -1798,6 +1813,7 @@ pub(super) fn path_search_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
+        initial_bottom: result.initial_bottom,
     })
 }
 
@@ -1823,6 +1839,7 @@ pub(super) fn pattern_search_response<K: WireKore>(
             .collect::<Result<_, BackendError>>()?,
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
+        initial_bottom: result.initial_bottom,
     })
 }
 
@@ -1848,6 +1865,7 @@ pub(super) fn path_pattern_search_response<K: WireKore>(
             .collect::<Result<_, BackendError>>()?,
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
+        initial_bottom: result.initial_bottom,
     })
 }
 

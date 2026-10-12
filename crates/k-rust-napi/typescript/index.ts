@@ -576,6 +576,8 @@ export interface SearchResult {
   states: SearchState[]
   effects: BackendEffect[]
   incomplete: SearchIncomplete[]
+  /** Every initial state had no instance before any step; absent when false. */
+  initialBottom?: true
 }
 
 export interface PathSearchResult {
@@ -584,6 +586,8 @@ export interface PathSearchResult {
   witnesses: PathWitness[]
   effects: BackendEffect[]
   incomplete: SearchIncomplete[]
+  /** Every initial state had no instance before any step; absent when false. */
+  initialBottom?: true
 }
 
 export interface SearchMatch {
@@ -600,6 +604,8 @@ export interface PatternSearchResult {
   matches: SearchMatch[]
   effects: BackendEffect[]
   incomplete: SearchIncomplete[]
+  /** Every initial state had no instance before any step; absent when false. */
+  initialBottom?: true
 }
 
 export interface PathSearchMatch {
@@ -616,6 +622,8 @@ export interface PathPatternSearchResult {
   matches: PathSearchMatch[]
   effects: BackendEffect[]
   incomplete: SearchIncomplete[]
+  /** Every initial state had no instance before any step; absent when false. */
+  initialBottom?: true
 }
 
 export interface PatternOptions {

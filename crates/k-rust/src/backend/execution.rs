@@ -1148,6 +1148,10 @@ impl Backend {
     }
 }
 
+/// What a run states when every initial state had no instance before any step, so its empty
+/// result is not one the rules produced.
+const INITIAL_BOTTOM_WARNING: &str = "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables";
+
 fn run_backend_with_solver(
     backend: &BackendDefinition,
     solver: &dyn SmtSolver,
@@ -1212,6 +1216,9 @@ fn run_backend_with_solver(
                 incomplete
             ))
             .into());
+        }
+        if result.initial_bottom {
+            eprintln!("{INITIAL_BOTTOM_WARNING}");
         }
         let mut run_wide = HashSet::new();
         for matched in &result.matches {
@@ -1391,9 +1398,7 @@ fn run_backend_with_solver(
         options.max_simplification_iterations,
     )?;
     if initial_is_bottom {
-        eprintln!(
-            "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
-        );
+        eprintln!("{INITIAL_BOTTOM_WARNING}");
     } else if finals.is_empty()
         && execution.leaves.iter().all(|leaf| {
             matches!(

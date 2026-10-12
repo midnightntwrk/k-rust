@@ -3090,38 +3090,40 @@ endmodule
 "#,
     )
     .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "MAIN",
-            "--sort",
-            "Int",
-            "--expression",
-            "1",
-            "--depth",
-            "0",
-        ])
-        .output()
-        .unwrap();
+    // An execution and a search both start from no configuration.
+    for mode in [&["--depth", "0"][..], &["--search-all"]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "Int",
+                "--expression",
+                "1",
+            ])
+            .args(mode)
+            .output()
+            .unwrap();
 
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "\\bottom{SortGeneratedTopCell{}}()\n"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains(
-            "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
-        ),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+        assert!(
+            output.status.success(),
+            "{mode:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "\\bottom{SortGeneratedTopCell{}}()\n"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(
+                "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
+            ),
+            "{mode:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     fs::remove_dir_all(root).unwrap();
 }
 

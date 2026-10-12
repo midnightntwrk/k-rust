@@ -1166,8 +1166,9 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
 /// The definedness of `sti(X /Int Y)` is `Y` not 0. When the initial constraints establish it
 /// (`Y >Int 0`), the configuration has no undefined instance, so nothing is restricted or named;
 /// when they refute it together (`Y *Int Y ==Int 0`, which no single obligation's simplification
-/// decides), the configuration has no instance at all and the run ends as one simplified to
-/// `\bottom`, without naming a condition under which it would be defined.
+/// decides), the configuration has no instance at all: the run ends as one simplified to
+/// `\bottom` and a search reports that it started from no configuration, neither naming a
+/// condition under which it would be defined.
 #[cfg(feature = "z3-inference")]
 #[test]
 fn constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_to_name() {
@@ -1218,5 +1219,28 @@ fn constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_t
                 result.leaves
             );
         }
+        // A search from no configuration says so, as its empty result alone cannot.
+        let mut backend = Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
+        let request = SearchRequest {
+            search_type: SearchTypeArg::Final,
+            ..SearchRequest::new(initial(condition))
+        };
+        let states = backend.search(request.clone()).unwrap();
+        let paths = backend.search_paths(request).unwrap();
+        assert_eq!(
+            (
+                states.states.is_empty(),
+                states.initial_bottom,
+                paths.witnesses.is_empty(),
+                paths.initial_bottom
+            ),
+            (
+                heads.is_empty(),
+                heads.is_empty(),
+                heads.is_empty(),
+                heads.is_empty()
+            ),
+            "{condition} search: {states:#?} {paths:#?}"
+        );
     }
 }
