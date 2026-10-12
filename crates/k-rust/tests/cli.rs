@@ -10864,6 +10864,41 @@ endmodule
     }
 }
 
+/// A `[token]` production of several items denotes one token whose text is the whole phrase it
+/// spans, from its first token to its last with the layout between them, not the text of its
+/// first item.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_reads_a_token_production_of_several_items_as_its_whole_phrase() {
+    let definition = r#"
+module PHRASE-SYNTAX
+  syntax Name ::= r"[a-z]+" [token]
+  syntax Paren ::= "(" Name ")" [token]
+  syntax Dotted ::= Name "." Name [token]
+  syntax Pgm ::= "p" Paren | "d" Dotted
+endmodule
+
+module PHRASE
+  imports PHRASE-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    let programs = [
+        ("p ( ab )", true),
+        ("p (ab)", true),
+        ("p (\n ab  )", true),
+        ("d ab . cd", true),
+        ("d ab.cd", true),
+        ("p ( ab", false),
+    ];
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "PHRASE",
+        "PHRASE-SYNTAX",
+        &owned_programs(&programs),
+    );
+}
+
 /// An anchored token that ends where a scanner reading its input in 8 KiB chunks would end a
 /// chunk must still see the newline after it.
 #[cfg(unix)]

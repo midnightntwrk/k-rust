@@ -1368,14 +1368,15 @@ fn write_list_closers(
     Ok(())
 }
 
-/// A token reads the input text its first item spans (`@1`, which `krust_read` records for every
-/// token the scanner returns) as a literal of its sort's hook: a token production's own token, or,
-/// for a token subsort (`syntax MyStr ::= String [token]`), its child's phrase, so a token
-/// subsort's literal is that text decoded by its own sort's hook, not the child's literal, and a
-/// phrase that no token production read (`syntax MyTok ::= Pair [token]`) is a token of the sort
-/// all the same. A phrase's text runs from the first character of its first token to the last of
-/// its last, with the layout between them. The text is every byte of the span, so a token holding
-/// U+0000 keeps it.
+/// A token reads the input text its production's phrase spans (`@$`, from the byte spans
+/// `krust_read` records for every token the scanner returns) as a literal of its sort's hook: the
+/// one token of `syntax Int ::= r"[0-9]+" [token]`, the whole phrase `( ab )` of
+/// `syntax T ::= "(" Name ")" [token]`, or, for a token subsort (`syntax MyStr ::= String
+/// [token]`), its child's phrase, so a token subsort's literal is that text decoded by its own
+/// sort's hook, not the child's literal, and a phrase that no token production read
+/// (`syntax MyTok ::= Pair [token]`) is a token of the sort all the same. A phrase's text runs
+/// from the first character of its first token to the last of its last, with the layout between
+/// them. The text is every byte of the span, so a token holding U+0000 keeps it.
 fn write_token_action(
     output: &mut String,
     sort: &Sort,
@@ -1387,7 +1388,7 @@ fn write_token_action(
     let sort = c_kore_sort(sort);
     writeln!(
         output,
-        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal_at(&@1, {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
+        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal_at(&@$, {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
         u8::from(has_location)
     )
     .expect("writing to a string cannot fail");
