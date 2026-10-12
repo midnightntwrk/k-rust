@@ -283,7 +283,7 @@ paths = [
 [[gate]]
 name = "build-agreement"
 run = "certification"
-command = "scripts/build-agreement.sh --refused evm-equivalence,mir,wasm"
+command = "scripts/build-agreement.sh --refused evm-equivalence,mir"
 paths = [
   "@inference",
   '^scripts/build-agreement\.sh$',
