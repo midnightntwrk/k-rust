@@ -93,10 +93,12 @@ impl Variables {
     }
 
     /// The number of variables.
+    #[inline]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -106,6 +108,7 @@ impl Variables {
         Iter(self.0.iter())
     }
 
+    #[inline]
     pub fn contains(&self, variable: &Variable) -> bool {
         self.0.contains(variable)
     }

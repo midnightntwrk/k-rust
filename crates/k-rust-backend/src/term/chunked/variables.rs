@@ -105,6 +105,7 @@ impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
     }
 
     /// The number of variables.
+    #[inline]
     pub(crate) fn len(&self) -> usize {
         match &self.backing {
             Backing::Empty => 0,
@@ -113,6 +114,7 @@ impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
         }
     }
 
+    #[inline]
     pub(crate) fn is_empty(&self) -> bool {
         matches!(self.backing, Backing::Empty)
     }
@@ -127,6 +129,7 @@ impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
     }
 
     /// Whether the set holds `variable`, in time logarithmic in its size.
+    #[inline]
     pub(crate) fn contains(&self, variable: &V) -> bool {
         match &self.backing {
             Backing::Empty => false,

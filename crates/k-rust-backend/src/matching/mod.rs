@@ -739,6 +739,10 @@ struct Matcher<'a> {
     sorts: &'a SortGraph,
     definition: Option<&'a BackendDefinition>,
     substitution: Substitution,
+    /// Some value of `substitution` has a variable. Only [`Matcher::bind`] changes the
+    /// substitution: it sets this when it binds a value with a variable and never clears it, so
+    /// while it is false every value is ground and no value can mention a variable being bound.
+    symbolic_values: bool,
     queue: VecDeque<(Term, Term)>,
     map_queue: VecDeque<(Term, Term)>,
     indeterminate: Vec<(Term, Term)>,
@@ -867,6 +871,7 @@ impl<'a> Matcher<'a> {
             sorts,
             definition,
             substitution: Substitution::new(),
+            symbolic_values: false,
             queue,
             map_queue: VecDeque::new(),
             indeterminate: Vec::new(),
@@ -2034,15 +2039,21 @@ impl<'a> Matcher<'a> {
             };
         }
         // Only a value that mentions `variable` changes under the singleton substitution;
-        // every other value is kept as it is instead of being rebuilt into an equal handle.
-        let mut singleton = None;
-        for value in self.substitution.values_mut() {
-            if value.attributes().variables.contains(&variable) {
-                let singleton = singleton
-                    .get_or_insert_with(|| Substitution::from([(variable.clone(), term.clone())]));
-                *value = substitute(value, singleton);
+        // every other value is kept as it is instead of being rebuilt into an equal handle. A
+        // ground value mentions no variable, so while every value is ground (a ground subject)
+        // none is looked at.
+        if self.symbolic_values {
+            let mut singleton = None;
+            for value in self.substitution.values_mut() {
+                if value.attributes().variables.contains(&variable) {
+                    let singleton = singleton.get_or_insert_with(|| {
+                        Substitution::from([(variable.clone(), term.clone())])
+                    });
+                    *value = substitute(value, singleton);
+                }
             }
         }
+        self.symbolic_values |= !term.attributes().variables.is_empty();
         self.substitution.insert(variable, term);
         Ok(())
     }
