@@ -366,6 +366,12 @@ fn steps_from(
             result
         })
     };
+    // Debug builds check the initial state's definedness claims once and mark what passed
+    // (`definedness::check_ceil_free`); the marks stay on the shared state, so the first run
+    // would pay that check alone. A first run pays it here, outside the measured ones.
+    if cfg!(debug_assertions) {
+        run(1);
+    }
     run(2 * STEPS).saturating_sub(run(STEPS))
 }
 
