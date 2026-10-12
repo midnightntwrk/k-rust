@@ -1361,6 +1361,32 @@ name = "final"
 program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/false-ensures.pgm"
 mode = "--search-final"
 
+# The instances of a type="List" cell collection keep their order, and a rule states the position
+# of an instance it writes only among the items written side by side in one cell body, followed by
+# the rest of the list that the cell's ... stands for, wherever that ... is written
+# (docs/compatibility.md#cells-written-inside-another-cell). After three mk commands, each adding an
+# instance at the front, get(I) writes one instance without its position: it rewrites on the front
+# instance (get-3-front) and is stuck on the others (get-2, get-1). last(), dropLast() and mkLast(I,
+# V) write a leading ... before the instance, and read, remove and add at the front as well (last,
+# drop-last, mk-last-get).
+[[execution]]
+name = "list-cell-positions"
+requires = ["reference-toolchain"]
+constructs = ["cell-list"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/test.k"
+main-module = "LIST-CELL-POSITIONS"
+syntax-module = "LIST-CELL-POSITIONS-SYNTAX"
+sort = "Pgm"
+depth = 100
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/get-3-front.pgm",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/get-2.pgm",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/get-1.pgm",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/last.pgm",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/drop-last.pgm",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/mk-last-get.pgm",
+]
+
 [[execution]]
 name = "hook-boundaries"
 requires = ["reference-toolchain"]

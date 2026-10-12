@@ -2909,7 +2909,7 @@ fn manual_certification_protocol_names_required_gates() {
         "REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence",
         "scripts/reference-kast-differential.sh wasm mir evm-equivalence",
         "scripts/reference-non-imp-execution-differential.sh imp collections hook-boundaries",
-        "scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution",
+        "scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution list-cell-positions",
         "scripts/reference-proof-differential.sh mini-proof",
         "scripts/reference-proof-differential.sh split-proof trusted-lemma-proof trivial-proof",
         "scripts/reference-rpc-differential.sh imp",
