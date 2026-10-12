@@ -801,6 +801,7 @@ fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String
     let grammar = ProgramGrammar::new(&frontend).unwrap();
     let rename = |text: String| {
         text.replace("LblgetA'", "Lblget'")
+            .replace("LblgetK'", "Lblget'")
             .replace("LblanyPA'", "LblanyP'")
             .replace("LblrdV'", "Lblrd'")
             .replace("LbldropV'", "Lbldrop'")
@@ -918,6 +919,57 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
             added[0].0.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())"),
             "{collection}: {}",
             added[0].0
+        );
+    }
+}
+
+/// An alias inside an instance's pattern, `(<rid> I </rid> #as _K)` in `getK`'s aliased
+/// instance, denotes the key cell its pattern matches, so `getK` applies exactly where `get`
+/// applies and ends in the same configuration: on no instance (stuck), on one, and on three
+/// (each read completes, and a search finds the one final state). In a Map that key cell is the
+/// key of the instance's item, which the match seeks as the pattern it aliases.
+#[test]
+fn an_alias_inside_a_collection_cell_instance_matches_what_its_pattern_matches() {
+    let three = "mk(1,10) ; mk(2,20) ; mk(3,30) ; ";
+    let pairs = [
+        ("get(1)", "getK(1)"),
+        ("mk(1,10) ; get(1)", "mk(1,10) ; getK(1)"),
+        ("mk(1,10) ; get(2)", "mk(1,10) ; getK(2)"),
+        (
+            &format!("{three}get(2) ; get(3) ; get(2)"),
+            &format!("{three}getK(2) ; getK(3) ; getK(2)"),
+        ),
+        (&format!("{three}get(1)"), &format!("{three}getK(1)")),
+        (&format!("{three}get(4)"), &format!("{three}getK(4)")),
+        (
+            &format!("{three}get(3) ; get(3)"),
+            &format!("{three}getK(3) ; getK(3)"),
+        ),
+    ];
+    let programs = pairs
+        .iter()
+        .flat_map(|(cell, alias)| [*cell, *alias])
+        .collect::<Vec<_>>();
+    for collection in ["Map", "Set", "List"] {
+        let outcomes = aliased_instance_outcomes(collection, &programs);
+        for ((cell, alias), outcome) in pairs.iter().zip(outcomes.chunks(2)) {
+            assert_eq!(outcome[0], outcome[1], "{collection}: {cell} / {alias}");
+        }
+        // Not vacuous: among three instances the reads complete (in a List, where `get` reads the
+        // instance at the front, the one `mk` added last), `<out>` holds a value read, and the
+        // search ends in that one state.
+        let index = if collection == "List" { 13 } else { 7 };
+        let (run, finals) = &outcomes[index];
+        assert!(
+            run.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())") && !run.contains("error"),
+            "{collection}: {run}"
+        );
+        let read = r#"LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("30")))"#;
+        assert!(run.contains(read), "{collection}: {run}");
+        assert_eq!(finals.len(), 1, "{collection}: {finals:?}");
+        assert!(
+            outcomes.iter().all(|(run, _)| !run.contains(r"\and{")),
+            "{collection}: an alias left in a configuration"
         );
     }
 }

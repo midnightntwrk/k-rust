@@ -1765,19 +1765,27 @@ impl<'a> Matcher<'a> {
     /// (`FoundKeys::split`): a match that binds `k` keys of an `n`-entry subject builds
     /// `O(k log n)` nodes and shares the others. Whether the subject repeats a key is read from
     /// its tree's summary.
+    ///
+    /// A key `\and(P, V)`, the alias `P #as V` (a `multiplicity="*"` instance's key cell aliased
+    /// in its pattern), is the key `P` matches with `V` bound to it, so it is sought as `P` and
+    /// `V` is bound to `P` ([`Self::unalias`]): the subject has the key `P` denotes exactly when
+    /// it has an entry `P` matches, and `V` then denotes that entry's key. The values stay whole
+    /// while they are matched here against found entries (`match_one` takes an alias apart, binding
+    /// its variable to the subject value itself); the values handed to the collection solver are
+    /// read through [`Self::unalias`] as well.
     fn match_maps(
         &mut self,
         definition: Arc<MapDefinition>,
-        pattern_entries: &Items<(Term, Term)>,
+        pattern_entries_written: &Items<(Term, Term)>,
         pattern_rest: Option<Term>,
         subject: &Term,
         subject_entries: &Items<(Term, Term)>,
         subject_rest: Option<Term>,
     ) -> Result<(), FailReason> {
-        let mut pattern_entries = pattern_entries
-            .iter()
-            .map(|(key, value)| (substitute(key, &self.substitution), value.clone()))
-            .collect::<Vec<_>>();
+        let mut pattern_entries = Vec::with_capacity(pattern_entries_written.len());
+        for (key, value) in pattern_entries_written.iter() {
+            pattern_entries.push((self.unalias(key, true)?, value.clone()));
+        }
         check_duplicate_keys(&definition, &pattern_entries, &pattern_rest)?;
         if !binds_each_key_once(subject) {
             check_stored_duplicate_keys(&definition, subject_entries, &subject_rest)?;
@@ -1790,8 +1798,9 @@ impl<'a> Matcher<'a> {
                 .as_ref()
                 .is_some_and(|rest| is_opaque_concat(rest, &definition.symbols.concat))
         {
+            let pattern = self.unaliased_map(&definition, pattern_entries.iter(), pattern_rest)?;
             return self.defer(
-                Term::map(definition.clone(), pattern_entries, pattern_rest),
+                pattern,
                 Term::map_of_items(definition, subject_entries.clone(), subject_rest),
             );
         }
@@ -1859,30 +1868,24 @@ impl<'a> Matcher<'a> {
     /// whether its other elements are all constructor-like, is read from its tree's summary.
     ///
     /// An element `\and(P, V)` with `V` a variable, the alias `P #as V`, is the element `P`
-    /// matches, with `V` bound to it. When `V` is already bound, the element is its value, which
-    /// `P` must match. Otherwise the alias stays whole while the element is matched here (one
-    /// pattern element against one subject element binds `V` to the subject element itself), and
-    /// the elements handed to the collection solver are read through [`Self::unalias_elements`].
+    /// matches, with `V` bound to it; so is an alias inside an element (a `multiplicity="*"`
+    /// instance's key cell aliased in its pattern). An alias whose `V` is already bound is its
+    /// value, which `P` must match. Otherwise the alias stays whole while the element is matched
+    /// here (one pattern element against one subject element binds `V` to the subject element
+    /// itself), and the elements handed to the collection solver are read through
+    /// [`Self::unalias_elements`].
     fn match_sets(
         &mut self,
         definition: Arc<crate::term::SetDefinition>,
-        pattern_elements: &Items<Term>,
+        pattern_elements_written: &Items<Term>,
         pattern_rest: Option<Term>,
         subject_elements: &Items<Term>,
         subject_rest: Option<Term>,
     ) -> Result<(), FailReason> {
-        let mut pattern_elements = pattern_elements
-            .iter()
-            .map(|element| {
-                if let Some((aliased, variable)) = alias_parts(element)
-                    && let Some(value) = self.substitution.get(variable).cloned()
-                {
-                    self.enqueue(aliased.clone(), value.clone());
-                    return value;
-                }
-                substitute(element, &self.substitution)
-            })
-            .collect::<Vec<_>>();
+        let mut pattern_elements = Vec::with_capacity(pattern_elements_written.len());
+        for element in pattern_elements_written.iter() {
+            pattern_elements.push(self.unalias(element, false)?);
+        }
         if pattern_rest
             .as_ref()
             .is_some_and(|rest| is_opaque_concat(rest, &definition.symbols.concat))
@@ -1975,24 +1978,118 @@ impl<'a> Matcher<'a> {
         )
     }
 
-    /// Set elements as the collection solver receives them: each alias `\and(P, V)` whose `V`
-    /// is unbound becomes `P`, with `V` bound to `P`. The alias denotes the element `P` matches,
-    /// and `P` matches an element exactly when the solver binds `P`'s variables so that `P`
-    /// denotes it; the bindings the solver adds are composed into `V`'s, so `V` denotes the same
-    /// element. Left whole, the conjunction would reach the solver's remainder, and every
-    /// condition stated on that remainder (the definedness of the set it builds) would carry a
-    /// conjunction of two terms, which is not a formula.
+    /// Set elements as the collection solver receives them: each alias `\and(P, V)` in an element
+    /// whose `V` is unbound becomes `P`, with `V` bound to `P` ([`Self::unalias`]). The alias
+    /// denotes the element `P` matches, and `P` matches an element exactly when the solver binds
+    /// `P`'s variables so that `P` denotes it; the bindings the solver adds are composed into
+    /// `V`'s, so `V` denotes the same element. Left whole, the conjunction would reach the
+    /// solver's remainder, and every condition stated on that remainder (the definedness of the
+    /// set it builds) would carry a conjunction of two terms, which is not a formula.
     fn unalias_elements(&mut self, elements: Vec<Term>) -> Result<Vec<Term>, FailReason> {
         elements
             .into_iter()
-            .map(|element| match alias_parts(&element) {
-                Some((aliased, variable)) if !self.substitution.contains_key(variable) => {
-                    self.bind(variable.clone(), aliased.clone())?;
-                    Ok(aliased.clone())
-                }
-                _ => Ok(element),
-            })
+            .map(|element| self.unalias(&element, true))
             .collect()
+    }
+
+    /// The map of `entries` and `rest` as the collection solver receives it: each value read
+    /// through [`Self::unalias`], for the reason [`Self::unalias_elements`] gives for set
+    /// elements. The keys are read so already (`match_maps`).
+    fn unaliased_map<'e>(
+        &mut self,
+        definition: &Arc<MapDefinition>,
+        entries: impl IntoIterator<Item = &'e (Term, Term)>,
+        rest: Option<Term>,
+    ) -> Result<Term, FailReason> {
+        let mut unaliased = Vec::new();
+        for (key, value) in entries {
+            unaliased.push((key.clone(), self.unalias(value, true)?));
+        }
+        Ok(Term::map(definition.clone(), unaliased, rest))
+    }
+
+    /// `term` under the substitution, with each alias `\and(P, V)` (`P #as V`) in it read as what
+    /// it denotes, the term `P` matches with `V` bound to it. An alias whose `V` is bound is `V`'s
+    /// value, which `P` must match, so that pair is enqueued (unless `P` is that value already,
+    /// as when `V` was bound to `P` here earlier, from another occurrence of the alias). An alias
+    /// whose `V` is unbound is `P` with `V` bound to `P` when `unbound` holds, and stays whole
+    /// otherwise. `P` is read first, so an alias inside it binds its variable before `V` is bound
+    /// to `P`, and `V`'s value holds no alias. Aliases are sought through conjunctions,
+    /// applications and injections, which a cell instance is built of; a collection inside the
+    /// term is kept as it is, its own aliases read when it is matched.
+    fn unalias(&mut self, term: &Term, unbound: bool) -> Result<Term, FailReason> {
+        let unaliased = self.unalias_written(term, unbound)?;
+        Ok(substitute(&unaliased, &self.substitution))
+    }
+
+    /// [`Self::unalias`] before the substitution is applied: the bound aliases are replaced by
+    /// their values and the others as `unbound` says, every other variable is kept.
+    fn unalias_written(&mut self, term: &Term, unbound: bool) -> Result<Term, FailReason> {
+        if term.attributes().variables.is_empty() {
+            return Ok(term.clone());
+        }
+        if let Some((aliased, variable)) = alias_parts(term) {
+            let pattern = self.unalias_written(aliased, unbound)?;
+            if let Some(value) = self.substitution.get(variable).cloned() {
+                if substitute(&pattern, &self.substitution) != value {
+                    self.enqueue(pattern, value.clone());
+                }
+                return Ok(value);
+            }
+            if unbound {
+                self.bind(variable.clone(), pattern.clone())?;
+                return Ok(pattern);
+            }
+            if pattern.ptr_eq(aliased) {
+                return Ok(term.clone());
+            }
+            return Ok(Term::and(pattern, Term::variable(variable.clone())));
+        }
+        Ok(match term.kind() {
+            TermKind::And(left, right) => {
+                let (new_left, new_right) = (
+                    self.unalias_written(left, unbound)?,
+                    self.unalias_written(right, unbound)?,
+                );
+                if new_left.ptr_eq(left) && new_right.ptr_eq(right) {
+                    term.clone()
+                } else {
+                    Term::and(new_left, new_right)
+                }
+            }
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                arguments,
+            } => {
+                let mut new_arguments = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    new_arguments.push(self.unalias_written(argument, unbound)?);
+                }
+                if new_arguments
+                    .iter()
+                    .zip(arguments)
+                    .all(|(new, old)| new.ptr_eq(old))
+                {
+                    term.clone()
+                } else {
+                    Term::application(symbol.clone(), sort_arguments.clone(), new_arguments)
+                }
+            }
+            TermKind::Injection {
+                source,
+                target,
+                term: inner,
+            } => {
+                let new_inner = self.unalias_written(inner, unbound)?;
+                if new_inner.ptr_eq(inner) {
+                    term.clone()
+                } else {
+                    Term::injection(source.clone(), target.clone(), new_inner)
+                }
+            }
+            _ => term.clone(),
+        })
     }
 
     fn match_map_remainders(
@@ -2005,10 +2102,9 @@ impl<'a> Matcher<'a> {
             // `match_maps` refutes a pattern key that a subject without a rest and with
             // constructor-like keys only lacks.
             debug_assert!(subject.symbolic() > 0 || subject.rest.is_some());
-            self.defer(
-                pattern.to_term(definition.clone()),
-                subject.to_term(definition.clone()),
-            )?;
+            let pattern_map =
+                self.unaliased_map(definition, pattern.entries.iter(), pattern.rest.clone())?;
+            self.defer(pattern_map, subject.to_term(definition.clone()))?;
             return Ok(Vec::new());
         }
         if pattern.symbolic() == 0 && pattern.rest.is_none() {
@@ -2016,10 +2112,9 @@ impl<'a> Matcher<'a> {
                 return Ok(Vec::new());
             }
             if self.mode == MatchMode::Rewrite && subject.rest.is_some() {
-                self.defer(
-                    pattern.to_term(definition.clone()),
-                    subject.to_term(definition.clone()),
-                )?;
+                let pattern_map =
+                    self.unaliased_map(definition, pattern.entries.iter(), pattern.rest.clone())?;
+                self.defer(pattern_map, subject.to_term(definition.clone()))?;
                 return Ok(Vec::new());
             }
             return Err(FailReason::DifferentContents(
@@ -2057,10 +2152,9 @@ impl<'a> Matcher<'a> {
                     subject.to_term(definition.clone()),
                 ));
             }
-            self.defer(
-                pattern.to_term(definition.clone()),
-                subject.to_term(definition.clone()),
-            )?;
+            let pattern_map =
+                self.unaliased_map(definition, pattern.entries.iter(), pattern.rest.clone())?;
+            self.defer(pattern_map, subject.to_term(definition.clone()))?;
             return Ok(Vec::new());
         }
         let rest = pattern.rest.expect("non-empty remainder map");
