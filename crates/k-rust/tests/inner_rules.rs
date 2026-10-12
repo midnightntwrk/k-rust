@@ -4938,6 +4938,27 @@ fn bracketed_parametric_term_in_a_k_cell_lowers_like_the_bare_term() {
 
 #[cfg(feature = "z3-inference")]
 #[test]
+fn bracketed_parametric_term_below_k_lowers_like_the_bare_term() {
+    // At `foo`'s argument the position is `Exp`, which admits the `Int` and `Exp` instances of
+    // the bracket and not the `K` one. They are one reading; the `Exp` instance puts `#And` at
+    // `Exp`, as without the brackets, while the `Int` instance would bound `#And`'s parameter by
+    // a sort no text states. Both engines must take the `Exp` instance: under checked inference
+    // (`every_rule_test_passes_under_checked_inference`) the rule fails to load when they
+    // instantiate `#And` differently.
+    let rule = |right: &str| {
+        format!(
+            "module TEST\n  imports INT\n  imports ML-SYNTAX\n  syntax Exp ::= Int | foo(Exp)\n  \
+             configuration <k> $PGM:K </k>\n  rule <k> foo(_) => foo({right}) </k>\nendmodule\n"
+        )
+    };
+    let bracketed = test_rule_bodies(&rule("(0 #And 1)"), "bracketed.k");
+    let bare = test_rule_bodies(&rule("0 #And 1"), "bare.k");
+    assert_eq!(bracketed, bare);
+    assert!(bare.iter().any(|body| body.contains("#And(")), "{bare:?}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
 fn distinct_readings_that_only_a_parameter_preference_separates_are_ambiguous() {
     // The shape of issue-2287 a5-spec.k (`2 #And n +Int n`): `(2 #And n) +Int n` and
     // `2 #And (n +Int n)` are both well-sorted, the sentence has no variable to maximise, and no

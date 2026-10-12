@@ -65,7 +65,8 @@ namespace KRust.MaximalModels
   instead: `b` reaches the maximal overload count, its set of live readings (ambiguity
   alternatives up to bracket erasure) is maximal under inclusion among
   those vectors, and it reaches the maximal top-preference count among the vectors with the
-  same live set, then the maximal counts of its `K`, `KItem` and `Bag` groups in that order.
+  same live set, then the maximal counts of its `K`, `KItem` and `Bag` groups in that order,
+  then the maximal count of live bracket families at their position's instance.
   `pref` stays opaque here, so no statement changes;
   `tests::admissible_parameters_conform_to_brute_force` checks the Rust against that definition.
 * `enc a` is what the Rust asserts for a model value `a` it has read: `read_model` decodes each
