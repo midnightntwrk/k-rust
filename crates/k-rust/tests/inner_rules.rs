@@ -2954,6 +2954,10 @@ endmodule
             "{rule}: {error}"
         );
         assert!(notes.failing.is_none(), "{rule}: {notes:?}");
+        assert!(
+            previous.literal_sorts.is_empty() && previous.label.as_deref() == Some("`stop`"),
+            "{rule}: {previous:?}"
+        );
         assert_eq!(
             notes.program_text,
             Some(ProgramTextPhrase {
@@ -2984,6 +2988,39 @@ endmodule
 "
     )))
     .expect("without the token production the rule is the application of `stop`");
+}
+
+#[test]
+fn a_shadowed_label_is_advised_in_its_backquoted_spelling() {
+    // The literal `stop` takes the token from `#LowerId`, which the parse expects there as the
+    // label of an application. A label is no term, so a `#token` literal cannot stand there;
+    // the backquoted label reads `stop` as a label whatever the module's literals are.
+    let module = |rule: &str| {
+        format!(
+            "module MAIN
+  syntax Name ::= r\"[0-9]+\" [token]
+  syntax Pgm ::= \"go\" | \"stop\" | f(Name) [symbol(stop)]
+  rule {rule}
+endmodule
+"
+        )
+    };
+    let error = match resolve_rule_bubbles(&lowered(&module("stop(N:Name) => go"))) {
+        Err(RuleError::Parse(error)) => error.error,
+        other => panic!("expected a parse error, got {other:?}"),
+    };
+    let notes = no_parse_notes(&error);
+    let previous = notes.previous.as_ref().expect("the shadowed label");
+    assert_eq!(previous.text, "stop", "{error}");
+    assert!(previous.literal_sorts.is_empty(), "{previous:?}");
+    assert_eq!(previous.label.as_deref(), Some("`stop`"), "{previous:?}");
+    let message = error.to_string();
+    assert!(
+        message.ends_with("As a label, write it `stop`.") && !message.contains("#token(\"stop\""),
+        "{message}"
+    );
+    resolve_rule_bubbles(&lowered(&module("`stop`(N:Name) => go")))
+        .expect("the backquoted label spells the application of `stop`");
 }
 
 #[test]

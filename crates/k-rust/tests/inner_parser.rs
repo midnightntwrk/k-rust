@@ -1140,6 +1140,7 @@ fn a_no_parse_names_an_expected_lexeme_that_lost_the_text_of_a_token_by_preceden
                 expected: r#"r"[a-z][a-z0-9]*" (prec(0))"#.into(),
                 expected_sorts: vec![Sort::new("Name")],
                 literal_sorts: vec![],
+                label: None,
                 in_phrase: false,
             }),
             program_text: None,

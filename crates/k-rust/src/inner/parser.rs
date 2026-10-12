@@ -680,6 +680,7 @@ fn write_shadowed_token(formatter: &mut fmt::Formatter<'_>, token: &ShadowedToke
         expected,
         expected_sorts,
         literal_sorts,
+        label,
         in_phrase,
     } = token;
     write!(
@@ -690,6 +691,14 @@ fn write_shadowed_token(formatter: &mut fmt::Formatter<'_>, token: &ShadowedToke
         sorts(scanned_sorts),
         sorts(expected_sorts),
     )?;
+    if let Some(label) = label {
+        write!(formatter, " As a label, write it {label}")?;
+        formatter.write_str(if literal_sorts.is_empty() {
+            "."
+        } else {
+            "; as a term,"
+        })?;
+    }
     if !literal_sorts.is_empty() {
         let literals = literal_sorts
             .iter()
@@ -701,7 +710,12 @@ fn write_shadowed_token(formatter: &mut fmt::Formatter<'_>, token: &ShadowedToke
                 )
             })
             .collect::<Vec<_>>();
-        write!(formatter, " Write it {}.", literals.join(" or "))?;
+        let write = if label.is_some() {
+            " write it"
+        } else {
+            " Write it"
+        };
+        write!(formatter, "{write} {}.", literals.join(" or "))?;
     } else if *in_phrase {
         formatter.write_str(
             " It stands in the phrase of a token production, which reads program text only: \
@@ -838,9 +852,13 @@ pub struct ShadowedToken {
     /// The sorts whose token productions expected that lexeme there.
     pub expected_sorts: Vec<Sort>,
     /// The expected sorts a `#token` literal can write at this position: none when the grammar
-    /// has no `#token` literals, or when the token stands in the phrase of a token production,
-    /// which reads program text only.
+    /// has no `#token` literals, when the token stands in the phrase of a token production,
+    /// which reads program text only, or when it fills no place a literal, a term, fills.
     pub literal_sorts: Vec<Sort>,
+    /// The backquoted spelling of the token as a label, when the expected lexeme stands where
+    /// a `KLabel` is read, as the label of an application: there the token is a label, which a
+    /// `#token` literal, a term, does not write.
+    pub label: Option<String>,
     /// Whether the token stands in the phrase of a token production in a grammar with `#token`
     /// literals: that phrase is then written as a literal of its own sort as a whole.
     pub in_phrase: bool,
@@ -3678,13 +3696,31 @@ impl Grammar {
             sorts: BTreeSet<&'a Sort>,
             literal_sorts: BTreeSet<&'a Sort>,
             in_phrase: bool,
+            label: bool,
         }
-        let token_literals = self
-            .scanner
-            .lexeme_id(&Item::Terminal("#token".to_owned()))
-            .is_some();
+        let token_literal = self.scanner.lexeme_id(&Item::Terminal("#token".to_owned()));
+        let token_literals = token_literal.is_some();
+        let continues =
+            |state: &State| next.is_none_or(|next| self.continues_with(charts, state, next));
+        let chart = charts.get(start)?;
+        // The places a `#token` literal beginning where the token does fills. The literal is a
+        // term, so it is advised only where the token fills one of them: not where the token is
+        // a label, say.
+        let literal_places = token_literal.map(|literal| {
+            let literals = chart
+                .states
+                .keys()
+                .filter(|state| {
+                    state.dot == 0
+                        && self.productions[state.production].item_lexeme_ids.first()
+                            == Some(&Some(literal))
+                })
+                .copied();
+            self.token_places(charts, literals)
+        });
+        let label_sort = self.sort_id(&Sort::new("KLabel"));
         let mut expected = BTreeMap::<usize, Expected<'_>>::new();
-        for state in charts.get(start)?.states.keys() {
+        for state in chart.states.keys() {
             let production = &self.productions[state.production];
             let Some(Some(lexeme)) = production.item_lexeme_ids.get(state.dot) else {
                 continue;
@@ -3704,9 +3740,24 @@ impl Grammar {
             // reads the phrase of a token production (`read_token_text_as_program_text`).
             if self.sort_id(&production.result) != Some(production.result_id) {
                 entry.in_phrase = token_literals;
-            } else if token_literals {
+                continue;
+            }
+            let places = self.token_places(charts, std::iter::once(*state));
+            if literal_places.as_ref().is_some_and(|literals| {
+                places
+                    .iter()
+                    .any(|place| literals.contains(place) && continues(place))
+            }) {
                 entry.literal_sorts.insert(&production.result);
             }
+            // The item of an application or a wrapped label that reads a `KLabel`, whose
+            // backquoted spelling is any label.
+            entry.label |= places.iter().any(|place| {
+                let production = &self.productions[place.production];
+                label_sort.is_some()
+                    && production.item_sort_ids.get(place.dot) == Some(&label_sort)
+                    && continues(place)
+            });
         }
         // One expected lexeme suffices to say why the token is not the one the parse expects;
         // the lexeme of a token production is named first, as only it has a `#token` spelling.
@@ -3730,8 +3781,46 @@ impl Grammar {
             expected: self.scanner.lexeme_description(*lexeme),
             expected_sorts: owned(&found.sorts),
             literal_sorts: owned(&found.literal_sorts),
-            in_phrase: found.in_phrase && found.literal_sorts.is_empty(),
+            label: found
+                .label
+                .then(|| backquoted_label(&input[start..end]))
+                .flatten(),
+            in_phrase: found.in_phrase && found.literal_sorts.is_empty() && !found.label,
         })
+    }
+
+    /// The places in chart `start` that the phrases `states` begin there fill: each state, and
+    /// the states waiting for its sort, followed out of every production of one item, whose
+    /// phrase is that of its item, up to the first production with other items. The item at the
+    /// dot of such a production is where the phrase stands among others.
+    fn token_places(
+        &self,
+        charts: &[Chart],
+        states: impl IntoIterator<Item = State>,
+    ) -> HashSet<State> {
+        let mut places = HashSet::new();
+        let mut pending = states
+            .into_iter()
+            .map(|state| (state, true))
+            .collect::<Vec<_>>();
+        while let Some((state, follow)) = pending.pop() {
+            if !places.insert(state) && !follow {
+                continue;
+            }
+            let production = &self.productions[state.production];
+            if !follow && production.items.len() != 1 {
+                continue;
+            }
+            if let Some(callers) = charts[state.origin].waiting.get(&production.result_id) {
+                pending.extend(
+                    callers
+                        .iter()
+                        .filter(|caller| !places.contains(*caller))
+                        .map(|caller| (*caller, false)),
+                );
+            }
+        }
+        places
     }
 
     /// The phrase of a token production that would go on with the failing token, of lexeme
@@ -3878,6 +3967,24 @@ impl Grammar {
         }
         false
     }
+}
+
+/// `text` as a backquoted label, which reads any label that holds no line break: a backquote or
+/// a backslash in it is escaped with a backslash.
+fn backquoted_label(text: &str) -> Option<String> {
+    if text.is_empty() || text.contains(['\n', '\r']) {
+        return None;
+    }
+    let mut label = String::with_capacity(text.len() + 2);
+    label.push('`');
+    for character in text.chars() {
+        if matches!(character, '`' | '\\') {
+            label.push('\\');
+        }
+        label.push(character);
+    }
+    label.push('`');
+    Some(label)
 }
 
 /// Whether `production` is a token production of a single lexeme, whose token is that lexeme's
