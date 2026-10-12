@@ -243,6 +243,9 @@ fn flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does() 
         "[^\u{D7FF}]",
         "[^\u{E000}]",
         "[^\u{10FFFF}]",
+        "[^\u{D7FF}\u{E000}]",
+        "[^\u{D7FE}\u{E001}]",
+        "[^\n\r\u{2028}]",
         "[\u{80}-\u{7FF}]",
         "[é-🙂]",
         "[^\u{0}-\u{10FFFF}]",
@@ -294,6 +297,7 @@ proptest! {
             .collect::<Vec<_>>();
         let body = regex::RegexBody::CharClass { negated, members: members.clone() };
         let bytes = flex_as_byte_regex(&body);
+        let characters = rust_character_regex(&body);
         let probes = probes.into_iter().chain(members.iter().flat_map(|member| match *member {
             regex::CharClass::Char(character) => vec![character],
             regex::CharClass::Range { start, end } => [start as u32, end as u32]
@@ -311,6 +315,11 @@ proptest! {
                 bytes.is_match(probe.to_string().as_bytes()),
                 member != negated,
                 "{:?} on {:?}", body.to_flex_string(), probe
+            );
+            prop_assert_eq!(
+                characters.is_match(&probe.to_string()),
+                member != negated,
+                "{:?} on {:?}", body.to_rust_string(), probe
             );
         }
         for not_utf8 in NOT_UTF8 {
@@ -524,7 +533,7 @@ fn ranges_and_unicode_match_check_regex() {
     let production = regex_production("[^é-zZ-A]x{5,2}", Attributes::default());
     let diagnostics = check_regexes(&[&production], &[&production]);
 
-    assert_eq!(diagnostics.len(), 5);
+    assert_eq!(diagnostics.len(), 4);
     assert!(
         diagnostics
             .iter()
@@ -534,11 +543,6 @@ fn ranges_and_unicode_match_check_regex() {
         diagnostic
             .message
             .contains("Invalid numeric range 'x{5,2}'")
-    }));
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .message
-            .contains("non-ASCII characters found in negated")
     }));
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic
@@ -570,7 +574,6 @@ fn non_ascii_findings_merge_across_the_regexes_of_one_production() {
         [
             "Invalid numeric range 'x{3,1}'. Start of range 3 is greater than end of range 1.",
             "Invalid character range 'à-a'. Start of range U+00E0 is greater than end of range U+0061.",
-            "Unsupported non-ASCII characters found in negated character class: [é, ü]",
             "Unsupported non-ASCII characters found in character class range: [é, ü, à]",
         ]
     );

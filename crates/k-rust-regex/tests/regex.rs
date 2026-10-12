@@ -78,17 +78,12 @@ fn descending_repeat_is_reported_with_its_operand() {
 }
 
 #[test]
-fn non_ascii_in_negated_class_merges_members_and_endpoints() {
+fn a_negated_class_may_hold_any_character() {
+    // Only a non-ASCII range endpoint is reported, in a negated class as in any other.
+    assert!(issues("[^é][^\u{2028}\u{2029}]é[^é🙂]").is_empty());
     assert_eq!(
         issues("[^é][^a-ü]é[^é]"),
-        [
-            Issue::NonAsciiInNegatedClass(vec!['é', 'ü']),
-            Issue::NonAsciiInClassRange(vec!['ü']),
-        ]
-    );
-    assert_eq!(
-        messages("[^éü]"),
-        ["Unsupported non-ASCII characters found in negated character class: [é, ü]"]
+        [Issue::NonAsciiInClassRange(vec!['ü'])]
     );
 }
 
@@ -116,7 +111,6 @@ fn descending_issues_precede_non_ascii_issues() {
                 start: 'à',
                 end: 'a'
             },
-            Issue::NonAsciiInNegatedClass(vec!['é']),
             Issue::NonAsciiInClassRange(vec!['à']),
         ]
     );
