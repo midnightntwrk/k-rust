@@ -320,8 +320,8 @@ fn set_of(n: u64) -> String {
     })
 }
 
-/// How many steps each measurement counts. The collection the baseline steps start from has
-/// `2 * STEPS` elements, so that every key the read shape reads is present.
+/// How many steps each measurement counts. Every collection measured has at least `2 * STEPS`
+/// elements, so that every key the read shapes read is present.
 const STEPS: u64 = 64;
 
 /// Bytes allocated by steps `STEPS + 1 ..= 2 * STEPS` from `state(start, collection of size)`,
@@ -382,22 +382,35 @@ fn shape_steps(
 /// grow in proportion to the collection.
 ///
 /// `step_bytes(size)` is the bytes `STEPS` steps allocate on a collection of about `size`
-/// elements; the same steps on a collection of `2 * STEPS` elements are subtracted, which leaves
-/// what the steps pay for the elements they do not touch. A step that copies, re-synthesizes or
-/// rebuilds the collection pays for every element beyond the baseline's: `SCALE * size - 128`
-/// against `size - 128`, 15 times between 256 and 2048 elements. A step that touches one
-/// element and the path to it pays for the nodes of that path, a logarithmic cost, and the
-/// subtraction makes a ratio of it ill-conditioned: an exact `c log2 n` leaves `c` at 256
-/// elements and `4c` at 2048, already `SCALE / 2`, and a tree's path is a step function of its
-/// height, which may be the same at the baseline and at `size` (leaving next to nothing to divide
-/// by) and one level more at `SCALE * size`. So the ratio is not what admits the logarithmic
-/// class; the floor is, and the floor is what the baseline steps allocate in all: the check asks
-/// `2 * large <= SCALE * small + base`. A step that copies the collection pays some `P` at `size`
-/// for the 128 elements beyond the baseline's and `15 P` at `SCALE * size`, while the baseline
-/// steps pay `P` for their own 128 elements and some `C` for their work apart from the
-/// collection, so such a step passes only if `C` is at least `21 P`: its other work would have
-/// to cost 21 copies of 128 elements, which is far from the case for every shape here (each
-/// reads or writes one element and a counter).
+/// elements beyond what the carry's steps allocate on it ([`shape_steps`]). The same steps on a
+/// collection of `SCALE * size` elements do the same work apart from the collection, which
+/// cancels in the difference of the two measurements; what is left is what the larger
+/// collection makes the steps pay.
+///
+/// A step that copies, rebuilds or re-synthesizes the elements it does not touch holds at least one
+/// handle (`size_of::<Term>()`) for each element it copies, whatever the representation it copies
+/// them into, so on the larger collection it allocates at least `(SCALE - 1) * size` handles more
+/// per step. The bound is half of that: a step that copies at least half of the elements it does
+/// not touch fails, however much its other work costs; since both the copy and the bound grow with
+/// `size`, that holds at any size. A step that touches one element and the paths to it pays, on the
+/// larger collection, for the levels the larger tree adds to those paths and for the nodes on them
+/// being wider, up to the branching factor, a cost that does not grow with the elements; the bound
+/// does, so the sizes are chosen large enough for it to exceed that cost by a wide margin. At 1024
+/// and 8192 elements the shapes here pay at most about a tenth of the bound, in release and debug
+/// builds. At 256 and 2048 the symbolic map paid 6 KiB a step more against a bound of 7 KiB: its
+/// variable sets are trees of nodes up to 64 wide (the crate's `VARIABLE_BRANCHING`), and between
+/// those sizes they keep their height while their roots widen, on each of the several variable sets
+/// a step edits.
+///
+/// The check is a difference of two measurements, not a ratio, so it does not depend on where
+/// the trees' heights change. An earlier form compared each size's steps with those on a
+/// `2 * STEPS`-element collection, whose tree has the height of the smaller size's: a
+/// logarithmic step then paid next to nothing at the smaller size, the ratio had nothing to
+/// divide by, and the check needed a floor (the baseline steps' whole allocation) that also
+/// admitted a copying step whose work apart from the collection was large enough.
+///
+/// `step_bytes(size)` must be positive: a shape whose steps allocate no more than its carry's
+/// measures nothing beyond the carry, and the check would hold whatever the steps cost.
 ///
 /// This compares steps with steps, so the per-step costs that do not depend on the collection
 /// (matching the state, the counter, the step's own logs) cancel, unlike a total over `n` and
@@ -405,21 +418,30 @@ fn shape_steps(
 /// a release build the totals of the map and set shapes stay within 16 times while each step
 /// copies the whole collection.
 fn assert_step_independent_of_size(shape: &str, size: u64, step_bytes: impl Fn(u64) -> u64 + Sync) {
+    assert!(
+        size >= 2 * STEPS,
+        "the read shapes read keys 0 .. 2 * STEPS"
+    );
+    let handle = std::mem::size_of::<Term>() as u64;
+    let allowed = STEPS * (SCALE - 1) * size * handle / 2;
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(1 << 30)
             .spawn_scoped(scope, || {
-                let base = step_bytes(2 * STEPS);
-                let small = step_bytes(size).saturating_sub(base);
-                let large = step_bytes(SCALE * size).saturating_sub(base);
+                let small = step_bytes(size);
+                let large = step_bytes(SCALE * size);
+                let more = large.saturating_sub(small);
                 eprintln!(
-                    "{shape}: {STEPS} steps pay {small} bytes for {size} elements, {large} for {}, ratio {:.1}, baseline steps {base}",
+                    "{shape}: {STEPS} steps pay {small} bytes beyond the carry on {size} elements, {large} on {}: {more} more, bound {allowed}",
                     SCALE * size,
-                    large as f64 / small.max(1) as f64
                 );
                 assert!(
-                    2 * large <= SCALE * small + base,
-                    "{shape}: {STEPS} steps on {} elements pay {large} bytes for the elements they do not touch, against {small} on {size}: the step grows with the collection",
+                    small > 0,
+                    "{shape}: the steps allocate no more than the carry's, so the check measures nothing"
+                );
+                assert!(
+                    more <= allowed,
+                    "{shape}: {STEPS} steps on {} elements pay {more} bytes more than on {size}, at least half a handle for each element added: the step grows with the collection",
                     SCALE * size
                 );
             })
@@ -435,7 +457,7 @@ fn adding_one_map_entry_costs_the_same_on_a_larger_map() {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("map, one MAP.update per step", 256, |size| {
+    assert_step_independent_of_size("map, one MAP.update per step", 1024, |size| {
         shape_steps(&definition, "mstate", "cmstate", &map_of, size, size)
     });
 }
@@ -446,7 +468,7 @@ fn adding_one_list_element_costs_the_same_on_a_larger_list() {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("list, one element appended per step", 256, |size| {
+    assert_step_independent_of_size("list, one element appended per step", 1024, |size| {
         shape_steps(&definition, "lstate", "clstate", &list_of, size, size)
     });
 }
@@ -457,7 +479,7 @@ fn adding_one_set_element_costs_the_same_on_a_larger_set() {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("set, one element added per step", 256, |size| {
+    assert_step_independent_of_size("set, one element added per step", 1024, |size| {
         shape_steps(&definition, "sstate", "csstate", &set_of, size, size)
     });
 }
@@ -471,10 +493,10 @@ fn rotating_a_list_by_matching_one_end_costs_the_same_on_a_larger_list() {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("list, first item moved last per step", 256, |size| {
+    assert_step_independent_of_size("list, first item moved last per step", 1024, |size| {
         shape_steps(&definition, "fstate", "clstate", &list_of, size, 0)
     });
-    assert_step_independent_of_size("list, last item moved first per step", 256, |size| {
+    assert_step_independent_of_size("list, last item moved first per step", 1024, |size| {
         shape_steps(&definition, "bstate", "clstate", &list_of, size, 0)
     });
 }
@@ -486,7 +508,7 @@ fn updating_one_list_item_costs_the_same_on_a_larger_list() {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("list, one LIST.update per step", 256, |size| {
+    assert_step_independent_of_size("list, one LIST.update per step", 1024, |size| {
         shape_steps(&definition, "ustate", "clstate", &list_of, size, 0)
     });
 }
@@ -499,7 +521,7 @@ fn reading_one_map_binding_by_matching_costs_the_same_on_a_larger_map() {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("map, one binding matched per step", 256, |size| {
+    assert_step_independent_of_size("map, one binding matched per step", 1024, |size| {
         shape_steps(&definition, "rstate", "cmstate", &map_of, size, 0)
     });
 }
@@ -513,7 +535,7 @@ fn reading_one_set_element_by_matching_costs_the_same_on_a_larger_set() {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("set, one element matched per step", 256, |size| {
+    assert_step_independent_of_size("set, one element matched per step", 1024, |size| {
         shape_steps(&definition, "qstate", "csstate", &set_of, size, 0)
     });
 }
@@ -536,7 +558,7 @@ fn overwriting_one_symbolic_map_binding_costs_the_same_on_a_larger_map() {
     let definition = definition(COLLECTIONS);
     assert_step_independent_of_size(
         "symbolic map, one variable binding overwritten per step",
-        256,
+        1024,
         |size| {
             steps_from(&definition, "mstate", &symbolic_map_of, size, 0).saturating_sub(steps_from(
                 &definition,
