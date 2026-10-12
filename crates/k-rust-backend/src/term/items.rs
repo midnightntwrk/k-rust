@@ -346,15 +346,36 @@ impl<T: Item<Summary = ItemSummary> + ItemTerms> Items<T> {
         self.0
             .summary()
             .is_some_and(|summary| !summary.extra.holds(flag))
-            .then(|| {
-                self.0.seek(chunked::seek::Where::new(
-                    move |summary: &NodeSummary<T>| !summary.extra.holds(flag),
-                    move |item: &T| !item.every_term(|term| flag.holds_of(term)),
-                ))
-            })
+            .then(|| self.0.seek(Self::lacking_seek(flag)))
             .into_iter()
             .flatten()
             .map(|(_, item)| item)
+    }
+
+    /// The seek of [`lacking`](Self::lacking): the subtrees whose summary counts an item lacking
+    /// `flag`, and the items one of whose terms lacks it.
+    fn lacking_seek(flag: Flag) -> impl chunked::seek::Seek<T> {
+        chunked::seek::Where::new(
+            move |summary: &NodeSummary<T>| !summary.extra.holds(flag),
+            move |item: &T| !item.every_term(|term| flag.holds_of(term)),
+        )
+    }
+
+    /// Debug builds: hand to `passed` the items [`lacking`](Self::lacking) passes over, and the
+    /// pairs of adjacent items within its skipped subtrees to `apart`; the nodes returned, those
+    /// of the skipped subtrees in which `apart` accepted every pair, are for the caller to mark
+    /// once the items have passed (`Chunked::check_passed_over`). An item passed over is handed
+    /// over again only while it shares a leaf with an item `lacking` returns, or lies in a
+    /// skipped subtree with a pair `apart` refused.
+    #[cfg(debug_assertions)]
+    pub(crate) fn check_passed_over_lacking<'t>(
+        &'t self,
+        flag: Flag,
+        passed: impl FnMut(&'t T),
+        apart: impl FnMut(&'t T, &'t T) -> bool,
+    ) -> chunked::Unchecked<'t, T> {
+        self.0
+            .check_passed_over(&Self::lacking_seek(flag), passed, apart)
     }
 }
 

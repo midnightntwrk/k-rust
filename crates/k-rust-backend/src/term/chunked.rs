@@ -534,10 +534,12 @@ enum Node<I: Item> {
 }
 
 /// Debug builds: whether the one check that reads it, `definedness::check_ceil_free`, has passed
-/// the items below a node and the pairs of adjacent items there ([`Chunked::check_unchecked`]),
-/// so that a later check of a tree sharing the node skips it (a list's check has no pair
-/// condition: `definedness::check_list_items`); nothing in other builds. A node is never changed once built, so the mark stays
-/// true of it. The mark is not part of the node's value: a copy of a node is built unmarked.
+/// the items below a node and the pairs of adjacent items there ([`Chunked::check_unchecked`],
+/// and [`Chunked::check_passed_over`] at the subtrees the definedness walk skips), so that a
+/// later check of a tree sharing the node skips it (a list's check has no pair condition:
+/// `definedness::check_list_items`); nothing in other builds. A node is never changed once
+/// built, so the mark stays true of it. The mark is not part of the node's value: a copy of a
+/// node is built unmarked.
 #[derive(Default)]
 struct Checked(#[cfg(debug_assertions)] std::sync::atomic::AtomicBool);
 
@@ -642,35 +644,114 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         mut items: impl FnMut(&'t [I]),
         mut adjacent: impl FnMut(&'t I, &'t I),
     ) -> Unchecked<'t, I> {
-        use std::sync::atomic::Ordering::Relaxed;
-        let mut pending = self.root.iter().collect::<Vec<_>>();
         let mut visited = Vec::new();
-        while let Some(node) = pending.pop() {
+        if let Some(root) = &self.root {
+            check_subtree(root, &mut items, &mut adjacent, &mut visited);
+        }
+        Unchecked(visited)
+    }
+
+    /// Hand to `passed` the items a descent by `seek` ([`Chunked::seek`]) passes over without
+    /// reading them: every item of a subtree the seek does not admit, and each item of an
+    /// admitted leaf that it does not want. Within each subtree not admitted, the pairs of
+    /// adjacent items go to `apart`, as [`check_unchecked`](Self::check_unchecked) hands them
+    /// over; a node marked checked is skipped with everything below it, there and at the admitted
+    /// nodes. Returned, for the caller to mark once the items have passed, are the nodes of each
+    /// subtree not admitted in which `apart` accepted every pair. An admitted node is never
+    /// returned: it holds an item the descent reads, which a check of the items passed over does
+    /// not reach.
+    ///
+    /// The seek decides which subtrees it skips from their summaries alone, so a summary that
+    /// claimed of a subtree what one of its items does not satisfy would hide that item from the
+    /// descent; handing the subtree's items over lets the caller check the claim on each of them.
+    /// Once a subtree not admitted has passed and is marked, a later descent of a tree sharing it
+    /// skips it again without a check, so a tree edited since its last check hands over the
+    /// nodes the edits built and the leaves the descent enters.
+    pub(crate) fn check_passed_over<'t, S: seek::Seek<I>>(
+        &'t self,
+        seek: &S,
+        mut passed: impl FnMut(&'t I),
+        mut apart: impl FnMut(&'t I, &'t I) -> bool,
+    ) -> Unchecked<'t, I> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut pending = self.root.iter().map(|root| (root, 0)).collect::<Vec<_>>();
+        let mut visited = Vec::new();
+        while let Some((node, start)) = pending.pop() {
             if node.checked().load(Relaxed) {
                 continue;
             }
+            if !seek.admits(start, node.summary()) {
+                let mut every_pair_apart = true;
+                let mut subtree = Vec::new();
+                check_subtree(
+                    node,
+                    &mut |items: &'t [I]| items.iter().for_each(&mut passed),
+                    &mut |left, right| {
+                        every_pair_apart = every_pair_apart && apart(left, right);
+                    },
+                    &mut subtree,
+                );
+                if every_pair_apart {
+                    visited.append(&mut subtree);
+                }
+                continue;
+            }
             match &**node {
-                Node::Leaf { items: leaf, .. } => {
-                    items(leaf);
-                    for pair in leaf.windows(2) {
-                        adjacent(&pair[0], &pair[1]);
+                Node::Leaf { items, .. } => {
+                    for (offset, item) in items.iter().enumerate() {
+                        if !seek.wants(start + offset, item) {
+                            passed(item);
+                        }
                     }
                 }
                 Node::Internal { children, .. } => {
-                    for pair in children.windows(2) {
-                        let (Some(last), Some(first)) =
-                            (&pair[0].summary().last, &pair[1].summary().first)
-                        else {
-                            unreachable!("a node has items")
-                        };
-                        adjacent(last, first);
+                    let mut position = start;
+                    for child in children {
+                        pending.push((child, position));
+                        position += child.summary().count;
                     }
-                    pending.extend(children);
                 }
             }
-            visited.push(node);
         }
         Unchecked(visited)
+    }
+}
+
+/// Debug builds: [`Chunked::check_unchecked`] below `root`, appending the nodes visited to
+/// `visited`.
+#[cfg(debug_assertions)]
+fn check_subtree<'t, I: Item>(
+    root: &'t Arc<Node<I>>,
+    items: &mut impl FnMut(&'t [I]),
+    adjacent: &mut impl FnMut(&'t I, &'t I),
+    visited: &mut Vec<&'t Arc<Node<I>>>,
+) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        if node.checked().load(Relaxed) {
+            continue;
+        }
+        match &**node {
+            Node::Leaf { items: leaf, .. } => {
+                items(leaf);
+                for pair in leaf.windows(2) {
+                    adjacent(&pair[0], &pair[1]);
+                }
+            }
+            Node::Internal { children, .. } => {
+                for pair in children.windows(2) {
+                    let (Some(last), Some(first)) =
+                        (&pair[0].summary().last, &pair[1].summary().first)
+                    else {
+                        unreachable!("a node has items")
+                    };
+                    adjacent(last, first);
+                }
+                pending.extend(children);
+            }
+        }
+        visited.push(node);
     }
 }
 

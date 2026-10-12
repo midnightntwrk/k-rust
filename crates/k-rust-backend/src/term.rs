@@ -1864,6 +1864,20 @@ impl Term {
         }))
     }
 
+    /// This term with its stored `ceil_free` attribute set, whatever its kind: a unit-test
+    /// fixture of a wrong attribute, for the debug check of the definedness walk's shortcut.
+    #[cfg(test)]
+    pub(crate) fn with_ceil_free_for_test(&self) -> Self {
+        let mut attributes = self.attributes().clone();
+        attributes.ceil_free = true;
+        Self(Arc::new(TermData {
+            attributes,
+            kind: self.kind().clone(),
+            #[cfg(debug_assertions)]
+            ceil_free_checked: std::sync::atomic::AtomicBool::new(false),
+        }))
+    }
+
     /// Debug builds only: whether `definedness::check_ceil_free` has checked this node and every
     /// node below it.
     #[cfg(debug_assertions)]

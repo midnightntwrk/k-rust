@@ -133,7 +133,8 @@ enum Pending<'a> {
 /// model of the walk and of the attribute, from the constructor invariants that
 /// `tests/backend/term_order.rs` checks. The attribute depends only on the term, never on the
 /// definition, so one stored bit serves every definition a process holds. In debug builds
-/// [`check_ceil_free`] verifies every skipped subterm.
+/// [`check_ceil_free`] verifies every skipped subterm, including the items of a collection that
+/// the walk passes over through the collection's summaries (`check_passed_over`).
 fn ceil_term_walk(
     definition: &BackendDefinition,
     term: &Term,
@@ -350,14 +351,76 @@ fn check_list_items<'t>(
     Some([heads, tails])
 }
 
+/// Debug builds: [`check_ceil_free`] of the items of a collection that the walk passes over
+/// (`Items::lacking` with `CeilFree`), when it skips `ceil_free` subterms at a collection that is
+/// not `ceil_free` itself.
+///
+/// The walk takes such a collection's items that lack `ceil_free` and passes over the others
+/// through the trees' summaries, which count the items lacking it below each node. Each item
+/// passed over is asserted `ceil_free`, which checks the summary's count of every subtree the
+/// walk skips against its items, and is checked as any other skipped subterm, so the shortcut is
+/// verified on the items as on the subterms the walk itself skips. `key` gives the key of an
+/// item of a map or set: within each skipped subtree, the pairs of adjacent keys are tested with
+/// the walk's own apartness test, and the subtree's nodes are marked checked only when every
+/// pair is apart, which is what the mark states to the checks of a map or set without a rest
+/// (`check_map_entries`, `check_set_elements`) that may later share the nodes; a list's items
+/// (`key` is `None`) have no pair condition, as for `check_list_items`. A marked subtree is not
+/// handed over again, so a step that edits a large collection checks the nodes the edit built,
+/// and the leaves the walk enters to reach the items lacking `ceil_free`.
+#[cfg(debug_assertions)]
+fn check_passed_over<T>(
+    definition: &BackendDefinition,
+    items: &crate::term::Items<T>,
+    key: Option<for<'t> fn(&'t T) -> &'t Term>,
+) where
+    T: crate::term::chunked::Item<Summary = crate::term::items::ItemSummary>
+        + crate::term::items::ItemTerms,
+{
+    // The check's own apartness tests are not the walk's, which tests count.
+    #[cfg(test)]
+    let walk_apartness_checks = APARTNESS_CHECKS.get();
+    #[cfg(test)]
+    let mut handed_over = 0;
+    items
+        .check_passed_over_lacking(
+            crate::term::Flag::CeilFree,
+            |item| {
+                #[cfg(test)]
+                {
+                    handed_over += 1;
+                }
+                item.every_term(|term| {
+                    assert!(
+                        term.attributes().ceil_free(),
+                        "the walk passes over an item that is not ceil_free: {term:?}"
+                    );
+                    check_ceil_free(definition, term);
+                    true
+                });
+            },
+            |left, right| {
+                key.is_none_or(|key| elements_are_apart(definition, key(left), key(right)))
+            },
+        )
+        .mark();
+    #[cfg(test)]
+    {
+        PASSED_OVER_ITEMS.set(PASSED_OVER_ITEMS.get() + handed_over);
+        APARTNESS_CHECKS.set(walk_apartness_checks);
+    }
+}
+
 /// Push the items of a list segment onto `children`: those that are not `ceil_free` when
 /// `skip`, all of them otherwise.
 fn push_list_items<'a>(
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))] definition: &BackendDefinition,
     items: &'a crate::term::Items<Term>,
     skip: bool,
     children: &mut Vec<&'a Term>,
 ) {
     if skip {
+        #[cfg(debug_assertions)]
+        check_passed_over(definition, items, None);
         children.extend(items.lacking(crate::term::Flag::CeilFree));
     } else {
         children.extend(items);
@@ -372,10 +435,11 @@ fn push_list_items<'a>(
 /// are `ceil_free` are not appended: they are reached through the trees' summaries
 /// (`Items::lacking`), so a large collection with a few items that have obligations costs those
 /// items, not all of them. Such a child would be skipped when taken, and has no obligation, so
-/// the result is the same; the debug check that the walk runs at the subterms it skips
-/// (`check_ceil_free`) does not reach them. Likewise a map or set without a rest whose keys share
-/// one header and are distinct (the summary's `collision`) has no obligation of its own, as for
-/// its `ceil_free` attribute: two distinct keys of one header are apart, so no pair is stated.
+/// the result is the same. In debug builds `check_passed_over` runs the check of the subterms the
+/// walk skips (`check_ceil_free`) on them, reading only the tree nodes not checked before.
+/// Likewise a map or set without a rest whose keys share one header and are distinct (the
+/// summary's `collision`) has no obligation of its own, as for its `ceil_free` attribute: two
+/// distinct keys of one header are apart, so no pair is stated.
 fn ceil_term_node<'a>(
     definition: &BackendDefinition,
     term: &'a Term,
@@ -413,6 +477,8 @@ fn ceil_term_node<'a>(
             rest,
         } => {
             if skip {
+                #[cfg(debug_assertions)]
+                check_passed_over(definition, entries, Some(|(key, _)| key));
                 children.extend(
                     entries
                         .lacking(crate::term::Flag::CeilFree)
@@ -443,10 +509,10 @@ fn ceil_term_node<'a>(
             after
         }
         TermKind::List { heads, rest, .. } => {
-            push_list_items(heads, skip, children);
+            push_list_items(definition, heads, skip, children);
             if let Some((middle, tails)) = rest {
                 children.push(middle);
-                push_list_items(tails, skip, children);
+                push_list_items(definition, tails, skip, children);
             }
             Vec::new()
         }
@@ -456,6 +522,8 @@ fn ceil_term_node<'a>(
             rest,
         } => {
             if skip {
+                #[cfg(debug_assertions)]
+                check_passed_over(definition, elements, Some(|element| element));
                 children.extend(elements.lacking(crate::term::Flag::CeilFree));
             } else {
                 children.extend(elements);
@@ -638,6 +706,14 @@ thread_local! {
     /// Test builds: the subterms this thread's definedness walks have taken from their work
     /// lists.
     pub(crate) static WALKED_TERMS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(all(test, debug_assertions))]
+thread_local! {
+    /// Test and debug builds: the items this thread's definedness walks have passed over through
+    /// collection summaries and handed to `check_passed_over`.
+    pub(crate) static PASSED_OVER_ITEMS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
