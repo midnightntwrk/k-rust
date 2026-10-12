@@ -37,6 +37,7 @@ use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::GeneratingPass;
 
+use super::fresh_names::FreshNames;
 use super::passes::{ExpandedProgram, Injectable, Placement, PlacementKind, placeable};
 
 mod typing;
@@ -761,6 +762,14 @@ pub struct SortInjector<'view, 'definition> {
     next_sort_parameter: Cell<usize>,
     /// The natural sorts inferred in the current memoized call ([`Self::memoized`]).
     natural_sorts: RefCell<NaturalSorts>,
+    /// The variable names of the sentence or standalone term being injected, reserved so that a
+    /// variable injection introduces ([`Self::fresh_variable`]) is distinct from them; `None`
+    /// outside an injection ([`Self::naming`]).
+    variable_names: RefCell<Option<FreshNames>>,
+    /// The pattern each variable aliases (`P #as V`) on the left side of the rule whose right
+    /// side is being injected, by the variable's name; empty outside a rule body
+    /// ([`Self::inject_rule_body`]).
+    left_aliases: RefCell<BTreeMap<String, Term>>,
 }
 
 /// The natural sorts the injector inferred during one call, by node.
@@ -813,6 +822,29 @@ impl Drop for NaturalSortsScope<'_> {
     }
 }
 
+/// Forgets the left-side aliases of [`SortInjector::inject_rule_body`] when dropped, also on
+/// unwinding.
+struct LeftAliasesScope<'a> {
+    left_aliases: &'a RefCell<BTreeMap<String, Term>>,
+}
+
+impl Drop for LeftAliasesScope<'_> {
+    fn drop(&mut self) {
+        self.left_aliases.borrow_mut().clear();
+    }
+}
+
+/// Ends the reservation of [`SortInjector::naming`] when dropped, also on unwinding.
+struct VariableNamesScope<'a> {
+    variable_names: &'a RefCell<Option<FreshNames>>,
+}
+
+impl Drop for VariableNamesScope<'_> {
+    fn drop(&mut self) {
+        *self.variable_names.borrow_mut() = None;
+    }
+}
+
 impl<'definition> SortInjector<'definition, 'definition> {
     pub fn new(
         definition: &'definition ResolvedDefinition,
@@ -830,6 +862,8 @@ impl<'definition> SortInjector<'definition, 'definition> {
             subsorts: View::Owned(subsorts),
             next_sort_parameter: Cell::new(0),
             natural_sorts: RefCell::default(),
+            variable_names: RefCell::default(),
+            left_aliases: RefCell::default(),
         })
     }
 }
@@ -848,6 +882,8 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             subsorts: View::Borrowed(subsorts),
             next_sort_parameter: Cell::new(0),
             natural_sorts: RefCell::default(),
+            variable_names: RefCell::default(),
+            left_aliases: RefCell::default(),
         })
     }
 
@@ -876,15 +912,50 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
 
     /// Add injections to a standalone term in the supplied top-level sort.
     pub fn inject(&self, term: &Term, expected: &Sort) -> Result<Term, SortInjectionError> {
-        self.memoized(|| self.inject_with_position(term, expected, false))
+        self.naming(
+            || FreshNames::for_terms([term]),
+            || self.memoized(|| self.inject_with_position(term, expected, false)),
+        )
+    }
+
+    /// Add injections to a standalone pattern in the supplied top-level sort, with the names of
+    /// the variables minted for it. A pattern is matched against terms, so it is read as a rule's
+    /// left side is: a variable of a collection's element sort written in that collection is
+    /// the pattern of one item, keyed in a map by a minted variable. Minted names avoid every
+    /// variable of `term` and of `beside`, the terms that share its variables.
+    pub fn inject_pattern<'a>(
+        &self,
+        term: &'a Term,
+        expected: &Sort,
+        beside: impl IntoIterator<Item = &'a Term>,
+    ) -> Result<(Term, BTreeSet<String>), SortInjectionError> {
+        let names = FreshNames::for_terms(std::iter::once(term).chain(beside));
+        let injected = self.naming(
+            || names.clone(),
+            || self.memoized(|| self.inject_with_position(term, expected, true)),
+        )?;
+        let mut minted = BTreeSet::new();
+        injected.visit_preorder(&mut |subterm| {
+            if let Term::Variable { name, .. } = subterm
+                && !names.contains(name)
+            {
+                minted.insert(name.clone());
+            }
+        });
+        Ok((injected, minted))
     }
 
     /// Infer a standalone term's top sort and add every injection below it.
     pub fn inject_at_top(&self, term: &Term) -> Result<Term, SortInjectionError> {
-        self.memoized(|| {
-            let top = self.term_sort(term, None)?;
-            self.inject_with_position(term, &top, false)
-        })
+        self.naming(
+            || FreshNames::for_terms([term]),
+            || {
+                self.memoized(|| {
+                    let top = self.term_sort(term, None)?;
+                    self.inject_with_position(term, &top, false)
+                })
+            },
+        )
     }
 
     /// Instantiate an expanded value at its carried position and reject any remaining sentence variable.
@@ -896,10 +967,18 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     ) -> Result<(Term, Sort), SortInjectionError> {
         let term = value.term();
         let position = value.position();
-        let (injected, sort) = self.memoized(|| {
-            let sort = self.term_sort(term, Some(position))?;
-            Ok::<_, SortInjectionError>((self.inject_with_position(term, &sort, false)?, sort))
-        })?;
+        let (injected, sort) = self.naming(
+            || FreshNames::for_terms([term]),
+            || {
+                self.memoized(|| {
+                    let sort = self.term_sort(term, Some(position))?;
+                    Ok::<_, SortInjectionError>((
+                        self.inject_with_position(term, &sort, false)?,
+                        sort,
+                    ))
+                })
+            },
+        )?;
         self.require_ground(&injected, GroundInput::Value)?;
         Ok((injected, sort))
     }
@@ -920,12 +999,23 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     }
 
     /// Inject and classify the predicate sort variables the sentence must bind.
-    #[deny(clippy::wildcard_enum_match_arm)]
     pub(crate) fn inject_sentence_bound(
         &self,
         sentence: &Sentence,
     ) -> Result<(Sentence, SentenceSortVariables), SortInjectionError> {
         self.reset_sort_parameters();
+        self.naming(
+            || FreshNames::for_sentence(sentence),
+            || self.inject_sentence_terms(sentence),
+        )
+    }
+
+    /// [`Self::inject_sentence_bound`] once the sentence's variable names are reserved.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn inject_sentence_terms(
+        &self,
+        sentence: &Sentence,
+    ) -> Result<(Sentence, SentenceSortVariables), SortInjectionError> {
         match sentence {
             Sentence::Rule {
                 body,
@@ -989,11 +1079,54 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         } else {
             body.clone()
         };
+        let _aliases = LeftAliasesScope {
+            left_aliases: &self.left_aliases,
+        };
+        if let Term::Rewrite { left, .. } = &body {
+            let mut aliases = self.left_aliases.borrow_mut();
+            left.visit_preorder(&mut |term| {
+                if let Term::As { pattern, alias } = term
+                    && let Term::Variable { name, .. } = alias.unannotated()
+                {
+                    aliases
+                        .entry(name.clone())
+                        .or_insert_with(|| pattern.as_ref().clone());
+                }
+            });
+        }
         let top = self.fresh_sort_parameter();
         self.memoized(|| {
             let actual = self.term_sort(&body, Some(&top))?;
             self.inject_with_position(&body, &actual, false)
         })
+    }
+
+    /// Run `work` with the variable names `names` reserves as those a fresh variable must avoid,
+    /// unless an enclosing call reserved the names of the sentence the term belongs to.
+    fn naming<T>(&self, names: impl FnOnce() -> FreshNames, work: impl FnOnce() -> T) -> T {
+        if self.variable_names.borrow().is_some() {
+            return work();
+        }
+        *self.variable_names.borrow_mut() = Some(names());
+        let _scope = VariableNamesScope {
+            variable_names: &self.variable_names,
+        };
+        work()
+    }
+
+    /// A variable of sort `sort` whose name no variable of the term being injected has.
+    fn fresh_variable(&self, sort: &Sort) -> Term {
+        // Invariant: every entry point that reaches `inject_with_position` runs it in `naming`.
+        let name = self
+            .variable_names
+            .borrow_mut()
+            .as_mut()
+            .expect("injection runs with the term's variable names reserved")
+            .mint("_Gen");
+        Term::Variable {
+            name,
+            sort: Some(sort.clone()),
+        }
     }
 
     fn fresh_sort_parameter(&self) -> Sort {
@@ -1552,11 +1685,27 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         }
         // `P #as V` matches what `P` matches and binds `V` to it, so an alias of an element is the
         // collection item that holds `P`, with `V` bound to the element inside it; its key is read
-        // from `P`. A variable on a right side is a value of the element sort, so it is built as
-        // the item holding that value. A left-side variable is left as written.
+        // from `P`. A variable of the element sort stands for one element, so it is the item
+        // holding that element: on a right side the item built from its value, on a left side
+        // the pattern of any one item, whose key is a fresh variable when the item has one. A
+        // map's items are keyed by their elements' keys, so matching the fresh key against an
+        // item's key ties it to the element the variable matches. On a right side, a variable
+        // the left side binds by `P #as V` denotes the element `P` matched, so its key is `P`'s
+        // written key as matched, with no key function to evaluate.
+        let left_alias = match term.unannotated() {
+            Term::Variable { name, .. } if !is_lhs => self.left_aliases.borrow().get(name).cloned(),
+            Term::Variable { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Apply { .. }
+            | Term::Token { .. }
+            | Term::Annotated { .. } => None,
+        };
         #[expect(
             clippy::wildcard_enum_match_arm,
-            reason = "Term is not a sentence kind; only aliases, applications and right-side variables are elements here"
+            reason = "Term is not a sentence kind; only aliases, applications and variables are elements here"
         )]
         let written = match term.unannotated() {
             Term::As { pattern, .. } => match pattern.unannotated() {
@@ -1564,7 +1713,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 _ => return Ok(Err(visited)),
             },
             Term::Apply { label, arguments } => Some((label, arguments)),
-            Term::Variable { .. } if !is_lhs => None,
+            Term::Variable { .. } => match left_alias.as_ref().map(Term::unannotated) {
+                Some(Term::Apply { label, arguments }) => Some((label, arguments)),
+                _ => None,
+            },
             _ => return Ok(Err(visited)),
         };
         // Invariant: no production before `production` in catalog order carries both `wrapElement` and `element` with a wrapped label of sort `actual`, since the first one that does returns; each candidate scans the productions of its wrapped label once.
@@ -1624,19 +1776,29 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 });
             };
             let key = match written {
-                Some((label, arguments)) if label.name == wrapped_label => arguments
-                    .first()
-                    .cloned()
-                    .ok_or_else(|| SortInjectionError::InvalidArity {
-                        label: label.name.clone(),
-                        expected: 1,
-                        actual: 0,
-                    })?,
+                Some((label, arguments)) if label.name == wrapped_label => {
+                    let key =
+                        arguments
+                            .first()
+                            .ok_or_else(|| SortInjectionError::InvalidArity {
+                                label: label.name.clone(),
+                                expected: 1,
+                                actual: 0,
+                            })?;
+                    // A key read from a left-side alias is a left-side pattern: each alias inside
+                    // it stands on the right side for its variable, bound to what it matched.
+                    if left_alias.is_some() {
+                        rewrite_projection(key, true, &self.subsorts)
+                    } else {
+                        key.clone()
+                    }
+                }
                 // An alias of some other term has no written key, and the key function applied to
                 // the alias would put a function call inside the pattern.
                 Some(_) if matches!(term.unannotated(), Term::As { .. }) => {
                     return Ok(Err(visited));
                 }
+                None if is_lhs => self.fresh_variable(key_sort),
                 Some(_) | None => Term::apply(cell_map_key_label(expected), vec![visited.clone()]),
             };
             let key = self.unmemoized(|| self.inject_with_position(&key, key_sort, is_lhs))?;

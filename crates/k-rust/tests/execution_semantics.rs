@@ -23,11 +23,11 @@ use k_rust::{
     definition::ResolvedDefinition,
     kast::Sort,
     kompile::{
-        CompilationBackend, CompileOptions, ConfigurationAssembler, ProgramGrammar,
-        compile_loaded_definition, compile_search_pattern,
+        CompilationBackend, CompileOptions, CompiledKoreArtifacts, ConfigurationAssembler,
+        ProgramGrammar, compile_loaded_definition, compile_search_pattern,
     },
     kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
-    outer::{LoadOptions, ResolvedSource, load_with_options},
+    outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_with_options},
 };
 
 /// A definition compiled for the Rust backend with the prelude, and the initial configuration
@@ -726,11 +726,15 @@ fn the_run_driver_searches_the_renamings_of_one_state_once() {
 
 /// A definition with a `multiplicity="*"` cell `<r>` of collection type `COLLECTION`, and pairs
 /// of commands that read one instance written as a cell (`get`, `anyP`) and as an alias of that
-/// cell (`getA`, `anyPA`). `mk` adds an instance written as a cell, `put` one held by a variable.
+/// cell (`getA`, `anyPA`), or that read or remove one instance written as a cell (`rd`, `drop`)
+/// and as a left-side variable of the cell sort in `<rs>` (`rdV`, `dropV`), or that look for a
+/// given instance held by a variable as itself (`has`) and as the variable of an alias
+/// (`hasA`). `mk` adds an instance written as a cell, `put` one held by a variable.
 const ALIASED_INSTANCES: &str = r#"
 module TEST-SYNTAX
   imports INT-SYNTAX
-  syntax Cmd ::= mk(Int, Int) | put(Int, Int) | get(Int) | getA(Int) | anyP() | anyPA()
+  syntax Cmd ::= mk(Int, Int) | put(Int, Int) | get(Int) | getA(Int) | getK(Int) | anyP() | anyPA()
+               | rd() | rdV() | drop() | dropV() | has(Int, Int) | hasA(Int, Int)
   syntax Pgm ::= Cmd | Cmd ";" Pgm
 endmodule
 
@@ -741,22 +745,35 @@ module TEST
   configuration <T> <k> $PGM:Pgm </k> <rs> <r multiplicity="*" type="COLLECTION"> <rid> 0 </rid> <v> 0 </v> </r> </rs> <out> .List </out> </T>
 
   rule <k> C:Cmd ; P:Pgm => C ~> P ... </k>
-  rule <k> mk(I, V) => .K ... </k> <rs> ... .Bag => <r> <rid> I </rid> <v> V </v> </r> ... </rs>
+  rule <k> mk(I, V) => .K ... </k> <rs> (.Bag => <r> <rid> I </rid> <v> V </v> </r>) ... </rs>
   syntax KItem ::= putR(RCell)
   rule <k> put(I, V) => putR(<r> <rid> I </rid> <v> V </v> </r>) ... </k>
-  rule <k> putR(R) => .K ... </k> <rs> ... .Bag => R ... </rs>
+  rule <k> putR(R) => .K ... </k> <rs> (.Bag => R) ... </rs>
 
   rule <k> get(I) => .K ... </k> <r> <rid> I </rid> <v> V </v> </r> <out> ... .List => ListItem(V) </out>
   rule <k> getA(I) => .K ... </k> (<r> <rid> I </rid> <v> V </v> </r> #as _R) <out> ... .List => ListItem(V) </out>
+  rule <k> getK(I) => .K ... </k> (<r> (<rid> I </rid> #as _K) <v> V </v> </r> #as _R) <out> ... .List => ListItem(V) </out>
   rule <k> anyP() => .K ... </k> <r> <rid> I </rid> ... </r> <out> ... .List => ListItem(I) </out>
   rule <k> anyPA() => .K ... </k> (<r> <rid> I </rid> ... </r> #as _R) <out> ... .List => ListItem(I) </out>
+
+  syntax Int ::= ridOf(RCell) [function] | vOf(RCell) [function]
+  rule ridOf(<r> <rid> I </rid> ... </r>) => I
+  rule vOf(<r> <v> V </v> ... </r>) => V
+  rule <k> rd() => .K ... </k> <rs> <r> <rid> I </rid> <v> V </v> </r> ... </rs> <out> ... .List => ListItem(I) ListItem(V) </out>
+  rule <k> rdV() => .K ... </k> <rs> R:RCell ... </rs> <out> ... .List => ListItem(ridOf(R)) ListItem(vOf(R)) </out>
+  rule <k> drop() => .K ... </k> <rs> (<r> <rid> _ </rid> <v> _ </v> </r> => .Bag) ... </rs>
+  rule <k> dropV() => .K ... </k> <rs> (_R:RCell => .Bag) ... </rs>
+
+  syntax KItem ::= hasR(RCell) | hasAR(RCell)
+  rule <k> has(I, V) => hasR(<r> <rid> I </rid> <v> V </v> </r>) ... </k>
+  rule <k> hasA(I, V) => hasAR(<r> <rid> I </rid> <v> V </v> </r>) ... </k>
+  rule <k> hasR(R) => .K ... </k> <rs> R ... </rs> <out> ... .List => ListItem(ridOf(R)) </out>
+  rule <k> hasAR(R) => .K ... </k> (<r> <rid> I </rid> ... </r> #as R) <out> ... .List => ListItem(I) </out>
 endmodule
 "#;
 
-/// What a program ends in on [`ALIASED_INSTANCES`] for `collection`: the leaves (or the error)
-/// of its run and the final states of its search, each with the aliased commands renamed to
-/// their unaliased partners.
-fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String, Vec<String>)> {
+/// [`ALIASED_INSTANCES`] with `collection` as its instances' `type`, loaded and compiled.
+fn compile_aliased_instances(collection: &str) -> (LoadedDefinition, CompiledKoreArtifacts) {
     let source = ALIASED_INSTANCES.replace("COLLECTION", collection);
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
@@ -772,11 +789,24 @@ fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String
     )
     .unwrap();
     let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+    (loaded, artifacts)
+}
+
+/// What a program ends in on [`ALIASED_INSTANCES`] for `collection`: the leaves (or the error)
+/// of its run and the final states of its search, each with the aliased and variable commands
+/// renamed to their written-cell partners.
+fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String, Vec<String>)> {
+    let (loaded, artifacts) = compile_aliased_instances(collection);
     let frontend = loaded.into_definition();
     let grammar = ProgramGrammar::new(&frontend).unwrap();
     let rename = |text: String| {
         text.replace("LblgetA'", "Lblget'")
+            .replace("LblgetK'", "Lblget'")
             .replace("LblanyPA'", "LblanyP'")
+            .replace("LblrdV'", "Lblrd'")
+            .replace("LbldropV'", "Lbldrop'")
+            .replace("LblhasA'", "Lblhas'")
+            .replace("LblhasAR'", "LblhasR'")
     };
     let print = |pattern: &serde_json::Value| {
         rename(Printer::compact().print_pattern(&codec::from_value(pattern).unwrap()))
@@ -847,19 +877,22 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
             &format!("{three}getA(3) ; getA(3)"),
         ),
         (&format!("{three}get(4)"), &format!("{three}getA(4)")),
+        ("mk(1,10) ; has(1,10)", "mk(1,10) ; hasA(1,10)"),
+        (&format!("{three}has(2,20)"), &format!("{three}hasA(2,20)")),
+        (&format!("{three}has(2,30)"), &format!("{three}hasA(2,30)")),
         (&format!("{three}anyP()"), &format!("{three}anyPA()")),
     ];
     let programs = pairs
         .iter()
         .flat_map(|(cell, alias)| [*cell, *alias])
         .collect::<Vec<_>>();
-    for collection in ["Map", "List"] {
+    for collection in ["Map", "Set", "List"] {
         let outcomes = aliased_instance_outcomes(collection, &programs);
         for ((cell, alias), outcome) in pairs.iter().zip(outcomes.chunks(2)) {
             assert_eq!(outcome[0], outcome[1], "{collection}: {cell} / {alias}");
         }
         // Not vacuous: two reads of the instance added last complete, and a search finds an
-        // instance (each of the three in a Map, whose instances are found by key).
+        // instance (each of the three in a Map or a Set, the first in a List).
         let (run, _) = &outcomes[12];
         assert!(
             run.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())") && !run.contains("error"),
@@ -870,9 +903,8 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
             !finals.is_empty() && finals.iter().all(|state| !state.contains("error")),
             "{collection}: {finals:?}"
         );
-        if collection == "Map" {
-            assert_eq!(finals.len(), 3, "{finals:?}");
-        }
+        let instances = if collection == "List" { 1 } else { 3 };
+        assert_eq!(finals.len(), instances, "{collection}: {finals:?}");
         // A right-side variable of the cell sort in its collection is the item holding its
         // value, as the cell written there is: the instance `put` adds is read as `mk`'s is.
         let added = aliased_instance_outcomes(
@@ -889,4 +921,772 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
             added[0].0
         );
     }
+}
+
+/// An alias inside an instance's pattern, `(<rid> I </rid> #as _K)` in `getK`'s aliased
+/// instance, denotes the key cell its pattern matches, so `getK` applies exactly where `get`
+/// applies and ends in the same configuration: on no instance (stuck), on one, and on three
+/// (each read completes, and a search finds the one final state). In a Map that key cell is the
+/// key of the instance's item, which the match seeks as the pattern it aliases.
+#[test]
+fn an_alias_inside_a_collection_cell_instance_matches_what_its_pattern_matches() {
+    let three = "mk(1,10) ; mk(2,20) ; mk(3,30) ; ";
+    let pairs = [
+        ("get(1)", "getK(1)"),
+        ("mk(1,10) ; get(1)", "mk(1,10) ; getK(1)"),
+        ("mk(1,10) ; get(2)", "mk(1,10) ; getK(2)"),
+        (
+            &format!("{three}get(2) ; get(3) ; get(2)"),
+            &format!("{three}getK(2) ; getK(3) ; getK(2)"),
+        ),
+        (&format!("{three}get(1)"), &format!("{three}getK(1)")),
+        (&format!("{three}get(4)"), &format!("{three}getK(4)")),
+        (
+            &format!("{three}get(3) ; get(3)"),
+            &format!("{three}getK(3) ; getK(3)"),
+        ),
+    ];
+    let programs = pairs
+        .iter()
+        .flat_map(|(cell, alias)| [*cell, *alias])
+        .collect::<Vec<_>>();
+    for collection in ["Map", "Set", "List"] {
+        let outcomes = aliased_instance_outcomes(collection, &programs);
+        for ((cell, alias), outcome) in pairs.iter().zip(outcomes.chunks(2)) {
+            assert_eq!(outcome[0], outcome[1], "{collection}: {cell} / {alias}");
+        }
+        // Not vacuous: among three instances the reads complete (in a List, where `get` reads the
+        // instance at the front, the one `mk` added last), `<out>` holds a value read, and the
+        // search ends in that one state.
+        let index = if collection == "List" { 13 } else { 7 };
+        let (run, finals) = &outcomes[index];
+        assert!(
+            run.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())") && !run.contains("error"),
+            "{collection}: {run}"
+        );
+        let read = r#"LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("30")))"#;
+        assert!(run.contains(read), "{collection}: {run}");
+        assert_eq!(finals.len(), 1, "{collection}: {finals:?}");
+        assert!(
+            outcomes.iter().all(|(run, _)| !run.contains(r"\and{")),
+            "{collection}: an alias left in a configuration"
+        );
+    }
+}
+
+/// A variable of a cell's sort stands for one instance of the cell, so a rule that reads or
+/// removes an instance through a left-side variable `R:RCell` in `<rs>` applies exactly where
+/// the rule that writes the instance's cells applies, and ends in the same configuration: on no
+/// instance (stuck), on one, and on three (in a search, every instance a written cell matches:
+/// any of them in a Map or a Set, the first in a List).
+#[test]
+fn a_left_side_variable_of_a_collection_cell_sort_matches_one_instance() {
+    let three = "mk(1,10) ; mk(2,20) ; mk(3,30) ; ";
+    let pairs = [
+        ("rd()", "rdV()"),
+        ("drop()", "dropV()"),
+        ("mk(1,10) ; rd()", "mk(1,10) ; rdV()"),
+        ("mk(1,10) ; drop()", "mk(1,10) ; dropV()"),
+        (&format!("{three}rd()"), &format!("{three}rdV()")),
+        (&format!("{three}drop()"), &format!("{three}dropV()")),
+        (
+            &format!("{three}drop() ; drop() ; rd()"),
+            &format!("{three}dropV() ; dropV() ; rdV()"),
+        ),
+    ];
+    let programs = pairs
+        .iter()
+        .flat_map(|(cell, variable)| [*cell, *variable])
+        .collect::<Vec<_>>();
+    let done = "Lbl'-LT-'k'-GT-'{}(dotk{}())";
+    for collection in ["Map", "Set", "List"] {
+        let outcomes = aliased_instance_outcomes(collection, &programs);
+        for ((cell, variable), outcome) in pairs.iter().zip(outcomes.chunks(2)) {
+            assert_eq!(outcome[0], outcome[1], "{collection}: {cell} / {variable}");
+        }
+        // Not vacuous: with no instance both are stuck, with one or three both complete, and a
+        // search over three instances finds one final state per instance the rule can take.
+        for (index, (run, finals)) in outcomes.iter().enumerate() {
+            assert!(
+                !run.contains("error") && finals.iter().all(|state| !state.contains("error")),
+                "{collection}: {}: {run} {finals:?}",
+                programs[index]
+            );
+            assert_eq!(
+                run.contains(done),
+                index >= 4,
+                "{collection}: {}: {run}",
+                programs[index]
+            );
+        }
+        let instances = if collection == "List" { 1 } else { 3 };
+        for index in [8, 10, 12] {
+            assert_eq!(
+                outcomes[index].1.len(),
+                instances,
+                "{collection}: {}: {:?}",
+                programs[index],
+                outcomes[index].1
+            );
+        }
+    }
+}
+
+/// A search pattern is matched against states, so a variable of a `multiplicity="*"` cell's sort
+/// written in its collection (`<rs> R:RCell ... </rs>`) stands there for one instance as on a
+/// rule's left side: the pattern of one item, keyed in a `Map` by a minted variable. The pattern
+/// then matches where the pattern that writes the instance's cells matches, in a `Map`, a `Set`
+/// and a `List`, on one instance and on three, with `R` bound to the instance whose cells the
+/// written pattern binds.
+#[test]
+fn a_search_pattern_variable_of_a_collection_cell_sort_matches_one_instance() {
+    let written = "<r> <rid> I </rid> <v> V </v> </r>";
+    let pairs = [
+        (
+            "<rs> R:RCell ... </rs>",
+            format!("<rs> {written} ... </rs>"),
+        ),
+        ("<rs> R:RCell </rs>", format!("<rs> {written} </rs>")),
+    ];
+    let print = |value: &serde_json::Value| {
+        Printer::compact().print_pattern(&codec::from_value(value).unwrap())
+    };
+    for collection in ["Map", "Set", "List"] {
+        let source = ALIASED_INSTANCES.replace("COLLECTION", collection);
+        for (instances, program) in [(1, "mk(1,10)"), (3, "mk(1,10) ; mk(2,20) ; mk(3,30)")] {
+            let compiled = compile(&source, "TEST", "TEST-SYNTAX", "Pgm", program);
+            // Each match's state and bindings by variable, and whether the search is complete.
+            let search = |contents: &str| {
+                let target = compiled.target("TEST", contents);
+                let printed = Printer::compact().print_pattern(&target);
+                assert!(!printed.contains("RCellMapKey"), "{contents}: {printed}");
+                let mut backend =
+                    Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
+                let response = backend
+                    .search_pattern(SearchPatternRequest {
+                        search_type: SearchTypeArg::Final,
+                        ..SearchPatternRequest::new(compiled.initial.clone(), target)
+                    })
+                    .unwrap();
+                let matches = response
+                    .matches
+                    .iter()
+                    .map(|found| {
+                        let bindings = found
+                            .bindings
+                            .iter()
+                            .map(|binding| (print(&binding.variable), print(&binding.value)))
+                            .collect::<std::collections::BTreeMap<_, _>>();
+                        (print(&found.state.state), bindings)
+                    })
+                    .collect::<Vec<_>>();
+                (matches, response.incomplete.is_empty())
+            };
+            for (variable, cells) in &pairs {
+                let context = format!("{collection}, {instances}: {variable}");
+                let (by_variable, variable_complete) = search(variable);
+                let (by_cells, cells_complete) = search(cells);
+                assert_eq!(variable_complete, cells_complete, "{context}");
+                assert_eq!(by_variable.len(), by_cells.len(), "{context}");
+                for ((state, bindings), (cells_state, cells_bindings)) in
+                    by_variable.iter().zip(&by_cells)
+                {
+                    assert_eq!(state, cells_state, "{context}");
+                    let [rid, v] = ["VarI:SortInt{}", "VarV:SortInt{}"]
+                        .map(|name| cells_bindings[name].as_str());
+                    let instance = format!(
+                        "Lbl'-LT-'r'-GT-'{{}}(Lbl'-LT-'rid'-GT-'{{}}({rid}), Lbl'-LT-'v'-GT-'{{}}({v}))"
+                    );
+                    assert_eq!(bindings["VarR:SortRCell{}"], instance, "{context}");
+                }
+                // Not vacuous: one instance is matched by both patterns; among three the open
+                // pattern matches the front instance of a `List` and each instance of a `Map` or
+                // a `Set`, and the closed one nothing.
+                let count = match (instances, variable.contains("..."), collection) {
+                    (1, _, _) => 1,
+                    (3, false, _) => 0,
+                    (3, true, "List") => 1,
+                    _ => 3,
+                };
+                assert!(variable_complete, "{context}");
+                assert_eq!(by_variable.len(), count, "{context}");
+            }
+        }
+    }
+}
+
+/// A search pattern that matches one state in several ways denotes the disjunction of those
+/// ways: an instance of the state is an instance of the pattern under any one of the
+/// substitutions. With a cell-map or cell-set pattern whose instance cells nothing fixes, each
+/// way is a solution of its own, of the one final state: one per instance for one written
+/// instance, one per ordered pair of distinct instances for two, and none where no instance
+/// fits (a closed pattern of one instance among three, a value no instance holds).
+#[test]
+fn a_search_pattern_that_matches_a_state_in_several_ways_reports_each_way() {
+    let one = "<r> <rid> I </rid> <v> V </v> </r>";
+    let two = "<r> <rid> J </rid> <v> W </v> </r>";
+    let print = |value: &serde_json::Value| {
+        Printer::compact().print_pattern(&codec::from_value(value).unwrap())
+    };
+    let int = |value: u32| format!("\\dv{{SortInt{{}}}}(\"{value}\")");
+    for collection in ["Map", "Set"] {
+        let source = ALIASED_INSTANCES.replace("COLLECTION", collection);
+        for (instances, program) in [(1, "mk(1,10)"), (3, "mk(1,10) ; mk(2,20) ; mk(3,30)")] {
+            let compiled = compile(&source, "TEST", "TEST-SYNTAX", "Pgm", program);
+            // Each solution's bindings of `names`, in order, and the final states matched.
+            let search = |contents: &str, names: &[&str], max_results: Option<usize>| {
+                let target = compiled.target("TEST", contents);
+                let mut backend =
+                    Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
+                let response = backend
+                    .search_pattern(SearchPatternRequest {
+                        search_type: SearchTypeArg::Final,
+                        max_results,
+                        ..SearchPatternRequest::new(compiled.initial.clone(), target)
+                    })
+                    .unwrap();
+                assert!(
+                    response.incomplete.is_empty(),
+                    "{collection}, {instances}: {contents}: {:?}",
+                    response.incomplete
+                );
+                let mut solutions = response
+                    .matches
+                    .iter()
+                    .map(|found| {
+                        let bindings = found
+                            .bindings
+                            .iter()
+                            .map(|binding| (print(&binding.variable), print(&binding.value)))
+                            .collect::<std::collections::BTreeMap<_, _>>();
+                        names
+                            .iter()
+                            .map(|name| bindings[&format!("Var{name}:SortInt{{}}")].clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+                solutions.sort();
+                let states = response
+                    .matches
+                    .iter()
+                    .map(|found| print(&found.state.state))
+                    .collect::<std::collections::BTreeSet<_>>();
+                (solutions, states)
+            };
+            let context = format!("{collection}, {instances}");
+            let ids = if instances == 1 {
+                vec![1]
+            } else {
+                vec![1, 2, 3]
+            };
+            // Every instance, as its `I` and `V`.
+            let each = ids
+                .iter()
+                .map(|&id| vec![int(id), int(10 * id)])
+                .collect::<Vec<_>>();
+            let (open, states) = search(&format!("<rs> {one} ... </rs>"), &["I", "V"], None);
+            assert_eq!(open, each, "{context}: open");
+            assert_eq!(states.len(), 1, "{context}: {states:?}");
+            let (closed, _) = search(&format!("<rs> {one} </rs>"), &["I", "V"], None);
+            let expected_closed = if instances == 1 {
+                each.clone()
+            } else {
+                Vec::new()
+            };
+            assert_eq!(closed, expected_closed, "{context}: closed");
+            let (valued, _) = search(
+                "<rs> <r> <rid> I </rid> <v> 20 </v> </r> ... </rs>",
+                &["I"],
+                None,
+            );
+            let expected_valued = if instances == 1 {
+                Vec::new()
+            } else {
+                vec![vec![int(2)]]
+            };
+            assert_eq!(valued, expected_valued, "{context}: valued");
+            let (pairs, states) = search(&format!("<rs> {one} {two} ... </rs>"), &["I", "J"], None);
+            let expected_pairs = ids
+                .iter()
+                .flat_map(|&left| {
+                    ids.iter()
+                        .filter(move |&&right| right != left)
+                        .map(move |&right| vec![int(left), int(right)])
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(pairs, expected_pairs, "{context}: pairs");
+            assert_eq!(
+                states.len(),
+                usize::from(instances == 3),
+                "{context}: {states:?}"
+            );
+            // A result bound counts solutions, so it selects that many of the ways.
+            let (bounded, _) = search(&format!("<rs> {one} ... </rs>"), &["I", "V"], Some(2));
+            assert_eq!(bounded.len(), each.len().min(2), "{context}: bounded");
+            assert!(
+                bounded.iter().all(|way| each.contains(way)),
+                "{context}: {bounded:?}"
+            );
+        }
+    }
+}
+
+/// A rule that reads an instance through `P #as V` and leaves it in place has `V` on its right
+/// side, and in a cell map that item is keyed by its instance's key. `V` is the instance `P`
+/// matched, whose key is `P`'s key cell as matched, so the compiled right side holds that key
+/// and applies no key function to `V`, which would be evaluated at every application of the
+/// rule; an alias inside that key cell (`getK`'s `_K`) stands there for the key cell it matched.
+/// A right-side variable that no left-side alias binds (`putR`'s) still needs the key function.
+/// That the aliased rules' results are unchanged is
+/// `an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches`.
+#[test]
+fn a_right_side_alias_of_a_map_cell_instance_is_keyed_by_the_key_its_pattern_matched() {
+    let (_, artifacts) = compile_aliased_instances("Map");
+    let kore = &artifacts.definition_kore;
+    // The right side of the one rewrite rule whose left side applies `symbol`.
+    let rewrite_of = |symbol: &str| {
+        let applied = format!("Lbl{symbol}'LPar");
+        let rules = kore
+            .split("\n  axiom")
+            .filter(|axiom| axiom.contains("\\rewrites{"))
+            .map(|axiom| {
+                axiom
+                    .split_once(",\n      \\and{SortGeneratedTopCell{}}(")
+                    .expect("a rewrite rule's right side")
+            })
+            .filter(|(left, _)| left.contains(&applied))
+            .collect::<Vec<_>>();
+        assert_eq!(rules.len(), 1, "one rewrite rule for {symbol}");
+        rules[0].1.to_owned()
+    };
+    for symbol in ["getA", "getK", "anyPA", "hasAR"] {
+        let right = rewrite_of(symbol);
+        assert!(right.contains("LblRCellMapItem{}("), "{symbol}: {right}");
+        assert!(!right.contains("LblRCellMapKey{}("), "{symbol}: {right}");
+    }
+    let right = rewrite_of("getK");
+    assert!(
+        right.contains("LblRCellMapItem{}(Var'Unds'K:SortRidCell{}, Var'Unds'R:SortRCell{})"),
+        "getK: {right}"
+    );
+    let right = rewrite_of("putR");
+    assert!(right.contains("LblRCellMapKey{}("), "putR: {right}");
+}
+
+/// The instances of a `type="List"` cell collection keep their order, and a rule states the
+/// position of an instance it writes among the items written side by side in one cell body and
+/// the rest of the list that the cell's `...` stands for, placed where that `...` is written
+/// (`docs/compatibility.md#cells-written-inside-another-cell`). After three `mk` commands, each
+/// adding an instance at the front, the list is `3 2 1`:
+/// - `get(I)` writes one instance without its parent, which completion builds with the rest after
+///   the instance, so it reads the front instance: `get(3)` rewrites, `get(2)` and `get(1)` are
+///   stuck;
+/// - `last()` writes `<rs> ... <r> .. </r> </rs>` and `dropLast()` writes
+///   `<rs> ... (<r> .. </r> => .Bag) </rs>`: the leading `...` is the part of the list before the
+///   instance, so they read and remove the back instance, and `mkLast` adds at the back.
+///
+/// Each program is run, and searched for its final states, which are the run's one leaf. The
+/// reference execution differential case `list-cell-positions`
+/// (`scripts/reference-differential.toml`) runs the same programs on this fixture; the pinned
+/// reference acts at the front for the leading `...`, a recorded divergence.
+#[test]
+fn a_list_cell_frame_stands_for_the_rest_of_the_list_where_it_is_written() {
+    const SOURCE: &str = include_str!("fixtures/reference/execution/list-cell-positions/test.k");
+    const MAIN: &str = "LIST-CELL-POSITIONS";
+    let run = |program: &str| {
+        let compiled = compile(SOURCE, MAIN, "LIST-CELL-POSITIONS-SYNTAX", "Pgm", program);
+        let result = execute(&compiled, MAIN, None);
+        let states = text(&result);
+        assert_eq!(states.len(), 1, "{program}: {states:?}");
+        let mut backend = Backend::new(&compiled.kore, MAIN, BackendOptions::default()).unwrap();
+        let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+        let finals = backend
+            .search_pattern(SearchPatternRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchPatternRequest::new(compiled.initial.clone(), target)
+            })
+            .unwrap()
+            .matches
+            .iter()
+            .map(|found| {
+                Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(finals, states, "{program}: search-final");
+        (
+            (result.leaves[0].reason, result.leaves[0].depth),
+            states.into_iter().next().unwrap(),
+        )
+    };
+    let three = "mk(1,10) ; mk(2,20) ; mk(3,30) ; ";
+    let empty_k = "Lbl'-LT-'k'-GT-'{}(dotk{}())";
+    let int = |value: u32| format!("\\dv{{SortInt{{}}}}(\"{value}\")");
+    let item = |value: u32| {
+        format!(
+            "LblListItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({}))",
+            int(value)
+        )
+    };
+    let rid = |value: u32| format!("Lbl'-LT-'rid'-GT-'{{}}({})", int(value));
+    // The `<out>` cell holds exactly `values`, in order.
+    let out = |state: &str, values: &[u32]| {
+        let start = state.find("Lbl'-LT-'out'-GT-'").unwrap();
+        let cell = &state[start..];
+        let positions = values
+            .iter()
+            .map(|value| cell.find(&item(*value)))
+            .collect::<Option<Vec<_>>>();
+        positions.is_some_and(|positions| positions.is_sorted())
+            && cell.matches("LblListItem{}").count() == values.len()
+    };
+    // The instances in the `<rs>` cell, front first.
+    let ids = |state: &str| {
+        let start = state.find("Lbl'-LT-'rs'-GT-'").unwrap();
+        let end = state.find("Lbl'-LT-'out'-GT-'").unwrap();
+        let mut positions = (0..10)
+            .filter_map(|value| state[start..end].find(&rid(value)).map(|at| (at, value)))
+            .collect::<Vec<_>>();
+        positions.sort();
+        positions
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>()
+    };
+
+    // Three sequencing steps and three mk steps, then the read.
+    let (leaf, front) = run(&format!("{three}get(3)"));
+    assert_eq!(leaf, (HaltReasonOutput::Stuck, 7), "{front}");
+    assert!(front.contains(empty_k) && out(&front, &[30]), "{front}");
+    assert_eq!(ids(&front), [3, 2, 1], "{front}");
+
+    for key in [2, 1] {
+        let (leaf, state) = run(&format!("{three}get({key})"));
+        assert_eq!(leaf, (HaltReasonOutput::Stuck, 6), "get({key}): {state}");
+        assert!(
+            !state.contains(empty_k) && state.contains("Lblget'") && out(&state, &[]),
+            "get({key}): {state}"
+        );
+    }
+
+    let (leaf, last) = run(&format!("{three}last()"));
+    assert_eq!(leaf, (HaltReasonOutput::Stuck, 7), "{last}");
+    assert!(last.contains(empty_k) && out(&last, &[1]), "{last}");
+    assert_eq!(ids(&last), [3, 2, 1], "{last}");
+
+    let (leaf, dropped) = run(&format!("{three}dropLast() ; dropLast()"));
+    assert_eq!(leaf, (HaltReasonOutput::Stuck, 9), "{dropped}");
+    assert!(
+        dropped.contains(empty_k) && out(&dropped, &[1, 2]),
+        "{dropped}"
+    );
+    assert_eq!(ids(&dropped), [3], "{dropped}");
+
+    // `mkLast(2,20)` puts `2` behind `1`, so `get(2)`, which reads the front, is stuck on it.
+    let (leaf, added) = run("mk(1,10) ; mkLast(2,20) ; get(2)");
+    assert_eq!(leaf, (HaltReasonOutput::Stuck, 4), "{added}");
+    assert!(
+        !added.contains(empty_k) && added.contains("Lblget'") && out(&added, &[]),
+        "{added}"
+    );
+    assert_eq!(ids(&added), [1, 2], "{added}");
+    let (leaf, added) = run("mk(1,10) ; mkLast(2,20) ; last()");
+    assert_eq!(leaf, (HaltReasonOutput::Stuck, 5), "{added}");
+    assert!(added.contains(empty_k) && out(&added, &[2]), "{added}");
+}
+
+/// A cell written with `...` on both sides of items of its `type="List"` collection would match
+/// them anywhere in the list, between two parts of it the rule does not divide; the rule is
+/// rejected with a located error naming the cell, while the same items with the `...` on one side,
+/// and `...` on both sides of a cell holding no item of the list, compile.
+#[test]
+fn a_list_cell_frame_written_on_both_sides_of_its_items_is_rejected() {
+    const SOURCE: &str = include_str!("fixtures/reference/execution/list-cell-positions/test.k");
+    // The rule, added to the main module (the source's last).
+    let with_rule = |rule: &str| {
+        let end = SOURCE.rfind("endmodule").unwrap();
+        format!("{}  {rule}\n{}", &SOURCE[..end], &SOURCE[end..])
+    };
+    let compile_rule = |rule: &str| {
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let source = with_rule(rule);
+        let loaded = load_with_options(
+            ResolvedSource::new("test.k", &source),
+            "LIST-CELL-POSITIONS",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                ..CompilationBackend::Rust.load_options()
+            },
+        )
+        .unwrap();
+        compile_loaded_definition(&loaded, CompileOptions::default()).map(|_| ())
+    };
+    let rule_line =
+        u32::try_from(SOURCE[..SOURCE.rfind("endmodule").unwrap()].lines().count()).unwrap() + 1;
+    for rule in [
+        "rule <k> last() => .K ... </k> <rs> ... <r> <rid> I </rid> ... </r> ... </rs>",
+        "rule <k> mkLast(I, V) => .K ... </k> <rs> ... (.Bag => <r> <rid> I </rid> <v> V </v> </r>) ... </rs>",
+    ] {
+        let error = compile_rule(rule).expect_err(rule);
+        let [diagnostic] = error.diagnostics.as_slice() else {
+            panic!("{rule}: {error}");
+        };
+        assert_eq!(
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidCellConcretization,
+            "{rule}"
+        );
+        assert_eq!(diagnostic.source.as_deref(), Some("test.k"), "{rule}");
+        assert_eq!(
+            diagnostic.location.map(|location| location.start_line),
+            Some(rule_line),
+            "{rule}"
+        );
+        assert!(
+            diagnostic
+                .message
+                .contains("<rs> is written with ... on both sides")
+                && diagnostic.message.contains("<r> cells")
+                && diagnostic.message.contains("one of its ends"),
+            "{rule}: {}",
+            diagnostic.message
+        );
+    }
+    for rule in [
+        "rule <k> last() => .K ... </k> <rs> <r> <rid> I </rid> ... </r> ... </rs>",
+        "rule <T> ... <k> last() => .K ... </k> ... </T>",
+    ] {
+        compile_rule(rule).unwrap_or_else(|error| panic!("{rule}: {error}"));
+    }
+}
+
+/// A definition whose rules write a variable beside the instances of a `type="List"` cell
+/// collection: `mk` adds an instance at the front, and every other command writes `B` where the
+/// part of the list it stands for is.
+const LIST_CELL_VARIABLES: &str = r#"
+module LIST-CELL-VARIABLES-SYNTAX
+  imports INT-SYNTAX
+  syntax Cmd ::= mk(Int) | last() | first() | lastUntyped() | dropLast() | mkLast(Int) | ends()
+               | rotate() | probe()
+  syntax Pgm ::= Cmd | Cmd ";" Pgm
+endmodule
+
+module LIST-CELL-VARIABLES
+  imports LIST-CELL-VARIABLES-SYNTAX
+  imports INT
+  imports LIST
+  configuration
+    <T>
+      <k> $PGM:Pgm </k>
+      <rs> <r multiplicity="*" type="List"> <rid> 0 </rid> </r> </rs>
+      <out> .List </out>
+    </T>
+
+  rule <k> C:Cmd ; P:Pgm => C ~> P ... </k>
+  rule <k> mk(I) => .K ... </k> <rs> (.Bag => <r> <rid> I </rid> </r>) ... </rs>
+  rule <k> last() => .K ... </k> <rs> B:Bag <r> <rid> I </rid> </r> </rs> <out> ... .List => ListItem(I) </out>
+  rule <k> first() => .K ... </k> <rs> <r> <rid> I </rid> </r> B:Bag </rs> <out> ... .List => ListItem(I) </out>
+  rule <k> lastUntyped() => .K ... </k> <rs> B <r> <rid> I </rid> </r> </rs> <out> ... .List => ListItem(I) </out>
+  rule <k> dropLast() => .K ... </k> <rs> B:Bag (<r> <rid> I </rid> </r> => .Bag) </rs> <out> ... .List => ListItem(I) </out>
+  rule <k> mkLast(I) => .K ... </k> <rs> B:Bag (.Bag => <r> <rid> I </rid> </r>) </rs>
+  rule <k> ends() => .K ... </k> <rs> <r> <rid> I </rid> </r> B:Bag <r> <rid> J </rid> </r> </rs> <out> ... .List => ListItem(I) ListItem(J) </out>
+  rule <k> rotate() => .K ... </k> <rs> (<r> <rid> I </rid> </r> B:Bag => B:Bag <r> <rid> I </rid> </r>) </rs>
+endmodule
+"#;
+
+/// A variable written in a cell body beside instances of a `type="List"` collection (of `Bag`,
+/// or of no sort) stands for the part of the list between the items written before it and those
+/// written after it (`docs/compatibility.md#cells-written-inside-another-cell`). After three `mk`
+/// commands the list is `3 2 1`: `last`, `lastUntyped` and `dropLast` write the variable before
+/// the instance, so they read and remove the back; `first` writes it after, and reads the front;
+/// `mkLast` adds at the back; `ends` writes it between two instances, which are the front and
+/// the back; `rotate` moves the front instance behind the rest. Each program is run, and searched
+/// for its final states, which are the run's one leaf.
+#[test]
+fn a_list_cell_variable_stands_for_the_part_of_the_list_where_it_is_written() {
+    const MAIN: &str = "LIST-CELL-VARIABLES";
+    let run = |program: &str| {
+        let compiled = compile(
+            LIST_CELL_VARIABLES,
+            MAIN,
+            "LIST-CELL-VARIABLES-SYNTAX",
+            "Pgm",
+            program,
+        );
+        let result = execute(&compiled, MAIN, None);
+        let states = text(&result);
+        assert_eq!(states.len(), 1, "{program}: {states:?}");
+        assert_eq!(
+            result.leaves[0].reason,
+            HaltReasonOutput::Stuck,
+            "{program}: {states:?}"
+        );
+        let mut backend = Backend::new(&compiled.kore, MAIN, BackendOptions::default()).unwrap();
+        let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+        let finals = backend
+            .search_pattern(SearchPatternRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchPatternRequest::new(compiled.initial.clone(), target)
+            })
+            .unwrap()
+            .matches
+            .iter()
+            .map(|found| {
+                Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(finals, states, "{program}: search-final");
+        let state = states.into_iter().next().unwrap();
+        assert!(
+            state.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())"),
+            "{program}: {state}"
+        );
+        state
+    };
+    let int = |value: u32| format!("\\dv{{SortInt{{}}}}(\"{value}\")");
+    // The values in the `<out>` cell, in order.
+    let out = |state: &str| {
+        let cell = &state[state.find("Lbl'-LT-'out'-GT-'").unwrap()..];
+        let mut positions = (0..10)
+            .flat_map(|value| {
+                let item = format!(
+                    "LblListItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({}))",
+                    int(value)
+                );
+                cell.match_indices(&item)
+                    .map(|(at, _)| (at, value))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        positions.sort_unstable();
+        positions
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>()
+    };
+    // The instances in the `<rs>` cell, front first.
+    let ids = |state: &str| {
+        let start = state.find("Lbl'-LT-'rs'-GT-'").unwrap();
+        let end = state.find("Lbl'-LT-'out'-GT-'").unwrap();
+        let mut positions = (0..10)
+            .flat_map(|value| {
+                state[start..end]
+                    .match_indices(&format!("Lbl'-LT-'rid'-GT-'{{}}({})", int(value)))
+                    .map(|(at, _)| (at, value))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        positions.sort_unstable();
+        positions
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>()
+    };
+
+    let three = "mk(1) ; mk(2) ; mk(3) ; ";
+    for (program, read, left) in [
+        ("last()", vec![1], vec![3, 2, 1]),
+        ("lastUntyped()", vec![1], vec![3, 2, 1]),
+        ("first()", vec![3], vec![3, 2, 1]),
+        ("dropLast() ; dropLast()", vec![1, 2], vec![3]),
+        ("mkLast(4) ; last()", vec![4], vec![3, 2, 1, 4]),
+        ("ends()", vec![3, 1], vec![3, 2, 1]),
+        ("rotate() ; last()", vec![3], vec![2, 1, 3]),
+    ] {
+        let state = run(&format!("{three}{program}"));
+        assert_eq!(out(&state), read, "{program}: {state}");
+        assert_eq!(ids(&state), left, "{program}: {state}");
+    }
+}
+
+/// The list a rule matches is divided by the items written in it around at most one part that a
+/// term stands for; a variable beside another variable or beside the frame `...` (on either side
+/// of the items, or with none) would divide the rest of the list between two parts in a way the
+/// rule does not state. Such a rule is rejected with a located error naming the cell and both
+/// terms; the same variables on the right side of a rewrite, which builds the list, compile.
+#[test]
+fn a_list_cell_variable_beside_another_part_of_the_list_is_rejected() {
+    let with_rule = |rule: &str| {
+        let end = LIST_CELL_VARIABLES.rfind("endmodule").unwrap();
+        format!(
+            "{}  {rule}\n{}",
+            &LIST_CELL_VARIABLES[..end],
+            &LIST_CELL_VARIABLES[end..]
+        )
+    };
+    let compile_rule = |rule: &str| {
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let source = with_rule(rule);
+        let loaded = load_with_options(
+            ResolvedSource::new("test.k", &source),
+            "LIST-CELL-VARIABLES",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                ..CompilationBackend::Rust.load_options()
+            },
+        )
+        .unwrap();
+        compile_loaded_definition(&loaded, CompileOptions::default()).map(|_| ())
+    };
+    let rule_line = u32::try_from(
+        LIST_CELL_VARIABLES[..LIST_CELL_VARIABLES.rfind("endmodule").unwrap()]
+            .lines()
+            .count(),
+    )
+    .unwrap()
+        + 1;
+    for (rule, parts) in [
+        (
+            "rule <k> probe() => .K ... </k> <rs> B:Bag (<r> <rid> I </rid> </r> => .Bag) C:Bag </rs>",
+            "`B` and `C`",
+        ),
+        (
+            "rule <k> probe() => .K ... </k> <rs> B:Bag C:Bag </rs>",
+            "`B` and `C`",
+        ),
+        (
+            "rule <k> probe() => .K ... </k> <rs> B:Bag <r> <rid> I </rid> </r> ... </rs>",
+            "`B` and `...`",
+        ),
+        (
+            "rule <k> probe() => .K ... </k> <rs> ... <r> <rid> I </rid> </r> B:Bag </rs>",
+            "`...` and `B`",
+        ),
+        (
+            "rule <k> probe() => .K ... </k> <rs> B:Bag ... </rs>",
+            "`B` and `...`",
+        ),
+    ] {
+        let error = compile_rule(rule).expect_err(rule);
+        let [diagnostic] = error.diagnostics.as_slice() else {
+            panic!("{rule}: {error}");
+        };
+        assert_eq!(
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidCellConcretization,
+            "{rule}"
+        );
+        assert_eq!(diagnostic.source.as_deref(), Some("test.k"), "{rule}");
+        assert_eq!(
+            diagnostic.location.map(|location| location.start_line),
+            Some(rule_line),
+            "{rule}"
+        );
+        assert!(
+            diagnostic
+                .message
+                .starts_with(&format!("The cell <rs> is written with {parts} among the items of its type=\"List\" collection of <r> cells")),
+            "{rule}: {}",
+            diagnostic.message
+        );
+    }
+    compile_rule(
+        "rule <k> probe() => .K ... </k> <rs> (<r> <rid> I </rid> </r> B:Bag => B:Bag <r> <rid> I </rid> </r> B:Bag) </rs>",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
 }

@@ -1761,3 +1761,364 @@ fn each_candidate_frame_of_a_symbolic_element_is_one_removal_from_the_subject() 
         );
     }
 }
+
+/// A set of the constructor terms `wrap(K)`, whose elements a pattern can alias, a constructor
+/// pairing one with such a set, and a map between such terms, keyed like a `multiplicity="*"`
+/// cell's instances by a part of their values, with a constructor pairing a key with such a map.
+fn wrapped_collections_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+        module MAIN
+            sort SortKey{} [hasDomainValues{}()]
+            sort SortWrapped{} []
+            hooked-sort SortWrappedSet{}
+                [hook{}("SET.Set"), unit{}(wrappedSetUnit{}()), element{}(wrappedSetItem{}()), concat{}(wrappedSetConcat{}())]
+            hooked-symbol wrappedSetUnit{}() : SortWrappedSet{} [function{}(), total{}(), hook{}("SET.unit")]
+            hooked-symbol wrappedSetItem{}(SortWrapped{}) : SortWrappedSet{} [function{}(), total{}(), hook{}("SET.element")]
+            hooked-symbol wrappedSetConcat{}(SortWrappedSet{}, SortWrappedSet{}) : SortWrappedSet{} [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+            symbol wrap{}(SortKey{}) : SortWrapped{} [constructor{}(), functional{}()]
+            symbol pairOf{}(SortWrapped{}, SortWrappedSet{}) : SortWrapped{} [constructor{}(), functional{}()]
+            hooked-sort SortWrappedMap{}
+                [hook{}("MAP.Map"), unit{}(wrappedMapUnit{}()), element{}(wrappedMapItem{}()), concat{}(wrappedMapConcat{}())]
+            hooked-symbol wrappedMapUnit{}() : SortWrappedMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+            hooked-symbol wrappedMapItem{}(SortWrapped{}, SortWrapped{}) : SortWrappedMap{} [function{}(), total{}(), hook{}("MAP.element")]
+            hooked-symbol wrappedMapConcat{}(SortWrappedMap{}, SortWrappedMap{}) : SortWrappedMap{} [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+            symbol keyedMap{}(SortKey{}, SortWrappedMap{}) : SortWrapped{} [constructor{}(), functional{}()]
+        endmodule []"#,
+    )
+    .expect("wrapped collections definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("wrapped collections definition should internalize")
+}
+
+/// Whether `term` holds a conjunction of two terms anywhere.
+fn holds_a_conjunction(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::And(..) => true,
+        TermKind::Application { arguments, .. } => arguments.iter().any(holds_a_conjunction),
+        TermKind::Injection { term, .. } => holds_a_conjunction(term),
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().any(holds_a_conjunction)
+                || rest.as_ref().is_some_and(holds_a_conjunction)
+        }
+        TermKind::Map { entries, rest, .. } => {
+            entries
+                .iter()
+                .any(|(key, value)| holds_a_conjunction(key) || holds_a_conjunction(value))
+                || rest.as_ref().is_some_and(holds_a_conjunction)
+        }
+        _ => false,
+    }
+}
+
+/// An alias `P #as A` of a set element, `\and(P, A)`, is the element `P` matches with `A`
+/// bound to it. Against several subject elements the set goes to the collection solver as the
+/// set holding `P`, with `A` bound to `P`, so each solution binds `A` to the element `P` takes
+/// there and no conjunction is left in the deferred pair for a condition to carry.
+#[test]
+fn an_aliased_set_element_among_several_binds_its_alias_to_each_element_its_pattern_takes() {
+    let definition = wrapped_collections_definition();
+    let pattern = internal_term(
+        &definition,
+        r#"wrappedSetConcat{}(wrappedSetItem{}(\and{SortWrapped{}}(wrap{}(K:SortKey{}), A:SortWrapped{})), REST:SortWrappedSet{})"#,
+    );
+    let subject = internal_term(
+        &definition,
+        r#"wrappedSetConcat{}(wrappedSetItem{}(wrap{}(\dv{SortKey{}}("1"))), wrappedSetConcat{}(wrappedSetItem{}(wrap{}(\dv{SortKey{}}("2"))), wrappedSetItem{}(wrap{}(\dv{SortKey{}}("3")))))"#,
+    );
+    let MatchResult::Indeterminate {
+        substitution,
+        remainder,
+    } = match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject)
+    else {
+        panic!("a symbolic element among three is left to the collection solver");
+    };
+    assert!(
+        remainder
+            .iter()
+            .all(|(pattern, _)| !holds_a_conjunction(pattern)),
+        "{remainder:?}"
+    );
+    let solutions = solve_collection_pairs_in_definition(
+        MatchMode::Rewrite,
+        &definition,
+        substitution,
+        &remainder,
+        None,
+    )
+    .expect("a closed subject set is decidable");
+    let alias = variable("A", Sort::simple("SortWrapped"));
+    let key = variable("K", Sort::simple("SortKey"));
+    let aliased = internal_term(&definition, "wrap{}(K:SortKey{})");
+    let mut taken = solutions
+        .iter()
+        .map(|solution| {
+            let substitution = solution.matched.substitution();
+            assert_eq!(
+                substitution.get(&alias),
+                Some(&crate::substitution::substitute(&aliased, substitution)),
+                "{substitution:?}"
+            );
+            substitution[&key].clone()
+        })
+        .collect::<Vec<_>>();
+    taken.sort();
+    let keys = ["1", "2", "3"]
+        .map(|key| internal_term(&definition, &format!(r#"\dv{{SortKey{{}}}}("{key}")"#)));
+    assert_eq!(taken, keys);
+}
+
+/// When the alias's variable is bound before its set is matched, the element is that value,
+/// which the aliased pattern must match: the set holding it is matched as one holding the
+/// value, without a deferred conjunction.
+#[test]
+fn an_aliased_set_element_whose_alias_is_bound_is_the_bound_value() {
+    let definition = wrapped_collections_definition();
+    let pattern = internal_term(
+        &definition,
+        r#"pairOf{}(A:SortWrapped{}, wrappedSetConcat{}(wrappedSetItem{}(\and{SortWrapped{}}(wrap{}(K:SortKey{}), A:SortWrapped{})), REST:SortWrappedSet{}))"#,
+    );
+    let subject = |given: &str| {
+        internal_term(
+            &definition,
+            &format!(
+                r#"pairOf{{}}(wrap{{}}(\dv{{SortKey{{}}}}("{given}")), wrappedSetConcat{{}}(wrappedSetItem{{}}(wrap{{}}(\dv{{SortKey{{}}}}("1"))), wrappedSetConcat{{}}(wrappedSetItem{{}}(wrap{{}}(\dv{{SortKey{{}}}}("2"))), wrappedSetItem{{}}(wrap{{}}(\dv{{SortKey{{}}}}("3"))))))"#
+            ),
+        )
+    };
+    let MatchResult::Success(substitution) =
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject("2"))
+    else {
+        panic!("the bound value is found among the subject's elements");
+    };
+    assert_eq!(
+        substitution.get(&variable("K", Sort::simple("SortKey"))),
+        Some(&internal_term(&definition, r#"\dv{SortKey{}}("2")"#))
+    );
+    assert_eq!(
+        substitution.get(&variable("REST", Sort::simple("SortWrappedSet"))),
+        Some(&internal_term(
+            &definition,
+            r#"wrappedSetConcat{}(wrappedSetItem{}(wrap{}(\dv{SortKey{}}("1"))), wrappedSetItem{}(wrap{}(\dv{SortKey{}}("3"))))"#
+        ))
+    );
+    assert!(matches!(
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject("4")),
+        MatchResult::Failed(_)
+    ));
+}
+
+/// The wrapped map `{wrap(1) |-> wrap-value(1), wrap(2) |-> ..., wrap(3) |-> ...}`, each value
+/// built by `value` from its key's number, as a KORE pattern.
+fn three_wrapped_entries(value: impl Fn(&str) -> String) -> String {
+    let entry = |key: &str| {
+        format!(
+            r#"wrappedMapItem{{}}(wrap{{}}(\dv{{SortKey{{}}}}("{key}")), {})"#,
+            value(key)
+        )
+    };
+    format!(
+        "wrappedMapConcat{{}}({}, wrappedMapConcat{{}}({}, {}))",
+        entry("1"),
+        entry("2"),
+        entry("3")
+    )
+}
+
+/// An aliased map key `\and(P, K)`, as a `multiplicity="*"` cell's key cell aliased in its
+/// instance's pattern, is the key `P` matches with `K` bound to it: with `P` ground under the
+/// substitution it is sought as `P` among the subject's keys, so the match succeeds with `K`
+/// the key found, or fails when no key is `P`, with no pair left to the collection solver.
+#[test]
+fn an_aliased_map_key_is_sought_as_the_pattern_it_aliases() {
+    let definition = wrapped_collections_definition();
+    let pattern = internal_term(
+        &definition,
+        r#"keyedMap{}(I:SortKey{}, wrappedMapConcat{}(wrappedMapItem{}(\and{SortWrapped{}}(wrap{}(I:SortKey{}), K:SortWrapped{}), V:SortWrapped{}), REST:SortWrappedMap{}))"#,
+    );
+    let entries = three_wrapped_entries(|key| format!(r#"wrap{{}}(\dv{{SortKey{{}}}}("{key}0"))"#));
+    let subject = |given: &str| {
+        internal_term(
+            &definition,
+            &format!(r#"keyedMap{{}}(\dv{{SortKey{{}}}}("{given}"), {entries})"#),
+        )
+    };
+    let MatchResult::Success(substitution) =
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject("2"))
+    else {
+        panic!("the aliased key is found among the subject's keys");
+    };
+    let wrapped = |key: &str| {
+        internal_term(
+            &definition,
+            &format!(r#"wrap{{}}(\dv{{SortKey{{}}}}("{key}"))"#),
+        )
+    };
+    let wrapped_sort = Sort::simple("SortWrapped");
+    assert_eq!(
+        substitution.get(&variable("K", wrapped_sort.clone())),
+        Some(&wrapped("2"))
+    );
+    assert_eq!(
+        substitution.get(&variable("V", wrapped_sort)),
+        Some(&wrapped("20"))
+    );
+    assert_eq!(
+        substitution.get(&variable("REST", Sort::simple("SortWrappedMap"))),
+        Some(&internal_term(
+            &definition,
+            r#"wrappedMapConcat{}(wrappedMapItem{}(wrap{}(\dv{SortKey{}}("1")), wrap{}(\dv{SortKey{}}("10"))), wrappedMapItem{}(wrap{}(\dv{SortKey{}}("3")), wrap{}(\dv{SortKey{}}("30"))))"#
+        ))
+    );
+    assert!(matches!(
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject("4")),
+        MatchResult::Failed(_)
+    ));
+}
+
+/// An aliased map key whose pattern is symbolic, `\and(wrap(I), K)`, with the same alias inside
+/// the entry's aliased value, `\and(pairOf(\and(wrap(I), K), S), A)` (a `multiplicity="*"` cell
+/// instance read through an alias, its key cell aliased inside it): against several entries the
+/// map goes to the collection solver with each alias read as its pattern, its variable bound to
+/// that pattern, so no conjunction is left for a condition to carry and each solution binds `K`
+/// and `A` to the key and the value of the entry it takes.
+#[test]
+fn an_aliased_map_key_among_several_binds_its_aliases_to_each_entry_its_pattern_takes() {
+    let definition = wrapped_collections_definition();
+    let pattern = internal_term(
+        &definition,
+        r#"wrappedMapConcat{}(wrappedMapItem{}(\and{SortWrapped{}}(wrap{}(I:SortKey{}), K:SortWrapped{}), \and{SortWrapped{}}(pairOf{}(\and{SortWrapped{}}(wrap{}(I:SortKey{}), K:SortWrapped{}), S:SortWrappedSet{}), A:SortWrapped{})), REST:SortWrappedMap{})"#,
+    );
+    let subject = internal_term(
+        &definition,
+        &three_wrapped_entries(|key| {
+            format!(r#"pairOf{{}}(wrap{{}}(\dv{{SortKey{{}}}}("{key}")), wrappedSetUnit{{}}())"#)
+        }),
+    );
+    let MatchResult::Indeterminate {
+        substitution,
+        remainder,
+    } = match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject)
+    else {
+        panic!("a symbolic key among three is left to the collection solver");
+    };
+    assert!(
+        remainder
+            .iter()
+            .all(|(pattern, _)| !holds_a_conjunction(pattern)),
+        "{remainder:?}"
+    );
+    let solutions = solve_collection_pairs_in_definition(
+        MatchMode::Rewrite,
+        &definition,
+        substitution,
+        &remainder,
+        None,
+    )
+    .expect("a closed subject map is decidable");
+    let wrapped_sort = Sort::simple("SortWrapped");
+    let key_pattern = internal_term(&definition, "wrap{}(I:SortKey{})");
+    let value_pattern = internal_term(
+        &definition,
+        "pairOf{}(wrap{}(I:SortKey{}), S:SortWrappedSet{})",
+    );
+    let mut taken = solutions
+        .iter()
+        .map(|solution| {
+            let substitution = solution.matched.substitution();
+            let instance = |term: &Term| crate::substitution::substitute(term, substitution);
+            assert_eq!(
+                substitution.get(&variable("K", wrapped_sort.clone())),
+                Some(&instance(&key_pattern)),
+                "{substitution:?}"
+            );
+            assert_eq!(
+                substitution.get(&variable("A", wrapped_sort.clone())),
+                Some(&instance(&value_pattern)),
+                "{substitution:?}"
+            );
+            substitution[&variable("I", Sort::simple("SortKey"))].clone()
+        })
+        .collect::<Vec<_>>();
+    taken.sort();
+    let keys = ["1", "2", "3"]
+        .map(|key| internal_term(&definition, &format!(r#"\dv{{SortKey{{}}}}("{key}")"#)));
+    assert_eq!(taken, keys);
+}
+
+/// An alias inside an aliased set element, `\and(pairOf(\and(wrap(I), K), S), A)` (a
+/// `multiplicity="*"` cell instance read through an alias, its key cell aliased inside it): against
+/// several elements the set goes to the collection solver with each alias read as its pattern,
+/// so neither the deferred set nor the value of `A` holds a conjunction, and each solution binds
+/// `K` and `A` to the parts of the element it takes.
+#[test]
+fn an_alias_inside_an_aliased_set_element_is_read_as_its_pattern() {
+    let definition = wrapped_collections_definition();
+    let pattern = internal_term(
+        &definition,
+        r#"wrappedSetConcat{}(wrappedSetItem{}(\and{SortWrapped{}}(pairOf{}(\and{SortWrapped{}}(wrap{}(I:SortKey{}), K:SortWrapped{}), S:SortWrappedSet{}), A:SortWrapped{})), REST:SortWrappedSet{})"#,
+    );
+    let element = |key: &str| {
+        format!(
+            r#"wrappedSetItem{{}}(pairOf{{}}(wrap{{}}(\dv{{SortKey{{}}}}("{key}")), wrappedSetUnit{{}}()))"#
+        )
+    };
+    let subject = internal_term(
+        &definition,
+        &format!(
+            "wrappedSetConcat{{}}({}, wrappedSetConcat{{}}({}, {}))",
+            element("1"),
+            element("2"),
+            element("3")
+        ),
+    );
+    let MatchResult::Indeterminate {
+        substitution,
+        remainder,
+    } = match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject)
+    else {
+        panic!("a symbolic element among three is left to the collection solver");
+    };
+    assert!(
+        remainder
+            .iter()
+            .all(|(pattern, _)| !holds_a_conjunction(pattern)),
+        "{remainder:?}"
+    );
+    let solutions = solve_collection_pairs_in_definition(
+        MatchMode::Rewrite,
+        &definition,
+        substitution,
+        &remainder,
+        None,
+    )
+    .expect("a closed subject set is decidable");
+    let wrapped_sort = Sort::simple("SortWrapped");
+    let key_pattern = internal_term(&definition, "wrap{}(I:SortKey{})");
+    let element_pattern = internal_term(
+        &definition,
+        "pairOf{}(wrap{}(I:SortKey{}), S:SortWrappedSet{})",
+    );
+    let mut taken = solutions
+        .iter()
+        .map(|solution| {
+            let substitution = solution.matched.substitution();
+            let instance = |term: &Term| crate::substitution::substitute(term, substitution);
+            assert_eq!(
+                substitution.get(&variable("K", wrapped_sort.clone())),
+                Some(&instance(&key_pattern)),
+                "{substitution:?}"
+            );
+            assert_eq!(
+                substitution.get(&variable("A", wrapped_sort.clone())),
+                Some(&instance(&element_pattern)),
+                "{substitution:?}"
+            );
+            substitution[&variable("I", Sort::simple("SortKey"))].clone()
+        })
+        .collect::<Vec<_>>();
+    taken.sort();
+    let keys = ["1", "2", "3"]
+        .map(|key| internal_term(&definition, &format!(r#"\dv{{SortKey{{}}}}("{key}")"#)));
+    assert_eq!(taken, keys);
+}

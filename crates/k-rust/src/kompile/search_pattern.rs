@@ -217,7 +217,11 @@ pub fn compile_search_pattern(
     if actual != top {
         return Err(CompileSearchPatternError::ExpectedGeneratedTopCell { actual });
     }
-    let body = injector.inject(&body, &top)?;
+    // The pattern is matched against states, as a rule's left side is, so it is injected as one.
+    // A key it is given names only the item it matches, so it is anonymous like the variables
+    // generated above.
+    let (body, minted) = injector.inject_pattern(&body, &top, [&requires])?;
+    generated.extend(minted.into_iter().map(GeneratedVariableIdentity::element));
     injector.require_ground(&body, GroundInput::SearchPattern)?;
     // The condition holds when it equals `true`. Cast and cell-fragment resolution conjoin the
     // sort tests they add with `_andBool_`, which the module declares only when it sees `BOOL`.

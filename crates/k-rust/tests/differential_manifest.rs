@@ -565,24 +565,38 @@ fn differential_special_case_schema_is_complete() {
         .expect("nonzero exit-code execution case");
     assert_eq!(exit["exit-code"].as_integer(), Some(7));
 
-    let hook_exceptions = manifest["execution"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .flat_map(|entry| {
-            entry
-                .get("oracle-exception")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-        })
-        .collect::<Vec<_>>();
+    let exceptions_of = |name: &str| {
+        manifest["execution"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry["name"].as_str() == Some(name))
+            .flat_map(|entry| {
+                entry
+                    .get("oracle-exception")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+            })
+            .collect::<Vec<_>>()
+    };
+    let hook_exceptions = exceptions_of("hook-boundaries");
     assert_eq!(
         hook_exceptions.len(),
         2,
         "STRING.find and BYTES.replaceAt exceptions"
     );
-    for exception in hook_exceptions {
+    let list_exceptions = exceptions_of("list-cell-positions");
+    assert_eq!(
+        list_exceptions
+            .iter()
+            .map(|exception| exception["program"].as_str().unwrap_or_default())
+            .map(|program| program.rsplit('/').next().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        ["last.pgm", "drop-last.pgm", "mk-last-get.pgm"],
+        "a leading ... in a type=\"List\" collection reads, removes and adds at the back"
+    );
+    for exception in hook_exceptions.into_iter().chain(list_exceptions) {
         for field in ["program", "expected", "reference", "reason"] {
             assert!(
                 exception[field]
@@ -2909,7 +2923,7 @@ fn manual_certification_protocol_names_required_gates() {
         "REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence",
         "scripts/reference-kast-differential.sh wasm mir evm-equivalence",
         "scripts/reference-non-imp-execution-differential.sh imp collections hook-boundaries",
-        "scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution",
+        "scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution list-cell-positions",
         "scripts/reference-proof-differential.sh mini-proof",
         "scripts/reference-proof-differential.sh split-proof trusted-lemma-proof trivial-proof",
         "scripts/reference-rpc-differential.sh imp",

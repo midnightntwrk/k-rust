@@ -1,0 +1,20 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'T'-GT-'{}(
+    Lbl'-LT-'k'-GT-'{}(dotk{}()),
+    Lbl'-LT-'rs'-GT-'{}(
+      LblRCellListItem{}(
+        Lbl'-LT-'r'-GT-'{}(
+          Lbl'-LT-'rid'-GT-'{}(\dv{SortInt{}}("3")),
+          Lbl'-LT-'v'-GT-'{}(\dv{SortInt{}}("30"))
+        )
+      )
+    ),
+    Lbl'-LT-'out'-GT-'{}(
+      Lbl'Unds'List'Unds'{}(
+        LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))),
+        LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2")))
+      )
+    )
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)

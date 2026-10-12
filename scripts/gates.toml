@@ -147,7 +147,7 @@ paths = ["@krust", "@reference", "@execution"]
 [[gate]]
 name = "execution-light"
 run = "certification"
-command = "scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution"
+command = "scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution list-cell-positions"
 paths = ["@krust", "@reference", "@execution"]
 
 [[gate]]

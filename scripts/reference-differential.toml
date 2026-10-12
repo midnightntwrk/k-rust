@@ -1361,6 +1361,53 @@ name = "final"
 program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/false-ensures.pgm"
 mode = "--search-final"
 
+# The instances of a type="List" cell collection keep their order, and a rule states the position
+# of an instance it writes among the items written side by side in one cell body and the rest of the
+# list that the cell's ... stands for, placed where that ... is written: before the items when it
+# is written before them, after them otherwise
+# (docs/compatibility.md#cells-written-inside-another-cell). After three mk commands, each adding an
+# instance at the front, get(I) writes one instance without its position or its parent, so
+# completion places the rest after it: it rewrites on the front instance (get-3-front) and is stuck
+# on the others (get-2, get-1). last(), dropLast() and mkLast(I, V) write the ... before the
+# instance, and read, remove and add at the back (last, drop-last, mk-last-get). The pinned
+# reference places the rest after the items wherever the ... is written, and acts at the front;
+# those three programs are recorded divergences.
+[[execution]]
+name = "list-cell-positions"
+requires = ["reference-toolchain"]
+constructs = ["cell-list"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/test.k"
+main-module = "LIST-CELL-POSITIONS"
+syntax-module = "LIST-CELL-POSITIONS-SYNTAX"
+sort = "Pgm"
+depth = 100
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/get-3-front.pgm",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/get-2.pgm",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/get-1.pgm",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/last.pgm",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/drop-last.pgm",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/mk-last-get.pgm",
+]
+
+[[execution.oracle-exception]]
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/last.pgm"
+expected = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/last.expected.kore"
+reference = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/last.reference.kore"
+reason = "docs/compatibility.md#cells-written-inside-another-cell: a cell's ... stands for the rest of its type=\"List\" collection where it is written, so a leading ... places the written instance at the back; the pinned reference places the rest after the written items wherever the ... is written."
+
+[[execution.oracle-exception]]
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/drop-last.pgm"
+expected = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/drop-last.expected.kore"
+reference = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/drop-last.reference.kore"
+reason = "docs/compatibility.md#cells-written-inside-another-cell: a cell's ... stands for the rest of its type=\"List\" collection where it is written, so a leading ... places the written instance at the back; the pinned reference places the rest after the written items wherever the ... is written."
+
+[[execution.oracle-exception]]
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/mk-last-get.pgm"
+expected = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/mk-last-get.expected.kore"
+reference = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/list-cell-positions/mk-last-get.reference.kore"
+reason = "docs/compatibility.md#cells-written-inside-another-cell: a cell's ... stands for the rest of its type=\"List\" collection where it is written, so a leading ... places the written instance at the back; the pinned reference places the rest after the written items wherever the ... is written."
+
 [[execution]]
 name = "hook-boundaries"
 requires = ["reference-toolchain"]
