@@ -802,6 +802,7 @@ fn one_undefined_item_of_a_large_collection_is_reached_without_the_others() {
 
 /// A collection of 4,096 items with one undefined item, built over `item` at each position:
 /// the map binds `key(index)` to it, the set and the list hold it.
+#[cfg(debug_assertions)]
 fn collections_of(item: impl Fn(usize) -> Term) -> [Term; 3] {
     let (map_definition, set_definition, list_definition) = collection_definitions();
     [
@@ -818,6 +819,7 @@ fn collections_of(item: impl Fn(usize) -> Term) -> [Term; 3] {
 }
 
 /// `inj{Int, KItem}(\dv{Int}(index))`.
+#[cfg(debug_assertions)]
 fn collection_key(index: usize) -> Term {
     let (int, kitem) = (Sort::simple("SortInt"), Sort::simple("SortKItem"));
     Term::injection(
@@ -828,6 +830,7 @@ fn collection_key(index: usize) -> Term {
 }
 
 /// `partial(\dv{S}(name))`, an application of a partial function: its ceil is an obligation.
+#[cfg(debug_assertions)]
 fn undefined_item(name: &str) -> Term {
     let (kitem, s) = (Sort::simple("SortKItem"), Sort::simple("SortS"));
     let mut partial = Symbol::constructor("partial", vec![s.clone()], kitem);

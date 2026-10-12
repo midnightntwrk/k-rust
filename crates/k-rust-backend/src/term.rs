@@ -1866,7 +1866,7 @@ impl Term {
 
     /// This term with its stored `ceil_free` attribute set, whatever its kind: a unit-test
     /// fixture of a wrong attribute, for the debug check of the definedness walk's shortcut.
-    #[cfg(test)]
+    #[cfg(all(test, debug_assertions))]
     pub(crate) fn with_ceil_free_for_test(&self) -> Self {
         let mut attributes = self.attributes().clone();
         attributes.ceil_free = true;
