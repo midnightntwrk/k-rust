@@ -210,6 +210,10 @@ mod subject {
         /// the priority ends. Only a `Remainder` enters it.
         blocked: Vec<Predicate>,
         priority: Option<u8>,
+        /// The subject's decided definedness, until the first narrowing states it
+        /// (`SubjectDefinedness::Where`): what an earlier rule leaves over is offered on, and
+        /// its instances where that definedness fails are no configuration.
+        restriction: Vec<Predicate>,
     }
 
     /// What one [`SequentialSubject::exclude_defined`] did.
@@ -223,13 +227,23 @@ mod subject {
     }
 
     impl SequentialSubject {
-        /// The whole `subject`, before any priority.
-        pub(in crate::rewrite) fn new(subject: &Pattern) -> Self {
+        /// The whole `subject`, before any priority, defined where `restriction` holds.
+        pub(in crate::rewrite) fn new(subject: &Pattern, restriction: &[Predicate]) -> Self {
             Self {
                 pattern: subject.clone(),
                 blocked: Vec::new(),
                 priority: None,
+                restriction: restriction
+                    .iter()
+                    .filter(|obligation| !subject.constraints.contains(obligation))
+                    .cloned()
+                    .collect(),
             }
+        }
+
+        /// State the subject's decided definedness, once, as the subject is first narrowed.
+        fn restrict(&mut self) {
+            extend_unique(&mut self.pattern.constraints, self.restriction.drain(..));
         }
 
         pub(in crate::rewrite) fn pattern(&self) -> &Pattern {
@@ -256,6 +270,7 @@ mod subject {
             let outside = defined.complement(remainder);
             let restricted = outside != *remainder.as_predicate();
             let before = self.pattern.constraints.len();
+            self.restrict();
             extend_unique(&mut self.pattern.constraints, std::iter::once(outside));
             Narrowing {
                 grew: self.pattern.constraints.len() != before,
@@ -275,6 +290,9 @@ mod subject {
         /// grew.
         pub(in crate::rewrite) fn enter_priority(&mut self, priority: Option<u8>) -> bool {
             let before = self.pattern.constraints.len();
+            if !self.blocked.is_empty() {
+                self.restrict();
+            }
             extend_unique(&mut self.pattern.constraints, self.blocked.drain(..));
             self.priority = priority;
             self.pattern.constraints.len() != before

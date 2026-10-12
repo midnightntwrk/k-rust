@@ -225,8 +225,9 @@ fn flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does() 
     let mut characters = (0..=0x7F).filter_map(char::from_u32).collect::<Vec<_>>();
     characters.extend(
         [
-            0x80, 0x81, 0xE9, 0xFC, 0xFF, 0x7FF, 0x800, 0x2028, 0xD7FF, 0xE000, 0xFFFD, 0xFFFF,
-            0x10000, 0x1F640, 0x1F641, 0x1F642, 0x1F643, 0x10FFFE, 0x10FFFF,
+            0x80, 0x81, 0xE9, 0xFC, 0xFF, 0x7FF, 0x800, 0x2028, 0x2029, 0x202A, 0xCFFF, 0xD000,
+            0xD7FE, 0xD7FF, 0xE000, 0xE001, 0xE100, 0xE101, 0xFFFD, 0xFFFF, 0x10000, 0x1F640,
+            0x1F641, 0x1F642, 0x1F643, 0x10FFFE, 0x10FFFF,
         ]
         .into_iter()
         .filter_map(char::from_u32),
@@ -243,8 +244,17 @@ fn flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does() 
         "[^\u{D7FF}]",
         "[^\u{E000}]",
         "[^\u{10FFFF}]",
+        "[^\u{D7FF}\u{E000}]",
+        "[^\u{D7FE}\u{E001}]",
+        "[^\n\r\u{2028}]",
         "[\u{80}-\u{7FF}]",
         "[é-🙂]",
+        "[^é-🙂]",
+        "[\u{D7FF}-\u{E000}]",
+        "[^\u{D7FF}-\u{E000}]",
+        "[\u{D000}-\u{E100}]",
+        "[^\u{D000}-\u{E100}]",
+        "[a-é\u{2028}-\u{2029}]",
         "[^\u{0}-\u{10FFFF}]",
         "[^a]{2}",
         "a.b",
@@ -277,6 +287,54 @@ fn flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does() 
     }
 }
 
+/// The surrogate code points lie between U+D7FF and U+E000 and are no characters, so a range
+/// across them holds the characters on either side and nothing else, and a negated one the
+/// characters outside those; both printers' patterns must agree with that membership, the
+/// in-process one included, whose engine computes the gaps between ranges across the surrogates
+/// itself when it negates a class.
+#[test]
+fn a_class_range_across_the_surrogate_gap_holds_exactly_its_characters() {
+    let probes = [
+        0x0, 0x7F, 0x80, 0xCFFF, 0xD000, 0xD001, 0xD7FD, 0xD7FE, 0xD7FF, 0xE000, 0xE001, 0xE002,
+        0xE0FF, 0xE100, 0xE101, 0x10FFFF,
+    ]
+    .into_iter()
+    .filter_map(char::from_u32)
+    .collect::<Vec<_>>();
+    for (start, end) in [
+        ('\u{D7FF}', '\u{E000}'),
+        ('\u{D7FE}', '\u{E001}'),
+        ('\u{D000}', '\u{E100}'),
+        ('\u{80}', '\u{D7FF}'),
+        ('\u{E000}', '\u{10FFFF}'),
+    ] {
+        for negated in [false, true] {
+            let body = regex::RegexBody::CharClass {
+                negated,
+                members: vec![regex::CharClass::Range { start, end }],
+            };
+            let bytes = flex_as_byte_regex(&body);
+            let characters = rust_character_regex(&body);
+            for probe in &probes {
+                let expected = (start..=end).contains(probe) != negated;
+                let text = probe.to_string();
+                assert_eq!(
+                    bytes.is_match(text.as_bytes()),
+                    expected,
+                    "{:?} on {probe:?}",
+                    body.to_flex_string()
+                );
+                assert_eq!(
+                    characters.is_match(&text),
+                    expected,
+                    "{:?} on {probe:?}",
+                    body.to_rust_string()
+                );
+            }
+        }
+    }
+}
+
 proptest! {
     #[test]
     fn flex_printer_classes_denote_the_characters_of_the_class(
@@ -294,6 +352,7 @@ proptest! {
             .collect::<Vec<_>>();
         let body = regex::RegexBody::CharClass { negated, members: members.clone() };
         let bytes = flex_as_byte_regex(&body);
+        let characters = rust_character_regex(&body);
         let probes = probes.into_iter().chain(members.iter().flat_map(|member| match *member {
             regex::CharClass::Char(character) => vec![character],
             regex::CharClass::Range { start, end } => [start as u32, end as u32]
@@ -311,6 +370,11 @@ proptest! {
                 bytes.is_match(probe.to_string().as_bytes()),
                 member != negated,
                 "{:?} on {:?}", body.to_flex_string(), probe
+            );
+            prop_assert_eq!(
+                characters.is_match(&probe.to_string()),
+                member != negated,
+                "{:?} on {:?}", body.to_rust_string(), probe
             );
         }
         for not_utf8 in NOT_UTF8 {
@@ -520,42 +584,14 @@ fn lexical_cycles_are_disjoint_and_rotate_to_the_earliest_source() {
 }
 
 #[test]
-fn ranges_and_unicode_match_check_regex() {
-    let production = regex_production("[^é-zZ-A]x{5,2}", Attributes::default());
-    let diagnostics = check_regexes(&[&production], &[&production]);
-
-    assert_eq!(diagnostics.len(), 5);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|diagnostic| { diagnostic.message.contains("Invalid character range 'Z-A'") })
-    );
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .message
-            .contains("Invalid numeric range 'x{5,2}'")
-    }));
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .message
-            .contains("non-ASCII characters found in negated")
-    }));
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .message
-            .contains("non-ASCII characters found in character class range")
-    }));
-}
-
-#[test]
-fn non_ascii_findings_merge_across_the_regexes_of_one_production() {
+fn every_issue_of_the_regexes_of_one_production_is_reported() {
     let production = Sentence::Production {
         label: Some(Label::new("token")),
         parameters: Vec::new(),
         sort: Sort::new("Token"),
         items: vec![
-            ProductionItem::regex("[^é-ü]"),
-            ProductionItem::regex("[a-z]"),
+            ProductionItem::regex("[^é-zZ-A]"),
+            ProductionItem::regex("[a-z][é-ü][\u{D7FF}-\u{E000}]"),
             ProductionItem::regex("[^ü]x{3,1}[à-a]"),
         ],
         attributes: Attributes::default(),
@@ -568,10 +604,10 @@ fn non_ascii_findings_merge_across_the_regexes_of_one_production() {
     assert_eq!(
         messages,
         [
+            "Invalid character range 'é-z'. Start of range U+00E9 is greater than end of range U+007A.",
+            "Invalid character range 'Z-A'. Start of range U+005A is greater than end of range U+0041.",
             "Invalid numeric range 'x{3,1}'. Start of range 3 is greater than end of range 1.",
             "Invalid character range 'à-a'. Start of range U+00E0 is greater than end of range U+0061.",
-            "Unsupported non-ASCII characters found in negated character class: [é, ü]",
-            "Unsupported non-ASCII characters found in character class range: [é, ü, à]",
         ]
     );
 }

@@ -47,6 +47,56 @@ pub fn check_claims_in_definition(
         .collect()
 }
 
+/// Warn at each declaration of `[locations]` on a sort of the main module's view when that view
+/// does not contain module `K-LOCATIONS`.
+///
+/// A sort `S` that declares `[locations]` asks that each term of `S` a program's text denotes be
+/// `#location{S}(t, file, line, column, line, column)`, on every route that reads a program:
+/// krust's in-process parser and the parsers it generates. `#location` is the symbol module
+/// `K-LOCATIONS` declares, and the compiled definition is the main module's view, so without that
+/// module a program holding a term of `S` denotes no term of the definition, and `krun` refuses
+/// it when it builds the initial configuration (`ConfigurationError::UnlocatableTerm`).
+///
+/// Nothing else needs the symbol to be declared, so the definition is not refused: compilation
+/// does not use it, a program that holds no term of `S` runs, and `kast` and a generated parser
+/// (standalone or `--bison-parser-library`) print the located term as text, whose reader need not
+/// be this definition. The warning names the consequence where the declaration is written.
+///
+/// Compilation runs this check: its main module is the compiled definition, whereas the module
+/// `kast --module` parses in is only where a program is read, not the definition it is read for.
+pub fn check_locations_import(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
+    let main = definition.main_module_id();
+    let locations = WellKnownModule::Locations.as_str();
+    if definition
+        .module_id(locations)
+        .is_some_and(|module| module_closure(definition, main).contains(&module))
+    {
+        return Vec::new();
+    }
+    let main_name = &definition.main_module().name;
+    definition
+        .sentences(main)
+        .into_iter()
+        .filter_map(|sentence| {
+            // The attribute is admitted on sort declarations only.
+            let Sentence::SyntaxSort {
+                sort, attributes, ..
+            } = sentence
+            else {
+                return None;
+            };
+            attributes.value(AttributeKey::Locations)?;
+            Some(Diagnostic::warning(
+                DiagnosticCode::MissingLocationsImport,
+                format!(
+                    "Sort {sort} declares 'locations', so each term of {sort} that a program denotes is wrapped in #location, which module {locations} declares, but the main module {main_name} does not import {locations}: krun refuses every program that holds a term of {sort}, while kast and generated parsers still print the located term. Add `imports {locations}` to {main_name} to run such programs."
+                ),
+                sentence,
+            ))
+        })
+        .collect()
+}
+
 pub fn check_proof_module(
     definition: &ResolvedDefinition,
     options: &StructuralCheckOptions,

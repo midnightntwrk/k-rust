@@ -1879,17 +1879,13 @@ fn is_proven(leaf: &ProofLeaf) -> bool {
 }
 
 /// The proof state of the instances `trivial` leaves with an undefined step, one rewrite step
-/// below `state`, or `None` when that set is shown empty.
+/// below `state`, or `None` when that set is shown empty
+/// ([`TrivialApplication::decided_undefined_instances`]).
 ///
 /// The state is `trivial.before` (the pattern the rule was applied to, which for a lower
 /// priority group is the remainder of the higher ones) constrained by `trivial.undefined`, so an
-/// instance that a higher group or an applied sibling takes is not in it. Unlike a successor,
-/// this set is not one the rewrite step found non-empty: it is the complement of the defined
-/// sub-cases, and it is empty whenever they cover the rule's applicability, for example when an
-/// `ensures ?X >Int 0` always has a witness. An empty set holds no instance of the claim, so it
-/// is dropped rather than reported as a vacuous path; a set not shown empty (satisfiable or
-/// undecided) is kept. A stop of the emptiness query is returned: keeping the set would report
-/// an undefined step from a missing answer.
+/// instance that a higher group or an applied sibling takes is not in it. An empty set holds no
+/// instance of the claim, so it is dropped rather than reported as a vacuous path.
 fn undefined_step_state(
     definition: &BackendDefinition,
     state: &ProofState,
@@ -1897,31 +1893,16 @@ fn undefined_step_state(
     options: ProofOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Option<ProofState>> {
-    let Some(mut pattern) = trivial.undefined_instances() else {
+    let Some(pattern) = trivial.decided_undefined_instances(
+        definition,
+        options.max_simplification_iterations,
+        solver,
+    )?
+    else {
         return Ok(None);
     };
-    match simplify_predicates_with_solver(
-        definition,
-        &pattern.constraints,
-        &[],
-        SimplificationOptions::keep_partial(options.max_simplification_iterations),
-        solver,
-    ) {
-        Ok(Ok(constraints)) => pattern.constraints = constraints,
-        // A failed simplification only loses precision: the unsimplified constraints are kept.
-        Ok(Err(_failure)) => {}
-        Err(stop) => {
-            // Kept outcome: the unsimplified constraints, which are the same condition; the
-            // simplification only refines them. `state_is_bottom`, which decides below, takes a
-            // stop of its own solver query, and the loop polls after this state is built.
-            stop.forgo_refinement();
-        }
-    }
     let mut undefined = state.clone();
     undefined.pattern = pattern;
-    if state_is_bottom(&undefined, solver)? {
-        return Ok(None);
-    }
     for simplification in &trivial.remainder_simplifications {
         undefined.trace.extend(
             simplification

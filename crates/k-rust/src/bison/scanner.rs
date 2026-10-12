@@ -36,7 +36,6 @@ pub(super) struct Scanner {
     kinds: BTreeMap<TokenKey, usize>,
     lexical: Vec<(String, String)>,
     layout: Vec<FlexRule>,
-    line_markers: Vec<FlexRule>,
 }
 
 /// One Flex rule's regex: its Flex body and its line anchors.
@@ -61,7 +60,6 @@ impl Scanner {
         let mut precedences = BTreeMap::<TokenKey, i32>::new();
         let mut lexical = BTreeMap::<String, String>::new();
         let mut layout = Vec::new();
-        let mut line_markers = Vec::new();
         let mut layout_declared = false;
 
         for sentence in sentences {
@@ -86,22 +84,15 @@ impl Scanner {
                     attributes,
                     ..
                 } => {
-                    if sort.is_frontend(FrontendSort::Layout)
-                        || sort.is_frontend(FrontendSort::LineMarker)
-                    {
+                    if sort.is_frontend(FrontendSort::Layout) {
                         let [ProductionItem::RegexTerminal { regex, .. }] = items.as_slice() else {
                             return Err(Error::render(format!(
                                 "productions of sort `{}` must contain exactly one regex terminal",
                                 sort.name
                             )));
                         };
-                        let rendered = render_rule(regex)?;
-                        if sort.is_frontend(FrontendSort::Layout) {
-                            layout_declared = true;
-                            layout.push(rendered);
-                        } else {
-                            line_markers.push(rendered);
-                        }
+                        layout_declared = true;
+                        layout.push(render_rule(regex)?);
                     }
 
                     let declared = attributes
@@ -184,15 +175,12 @@ impl Scanner {
         });
         layout.sort();
         layout.dedup();
-        line_markers.sort();
-        line_markers.dedup();
 
         Ok(Self {
             tokens,
             kinds,
             lexical: lexical.into_iter().collect(),
             layout,
-            line_markers,
         })
     }
 
@@ -244,9 +232,8 @@ impl Scanner {
             .map(|token| token.key.rule())
             .collect::<Result<Vec<_>, _>>()?;
         let uses_reject = self
-            .line_markers
+            .layout
             .iter()
-            .chain(&self.layout)
             .chain(&rules)
             .any(|rule| rule.start_line || rule.end_line);
         let mut output = String::from(
@@ -260,9 +247,7 @@ static void krust_locate(yyscan_t yyscanner, YYLTYPE *location);\n\
   KRUST_LOCATE;\\\n\
   fprintf (stderr, \"%d:%d:%d:%d:syntax error: unexpected %s\\n\", yylloc->first_line, yylloc->first_column, yylloc->last_line, yylloc->last_column, yytext);\\\n\
   exit(1);\\\n\
-} while (0)\n\
-void line_marker(char *, void *);\n\
-",
+} while (0)\n",
         );
         if uses_reject {
             output.push_str(
@@ -292,23 +277,11 @@ static int krust_at_line_end(yyscan_t yyscanner);\n\
             .expect("writing to a string cannot fail");
         }
         output.push_str("%%\n\n");
-        for rule in &self.line_markers {
-            rule.render(&mut output, "  line_marker(yytext, yyscanner);\n");
-        }
         for rule in &self.layout {
             rule.render(&mut output, "");
         }
         for (token, rule) in self.tokens.iter().zip(&rules) {
-            rule.render(
-                &mut output,
-                &format!(
-                    "  int kind = {};\n\
-  *((char **)yylval) = malloc(strlen(yytext) + 1);\n\
-  strcpy(*((char **)yylval), yytext);\n\
-  return kind;\n",
-                    token.kind + 1
-                ),
-            );
+            rule.render(&mut output, &format!("  return {};\n", token.kind + 1));
         }
         output.push_str("%%\n\n");
         output.push_str(&line_terminator_table());
@@ -615,7 +588,14 @@ mod tests {
             scanner.kind(&left_items[0]).unwrap(),
             scanner.kind(&right_items[0]).unwrap()
         );
-        assert_eq!(scanner.render().unwrap().matches("return kind;").count(), 1);
+        assert_eq!(
+            scanner
+                .render()
+                .unwrap()
+                .matches("KRUST_LOCATE;\n  return ")
+                .count(),
+            1
+        );
     }
 
     fn token_production(regex: &str) -> Sentence {

@@ -102,6 +102,7 @@ Equal written rules have one catalog entry with multiple origins.
 Backend methods accept typed KORE JSON from `parseKore` and include `execute`, `simplify`, `implies`, `getModel`, `prove`, `addModule`, and four reachability methods: `search`, `searchPaths`, `searchPattern`, and `searchPatternPaths`.
 The method name declares state-set versus path-set modality; no request flag changes a result's meaning.
 Each search response carries `schemaVersion`, a literal `modality`, accumulated effects, and a closed `incomplete` union that reports every bound or backend uncertainty structurally.
+A response whose every initial state had no instance before any step (its constraints, or its term's definedness, refuted) also carries `initialBottom: true`, so a search from no configuration is told apart from one that reached no result.
 Set `maxResults` for definitions with many converging paths because path witnesses can grow exponentially and the synchronous response is fully materialized.
 Implication responses use schema version 2; their optional `condition` keeps `predicate`,
 term-match `substitution`, and existential `witnesses` as three separate KORE values.

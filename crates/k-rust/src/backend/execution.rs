@@ -740,11 +740,24 @@ fn rule_condition_failed_message(
     )
 }
 
+/// The warning for an `UndefinedInitialInstances` diagnostic: the condition the initial
+/// configuration's definedness needs, and that its other instances have no result.
+fn undefined_initial_instances_message(definedness: &[Predicate], result_sort: &Sort) -> String {
+    format!(
+        "the initial configuration is undefined unless [{}] holds; its instances where this fails denote no configuration and have no result",
+        printed_predicates(definedness, result_sort),
+    )
+}
+
+/// Print the warnings of `diagnostics`, one result's path, each once. A diagnostic about the
+/// initial configuration is on every result's path; `run_wide` keeps those already printed for
+/// another result of the run, so each is printed once per run.
 fn report_diagnostics<'a>(
     definition: &BackendDefinition,
     diagnostics: impl IntoIterator<Item = &'a BackendDiagnostic>,
     result_sort: &Sort,
     depth: u64,
+    run_wide: &mut HashSet<&'a BackendDiagnostic>,
 ) {
     let mut seen = HashSet::new();
     for diagnostic in diagnostics {
@@ -752,6 +765,14 @@ fn report_diagnostics<'a>(
             continue;
         }
         match diagnostic {
+            BackendDiagnostic::UndefinedInitialInstances { definedness } => {
+                if run_wide.insert(diagnostic) {
+                    eprintln!(
+                        "warning: {}",
+                        undefined_initial_instances_message(definedness, result_sort)
+                    );
+                }
+            }
             BackendDiagnostic::SimplificationBudgetExhausted { limit, subject } => {
                 let subject = match subject {
                     BudgetSubject::Term => "the term",
@@ -1127,6 +1148,10 @@ impl Backend {
     }
 }
 
+/// What a run states when every initial state had no instance before any step, so its empty
+/// result is not one the rules produced.
+const INITIAL_BOTTOM_WARNING: &str = "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables";
+
 fn run_backend_with_solver(
     backend: &BackendDefinition,
     solver: &dyn SmtSolver,
@@ -1192,12 +1217,17 @@ fn run_backend_with_solver(
             ))
             .into());
         }
+        if result.initial_bottom {
+            eprintln!("{INITIAL_BOTTOM_WARNING}");
+        }
+        let mut run_wide = HashSet::new();
         for matched in &result.matches {
             report_diagnostics(
                 backend,
                 matched.state.diagnostics.iter().chain(&matched.diagnostics),
                 &matched.state.pattern.term.sort(),
                 matched.state.depth,
+                &mut run_wide,
             );
         }
         return Ok(BackendRunOutput {
@@ -1286,12 +1316,14 @@ fn run_backend_with_solver(
         ))
         .into());
     }
+    let mut run_wide = HashSet::new();
     for leaf in &execution.leaves {
         report_diagnostics(
             backend,
             &leaf.diagnostics,
             &leaf.pattern.term.sort(),
             leaf.depth,
+            &mut run_wide,
         );
     }
     if let Some(path) = options.stop_leaves {
@@ -1366,9 +1398,7 @@ fn run_backend_with_solver(
         options.max_simplification_iterations,
     )?;
     if initial_is_bottom {
-        eprintln!(
-            "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
-        );
+        eprintln!("{INITIAL_BOTTOM_WARNING}");
     } else if finals.is_empty()
         && execution.leaves.iter().all(|leaf| {
             matches!(
@@ -2268,6 +2298,7 @@ mod undecided_reason_tests {
                 symbol a{}() : SortS{} [constructor{}(), functional{}()]
                 symbol f{}(SortS{}) : SortS{} [function{}()]
                 symbol g{}(SortS{}) : SortS{} [function{}()]
+                symbol h{}(SortS{}) : SortS{} [function{}()]
                 axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
                     f{}(X:SortS{}), \and{SortS{}}(a{}(), \top{SortS{}}())))
                     [simplification{}()]
@@ -2276,6 +2307,9 @@ mod undecided_reason_tests {
                     [simplification{}(),
                      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(test.k)"),
                      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,20)")]
+                axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                    h{}(X:SortS{}), \and{SortS{}}(a{}(), \top{SortS{}}())))
+                    [simplification{}()]
             endmodule []"#,
         )
         .expect("the definition parses");
@@ -2293,8 +2327,9 @@ mod undecided_reason_tests {
         assert_eq!(
             names,
             [
-                "at sentence index 4 (zero-based) of module MAIN",
-                "at test.k:7:3"
+                "at sentence index 5 (zero-based) of module MAIN",
+                "at test.k:7:3",
+                "at sentence index 7 (zero-based) of module MAIN"
             ]
         );
     }

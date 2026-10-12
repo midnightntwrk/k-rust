@@ -11,7 +11,7 @@ struct YYLTYPE {
   int last_line;
   int last_column;
   /* The span in bytes of the input, from the first byte to the byte after the last, that the
-     scanner read for the located phrase; `krust_read_text` gives its text. */
+     scanner read for the located phrase; `krust_kore_literal_at` reads its text. */
   size_t first_offset;
   size_t last_offset;
 };
@@ -33,7 +33,6 @@ typedef struct node {
 } node;
 
 typedef union value_type {
-  char *token;
   node *nterm;
 } value_type;
 
@@ -47,16 +46,19 @@ enum krust_token_kind {
   KRUST_TOKEN_BYTES,
 };
 
-/* The KORE string literal of the code points `token` gives by `kind`, or NULL when `token` is not
-   a literal of that kind; `*error` is then a message naming `sort`. */
+/* The KORE string literal of the code points the `length` bytes at `text` give by `kind`, or
+   NULL when they are not a literal of that kind; `*error` is then a message naming `sort`. The
+   text may hold NUL bytes: U+0000 is a character like any other. */
 char *krust_kore_literal(
-    const char *token, enum krust_token_kind kind, const char *sort, char **error);
+    const char *text, size_t length, enum krust_token_kind kind, const char *sort, char **error);
 
 /* Append the `length` bytes at `text`, which the scanner read next, to the input read so far,
    and set the byte span of `location` to the place they take in it. */
 void krust_read(YYLTYPE *location, const char *text, size_t length);
 
-/* The input text the byte span of `location` covers, NUL-terminated, in memory the caller owns. */
-char *krust_read_text(const YYLTYPE *location);
+/* `krust_kore_literal` of the input text the byte span of `location` covers: the text of a token,
+   or of the phrase a token subsort reads. */
+char *krust_kore_literal_at(
+    const YYLTYPE *location, enum krust_token_kind kind, const char *sort, char **error);
 
 #endif

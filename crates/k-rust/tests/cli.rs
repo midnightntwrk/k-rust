@@ -3090,38 +3090,40 @@ endmodule
 "#,
     )
     .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "MAIN",
-            "--sort",
-            "Int",
-            "--expression",
-            "1",
-            "--depth",
-            "0",
-        ])
-        .output()
-        .unwrap();
+    // An execution and a search both start from no configuration.
+    for mode in [&["--depth", "0"][..], &["--search-all"]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "Int",
+                "--expression",
+                "1",
+            ])
+            .args(mode)
+            .output()
+            .unwrap();
 
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "\\bottom{SortGeneratedTopCell{}}()\n"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains(
-            "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
-        ),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+        assert!(
+            output.status.success(),
+            "{mode:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "\\bottom{SortGeneratedTopCell{}}()\n"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(
+                "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
+            ),
+            "{mode:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -7237,7 +7239,7 @@ fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
             .next()
             .unwrap();
         assert!(
-            ground_output.contains("Stuck (certified) at depth ")
+            ground_output.contains("stuck (certified) at depth ")
                 && !ground_output.contains(r"\ceil{SortAddress{}"),
             "{module}: the ground stuck state is not a certified, obligation-free counterexample \
              in {ground_output}"
@@ -7279,7 +7281,7 @@ fn kprove_claim_condition_over_a_later_binding_is_stated_under_it() {
             stdout.contains(&format!("claim {module}-SPEC.main: disproved")),
             "{module}: {stdout}"
         );
-        assert!(stdout.contains("Stuck (certified)"), "{module}: {stdout}");
+        assert!(stdout.contains("stuck (certified)"), "{module}: {stdout}");
     }
 }
 
@@ -8507,7 +8509,7 @@ fn kprove_one_path_claim_fails_on_the_uncovered_case() {
         stdout.contains("claim ONEPATH-SPEC.c1: disproved"),
         "{stdout}"
     );
-    assert!(stdout.contains("Stuck (certified) at depth 1"), "{stdout}");
+    assert!(stdout.contains("stuck (certified) at depth 1"), "{stdout}");
 }
 
 #[test]
@@ -8630,7 +8632,7 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
         );
     }
     assert!(
-        rejected_stdout.contains("Trivial at depth 1"),
+        rejected_stdout.contains("trivial at depth 1"),
         "{rejected_stdout}"
     );
     assert!(
@@ -8722,7 +8724,7 @@ fn kprove_fails_a_claim_on_the_instances_a_rule_leaves_undefined() {
     ] {
         assert_eq!(verdict(&stdout, claim), "proven", "{claim}: {stdout}");
     }
-    assert!(stdout.contains("Trivial at depth 1"), "{stdout}");
+    assert!(stdout.contains("trivial at depth 1"), "{stdout}");
     assert!(stdout.contains("  undefined step: "), "{stdout}");
 
     // The one-path claims alone, so that no all-path claim with the same body is proven first
@@ -9440,7 +9442,7 @@ fn a_contradicted_total_attribute_is_named_without_changing_the_outcome() {
         let report = report(claim);
         assert!(
             report.starts_with("failed")
-                && report.contains("Vacuous at depth 1")
+                && report.contains("vacuous at depth 1")
                 && report.contains("attribute of")
                 && report.contains("is contradicted on this input"),
             "{claim}: {report}"
@@ -9452,7 +9454,7 @@ fn a_contradicted_total_attribute_is_named_without_changing_the_outcome() {
         let report = report(claim);
         assert!(
             report.starts_with("failed")
-                && report.contains("Trivial at depth 1")
+                && report.contains("trivial at depth 1")
                 && !report.contains("attribute of"),
             "{claim}: {report}"
         );
@@ -9501,7 +9503,7 @@ fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
             stdout.contains(&format!("claim ANDINT-SPEC.{claim}: {verdict}")),
             "{stdout}"
         );
-        assert_eq!(stdout.contains("Stuck (certified)"), certified, "{stdout}");
+        assert_eq!(stdout.contains("stuck (certified)"), certified, "{stdout}");
     }
     fs::remove_dir_all(root).unwrap();
 }
@@ -9640,7 +9642,7 @@ fn kprove_does_not_certify_a_stuck_leaf_over_an_empty_sort() {
             stdout.contains(&format!("claim VOID-SPEC.{claim}: {verdict}")),
             "{stdout}"
         );
-        assert_eq!(stdout.contains("Stuck (certified)"), certified, "{stdout}");
+        assert_eq!(stdout.contains("stuck (certified)"), certified, "{stdout}");
     }
     fs::remove_dir_all(root).unwrap();
 }
@@ -9713,7 +9715,7 @@ endmodule
             "EXIST-PROBE",
             "ab-false",
             "Lblst'LParUndsCommUndsRParUnds'EXIST-PROBE",
-            ("failed", "Stuck at depth 1"),
+            ("failed", "stuck at depth 1"),
         ),
         (
             "ex-spec.k",
@@ -9721,7 +9723,7 @@ endmodule
             "CELL-PROBE",
             "existential-wrong",
             "Lbl'-LT-'n'-GT-'{}(\\dv{SortInt{}}(\"5\"))",
-            ("disproved", "Stuck (certified) at depth 1"),
+            ("disproved", "stuck (certified) at depth 1"),
         ),
     ];
     for (specification, module, definition_module, claim, leaf_term, (verdict, leaf)) in cases {
@@ -9777,6 +9779,56 @@ endmodule
             assert!(!stdout.contains("--allow-vacuous accepts"), "{context}");
         }
     }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// An unproven leaf is printed by the name the host wire gives its outcome, and a leaf whose
+/// outcome has a reason in words prints it, every line of it indented as the leaf's line, before
+/// the configuration. Here the state's step reaches an application of a hook no evaluator or
+/// equation reduces, so the leaf is indeterminate whatever the solver.
+#[test]
+fn kprove_names_a_leaf_outcome_and_states_its_detail() {
+    let (root, _) = fixture();
+    let definition = root.join("hooked.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+    sort SortS{} []
+    symbol a{}() : SortS{} [constructor{}()]
+    symbol c{}() : SortS{} [constructor{}()]
+    hooked-symbol f{}(SortS{}) : SortS{} [function{}(), hook{}("NOSUCH.hook")]
+    alias weakAlwaysFinally{S}(S) : S
+        where weakAlwaysFinally{S}(@X:S) := @X:S []
+    axiom{} \rewrites{SortS{}}(
+        \and{SortS{}}(a{}(), \top{SortS{}}()),
+        f{}(a{}())
+    ) [label{}("to-hook")]
+    claim{} \implies{SortS{}}(
+        \and{SortS{}}(a{}(), \top{SortS{}}()),
+        weakAlwaysFinally{SortS{}}(c{}())
+    ) [label{}("hooked-claim")]
+endmodule []
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kprove", "--compiled-definition"])
+        .arg(&definition)
+        .args(["--main-module", "MAIN"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "claim hooked-claim: indeterminate (1 states, 0 unexplored)\n\
+         \x20 indeterminate at depth 0\n\
+         \x20 unsupported hook 'NOSUCH.hook' on constructor-like arguments: no evaluator in this \
+         backend, and no equation of the definition applies\n\
+         \x20 f{}(a{}())\n\
+         \x20   a{}()\n"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -10812,6 +10864,138 @@ endmodule
     );
 }
 
+/// A class range denotes the characters from its start to its end, whatever their encoded length:
+/// both parsers accept exactly those characters, and a range across the surrogate gap holds the
+/// characters on either side of it and nothing else; a range in a negated class removes its
+/// characters from the class.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_matches_a_class_range_of_non_ascii_characters() {
+    let definition = "
+module RANGES-SYNTAX
+  syntax Accented ::= r\"~[\u{E0}-\u{FF}]+\" [token]
+  syntax Gap ::= r\"@[\u{D7FF}-\u{E000}]\" [token]
+  syntax Outside ::= r\"%[^a-z\u{80}-\u{10FFFF}]\" [token]
+  syntax Pgm ::= \"a\" Accented | \"g\" Gap | \"o\" Outside
+endmodule
+
+module RANGES
+  imports RANGES-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+";
+    let programs = [
+        ("a ~\u{E0}\u{E9}\u{FF}", true),
+        ("a ~\u{E9}", true),
+        ("a ~\u{DF}", false),
+        ("a ~\u{100}", false),
+        ("a ~\u{E9}a", false),
+        ("g @\u{D7FF}", true),
+        ("g @\u{E000}", true),
+        ("g @\u{D7FE}", false),
+        ("g @\u{E001}", false),
+        ("o %A", true),
+        ("o %%", true),
+        ("o %a", false),
+        ("o %\u{80}", false),
+        ("o %\u{E9}", false),
+        ("o %\u{10FFFF}", false),
+    ];
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "RANGES",
+        "RANGES-SYNTAX",
+        &owned_programs(&programs),
+    );
+}
+
+/// U+0000 is a character like any other: a token whose text holds it is that whole text, in
+/// every kind of literal and in a token subsort's phrase, and its literal holds the character.
+/// A generated scanner keeps such a text whole whether it reads its input in chunks or, for an
+/// anchored rule, all at once.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_reads_a_token_holding_u0000_as_the_in_process_parser_does() {
+    for anchored in [false, true] {
+        let mark = if anchored {
+            "  syntax Mark ::= r\"^%[^ \\\\n]+\" [token]\n  syntax Pgm ::= \"k\" Mark\n"
+        } else {
+            ""
+        };
+        let definition = format!(
+            r#"
+module NUL-SYNTAX
+  syntax String [hook(STRING.String)]
+  syntax String ::= r"[\\\"](([^\\\"\\\\])|([\\\\][^\\n]))*[\\\"]" [token]
+  syntax Bytes [hook(BYTES.Bytes)]
+  syntax Bytes ::= r"b[\\\"](([^\\\"\\\\])|([\\\\][^\\n]))*[\\\"]" [token]
+  syntax Name ::= r"~[^ \\n]+" [token]
+  syntax MyName ::= Name [token]
+  syntax Pgm ::= "s" String | "y" Bytes | "n" Name | "m" MyName
+{mark}endmodule
+
+module NUL
+  imports NUL-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#
+        );
+        let mut programs = vec![
+            ("s \"a\0b\"", true),
+            ("s \"\0\"", true),
+            ("y b\"a\0b\"", true),
+            ("n ~a\0b", true),
+            ("n ~\0", true),
+            ("m ~a\0b", true),
+            ("n ~a\0 b", false),
+        ];
+        if anchored {
+            programs.push(("k\n%a\0b", true));
+        }
+        assert_parsers_give_each_program_one_term(
+            &definition,
+            "NUL",
+            "NUL-SYNTAX",
+            &owned_programs(&programs),
+        );
+    }
+}
+
+/// A `[token]` production of several items denotes one token whose text is the whole phrase it
+/// spans, from its first token to its last with the layout between them, not the text of its
+/// first item.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_reads_a_token_production_of_several_items_as_its_whole_phrase() {
+    let definition = r#"
+module PHRASE-SYNTAX
+  syntax Name ::= r"[a-z]+" [token]
+  syntax Paren ::= "(" Name ")" [token]
+  syntax Dotted ::= Name "." Name [token]
+  syntax Pgm ::= "p" Paren | "d" Dotted
+endmodule
+
+module PHRASE
+  imports PHRASE-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    let programs = [
+        ("p ( ab )", true),
+        ("p (ab)", true),
+        ("p (\n ab  )", true),
+        ("d ab . cd", true),
+        ("d ab.cd", true),
+        ("p ( ab", false),
+    ];
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "PHRASE",
+        "PHRASE-SYNTAX",
+        &owned_programs(&programs),
+    );
+}
+
 /// An anchored token that ends where a scanner reading its input in 8 KiB chunks would end a
 /// chunk must still see the newline after it.
 #[cfg(unix)]
@@ -10854,6 +11038,35 @@ fn regex_line_anchors_hold_at_every_line_end_a_location_counts() {
         definition,
         "LINE-END-SYNTAX",
         "LINE-END-SYNTAX",
+        &programs,
+    );
+}
+
+/// The default layout's line comment ends at a line end, and a line end is any line terminator a
+/// location counts: after each of them both scanners read the next token, which a comment that
+/// ran to the next `\n` would swallow. Every line end is also whitespace, so it separates two
+/// tokens. Without a line end, the comment runs to the end of the text.
+#[cfg(unix)]
+#[test]
+fn the_default_line_comment_ends_at_every_line_end_a_location_counts() {
+    const LINE_ENDS: [&str; 8] = [
+        "\n", "\r", "\r\n", "\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}",
+    ];
+    let definition = "module COMMENT-SYNTAX\n  syntax Pgm ::= \"a\" \"b\"\nendmodule\n";
+    let mut programs = LINE_ENDS
+        .iter()
+        .flat_map(|line_end| {
+            [
+                (format!("a // c\u{2027}é{line_end}b"), true),
+                (format!("a{line_end}b"), true),
+            ]
+        })
+        .collect::<Vec<_>>();
+    programs.push(("a // c\u{2027}é b".to_owned(), false));
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "COMMENT-SYNTAX",
+        "COMMENT-SYNTAX",
         &programs,
     );
 }
@@ -11313,8 +11526,9 @@ endmodule
 /// builds of one function from program text to a term, so each program must get the same term
 /// from both, modulo injections, or be rejected by both, and what the generated parser prints is
 /// KORE, whose string literals are printable ASCII. Programs: `[locations]` (both wrap, or
-/// neither), a non-ASCII token and a line separator matched by a negated class (a token is a
-/// sequence of characters), a `String` token holding non-ASCII and a control character, and
+/// neither), a two-byte and a three-byte character matched by a negated class (a token is a
+/// sequence of characters), a line separator between tokens (a line end, which the default
+/// layout skips), a `String` token holding non-ASCII and a control character, and
 /// operators whose nesting priority and associativity decide, among them a labelled production
 /// with one nonterminal and no terminal (`wrap`), below which neither parser judges an edge.
 #[cfg(unix)]
@@ -11352,7 +11566,8 @@ endmodule
             ("x + x", true),
             ("\"a\" + x", true),
             ("x + \u{e9}", true),
-            ("\u{2028}", true),
+            ("\u{2027}", true),
+            ("x +\u{2028}x", true),
             ("\"\u{e9}\u{1}\"", true),
             ("x + a", false),
         ]),
@@ -11393,6 +11608,149 @@ endmodule
             ("x + ", false),
         ]),
     );
+}
+
+/// A sort that declares `[locations]` asks that each term of it a program denotes be wrapped in
+/// `#location`, the symbol `K-LOCATIONS` declares. Without that module in the main module's view
+/// only `krun` needs the symbol, to build its configuration, and only for a program holding a
+/// located term: `kcompile` warns at the declaration and compiles, with or without a generated
+/// parser, which prints the located term; `kast` prints it too; `krun` runs a program with no
+/// located term and refuses one with a located term at that term's place in the program. The
+/// import anywhere in the main module's view, also through the syntax module, silences the
+/// warning, and `krun` then reads the program into located terms.
+#[cfg(unix)]
+#[test]
+fn a_located_sort_without_k_locations_warns_at_kcompile_and_krun_refuses_only_located_programs() {
+    let source = |syntax_imports: &str, main_imports: &str| {
+        format!(
+            r#"
+module LOC-SYNTAX
+  imports INT-SYNTAX{syntax_imports}
+  syntax Exp [locations]
+  syntax Exp ::= Int | Exp "+" Exp [left, symbol(plus)]
+  syntax Pgm ::= Exp | "skip" [symbol(skip)]
+endmodule
+
+module LOC
+  imports LOC-SYNTAX{main_imports}
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#
+        )
+    };
+    let kcompile = |definition: &Path, output: &Path, extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kcompile")
+            .arg(definition)
+            .args(["--main-module", "LOC", "--syntax-module", "LOC-SYNTAX"])
+            .arg("--output-directory")
+            .arg(output)
+            .args(extra)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let krun = |kompiled: &Path, program: &Path| {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg("--definition")
+            .arg(kompiled)
+            .args(["--sort", "Pgm", "--depth", "0"])
+            .arg(program)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let warning = "definition.k:4:3: Warning[MissingLocationsImport]: Sort Exp ";
+
+    let (root, definition) = fixture();
+    fs::write(&definition, source("", "")).unwrap();
+    let located = root.join("located.loc");
+    fs::write(&located, "1 + 2").unwrap();
+    let unlocated = root.join("unlocated.loc");
+    fs::write(&unlocated, "skip").unwrap();
+    for extra in [&[][..], &["--gen-bison-parser"][..]] {
+        let kompiled = root.join(format!("kompiled{}", extra.len()));
+        let output = kcompile(&definition, &kompiled, extra);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success()
+                && stderr.contains(warning)
+                && stderr.contains("Add `imports K-LOCATIONS` to LOC to run such programs."),
+            "{extra:?}: not compiled with the warning at the declaration: {stderr}"
+        );
+        if !extra.is_empty() {
+            let parsed = Command::new(kompiled.join("parser_PGM"))
+                .arg(&located)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            assert!(
+                parsed.status.success()
+                    && String::from_utf8_lossy(&parsed.stdout)
+                        .contains("Lbl'Hash'location{SortExp{}}("),
+                "{}",
+                String::from_utf8_lossy(&parsed.stderr)
+            );
+        }
+        let run = krun(&kompiled, &unlocated);
+        assert!(
+            run.status.success() && String::from_utf8_lossy(&run.stdout).contains("Lblskip{}()"),
+            "{extra:?}: a program without a located term does not run: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        let run = krun(&kompiled, &located);
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert!(
+            !run.status.success()
+                && stderr.contains(&format!(
+                    "{}:1:1-1:6: the value of `$PGM` holds a term of sort Exp, which declares 'locations'",
+                    located.display()
+                ))
+                && stderr.contains("Add `imports K-LOCATIONS` to LOC to run it."),
+            "{extra:?}: a located program is not refused at its located term: {stderr}"
+        );
+    }
+    let parsed = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kast")
+        .arg(&definition)
+        .args(["--module", "LOC", "--sort", "Pgm"])
+        .args(["--expression", "1 + 2"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        parsed.status.success()
+            && String::from_utf8_lossy(&parsed.stdout).contains("#location{Exp}"),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+
+    for (case, syntax_imports, main_imports) in [
+        ("main", "", "\n  imports K-LOCATIONS"),
+        ("syntax", "\n  imports K-LOCATIONS", ""),
+    ] {
+        let (root, definition) = fixture();
+        fs::write(&definition, source(syntax_imports, main_imports)).unwrap();
+        let kompiled = root.join("kompiled");
+        let output = kcompile(&definition, &kompiled, &[]);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success() && !stderr.contains("MissingLocationsImport"),
+            "{case}: {stderr}"
+        );
+        let program = root.join("program.loc");
+        fs::write(&program, "1 + 2").unwrap();
+        let run = krun(&kompiled, &program);
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        assert!(
+            run.status.success() && stdout.matches("Lbl'Hash'location{SortExp{}}(").count() == 3,
+            "{case}: {stdout}{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 /// A `#LineMarker` production says which text is a marker but not what the marker sets for the
@@ -11880,8 +12238,9 @@ endmodule
         (b"a\r".to_vec(), true),
         (b"b".to_vec(), true),
         (b"\rb".to_vec(), true),
-        ("\u{2028}b".as_bytes().to_vec(), false),
-        ("a\u{2028}".as_bytes().to_vec(), false),
+        // A line separator is a line end the default layout skips.
+        ("\u{2028}b".as_bytes().to_vec(), true),
+        ("a\u{2028}".as_bytes().to_vec(), true),
         (b"a\xE2\x80".to_vec(), false),
         (b"\xE2\x80b".to_vec(), false),
     ];
@@ -14678,7 +15037,7 @@ fn refuted_leaf(claim: &str) -> (String, String, Vec<String>) {
     (
         claim.to_owned(),
         "disproved".to_owned(),
-        vec!["Stuck (certified)".to_owned()],
+        vec!["stuck (certified)".to_owned()],
     )
 }
 
@@ -14687,7 +15046,7 @@ fn failed_stuck_leaf(claim: &str) -> (String, String, Vec<String>) {
     (
         claim.to_owned(),
         "failed".to_owned(),
-        vec!["Stuck".to_owned()],
+        vec!["stuck".to_owned()],
     )
 }
 
@@ -15073,7 +15432,7 @@ endmodule
             !outcomes.is_empty()
                 && outcomes
                     .iter()
-                    .all(|outcome| outcome == "Stuck (certified)"),
+                    .all(|outcome| outcome == "stuck (certified)"),
             "{extra:?}: {leaves:?}"
         );
     }
@@ -15117,8 +15476,8 @@ endmodule
     ];
     // The stuck check stops `st(X)` with `X >Int 5`, which still rewrites: a failed claim, not a
     // refutation. The reached `st(0)` of the false claims has no successor: a certified one.
-    let stopped = || ("failed".to_owned(), vec!["Stuck".to_owned()]);
-    let refuted = || ("disproved".to_owned(), vec!["Stuck (certified)".to_owned()]);
+    let stopped = || ("failed".to_owned(), vec!["stuck".to_owned()]);
+    let refuted = || ("disproved".to_owned(), vec!["stuck (certified)".to_owned()]);
     let fixture = ProofFixture::new(
         ("remainder-probe.k", definition),
         ("remainder-spec.k", specification),
@@ -15479,7 +15838,7 @@ endmodule
         "{leaves:?}"
     );
     assert!(
-        leaves[0].2.iter().any(|leaf| leaf == "Stuck (certified)"),
+        leaves[0].2.iter().any(|leaf| leaf == "stuck (certified)"),
         "{leaves:?}"
     );
 

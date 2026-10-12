@@ -455,11 +455,13 @@ continues rewriting and, if it cannot move, ends indeterminate.
 `--save-proofs` reuses a proven all-path claim for the same one-path body, but does not reuse a one-path proof for an all-path claim.
 Saved proof files written before modality-aware proof identities are rejected; remove the old file and rerun `kprove` to regenerate it.
 
-Each selected claim prints `claim <label>: <verdict>`, followed by its unproven leaves:
+Each selected claim prints `claim <label>: <verdict>`, followed by its unproven leaves, each as
+`<outcome> at depth <n>` with the outcome named as the host bindings name it (below), then its
+detail in words when it has one, then its configuration:
 
 - `proven`: every leaf reached the destination.
 - `disproved`: the claim is false. Some leaf is a certified stuck leaf, printed
-  `Stuck (certified)`: it was reached on an all-path trace (or a one-path trace on which every
+  `stuck (certified)`: it was reached on an all-path trace (or a one-path trace on which every
   step kept every successor of every configuration it covered) without a circularity or trusted
   claim, every destination check on the way was decided, and it has a configuration outside the
   destination with no successor. That configuration is shown either for the whole leaf or for its
@@ -476,8 +478,8 @@ Each selected claim prints `claim <label>: <verdict>`, followed by its unproven 
   (no `?X` and no disjunction).
 - `failed`: the proof stopped at a leaf outside the destination that it did not continue (an
   uncertified stuck leaf, such as a stuck-check stop or a leaf whose non-emptiness rests on an
-  abstracted SMT query), or at an empty leaf that the vacuity policy rejects (`Trivial`, `Vacuous`).
-  It does not show the claim false. A `Trivial` leaf holds the instances whose step is undefined: a
+  abstracted SMT query), or at an empty leaf that the vacuity policy rejects (`trivial`, `vacuous`).
+  It does not show the claim false. A `trivial` leaf holds the instances whose step is undefined: a
   rule applies to them, but its result is empty there (a refuted or undecided `ensures`, or an
   undefined right-hand side) and no rule of the same priority gives them a defined result; a
   one-path step also offers them to the later rules of that priority. Such a
@@ -488,8 +490,12 @@ Each selected claim prints `claim <label>: <verdict>`, followed by its unproven 
 
 When leaves disagree the first word of this list applies, in the order `disproved`, `failed`,
 `indeterminate`, `depth bound`, `breadth bound`. The Node.js and WebAssembly `status` field uses the
-same words, with `depth-bound` and `breadth-bound`. The exit status is 0 exactly when every selected
-claim is proven. `--compiled-definition` accepts either a `kcompile --for-proving` output
+same words, with `depth-bound` and `breadth-bound`. Each of their leaves names its `outcome`:
+`proven`, `trusted`, `stuck`, `trivial`, `vacuous`, `depth-bound`, `breadth-bound`, `timeout`,
+`stack-exhausted` or `indeterminate`, the last three with a `detail` in words for a reader; their
+`implies` names a failed implication's `failure` as `term-mismatch`, `partial-coverage` or
+`consequent-condition` (`typescript/index.ts` of either package states what each means). The
+exit status is 0 exactly when every selected claim is proven. `--compiled-definition` accepts either a `kcompile --for-proving` output
 directory or its `definition.kore` file. Without a positional source file, it never reloads the
 original K sources. With a source file, it uses the neighboring `krust.json` and the
 `parsed.provenance.json` it names to compile that new specification against the prepared semantics. `--load-only`

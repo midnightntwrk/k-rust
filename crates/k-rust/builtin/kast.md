@@ -506,11 +506,16 @@ for the purposes of parsing K rules. If you wish to declare a language with
 no layout productions, simply create a sort declaration for the `#Layout` sort
 in your code (e.g. `syntax #Layout`).
 
+A line end is any of the line terminators a source location counts: `\n`
+through `\r` (line feed, vertical tab, form feed and carriage return), U+0085,
+U+2028 and U+2029, the last three written below as the characters themselves.
+A single-line comment ends at a line end, and every line end is whitespace.
+
 ```k
 module DEFAULT-LAYOUT
     syntax #Layout ::= r"(\\/\\*([^\\*]|(\\*+([^\\*\\/])))*\\*+\\/)" // C-style multi-line comments
-                     | r"(\\/\\/[^\\n\\r]*)"                         // C-style single-line comments
-                     | r"([\\ \\n\\r\\t])"                           // Whitespace
+                     | r"(\\/\\/[^\\n-\\r  ]*)"                     // C-style single-line comments
+                     | r"([\\ \\t\\n-\\r  ])"                       // Whitespace
 endmodule
 ```
 

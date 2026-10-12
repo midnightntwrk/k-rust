@@ -1194,7 +1194,7 @@ fn write_production(
     {
         write_subsort_action(output, sort, items, attributes, &placements)?;
     } else if attributes.has(AttributeKey::Token) && is_subsort {
-        write_token_subsort_action(output, sort, sort_catalog, has_location);
+        write_token_action(output, sort, sort_catalog, has_location);
     } else if is_subsort
         && (attributes.has(AttributeKey::NotInjection)
             || attributes.has(AttributeKey::BisonParsingOnlySubsort))
@@ -1368,6 +1368,15 @@ fn write_list_closers(
     Ok(())
 }
 
+/// A token reads the input text its production's phrase spans (`@$`, from the byte spans
+/// `krust_read` records for every token the scanner returns) as a literal of its sort's hook: the
+/// one token of `syntax Int ::= r"[0-9]+" [token]`, the whole phrase `( ab )` of
+/// `syntax T ::= "(" Name ")" [token]`, or, for a token subsort (`syntax MyStr ::= String
+/// [token]`), its child's phrase, so a token subsort's literal is that text decoded by its own
+/// sort's hook, not the child's literal, and a phrase that no token production read
+/// (`syntax MyTok ::= Pair [token]`) is a token of the sort all the same. A phrase's text runs
+/// from the first character of its first token to the last of its last, with the layout between
+/// them. The text is every byte of the span, so a token holding U+0000 keeps it.
 fn write_token_action(
     output: &mut String,
     sort: &Sort,
@@ -1379,7 +1388,7 @@ fn write_token_action(
     let sort = c_kore_sort(sort);
     writeln!(
         output,
-        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal($1.token, {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
+        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal_at(&@$, {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
         u8::from(has_location)
     )
     .expect("writing to a string cannot fail");
@@ -1506,28 +1515,6 @@ fn write_subsort_action(
         .expect("writing to a string cannot fail");
     }
     Ok(())
-}
-
-/// A token subsort (`syntax MyStr ::= String [token]`) reads the input text its child's phrase
-/// spans as a token of its own sort, so its literal is that text decoded by its own sort's hook,
-/// not the child's literal, and a phrase that no token production read (`syntax MyTok ::= Pair
-/// [token]`) is a token of the sort all the same. The text runs from the first character of the
-/// phrase's first token to the last of its last, with the layout between them.
-fn write_token_subsort_action(
-    output: &mut String,
-    sort: &Sort,
-    sort_catalog: &SortCatalog<'_>,
-    has_location: bool,
-) {
-    let kind = token_literal_kind(sort, sort_catalog);
-    let sort_name = escape_c_string(&sort.to_string());
-    let sort = c_kore_sort(sort);
-    writeln!(
-        output,
-        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal(krust_read_text(&@1), {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
-        u8::from(has_location)
-    )
-    .expect("writing to a string cannot fail");
 }
 
 #[allow(clippy::too_many_arguments)]

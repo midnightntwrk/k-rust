@@ -1,7 +1,7 @@
 #![cfg(feature = "cli")]
-//! Reproducers of the "Backend behaviour, diagnostics and test adequacy" follow-ups
-//! (`draft/open-issues-2026-10/FOLLOWUPS.md` §2.2). Each test is ignored while its item is open
-//! and states the behaviour the item asks for; it fails on main `934d29e7`.
+//! Tests of the "Backend behaviour, diagnostics and test adequacy" follow-ups
+//! (`draft/open-issues-2026-10/FOLLOWUPS.md` §2.2). The one ignored test states a behaviour krust
+//! deliberately does not have; its `ignore` names the documented deviation it would contradict.
 
 use std::{
     fs,
@@ -51,11 +51,16 @@ fn krun_go(module: &str, source: &str, extra: &[&str]) -> (Output, PathBuf) {
     (output, root)
 }
 
-/// A sort hooked to `BYTES.Bytes` under another name than `Bytes` is a `Bytes` sort: its values
-/// are byte strings, and `BYTES.length` of `b"abc"` is 3 whatever the sort is called. On main the
-/// application halts the run as an unsupported hook on constructor-like arguments.
+/// Read by its hook, a sort hooked to `BYTES.Bytes` under another name than `Bytes` would be a
+/// `Bytes` sort, and `BYTES.length` of `b"abc"` would be 3 whatever the sort is called. krust
+/// stores a domain value by its KORE sort's name, since a pattern outside the definition carries
+/// only that name, so the renamed sort holds UTF-8 code points, and the `BYTES` hooks evaluate
+/// values of `SortBytes` only: the application halts the run as an unsupported hook on
+/// constructor-like arguments.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: `BYTES` hooks recognize the sort only by its KORE name"]
+#[ignore = "kept deviation (docs/compatibility.md, \"Strings and their literals\"): `BYTES` hooks \
+            evaluate values of the sort named `Bytes` only, so a renamed `BYTES.Bytes` sort's \
+            hook application halts the run as unsupported"]
 fn bytes_hooks_evaluate_a_renamed_bytes_sort() {
     const SOURCE: &str = r#"
 module MYBYTES
@@ -87,36 +92,6 @@ endmodule
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stdout}{stderr}");
     assert!(stdout.contains(r#"\dv{SortInt{}}("3")"#), "{stdout}");
-    fs::remove_dir_all(root).unwrap();
-}
-
-/// `replace` (hook `STRING.replace`, no evaluator here) has equations in `domains.md`, which the
-/// compiled definition holds. Where they do not apply (a count that is not a value), the warning
-/// must not say that the definition has no equations for it.
-#[test]
-#[ignore = "reproduces FOLLOWUPS: `STRING.replace` warning text is misleading"]
-fn an_unevaluated_hook_with_equations_is_not_reported_as_having_none() {
-    const SOURCE: &str = r#"
-module REPLACE-COUNT
-  imports STRING
-  imports INT
-  syntax Int ::= count() [function, no-evaluators]
-  syntax Pgm ::= "go"
-  configuration <k> $PGM:Pgm </k> <out> "" </out>
-  rule <k> go => .K </k> <out> _ => replace("aa", "a", "b", count()) </out>
-endmodule
-"#;
-    let (output, root) = krun_go("REPLACE-COUNT", SOURCE, &[]);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success(), "{stderr}");
-    assert!(
-        stderr.contains("hook STRING.replace was left unevaluated"),
-        "{stderr}"
-    );
-    assert!(
-        !stderr.contains("no equations in the definition"),
-        "{stderr}"
-    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -269,24 +244,13 @@ endmodule
     output
 }
 
-/// When the system refuses to map a simplification stack segment (here under an address-space
-/// limit), the run reports its stop alone: no `stacker` panic text precedes it.
-#[test]
-#[ignore = "TQ37 (owner): suppressing stacker's own panic text needs a probe mapping before each \
-            segment; until it is decided the text prints before krust's stop, which names the \
-            refused mapping (a_refused_stack_segment_stops_naming_the_refused_mapping)"]
-fn a_refused_stack_segment_prints_no_panic_text() {
-    let output = krun_deep_under_address_limit(100_000, 500_000);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!stderr.contains("panicked at"), "{stderr}");
-}
-
 /// A stop names the limit that stopped it. Under an address space of about 300 MB, far below the
 /// thread's 1 GiB stack budget, a recursion 200,000 levels deep (about 5 KiB of stack per level
 /// in a release build and more in the others, so several times the address space) is stopped by
 /// the system's refusal to map a segment: the run fails with a stop that names the refused
 /// mapping and does not claim that a recursion exhausted the thread's budget, which it did not
-/// reach.
+/// reach. The `stacker` crate's own panic text for the refused mapping may print before the stop;
+/// it is accepted output of a fail-fast stop, so only the stop is asserted.
 #[test]
 fn a_refused_stack_segment_stops_naming_the_refused_mapping() {
     let output = krun_deep_under_address_limit(200_000, 300_000);

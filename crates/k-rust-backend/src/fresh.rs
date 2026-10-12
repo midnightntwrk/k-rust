@@ -147,7 +147,7 @@ impl RequestNames {
     /// `pattern` as a state of this request whatever names the request's counter gave its
     /// other variables: the pattern under [`RequestNames::canonical`]'s renaming, its
     /// constraints sorted (a conjunction, so their order does not change what the state
-    /// denotes).
+    /// denotes) and the two sides of each equality in order (equality is symmetric).
     ///
     /// A variable of a state that the request does not name was introduced into it by a
     /// rewrite (a right-hand-side existential, a rule variable the match left unbound, a
@@ -155,7 +155,8 @@ impl RequestNames {
     /// alone (docs/compatibility.md#result-variables), so an injective renaming of such
     /// variables that fixes the request's names gives a state that denotes the same
     /// configurations and whose successors are the renamed successors. Two states with equal
-    /// keys are such renamings of each other, up to the order of conjuncts: each key is its
+    /// keys are such renamings of each other, up to the order of conjuncts and of the sides of
+    /// an equality: each key is its
     /// state under an injective renaming that fixes the request's names, so the second state
     /// is the first under the first key's renaming followed by the inverse of the second's.
     /// Conversely, two such renamings of one state have equal keys, except where
@@ -212,9 +213,9 @@ impl RequestNames {
     ///
     /// The result must not depend on the names it replaces, so that every injective renaming
     /// of those variables gets one key. A numbering is built by [`Numbering::refine`]: the
-    /// variables in order of first occurrence, visiting the elements of a map or a set and the
-    /// operands of a conjunction or a disjunction (stored in an order that compares names) in
-    /// the order of a label that sees a renamed variable only through its kind, its sort and
+    /// variables in order of first occurrence, visiting the elements of a map or a set, the
+    /// operands of a conjunction or a disjunction and the two sides of an equality (stored in
+    /// an order that may compare names) in the order of a label that sees a renamed variable only through its kind, its sort and
     /// its number, if it has one. Elements whose labels tie are passed over until the numbers
     /// their variables receive elsewhere tell them apart. When nothing more tells tied
     /// elements apart, the search numbers next, in turn, each variable that occurs in the
@@ -334,7 +335,8 @@ impl Object<'_> {
 }
 
 /// `predicates`, a conjunction, as a set: the operands of every conjunction and disjunction
-/// and the predicates themselves sorted and deduplicated.
+/// and the predicates themselves sorted and deduplicated, and the two sides of every equality
+/// in order ([`sort_operands`]).
 fn conjunction_set(mut predicates: Vec<Predicate>) -> Vec<Predicate> {
     for predicate in &mut predicates {
         sort_operands(predicate);
@@ -662,7 +664,17 @@ impl<'n, 'r> Pass<'n, 'r> {
             Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
                 self.term(term);
             }
-            Predicate::Equals(left, right) | Predicate::In(left, right) => {
+            // The two sides of an equality are unordered, like the operands of a conjunction.
+            Predicate::Equals(left, right) => {
+                let sides = [left, right]
+                    .into_iter()
+                    .filter(|side| self.numbering.term_pending(side))
+                    .collect::<Vec<_>>();
+                for side in self.order(sides, Self::label, pending_of_term) {
+                    self.term(side);
+                }
+            }
+            Predicate::In(left, right) => {
                 self.term(left);
                 self.term(right);
             }
@@ -832,7 +844,10 @@ impl<'n, 'r> Pass<'n, 'r> {
             Predicate::True => hash_of(&10u8),
             Predicate::False => hash_of(&11u8),
             Predicate::Term(term) => hash_of(&(12u8, self.label(term))),
-            Predicate::Equals(left, right) => hash_of(&(13u8, self.label(left), self.label(right))),
+            Predicate::Equals(left, right) => {
+                let (left, right) = (self.label(left), self.label(right));
+                hash_of(&(13u8, left.min(right), left.max(right)))
+            }
             Predicate::Ceil(term) => hash_of(&(14u8, self.label(term))),
             Predicate::Floor(term) => hash_of(&(15u8, self.label(term))),
             Predicate::In(left, right) => hash_of(&(16u8, self.label(left), self.label(right))),
@@ -984,14 +999,21 @@ impl CanonicalRenaming {
     }
 }
 
-/// Sort and deduplicate the operands of every conjunction and disjunction in `predicate`.
+/// Sort and deduplicate the operands of every conjunction and disjunction in `predicate`, and
+/// put the two sides of every equality in order: `\equals(a, b)` and `\equals(b, a)` denote
+/// the same predicate, and which side a backend operation stores first may depend on the
+/// names of the variables a key renames.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn sort_operands(predicate: &mut Predicate) {
     match predicate {
+        Predicate::Equals(left, right) => {
+            if right < left {
+                std::mem::swap(left, right);
+            }
+        }
         Predicate::True
         | Predicate::False
         | Predicate::Term(_)
-        | Predicate::Equals(..)
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
@@ -1477,6 +1499,58 @@ mod tests {
         assert_ne!(
             request.state_key(&state("Ex#A!1", "Ex#B!2", false)),
             request.state_key(&state("Ex#A!1", "Ex#A!1", false))
+        );
+    }
+
+    /// `\equals(a, b)` and `\equals(b, a)` denote the same predicate, and which side an
+    /// operation stores first may follow the names of its variables (`!10` before `!3`). So
+    /// two renamings of a state that store an equality's sides in the two orders share a key,
+    /// whether the term numbers the equality's variables first (`go(X, Y)`) or only the
+    /// equality and another constraint do; an equality with another constraint on the other
+    /// side (which no renaming reaches) does not.
+    #[test]
+    fn a_state_key_does_not_depend_on_the_order_of_the_sides_of_an_equality() {
+        let request = RequestNames::default();
+        let element = |name: &str| Term::variable(variable(name));
+        let numbered = |first: &str, second: &str, swap: bool| {
+            let (left, right) = if swap {
+                (element(second), element(first))
+            } else {
+                (element(first), element(second))
+            };
+            Pattern {
+                term: go(vec![element(first), element(second)]),
+                constraints: vec![Predicate::Not(Box::new(Predicate::Equals(left, right)))],
+            }
+        };
+        assert_eq!(
+            request.state_key(&numbered("Ex#K!3", "Ex#K!9", false)),
+            request.state_key(&numbered("Ex#K!3", "Ex#K!10", true))
+        );
+        let unnumbered = |left: &str, right: &str, defined: &str| Pattern {
+            term: go(Vec::new()),
+            constraints: vec![
+                Predicate::Equals(element(left), element(right)),
+                Predicate::Ceil(element(defined)),
+            ],
+        };
+        assert_eq!(
+            request.state_key(&unnumbered("Ex#X!1", "Ex#Y!2", "Ex#Y!2")),
+            request.state_key(&unnumbered("Ex#A!3", "Ex#B!4", "Ex#A!3"))
+        );
+        assert_eq!(
+            request.state_key(&unnumbered("Ex#X!1", "Ex#Y!2", "Ex#X!1")),
+            request.state_key(&unnumbered("Ex#X!1", "Ex#Y!2", "Ex#Y!2"))
+        );
+        assert_ne!(
+            request.state_key(&unnumbered("Ex#X!1", "Ex#Y!2", "Ex#Y!2")),
+            request.state_key(&Pattern {
+                term: go(Vec::new()),
+                constraints: vec![
+                    Predicate::Equals(element("Ex#X!1"), element("Ex#Y!2")),
+                    Predicate::Ceil(element("Ex#Z!3")),
+                ],
+            })
         );
     }
 

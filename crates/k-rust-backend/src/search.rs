@@ -105,8 +105,9 @@ use crate::{
         match_terms_in_definition,
     },
     rewrite::{
-        AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
-        TraceKind, Truth, UndecidedStep, predicates_truth, rewrite_step_with_options,
+        AppliedRule, IndeterminateReason, InitialDefinedness, Pattern, RemainderBranch,
+        RewriteResult, TraceEntry, TraceKind, Truth, UndecidedStep, initial_definedness,
+        predicates_truth, rewrite_step_restricted, rewrite_step_with_options,
         simplify_result_pattern, stuck,
     },
     rule::Predicate,
@@ -367,14 +368,15 @@ pub enum SearchEnd<E> {
 /// ```compile_fail
 /// use k_rust_backend::search::SearchResult;
 ///
-/// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![] };
+/// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![],
+/// initial_bottom: false };
 /// ```
 ///
 /// ```
 /// use k_rust_backend::{search::{SearchEnd, SearchResult}, stop::StopCause};
 ///
 /// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![], end:
-/// SearchEnd::Stopped(StopCause::Cancelled) };
+/// SearchEnd::Stopped(StopCause::Cancelled), initial_bottom: false };
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchResult {
@@ -383,6 +385,13 @@ pub struct SearchResult {
     /// The states whose exploration was not finished.
     pub incomplete: Vec<IncompleteSearch>,
     pub end: SearchEnd<UnexploredWork>,
+    /// Whether every initial state was found to have no instance before any step: its
+    /// constraints simplified to `\bottom`, a fact of its knowledge refuted, or the definedness
+    /// obligations of its term refuted under its constraints. The search then started from no
+    /// configuration, which an empty result alone does not distinguish from one that reached no
+    /// result. False when an initial state was left undecided (a bound, a stop, an incomplete
+    /// entry).
+    pub initial_bottom: bool,
 }
 
 impl SearchResult {
@@ -424,6 +433,8 @@ pub struct PathSearchResult {
     /// The states whose exploration was not finished.
     pub incomplete: Vec<IncompleteSearch>,
     pub end: SearchEnd<Truncation>,
+    /// Whether every initial state had no instance, as for [`SearchResult::initial_bottom`].
+    pub initial_bottom: bool,
 }
 
 impl PathSearchResult {
@@ -475,6 +486,8 @@ pub struct PatternSearchResult {
     /// The states whose exploration was not finished.
     pub incomplete: Vec<IncompleteSearch>,
     pub end: SearchEnd<UnexploredWork>,
+    /// Whether every initial state had no instance, as for [`SearchResult::initial_bottom`].
+    pub initial_bottom: bool,
 }
 
 impl PatternSearchResult {
@@ -506,6 +519,8 @@ pub struct PatternPathSearchResult {
     /// The states whose exploration was not finished.
     pub incomplete: Vec<IncompleteSearch>,
     pub end: SearchEnd<Truncation>,
+    /// Whether every initial state had no instance, as for [`SearchResult::initial_bottom`].
+    pub initial_bottom: bool,
 }
 
 impl PatternPathSearchResult {
@@ -715,6 +730,9 @@ fn search_graph_collecting(
     // introduced a variable apart, since the request's counter names the two variables apart.
     let mut expanded: HashSet<(u64, Pattern, bool)> = HashSet::new();
 
+    // The initial states, and those of them found to have no instance before any step.
+    let initial_count = initial.len();
+    let mut initial_without_instance = 0;
     let mut pending = VecDeque::with_capacity(initial.len());
     // Invariant: `pending` holds, in input order, the initial states without a surviving macro or
     // alias symbol, and `incomplete` one entry per other initial state.
@@ -755,6 +773,7 @@ fn search_graph_collecting(
             effects,
             incomplete,
             end: SearchEnd::BreadthBound(exceeded),
+            initial_bottom: false,
         };
     }
     if options.max_results == Some(0) {
@@ -763,6 +782,7 @@ fn search_graph_collecting(
             effects,
             incomplete,
             end: remaining(&pending, || false).result_bound(|unexplored| unexplored),
+            initial_bottom: false,
         };
     }
 
@@ -907,11 +927,14 @@ fn search_graph_collecting(
         // A configuration whose constraint is false denotes no state: it has no instance to
         // report and none to rewrite, so it is neither a result nor a node to expand.
         if predicates_truth(&state.pattern.constraints) == Truth::False {
+            if state.depth == 0 && is_rewritable {
+                initial_without_instance += 1;
+            }
             continue;
         }
         // An initial state whose own definedness is refuted is skipped for the same reason: it
-        // has no instance either.
-        match initial_state_is_empty(
+        // has no instance either. Otherwise its decided definedness restricts its step.
+        let defined_where = match initial_state_definedness(
             definition,
             &state,
             is_rewritable,
@@ -919,13 +942,16 @@ fn search_graph_collecting(
             solver,
             &mut diagnostics,
         ) {
-            Ok(true) => continue,
-            Ok(false) => {}
+            Ok(None) => {
+                initial_without_instance += 1;
+                continue;
+            }
+            Ok(Some(defined_where)) => defined_where,
             Err(stop) => publish_stop!(
                 materialize_search_state(state, observation_head, &diagnostics, &observation_log),
                 stop
             ),
-        }
+        };
         // A duplicate takes its own path's diagnostics with it: the state kept for this key
         // reports the path recorded first, like its trace.
         if !expanded.insert((
@@ -1014,6 +1040,7 @@ fn search_graph_collecting(
         let (rewrite, step_diagnostics) = step_search_state(
             definition,
             &state.pattern,
+            &defined_where,
             kind,
             &mut fresh_counter,
             &options,
@@ -1181,6 +1208,7 @@ fn search_graph_collecting(
         effects,
         incomplete,
         end,
+        initial_bottom: initial_count != 0 && initial_without_instance == initial_count,
     }
 }
 
@@ -1211,41 +1239,56 @@ impl SearchWorkState {
     }
 }
 
-/// Whether `state`, popped as `is_rewritable`, is an initial state with no instance by its own
-/// definedness (I7'); the decision's diagnostics join `diagnostics`.
+/// The decided definedness of `state`, popped as `is_rewritable`, which restricts what its step
+/// leaves over, or `None` for an initial state with no instance by its own definedness (I7');
+/// the decisions' diagnostics join `diagnostics`.
 ///
 /// A pattern `t ∧ φ` denotes `⌈t⌉ ∧ t ∧ φ`. An initial state is the caller's pattern, whose
 /// facts (the members of its knowledge that are not among its constraints) nothing has decided,
 /// so a refuted fact means it has no instance, exactly as constraints simplified to `\bottom` do.
-/// A successor needs no decision: the step that produced it decided its right-hand side's
+/// Otherwise the obligations of `t` that `φ` leaves open ([`initial_definedness`]) are where it
+/// is defined: its instances where they fail are no states, so its step offers no lower
+/// priority, remainder or stuck result any of them, and a
+/// [`BackendDiagnostic::UndefinedInitialInstances`] on its path names them. A successor needs no
+/// decision (none is returned): the step that produced it decided its right-hand side's
 /// definedness, and term simplification conjoins its own obligations. The initial states are
 /// exactly the rewritable states at depth 0, since a successor is queued at its step's depth + 1
 /// and a step's remainder, which carries its state's term, at the step's depth as `Remaining`.
-fn initial_state_is_empty(
+fn initial_state_definedness(
     definition: &BackendDefinition,
     state: &SearchState,
     is_rewritable: bool,
     max_simplification_iterations: usize,
     solver: &dyn SmtSolver,
     diagnostics: &mut PathDiagnostics,
-) -> Stoppable<bool> {
+) -> Stoppable<Option<Vec<Predicate>>> {
     if state.depth != 0 || !is_rewritable {
-        return Ok(false);
+        return Ok(Some(Vec::new()));
     }
+    let options = SimplificationOptions {
+        max_iterations: max_simplification_iterations,
+        ..SimplificationOptions::default()
+    };
     let (verdict, emitted) = diagnostic::collect(|| {
-        UndecidedFacts::of_pattern(definition, &state.pattern).decide(
-            definition,
-            SimplificationOptions {
-                max_iterations: max_simplification_iterations,
-                ..SimplificationOptions::default()
-            },
-            solver,
-        )
+        UndecidedFacts::of_pattern(definition, &state.pattern).decide(definition, options, solver)
     });
     diagnostics.extend(&emitted);
-    Ok(match verdict? {
-        FactsVerdict::Refuted => true,
-        FactsVerdict::NotRefuted(_) => false,
+    if let FactsVerdict::Refuted = verdict? {
+        return Ok(None);
+    }
+    let (definedness, emitted) =
+        diagnostic::collect(|| initial_definedness(definition, &state.pattern, options, solver));
+    diagnostics.extend(&emitted);
+    Ok(match definedness? {
+        InitialDefinedness::Undefined => None,
+        InitialDefinedness::Where(definedness) => {
+            if !definedness.is_empty() {
+                diagnostics.extend(&[BackendDiagnostic::UndefinedInitialInstances {
+                    definedness: definedness.clone(),
+                }]);
+            }
+            Some(definedness)
+        }
     })
 }
 
@@ -1267,18 +1310,20 @@ fn materialize_search_state(
 fn step_search_state(
     definition: &BackendDefinition,
     pattern: &Pattern,
+    defined_where: &[Predicate],
     kind: QueuedStateKind,
     fresh_counter: &mut FreshCounter,
     options: &SearchOptions,
     solver: &dyn SmtSolver,
 ) -> (Stoppable<RewriteResult>, Vec<BackendDiagnostic>) {
     diagnostic::collect(|| match kind {
-        QueuedStateKind::Rewritable => rewrite_step_with_options(
+        QueuedStateKind::Rewritable => rewrite_step_restricted(
             definition,
             pattern,
             fresh_counter,
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
+            defined_where,
         ),
         QueuedStateKind::Remaining(None) => stuck(definition, pattern),
         QueuedStateKind::Remaining(Some(undecided)) => Ok(undecided.into_result(pattern.clone())),
@@ -1557,6 +1602,7 @@ fn search_paths_collecting(
             effects,
             incomplete,
             end: SearchEnd::BreadthBound(exceeded),
+            initial_bottom: false,
         };
     }
     if options.max_results == Some(0) {
@@ -1565,9 +1611,12 @@ fn search_paths_collecting(
             effects,
             incomplete,
             end: remaining(&pending, || false).result_bound(Truncation::UnexploredWork),
+            initial_bottom: false,
         };
     }
 
+    // Whether the one initial state was found to have no instance before any step.
+    let mut initial_bottom = false;
     // Invariant: a queued path's `visited` is exactly its own patterns, so paths stay simple.
     let end = loop {
         let mut path = match pop_or_exhausted(&mut pending) {
@@ -1676,9 +1725,12 @@ fn search_paths_collecting(
         // A path ends at a state with no instance: one whose constraints are false, or an
         // initial state whose own definedness is refuted.
         if predicates_truth(&path.state.pattern.constraints) == Truth::False {
+            if path.state.depth == 0 && is_rewritable {
+                initial_bottom = true;
+            }
             continue;
         }
-        match initial_state_is_empty(
+        let defined_where = match initial_state_definedness(
             definition,
             &path.state,
             is_rewritable,
@@ -1686,10 +1738,13 @@ fn search_paths_collecting(
             solver,
             &mut path.diagnostics,
         ) {
-            Ok(true) => continue,
-            Ok(false) => {}
+            Ok(None) => {
+                initial_bottom = true;
+                continue;
+            }
+            Ok(Some(defined_where)) => defined_where,
             Err(stop) => publish_stop!(stop),
-        }
+        };
         // A path that reaches a state it already visited, up to the names of the variables the
         // request did not name, is a cycle: the state's continuations are those of the earlier
         // visit, renamed.
@@ -1766,6 +1821,7 @@ fn search_paths_collecting(
         let (rewrite, step_diagnostics) = step_search_state(
             definition,
             &path.state.pattern,
+            &defined_where,
             path.kind.clone(),
             &mut fresh_counter,
             &options,
@@ -1903,6 +1959,7 @@ fn search_paths_collecting(
         effects,
         incomplete,
         end,
+        initial_bottom,
     }
 }
 
@@ -2073,6 +2130,7 @@ fn search_pattern_using(
             effects: Vec::new(),
             incomplete: Vec::new(),
             end: remaining(initial.as_slice(), || false).result_bound(|unexplored| unexplored),
+            initial_bottom: false,
         };
     }
     let graph_options = SearchOptions {
@@ -2153,6 +2211,7 @@ fn search_pattern_using(
         effects: graph.effects,
         incomplete,
         end: graph.end,
+        initial_bottom: graph.initial_bottom,
     }
 }
 
@@ -2233,6 +2292,7 @@ fn search_pattern_paths_using(
             incomplete: Vec::new(),
             end: remaining(std::slice::from_ref(&initial), || false)
                 .result_bound(Truncation::UnexploredWork),
+            initial_bottom: false,
         };
     }
     let graph_options = SearchOptions {
@@ -2299,6 +2359,7 @@ fn search_pattern_paths_using(
         effects: graph.effects,
         incomplete,
         end: graph.end,
+        initial_bottom: graph.initial_bottom,
     }
 }
 

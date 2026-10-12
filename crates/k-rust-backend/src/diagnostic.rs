@@ -107,6 +107,14 @@ pub enum BackendDiagnostic {
         hook: String,
         reason: UnsupportedHookReason,
     },
+    /// The initial configuration of an execution or a search that does not assume it defined
+    /// is defined only where `definedness` holds: the obligations of its own subterms (a partial
+    /// application, the distinct keys of a map) that its constraints neither establish nor
+    /// refute. An instance where they fail denotes no configuration, so it has no successor and
+    /// no result: the initial configuration's step leaves no remainder, lower priority or stuck
+    /// result of it (`rewrite::SubjectDefinedness::Where`). Reported on the initial
+    /// configuration's path, so every result of the run carries it.
+    UndefinedInitialInstances { definedness: Vec<Predicate> },
 }
 
 /// A free variable of an [`BackendDiagnostic::UndecidedCondition`]'s predicates that is a

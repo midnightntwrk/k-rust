@@ -15,6 +15,7 @@ use crate::{
     builtin::BuiltinError,
     externalize,
     matching::SortError,
+    proof::{ClaimIndeterminateReason, ProofIndeterminateReason},
     rewrite::{AppliedRule, HaltReason, IndeterminateReason},
     rule::Predicate,
     search::{IncompleteSearch, PatternMatchError},
@@ -50,6 +51,14 @@ impl SimplificationError {
     /// The failure with the term or predicate it names printed below it; a predicate is
     /// printed at `sort`, the sort of the pattern it constrains. `Display` gives the sentence
     /// alone.
+    pub fn at<'a>(&'a self, sort: &'a Sort) -> AtSort<'a, Self> {
+        AtSort { reason: self, sort }
+    }
+}
+
+impl ProofIndeterminateReason {
+    /// Why a proof state was left undecided; a predicate it names is printed at `sort`, the sort
+    /// of the state's term.
     pub fn at<'a>(&'a self, sort: &'a Sort) -> AtSort<'a, Self> {
         AtSort { reason: self, sort }
     }
@@ -261,6 +270,37 @@ impl Display for AtSort<'_, IndeterminateReason> {
                 }
                 write!(formatter, "):{}", predicate_lines(predicates, self.sort))
             }
+        }
+    }
+}
+
+impl Display for AtSort<'_, ProofIndeterminateReason> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.reason {
+            ProofIndeterminateReason::Implication => formatter
+                .write_str("whether the state implies the claim's right-hand side was not decided"),
+            ProofIndeterminateReason::Rewrite(reason) => {
+                write!(formatter, "{}", reason.at(self.sort))
+            }
+            ProofIndeterminateReason::Simplification(error) => {
+                write!(formatter, "{}", error.at(self.sort))
+            }
+            ProofIndeterminateReason::Claim { claim_id, reason } => match reason {
+                ClaimIndeterminateReason::Simplification(error) => write!(
+                    formatter,
+                    "whether claim {claim_id} applies to the state was not decided: {}",
+                    error.at(self.sort)
+                ),
+                ClaimIndeterminateReason::Match { remainder, .. } => write!(
+                    formatter,
+                    "claim {claim_id} matched the state with an undecided remainder:{}",
+                    equality_lines(remainder)
+                ),
+                ClaimIndeterminateReason::Smt(error) => write!(
+                    formatter,
+                    "the solver failed on whether claim {claim_id} applies to the state: {error}"
+                ),
+            },
         }
     }
 }

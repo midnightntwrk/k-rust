@@ -50,12 +50,32 @@ pub enum CompiledRuleKind {
     Definedness,
 }
 
-/// A written KORE axiom's source and location attributes, when present.
+/// One KORE axiom sentence the backend loaded: its source and location attributes, when
+/// present, and its place in the KORE definition.
+///
+/// `source` and `location` say where the author wrote the sentence, but a sentence need not
+/// carry them (a hand-written or compiler-generated axiom), and two sentences may carry the
+/// same ones. `sentence` is the sentence's place in the KORE definition the backend was given,
+/// which no other sentence shares, so it tells apart axioms that share both their id and their
+/// position, `UNKNOWN` axioms that carry neither attribute among them.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CompiledRuleOriginOutput {
     pub source: Option<String>,
     pub location: Option<String>,
+    /// Omitted for a sentence the backend read on its own rather than from its definition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sentence: Option<CompiledRuleSentenceOutput>,
+}
+
+/// The place of an axiom sentence in the KORE definition the backend was given: the module
+/// that declares it and its zero-based index in that module's sentence list, in which every
+/// sentence counts, whatever its kind (an import, a sort or a symbol declaration as well).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct CompiledRuleSentenceOutput {
+    pub module: String,
+    pub index: usize,
 }
 
 impl From<&RuleOrigin> for CompiledRuleOriginOutput {
@@ -63,6 +83,13 @@ impl From<&RuleOrigin> for CompiledRuleOriginOutput {
         Self {
             source: origin.source.clone(),
             location: origin.location.clone(),
+            sentence: origin
+                .sentence
+                .as_ref()
+                .map(|(module, index)| CompiledRuleSentenceOutput {
+                    module: module.to_string(),
+                    index: *index,
+                }),
         }
     }
 }
@@ -488,12 +515,12 @@ pub enum BackendDiagnosticOutput<K = Value> {
     /// simplification dropped, and one made while simplifying the condition of an enclosing
     /// attempt that was itself refuted, superseded or dropped report nothing.
     ///
-    /// `rule_id` is the equation's compiled id and `origin` the `Source` and `Location` of the
-    /// first written sentence of its axiom, as the rule catalog lists them: the first of that
-    /// entry's `origins`. Axioms that carry neither a label nor a `UNIQUE_ID` all have the id
-    /// `UNKNOWN`, so the id alone does not say which of them the condition belongs to; the
-    /// origin does wherever their sentences carry distinct positions. Omitted only when the
-    /// backend has no sentence for the equation.
+    /// `rule_id` is the equation's compiled id and `origin` the first sentence of its axiom, as
+    /// the rule catalog lists it: the first of that entry's `origins`. Axioms that carry neither
+    /// a label nor a `UNIQUE_ID` all have the id `UNKNOWN`, so the id alone does not say which
+    /// of them the condition belongs to; the origin does, by the sentence's place in the
+    /// definition even when the sentence carries no `Source` or `Location`. Omitted only when
+    /// the backend has no sentence for the equation.
     UndecidedCondition {
         #[serde(rename = "ruleId")]
         rule_id: String,
@@ -535,6 +562,12 @@ pub enum BackendDiagnosticOutput<K = Value> {
     UnsupportedHookUnevaluated {
         hook: String,
         reason: String,
+    },
+    /// The initial configuration, which the request did not assume defined, is defined only
+    /// where `definedness` holds (`BackendDiagnostic::UndefinedInitialInstances`): its other
+    /// instances denote no configuration and have no result.
+    UndefinedInitialInstances {
+        definedness: Vec<K>,
     },
 }
 
@@ -801,6 +834,11 @@ pub struct SearchResponse<K = Value> {
     pub states: Vec<SearchStateOutput<K>>,
     pub effects: Vec<EffectOutput>,
     pub incomplete: Vec<IncompleteSearchOutput<K>>,
+    /// Every initial state had no instance before any step (its constraints, a fact of its
+    /// knowledge or its term's definedness refuted), so the search started from no
+    /// configuration; omitted when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial_bottom: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -812,6 +850,9 @@ pub struct PathSearchResponse<K = Value> {
     pub witnesses: Vec<PathWitnessOutput<K>>,
     pub effects: Vec<EffectOutput>,
     pub incomplete: Vec<IncompleteSearchOutput<K>>,
+    /// As [`SearchResponse::initial_bottom`]; omitted when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial_bottom: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -836,6 +877,9 @@ pub struct PatternSearchResponse<K = Value> {
     pub matches: Vec<SearchMatchOutput<K>>,
     pub effects: Vec<EffectOutput>,
     pub incomplete: Vec<IncompleteSearchOutput<K>>,
+    /// As [`SearchResponse::initial_bottom`]; omitted when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial_bottom: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -860,6 +904,9 @@ pub struct PathPatternSearchResponse<K = Value> {
     pub matches: Vec<PathSearchMatchOutput<K>>,
     pub effects: Vec<EffectOutput>,
     pub incomplete: Vec<IncompleteSearchOutput<K>>,
+    /// As [`SearchResponse::initial_bottom`]; omitted when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial_bottom: bool,
 }
 
 pub(super) trait WireKore: Sized {
@@ -1326,6 +1373,14 @@ fn diagnostic_output<K: WireKore>(
                 reason: reason.to_string(),
             }
         }
+        BackendDiagnostic::UndefinedInitialInstances { definedness } => {
+            BackendDiagnosticOutput::UndefinedInitialInstances {
+                definedness: definedness
+                    .iter()
+                    .map(|predicate| encode_predicate(predicate, result_sort))
+                    .collect::<Result<_, _>>()?,
+            }
+        }
     })
 }
 
@@ -1740,6 +1795,7 @@ pub(super) fn search_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
+        initial_bottom: result.initial_bottom,
     })
 }
 
@@ -1757,6 +1813,7 @@ pub(super) fn path_search_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
+        initial_bottom: result.initial_bottom,
     })
 }
 
@@ -1782,6 +1839,7 @@ pub(super) fn pattern_search_response<K: WireKore>(
             .collect::<Result<_, BackendError>>()?,
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
+        initial_bottom: result.initial_bottom,
     })
 }
 
@@ -1807,6 +1865,7 @@ pub(super) fn path_pattern_search_response<K: WireKore>(
             .collect::<Result<_, BackendError>>()?,
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
+        initial_bottom: result.initial_bottom,
     })
 }
 
@@ -2342,7 +2401,11 @@ mod tests {
         let value = serde_json::to_value(&located).unwrap();
         assert_eq!(
             value["origin"],
-            serde_json::json!({"source": "Source(test.k)", "location": "Location(7,3,7,20)"})
+            serde_json::json!({
+                "source": "Source(test.k)",
+                "location": "Location(7,3,7,20)",
+                "sentence": {"module": "MAIN", "index": 4}
+            })
         );
         assert_eq!(
             serde_json::from_value::<BackendDiagnosticOutput>(value).unwrap(),
@@ -2350,6 +2413,35 @@ mod tests {
         );
         let unlocated = serde_json::to_value(condition(None)).unwrap();
         assert!(unlocated.get("origin").is_none(), "{unlocated}");
+        let unplaced = serde_json::to_value(CompiledRuleOriginOutput::from(&RuleOrigin {
+            source: None,
+            location: None,
+            sentence: None,
+        }))
+        .unwrap();
+        assert_eq!(
+            unplaced,
+            serde_json::json!({"source": null, "location": null})
+        );
+        for source in [
+            include_str!("../../../k-rust-napi/typescript/index.ts"),
+            include_str!("../../../k-rust-wasm/typescript/index.ts"),
+        ] {
+            let interface = |name: &str| -> String {
+                source
+                    .split_once(&format!("export interface {name} {{"))
+                    .unwrap_or_else(|| panic!("no {name} interface"))
+                    .1
+                    .split_once('}')
+                    .unwrap()
+                    .0
+                    .split_whitespace()
+                    .collect()
+            };
+            assert!(interface("RuleOrigin").contains("sentence?:RuleSentence"));
+            let sentence = interface("RuleSentence");
+            assert!(sentence.contains("module:string") && sentence.contains("index:number"));
+        }
         assert_typescript_variant_fields(
             "BackendDiagnostic",
             "undecided-condition",
@@ -2391,7 +2483,11 @@ mod tests {
             let value = serde_json::to_value(&located).unwrap();
             assert_eq!(
                 value["origin"],
-                serde_json::json!({"source": "Source(test.k)", "location": "Location(7,3,7,20)"})
+                serde_json::json!({
+                    "source": "Source(test.k)",
+                    "location": "Location(7,3,7,20)",
+                    "sentence": {"module": "MAIN", "index": 4}
+                })
             );
             assert_eq!(
                 serde_json::from_value::<BackendDiagnosticOutput>(value).unwrap(),

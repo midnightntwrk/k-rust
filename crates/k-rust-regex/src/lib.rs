@@ -322,17 +322,11 @@ pub fn parse(input: &str) -> Result<Regex, ParseError> {
 
 /// A reason a parsed regex is still not an acceptable K token regex.
 ///
-/// The variants fall in two groups:
-///
-/// - Well-formedness of the regex language: [`Issue::DescendingCharRange`] and
-///   [`Issue::DescendingRepeat`] denote empty sets written in a form that is almost certainly a
-///   mistake, so they are rejected rather than silently matching nothing.
-/// - Restrictions kept from a byte-level scanner target: [`Issue::NonAsciiInNegatedClass`] and
-///   [`Issue::NonAsciiInClassRange`] are well formed as regexes. They were rejected because a
-///   Flex class of bytes can neither exclude a non-ASCII character nor take one as a range
-///   endpoint; the Flex printer now writes every class as the UTF-8 encodings of its characters
-///   (see [`RegexBody::to_flex_string`]), so it would scan both, and the restrictions stay only
-///   until the definitions they reject are decided separately.
+/// Both variants concern well-formedness of the regex language: they denote empty sets written in
+/// a form that is almost certainly a mistake, so they are rejected rather than silently matching
+/// nothing. Any character may be a class member or a range endpoint, in a negated class as in any
+/// other: both printers write a class as the characters it denotes (see
+/// [`RegexBody::to_flex_string`] and [`RegexBody::to_rust_string`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Issue {
@@ -344,11 +338,6 @@ pub enum Issue {
         at_least: u32,
         at_most: u32,
     },
-    /// Non-ASCII characters that are members or range endpoints of a negated class, without
-    /// duplicates, in first-occurrence order.
-    NonAsciiInNegatedClass(Vec<char>),
-    /// Non-ASCII range endpoints in any class, without duplicates, in first-occurrence order.
-    NonAsciiInClassRange(Vec<char>),
 }
 
 impl Display for Issue {
@@ -377,61 +366,24 @@ impl Display for Issue {
                     at_most: *at_most,
                 }
             ),
-            Self::NonAsciiInNegatedClass(characters) => write!(
-                formatter,
-                "Unsupported non-ASCII characters found in negated character class: [{}]",
-                join_characters(characters)
-            ),
-            Self::NonAsciiInClassRange(characters) => write!(
-                formatter,
-                "Unsupported non-ASCII characters found in character class range: [{}]",
-                join_characters(characters)
-            ),
         }
     }
 }
 
 impl std::error::Error for Issue {}
 
-fn join_characters(characters: &[char]) -> String {
-    characters
-        .iter()
-        .map(char::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Report every [`Issue`] of a parsed regex that does not depend on a surrounding definition.
-///
-/// Descending ranges and repetitions come first, one per occurrence in preorder; then at most one
-/// [`Issue::NonAsciiInNegatedClass`] followed by at most one [`Issue::NonAsciiInClassRange`].
+/// Report every [`Issue`] of a parsed regex that does not depend on a surrounding definition, one
+/// per occurrence, in preorder.
 /// Named references are not examined; see [`RegexBody::named_references`].
 pub fn check(regex: &Regex) -> Vec<Issue> {
     let mut issues = Vec::new();
-    let mut negated_non_ascii = Vec::new();
-    let mut range_non_ascii = Vec::new();
     regex.body.visit_preorder(&mut |body| match body {
-        RegexBody::CharClass { negated, members } => {
+        RegexBody::CharClass { members, .. } => {
             for member in members {
-                match *member {
-                    CharClass::Char(character) => {
-                        if *negated && !character.is_ascii() {
-                            push_unique(&mut negated_non_ascii, character);
-                        }
-                    }
-                    CharClass::Range { start, end } => {
-                        for character in [start, end] {
-                            if !character.is_ascii() {
-                                if *negated {
-                                    push_unique(&mut negated_non_ascii, character);
-                                }
-                                push_unique(&mut range_non_ascii, character);
-                            }
-                        }
-                        if start > end {
-                            issues.push(Issue::DescendingCharRange { start, end });
-                        }
-                    }
+                if let CharClass::Range { start, end } = *member
+                    && start > end
+                {
+                    issues.push(Issue::DescendingCharRange { start, end });
                 }
             }
         }
@@ -446,19 +398,7 @@ pub fn check(regex: &Regex) -> Vec<Issue> {
         }),
         _ => {}
     });
-    if !negated_non_ascii.is_empty() {
-        issues.push(Issue::NonAsciiInNegatedClass(negated_non_ascii));
-    }
-    if !range_non_ascii.is_empty() {
-        issues.push(Issue::NonAsciiInClassRange(range_non_ascii));
-    }
     issues
-}
-
-fn push_unique(values: &mut Vec<char>, value: char) {
-    if !values.contains(&value) {
-        values.push(value);
-    }
 }
 
 struct Parser {
@@ -860,19 +800,7 @@ fn print_flex_class(
                 // Every character it denotes is one byte, so the class is its own encoding.
                 print_flex_class_as_written(false, members, output)
             } else {
-                let ranges = members.iter().filter_map(|member| match *member {
-                    CharClass::Char(character) => Some((character as u32, character as u32)),
-                    CharClass::Range { start, end } => {
-                        (start <= end).then_some((start as u32, end as u32))
-                    }
-                });
-                let set = merge_scalar_ranges(ranges);
-                let set = if *negated {
-                    complement_scalar_ranges(&set)
-                } else {
-                    set
-                };
-                print_flex_utf8_set(&set, output)
+                print_flex_utf8_set(&class_scalar_ranges(*negated, members), output)
             }
         }
         (RegexBody::AnyChar, FlexClasses::Utf8) => {
@@ -937,6 +865,21 @@ const MAX_SCALAR: u32 = 0x10_FFFF;
 /// The surrogate code points, which are no Unicode scalar value, so no character of a K regex or
 /// of a UTF-8 text.
 const SURROGATES: (u32, u32) = (0xD800, 0xDFFF);
+
+/// The scalar values a class denotes, as sorted, disjoint ranges (a descending range denotes
+/// none). A negated class's ranges may cover surrogate code points, which no text holds.
+fn class_scalar_ranges(negated: bool, members: &[CharClass]) -> Vec<(u32, u32)> {
+    let ranges = members.iter().filter_map(|member| match *member {
+        CharClass::Char(character) => Some((character as u32, character as u32)),
+        CharClass::Range { start, end } => (start <= end).then_some((start as u32, end as u32)),
+    });
+    let set = merge_scalar_ranges(ranges);
+    if negated {
+        complement_scalar_ranges(&set)
+    } else {
+        set
+    }
+}
 
 /// The union of `ranges` (inclusive, each nonempty) as sorted, disjoint, non-adjacent ranges.
 fn merge_scalar_ranges(ranges: impl Iterator<Item = (u32, u32)>) -> Vec<(u32, u32)> {
@@ -1164,11 +1107,15 @@ fn print_rust_regex(body: &RegexBody, output: &mut String) -> Result<(), Unexpan
         RegexBody::Char(character) => print_rust_character(*character, false, output),
         RegexBody::AnyChar => output.push('.'),
         RegexBody::Named(name) => return Err(UnexpandedLexical { name: name.clone() }),
-        RegexBody::CharClass { negated, members } => {
+        RegexBody::CharClass {
+            negated: true,
+            members,
+        } => print_rust_negated_class(members, output),
+        RegexBody::CharClass {
+            negated: false,
+            members,
+        } => {
             output.push('[');
-            if *negated {
-                output.push('^');
-            }
             for member in members {
                 match member {
                     CharClass::Char(character) => {
@@ -1219,6 +1166,48 @@ fn print_rust_regex(body: &RegexBody, output: &mut String) -> Result<(), Unexpan
         }
     }
     Ok(())
+}
+
+/// Print a negated class as the class of the characters outside it.
+///
+/// The `regex` crate's own negation is not exact: it reads `[^\x{D7FF}\x{E000}]`, two characters
+/// on either side of the surrogate gap, as matching both of them (regex 1.13.1, regex-syntax
+/// 0.8.11). Its set of ranges keeps the two apart, since their code points are not adjacent, and
+/// the gap it computes between them runs from the character after U+D7FF to the one before U+E000,
+/// that is from U+E000 down to U+D7FF; it builds that inverted range with its bounds swapped, as
+/// U+D7FF-U+E000, which holds both. Only its negation and class difference compute such gaps; a
+/// positive class, ranges across the gap included, is read as written and compiled to the
+/// encodings of exactly its scalar values, so the positive class printed here from the
+/// complement, which is a set of scalar values, matches exactly the characters the negated class
+/// denotes.
+fn print_rust_negated_class(members: &[CharClass], output: &mut String) {
+    let (low, high) = SURROGATES;
+    let characters = class_scalar_ranges(true, members)
+        .into_iter()
+        .flat_map(|(start, end)| {
+            [(start, end.min(low - 1)), (start.max(high + 1), end)]
+                .into_iter()
+                .filter(|(start, end)| start <= end)
+        })
+        .map(|(start, end)| {
+            let character = |value| char::from_u32(value).expect("no surrogate is left");
+            (character(start), character(end))
+        })
+        .collect::<Vec<_>>();
+    if characters.is_empty() {
+        // Every character is in the class, so it matches none.
+        output.push_str(r"[^\x{0}-\x{10FFFF}]");
+        return;
+    }
+    output.push('[');
+    for (start, end) in characters {
+        print_rust_character(start, true, output);
+        if end > start {
+            output.push('-');
+            print_rust_character(end, true, output);
+        }
+    }
+    output.push(']');
 }
 
 fn print_rust_repeated(

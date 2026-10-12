@@ -276,3 +276,60 @@ fn an_undecided_condition_of_an_unnamed_equation_names_its_catalog_entry() {
         assert!(entries[0].shared_identity);
     }
 }
+
+/// Two equations whose axioms carry neither a label, a `UNIQUE_ID`, a `Source` nor a
+/// `Location` share the id `UNKNOWN` and every written position, so only their places in the
+/// definition tell them apart: a condition reported for each names its own sentence there,
+/// and that origin finds the one catalog entry the equation belongs to.
+#[test]
+fn an_undecided_condition_of_an_unnamed_unlocated_equation_names_its_catalog_entry() {
+    let definition = r#"[] module MAIN
+        sort SortS{} []
+        symbol a{}() : SortS{} [constructor{}(), functional{}()]
+        symbol c{}(SortS{}, SortS{}) : SortS{} [constructor{}(), functional{}()]
+        symbol f{}(SortS{}) : SortS{} [function{}()]
+        symbol g{}(SortS{}) : SortS{} [function{}()]
+        axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+            f{}(X:SortS{}), \and{SortS{}}(Y:SortS{}, \top{SortS{}}())))
+            [simplification{}()]
+        axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+            g{}(X:SortS{}), \and{SortS{}}(Y:SortS{}, \top{SortS{}}())))
+            [simplification{}()]
+    endmodule []"#;
+    let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+    let catalog = backend.rule_catalog(None).unwrap();
+    let state = parse_pattern("c{}(f{}(a{}()), g{}(a{}()))").unwrap();
+    let leaves = backend.execute(ExecuteRequest::new(state)).unwrap().leaves;
+    let named: Vec<_> = leaves
+        .iter()
+        .flat_map(|leaf| &leaf.diagnostics)
+        .filter_map(|diagnostic| match diagnostic {
+            BackendDiagnosticOutput::UndecidedCondition {
+                rule_id, origin, ..
+            } => Some((rule_id.clone(), origin.clone().expect("an origin"))),
+            _ => None,
+        })
+        .collect();
+    let places: BTreeSet<_> = named
+        .iter()
+        .map(|(_, origin)| {
+            assert_eq!((&origin.source, &origin.location), (&None, &None));
+            let sentence = origin.sentence.as_ref().expect("a sentence place");
+            (sentence.module.clone(), sentence.index)
+        })
+        .collect();
+    assert_eq!(
+        places,
+        BTreeSet::from([("MAIN".to_owned(), 5), ("MAIN".to_owned(), 6)]),
+        "{named:?}"
+    );
+    for (rule_id, origin) in &named {
+        assert_eq!(rule_id, "UNKNOWN");
+        let entries: Vec<_> = catalog
+            .iter()
+            .filter(|entry| &entry.id == rule_id && entry.origins.first() == Some(origin))
+            .collect();
+        assert_eq!(entries.len(), 1, "{origin:?} in {catalog:?}");
+        assert!(entries[0].shared_identity);
+    }
+}

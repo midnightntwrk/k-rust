@@ -192,6 +192,7 @@ diagnostic_codes! {
     InvalidDomainValue => "InvalidDomainValue",
     KernelSortPosition => "KernelSortPosition",
     MarkdownWarning => "MarkdownWarning",
+    MissingLocationsImport => "MissingLocationsImport",
     MissingSyntaxModule => "MissingSyntaxModule",
     ProofModuleRule => "ProofModuleRule",
     ProofModuleSyntax => "ProofModuleSyntax",
@@ -282,6 +283,7 @@ impl DiagnosticCode {
             | Self::InvalidTokenProduction
             | Self::InvalidDomainValue
             | Self::KernelSortPosition
+            | Self::MissingLocationsImport
             | Self::ProofModuleRule
             | Self::ProofModuleSyntax
             | Self::UnboundVariable

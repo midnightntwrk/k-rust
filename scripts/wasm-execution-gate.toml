@@ -278,6 +278,6 @@ error: one or more reachability claims were not proven
 """
 verdict = """
 claim #1: failed (4 states, 1 unexplored)
-  Stuck at depth 1
+  stuck at depth 1
 """
-stdout = "sha256:47b77e38bcebb23a0459a822ef6c9d2d8fdb45553b36257c098f7004d648e986 (24828 bytes)"
+stdout = "sha256:dfbaf2ba7042255f2125d10b54bdec9c79c81c20af0e4ff4e493204e6ce44720 (24828 bytes)"

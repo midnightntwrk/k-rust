@@ -20,6 +20,7 @@ pub use parser::{
 };
 #[cfg(feature = "cli")]
 pub(crate) use parser::{DEFAULT_LAYOUT, concretize_parametric_productions, parse_apply_priority};
+pub(crate) use programs::LOCATION_LABEL;
 pub use programs::{
     ParsedProgram, PresentedProgram, ProgramError, ProgramParseError, ProgramParser,
     UNNAMED_PROGRAM, definition_with_named_projections, parse_program, program_file_name,

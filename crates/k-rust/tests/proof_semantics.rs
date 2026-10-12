@@ -11,7 +11,7 @@
 #![cfg(feature = "z3-inference")]
 
 use k_rust::{
-    backend::{Backend, BackendOptions, ProofResultOutput, ProveRequest},
+    backend::{Backend, BackendOptions, ProofLeafOutcomeOutput, ProofResultOutput, ProveRequest},
     builtin::embedded,
     definition::CheckMode,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
@@ -130,7 +130,7 @@ fn a_claim_condition_over_a_later_binding_is_stated_under_it() {
         assert!(
             main.leaves
                 .iter()
-                .any(|leaf| leaf.outcome.contains("Stuck")),
+                .any(|leaf| leaf.outcome == ProofLeafOutcomeOutput::Stuck),
             "{module}: {main:?}"
         );
     }
@@ -209,7 +209,7 @@ fn a_claim_fails_on_the_instances_a_rule_leaves_undefined() {
             result
                 .leaves
                 .iter()
-                .any(|leaf| leaf.outcome.contains("Trivial")),
+                .any(|leaf| leaf.outcome == ProofLeafOutcomeOutput::Trivial),
             "{claim}: {result:?}"
         );
         assert_eq!(

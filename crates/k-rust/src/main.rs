@@ -3610,11 +3610,24 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             }) {
                 // A certified stuck leaf is the one that makes the claim `disproved`.
                 let certified = if leaf.certified { " (certified)" } else { "" };
+                let (named, detail) =
+                    k_rust::backend::proof_leaf_outcome(&leaf.outcome, &leaf.pattern.term.sort())?;
                 writeln!(
                     output,
-                    "  {:?}{certified} at depth {}",
-                    leaf.outcome, leaf.depth
+                    "  {}{certified} at depth {}",
+                    named.name(),
+                    leaf.depth
                 )?;
+                // Why a timeout, stack-exhausted or indeterminate leaf ended there, in the
+                // words the host wire gives as its detail; a predicate it names spans lines.
+                if let Some(detail) = detail {
+                    let mut lines = PrefixedLines::new(io::BufWriter::new(&mut output), "  ");
+                    writeln!(lines, "{detail}")?;
+                    lines
+                        .finish()?
+                        .into_inner()
+                        .map_err(io::IntoInnerError::into_error)?;
+                }
                 // The two empty leaves the vacuity policy rejects differ in where the emptiness
                 // lies. A `Vacuous` leaf is a reached configuration whose constraints are
                 // `\bottom`: the branch denotes no configuration at all. A `Trivial` leaf denotes

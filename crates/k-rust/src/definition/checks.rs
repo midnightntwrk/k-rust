@@ -49,7 +49,8 @@ pub use deprecated::check_deprecated_productions;
 pub use functions::check_functions;
 pub(crate) use functions::check_functions_with_internal_labels;
 pub use kompile_checks::{
-    check_claims_in_definition, check_is_sort_predicates, check_proof_module,
+    check_claims_in_definition, check_is_sort_predicates, check_locations_import,
+    check_proof_module,
 };
 use kompile_checks::{check_is_sort_predicates_with_views, check_proof_module_with_views};
 pub(crate) use label_parameters::{

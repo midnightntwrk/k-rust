@@ -135,9 +135,10 @@ static void krust_literal_code_point(struct krust_literal *literal, uint32_t cod
   abort(); /* the longest escape holds every code point */
 }
 
-/* The code point of the UTF-8 sequence that begins `text`, which is NUL-terminated, and its length
+/* The code point of the UTF-8 sequence that begins `text`, which ends before `end`, and its length
    in `*length`; a byte that begins no sequence is the code point of its value, of length 1. */
-static uint32_t krust_utf8_next(const unsigned char *text, size_t *length) {
+static uint32_t krust_utf8_next(
+    const unsigned char *text, const unsigned char *end, size_t *length) {
   unsigned char lead = text[0];
   size_t count;
   uint32_t code_point;
@@ -152,6 +153,8 @@ static uint32_t krust_utf8_next(const unsigned char *text, size_t *length) {
   } else {
     return lead;
   }
+  if ((size_t)(end - text) < count)
+    return lead;
   for (size_t index = 1; index < count; ++index) {
     if ((text[index] & 0xc0) != 0x80)
       return lead;
@@ -219,7 +222,7 @@ static const char *krust_literal_k_body(
   while (text < end) {
     if (*text != '\\') {
       size_t length;
-      uint32_t code_point = krust_utf8_next(text, &length);
+      uint32_t code_point = krust_utf8_next(text, end, &length);
       if (bytes) {
         for (size_t index = 0; index < length; ++index)
           krust_literal_code_point(literal, text[index]);
@@ -277,28 +280,30 @@ static const char *krust_literal_k_body(
 }
 
 char *krust_kore_literal(
-    const char *token, enum krust_token_kind kind, const char *sort, char **error) {
+    const char *token, size_t token_length, enum krust_token_kind kind, const char *sort,
+    char **error) {
   struct krust_literal literal = {NULL, 0, 0};
   krust_literal_append(&literal, "\"", 1);
   const unsigned char *text = (const unsigned char *)token;
+  const unsigned char *end = text + token_length;
   const char *reason = NULL;
   switch (kind) {
   case KRUST_TOKEN_TEXT:
-    while (*text) {
+    while (text < end) {
       size_t length;
-      krust_literal_code_point(&literal, krust_utf8_next(text, &length));
+      krust_literal_code_point(&literal, krust_utf8_next(text, end, &length));
       text += length;
     }
     break;
   case KRUST_TOKEN_BYTES:
-    if (*text != 'b') {
+    if (text == end || *text != 'b') {
       reason = "expected a leading `b`";
       break;
     }
     ++text;
     /* fall through */
   case KRUST_TOKEN_STRING: {
-    size_t length = strlen((const char *)text);
+    size_t length = (size_t)(end - text);
     if (length < 2 || text[0] != '"' || text[length - 1] != '"')
       reason = "expected a double-quoted string";
     else
@@ -453,15 +458,17 @@ void print(struct string_buffer *sb, node *current) {
         ", \\dv{SortString{}}(%s), \\dv{SortInt{}}(\"%d\"), "
         "\\dv{SortInt{}}(\"%d\"), \\dv{SortInt{}}(\"%d\"), "
         "\\dv{SortInt{}}(\"%d\"))",
-        krust_kore_literal(current->location.filename, KRUST_TOKEN_TEXT, "String", NULL),
+        krust_kore_literal(current->location.filename, strlen(current->location.filename),
+                           KRUST_TOKEN_TEXT, "String", NULL),
         current->location.first_line,
         current->location.first_column, current->location.last_line,
         current->location.last_column);
   }
 }
 
-/* Every byte the scanner has read in this parse, in order: a token subsort reads the text of its
-   phrase from here, by the phrase's byte span, after the scanner may have read past it. */
+/* Every byte the scanner has read in this parse, in order: a token reads its text from here by its
+   byte span, as a token subsort reads the text of its phrase after the scanner may have read past
+   it, so a text holds every byte it spans, NUL bytes included. */
 static char *krust_input = NULL;
 static size_t krust_input_length = 0, krust_input_capacity = 0;
 
@@ -489,14 +496,13 @@ void krust_read(YYLTYPE *location, const char *text, size_t length) {
   location->last_offset = krust_input_length;
 }
 
-char *krust_read_text(const YYLTYPE *location) {
+char *krust_kore_literal_at(
+    const YYLTYPE *location, enum krust_token_kind kind, const char *sort, char **error) {
   assert(location->first_offset <= location->last_offset);
   assert(location->last_offset <= krust_input_length);
-  size_t length = location->last_offset - location->first_offset;
-  char *text = malloc(length + 1);
-  memcpy(text, krust_input + location->first_offset, length);
-  text[length] = '\0';
-  return text;
+  const char *text = krust_input ? krust_input + location->first_offset : "";
+  return krust_kore_literal(
+      text, location->last_offset - location->first_offset, kind, sort, error);
 }
 
 extern node *result;

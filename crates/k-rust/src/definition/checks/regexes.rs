@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::Sentence;
 use crate::definition::ProductionItem;
-use crate::definition::regex::{Issue, Regex, check, parse};
+use crate::definition::regex::{Regex, check, parse};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
 pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnostic> {
@@ -119,43 +119,9 @@ pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnost
     diagnostics
 }
 
-// Descending ranges are reported per occurrence; the non-ASCII findings of all regexes in one
-// sentence are merged, so a sentence gets at most one diagnostic of each non-ASCII kind.
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "Issue is not a sentence kind; only the listed variants are special here"
-)]
 fn check_parsed_regexes(regexes: &[Regex], sentence: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
-    let mut negated_non_ascii = Vec::new();
-    let mut range_non_ascii = Vec::new();
     for issue in regexes.iter().flat_map(check) {
-        match issue {
-            Issue::NonAsciiInNegatedClass(characters) => {
-                for character in characters {
-                    push_unique(&mut negated_non_ascii, character);
-                }
-            }
-            Issue::NonAsciiInClassRange(characters) => {
-                for character in characters {
-                    push_unique(&mut range_non_ascii, character);
-                }
-            }
-            issue => diagnostics.push(invalid_regex(issue.to_string(), sentence)),
-        }
-    }
-    if !negated_non_ascii.is_empty() {
-        let issue = Issue::NonAsciiInNegatedClass(negated_non_ascii);
         diagnostics.push(invalid_regex(issue.to_string(), sentence));
-    }
-    if !range_non_ascii.is_empty() {
-        let issue = Issue::NonAsciiInClassRange(range_non_ascii);
-        diagnostics.push(invalid_regex(issue.to_string(), sentence));
-    }
-}
-
-fn push_unique<T: PartialEq>(values: &mut Vec<T>, value: T) {
-    if !values.contains(&value) {
-        values.push(value);
     }
 }
 
