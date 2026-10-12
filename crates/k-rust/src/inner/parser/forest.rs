@@ -617,6 +617,13 @@ impl StructuralOrder {
         compare_packed_structurally(left, right, self)
     }
 
+    /// Whether `left` and `right` are equal as terms, which is `PackedTerm` equality: their
+    /// fingerprints agree and the memoized structural order finds them equal.
+    pub(super) fn equal(&mut self, left: &Rc<PackedTerm>, right: &Rc<PackedTerm>) -> bool {
+        Rc::ptr_eq(left, right)
+            || (left.fingerprint == right.fingerprint && self.cmp(left, right).is_eq())
+    }
+
     /// `terms` in the order of [`cmp_packed_structurally`].
     pub(super) fn sorted(&mut self, terms: &BTreeSet<Rc<PackedTerm>>) -> Vec<Rc<PackedTerm>> {
         let mut terms = terms.iter().cloned().collect::<Vec<_>>();
@@ -642,7 +649,15 @@ pub(super) struct LoweringSession {
     nodes: rustc_hash::FxHashMap<u64, Vec<Rc<PackedTerm>>>,
     /// The structural order of session nodes, shared by every pass that orders alternatives.
     pub(super) order: StructuralOrder,
+    /// Each node's factored form, shared by every pass that factors ambiguities: factoring is a
+    /// function of the node. Each entry keeps its node alive beside its address.
+    pub(super) factored: PackedNodeResults,
 }
+
+/// The results of a pass for packed nodes by the nodes' addresses, each entry holding its node
+/// so that the address is not reused while the entry exists.
+pub(super) type PackedNodeResults =
+    rustc_hash::FxHashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>;
 
 impl LoweringSession {
     /// The session node with the structure of `term`, whose children or alternatives must be

@@ -31,7 +31,7 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.factor_packed"
 //! name = "factoring of packed ambiguities"
-//! sites = ["Grammar::factor_pre_inference_packed_ambiguities"]
+//! sites = ["Grammar::factor_pre_inference_packed_ambiguities", "Grammar::factor_session_ambiguities", "Grammar::factor_packed_ambiguities", "Grammar::factor_packed_production_alternatives"]
 //! variable = "N = packed nodes; A = ambiguity alternatives"
 //! counters = []
 //! no_counter = "packed-ambiguity factoring has no dedicated counter"
@@ -40,6 +40,10 @@
 //! [[cost]]
 //! mode = "one parse forest"
 //! bound = "O(N x A), plus the structural ordering that chooses each ambiguity's first alternative, whose pair comparisons the pass shares"
+//!
+//! [[cost]]
+//! mode = "nodes of a lowering session (factor_session_ambiguities)"
+//! bound = "O(N x A) over the session nodes it meets, each factored once per session, the nodes it builds interned, plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the session shares"
 //! ```
 //!
 //! ```toml algorithm
@@ -77,19 +81,23 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.filter_overloads"
 //! name = "overload and prefer-or-avoid filtering"
-//! sites = ["Grammar::filter_overloads_prefer_avoid", "Grammar::filter_overloads_prefer_avoid_node", "Grammar::select_at_frontier"]
-//! variable = "N = owned nodes; R = productions in the grammar; t = Term-leaf alternatives of the ambiguities; f = work of one factor_ambiguities call; A = alternatives of one ambiguity; P = nodes of their common prefix; F = their frontier positions"
+//! sites = ["Grammar::filter_overloads_prefer_avoid", "Grammar::filter_packed_overloads_prefer_avoid", "Grammar::filter_overloads_prefer_avoid_node", "Grammar::filter_packed_ambiguity", "Grammar::select_at_frontier", "collect_packed_frontier"]
+//! variable = "N = session nodes reachable from the forest, with those the pass builds (the subsets it keeps of an ambiguity and what factoring makes of them); R = productions in the grammar; A = alternatives of one ambiguity; f = the factoring of one kept subset (parser.disambiguation.factor_packed, shared by the session); P = distinct tuples of nodes the alternatives have at the positions of their common prefix; F = their frontier positions; O = owned nodes of a tree"
 //! counters = []
 //! no_counter = "overload and preference filtering has no dedicated counter"
 //! span = "per problem"
 //!
 //! [[cost]]
-//! mode = "one parsed tree"
-//! bound = "O(N + t x R) plus one clone, f and one equality test per ambiguity with more than one surviving alternative, and a further pass when factoring changed it"
+//! mode = "one packed forest"
+//! bound = "O(R) to collect the sources of the prefer and avoid productions, then each node's result computed once: O(A) classifications, the structural ordering of its alternatives (pair comparisons shared by the session), and at most two factorings f, each followed by a memoized equality test, per ambiguity node"
 //!
 //! [[cost]]
 //! mode = "frontier step of one ambiguity that factoring leaves with A >= 2 alternatives"
-//! bound = "fewer than A rounds of O(A x P) header comparisons and O(A x F x R) token classifications, then one clone, f and equality test when it removed an alternative"
+//! bound = "fewer than A rounds of O(A x P) header comparisons and O(A x F) classifications, then one f and equality test when it removed an alternative"
+//!
+//! [[cost]]
+//! mode = "one parsed tree (filter_overloads_prefer_avoid)"
+//! bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
 //! ```
 //!
 //! The frontier step decides `prefer`/`avoid` between alternatives that diverge at several
@@ -148,9 +156,10 @@
 //!    reported from the forest instead (`Grammar::packed_ambiguity_report`).
 //! 8. Resolve overloaded terminators (owned tree, packed into a lowering session and resolved
 //!    once per session node, O(nodes * list candidates)).
-//! 9. Apply prefer/avoid and overload filtering (owned tree, O(nodes) plus re-factoring of each
-//!    surviving ambiguity), then the prefer/avoid frontier step on an ambiguity whose alternatives
-//!    still diverge at several positions.
+//! 9. Apply prefer/avoid and overload filtering (owned tree, packed into a lowering session and
+//!    filtered once per session node, with the session's factoring of each surviving
+//!    ambiguity), then the prefer/avoid frontier step on an ambiguity whose alternatives still
+//!    diverge at several positions.
 //! 10. Remove brackets and syntactic casts (owned tree, packed into a lowering session and
 //!     rewritten once per session node, O(nodes)).
 //! 11. Factor and report remaining ambiguities (owned tree, O(nodes * alternatives); the report
@@ -171,8 +180,8 @@ use std::hash::{Hash, Hasher};
 
 use super::exclusion::{Exclusion, Side};
 use super::{
-    AmbiguityPlace, AmbiguousParse, Grammar, Item, LoweringSession, PackedNode, PackedTerm,
-    ParseError, ParsedParts, ParsedTerm, Production, StructuralOrder, lower_term,
+    AmbiguityPlace, AmbiguousParse, Grammar, Item, LoweringSession, PackedNode, PackedNodeResults,
+    PackedTerm, ParseError, ParsedParts, ParsedTerm, Production, StructuralOrder, lower_term,
 };
 use crate::kast::{
     FrontendSort, InternalLabel, ProductionIdentity, Sort, Term, TermMetadata, TermSpan, string,
@@ -239,16 +248,150 @@ struct KListMemo {
     shortest: HashMap<*const PackedTerm, (Rc<PackedTerm>, usize)>,
     order: StructuralOrder,
 }
-/// What one packed-factoring pass keeps: each node's factored result by identity (each entry
-/// keeps its input node alive so that its address is not reused), and the structural
-/// comparisons its choices of a first alternative made. A node is immutable and its structural
-/// order with another is a function of the two nodes, so a comparison made anywhere in the pass
-/// stays valid for the rest of it, and the alternatives of the ambiguities above a shared
-/// subforest compare that subforest once.
+/// What one packed-factoring pass before inference keeps: each node's factored result by
+/// identity (each entry keeps its input node alive so that its address is not reused), and the
+/// structural comparisons its choices of a first alternative made. A node is immutable and its
+/// structural order with another is a function of the two nodes, so a comparison made anywhere
+/// in the pass stays valid for the rest of it, and the alternatives of the ambiguities above a
+/// shared subforest compare that subforest once.
 #[derive(Default)]
 struct PackedFactoringMemo {
-    factored: HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+    factored: PackedNodeResults,
     order: StructuralOrder,
+}
+
+/// Where one packed factoring keeps its results and how it builds and reads nodes.
+enum Factoring<'a> {
+    /// Before inference: a node is built fresh, and an ambiguity's alternatives are read in the
+    /// order of their set.
+    Forest(&'a mut PackedFactoringMemo),
+    /// In a lowering session: a node is interned, and where two distinct nodes collected into a
+    /// set are equal as terms (differing in the annotations of a leaf), an ambiguity's
+    /// alternatives are read in structural order, as an owned tree's are, so that the set keeps
+    /// the one the owned tree's keeps.
+    Session(&'a mut LoweringSession),
+}
+
+impl Factoring<'_> {
+    fn parts(&mut self) -> (&mut PackedNodeResults, &mut StructuralOrder) {
+        match self {
+            Self::Forest(memo) => (&mut memo.factored, &mut memo.order),
+            Self::Session(session) => (&mut session.factored, &mut session.order),
+        }
+    }
+
+    fn order(&mut self) -> &mut StructuralOrder {
+        self.parts().1
+    }
+
+    fn build(&mut self, term: Rc<PackedTerm>) -> Rc<PackedTerm> {
+        match self {
+            Self::Forest(_) => term,
+            Self::Session(session) => session.intern(term),
+        }
+    }
+
+    /// The structural order by which a session reads alternatives, `None` before inference.
+    fn structural(&mut self) -> Option<&mut StructuralOrder> {
+        match self {
+            Self::Forest(_) => None,
+            Self::Session(session) => Some(&mut session.order),
+        }
+    }
+}
+
+/// The set of the results of a pass over alternatives, as an owned-tree pass collects it from
+/// alternatives it reads in structural order: `results` pairs each input alternative with its
+/// result, in any order. `BTreeSet::from_iter` keeps the last of equal elements, so the order
+/// matters only when two distinct result nodes are equal as terms (differing in the
+/// annotations of a leaf); only then are the pairs ordered by their inputs.
+fn collect_in_structural_order(
+    order: &mut StructuralOrder,
+    mut results: Vec<(Rc<PackedTerm>, Rc<PackedTerm>)>,
+) -> BTreeSet<Rc<PackedTerm>> {
+    let set = results
+        .iter()
+        .map(|(_, result)| Rc::clone(result))
+        .collect::<BTreeSet<_>>();
+    if !merges_distinct_nodes(&set, results.iter().map(|(_, result)| result)) {
+        return set;
+    }
+    results.sort_by(|(left, _), (right, _)| order.cmp(left, right));
+    results.into_iter().map(|(_, result)| result).collect()
+}
+
+/// Whether `set`, collected from `nodes`, merged two distinct nodes (equal as terms).
+fn merges_distinct_nodes<'a>(
+    set: &BTreeSet<Rc<PackedTerm>>,
+    nodes: impl Iterator<Item = &'a Rc<PackedTerm>>,
+) -> bool {
+    nodes.map(Rc::as_ptr).collect::<HashSet<_>>().len() != set.len()
+}
+
+/// The production, instantiated parameters (`None` for a plain production), children and
+/// metadata of a production node.
+type ProductionHeader<'a> = (
+    usize,
+    Option<&'a Vec<Sort>>,
+    &'a [Rc<PackedTerm>],
+    &'a TermMetadata,
+);
+
+fn production_header(term: &PackedTerm) -> Option<ProductionHeader<'_>> {
+    match &term.node {
+        PackedNode::Production {
+            production,
+            children,
+            metadata,
+        } => Some((*production, None, children, metadata)),
+        PackedNode::InstantiatedProduction {
+            production,
+            parameters,
+            children,
+            metadata,
+        } => Some((*production, Some(parameters), children, metadata)),
+        PackedNode::Term(_) | PackedNode::Ambiguity(_) => None,
+    }
+}
+
+/// The alternatives of an ambiguity over `factored` (input alternatives paired with their
+/// factored forms, in the order they are read), an ambiguity among them contributing its own
+/// alternatives (in structural order when `order` is given, in set order otherwise). Inserting
+/// keeps the first of equal elements.
+fn flatten_alternatives(
+    factored: &[(Rc<PackedTerm>, Rc<PackedTerm>)],
+    mut order: Option<&mut StructuralOrder>,
+) -> BTreeSet<Rc<PackedTerm>> {
+    let mut flattened = BTreeSet::new();
+    for (_, alternative) in factored {
+        match &alternative.node {
+            PackedNode::Ambiguity(nested) => match order.as_deref_mut() {
+                Some(order) => flattened.extend(order.sorted(nested)),
+                None => flattened.extend(nested.iter().cloned()),
+            },
+            _ => {
+                flattened.insert(Rc::clone(alternative));
+            }
+        }
+    }
+    flattened
+}
+
+/// The production node with `header`'s production, parameters and metadata over `children`.
+fn rebuild_production(
+    header: ProductionHeader<'_>,
+    children: Vec<Rc<PackedTerm>>,
+) -> Rc<PackedTerm> {
+    let (production, parameters, _, metadata) = header;
+    match parameters {
+        Some(parameters) => PackedTerm::instantiated_production(
+            production,
+            parameters.clone(),
+            children,
+            metadata.clone(),
+        ),
+        None => PackedTerm::production(production, children, metadata.clone()),
+    }
 }
 type PackedPriorityChildMemo =
     HashMap<(*const PackedTerm, usize, Option<Side>), (Rc<PackedTerm>, PackedTransformResult)>;
@@ -257,6 +400,51 @@ type PackedPriorityChildMemo =
 pub(super) struct PackedPriorityMemos {
     nodes: PackedTransformMemo,
     children: PackedPriorityChildMemo,
+}
+
+/// A choice attribute of a production: `prefer` or `avoid`.
+#[derive(Clone, Copy)]
+enum Choice {
+    Prefer,
+    Avoid,
+}
+
+/// What one packed filtering pass keeps: the sources of the `prefer` and of the `avoid`
+/// productions, by which a token leaf is classified, and each node's filtered result by
+/// identity, each entry keeping its node alive.
+struct PackedFilter {
+    preferred_sources: HashSet<ProductionIdentity>,
+    avoided_sources: HashSet<ProductionIdentity>,
+    filtered: PackedNodeResults,
+}
+
+impl PackedFilter {
+    /// Whether `node` makes the `choice`: a production node when its production carries the
+    /// attribute, and a token leaf when a production whose source is the token's carries it.
+    /// A token is an application of its token production, so a token-level `prefer` takes part
+    /// in the filtering like an ordinary production node's. An ambiguity makes no choice.
+    fn chooses(&self, grammar: &Grammar, node: &PackedTerm, choice: Choice) -> bool {
+        match &node.node {
+            PackedNode::Production { production, .. }
+            | PackedNode::InstantiatedProduction { production, .. } => {
+                let production = &grammar.productions[*production];
+                match choice {
+                    Choice::Prefer => production.prefer,
+                    Choice::Avoid => production.avoid,
+                }
+            }
+            PackedNode::Term(term) => {
+                let sources = match choice {
+                    Choice::Prefer => &self.preferred_sources,
+                    Choice::Avoid => &self.avoided_sources,
+                };
+                term.metadata()
+                    .and_then(|metadata| metadata.production)
+                    .is_some_and(|source| sources.contains(&source))
+            }
+            PackedNode::Ambiguity(_) => false,
+        }
+    }
 }
 
 impl Grammar {
@@ -274,82 +462,80 @@ impl Grammar {
         term: Rc<PackedTerm>,
     ) -> Rc<PackedTerm> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationFactorPacked);
-        self.factor_packed_ambiguities(term, &mut PackedFactoringMemo::default())
+        self.factor_packed_ambiguities(
+            term,
+            &mut Factoring::Forest(&mut PackedFactoringMemo::default()),
+        )
+    }
+
+    /// Factor the ambiguities of a lowering session's node, as
+    /// [`Self::factor_pre_inference_packed_ambiguities`] does, sharing the session's results: the
+    /// nodes it builds are interned, and it collects alternatives as the owned-tree factoring
+    /// ([`Self::factor_ambiguities`]) does ([`Factoring::Session`]).
+    pub(super) fn factor_session_ambiguities(
+        &self,
+        session: &mut LoweringSession,
+        term: &Rc<PackedTerm>,
+    ) -> Rc<PackedTerm> {
+        self.factor_packed_ambiguities(Rc::clone(term), &mut Factoring::Session(session))
     }
 
     fn factor_packed_ambiguities(
         &self,
         term: Rc<PackedTerm>,
-        memo: &mut PackedFactoringMemo,
+        factoring: &mut Factoring<'_>,
     ) -> Rc<PackedTerm> {
         crate::stack::guarded(|| {
             // Invariant: every memoized identity has a complete factored result; recursion only visits
             // unrecorded children or alternatives.
             let identity = Rc::as_ptr(&term);
-            if let Some((_, factored)) = memo.factored.get(&identity) {
+            if let Some((_, factored)) = factoring.parts().0.get(&identity) {
                 return Rc::clone(factored);
             }
             let factored = match &term.node {
-                PackedNode::InstantiatedProduction {
-                    production,
-                    parameters,
-                    children,
-                    metadata,
-                } => {
-                    let factored_children = children
-                        .iter()
-                        .map(|child| self.factor_packed_ambiguities(Rc::clone(child), memo))
-                        .collect::<Vec<_>>();
-                    if factored_children
-                        .iter()
-                        .zip(children)
-                        .all(|(factored, original)| Rc::ptr_eq(factored, original))
-                    {
-                        Rc::clone(&term)
-                    } else {
-                        PackedTerm::instantiated_production(
-                            *production,
-                            parameters.clone(),
-                            factored_children,
-                            metadata.clone(),
-                        )
-                    }
-                }
                 PackedNode::Term(_) => Rc::clone(&term),
-                PackedNode::Production {
-                    production,
-                    children,
-                    metadata,
-                } => {
-                    let factored_children = children
+                PackedNode::Production { .. } | PackedNode::InstantiatedProduction { .. } => {
+                    let header = production_header(&term).expect("a production node");
+                    let factored_children = header
+                        .2
                         .iter()
-                        .map(|child| self.factor_packed_ambiguities(Rc::clone(child), memo))
+                        .map(|child| self.factor_packed_ambiguities(Rc::clone(child), factoring))
                         .collect::<Vec<_>>();
-                    if factored_children
-                        .iter()
-                        .zip(children)
-                        .all(|(factored, original)| Rc::ptr_eq(factored, original))
-                    {
+                    if packed_nodes_unchanged(header.2, &factored_children) {
                         Rc::clone(&term)
                     } else {
-                        PackedTerm::production(*production, factored_children, metadata.clone())
+                        factoring.build(rebuild_production(header, factored_children))
                     }
                 }
                 PackedNode::Ambiguity(alternatives) => {
-                    let mut flattened = BTreeSet::new();
-                    for alternative in alternatives {
-                        let alternative =
-                            self.factor_packed_ambiguities(Rc::clone(alternative), memo);
-                        match &alternative.node {
-                            PackedNode::Ambiguity(nested) => {
-                                flattened.extend(nested.iter().cloned());
-                            }
-                            _ => {
-                                flattened.insert(alternative);
-                            }
+                    let mut factored_alternatives = alternatives
+                        .iter()
+                        .map(|alternative| {
+                            let factored =
+                                self.factor_packed_ambiguities(Rc::clone(alternative), factoring);
+                            (Rc::clone(alternative), factored)
+                        })
+                        .collect::<Vec<_>>();
+                    let mut flattened = flatten_alternatives(&factored_alternatives, None);
+                    // Inserting keeps the first of equal elements, so the order the owned tree
+                    // reads them in matters only when two distinct nodes are equal as terms.
+                    if let Some(order) = factoring.structural() {
+                        let nodes =
+                            factored_alternatives
+                                .iter()
+                                .flat_map(|(_, factored)| match &factored.node {
+                                    PackedNode::Ambiguity(nested) => {
+                                        nested.iter().collect::<Vec<_>>()
+                                    }
+                                    _ => vec![factored],
+                                });
+                        if merges_distinct_nodes(&flattened, nodes) {
+                            factored_alternatives
+                                .sort_by(|(left, _), (right, _)| order.cmp(left, right));
+                            flattened = flatten_alternatives(&factored_alternatives, Some(order));
                         }
                     }
-                    let factored = self.factor_packed_production_alternatives(flattened, memo);
+                    let factored = self.factor_packed_production_alternatives(flattened, factoring);
                     if matches!(
                         &factored.node,
                         PackedNode::Ambiguity(factored_alternatives)
@@ -364,7 +550,10 @@ impl Grammar {
             // Retain the input allocation as part of the entry. Factoring recursively creates
             // temporary ambiguity nodes; allowing one to drop while its raw address remains a key
             // would let a later allocation reuse the address and receive the wrong cached result.
-            memo.factored.insert(identity, (term, Rc::clone(&factored)));
+            factoring
+                .parts()
+                .0
+                .insert(identity, (term, Rc::clone(&factored)));
             factored
         })
     }
@@ -372,140 +561,68 @@ impl Grammar {
     fn factor_packed_production_alternatives(
         &self,
         alternatives: BTreeSet<Rc<PackedTerm>>,
-        memo: &mut PackedFactoringMemo,
+        factoring: &mut Factoring<'_>,
     ) -> Rc<PackedTerm> {
         // Invariant: retained alternatives agree on the factored production prefix, and each
         // recursive difference occupies one child ambiguity.
         if alternatives.len() <= 1 {
-            return PackedTerm::ambiguity(alternatives);
+            return factoring.build(PackedTerm::ambiguity(alternatives));
         }
-        let Some(first) = alternatives
+        // Whether the alternatives factor does not depend on the alternative they are compared
+        // with: they must all apply its production to children equal to its own but at one
+        // position, and equality as terms is transitive.
+        let reference = Rc::clone(alternatives.first().expect("an ambiguity has alternatives"));
+        let Some((production, parameters, children, _)) = production_header(&reference) else {
+            return factoring.build(PackedTerm::ambiguity(alternatives));
+        };
+        let candidate_children = |alternative: &Rc<PackedTerm>| {
+            production_header(alternative)
+                .filter(|(candidate, candidate_parameters, candidate_children, _)| {
+                    *candidate == production
+                        && *candidate_parameters == parameters
+                        && candidate_children.len() == children.len()
+                })
+                .map(|(_, _, candidate_children, _)| candidate_children.to_vec())
+        };
+        let Some(alternative_children) = alternatives
             .iter()
-            .min_by(|left, right| memo.order.cmp(left, right))
+            .map(|alternative| candidate_children(alternative).map(|c| (Rc::clone(alternative), c)))
+            .collect::<Option<Vec<_>>>()
         else {
-            return PackedTerm::ambiguity(alternatives);
+            return factoring.build(PackedTerm::ambiguity(alternatives));
         };
-        let PackedNode::Production {
-            production,
-            children,
-            metadata,
-        } = &first.node
-        else {
-            if let PackedNode::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                metadata,
-            } = &first.node
-            {
-                let production = *production;
-                let parameters = parameters.clone();
-                let children = children.clone();
-                let metadata = metadata.clone();
-                if !alternatives.iter().all(|alternative| {
-                    matches!(
-                        &alternative.node,
-                        PackedNode::InstantiatedProduction {
-                            production: candidate,
-                            parameters: candidate_parameters,
-                            children: candidate_children,
-                            ..
-                        } if *candidate == production
-                            && candidate_parameters == &parameters
-                            && candidate_children.len() == children.len()
-                    )
-                }) {
-                    return PackedTerm::ambiguity(alternatives);
-                }
-                let differing = (0..children.len())
-                    .filter(|index| {
-                        alternatives.iter().any(|alternative| {
-                            let PackedNode::InstantiatedProduction {
-                                children: candidate_children,
-                                ..
-                            } = &alternative.node
-                            else {
-                                unreachable!()
-                            };
-                            candidate_children[*index] != children[*index]
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                let [index] = differing.as_slice() else {
-                    return PackedTerm::ambiguity(alternatives);
-                };
-                let mut factored_children = children;
-                let child_alternatives = alternatives
-                    .iter()
-                    .map(|alternative| {
-                        let PackedNode::InstantiatedProduction {
-                            children: candidate_children,
-                            ..
-                        } = &alternative.node
-                        else {
-                            unreachable!()
-                        };
-                        Rc::clone(&candidate_children[*index])
-                    })
-                    .collect();
-                factored_children[*index] =
-                    self.factor_packed_ambiguities(PackedTerm::ambiguity(child_alternatives), memo);
-                return PackedTerm::instantiated_production(
-                    production,
-                    parameters,
-                    factored_children,
-                    metadata,
-                );
-            }
-            return PackedTerm::ambiguity(alternatives);
-        };
-        if !alternatives.iter().all(|alternative| {
-            matches!(
-                &alternative.node,
-                PackedNode::Production {
-                    production: candidate,
-                    children: candidate_children,
-                    ..
-                } if candidate == production
-                    && candidate_children.len() == children.len()
-            )
-        }) {
-            return PackedTerm::ambiguity(alternatives);
-        }
+        let order = factoring.order();
         let differing = (0..children.len())
             .filter(|index| {
-                alternatives.iter().any(|alternative| {
-                    let PackedNode::Production {
-                        children: candidate_children,
-                        ..
-                    } = &alternative.node
-                    else {
-                        unreachable!()
-                    };
-                    candidate_children[*index] != children[*index]
-                })
+                alternative_children
+                    .iter()
+                    .any(|(_, candidate)| !order.equal(&candidate[*index], &children[*index]))
             })
             .collect::<Vec<_>>();
         let [index] = differing.as_slice() else {
-            return PackedTerm::ambiguity(alternatives);
+            return factoring.build(PackedTerm::ambiguity(alternatives));
         };
-        let mut factored_children = children.clone();
-        let child_alternatives = alternatives
-            .iter()
-            .map(|alternative| {
-                let PackedNode::Production {
-                    children: candidate_children,
-                    ..
-                } = &alternative.node
-                else {
-                    unreachable!()
-                };
-                Rc::clone(&candidate_children[*index])
-            })
-            .collect();
-        factored_children[*index] =
-            self.factor_packed_ambiguities(PackedTerm::ambiguity(child_alternatives), memo);
-        PackedTerm::production(*production, factored_children, metadata.clone())
+        // The factored node keeps the metadata and the shared children of the structurally first
+        // alternative.
+        let first = Rc::clone(
+            alternatives
+                .iter()
+                .min_by(|left, right| order.cmp(left, right))
+                .expect("an ambiguity has alternatives"),
+        );
+        let header = production_header(&first).expect("every alternative is a production node");
+        let children = header.2;
+        let child_alternatives = alternative_children
+            .into_iter()
+            .map(|(alternative, candidate)| (alternative, Rc::clone(&candidate[*index])));
+        let child_alternatives = match factoring.structural() {
+            Some(order) => collect_in_structural_order(order, child_alternatives.collect()),
+            None => child_alternatives.map(|(_, child)| child).collect(),
+        };
+        let child = factoring.build(PackedTerm::ambiguity(child_alternatives));
+        let mut factored_children = children.to_vec();
+        factored_children[*index] = self.factor_packed_ambiguities(child, factoring);
+        factoring.build(rebuild_production(header, factored_children))
     }
 
     /// Filter a node at its completion: a node that breaks a relation (scope, cast, priority or
@@ -3448,15 +3565,62 @@ impl Grammar {
         })
     }
 
-    /// Apply post-inference overload and `prefer`/`avoid` selection at every ambiguity, pushing
-    /// shared-production ambiguity into its one differing child; see
-    /// [`Self::filter_overloads_prefer_avoid_node`] for the rule.
+    /// Apply post-inference overload and `prefer`/`avoid` selection at every ambiguity of an
+    /// owned tree; see [`Self::filter_overloads_prefer_avoid_node`] for the rule and
+    /// [`Self::filter_packed_overloads_prefer_avoid`], which this runs on the tree's packed form.
     pub(super) fn filter_overloads_prefer_avoid(&self, term: ParsedTerm) -> ParsedTerm {
-        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationFilterOverloads);
-        self.filter_overloads_prefer_avoid_node(term)
+        #[cfg(test)]
+        let tree = self.filter_overloads_prefer_avoid_tree(term.clone());
+        let mut session = LoweringSession::default();
+        let packed = session.intern_parsed(&term);
+        drop(term);
+        let filtered = self
+            .filter_packed_overloads_prefer_avoid(&mut session, &packed)
+            .unpack();
+        #[cfg(test)]
+        assert!(
+            filtered.identical(&tree),
+            "filtering the packed tree differs from filtering the owned tree:\n\
+             {filtered:?}\n{tree:?}"
+        );
+        filtered
     }
 
-    /// Select among the alternatives of each ambiguity of a sort-inferred tree.
+    /// Apply post-inference overload and `prefer`/`avoid` selection at every ambiguity of a
+    /// session's forest, pushing shared-production ambiguity into its one differing child; see
+    /// [`Self::filter_overloads_prefer_avoid_node`] for the rule.
+    ///
+    /// The result for a node is a function of the node alone, so it is computed once per session
+    /// node, for the nodes of the forest and for those the pass builds (the subsets it keeps of
+    /// an ambiguity and the nodes factoring makes of them) alike. A node the pass leaves
+    /// unchanged is returned as is.
+    pub(super) fn filter_packed_overloads_prefer_avoid(
+        &self,
+        session: &mut LoweringSession,
+        term: &Rc<PackedTerm>,
+    ) -> Rc<PackedTerm> {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationFilterOverloads);
+        let mut filter = self.packed_filter();
+        self.filter_overloads_prefer_avoid_node(session, &mut filter, term)
+    }
+
+    /// A packed filtering pass's state before it has filtered any node.
+    fn packed_filter(&self) -> PackedFilter {
+        let sources = |chooses: fn(&Production) -> bool| {
+            self.productions
+                .iter()
+                .filter(|production| chooses(production))
+                .filter_map(|production| production.source_production)
+                .collect::<HashSet<_>>()
+        };
+        PackedFilter {
+            preferred_sources: sources(|production| production.prefer),
+            avoided_sources: sources(|production| production.avoid),
+            filtered: PackedNodeResults::default(),
+        }
+    }
+
+    /// Select among the alternatives of each ambiguity of a sort-inferred forest.
     ///
     /// The input trees are well-sorted and maximal, so every alternative is a reading the
     /// definition admits; this pass only chooses between them and always keeps a non-empty
@@ -3489,107 +3653,122 @@ impl Grammar {
     /// a subset, and `resolve_ambiguities` reports only distinct lowered terms, a rule that lowers
     /// to one term without it lowers to the same term with it. An `avoid` production below a
     /// frontier node does not count, as it does not below the top production in step 2.
-    fn filter_overloads_prefer_avoid_node(&self, term: ParsedTerm) -> ParsedTerm {
-        crate::stack::guarded(|| {
-            // Invariant: recursion strictly descends the owned tree (factoring moves an ambiguity
-            // strictly downward) and retains exactly the maximal overload choices after prefer/avoid
-            // classification.
-            match term.into_parts() {
-                ParsedParts::Term(leaf) => ParsedTerm::Term(leaf),
-                ParsedParts::Production {
-                    production,
-                    children,
-                    metadata,
-                } => ParsedTerm::Production {
-                    production,
-                    metadata,
-                    children: children
-                        .into_iter()
-                        .map(|child| self.filter_overloads_prefer_avoid_node(child))
-                        .collect(),
-                },
-                ParsedParts::InstantiatedProduction {
-                    production,
-                    parameters,
-                    children,
-                    metadata,
-                } => ParsedTerm::InstantiatedProduction {
-                    production,
-                    parameters,
-                    metadata,
-                    children: children
-                        .into_iter()
-                        .map(|child| self.filter_overloads_prefer_avoid_node(child))
-                        .collect(),
-                },
-                ParsedParts::Ambiguity(mut alternatives) => {
-                    if alternatives.len() == 1 {
-                        return self.filter_overloads_prefer_avoid_node(
-                            alternatives.pop_first().expect("length was one"),
-                        );
-                    }
-
-                    alternatives = self.remove_overloads(alternatives);
-                    if alternatives.len() == 1 {
-                        return self.filter_overloads_prefer_avoid_node(
-                            alternatives.pop_first().expect("length was one"),
-                        );
-                    }
-
-                    let preferred = alternatives
-                        .iter()
-                        .filter(|alternative| self.is_preferred(alternative))
-                        .cloned()
-                        .collect::<BTreeSet<_>>();
-                    if !preferred.is_empty() {
-                        alternatives = preferred;
-                    } else {
-                        let retained = alternatives
-                            .iter()
-                            .filter(|alternative| !self.is_avoided(alternative))
-                            .cloned()
-                            .collect::<BTreeSet<_>>();
-                        if !retained.is_empty() {
-                            alternatives = retained;
-                        }
-                    }
-
-                    let alternatives = alternatives
-                        .into_iter()
-                        .map(|alternative| self.filter_overloads_prefer_avoid_node(alternative))
-                        .collect::<BTreeSet<_>>();
-                    if alternatives.len() == 1 {
-                        return alternatives.into_iter().next().expect("length was one");
-                    }
-                    let ambiguity = ParsedTerm::Ambiguity(alternatives);
-                    let factored = self.factor_ambiguities(ambiguity.clone());
-                    if factored != ambiguity {
-                        return self.filter_overloads_prefer_avoid_node(factored);
-                    }
-                    let ParsedParts::Ambiguity(alternatives) = ambiguity.into_parts() else {
-                        unreachable!("the ambiguity was built above")
-                    };
-                    let count = alternatives.len();
-                    let mut selected = self.select_at_frontier(alternatives);
-                    if selected.len() == count {
-                        return ParsedTerm::Ambiguity(selected);
-                    }
-                    if selected.len() == 1 {
-                        return selected.pop_first().expect("length was one");
-                    }
-                    // The survivors are already filtered, and a subset of mutually non-dominated
-                    // overloads is unchanged by step 1 and a fixpoint of step 2 and of the frontier
-                    // step, so only a factoring change needs another pass.
-                    let ambiguity = ParsedTerm::Ambiguity(selected);
-                    let factored = self.factor_ambiguities(ambiguity.clone());
-                    if factored == ambiguity {
-                        ambiguity
-                    } else {
-                        self.filter_overloads_prefer_avoid_node(factored)
-                    }
+    ///
+    /// The surviving alternatives are filtered and collected as an owned tree's are: when two
+    /// become equal as terms, in structural order, so that the set keeps the same one
+    /// ([`collect_in_structural_order`]).
+    fn filter_overloads_prefer_avoid_node(
+        &self,
+        session: &mut LoweringSession,
+        filter: &mut PackedFilter,
+        term: &Rc<PackedTerm>,
+    ) -> Rc<PackedTerm> {
+        if let Some((_, filtered)) = filter.filtered.get(&Rc::as_ptr(term)) {
+            return Rc::clone(filtered);
+        }
+        let result = crate::stack::guarded(|| {
+            // Invariant: every memoized node has its complete result; recursion descends to the
+            // node's children or alternatives, or to a node that factoring made of its filtered
+            // alternatives, whose ambiguity lies strictly lower, and retains exactly the maximal
+            // overload choices after prefer/avoid classification.
+            let header = match &term.node {
+                PackedNode::Term(_) => return Rc::clone(term),
+                PackedNode::Ambiguity(alternatives) => {
+                    return self.filter_packed_ambiguity(session, filter, alternatives);
                 }
+                PackedNode::Production { .. } | PackedNode::InstantiatedProduction { .. } => {
+                    production_header(term).expect("a production node")
+                }
+            };
+            let rewritten = header
+                .2
+                .iter()
+                .map(|child| self.filter_overloads_prefer_avoid_node(session, filter, child))
+                .collect::<Vec<_>>();
+            if packed_nodes_unchanged(header.2, &rewritten) {
+                return Rc::clone(term);
             }
-        })
+            session.intern(rebuild_production(header, rewritten))
+        });
+        filter
+            .filtered
+            .insert(Rc::as_ptr(term), (Rc::clone(term), Rc::clone(&result)));
+        result
+    }
+
+    /// Steps 1-5 of [`Self::filter_overloads_prefer_avoid_node`] at an ambiguity node.
+    fn filter_packed_ambiguity(
+        &self,
+        session: &mut LoweringSession,
+        filter: &mut PackedFilter,
+        alternatives: &BTreeSet<Rc<PackedTerm>>,
+    ) -> Rc<PackedTerm> {
+        if alternatives.len() == 1 {
+            let only = alternatives.first().expect("length was one");
+            return self.filter_overloads_prefer_avoid_node(session, filter, only);
+        }
+        let mut alternatives = self.remove_overloads(alternatives.clone());
+        if alternatives.len() == 1 {
+            let only = alternatives.first().expect("length was one");
+            return self.filter_overloads_prefer_avoid_node(session, filter, only);
+        }
+
+        let preferred = alternatives
+            .iter()
+            .filter(|alternative| filter.chooses(self, alternative, Choice::Prefer))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if !preferred.is_empty() {
+            alternatives = preferred;
+        } else {
+            let retained = alternatives
+                .iter()
+                .filter(|alternative| !filter.chooses(self, alternative, Choice::Avoid))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            if !retained.is_empty() {
+                alternatives = retained;
+            }
+        }
+
+        let filtered = alternatives
+            .iter()
+            .map(|alternative| {
+                let filtered =
+                    self.filter_overloads_prefer_avoid_node(session, filter, alternative);
+                (Rc::clone(alternative), filtered)
+            })
+            .collect();
+        let alternatives = collect_in_structural_order(&mut session.order, filtered);
+        if alternatives.len() == 1 {
+            return alternatives.into_iter().next().expect("length was one");
+        }
+        let ambiguity = session.intern(PackedTerm::alternatives(alternatives));
+        let factored = self.factor_session_ambiguities(session, &ambiguity);
+        if !session.order.equal(&factored, &ambiguity) {
+            return self.filter_overloads_prefer_avoid_node(session, filter, &factored);
+        }
+        let PackedNode::Ambiguity(alternatives) = &ambiguity.node else {
+            unreachable!("the ambiguity was built above")
+        };
+        let count = alternatives.len();
+        let selected = self.select_at_frontier(&mut session.order, filter, alternatives.clone());
+        if selected.len() == count {
+            return ambiguity;
+        }
+        if selected.len() == 1 {
+            return selected.into_iter().next().expect("length was one");
+        }
+        // The survivors are already filtered, and a subset of mutually non-dominated overloads
+        // is unchanged by step 1 and a fixpoint of step 2 and of the frontier step, so only a
+        // factoring change needs another pass.
+        let ambiguity = session.intern(PackedTerm::alternatives(selected));
+        let factored = self.factor_session_ambiguities(session, &ambiguity);
+        if session.order.equal(&factored, &ambiguity) {
+            ambiguity
+        } else {
+            self.filter_overloads_prefer_avoid_node(session, filter, &factored)
+        }
     }
 
     /// The frontier step of [`Self::filter_overloads_prefer_avoid_node`]: repeatedly classify the
@@ -3597,37 +3776,44 @@ impl Grammar {
     /// otherwise drop the avoided ones while some others remain, until a round changes nothing.
     /// Each round either removes an alternative or stops, so there are fewer rounds than
     /// alternatives.
-    fn select_at_frontier(&self, mut alternatives: BTreeSet<ParsedTerm>) -> BTreeSet<ParsedTerm> {
+    fn select_at_frontier(
+        &self,
+        order: &mut StructuralOrder,
+        filter: &PackedFilter,
+        mut alternatives: BTreeSet<Rc<PackedTerm>>,
+    ) -> BTreeSet<Rc<PackedTerm>> {
         // Invariant: `alternatives` is a non-empty subset of the input, and every round that does
         // not return removes at least one alternative.
         loop {
             if alternatives.len() < 2 {
                 return alternatives;
             }
-            let keep = {
-                let nodes = alternatives.iter().collect::<Vec<_>>();
-                let mut frontier = Vec::new();
-                collect_frontier(&nodes, &mut frontier);
-                let classify = |predicate: &dyn Fn(&ParsedTerm) -> bool| {
-                    (0..nodes.len())
-                        .map(|index| frontier.iter().any(|position| predicate(position[index])))
-                        .collect::<Vec<_>>()
-                };
-                let preferred = classify(&|node| self.is_preferred(node));
-                if preferred.contains(&true) {
-                    preferred
-                } else {
-                    let avoided = classify(&|node| self.is_avoided(node));
-                    if !avoided.contains(&false) {
-                        return alternatives;
-                    }
-                    avoided.into_iter().map(|avoided| !avoided).collect()
+            let nodes = alternatives.iter().cloned().collect::<Vec<_>>();
+            let mut frontier = Vec::new();
+            collect_packed_frontier(order, &nodes, &mut HashSet::new(), &mut frontier);
+            let classify = |choice: Choice| {
+                (0..nodes.len())
+                    .map(|index| {
+                        frontier
+                            .iter()
+                            .any(|position| filter.chooses(self, &position[index], choice))
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let preferred = classify(Choice::Prefer);
+            let keep = if preferred.contains(&true) {
+                preferred
+            } else {
+                let avoided = classify(Choice::Avoid);
+                if !avoided.contains(&false) {
+                    return alternatives;
                 }
+                avoided.into_iter().map(|avoided| !avoided).collect()
             };
             if !keep.contains(&false) {
                 return alternatives;
             }
-            alternatives = alternatives
+            alternatives = nodes
                 .into_iter()
                 .zip(keep)
                 .filter_map(|(alternative, keep)| keep.then_some(alternative))
@@ -3635,21 +3821,18 @@ impl Grammar {
         }
     }
 
-    fn remove_overloads(&self, alternatives: BTreeSet<ParsedTerm>) -> BTreeSet<ParsedTerm> {
+    /// Drop the alternatives whose top production is a less specific overload of another's (or,
+    /// among brackets, a less specific bracket); any set with an alternative that applies no
+    /// production with a source is kept whole. The selection reads only each alternative's top
+    /// production, so it is the same on owned and packed alternatives.
+    fn remove_overloads<T: Alternative>(&self, alternatives: BTreeSet<T>) -> BTreeSet<T> {
         let alternatives = self.remove_bracket_overloads(alternatives);
         if alternatives.len() == 1 {
             return alternatives;
         }
         let Some(productions) = alternatives
             .iter()
-            .map(|alternative| {
-                let production = match alternative {
-                    ParsedTerm::Production { production, .. }
-                    | ParsedTerm::InstantiatedProduction { production, .. } => production,
-                    ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => return None,
-                };
-                self.productions[*production].source_production
-            })
+            .map(|alternative| self.productions[alternative.top_production()?].source_production)
             .collect::<Option<BTreeSet<_>>>()
         else {
             return alternatives;
@@ -3658,14 +3841,10 @@ impl Grammar {
         alternatives
             .into_iter()
             .filter(|alternative| {
-                let production = match alternative {
-                    ParsedTerm::Production { production, .. }
-                    | ParsedTerm::InstantiatedProduction { production, .. } => production,
-                    ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => {
-                        unreachable!("non-production alternatives were returned above")
-                    }
-                };
-                self.productions[*production]
+                let production = alternative
+                    .top_production()
+                    .expect("non-production alternatives were returned above");
+                self.productions[production]
                     .source_production
                     .is_some_and(|production| minimal.contains(&production))
             })
@@ -3716,7 +3895,183 @@ impl Grammar {
             .collect()
     }
 
-    fn is_preferred(&self, term: &ParsedTerm) -> bool {
+    /// The frontier step on owned alternatives, run on their packed form and checked against
+    /// the owned-tree step.
+    #[cfg(test)]
+    fn select_at_frontier_owned(&self, alternatives: BTreeSet<ParsedTerm>) -> BTreeSet<ParsedTerm> {
+        let tree = self.select_at_frontier_tree(alternatives.clone());
+        let mut session = LoweringSession::default();
+        let packed = alternatives
+            .iter()
+            .map(|alternative| session.intern_parsed(alternative))
+            .collect();
+        let selected = self
+            .select_at_frontier(&mut session.order, &self.packed_filter(), packed)
+            .iter()
+            .map(|alternative| alternative.unpack())
+            .collect::<BTreeSet<_>>();
+        assert!(
+            selected.len() == tree.len()
+                && selected
+                    .iter()
+                    .zip(&tree)
+                    .all(|(packed, tree)| packed.identical(tree)),
+            "the frontier step on packed alternatives differs from the owned tree's:\n\
+             {selected:?}\n{tree:?}"
+        );
+        selected
+    }
+
+    /// The owned-tree form of [`Self::filter_overloads_prefer_avoid_node`], which the tests
+    /// check the packed pass against.
+    #[cfg(test)]
+    fn filter_overloads_prefer_avoid_tree(&self, term: ParsedTerm) -> ParsedTerm {
+        crate::stack::guarded(|| {
+            // Invariant: recursion strictly descends the owned tree (factoring moves an ambiguity
+            // strictly downward) and retains exactly the maximal overload choices after prefer/avoid
+            // classification.
+            match term.into_parts() {
+                ParsedParts::Term(leaf) => ParsedTerm::Term(leaf),
+                ParsedParts::Production {
+                    production,
+                    children,
+                    metadata,
+                } => ParsedTerm::Production {
+                    production,
+                    metadata,
+                    children: children
+                        .into_iter()
+                        .map(|child| self.filter_overloads_prefer_avoid_tree(child))
+                        .collect(),
+                },
+                ParsedParts::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                } => ParsedTerm::InstantiatedProduction {
+                    production,
+                    parameters,
+                    metadata,
+                    children: children
+                        .into_iter()
+                        .map(|child| self.filter_overloads_prefer_avoid_tree(child))
+                        .collect(),
+                },
+                ParsedParts::Ambiguity(mut alternatives) => {
+                    if alternatives.len() == 1 {
+                        return self.filter_overloads_prefer_avoid_tree(
+                            alternatives.pop_first().expect("length was one"),
+                        );
+                    }
+
+                    alternatives = self.remove_overloads(alternatives);
+                    if alternatives.len() == 1 {
+                        return self.filter_overloads_prefer_avoid_tree(
+                            alternatives.pop_first().expect("length was one"),
+                        );
+                    }
+
+                    let preferred = alternatives
+                        .iter()
+                        .filter(|alternative| self.is_preferred_tree(alternative))
+                        .cloned()
+                        .collect::<BTreeSet<_>>();
+                    if !preferred.is_empty() {
+                        alternatives = preferred;
+                    } else {
+                        let retained = alternatives
+                            .iter()
+                            .filter(|alternative| !self.is_avoided_tree(alternative))
+                            .cloned()
+                            .collect::<BTreeSet<_>>();
+                        if !retained.is_empty() {
+                            alternatives = retained;
+                        }
+                    }
+
+                    let alternatives = alternatives
+                        .into_iter()
+                        .map(|alternative| self.filter_overloads_prefer_avoid_tree(alternative))
+                        .collect::<BTreeSet<_>>();
+                    if alternatives.len() == 1 {
+                        return alternatives.into_iter().next().expect("length was one");
+                    }
+                    let ambiguity = ParsedTerm::Ambiguity(alternatives);
+                    let factored = self.factor_ambiguities(ambiguity.clone());
+                    if factored != ambiguity {
+                        return self.filter_overloads_prefer_avoid_tree(factored);
+                    }
+                    let ParsedParts::Ambiguity(alternatives) = ambiguity.into_parts() else {
+                        unreachable!("the ambiguity was built above")
+                    };
+                    let count = alternatives.len();
+                    let mut selected = self.select_at_frontier_tree(alternatives);
+                    if selected.len() == count {
+                        return ParsedTerm::Ambiguity(selected);
+                    }
+                    if selected.len() == 1 {
+                        return selected.pop_first().expect("length was one");
+                    }
+                    // The survivors are already filtered, and a subset of mutually non-dominated
+                    // overloads is unchanged by step 1 and a fixpoint of step 2 and of the frontier
+                    // step, so only a factoring change needs another pass.
+                    let ambiguity = ParsedTerm::Ambiguity(selected);
+                    let factored = self.factor_ambiguities(ambiguity.clone());
+                    if factored == ambiguity {
+                        ambiguity
+                    } else {
+                        self.filter_overloads_prefer_avoid_tree(factored)
+                    }
+                }
+            }
+        })
+    }
+
+    #[cfg(test)]
+    fn select_at_frontier_tree(
+        &self,
+        mut alternatives: BTreeSet<ParsedTerm>,
+    ) -> BTreeSet<ParsedTerm> {
+        // Invariant: `alternatives` is a non-empty subset of the input, and every round that does
+        // not return removes at least one alternative.
+        loop {
+            if alternatives.len() < 2 {
+                return alternatives;
+            }
+            let keep = {
+                let nodes = alternatives.iter().collect::<Vec<_>>();
+                let mut frontier = Vec::new();
+                collect_frontier_tree(&nodes, &mut frontier);
+                let classify = |predicate: &dyn Fn(&ParsedTerm) -> bool| {
+                    (0..nodes.len())
+                        .map(|index| frontier.iter().any(|position| predicate(position[index])))
+                        .collect::<Vec<_>>()
+                };
+                let preferred = classify(&|node| self.is_preferred_tree(node));
+                if preferred.contains(&true) {
+                    preferred
+                } else {
+                    let avoided = classify(&|node| self.is_avoided_tree(node));
+                    if !avoided.contains(&false) {
+                        return alternatives;
+                    }
+                    avoided.into_iter().map(|avoided| !avoided).collect()
+                }
+            };
+            if !keep.contains(&false) {
+                return alternatives;
+            }
+            alternatives = alternatives
+                .into_iter()
+                .zip(keep)
+                .filter_map(|(alternative, keep)| keep.then_some(alternative))
+                .collect();
+        }
+    }
+
+    #[cfg(test)]
+    fn is_preferred_tree(&self, term: &ParsedTerm) -> bool {
         match term {
             ParsedTerm::Production { production, .. }
             | ParsedTerm::InstantiatedProduction { production, .. } => {
@@ -3739,7 +4094,8 @@ impl Grammar {
         }
     }
 
-    fn is_avoided(&self, term: &ParsedTerm) -> bool {
+    #[cfg(test)]
+    fn is_avoided_tree(&self, term: &ParsedTerm) -> bool {
         match term {
             ParsedTerm::Production { production, .. }
             | ParsedTerm::InstantiatedProduction { production, .. } => {
@@ -5315,7 +5671,87 @@ pub(crate) fn parse_apply_priority(source: &str) -> Result<BTreeSet<usize>, Pars
 /// A position is in the common prefix when its node headers are equal: the same production with
 /// the same instantiated parameters and arity, or equal leaves (a leaf or ambiguity is compared
 /// whole, so equal ones have nothing below them). Otherwise the position is a frontier position.
-fn collect_frontier<'a>(nodes: &[&'a ParsedTerm], frontier: &mut Vec<Vec<&'a ParsedTerm>>) {
+/// Below a position where every alternative has the same node, every header is equal, so there
+/// is no frontier position there. `visited` holds the positions already walked, by their nodes:
+/// what lies below a position is a function of its nodes, so a position reached again by
+/// another path adds nothing, and the walk visits each tuple of nodes once.
+fn collect_packed_frontier(
+    order: &mut StructuralOrder,
+    nodes: &[Rc<PackedTerm>],
+    visited: &mut HashSet<Vec<*const PackedTerm>>,
+    frontier: &mut Vec<Vec<Rc<PackedTerm>>>,
+) {
+    crate::stack::guarded(|| {
+        // Invariant: `nodes` holds one node per alternative at one common-prefix position, so every
+        // pushed position has one node per alternative, in alternative order; recursion descends
+        // only through shared headers, whose arity is equal.
+        let (first, rest) = nodes.split_first().expect("an ambiguity has alternatives");
+        if rest.iter().all(|node| Rc::ptr_eq(first, node))
+            || !visited.insert(nodes.iter().map(Rc::as_ptr).collect())
+        {
+            return;
+        }
+        let shared_header = rest.iter().all(|node| match (&first.node, &node.node) {
+            (
+                PackedNode::Production {
+                    production,
+                    children,
+                    ..
+                },
+                PackedNode::Production {
+                    production: other,
+                    children: other_children,
+                    ..
+                },
+            ) => production == other && children.len() == other_children.len(),
+            (
+                PackedNode::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    ..
+                },
+                PackedNode::InstantiatedProduction {
+                    production: other,
+                    parameters: other_parameters,
+                    children: other_children,
+                    ..
+                },
+            ) => {
+                production == other
+                    && parameters == other_parameters
+                    && children.len() == other_children.len()
+            }
+            (PackedNode::Term(_), PackedNode::Term(_))
+            | (PackedNode::Ambiguity(_), PackedNode::Ambiguity(_)) => order.equal(first, node),
+            _ => false,
+        });
+        if !shared_header {
+            frontier.push(nodes.to_vec());
+            return;
+        }
+        let arity = production_header(first).map_or(0, |(_, _, children, _)| children.len());
+        for index in 0..arity {
+            let below = nodes
+                .iter()
+                .map(|node| {
+                    Rc::clone(&production_header(node).expect("headers are shared").2[index])
+                })
+                .collect::<Vec<_>>();
+            collect_packed_frontier(order, &below, visited, frontier);
+        }
+    })
+}
+
+/// The owned-tree form of [`collect_packed_frontier`].
+#[cfg(test)]
+/// Push onto `frontier`, for each frontier position below `nodes` (the nodes the alternatives have
+/// at one common-prefix position, in alternative order), the node every alternative has there.
+///
+/// A position is in the common prefix when its node headers are equal: the same production with
+/// the same instantiated parameters and arity, or equal leaves (a leaf or ambiguity is compared
+/// whole, so equal ones have nothing below them). Otherwise the position is a frontier position.
+fn collect_frontier_tree<'a>(nodes: &[&'a ParsedTerm], frontier: &mut Vec<Vec<&'a ParsedTerm>>) {
     crate::stack::guarded(|| {
         // Invariant: `nodes` holds one node per alternative at one common-prefix position, so every
         // pushed position has one node per alternative, in alternative order; recursion descends
@@ -5370,7 +5806,7 @@ fn collect_frontier<'a>(nodes: &[&'a ParsedTerm], frontier: &mut Vec<Vec<&'a Par
                 .iter()
                 .map(|node| &children(node)[index])
                 .collect::<Vec<_>>();
-            collect_frontier(&below, frontier);
+            collect_frontier_tree(&below, frontier);
         }
     })
 }
@@ -6867,7 +7303,7 @@ mod tests {
         // Round 1: the frontier is both children of the root; only `first` is avoided there.
         // Round 2: `second` and `third` share the prefix `pair(V, pair(_, _))`, and the new
         // frontier below it shows `second`'s avoided node.
-        let selected = f.grammar.select_at_frontier(BTreeSet::from([
+        let selected = f.grammar.select_at_frontier_owned(BTreeSet::from([
             first.clone(),
             second.clone(),
             third.clone(),
@@ -6884,8 +7320,10 @@ mod tests {
         let with_ambiguity = f.pair(nested, variable("X"));
         let avoided = f.pair(f.leaf(f.avoided), variable("Y"));
         assert_eq!(
-            f.grammar
-                .select_at_frontier(BTreeSet::from([with_ambiguity.clone(), avoided.clone()])),
+            f.grammar.select_at_frontier_owned(BTreeSet::from([
+                with_ambiguity.clone(),
+                avoided.clone()
+            ])),
             BTreeSet::from([with_ambiguity.clone()])
         );
         assert_eq!(
@@ -6897,7 +7335,7 @@ mod tests {
             f.leaf(f.also_avoided),
         ]));
         assert_eq!(
-            f.grammar.select_at_frontier(BTreeSet::from([
+            f.grammar.select_at_frontier_owned(BTreeSet::from([
                 f.pair(nested, variable("X")),
                 f.pair(variable("V"), variable("Y")),
             ])),
@@ -7346,6 +7784,144 @@ mod tests {
             ParseError::OverloadedTerminator {
                 possible_sorts: vec![Sort::new("Firstunit"), Sort::new("Secondunit")],
             }
+        );
+    }
+
+    /// A grammar of unary `wrap`, `other` and `avoided` (an `avoid` production) and binary
+    /// `pair`, all of sort `S`, and a session with the leaf `a` in it.
+    fn filtering_grammar() -> (Grammar, [usize; 4], LoweringSession, Rc<PackedTerm>) {
+        let mut grammar = Grammar::default();
+        let wrap = add_production(&mut grammar, "S", &["S"], "wrap");
+        let other = add_production(&mut grammar, "S", &["S"], "other");
+        let avoided = add_production(&mut grammar, "S", &["S"], "avoided");
+        let pair = add_production(&mut grammar, "S", &["S", "S"], "pair");
+        grammar.productions[avoided].avoid = true;
+        let mut session = LoweringSession::default();
+        let leaf = session.intern(PackedTerm::leaf(Term::variable("a")));
+        (grammar, [wrap, other, avoided, pair], session, leaf)
+    }
+
+    fn session_node(
+        session: &mut LoweringSession,
+        production: usize,
+        children: &[&Rc<PackedTerm>],
+    ) -> Rc<PackedTerm> {
+        session.intern(PackedTerm::production(
+            production,
+            children.iter().map(|child| Rc::clone(child)).collect(),
+            TermMetadata::default(),
+        ))
+    }
+
+    #[test]
+    fn filtering_a_forest_of_exponentially_many_trees_visits_each_node_once() {
+        let (grammar, [wrap, other, avoided, _], mut session, leaf) = filtering_grammar();
+        // Level k + 1 is `wrap(level k)`, `other(level k)` or `avoided(level k)`: 3^64 trees,
+        // of which the filter keeps the 2^64 without `avoided`.
+        let (mut forest, mut expected) = (Rc::clone(&leaf), leaf);
+        for _ in 0..64 {
+            let alternatives = [wrap, other, avoided]
+                .into_iter()
+                .map(|production| session_node(&mut session, production, &[&forest]))
+                .collect();
+            forest = session.intern(PackedTerm::alternatives(alternatives));
+            let alternatives = [wrap, other]
+                .into_iter()
+                .map(|production| session_node(&mut session, production, &[&expected]))
+                .collect();
+            expected = session.intern(PackedTerm::alternatives(alternatives));
+        }
+        super::super::forest::reset_unpacked_nodes();
+
+        let filtered = grammar.filter_packed_overloads_prefer_avoid(&mut session, &forest);
+
+        assert!(Rc::ptr_eq(&filtered, &expected));
+        assert_eq!(super::super::forest::unpacked_nodes(), 0);
+    }
+
+    #[test]
+    fn filtering_refilters_the_nodes_factoring_builds_once_each() {
+        let (grammar, [_, _, avoided, pair], mut session, leaf) = filtering_grammar();
+        // Level k + 1 is `pair(level k, a)` or `pair(avoided(level k), a)`: 2^64 trees. The two
+        // share `pair` and differ in its first child, so factoring moves the ambiguity there,
+        // where the filter drops `avoided`: one tree, `pair` nested 64 times.
+        let (mut forest, mut expected) = (Rc::clone(&leaf), Rc::clone(&leaf));
+        for _ in 0..64 {
+            let below = session_node(&mut session, avoided, &[&forest]);
+            let alternatives = BTreeSet::from([
+                session_node(&mut session, pair, &[&forest, &leaf]),
+                session_node(&mut session, pair, &[&below, &leaf]),
+            ]);
+            forest = session.intern(PackedTerm::alternatives(alternatives));
+            expected = session_node(&mut session, pair, &[&expected, &leaf]);
+        }
+        super::super::forest::reset_unpacked_nodes();
+
+        let filtered = grammar.filter_packed_overloads_prefer_avoid(&mut session, &forest);
+
+        assert!(Rc::ptr_eq(&filtered, &expected));
+        assert_eq!(super::super::forest::unpacked_nodes(), 0);
+    }
+
+    #[test]
+    fn filtering_keeps_the_annotations_the_owned_tree_keeps() {
+        let (grammar, [wrap, _, avoided, _], _, _) = filtering_grammar();
+        let annotated = |source: usize| {
+            ParsedTerm::Term(Term::variable("a").with_metadata(TermMetadata {
+                production: Some(identity(source)),
+                ..TermMetadata::default()
+            }))
+        };
+        let node = |production: usize, child: ParsedTerm| ParsedTerm::Production {
+            production,
+            children: vec![child],
+            metadata: TermMetadata::default(),
+        };
+        // Filtering the second alternative drops `avoided` below `wrap`, and the two become
+        // equal as terms; the wrapper checks that the packed pass keeps the owned tree's one.
+        let merging = ParsedTerm::Ambiguity(BTreeSet::from([
+            node(wrap, annotated(1)),
+            node(
+                wrap,
+                ParsedTerm::Ambiguity(BTreeSet::from([annotated(2), node(avoided, variable("a"))])),
+            ),
+        ]));
+
+        let filtered = grammar.filter_overloads_prefer_avoid(merging);
+
+        assert_eq!(filtered, node(wrap, variable("a")));
+    }
+
+    #[test]
+    fn filtering_reads_a_one_alternative_ambiguity_as_written() {
+        let mut grammar = Grammar::default();
+        let specific = add_production(&mut grammar, "S", &["S"], "f");
+        let general = add_production(&mut grammar, "S", &["S"], "f");
+        grammar.productions[specific].source_production = Some(identity(0));
+        grammar.productions[general].source_production = Some(identity(1));
+        grammar.overloads = PartialOrder::new(vec![(identity(0), identity(1))]).unwrap();
+        let node = |production: usize| ParsedTerm::Production {
+            production,
+            children: vec![variable("a")],
+            metadata: TermMetadata::default(),
+        };
+
+        let flat = grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+            node(specific),
+            node(general),
+        ])));
+        // Step 1 compares the top productions of the alternatives as given: the one-alternative
+        // ambiguity has none, so it keeps both.
+        let nested =
+            grammar.filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(BTreeSet::from([
+                node(specific),
+                ParsedTerm::Ambiguity(BTreeSet::from([node(general)])),
+            ])));
+
+        assert_eq!(flat, node(specific));
+        assert_eq!(
+            nested,
+            ParsedTerm::Ambiguity(BTreeSet::from([node(specific), node(general)]))
         );
     }
 }
