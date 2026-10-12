@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.matching.collections"
 //! name = "associative and associative-commutative collection matching"
-//! sites = ["solve_collection_pairs_in_definition", "solve_collection_pair", "solve_list_pair", "solve_map_pair", "solve_set_pair", "match_collection_remainders_all_in_definition", "cancel_common_opaque_chunks"]
+//! sites = ["solve_collection_pairs_in_definition", "solve_collection_pair", "solve_list_pair", "solve_map_pair", "solve_set_pair", "match_collection_remainders_all_in_definition", "cancel_common_opaque_chunks", "list_implication_expansion"]
 //! variable = "k = pattern entries or elements left after common-key cancellation; n = subject entries or elements; h = list elements outside the frames; q = collection pairs in one call"
 //! counters = ["MatchingCollectionProblems"]
 //! span = "per problem"
@@ -28,6 +28,10 @@
 //! bound = "O(log n): two cuts of the closed side's tree"
 //!
 //! [[cost]]
+//! mode = "list item positions in an implication remainder (list_implication_expansion)"
+//! bound = "O(k n) item matches, each pattern item against each subject position at most once; at most C(n, k) branches, each O(k log n) nodes (one cut of the subject's trees per run of parts)"
+//!
+//! [[cost]]
 //! mode = "deferred pair sweep (solve_collection_pairs_from_solution)"
 //! bound = "O(q^2) solve_collection_pair attempts per solution branch"
 //! ```
@@ -38,7 +42,9 @@
 //! length-fixed frame split, one pair solve per element outside the frames; opaque-concatenation
 //! cancellation. A frame is never copied: a map or set frame is the subject's tree with the
 //! assigned items removed, a list frame a cut of the closed side, so a frame costs the logarithm
-//! of the subject's size, not its size;
+//! of the subject's size, not its size. In an implication remainder, a list pattern with an item
+//! between two parts is expanded into one branch per position of its items in the subject list
+//! (`list_implication_expansion`), each part a cut of the subject's trees;
 //! `Counter::MatchingCollectionProblems`. The per-pair rules (sorts, overloads,
 //! injections) stay in `solve_term_pair`, which is why no generic AC matcher replaces this.
 
@@ -52,13 +58,13 @@ use crate::{
     definition::BackendDefinition,
     substitution::{Substitution, substitute},
     term::{
-        Items, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable,
-        chunked::Item,
+        CollectionMetadata, Items, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term,
+        TermKind, Variable, chunked::Item,
     },
     unification::{MatchUnification, unify_from},
 };
 
-use super::{MatchFailed, MatchMode, MatchResult, match_terms_with_context};
+use super::{FailReason, MatchFailed, MatchMode, MatchResult, match_terms_with_context};
 /// One solution for a set of deferred collection pairs.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct CollectionSolution {
@@ -1418,11 +1424,16 @@ pub(super) fn is_opaque_concat(term: &Term, concat: &Name) -> bool {
     matches!(term.kind(), TermKind::Application { symbol, .. } if &symbol.name == concat)
 }
 
-/// Expand implication remainders where a closed destination map is unified with an open current
-/// map. Each returned branch is one AC entry permutation expressed as ordinary term equalities;
-/// the implication layer can simplify and existentially quantify those equations uniformly with
-/// its other obligations.
-pub(crate) fn expand_closed_map_implication_remainders(
+/// Expand the collection pairs of an implication remainder into a disjunction of ordinary term
+/// equations: a closed destination map against an open current map has one branch per entry
+/// assignment, and a destination list with two or more parts and an item against a current
+/// list one branch per position of its items (`list_implication_expansion`). The pairs of a
+/// remainder hold together, so the branches of two expanded pairs multiply. The implication
+/// layer simplifies and existentially quantifies each branch uniformly with its other
+/// obligations. `None` when no pair is expanded; an empty disjunction (`Some` of no branch)
+/// when a pair has no branch, which refutes the remainder.
+pub(crate) fn expand_implication_remainders(
+    definition: &BackendDefinition,
     initial: &Substitution,
     remainder: &[(Term, Term)],
 ) -> Option<Vec<Vec<(Term, Term)>>> {
@@ -1431,33 +1442,8 @@ pub(crate) fn expand_closed_map_implication_remainders(
     for (pattern, subject) in remainder {
         let pattern = substitute(pattern, initial);
         let subject = substitute(subject, initial);
-        let expansion = match (pattern.kind(), subject.kind()) {
-            (
-                TermKind::Map {
-                    definition: pattern_definition,
-                    entries: pattern_entries,
-                    rest: None,
-                },
-                TermKind::Map {
-                    definition: subject_definition,
-                    entries: subject_entries,
-                    rest: Some(subject_rest),
-                },
-            ) if pattern_definition == subject_definition
-                && subject_entries.len() <= pattern_entries.len() =>
-            {
-                let mut solutions = Vec::new();
-                ClosedMapImplicationProblem {
-                    pattern_definition,
-                    pattern_entries,
-                    subject_entries,
-                    subject_rest,
-                }
-                .enumerate(0, Vec::new(), &mut solutions);
-                Some(solutions)
-            }
-            _ => None,
-        };
+        let expansion = closed_map_expansion(&pattern, &subject)
+            .or_else(|| list_implication_expansion(definition, &pattern, &subject));
         let Some(expansion) = expansion else {
             for branch in &mut branches {
                 branch.push((pattern.clone(), subject.clone()));
@@ -1481,6 +1467,455 @@ pub(crate) fn expand_closed_map_implication_remainders(
     branches.sort();
     branches.dedup();
     Some(branches)
+}
+
+/// The entry assignments of a closed destination map against an open current map: each is one
+/// AC entry permutation expressed as ordinary term equalities.
+fn closed_map_expansion(pattern: &Term, subject: &Term) -> Option<Vec<Vec<(Term, Term)>>> {
+    match (pattern.kind(), subject.kind()) {
+        (
+            TermKind::Map {
+                definition: pattern_definition,
+                entries: pattern_entries,
+                rest: None,
+            },
+            TermKind::Map {
+                definition: subject_definition,
+                entries: subject_entries,
+                rest: Some(subject_rest),
+            },
+        ) if pattern_definition == subject_definition
+            && subject_entries.len() <= pattern_entries.len() =>
+        {
+            let mut solutions = Vec::new();
+            ClosedMapImplicationProblem {
+                pattern_definition,
+                pattern_entries,
+                subject_entries,
+                subject_rest,
+            }
+            .enumerate(0, Vec::new(), &mut solutions);
+            Some(solutions)
+        }
+        _ => None,
+    }
+}
+
+/// One run of a list read as the sequence of its parts: items in order (a tree, shared with the
+/// list it was read from), or an opaque term that stands for any list.
+#[derive(Clone)]
+enum ListRun {
+    Items(Items<Term>),
+    Part(Term),
+}
+
+/// The list of `definition` that `term` is, as a list term or as an application of its
+/// concatenation.
+fn list_definition_of(term: &Term) -> Option<&Arc<ListDefinition>> {
+    match term.kind() {
+        TermKind::List { definition, .. } => Some(definition),
+        TermKind::Application { symbol, .. } => match &symbol.attributes.collection {
+            Some(CollectionMetadata::List(definition))
+                if symbol.name == definition.symbols.concat =>
+            {
+                Some(definition)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Read `term` as a list of `definition`, appending its runs to `runs` in order: the heads, the
+/// middle read the same way, and the tails of a list term; the operands of a concatenation in
+/// order (recording its head); any other term as one part. Neighbouring item runs are joined.
+fn flatten_list_runs(
+    definition: &Arc<ListDefinition>,
+    term: &Term,
+    runs: &mut Vec<ListRun>,
+    head: &mut Option<OpaqueConcatHead>,
+) {
+    fn push_items(runs: &mut Vec<ListRun>, items: &Items<Term>) {
+        if items.is_empty() {
+            return;
+        }
+        if let Some(ListRun::Items(last)) = runs.last_mut() {
+            *last = last.join(items);
+        } else {
+            runs.push(ListRun::Items(items.clone()));
+        }
+    }
+
+    match term.kind() {
+        TermKind::List {
+            definition: found,
+            heads,
+            rest,
+        } if found == definition => {
+            push_items(runs, heads);
+            if let Some((middle, tails)) = rest {
+                flatten_list_runs(definition, middle, runs, head);
+                push_items(runs, tails);
+            }
+        }
+        TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } if symbol.name == definition.symbols.concat
+            && let [left, right] = arguments.as_slice() =>
+        {
+            head.get_or_insert_with(|| OpaqueConcatHead {
+                symbol: symbol.clone(),
+                sort_arguments: sort_arguments.clone(),
+            });
+            flatten_list_runs(definition, left, runs, head);
+            flatten_list_runs(definition, right, runs, head);
+        }
+        _ => runs.push(ListRun::Part(term.clone())),
+    }
+}
+
+/// The list of `definition` that is the concatenation of `runs` in order. With at most one part
+/// it is a list term; with more, `head` (the concatenation that held them) joins them.
+fn concat_list_runs(
+    definition: &Arc<ListDefinition>,
+    head: Option<&OpaqueConcatHead>,
+    runs: Vec<ListRun>,
+) -> Term {
+    let parts = runs
+        .iter()
+        .filter(|run| matches!(run, ListRun::Part(_)))
+        .count();
+    if parts <= 1 {
+        let mut heads = Items::new();
+        let mut middle = None;
+        let mut tails = Items::new();
+        for run in runs {
+            match run {
+                ListRun::Items(items) if middle.is_none() => heads = heads.join(&items),
+                ListRun::Items(items) => tails = tails.join(&items),
+                ListRun::Part(part) => middle = Some(part),
+            }
+        }
+        return Term::list_of_items(definition.clone(), heads, middle.map(|part| (part, tails)));
+    }
+    let head = head.expect("two parts of a list came from a concatenation");
+    runs.into_iter()
+        .map(|run| match run {
+            ListRun::Items(items) => Term::list_of_items(definition.clone(), items, None),
+            ListRun::Part(part) => part,
+        })
+        .reduce(|left, right| {
+            Term::application(
+                head.symbol.clone(),
+                head.sort_arguments.clone(),
+                vec![left, right],
+            )
+        })
+        .expect("a list with two parts has runs")
+}
+
+/// The branches of a destination list `pattern` with two or more parts and at least one item
+/// against a current list `subject` of the same definition, or `None` for any other pair.
+///
+/// A list value is a finite sequence and concatenation is associative with unit `.List`, so
+/// `pattern = subject` holds exactly when the elements line up: each item of the pattern is one
+/// element of the subject, in order, and each run of the pattern's parts between two items (or an
+/// end) is the subject between them. Each branch places the pattern's items at increasing
+/// positions of the subject's items, and states that each item equals the subject's item there
+/// and that each run of parts equals the subject's cut between its neighbouring items, the
+/// subject's parts that lie there included. Items with no part between them take neighbouring
+/// positions with no subject part between them; items before the pattern's first part start at
+/// the subject's first item and items after its last part end at its last, with no subject part
+/// beyond them. Each branch implies the equation by associativity.
+///
+/// When the subject has no part, every element of its value is at a known position, so the
+/// branches are equivalent to the equation, and no branch refutes it. A subject part may hold a
+/// pattern item, or be empty under an adjacency across it, which no known-position branch
+/// states, so a subject with a part adds the equation itself as one more branch: the
+/// disjunction stays equivalent to the equation, and an item found at a known position decides
+/// it.
+///
+/// A position where the pattern's item fails to match the subject's item is a false branch and
+/// is dropped; a match that succeeds or is left open keeps the item's equation for the
+/// implication to decide.
+fn list_implication_expansion(
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+) -> Option<Vec<Vec<(Term, Term)>>> {
+    let list = list_definition_of(pattern)?;
+    if list_definition_of(subject) != Some(list) {
+        return None;
+    }
+    let mut head = None;
+    let mut pattern_runs = Vec::new();
+    flatten_list_runs(list, pattern, &mut pattern_runs, &mut head);
+    // The pattern as blocks of items between runs of parts: `blocks[0]` before the first run
+    // and `blocks[j]` after `parts[j - 1]`; the inner blocks are not empty.
+    let mut blocks = vec![Vec::new()];
+    let mut parts: Vec<Vec<ListRun>> = Vec::new();
+    let mut part_count = 0;
+    for run in pattern_runs {
+        match run {
+            ListRun::Items(items) => blocks
+                .last_mut()
+                .expect("the pattern's blocks start with one")
+                .extend(items.iter().cloned()),
+            ListRun::Part(part) => {
+                part_count += 1;
+                if blocks.last().is_some_and(Vec::is_empty) && !parts.is_empty() {
+                    parts
+                        .last_mut()
+                        .expect("a run of parts precedes an empty block")
+                        .push(ListRun::Part(part));
+                } else {
+                    parts.push(vec![ListRun::Part(part)]);
+                    blocks.push(Vec::new());
+                }
+            }
+        }
+    }
+    if part_count < 2 || blocks.iter().all(Vec::is_empty) {
+        return None;
+    }
+    measure::bump(Counter::MatchingCollectionProblems);
+
+    let mut subject_runs = Vec::new();
+    flatten_list_runs(list, subject, &mut subject_runs, &mut head);
+    let current = ListSubject::new(subject_runs);
+    let mut problem = ListImplicationProblem {
+        definition,
+        list,
+        head: head.as_ref(),
+        blocks: &blocks,
+        parts: &parts,
+        subject: &current,
+        matched: std::collections::HashMap::new(),
+    };
+    let mut branches = Vec::new();
+    problem.enumerate(&mut Vec::new(), &mut branches);
+    if current.has_part() {
+        branches.push(vec![(pattern.clone(), subject.clone())]);
+    }
+    Some(branches)
+}
+
+/// A current list as runs, indexed by item position: `n` items at positions `0 … n-1`, and each
+/// part at the cut point (`0 … n`) between the items around it.
+struct ListSubject {
+    runs: Vec<ListRun>,
+    /// The position of the first item of each item run, with the run's index, in order.
+    item_runs: Vec<(usize, usize)>,
+    /// The cut point of each part, in order.
+    part_points: Vec<usize>,
+    len: usize,
+}
+
+impl ListSubject {
+    fn new(runs: Vec<ListRun>) -> Self {
+        let mut item_runs = Vec::new();
+        let mut part_points = Vec::new();
+        let mut len = 0;
+        for (index, run) in runs.iter().enumerate() {
+            match run {
+                ListRun::Items(items) => {
+                    item_runs.push((len, index));
+                    len += items.len();
+                }
+                ListRun::Part(_) => part_points.push(len),
+            }
+        }
+        Self {
+            runs,
+            item_runs,
+            part_points,
+            len,
+        }
+    }
+
+    fn has_part(&self) -> bool {
+        !self.part_points.is_empty()
+    }
+
+    /// Whether a part lies at a cut point in `first ..= last`.
+    fn part_within(&self, first: usize, last: usize) -> bool {
+        let from = self.part_points.partition_point(|point| *point < first);
+        self.part_points
+            .get(from)
+            .is_some_and(|point| *point <= last)
+    }
+
+    fn item(&self, position: usize) -> &Term {
+        let run = self
+            .item_runs
+            .partition_point(|(start, _)| *start <= position)
+            - 1;
+        let (start, index) = self.item_runs[run];
+        let ListRun::Items(items) = &self.runs[index] else {
+            unreachable!("an item run holds items")
+        };
+        items
+            .get(position - start)
+            .expect("a position below the subject's length")
+    }
+
+    /// The subject between cut points `from` and `to`: its items at `from … to-1` and its parts
+    /// at cut points `from ..= to`, as cuts of its trees.
+    fn cut(&self, from: usize, to: usize) -> Vec<ListRun> {
+        let mut cut = Vec::new();
+        let mut start = 0;
+        for run in &self.runs {
+            match run {
+                ListRun::Items(items) => {
+                    let end = start + items.len();
+                    let (low, high) = (from.max(start), to.min(end));
+                    if low < high {
+                        // Only an end inside the run cuts its tree.
+                        let mut items = items.clone();
+                        if high < end {
+                            items = items.split_at(high - start).0;
+                        }
+                        if low > start {
+                            items = items.split_at(low - start).1;
+                        }
+                        cut.push(ListRun::Items(items));
+                    }
+                    start = end;
+                }
+                ListRun::Part(part) => {
+                    if from <= start && start <= to {
+                        cut.push(ListRun::Part(part.clone()));
+                    }
+                }
+            }
+        }
+        cut
+    }
+}
+
+struct ListImplicationProblem<'a> {
+    definition: &'a BackendDefinition,
+    list: &'a Arc<ListDefinition>,
+    head: Option<&'a OpaqueConcatHead>,
+    blocks: &'a [Vec<Term>],
+    parts: &'a [Vec<ListRun>],
+    subject: &'a ListSubject,
+    /// Whether the item `(block, offset)` can be the subject's item at a position: no `false`
+    /// entry without a failed match.
+    matched: std::collections::HashMap<(usize, usize, usize), bool>,
+}
+
+impl ListImplicationProblem<'_> {
+    /// Whether the pattern's item `offset` of block `block` may be the subject's item at
+    /// `position`: false only when their match fails, so no instance makes them equal.
+    fn item_matches(&mut self, block: usize, offset: usize, position: usize) -> bool {
+        if let Some(found) = self.matched.get(&(block, offset, position)) {
+            return *found;
+        }
+        let found = !matches!(
+            match_terms_with_context(
+                MatchMode::Implies,
+                self.definition.sort_graph(),
+                Some(self.definition),
+                &self.blocks[block][offset],
+                self.subject.item(position),
+                // A collection element is never the root an equation is tried on.
+                false,
+            ),
+            MatchResult::Failed(reason) if !matches!(reason, FailReason::Subsorting(_))
+        );
+        self.matched.insert((block, offset, position), found);
+        found
+    }
+
+    /// Whether block `block` may start at `start`: it fits, no subject part lies between its
+    /// items (`start + 1 … start + len - 1`), and each of its items matches.
+    fn block_fits(&mut self, block: usize, start: usize) -> bool {
+        let len = self.blocks[block].len();
+        if start + len > self.subject.len {
+            return false;
+        }
+        if len > 1 && self.subject.part_within(start + 1, start + len - 1) {
+            return false;
+        }
+        (0..len).all(|offset| self.item_matches(block, offset, start + offset))
+    }
+
+    /// Place each block from `starts.len()` on, after those placed (`starts[j]` is block `j`'s
+    /// first position), and push a branch for each placement of all of them.
+    ///
+    /// Each level places one block and recurses on the next, so the depth is the number of
+    /// blocks. Invariant: the blocks in `starts` are placed at increasing, non-overlapping
+    /// positions, and each fits.
+    fn enumerate(&mut self, starts: &mut Vec<usize>, branches: &mut Vec<Vec<(Term, Term)>>) {
+        let block = starts.len();
+        let last = self.blocks.len() - 1;
+        if block > last {
+            branches.push(self.branch(starts));
+            return;
+        }
+        let len = self.blocks[block].len();
+        let n = self.subject.len;
+        // The first position after the previous block.
+        let earliest = starts
+            .last()
+            .map_or(0, |start| start + self.blocks[block - 1].len());
+        let candidates = if block == 0 {
+            // Before the pattern's first part: at the subject's first item, with no part ahead.
+            if len > 0 && self.subject.part_within(0, 0) {
+                return;
+            }
+            0..1
+        } else if block == last {
+            // After the pattern's last part: at the subject's last item, with no part beyond.
+            let Some(start) = n.checked_sub(len) else {
+                return;
+            };
+            if start < earliest || (len > 0 && self.subject.part_within(start + 1, n)) {
+                return;
+            }
+            start..start + 1
+        } else {
+            // An inner block (not empty): anywhere before the room the later blocks need.
+            let later = self.blocks[block + 1..].iter().map(Vec::len).sum::<usize>();
+            let Some(latest) = n.checked_sub(later + len) else {
+                return;
+            };
+            if earliest > latest {
+                return;
+            }
+            earliest..latest + 1
+        };
+        for start in candidates {
+            if self.block_fits(block, start) {
+                starts.push(start);
+                self.enumerate(starts, branches);
+                starts.pop();
+            }
+        }
+    }
+
+    /// The equations of one placement: each item with the subject's item at its position, and
+    /// each run of parts with the subject's cut between its neighbouring items.
+    fn branch(&self, starts: &[usize]) -> Vec<(Term, Term)> {
+        let mut equations = Vec::new();
+        for (block, (items, start)) in self.blocks.iter().zip(starts).enumerate() {
+            for (offset, item) in items.iter().enumerate() {
+                equations.push((item.clone(), self.subject.item(start + offset).clone()));
+            }
+            if let Some(parts) = self.parts.get(block) {
+                let from = start + items.len();
+                let to = starts[block + 1];
+                equations.push((
+                    concat_list_runs(self.list, self.head, parts.clone()),
+                    concat_list_runs(self.list, self.head, self.subject.cut(from, to)),
+                ));
+            }
+        }
+        equations
+    }
 }
 
 struct ClosedMapImplicationProblem<'a> {

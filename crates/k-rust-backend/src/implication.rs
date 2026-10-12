@@ -3199,6 +3199,181 @@ mod tests {
         assert_eq!(bound, &expected, "{condition:#?}");
     }
 
+    fn list_frame_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortList{}
+                    [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+                sort SortE{} []
+                sort SortS{} []
+                sort SortCfg{} []
+                hooked-symbol listUnit{}() : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.unit")]
+                hooked-symbol listItem{}(SortE{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.element")]
+                hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+                symbol a{}() : SortE{} [constructor{}()]
+                symbol b{}() : SortE{} [constructor{}()]
+                symbol c{}() : SortE{} [constructor{}()]
+                symbol end{}() : SortS{} [constructor{}()]
+                symbol cfg{}(SortS{}, SortList{}) : SortCfg{} [constructor{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// `cfg(end, ?A [x] ?C)`: the states' list holds `x` somewhere between two existential parts.
+    fn item_between_list_parts(definition: &BackendDefinition, item: &str) -> Pattern {
+        pattern(
+            definition,
+            &format!(
+                "cfg{{}}(end{{}}(), listConcat{{}}(A:SortList{{}}, listConcat{{}}(listItem{{}}({item}{{}}()), C:SortList{{}})))"
+            ),
+        )
+    }
+
+    fn list_parts_existentials() -> BTreeSet<crate::term::Variable> {
+        BTreeSet::from([
+            crate::term::Variable::new("A", Sort::simple("SortList")),
+            crate::term::Variable::new("C", Sort::simple("SortList")),
+        ])
+    }
+
+    /// A list value is a finite sequence and concatenation is associative, so `?A [a] ?C`
+    /// denotes the lists that hold `a`: `[a, b] L` is one of them, with `?A` the empty list and
+    /// `?C` the list after `a`, whatever `L` is.
+    #[test]
+    fn an_item_between_two_existential_list_parts_is_found_at_its_position() {
+        let definition = list_frame_definition();
+        let antecedent = pattern(
+            &definition,
+            "cfg{}(end{}(), listConcat{}(listItem{}(a{}()), listConcat{}(listItem{}(b{}()), L:SortList{})))",
+        );
+        let consequent = item_between_list_parts(&definition, "a");
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &list_parts_existentials(),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+        let Coverage::Covered(condition) = result else {
+            panic!("the item at a known position covers the state: {result:#?}");
+        };
+        let witness = |name: &str| {
+            condition
+                .substitution
+                .iter()
+                .chain(condition.witnesses.iter())
+                .find(|(variable, _)| variable.name.starts_with(name))
+                .map(|(_, bound)| bound.clone())
+                .unwrap_or_else(|| panic!("{name} is bound: {condition:#?}"))
+        };
+        assert_eq!(witness("A"), term(&definition, "listUnit{}()"));
+        assert_eq!(
+            witness("C"),
+            term(&definition, "listConcat{}(listItem{}(b{}()), L:SortList{})")
+        );
+
+        let verdict = check_implication_with_existentials_complete(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &list_parts_existentials(),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+        assert!(
+            matches!(verdict, ImplicationVerdict::Valid(_)),
+            "{verdict:#?}"
+        );
+    }
+
+    /// Every element of a list without a part is at a known position, so an item that matches
+    /// none of them is in no instance: `[a, b]` holds no `c`.
+    #[test]
+    fn an_item_absent_from_a_closed_list_refutes_the_list_consequent() {
+        let definition = list_frame_definition();
+        let antecedent = pattern(
+            &definition,
+            "cfg{}(end{}(), listConcat{}(listItem{}(a{}()), listItem{}(b{}())))",
+        );
+        let consequent = item_between_list_parts(&definition, "c");
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &list_parts_existentials(),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+        // The remainder's expansion has no branch: its obligation is `false` on every instance.
+        let Coverage::PartialCoverage { coverage, .. } = &result else {
+            panic!("no position of the closed list holds the item: {result:#?}");
+        };
+        assert_eq!(coverage.obligations, vec![Predicate::False], "{result:#?}");
+
+        let verdict = check_implication_with_existentials_complete(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &list_parts_existentials(),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+        assert!(
+            matches!(verdict, ImplicationVerdict::Invalid { .. }),
+            "{verdict:#?}"
+        );
+    }
+
+    /// An item absent from the known items of `[a, b] L` may be in `L`, so the consequent is
+    /// left open, not refuted.
+    #[test]
+    fn an_item_absent_from_the_items_of_an_open_list_leaves_the_consequent_open() {
+        let definition = list_frame_definition();
+        let antecedent = pattern(
+            &definition,
+            "cfg{}(end{}(), listConcat{}(listItem{}(a{}()), listConcat{}(listItem{}(b{}()), L:SortList{})))",
+        );
+        let consequent = item_between_list_parts(&definition, "c");
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &list_parts_existentials(),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+        assert!(
+            matches!(result, Coverage::Undecided | Coverage::Contingent(_)),
+            "{result:#?}"
+        );
+
+        let verdict = check_implication_with_existentials_complete(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &list_parts_existentials(),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+        assert!(
+            matches!(verdict, ImplicationVerdict::Indeterminate { .. }),
+            "{verdict:#?}"
+        );
+    }
+
     fn top_simplification_definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]

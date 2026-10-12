@@ -962,8 +962,357 @@ fn expands_closed_destination_maps_against_open_current_maps() {
     expected.sort();
 
     assert_eq!(
-        expand_closed_map_implication_remainders(&Substitution::new(), &[(destination, current)],),
+        expand_implication_remainders(
+            &collection_definition(),
+            &Substitution::new(),
+            &[(destination, current)],
+        ),
         Some(expected),
+    );
+}
+
+/// The list of `collection_definition` concatenating `parts` in order (each a KORE list term, a
+/// `listItem` or a list variable), `.List` for none.
+fn concat_list(definition: &BackendDefinition, parts: &[&str]) -> Term {
+    let source = parts
+        .iter()
+        .rev()
+        .fold(None, |right: Option<String>, part| {
+            Some(match right {
+                None => (*part).to_owned(),
+                Some(right) => format!("listConcat{{}}({part}, {right})"),
+            })
+        })
+        .unwrap_or_else(|| "listUnit{}()".to_owned());
+    internal_term(definition, &source)
+}
+
+fn list_element(name: &str) -> String {
+    format!(r#"listItem{{}}(\dv{{SortElement{{}}}}("{name}"))"#)
+}
+
+fn element_value(name: &str) -> Term {
+    domain_value(Sort::simple("SortElement"), name)
+}
+
+/// The expansion of the one remainder pair `(pattern, subject)`.
+fn expand_list_pair(
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+) -> Option<Vec<Vec<(Term, Term)>>> {
+    expand_implication_remainders(
+        definition,
+        &Substitution::new(),
+        &[(pattern.clone(), subject.clone())],
+    )
+}
+
+#[test]
+fn an_item_between_two_list_parts_has_a_branch_for_each_position_of_a_closed_list() {
+    let definition = collection_definition();
+    let (a, b, c) = (list_element("a"), list_element("b"), list_element("c"));
+    let pattern = concat_list(
+        &definition,
+        &[
+            "A:SortList{}",
+            "listItem{}(X:SortElement{})",
+            "C:SortList{}",
+        ],
+    );
+    let subject = concat_list(&definition, &[&a, &b, &c]);
+    let list = |parts: &[&str]| concat_list(&definition, parts);
+    let (first, x, last) = (
+        var("A", Sort::simple("SortList")),
+        var("X", Sort::simple("SortElement")),
+        var("C", Sort::simple("SortList")),
+    );
+    let mut expected = vec![
+        vec![
+            (first.clone(), list(&[])),
+            (x.clone(), element_value("a")),
+            (last.clone(), list(&[&b, &c])),
+        ],
+        vec![
+            (first.clone(), list(&[&a])),
+            (x.clone(), element_value("b")),
+            (last.clone(), list(&[&c])),
+        ],
+        vec![
+            (first, list(&[&a, &b])),
+            (x, element_value("c")),
+            (last, list(&[])),
+        ],
+    ];
+    expected.sort();
+    assert_eq!(
+        expand_list_pair(&definition, &pattern, &subject),
+        Some(expected)
+    );
+}
+
+#[test]
+fn an_item_between_two_list_parts_keeps_only_the_positions_it_can_match() {
+    let definition = collection_definition();
+    let (a, b, c) = (list_element("a"), list_element("b"), list_element("c"));
+    let pattern = concat_list(&definition, &["A:SortList{}", &b, "C:SortList{}"]);
+    let subject = concat_list(&definition, &[&a, &b, &c]);
+    assert_eq!(
+        expand_list_pair(&definition, &pattern, &subject),
+        Some(vec![vec![
+            (
+                var("A", Sort::simple("SortList")),
+                concat_list(&definition, &[&a])
+            ),
+            (element_value("b"), element_value("b")),
+            (
+                var("C", Sort::simple("SortList")),
+                concat_list(&definition, &[&c])
+            ),
+        ]])
+    );
+}
+
+#[test]
+fn an_item_between_two_list_parts_of_an_empty_list_has_no_branch() {
+    let definition = collection_definition();
+    let (a, b) = (list_element("a"), list_element("b"));
+    let pattern = concat_list(&definition, &["A:SortList{}", &b, "C:SortList{}"]);
+    assert_eq!(
+        expand_list_pair(&definition, &pattern, &concat_list(&definition, &[])),
+        Some(Vec::new())
+    );
+    let found = expand_list_pair(&definition, &pattern, &concat_list(&definition, &[&b]));
+    assert_eq!(found.map(|branches| branches.len()), Some(1));
+    assert_eq!(
+        expand_list_pair(&definition, &pattern, &concat_list(&definition, &[&a])),
+        Some(Vec::new())
+    );
+}
+
+#[test]
+fn two_items_between_list_parts_keep_their_order() {
+    let definition = collection_definition();
+    let (a, b, c) = (list_element("a"), list_element("b"), list_element("c"));
+    let subject = concat_list(&definition, &[&a, &b, &c]);
+    let pattern = concat_list(
+        &definition,
+        &["A:SortList{}", &a, "B:SortList{}", &c, "C:SortList{}"],
+    );
+    assert_eq!(
+        expand_list_pair(&definition, &pattern, &subject),
+        Some(vec![vec![
+            (
+                var("A", Sort::simple("SortList")),
+                concat_list(&definition, &[])
+            ),
+            (element_value("a"), element_value("a")),
+            (
+                var("B", Sort::simple("SortList")),
+                concat_list(&definition, &[&b])
+            ),
+            (element_value("c"), element_value("c")),
+            (
+                var("C", Sort::simple("SortList")),
+                concat_list(&definition, &[])
+            ),
+        ]])
+    );
+    let swapped = concat_list(
+        &definition,
+        &["A:SortList{}", &c, "B:SortList{}", &a, "C:SortList{}"],
+    );
+    assert_eq!(
+        expand_list_pair(&definition, &swapped, &subject),
+        Some(Vec::new())
+    );
+}
+
+#[test]
+fn neighbouring_items_take_neighbouring_positions() {
+    let definition = collection_definition();
+    let (a, b, c) = (list_element("a"), list_element("b"), list_element("c"));
+    let closed = concat_list(&definition, &[&a, &b, &c]);
+    let neighbours = |first: &str, second: &str| {
+        concat_list(
+            &definition,
+            &["A:SortList{}", first, second, "C:SortList{}"],
+        )
+    };
+    let found = expand_list_pair(&definition, &neighbours(&b, &c), &closed);
+    assert_eq!(found.map(|branches| branches.len()), Some(1));
+    assert_eq!(
+        expand_list_pair(&definition, &neighbours(&a, &c), &closed),
+        Some(Vec::new())
+    );
+    // `a` and `b` are neighbours of the subject only when `L` is empty, which no position
+    // states: the equation itself is the one branch.
+    let open = concat_list(&definition, &[&a, "L:SortList{}", &b]);
+    let pattern = neighbours(&a, &b);
+    assert_eq!(
+        expand_list_pair(&definition, &pattern, &open),
+        Some(vec![vec![(pattern, open)]])
+    );
+}
+
+#[test]
+fn an_open_subject_keeps_the_whole_equation_as_a_branch() {
+    let definition = collection_definition();
+    let (a, b, c) = (list_element("a"), list_element("b"), list_element("c"));
+    let rest = "L:SortList{}";
+    let pattern = concat_list(
+        &definition,
+        &[
+            "A:SortList{}",
+            "listItem{}(X:SortElement{})",
+            "C:SortList{}",
+        ],
+    );
+    let subject = concat_list(&definition, &[&a, &b, rest, &c]);
+    let list = |parts: &[&str]| concat_list(&definition, parts);
+    let (first, x, last) = (
+        var("A", Sort::simple("SortList")),
+        var("X", Sort::simple("SortElement")),
+        var("C", Sort::simple("SortList")),
+    );
+    let mut expected = vec![
+        vec![
+            (first.clone(), list(&[])),
+            (x.clone(), element_value("a")),
+            (last.clone(), list(&[&b, rest, &c])),
+        ],
+        vec![
+            (first.clone(), list(&[&a])),
+            (x.clone(), element_value("b")),
+            (last.clone(), list(&[rest, &c])),
+        ],
+        vec![
+            (first, list(&[&a, &b, rest])),
+            (x, element_value("c")),
+            (last, list(&[])),
+        ],
+        vec![(pattern.clone(), subject.clone())],
+    ];
+    expected.sort();
+    assert_eq!(
+        expand_list_pair(&definition, &pattern, &subject),
+        Some(expected)
+    );
+}
+
+#[test]
+fn a_list_pattern_without_an_item_or_with_one_part_is_not_expanded() {
+    let definition = collection_definition();
+    let (a, b) = (list_element("a"), list_element("b"));
+    let subject = concat_list(&definition, &[&a, &b]);
+    let parts_only = concat_list(&definition, &["A:SortList{}", "C:SortList{}"]);
+    assert_eq!(expand_list_pair(&definition, &parts_only, &subject), None);
+    let one_part = concat_list(&definition, &["A:SortList{}", &b]);
+    assert_eq!(expand_list_pair(&definition, &one_part, &subject), None);
+}
+
+#[test]
+fn list_positions_multiply_with_closed_map_selections() {
+    let definition = collection_definition();
+    let map = map_definition();
+    let destination = Term::map(
+        map.clone(),
+        vec![
+            (
+                domain_value(Sort::simple("MapKey"), "first"),
+                domain_value(Sort::simple("MapValue"), "first-value"),
+            ),
+            (
+                domain_value(Sort::simple("MapKey"), "second"),
+                domain_value(Sort::simple("MapValue"), "second-value"),
+            ),
+        ],
+        None,
+    );
+    let current = Term::map(
+        map,
+        vec![(
+            var("KEY", Sort::simple("MapKey")),
+            var("VALUE", Sort::simple("MapValue")),
+        )],
+        Some(var("REST", Sort::simple("MapSort"))),
+    );
+    let pattern = concat_list(
+        &definition,
+        &[
+            "A:SortList{}",
+            "listItem{}(X:SortElement{})",
+            "C:SortList{}",
+        ],
+    );
+    let subject = concat_list(&definition, &[&list_element("a"), &list_element("b")]);
+    let branches = expand_implication_remainders(
+        &definition,
+        &Substitution::new(),
+        &[(destination, current), (pattern, subject)],
+    )
+    .expect("both pairs expand");
+    assert_eq!(branches.len(), 4, "{branches:?}");
+    let map_key = var("KEY", Sort::simple("MapKey"));
+    let item = var("X", Sort::simple("SortElement"));
+    for branch in &branches {
+        assert!(
+            branch.iter().any(|(left, _)| left == &map_key)
+                && branch.iter().any(|(left, _)| left == &item),
+            "{branch:?}"
+        );
+    }
+}
+
+/// A branch's runs are cuts of the subject's tree: the seek reads the items without summarizing
+/// any, and a cut inside the tree summarizes only the items of the leaves it rebuilds (the two
+/// halves of the leaf it divides and a neighbour one half may be merged with: at most `3B`),
+/// whatever the list's length.
+#[test]
+fn the_parts_of_a_list_branch_are_cuts_of_the_subject_tree() {
+    const ITEMS: usize = 4096;
+    const FOUND: usize = 1234;
+    let definition = collection_definition();
+    let small = concat_list(&definition, &[&list_element("0")]);
+    let TermKind::List {
+        definition: list, ..
+    } = small.kind()
+    else {
+        panic!("a list: {small:?}");
+    };
+    let item = |index: usize| element_value(&index.to_string());
+    let subject = Term::list(list.clone(), (0..ITEMS).map(item).collect(), None);
+    let pattern = concat_list(
+        &definition,
+        &[
+            "A:SortList{}",
+            &list_element(&FOUND.to_string()),
+            "C:SortList{}",
+        ],
+    );
+    let (heads, _) = list_parts(&subject);
+    let mut branches = None;
+    let summarized = crate::term::items::element_summaries_during(|| {
+        branches = Some(expand_list_pair(&definition, &pattern, &subject));
+    });
+    let leaf = crate::term::chunked::DEFAULT_BRANCHING;
+    assert!(
+        summarized <= 2 * 3 * leaf,
+        "{summarized} item summaries for two cuts"
+    );
+    assert_eq!(
+        branches.flatten(),
+        Some(vec![vec![
+            (
+                var("A", Sort::simple("SortList")),
+                Term::list_of_items(list.clone(), heads.split_at(FOUND).0, None),
+            ),
+            (item(FOUND), item(FOUND)),
+            (
+                var("C", Sort::simple("SortList")),
+                Term::list_of_items(list.clone(), heads.split_at(FOUND + 1).1, None),
+            ),
+        ]])
     );
 }
 

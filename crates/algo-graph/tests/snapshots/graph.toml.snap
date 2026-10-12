@@ -2118,6 +2118,11 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/matching/collections.rs"
 symbol = "cancel_common_opaque_chunks"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/collections.rs"
+symbol = "list_implication_expansion"
+
 [[node.cost]]
 mode = "maps and sets"
 bound = "O((n+1)^k) solve_term_pair assignments with narrowing, O(n^k) without"
@@ -2133,6 +2138,10 @@ bound = "O(h) solve_term_pair calls per list pair"
 [[node.cost]]
 mode = "list frame (the closed side without the items outside the frames)"
 bound = "O(log n): two cuts of the closed side's tree"
+
+[[node.cost]]
+mode = "list item positions in an implication remainder (list_implication_expansion)"
+bound = "O(k n) item matches, each pattern item against each subject position at most once; at most C(n, k) branches, each O(k log n) nodes (one cut of the subject's trees per run of parts)"
 
 [[node.cost]]
 mode = "deferred pair sweep (solve_collection_pairs_from_solution)"

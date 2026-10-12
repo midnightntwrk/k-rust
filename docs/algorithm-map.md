@@ -107,7 +107,7 @@ Representation flow into [proof result]:
 - [0] backend.definition.internalize — O(d) for the module, sort and symbol passes, plus… +1 mode — in: [compiled definition], [converted term] → out: [internalized theory], [internalized pattern], [internalized term] — at backend/definition.rs `BackendDefinition::internalize`
 - [0] backend.substitution.extract — O(r x (V + E)) +1 mode — out: [extracted substitution] — at backend/substitution.rs `extract_substitution_with`
 - [0] backend.unification.syntactic — O(n x s x t) — out: [unification result] — at backend/unification.rs `unify_term_pairs`
-- [1] ⟲ backend.matching.collections — O((n+1)^k) solve_term_pair assignments with… +4 modes — in: [match result], [unification result] → out: [collection solution] — at backend/matching/collections.rs `solve_collection_pairs_in_definition`
+- [1] ⟲ backend.matching.collections — O((n+1)^k) solve_term_pair assignments with… +5 modes — in: [match result], [unification result] → out: [collection solution] — at backend/matching/collections.rs `solve_collection_pairs_in_definition`
 - [1] ⟲ backend.matching.syntactic — O(p x (a + s x t)) +2 modes — in: [collection solution] → out: [match result] — at backend/matching/mod.rs `match_terms_with_context`
 - [1] backend.rewrite.step — O(c) rule attempts plus one SAT check per… +2 modes — in: [internalized theory], [internalized pattern] → out: [rewrite result] — at backend/rewrite/step.rs `rewrite_step_all`
 - [2] backend.proof.search — O(s) x (simplification + one is_sat + implication… — in: [claim], [match result], [rewrite result], [extracted substitution], [unification result] → out: [proof result] — at backend/proof.rs `prove_claim`

@@ -56,7 +56,7 @@
 mod collections;
 
 pub(crate) use collections::{
-    CollectionMatches, CollectionSolution, Narrowing, expand_closed_map_implication_remainders,
+    CollectionMatches, CollectionSolution, Narrowing, expand_implication_remainders,
     is_collection_term, match_collection_remainders_all_in_definition,
     solve_collection_pairs_in_definition,
 };
