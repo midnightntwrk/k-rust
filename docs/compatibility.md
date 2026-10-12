@@ -1381,7 +1381,7 @@ k-rust separates the two because a consumer acts on the word: a `disproved` clai
 Reporting a true claim as false is a wrong result, not a presentation difference.
 
 A claim `φ => ψ` is refuted, under the manual's [one-path](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md#one-path-interpretation) and [all-path](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md#all-path-interpretation) readings ("there exists a path", "all paths ... will reach"), by a configuration of `φ` that, for an all-path claim, has a path ending in a configuration with no successor without passing through `ψ`, or, for a one-path claim, has no path to `ψ`.
-`disproved` requires a leaf that shows this, a certified stuck leaf (`Stuck (certified)` in the listing), which must meet all of the following conditions:
+`disproved` requires a leaf that shows this, a certified stuck leaf (`stuck (certified)` in the listing), which must meet all of the following conditions:
 
 - (a) No successor: the rewrite step on the leaf is stuck.
   A state the search stopped without rewriting, such as a stuck-check stop, is stepped once and is certified only if that step is stuck, because a configuration that can still move may reach `ψ` later.

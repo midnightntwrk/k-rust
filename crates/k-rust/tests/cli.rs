@@ -7237,7 +7237,7 @@ fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
             .next()
             .unwrap();
         assert!(
-            ground_output.contains("Stuck (certified) at depth ")
+            ground_output.contains("stuck (certified) at depth ")
                 && !ground_output.contains(r"\ceil{SortAddress{}"),
             "{module}: the ground stuck state is not a certified, obligation-free counterexample \
              in {ground_output}"
@@ -7279,7 +7279,7 @@ fn kprove_claim_condition_over_a_later_binding_is_stated_under_it() {
             stdout.contains(&format!("claim {module}-SPEC.main: disproved")),
             "{module}: {stdout}"
         );
-        assert!(stdout.contains("Stuck (certified)"), "{module}: {stdout}");
+        assert!(stdout.contains("stuck (certified)"), "{module}: {stdout}");
     }
 }
 
@@ -8507,7 +8507,7 @@ fn kprove_one_path_claim_fails_on_the_uncovered_case() {
         stdout.contains("claim ONEPATH-SPEC.c1: disproved"),
         "{stdout}"
     );
-    assert!(stdout.contains("Stuck (certified) at depth 1"), "{stdout}");
+    assert!(stdout.contains("stuck (certified) at depth 1"), "{stdout}");
 }
 
 #[test]
@@ -8630,7 +8630,7 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
         );
     }
     assert!(
-        rejected_stdout.contains("Trivial at depth 1"),
+        rejected_stdout.contains("trivial at depth 1"),
         "{rejected_stdout}"
     );
     assert!(
@@ -8722,7 +8722,7 @@ fn kprove_fails_a_claim_on_the_instances_a_rule_leaves_undefined() {
     ] {
         assert_eq!(verdict(&stdout, claim), "proven", "{claim}: {stdout}");
     }
-    assert!(stdout.contains("Trivial at depth 1"), "{stdout}");
+    assert!(stdout.contains("trivial at depth 1"), "{stdout}");
     assert!(stdout.contains("  undefined step: "), "{stdout}");
 
     // The one-path claims alone, so that no all-path claim with the same body is proven first
@@ -9440,7 +9440,7 @@ fn a_contradicted_total_attribute_is_named_without_changing_the_outcome() {
         let report = report(claim);
         assert!(
             report.starts_with("failed")
-                && report.contains("Vacuous at depth 1")
+                && report.contains("vacuous at depth 1")
                 && report.contains("attribute of")
                 && report.contains("is contradicted on this input"),
             "{claim}: {report}"
@@ -9452,7 +9452,7 @@ fn a_contradicted_total_attribute_is_named_without_changing_the_outcome() {
         let report = report(claim);
         assert!(
             report.starts_with("failed")
-                && report.contains("Trivial at depth 1")
+                && report.contains("trivial at depth 1")
                 && !report.contains("attribute of"),
             "{claim}: {report}"
         );
@@ -9501,7 +9501,7 @@ fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
             stdout.contains(&format!("claim ANDINT-SPEC.{claim}: {verdict}")),
             "{stdout}"
         );
-        assert_eq!(stdout.contains("Stuck (certified)"), certified, "{stdout}");
+        assert_eq!(stdout.contains("stuck (certified)"), certified, "{stdout}");
     }
     fs::remove_dir_all(root).unwrap();
 }
@@ -9640,7 +9640,7 @@ fn kprove_does_not_certify_a_stuck_leaf_over_an_empty_sort() {
             stdout.contains(&format!("claim VOID-SPEC.{claim}: {verdict}")),
             "{stdout}"
         );
-        assert_eq!(stdout.contains("Stuck (certified)"), certified, "{stdout}");
+        assert_eq!(stdout.contains("stuck (certified)"), certified, "{stdout}");
     }
     fs::remove_dir_all(root).unwrap();
 }
@@ -9713,7 +9713,7 @@ endmodule
             "EXIST-PROBE",
             "ab-false",
             "Lblst'LParUndsCommUndsRParUnds'EXIST-PROBE",
-            ("failed", "Stuck at depth 1"),
+            ("failed", "stuck at depth 1"),
         ),
         (
             "ex-spec.k",
@@ -9721,7 +9721,7 @@ endmodule
             "CELL-PROBE",
             "existential-wrong",
             "Lbl'-LT-'n'-GT-'{}(\\dv{SortInt{}}(\"5\"))",
-            ("disproved", "Stuck (certified) at depth 1"),
+            ("disproved", "stuck (certified) at depth 1"),
         ),
     ];
     for (specification, module, definition_module, claim, leaf_term, (verdict, leaf)) in cases {
@@ -9777,6 +9777,56 @@ endmodule
             assert!(!stdout.contains("--allow-vacuous accepts"), "{context}");
         }
     }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// An unproven leaf is printed by the name the host wire gives its outcome, and a leaf whose
+/// outcome has a reason in words prints it, every line of it indented as the leaf's line, before
+/// the configuration. Here the state's step reaches an application of a hook no evaluator or
+/// equation reduces, so the leaf is indeterminate whatever the solver.
+#[test]
+fn kprove_names_a_leaf_outcome_and_states_its_detail() {
+    let (root, _) = fixture();
+    let definition = root.join("hooked.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+    sort SortS{} []
+    symbol a{}() : SortS{} [constructor{}()]
+    symbol c{}() : SortS{} [constructor{}()]
+    hooked-symbol f{}(SortS{}) : SortS{} [function{}(), hook{}("NOSUCH.hook")]
+    alias weakAlwaysFinally{S}(S) : S
+        where weakAlwaysFinally{S}(@X:S) := @X:S []
+    axiom{} \rewrites{SortS{}}(
+        \and{SortS{}}(a{}(), \top{SortS{}}()),
+        f{}(a{}())
+    ) [label{}("to-hook")]
+    claim{} \implies{SortS{}}(
+        \and{SortS{}}(a{}(), \top{SortS{}}()),
+        weakAlwaysFinally{SortS{}}(c{}())
+    ) [label{}("hooked-claim")]
+endmodule []
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kprove", "--compiled-definition"])
+        .arg(&definition)
+        .args(["--main-module", "MAIN"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "claim hooked-claim: indeterminate (1 states, 0 unexplored)\n\
+         \x20 indeterminate at depth 0\n\
+         \x20 unsupported hook 'NOSUCH.hook' on constructor-like arguments: no evaluator in this \
+         backend, and no equation of the definition applies\n\
+         \x20 f{}(a{}())\n\
+         \x20   a{}()\n"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -14985,7 +15035,7 @@ fn refuted_leaf(claim: &str) -> (String, String, Vec<String>) {
     (
         claim.to_owned(),
         "disproved".to_owned(),
-        vec!["Stuck (certified)".to_owned()],
+        vec!["stuck (certified)".to_owned()],
     )
 }
 
@@ -14994,7 +15044,7 @@ fn failed_stuck_leaf(claim: &str) -> (String, String, Vec<String>) {
     (
         claim.to_owned(),
         "failed".to_owned(),
-        vec!["Stuck".to_owned()],
+        vec!["stuck".to_owned()],
     )
 }
 
@@ -15380,7 +15430,7 @@ endmodule
             !outcomes.is_empty()
                 && outcomes
                     .iter()
-                    .all(|outcome| outcome == "Stuck (certified)"),
+                    .all(|outcome| outcome == "stuck (certified)"),
             "{extra:?}: {leaves:?}"
         );
     }
@@ -15424,8 +15474,8 @@ endmodule
     ];
     // The stuck check stops `st(X)` with `X >Int 5`, which still rewrites: a failed claim, not a
     // refutation. The reached `st(0)` of the false claims has no successor: a certified one.
-    let stopped = || ("failed".to_owned(), vec!["Stuck".to_owned()]);
-    let refuted = || ("disproved".to_owned(), vec!["Stuck (certified)".to_owned()]);
+    let stopped = || ("failed".to_owned(), vec!["stuck".to_owned()]);
+    let refuted = || ("disproved".to_owned(), vec!["stuck (certified)".to_owned()]);
     let fixture = ProofFixture::new(
         ("remainder-probe.k", definition),
         ("remainder-spec.k", specification),
@@ -15786,7 +15836,7 @@ endmodule
         "{leaves:?}"
     );
     assert!(
-        leaves[0].2.iter().any(|leaf| leaf == "Stuck (certified)"),
+        leaves[0].2.iter().any(|leaf| leaf == "stuck (certified)"),
         "{leaves:?}"
     );
 

@@ -533,6 +533,22 @@ impl ProofLeafOutcomeOutput {
         Self::StackExhausted,
         Self::Indeterminate,
     ];
+
+    /// The outcome's name, as the host wire spells it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Proven => "proven",
+            Self::Trusted => "trusted",
+            Self::Stuck => "stuck",
+            Self::Trivial => "trivial",
+            Self::Vacuous => "vacuous",
+            Self::DepthBound => "depth-bound",
+            Self::BreadthBound => "breadth-bound",
+            Self::Timeout => "timeout",
+            Self::StackExhausted => "stack-exhausted",
+            Self::Indeterminate => "indeterminate",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1695,7 +1711,7 @@ fn implication_failure(failure: ImplicationFailure) -> ImplicationFailureOutput 
 /// ends the proof without a leaf for the state it stopped, so neither is a leaf's outcome; named
 /// on one, it is the operation's error.
 #[deny(clippy::wildcard_enum_match_arm)]
-fn proof_leaf_outcome(
+pub fn proof_leaf_outcome(
     outcome: &ProofLeafOutcome,
     sort: &Sort,
 ) -> Result<(ProofLeafOutcomeOutput, Option<String>), BackendError> {
@@ -1835,6 +1851,18 @@ mod tests {
             "outcome",
             &wire_names(&ProofLeafOutcomeOutput::ALL),
         );
+    }
+
+    /// `krust kprove` prints a leaf's outcome by `name`, so its reader and a host reading the
+    /// wire see the same word.
+    #[test]
+    fn a_proof_leaf_outcome_is_named_as_the_wire_spells_it() {
+        for outcome in ProofLeafOutcomeOutput::ALL {
+            assert_eq!(
+                serde_json::to_value(outcome).unwrap(),
+                serde_json::Value::from(outcome.name())
+            );
+        }
     }
 
     const DEFINITION: &str = r#"[]
