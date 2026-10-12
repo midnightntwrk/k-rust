@@ -755,6 +755,59 @@ fn the_run_driver_searches_the_renamings_of_one_state_once() {
     assert_eq!(search(SearchType::Star), ["0", "1", "2", "3", "4"]);
 }
 
+/// A rule `residual => done(?N)` with `ensures ?N >Int 0` has a result for every instance it
+/// applies to, since some `?N` is positive: the instances it leaves without one (`not exists ?N.
+/// ?N >Int 0`) are none, so neither strategy reports a leaf for them. The run ends in the one
+/// stuck `done(?N)`, under `?N >Int 0` and with what the rule wrote in the stream buffer, which
+/// is also the one result of `krun`'s run driver.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn an_ensures_some_value_satisfies_leaves_no_undefined_instances() {
+    use k_rust::backend::ExecutionStrategy;
+
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/captured-output/test.k"),
+    )
+    .unwrap();
+    let compiled = compile_bound(
+        &source,
+        "CAPTURED-OUTPUT",
+        "CAPTURED-OUTPUT-SYNTAX",
+        "Pgm",
+        "residual",
+        &[("STDIN", "\"\""), ("IO", "\"off\"")],
+    );
+    let stuck = regex::Regex::new(
+        r#"Lbldone'[^(]*\(Ex-hVar'Ques'N-b0:SortInt\{\}\).*\\dv\{SortString\{\}\}\("residual"\).*Lbl'Unds-GT-'Int'Unds'\{\}\(Ex-hVar'Ques'N-b0:SortInt\{\}, \\dv\{SortInt\{\}\}\("0"\)\)"#,
+    )
+    .unwrap();
+    for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+        let mut backend =
+            Backend::new(&compiled.kore, "CAPTURED-OUTPUT", BackendOptions::default()).unwrap();
+        let result = backend
+            .execute(ExecuteRequest {
+                strategy,
+                ..ExecuteRequest::new(compiled.initial.clone())
+            })
+            .unwrap();
+        let leaves = result
+            .leaves
+            .iter()
+            .map(|leaf| (leaf.depth, leaf.reason))
+            .collect::<Vec<_>>();
+        assert_eq!(leaves, [(2, HaltReasonOutput::Stuck)], "{strategy:?}");
+        let [state] = text(&result).try_into().unwrap();
+        assert!(stuck.is_match(&state), "{strategy:?}: {state}");
+    }
+    let output = run_driver(&compiled, "CAPTURED-OUTPUT", u64::MAX, None).unwrap();
+    let result = Printer::compact().print_pattern(&output.pattern.to_pattern());
+    assert!(
+        stuck.is_match(&result) && !result.contains(r"\or"),
+        "{result}"
+    );
+}
+
 /// A definition with a `multiplicity="*"` cell `<r>` of collection type `COLLECTION`, and pairs
 /// of commands that read one instance written as a cell (`get`, `anyP`) and as an alias of that
 /// cell (`getA`, `anyPA`). `mk` adds an instance written as a cell, `put` one held by a variable.

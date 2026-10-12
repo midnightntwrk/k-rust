@@ -56,7 +56,7 @@ use crate::{
     search::ResultModality,
     simplify::{
         ContradictedTotal, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
-        SimplificationOptions, refuse_uncomputed_applications,
+        SimplificationOptions, refuse_uncomputed_applications, simplify_predicates_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
     stop::{StopCause, Stoppable},
@@ -320,7 +320,7 @@ impl TrivialApplication {
     /// The instances whose step is undefined because of this entry: the pattern the rule was
     /// applied to (`before`), its constraints conjoined with the conjuncts of `undefined`.
     /// `None` when the result is syntactically `\bottom`; no solver is asked, so the pattern may
-    /// have no instance.
+    /// have no instance ([`Self::decided_undefined_instances`] asks).
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "Predicate is syntax; only the listed variants are special here"
@@ -337,6 +337,48 @@ impl TrivialApplication {
             }
         }
         (predicates_truth(&pattern.constraints) != Truth::False).then_some(pattern)
+    }
+
+    /// [`Self::undefined_instances`], its constraints simplified, or `None` when they are shown
+    /// to have no instance.
+    ///
+    /// Unlike a successor, this set is not one the step found non-empty: it is the complement of
+    /// the defined sub-cases, and it is empty whenever they cover the rule's applicability, for
+    /// example when an `ensures ?X >Int 0` always has a witness. An empty set holds no instance,
+    /// so a caller reports nothing for it; a set not shown empty (satisfiable or undecided) is
+    /// kept. A failed or stopped simplification only loses precision, so the unsimplified
+    /// constraints are kept then; a stop of the emptiness query itself is returned, since
+    /// keeping the set would then report an undefined step from a missing answer.
+    pub(crate) fn decided_undefined_instances(
+        &self,
+        definition: &BackendDefinition,
+        max_simplification_iterations: usize,
+        solver: &dyn SmtSolver,
+    ) -> Stoppable<Option<Pattern>> {
+        let Some(mut pattern) = self.undefined_instances() else {
+            return Ok(None);
+        };
+        match simplify_predicates_with_solver(
+            definition,
+            &pattern.constraints,
+            &[],
+            SimplificationOptions::keep_partial(max_simplification_iterations),
+            solver,
+        ) {
+            Ok(Ok(constraints)) => pattern.constraints = constraints,
+            // A failed simplification only loses precision: the unsimplified constraints are kept.
+            Ok(Err(_failure)) => {}
+            // Kept outcome: the unsimplified constraints, which are the same condition; the
+            // simplification only refines them. The emptiness query below takes a stop of its
+            // own.
+            Err(stop) => stop.forgo_refinement(),
+        }
+        let empty = predicates_truth(&pattern.constraints) == Truth::False
+            || matches!(
+                solver.is_sat(&pattern.constraints, &Substitution::new())?,
+                Ok(Satisfiability::Unsat)
+            );
+        Ok((!empty).then_some(pattern))
     }
 }
 

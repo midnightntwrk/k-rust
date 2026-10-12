@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "bounded execution"
-//! bound = "O(states), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None); each state performs one term simplification, predicate pass, and rewrite step, and a state stopped at max_depth is simplified once more"
+//! bound = "O(states), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None); each state performs one term simplification, predicate pass, and rewrite step, plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step, and a state stopped at max_depth is simplified once more"
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
@@ -846,8 +846,10 @@ impl<'a> Execution<'a> {
         // the remainder's: each trivial entry's are a leaf of their own, whatever the other
         // candidates become.
         for entry in &trivial {
-            if let Some(leaf) = self.undefined_leaf(&state, entry) {
-                self.leaves.push(leaf);
+            match self.undefined_leaf(&state, entry) {
+                Ok(Some(leaf)) => self.leaves.push(leaf),
+                Ok(None) => {}
+                Err(stop) => return Err(self.stopped_leaf(state, stop)),
             }
         }
         if branches.len() == 1 && remainder.is_none() {
@@ -1109,16 +1111,27 @@ impl<'a> Execution<'a> {
     /// The `Trivial` leaf of `entry`, a bottom-result sub-case of the step `state` took: the
     /// pattern `entry` was applied to, restricted to `entry.undefined`, on `state`'s path
     /// extended by the higher-priority remainder simplifications it went through. `None` when
-    /// that predicate is syntactically `\bottom`; no solver is asked, so the leaf may have no
-    /// instance.
+    /// that set is shown empty ([`TrivialApplication::decided_undefined_instances`]): a leaf
+    /// reports instances, and the step left none undefined there. A stop of the emptiness query
+    /// is returned.
     fn undefined_leaf(
         &mut self,
         state: &ExecutionState,
         entry: &TrivialApplication,
-    ) -> Option<ExecutionLeaf> {
-        let pattern = entry.undefined_instances()?;
+    ) -> Stoppable<Option<ExecutionLeaf>> {
+        let (pattern, diagnostics) = diagnostic::collect(|| {
+            entry.decided_undefined_instances(
+                self.definition,
+                self.options.max_simplification_iterations,
+                self.solver,
+            )
+        });
+        let Some(pattern) = pattern? else {
+            return Ok(None);
+        };
         let mut leaf = state.clone();
         leaf.diagnostics.extend(&entry.diagnostics);
+        leaf.diagnostics.extend(&diagnostics);
         for simplification in &entry.remainder_simplifications {
             leaf.observation = self.observation_log.append_simplification(
                 leaf.observation,
@@ -1144,7 +1157,11 @@ impl<'a> Execution<'a> {
             );
         }
         let halt_reason = applied_trivial_halt(state.depth + 1, entry);
-        Some(leaf.leaf_with_pattern(pattern, halt_reason, &self.observation_log))
+        Ok(Some(leaf.leaf_with_pattern(
+            pattern,
+            halt_reason,
+            &self.observation_log,
+        )))
     }
 
     /// After a push: `BreadthBound` when `pending` exceeds `max_breadth` (the bound appends
