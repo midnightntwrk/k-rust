@@ -190,7 +190,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.disambiguation.reserve_names — O(N) — at k-rust/inner/parser/forest.rs `packed_variable_names`
 - parser.disambiguation.resolve_applications — O(N x R) to find each label's arities, plus O(N x… — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
 - parser.disambiguation.resolve_terminators — O(N + E x L + K x R), each node's result computed… — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_overloaded_terminators`
-- parser.earley.recognize — O(B x s) chart allocation plus O(p x d) plus the… +3 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`
+- parser.earley.recognize — O(B + s) chart allocation (one chart per input… +3 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`
 - parser.forest.cycle_check — O(N) expected (hashed visited set and build table) — at k-rust/inner/parser/cycles.rs `check_same_span_repetition`
 - parser.forest.intern — one hash lookup and O(B x C) pointer comparisons… +2 modes — at k-rust/inner/parser/forest.rs `LoweringSession::intern`
 - parser.forest.order — O(1) unless the fingerprints tie, then O(N) +3 modes — at k-rust/inner/parser/forest.rs `cmp_packed_structurally`

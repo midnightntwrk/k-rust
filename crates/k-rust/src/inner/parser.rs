@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "recognition (the chart loop of recognize)"
-//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it, and for a chain written directly as a side of a rewrite, whose readings that take the rewrite as an operand break a relation and are skipped; the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them; a chart pops its states by decreasing origin (Agenda), so every shorter span ending at the chart is complete before a longer one reads it and a completed state is popped again only when a same-span or empty child grows: one version of a span's nodes rather than one per growth of the spans below it, and the forest of an ambiguous input has its spans and splits, not those versions"
+//! bound = "O(B + s) chart allocation (one chart per input byte, one prediction marker per sort) plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it, and for a chain written directly as a side of a rewrite, whose readings that take the rewrite as an operand break a relation and are skipped; the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them; a chart pops its states by decreasing origin (Agenda), so every shorter span ending at the chart is complete before a longer one reads it and a completed state is popped again only when a same-span or empty child grows: one version of a span's nodes rather than one per growth of the spans below it, and the forest of an ambiguous input has its spans and splits, not those versions"
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
@@ -2156,7 +2156,7 @@ impl Grammar {
         let start_position = self.canonical_position(input, 0, &mut scanner_cache);
         let Some(start_id) = self.sort_id(start) else {
             let charts = (0..=input.len())
-                .map(|_| Chart::new(self.sorts.len()))
+                .map(|_| Chart::default())
                 .collect::<Vec<_>>();
             return Err(Failure::Error(self.no_parse(
                 input,
@@ -2449,7 +2449,7 @@ impl Grammar {
             .same_span_cycles
             .get_or_init(|| SameSpanCycles::new(self));
         let mut charts = (0..=input.len())
-            .map(|_| Chart::new(self.sorts.len()))
+            .map(|_| Chart::default())
             .collect::<Vec<_>>();
         // An empty node before the first token stands at the start of the input
         // (`Chart::text_span`).
@@ -2467,7 +2467,13 @@ impl Grammar {
                 [Vec::new()],
             )?;
         }
-        charts[start_position].predicted[start_id] = true;
+        // The position each sort was last predicted at. A sort's bucket is considered once at a
+        // position, and its marker also permits omission of impossible callers that would not
+        // expand the same bucket again; caller-specific nullable completion must still run on
+        // every request. Only the position being saturated predicts, and it is done before the
+        // next one starts, so one marker per sort serves every position.
+        let mut predicted_at = vec![None; self.sorts.len()];
+        predicted_at[start_id] = Some(start_position);
         let mut first_violation = None;
 
         // Recognition phase: saturate each position's agenda before moving to the next byte.
@@ -2558,8 +2564,8 @@ impl Grammar {
                             derivation_count,
                             revisit,
                         );
-                        if !charts[position].predicted[sort_id] {
-                            charts[position].predicted[sort_id] = true;
+                        if predicted_at[sort_id] != Some(position) {
+                            predicted_at[sort_id] = Some(position);
                             let winner = prediction_analysis.and_then(|_| {
                                 self.scanner
                                     .winner(
@@ -2923,6 +2929,18 @@ impl Grammar {
                         }
                     }
                 }
+            }
+            // The position is saturated: no later step adds an item to it, so what only its own
+            // dispatch reads is released here rather than held, for every position, until the
+            // recognition ends. Its emptied agenda still holds a node. Its memo of completed
+            // nodes and the same-span nodes its completions built are read only while it is
+            // dispatched, except at a position whose remaining input is layout, where the root
+            // collection below reads them again; a position that dispatched nothing has neither.
+            let chart = &mut charts[position];
+            chart.agenda = Agenda::default();
+            if canonical_position.is_some_and(|canonical| canonical != input.len()) {
+                *chart.completed_nodes.get_mut() = IndexMap::default();
+                *chart.cycle_nodes.get_mut() = IndexMap::default();
             }
         }
 
