@@ -146,7 +146,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.smt.check — O(R) solver work as reported by Z3 — at backend/smt/z3.rs `measured_check`
 - backend.substitution.apply — O(t x v log s), with O(1) skipping of… +2 modes — at backend/substitution.rs `substitute`
 - backend.substitution.extract_output — O(c^2 x t), plus for each solved binding whose… — at backend/search.rs `normalize_match_condition`
-- backend.term.chunked — O(log n) nodes copied, plus O(d log V) per copied… +10 modes — at backend/term/chunked.rs `Chunked`
+- backend.term.chunked — O(log n) nodes copied, plus O(d log V) per copied… +11 modes — at backend/term/chunked.rs `Chunked`
 - backend.term.macro_or_alias — O(1) +1 mode — at backend/term.rs `Term::macro_or_alias_symbol`
 - definition.catalog.rule — O((n + l) log (n + l) + sum k_i^2 x eq) — at k-rust/definition/rule_catalog.rs `RuleCatalog`
 - definition.equivalence.deduplicate — O(n^2 x eq) +1 mode — at k-rust/definition/equivalence.rs `dedup_by_equivalence`

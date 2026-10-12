@@ -899,3 +899,96 @@ proptest! {
         check_unchecked_after_edit::<DEFAULT>(&items, shape, place, inserted);
     }
 }
+
+/// The `(height, width)` of each node of `node`'s subtree, in preorder: equal for two trees
+/// exactly when they have one shape.
+fn shape<I: Item>(node: &Node<I>, out: &mut Vec<(usize, usize)>) {
+    match node {
+        Node::Leaf { items, .. } => out.push((0, items.len())),
+        Node::Internal {
+            height, children, ..
+        } => {
+            out.push((*height, children.len()));
+            for child in children {
+                shape(child, out);
+            }
+        }
+    }
+}
+
+/// The number of distinct nodes (by address) of each height in `tree`, from the leaves up.
+fn distinct_nodes<I: Item, const B: usize>(tree: &Chunked<I, B>) -> Vec<usize> {
+    let mut seen = std::collections::HashSet::new();
+    let mut per_height = vec![0; tree.levels()];
+    let mut pending: Vec<&Arc<Node<I>>> = tree.root.iter().collect();
+    while let Some(node) = pending.pop() {
+        if !seen.insert(Arc::as_ptr(node)) {
+            continue;
+        }
+        per_height[node.height()] += 1;
+        if let Node::Internal { children, .. } = &**node {
+            pending.extend(children);
+        }
+    }
+    per_height
+}
+
+fn repeat_is_from_vec<const B: usize>(count: usize) {
+    let item = Entry { key: 1, value: 3 };
+    let repeated = Chunked::<Entry, B>::repeat(&item, count);
+    let loaded = Chunked::<Entry, B>::from_vec(vec![item; count]);
+    assert_eq!(check_invariants(&repeated), check_invariants(&loaded));
+    let (mut left, mut right) = (Vec::new(), Vec::new());
+    if let (Some(repeated), Some(loaded)) = (&repeated.root, &loaded.root) {
+        shape(repeated, &mut left);
+        shape(loaded, &mut right);
+    }
+    assert_eq!(left, right, "the shape from_vec gives, at {count} items");
+    assert_eq!(repeated, loaded);
+    assert_eq!(repeated.hash_value(), loaded.hash_value());
+}
+
+/// `repeat` builds the tree `from_vec` builds of the same items, node for node.
+#[test]
+fn repeating_an_item_builds_the_tree_of_its_copies() {
+    for count in (0..=2_000).chain([4_095, 4_096, 4_097, 30_000, 100_003]) {
+        repeat_is_from_vec::<5>(count);
+        repeat_is_from_vec::<6>(count);
+        repeat_is_from_vec::<DEFAULT_BRANCHING>(count);
+    }
+}
+
+/// The distinct nodes of a repeated item at each height `h` are at most `3h + 4`, whatever the
+/// length: the junctions where a level changes node lie in clusters of at most two mixed nodes,
+/// one cluster per level below plus one (each level's switch of part size), and between the
+/// clusters lie runs of one pure node each. So up to `usize::MAX` items the tree is a few
+/// hundred nodes, `O(log² n)`, against `n/B` leaves for the copies loaded one by one.
+#[test]
+fn repeating_an_item_shares_its_nodes() {
+    fn check<const B: usize>(count: usize) {
+        let tree = Chunked::<Entry, B>::repeat(&Entry { key: 1, value: 0 }, count);
+        assert_eq!(tree.len(), count);
+        for (height, nodes) in distinct_nodes(&tree).into_iter().enumerate() {
+            assert!(
+                nodes <= 3 * height + 4,
+                "{nodes} distinct nodes at height {height} of {count} items (B = {B})"
+            );
+        }
+    }
+    // Lengths of every magnitude, from a xorshift sequence, and the extremes.
+    let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+    let lengths = std::iter::repeat_with(move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> (state % 64)) as usize
+    });
+    for count in lengths
+        .take(2_000)
+        .chain([0, 1, usize::MAX - 1, usize::MAX])
+    {
+        check::<5>(count);
+        check::<6>(count);
+        check::<DEFAULT_BRANCHING>(count);
+    }
+}

@@ -20,12 +20,10 @@ use num_traits::ToPrimitive;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinResult, HookResult, LIST_RESULT_PEAK_FACTOR, ResultCap, ResultCollection,
-    TARGET_RESULT_BYTES, UnsupportedHookReason, bool_term, describe_int, expect_arity, expect_sort,
-    int_term, read_int, values_differ,
+    BuiltinResult, HookResult, ResultCollection, UnsupportedHookReason, bool_term, describe_int,
+    expect_arity, expect_sort, int_term, read_int, values_differ,
 };
 use crate::{
-    allowance::Allowance,
     matching::SortGraph,
     term::{Items, Sort, Term, TermKind},
 };
@@ -43,7 +41,7 @@ pub(super) fn evaluate(
         "LIST.size" => size(arguments),
         "LIST.unit" => unit(arguments, result),
         "LIST.get" => return get(arguments),
-        "LIST.make" => return make(arguments, result, Allowance::of_process()),
+        "LIST.make" => return make(arguments, result),
         "LIST.range" => return range(arguments, result),
         "LIST.update" => return update(arguments, result),
         "LIST.updateAll" => return update_all(arguments, result),
@@ -239,12 +237,11 @@ fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<
     )
 }
 
-/// `makeList` under the cap that `allowance` sets ([`list_result_cap`]).
-fn make(
-    arguments: &[Term],
-    result: ResultCollection<'_>,
-    allowance: &Allowance,
-) -> HookResult<BuiltinResult> {
+/// `makeList(N, V)`: `N` copies of `V`, built in `O(log² N)` nodes ([`Items::repeat`]): one node
+/// stands for every subtree of the copies that holds the same items in the same shape, so the
+/// application holds memory logarithmic in `N`, not proportional to it, and every length the
+/// list's tree counts is computed ([`bounded_list_length`]).
+fn make(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<BuiltinResult> {
     expect_arity("LIST.make", arguments, 2)?;
     let [length, value] = arguments else {
         unreachable!()
@@ -262,55 +259,33 @@ fn make(
     if length.sign() == Sign::Minus {
         return Ok(BuiltinResult::Bottom);
     }
-    let concrete_length = match bounded_list_length(&length, &list_result_cap(allowance)) {
+    let concrete_length = match bounded_list_length(&length) {
         Ok(length) => length,
         Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
-    Ok(into.build(vec![value; concrete_length], None).into())
+    Ok(into
+        .build_items(Items::repeat(&value, concrete_length), None)
+        .into())
 }
 
-/// A nonnegative `makeList` length as a number of elements, or `ResultTooLarge` when its term
-/// references take more than `cap`: the list exists, and the backend does not build it.
-fn bounded_list_length(
-    length: &BigInt,
-    cap: &ResultCap<'_>,
-) -> Result<usize, UnsupportedHookReason> {
+/// A nonnegative `makeList` length as a number of elements, or `ResultTooLarge` when the list's
+/// tree cannot count it: a tree counts its items in a `usize`, so a longer list exists and the
+/// backend does not build it.
+fn bounded_list_length(length: &BigInt) -> Result<usize, UnsupportedHookReason> {
     debug_assert!(
         length.sign() != Sign::Minus,
         "makeList of a negative length is undefined, checked by the caller"
     );
-    let reference = size_of::<Term>() as u64;
-    let limit = cap.bytes() / reference;
     length
-        .to_u64()
-        .filter(|length| *length <= limit)
-        .and_then(|length| usize::try_from(length).ok())
+        .to_usize()
         .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
             detail: format!(
-                "a List result of length {} is longer than its cap of {limit} elements \
-                 ({} of {reference}-byte references): {}",
+                "a List result of length {} is longer than the {} items a list counts on this \
+                 target",
                 describe_int(length),
-                super::describe_bytes(limit * reference),
-                cap.reason(),
+                usize::MAX,
             ),
         })
-}
-
-/// The cap on a `makeList` result: [`LIST_RESULT_PEAK_FACTOR`] bytes held per byte of its
-/// references within `allowance`, and at most [`TARGET_RESULT_BYTES`] of them.
-fn list_result_cap(allowance: &Allowance) -> ResultCap<'_> {
-    list_result_cap_on(allowance, TARGET_RESULT_BYTES)
-}
-
-/// [`list_result_cap`] on a target where a result may take at most `target` bytes
-/// ([`super::target_result_bytes`]); the tests use it to simulate a 32-bit target.
-fn list_result_cap_on(allowance: &Allowance, target: u64) -> ResultCap<'_> {
-    ResultCap::new(
-        allowance,
-        LIST_RESULT_PEAK_FACTOR,
-        target,
-        "a quarter of the largest allocation on this target",
-    )
 }
 
 /// `range(L, front, back)`: `L` without its first `front` and last `back` items, cut from its
@@ -516,7 +491,6 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::builtin::target_result_bytes;
     use crate::term::{CollectionMetadata, CollectionSymbols, ListDefinition, Variable};
 
     fn definition() -> Arc<ListDefinition> {
@@ -910,114 +884,65 @@ mod tests {
         );
     }
 
-    /// The allowance `makeList` runs under in these tests, so that whether a result is refused
-    /// does not depend on the host: 16 GiB, the cap on a list's references.
-    static ALLOWANCE: Allowance = Allowance::given(16 << 30);
-
-    fn make(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<BuiltinResult> {
-        super::make(arguments, result, &ALLOWANCE)
-    }
-
-    fn refused(result: HookResult<BuiltinResult>) -> bool {
-        matches!(
-            result,
-            Ok(BuiltinResult::Unsupported(
-                UnsupportedHookReason::ResultTooLarge { .. }
-            ))
-        )
-    }
-
-    /// The refusal names the cap, the allowance, where it comes from, and the factor.
+    /// A length the list's tree cannot count is refused, and the refusal names the length and
+    /// the count.
     #[test]
     fn make_length_above_usize_is_unsupported() {
         let length = BigInt::from(1_u8) << usize::BITS;
-        let reference = size_of::<Term>();
-        let elements = (16_u64 << 30) / LIST_RESULT_PEAK_FACTOR / reference as u64;
-
         assert_eq!(
             make(&[int_term(length), item("x")], into(&items())),
             Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::ResultTooLarge {
                     detail: format!(
-                        "a List result of length a 65-bit integer is longer than its cap of \
-                         {elements} elements (4 GiB of {reference}-byte references): a quarter of \
-                         the 16 GiB this process may use (given by the caller), since one \
-                         application holds 4 bytes per byte of its result"
+                        "a List result of length a {}-bit integer is longer than the {} items a \
+                         list counts on this target",
+                        usize::BITS + 1,
+                        usize::MAX,
                     ),
                 }
             ))
         );
     }
 
-    /// On a 32-bit target a `makeList` result is at most 512 MiB of 4-byte references, 2^27
-    /// elements, whatever the allowance (see
-    /// `bytes_lengths_are_bounded_by_what_the_target_can_allocate`); on a 64-bit target the
-    /// allowance binds first.
+    /// Every length a list counts is computed, up to `usize::MAX`, and the result holds that
+    /// many copies of the value: its length, its items at both ends, and an edit at a position
+    /// far inside it.
     #[test]
-    fn make_length_is_bounded_by_what_the_target_can_allocate() {
-        let thirty_two = target_result_bytes(u64::from(i32::MAX.unsigned_abs()));
-        let address_space = Allowance::given(1 << 32);
-        let cap = list_result_cap_on(&address_space, thirty_two);
-        assert_eq!(cap.bytes() / 4, 1 << 27);
-        assert_eq!(
-            cap.reason(),
-            "a quarter of the largest allocation on this target"
-        );
-        let sixty_four = target_result_bytes(i64::MAX.unsigned_abs());
-        assert_eq!(
-            list_result_cap_on(&ALLOWANCE, sixty_four).bytes(),
-            (16 << 30) / LIST_RESULT_PEAK_FACTOR
-        );
-    }
-
-    /// `makeList` is computed exactly when its references fit the allowance
-    /// ([`LIST_RESULT_PEAK_FACTOR`] bytes per byte of them) and refused beyond it before anything
-    /// is allocated. Under an allowance of 1 MiB the cap is 1 MiB / [`LIST_RESULT_PEAK_FACTOR`]
-    /// of references, which the hook builds.
-    #[test]
-    fn make_length_is_capped_by_the_allowance() {
-        let small = Allowance::given(1 << 20);
-        let cap = (1_u64 << 20) / LIST_RESULT_PEAK_FACTOR / size_of::<Term>() as u64;
-        assert!(matches!(
-            super::make(&[int_term(cap.into()), item("x")], into(&items()), &small),
-            Ok(BuiltinResult::Value(list)) if matches!(
-                list.kind(),
-                TermKind::List { heads, rest: None, .. } if heads.len() as u64 == cap
-            )
-        ));
-        for length in [BigInt::from(cap + 1), BigInt::from(1_u64 << 40)] {
-            assert!(
-                refused(super::make(
-                    &[int_term(length.clone()), item("x")],
-                    into(&items()),
-                    &small
-                )),
-                "makeList({length}, x)"
-            );
+    fn make_computes_every_length_a_list_counts() {
+        for length in [0, 3, 1 << 40, usize::MAX] {
+            let Ok(BuiltinResult::Value(list)) =
+                make(&[int_term(length.into()), item("x")], into(&items()))
+            else {
+                panic!("makeList({length}, x) is computed");
+            };
+            let TermKind::List {
+                heads, rest: None, ..
+            } = list.kind()
+            else {
+                panic!("makeList({length}, x) is a closed list");
+            };
+            assert_eq!(heads.len(), length);
+            if length > 0 {
+                assert_eq!(heads.first(), Some(&item("x")));
+                assert_eq!(heads.last(), Some(&item("x")));
+                let edited = heads.replace_at(length / 2, item("y"));
+                assert_eq!(edited.get(length / 2), Some(&item("y")));
+                assert_eq!(
+                    edited.get(length / 2 - usize::from(length > 1)),
+                    Some(&item("x"))
+                );
+            }
         }
-        let cap = list_result_cap(&ALLOWANCE);
-        let elements = cap.bytes() / size_of::<Term>() as u64;
-        assert_eq!(
-            bounded_list_length(&BigInt::from(elements), &cap),
-            Ok(usize::try_from(elements).unwrap())
-        );
-        assert!(bounded_list_length(&BigInt::from(elements + 1), &cap).is_err());
-        assert!(matches!(
-            make(&[integer(3), item("x")], into(&items())),
-            Ok(BuiltinResult::Value(list)) if matches!(
-                list.kind(),
-                TermKind::List { heads, rest: None, .. } if heads.len() == 3
-            )
-        ));
     }
 
-    /// The most memory one `makeList` application holds, per byte of its references, is
-    /// [`LIST_RESULT_PEAK_FACTOR`]: measured with the test allocator at two lengths, the peak
-    /// grows by at most that many bytes per byte of references, and by more than one byte less
-    /// (the factor is the measurement rounded up). The difference leaves out the few bytes an
-    /// application holds whatever its length.
+    /// One `makeList` application holds memory that grows with the levels of its tree, not with
+    /// its length: measured with the test allocator between `2^12` and `2^24` copies, the peak
+    /// grows by less than one handle per leaf the copies would fill if each leaf were its own
+    /// node (a tree of one reference per copy grows by at least `B` times that). The tree of
+    /// `2^24` copies has three more levels, each a few nodes of at most `B` handles: 5,312 bytes
+    /// measured, against 4 MiB for the bound and 128 MiB for one reference per copy.
     #[test]
-    fn make_holds_its_result_bounded() {
+    fn make_holds_memory_logarithmic_in_its_length() {
         let metadata = items();
         let peak = |length: u64| {
             let arguments = [int_term(length.into()), item("x")];
@@ -1026,12 +951,12 @@ mod tests {
             assert!(matches!(result, Ok(BuiltinResult::Value(_))));
             peak
         };
-        let (shorter, longer) = (1_u64 << 22, 1_u64 << 23);
-        let growth = peak(longer) - peak(shorter);
+        let (shorter, longer) = (1_u64 << 12, 1_u64 << 24);
+        let growth = peak(longer).saturating_sub(peak(shorter));
         let references = (longer - shorter) * size_of::<Term>() as u64;
+        let branching = crate::term::chunked::DEFAULT_BRANCHING as u64;
         assert!(
-            growth <= LIST_RESULT_PEAK_FACTOR * references
-                && growth > (LIST_RESULT_PEAK_FACTOR - 1) * references,
+            growth < references / branching,
             "the peak grew by {growth} bytes over {references} bytes of references"
         );
     }

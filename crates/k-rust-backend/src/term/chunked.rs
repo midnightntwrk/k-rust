@@ -10,7 +10,7 @@
 //! ```toml algorithm
 //! id = "backend.term.chunked"
 //! name = "persistent B+-tree of item chunks with monoid summaries per node"
-//! sites = ["Chunked", "Chunked::from_vec", "Chunked::get", "Chunked::search", "Chunked::search_by", "Chunked::iter", "Chunked::aligned", "Chunked::eq_by", "Chunked::cmp_by", "Chunked::drop", "NodeSummary", "SequenceHash", "Dismantle"]
+//! sites = ["Chunked", "Chunked::from_vec", "Chunked::repeat", "Chunked::get", "Chunked::search", "Chunked::search_by", "Chunked::iter", "Chunked::aligned", "Chunked::eq_by", "Chunked::cmp_by", "Chunked::drop", "NodeSummary", "SequenceHash", "Dismantle"]
 //! variable = "n = items of the tree (of the larger operand of a join or union); k = items of the smaller operand of a union; s = items a seek wants; u = items a rebuild changes; D = items of two compared versions outside the nodes they share; d = distinct variables of the items an edit adds or removes; V = distinct variables of the tree's items; m = variables of a union of variable sets outside its largest operand. The branching factor B is a constant (32 for collection items, 64 for variable trees), so a node is O(1) work"
 //! counters = []
 //! no_counter = "a tree operation is part of the hook, match, substitution or simplification that calls it, which carry the counters; test builds bound the summaries an operation computes (entry and multiset-entry counts), and tests/size_weighted_growth.rs bounds the bytes a rewrite step allocates on a larger collection"
@@ -56,6 +56,10 @@
 //! [[cost]]
 //! mode = "bulk load, full iteration, to_vec"
 //! bound = "O(n)"
+//!
+//! [[cost]]
+//! mode = "bulk load of n copies of one item (LIST.make)"
+//! bound = "O(log² n) nodes, each a node of the tree from_vec builds of the copies"
 //!
 //! [[cost]]
 //! mode = "variable set of a term built above its children (Variables, Union)"
@@ -727,9 +731,12 @@ fn check_subtree<'t, I: Item>(
     visited: &mut Vec<&'t Arc<Node<I>>>,
 ) {
     use std::sync::atomic::Ordering::Relaxed;
+    // A node shared by several positions of the subtree (`Chunked::repeat`) holds the same items
+    // and pairs at each of them, so it is handed over once.
+    let mut seen = std::collections::HashSet::new();
     let mut pending = vec![root];
     while let Some(node) = pending.pop() {
-        if node.checked().load(Relaxed) {
+        if node.checked().load(Relaxed) || !seen.insert(Arc::as_ptr(node)) {
             continue;
         }
         match &**node {
@@ -785,15 +792,31 @@ impl<I: Item> Unchecked<'_, I> {
 /// `p·(min+1)..=p·(b-1)`, two parts start at `2·min + 2 <= b + 1`, and the ranges of `p` and
 /// `p + 1` parts (`p >= 2`) meet, since `p·(b - 1) + 1 >= p·2·min + 1 >= (p + 1)·(min + 1)`.
 fn even_parts(n: usize, b: usize, min: usize, target: usize) -> impl Iterator<Item = usize> {
+    let (parts, base, longer) = even_cut(n, b, min, target);
+    (0..parts).map(move |part| base + usize::from(part < longer))
+}
+
+/// [`even_parts`] as runs of equal parts, `(size, number of parts)` in order: the longer parts
+/// first, then the shorter ones; either run may hold no parts.
+fn even_part_runs(n: usize, b: usize, min: usize, target: usize) -> [(usize, usize); 2] {
+    let (parts, base, longer) = even_cut(n, b, min, target);
+    [(base + 1, longer), (base, parts - longer)]
+}
+
+/// The cut [`even_parts`] makes: the number of parts, the size of the shorter parts, and the
+/// number of parts one longer than that, which come first.
+fn even_cut(n: usize, b: usize, min: usize, target: usize) -> (usize, usize, usize) {
     let parts = if n <= b {
         n.min(1)
     } else {
-        ((n + target / 2) / target).clamp(n.div_ceil(b - 1), n / (min + 1))
+        // `n / target` rounded to the nearest, without overflowing at `usize::MAX` items.
+        let nearest = n / target + (n % target + target / 2) / target;
+        nearest.clamp(n.div_ceil(b - 1), n / (min + 1))
     };
     // No parts (and no division) for nothing.
     let base = n.checked_div(parts).unwrap_or(0);
     let longer = n.checked_rem(parts).unwrap_or(0);
-    (0..parts).map(move |part| base + usize::from(part < longer))
+    (parts, base, longer)
 }
 
 /// A persistent sequence of items in a B-tree of branching factor `B`; see the module
@@ -844,6 +867,83 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                 .collect();
         }
         Self { root: level.pop() }
+    }
+
+    /// The sequence of `count` copies of `item`, in the shape [`from_vec`](Self::from_vec) gives
+    /// it, built in `O(log² count)` nodes: one node stands for every subtree that holds the same
+    /// items in the same shape, so the tree of `count` copies holds `O(log² count)` nodes where
+    /// loading the copies one by one fills `count / B` leaves.
+    ///
+    /// `from_vec` cuts each level into parts of two sizes, the longer ones first
+    /// ([`even_part_runs`]). Each level is built here as runs of one node repeated: the parts of
+    /// one size that lie within one run are one node, built once, and a part holding a junction
+    /// of two runs is built on its own. The leaves are two nodes, with one junction. A cluster of
+    /// adjacent junctions spanning at most two nodes falls within at most two parts of the level
+    /// above (a part spans at least three), so it stays a cluster of at most two mixed nodes; and
+    /// each level adds one junction, its switch of part size. So the level at height `h` holds
+    /// at most `h + 1` clusters and the runs between them: at most `3h + 4` distinct nodes
+    /// (`repeating_an_item_shares_its_nodes` checks it, and finds at most four).
+    pub(crate) fn repeat(item: &I, count: usize) -> Self {
+        let target = Self::FILL_TARGET;
+        let mut level: Vec<(Arc<Node<I>>, usize)> =
+            even_part_runs(count, B, Self::MIN_FILL, target)
+                .into_iter()
+                .filter(|&(_, parts)| parts > 0)
+                .map(|(size, parts)| (Arc::new(Node::leaf(vec![item.clone(); size])), parts))
+                .collect();
+        let mut height = 0;
+        while level.iter().map(|(_, copies)| copies).sum::<usize>() > 1 {
+            height += 1;
+            level = Self::group_runs(height, level);
+        }
+        Self {
+            root: level.pop().map(|(node, _)| node),
+        }
+    }
+
+    /// The level above `runs` (nodes of height `height - 1`, each repeated the given number of
+    /// times), cut as [`from_vec`](Self::from_vec) cuts it, as runs of nodes of height `height`.
+    fn group_runs(height: usize, runs: Vec<(Arc<Node<I>>, usize)>) -> Vec<(Arc<Node<I>>, usize)> {
+        let nodes = runs.iter().map(|(_, copies)| copies).sum();
+        let mut runs = runs.into_iter();
+        // The run being consumed and the copies of its node not yet placed.
+        let mut current: Option<(Arc<Node<I>>, usize)> = None;
+        let mut level = Vec::new();
+        for (size, mut parts) in even_part_runs(nodes, B, Self::MIN_FILL, Self::FILL_TARGET) {
+            while parts > 0 {
+                let (node, left) =
+                    current.get_or_insert_with(|| runs.next().expect("the parts cover the level"));
+                if *left >= size {
+                    // Parts within the run: one node, repeated.
+                    let copies = (*left / size).min(parts);
+                    level.push((
+                        Arc::new(Node::internal(height, vec![node.clone(); size])),
+                        copies,
+                    ));
+                    *left -= copies * size;
+                    parts -= copies;
+                    if *left == 0 {
+                        current = None;
+                    }
+                    continue;
+                }
+                // One part straddling runs.
+                let mut children = Vec::with_capacity(size);
+                while children.len() < size {
+                    let (node, left) = current
+                        .get_or_insert_with(|| runs.next().expect("the parts cover the level"));
+                    let take = (*left).min(size - children.len());
+                    children.extend(std::iter::repeat_n(node.clone(), take));
+                    *left -= take;
+                    if *left == 0 {
+                        current = None;
+                    }
+                }
+                level.push((Arc::new(Node::internal(height, children)), 1));
+                parts -= 1;
+            }
+        }
+        level
     }
 
     pub(crate) fn len(&self) -> usize {

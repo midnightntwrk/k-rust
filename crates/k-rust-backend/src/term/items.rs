@@ -122,6 +122,12 @@ impl<T: Item> Items<T> {
         Self(Chunked::from_vec(items))
     }
 
+    /// The sequence of `count` copies of `item`, equal to [`from_vec`](Self::from_vec) of them,
+    /// in `O(log² count)` nodes shared between the positions that hold the same subtree.
+    pub fn repeat(item: &T, count: usize) -> Self {
+        Self(Chunked::repeat(item, count))
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }

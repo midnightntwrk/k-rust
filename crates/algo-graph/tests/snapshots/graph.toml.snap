@@ -3422,6 +3422,11 @@ symbol = "Chunked::from_vec"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/term/chunked.rs"
+symbol = "Chunked::repeat"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked.rs"
 symbol = "Chunked::get"
 
 [[node.sites]]
@@ -3513,6 +3518,10 @@ bound = "its unshared nodes (O(log n) after a one-item edit), in constant stack"
 [[node.cost]]
 mode = "bulk load, full iteration, to_vec"
 bound = "O(n)"
+
+[[node.cost]]
+mode = "bulk load of n copies of one item (LIST.make)"
+bound = "O(log² n) nodes, each a node of the tree from_vec builds of the copies"
 
 [[node.cost]]
 mode = "variable set of a term built above its children (Variables, Union)"
