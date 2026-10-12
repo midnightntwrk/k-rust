@@ -6782,6 +6782,41 @@ pub(super) mod tests {
         }
     }
 
+    /// Two trees whose terms differ at a node only in a token's text, the string tokens `"A"`
+    /// and `"\x41"`, lower to one term above a `#KToken` that reads the text they denote: the
+    /// difference is listed there, not taken as two terms every ancestor keeps apart.
+    #[test]
+    fn each_tree_terms_list_a_token_difference_that_an_ancestor_reads_away() {
+        let (grammar, node) = readings_fixture();
+        let mut grammar = grammar;
+        let token = add_production(
+            &mut grammar,
+            "Exp",
+            &["KString", "KString"],
+            InternalLabel::KToken.as_str(),
+        );
+        let string = |text: &str| {
+            ParsedTerm::Term(Term::Token {
+                token: format!("\"{text}\""),
+                sort: Sort::frontend(FrontendSort::KString),
+            })
+        };
+        let start = Sort::new("Exp");
+        let lower = |tree: ParsedTerm| grammar.lower_inferred(tree, &start);
+        let value = ParsedTerm::Production {
+            production: token,
+            children: vec![ambiguity([string("A"), string("\\x41")]), string("Int")],
+            metadata: crate::kast::TermMetadata::default(),
+        };
+        let forest = PackedTerm::from_parsed(&node("pair", vec![value, node("b", vec![], 20)], 0));
+        let each = grammar.lower_each_inferred_tree(&forest, &start);
+        let alone = super::super::inference::lower_each_tree_by_listing(&lower, &forest);
+        assert!(
+            matches!((&each, &alone), (Some(each), Some(alone)) if each.identical(alone)),
+            "{each:?}\n{alone:?}"
+        );
+    }
+
     fn rendered(alternatives: &[AmbiguousParse]) -> Vec<&str> {
         alternatives
             .iter()
