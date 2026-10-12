@@ -6909,7 +6909,7 @@ id = "parser.disambiguation.remove_brackets_casts"
 provenance = "declared"
 area = "parser"
 name = "removal of brackets and syntactic casts"
-variable = "N = owned nodes"
+variable = "N = session nodes reachable from the forest; E = their child edges and alternatives; O = owned nodes of a tree"
 no_counter = "bracket and syntactic-cast removal has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -6928,11 +6928,20 @@ symbol = "Grammar::remove_brackets_and_syntactic_casts"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::remove_packed_brackets_and_syntactic_casts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::remove_brackets_and_syntactic_casts_node"
 
 [[node.cost]]
-mode = "one parsed tree"
-bound = "O(N)"
+mode = "one packed forest"
+bound = "O(N + E), each node's result computed once"
+
+[[node.cost]]
+mode = "one parsed tree (remove_brackets_and_syntactic_casts)"
+bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
 
 [[node]]
 kind = "algorithm"
@@ -7046,7 +7055,7 @@ id = "parser.disambiguation.resolve_terminators"
 provenance = "declared"
 area = "parser"
 name = "resolution of overloaded list terminators"
-variable = "N = owned nodes; L = user lists; R = productions in the grammar; K = nullary nodes whose source production is overloaded"
+variable = "N = session nodes reachable from the forest; E = their child edges; L = user lists; R = productions in the grammar; K = those nodes that are nullary and whose source production is overloaded; O = owned nodes of a tree"
 no_counter = "overloaded-terminator resolution has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -7065,11 +7074,25 @@ symbol = "Grammar::resolve_overloaded_terminators"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_packed_overloaded_terminators"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::resolve_overloaded_terminators_node"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::least_overloaded_terminator"
+
 [[node.cost]]
-mode = "one parsed tree"
-bound = "O(N x L + K x R)"
+mode = "one packed forest"
+bound = "O(N + E x L + K x R), each node's result computed once, plus the structural ordering of each ambiguity's alternatives and of the terminator alternatives at a program list's tail, whose pair comparisons the session shares"
+
+[[node.cost]]
+mode = "one parsed tree (resolve_overloaded_terminators)"
+bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
 
 [[node]]
 kind = "algorithm"
@@ -7207,6 +7230,40 @@ symbol = "check_same_span_repetition"
 [[node.cost]]
 mode = "one node built by a flagged production"
 bound = "O(N) expected (hashed visited set and build table)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.forest.intern"
+provenance = "declared"
+area = "parser"
+name = "hash-consing of the nodes of a lowering session"
+variable = "B = session nodes with the interned node's fingerprint; C = the interned node's children or alternatives; O = owned nodes of a tree"
+no_counter = "session interning has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserForestIntern"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "LoweringSession::intern"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "LoweringSession::intern"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "LoweringSession::intern_parsed"
+
+[[node.cost]]
+mode = "LoweringSession::intern"
+bound = "one hash lookup and O(B x C) pointer comparisons; B is 1 unless fingerprints collide"
+
+[[node.cost]]
+mode = "LoweringSession::intern_parsed"
+bound = "O(O) node constructions and interns"
 
 [[node]]
 kind = "algorithm"
@@ -7385,7 +7442,7 @@ bound = "O(R + L x R)"
 
 [[node.cost]]
 mode = "program-list terminator lookup"
-bound = "O(L) per child"
+bound = "O(L) per child, plus the structural ordering of the terminator alternatives of an ambiguity at a list's tail"
 
 [[node]]
 kind = "algorithm"

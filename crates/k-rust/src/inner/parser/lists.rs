@@ -12,7 +12,7 @@
 //!
 //! [[cost]]
 //! mode = "program-list terminator lookup"
-//! bound = "O(L) per child"
+//! bound = "O(L) per child, plus the structural ordering of the terminator alternatives of an ambiguity at a list's tail"
 //! ```
 //!
 //! ```toml algorithm
@@ -36,6 +36,7 @@
 //! is O(nodes * candidate instantiations) and recursively preserves declared child sorts.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Algorithm};
 
@@ -45,8 +46,8 @@ use crate::names::BuiltinSort;
 
 use super::parametric::substitute_sort;
 use super::{
-    Grammar, Item, ParametricOrigin, ParseError, ParsedParts, ParsedTerm, ParserRole,
-    ProductionOptions,
+    Grammar, Item, PackedNode, PackedTerm, ParametricOrigin, ParseError, ParsedParts, ParsedTerm,
+    ParserRole, ProductionOptions, StructuralOrder,
 };
 
 /// The list sorts ([`Grammar::list_sort`]) computed for one node of a tree that list completion
@@ -326,12 +327,35 @@ impl Grammar {
     /// list's recursive production. Overload resolution may otherwise replace the tail with the
     /// shared least terminator, even though K's program parser preserves the enclosing list's
     /// concrete representation.
+    ///
+    /// `child` is the input node at that position: the terminator itself, or the structurally
+    /// first alternative of an ambiguity there that is one, kept as it is.
     pub(super) fn program_list_terminator(
         &self,
+        order: &mut StructuralOrder,
         parent: usize,
         child_index: usize,
-        child: &ParsedTerm,
-    ) -> Option<ParsedTerm> {
+        child: &Rc<PackedTerm>,
+    ) -> Option<Rc<PackedTerm>> {
+        let terminator = self.program_list_tail_terminator(parent, child_index)?;
+        let is_terminator = |term: &Rc<PackedTerm>| {
+            matches!(&term.node, PackedNode::Production { production, children, .. }
+                if *production == terminator && children.is_empty())
+        };
+        match &child.node {
+            PackedNode::Ambiguity(alternatives) => alternatives
+                .iter()
+                .filter(|term| is_terminator(term))
+                .min_by(|left, right| order.cmp(left, right))
+                .cloned(),
+            _ if is_terminator(child) => Some(Rc::clone(child)),
+            _ => None,
+        }
+    }
+
+    /// The terminator production of the empty-separator program list whose recursive production
+    /// is `parent`, when `child_index` is that production's tail position.
+    fn program_list_tail_terminator(&self, parent: usize, child_index: usize) -> Option<usize> {
         if self.role != ParserRole::Program {
             return None;
         }
@@ -340,10 +364,19 @@ impl Grammar {
             .values()
             .find(|list| list.list_production == parent)?;
         let tail_index = usize::from(!list.left_associative);
-        if child_index != tail_index {
-            return None;
-        }
-        let terminator = list.terminator_production;
+        (child_index == tail_index).then_some(list.terminator_production)
+    }
+
+    /// The owned-tree form of [`Self::program_list_terminator`], for the tests' owned-tree
+    /// terminator resolution.
+    #[cfg(test)]
+    pub(super) fn program_list_terminator_tree(
+        &self,
+        parent: usize,
+        child_index: usize,
+        child: &ParsedTerm,
+    ) -> Option<ParsedTerm> {
+        let terminator = self.program_list_tail_terminator(parent, child_index)?;
         let is_terminator = |term: &ParsedTerm| {
             matches!(term, ParsedTerm::Production { production, children, .. }
                 if *production == terminator && children.is_empty())

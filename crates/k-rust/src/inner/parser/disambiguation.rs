@@ -59,15 +59,19 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.resolve_terminators"
 //! name = "resolution of overloaded list terminators"
-//! sites = ["Grammar::resolve_overloaded_terminators", "Grammar::resolve_overloaded_terminators_node"]
-//! variable = "N = owned nodes; L = user lists; R = productions in the grammar; K = nullary nodes whose source production is overloaded"
+//! sites = ["Grammar::resolve_overloaded_terminators", "Grammar::resolve_packed_overloaded_terminators", "Grammar::resolve_overloaded_terminators_node", "Grammar::least_overloaded_terminator"]
+//! variable = "N = session nodes reachable from the forest; E = their child edges; L = user lists; R = productions in the grammar; K = those nodes that are nullary and whose source production is overloaded; O = owned nodes of a tree"
 //! counters = []
 //! no_counter = "overloaded-terminator resolution has no dedicated counter"
 //! span = "per problem"
 //!
 //! [[cost]]
-//! mode = "one parsed tree"
-//! bound = "O(N x L + K x R)"
+//! mode = "one packed forest"
+//! bound = "O(N + E x L + K x R), each node's result computed once, plus the structural ordering of each ambiguity's alternatives and of the terminator alternatives at a program list's tail, whose pair comparisons the session shares"
+//!
+//! [[cost]]
+//! mode = "one parsed tree (resolve_overloaded_terminators)"
+//! bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
 //! ```
 //!
 //! ```toml algorithm
@@ -98,15 +102,19 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.remove_brackets_casts"
 //! name = "removal of brackets and syntactic casts"
-//! sites = ["Grammar::remove_brackets_and_syntactic_casts", "Grammar::remove_brackets_and_syntactic_casts_node"]
-//! variable = "N = owned nodes"
+//! sites = ["Grammar::remove_brackets_and_syntactic_casts", "Grammar::remove_packed_brackets_and_syntactic_casts", "Grammar::remove_brackets_and_syntactic_casts_node"]
+//! variable = "N = session nodes reachable from the forest; E = their child edges and alternatives; O = owned nodes of a tree"
 //! counters = []
 //! no_counter = "bracket and syntactic-cast removal has no dedicated counter"
 //! span = "per problem"
 //!
 //! [[cost]]
-//! mode = "one parsed tree"
-//! bound = "O(N)"
+//! mode = "one packed forest"
+//! bound = "O(N + E), each node's result computed once"
+//!
+//! [[cost]]
+//! mode = "one parsed tree (remove_brackets_and_syntactic_casts)"
+//! bound = "O(O) to pack the tree into a session, where equal subtrees become one node, the packed pass, and O(O) to unpack its result"
 //! ```
 //!
 //! ```toml algorithm
@@ -138,11 +146,13 @@
 //! 7. Infer sorts and unpack (packed DAG to owned tree). In the z3 build, when the passes below
 //!    only repack the inferred forest's trees and it has several readings, the ambiguity is
 //!    reported from the forest instead (`Grammar::packed_ambiguity_report`).
-//! 8. Resolve overloaded terminators (owned tree, O(nodes * list candidates)).
+//! 8. Resolve overloaded terminators (owned tree, packed into a lowering session and resolved
+//!    once per session node, O(nodes * list candidates)).
 //! 9. Apply prefer/avoid and overload filtering (owned tree, O(nodes) plus re-factoring of each
 //!    surviving ambiguity), then the prefer/avoid frontier step on an ambiguity whose alternatives
 //!    still diverge at several positions.
-//! 10. Remove brackets and syntactic casts (owned tree, O(nodes)).
+//! 10. Remove brackets and syntactic casts (owned tree, packed into a lowering session and
+//!     rewritten once per session node, O(nodes)).
 //! 11. Factor and report remaining ambiguities (owned tree, O(nodes * alternatives); the report
 //!     is polynomial in the nodes and never lists the readings).
 //!
@@ -161,8 +171,8 @@ use std::hash::{Hash, Hasher};
 
 use super::exclusion::{Exclusion, Side};
 use super::{
-    AmbiguityPlace, AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts,
-    ParsedTerm, Production, StructuralOrder, lower_term,
+    AmbiguityPlace, AmbiguousParse, Grammar, Item, LoweringSession, PackedNode, PackedTerm,
+    ParseError, ParsedParts, ParsedTerm, Production, StructuralOrder, lower_term,
 };
 use crate::kast::{
     FrontendSort, InternalLabel, ProductionIdentity, Sort, Term, TermMetadata, TermSpan, string,
@@ -179,6 +189,41 @@ fn packed_sets_share_nodes(
             .iter()
             .zip(right)
             .all(|(left, right)| Rc::ptr_eq(left, right))
+}
+
+/// Whether a pass left every one of `nodes` as it was (`rewritten` holds their results).
+fn packed_nodes_unchanged(nodes: &[Rc<PackedTerm>], rewritten: &[Rc<PackedTerm>]) -> bool {
+    nodes
+        .iter()
+        .zip(rewritten)
+        .all(|(node, rewritten)| Rc::ptr_eq(node, rewritten))
+}
+
+/// An alternative of an ambiguity, owned or packed, for the selections that read only its top
+/// node.
+pub(super) trait Alternative: Ord {
+    /// The production of the top node, `None` for a leaf or an ambiguity.
+    fn top_production(&self) -> Option<usize>;
+}
+
+impl Alternative for ParsedTerm {
+    fn top_production(&self) -> Option<usize> {
+        match self {
+            Self::Production { production, .. }
+            | Self::InstantiatedProduction { production, .. } => Some(*production),
+            Self::Term(_) | Self::Ambiguity(_) => None,
+        }
+    }
+}
+
+impl Alternative for Rc<PackedTerm> {
+    fn top_production(&self) -> Option<usize> {
+        match &self.node {
+            PackedNode::Production { production, .. }
+            | PackedNode::InstantiatedProduction { production, .. } => Some(*production),
+            PackedNode::Term(_) | PackedNode::Ambiguity(_) => None,
+        }
+    }
 }
 
 type PackedTransformResult = Result<Rc<PackedTerm>, ParseError>;
@@ -2342,21 +2387,156 @@ impl Grammar {
         Ok(term.with_metadata(metadata))
     }
 
+    /// Remove the nodes that only shaped the parse from an owned tree; see
+    /// [`Self::remove_packed_brackets_and_syntactic_casts`], which this runs on the tree's packed
+    /// form.
+    pub(super) fn remove_brackets_and_syntactic_casts(&self, term: ParsedTerm) -> ParsedTerm {
+        #[cfg(test)]
+        let tree = self.remove_brackets_and_syntactic_casts_tree(term.clone());
+        let mut session = LoweringSession::default();
+        let packed = session.intern_parsed(&term);
+        drop(term);
+        let removed = self
+            .remove_packed_brackets_and_syntactic_casts(&mut session, &packed)
+            .unpack();
+        #[cfg(test)]
+        assert!(
+            removed.identical(&tree),
+            "removing brackets and casts from the packed tree differs from the owned tree:\n\
+             {removed:?}\n{tree:?}"
+        );
+        removed
+    }
+
     /// Remove the nodes that only shaped the parse: a bracket denotes its child, and a syntactic
     /// cast only restricted the sort the parser chose. Semantic and outer casts constrain the
     /// term itself and are retained.
-    pub(super) fn remove_brackets_and_syntactic_casts(&self, term: ParsedTerm) -> ParsedTerm {
+    ///
+    /// The result for a node is a function of the node alone, so it is computed once per
+    /// session node. An ambiguity keeps its rewritten alternatives as they come, even when two
+    /// become equal or one becomes an ambiguity itself; factoring flattens them later. They are
+    /// collected in structural order, as the owned tree's are, so that of two that become equal
+    /// as terms the set keeps the same one. A node the pass leaves
+    /// unchanged is returned as is.
+    pub(super) fn remove_packed_brackets_and_syntactic_casts(
+        &self,
+        session: &mut LoweringSession,
+        term: &Rc<PackedTerm>,
+    ) -> Rc<PackedTerm> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationRemoveBracketsCasts);
-        self.remove_brackets_and_syntactic_casts_node(term)
+        let mut removed = rustc_hash::FxHashMap::default();
+        self.remove_brackets_and_syntactic_casts_node(session, &mut removed, term)
     }
 
-    fn remove_brackets_and_syntactic_casts_node(&self, term: ParsedTerm) -> ParsedTerm {
+    /// Whether `production` only shaped the parse: a bracket, or a syntactic cast.
+    fn only_shapes_the_parse(&self, production: usize) -> bool {
+        let descriptor = &self.productions[production];
+        descriptor.bracket
+            || descriptor.label.as_ref().is_some_and(|label| {
+                [
+                    InternalLabel::SyntacticCast,
+                    InternalLabel::SyntacticCastBraced,
+                ]
+                .iter()
+                .any(|cast| label.is(*cast))
+            })
+    }
+
+    fn remove_brackets_and_syntactic_casts_node(
+        &self,
+        session: &mut LoweringSession,
+        removed: &mut rustc_hash::FxHashMap<*const PackedTerm, Rc<PackedTerm>>,
+        term: &Rc<PackedTerm>,
+    ) -> Rc<PackedTerm> {
+        if let Some(result) = removed.get(&Rc::as_ptr(term)) {
+            return Rc::clone(result);
+        }
+        let result = crate::stack::guarded(|| {
+            let rewrite = |session: &mut LoweringSession,
+                           removed: &mut rustc_hash::FxHashMap<_, _>,
+                           children: &[Rc<PackedTerm>]| {
+                children
+                    .iter()
+                    .map(|child| {
+                        self.remove_brackets_and_syntactic_casts_node(session, removed, child)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            match &term.node {
+                PackedNode::Term(_) => Rc::clone(term),
+                PackedNode::Ambiguity(alternatives) => {
+                    // Two alternatives may become equal as terms while differing in the
+                    // annotations of a leaf, and which one the set keeps depends on the order
+                    // they are collected in: the structural order, as for the owned tree.
+                    let alternatives = session.order.sorted(alternatives);
+                    let rewritten = rewrite(session, removed, &alternatives);
+                    if packed_nodes_unchanged(&alternatives, &rewritten) {
+                        return Rc::clone(term);
+                    }
+                    session.intern(PackedTerm::alternatives(rewritten.into_iter().collect()))
+                }
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    if self.only_shapes_the_parse(*production) && children.len() == 1 {
+                        return self.remove_brackets_and_syntactic_casts_node(
+                            session,
+                            removed,
+                            &children[0],
+                        );
+                    }
+                    let rewritten = rewrite(session, removed, children);
+                    if packed_nodes_unchanged(children, &rewritten) {
+                        return Rc::clone(term);
+                    }
+                    session.intern(PackedTerm::production(
+                        *production,
+                        rewritten,
+                        metadata.clone(),
+                    ))
+                }
+                PackedNode::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                } => {
+                    if self.only_shapes_the_parse(*production) && children.len() == 1 {
+                        return self.remove_brackets_and_syntactic_casts_node(
+                            session,
+                            removed,
+                            &children[0],
+                        );
+                    }
+                    let rewritten = rewrite(session, removed, children);
+                    if packed_nodes_unchanged(children, &rewritten) {
+                        return Rc::clone(term);
+                    }
+                    session.intern(PackedTerm::instantiated_production(
+                        *production,
+                        parameters.clone(),
+                        rewritten,
+                        metadata.clone(),
+                    ))
+                }
+            }
+        });
+        removed.insert(Rc::as_ptr(term), Rc::clone(&result));
+        result
+    }
+
+    /// The owned-tree form of [`Self::remove_brackets_and_syntactic_casts`], which the tests
+    /// check the packed pass against.
+    #[cfg(test)]
+    fn remove_brackets_and_syntactic_casts_tree(&self, term: ParsedTerm) -> ParsedTerm {
         crate::stack::guarded(|| match term.into_parts() {
             ParsedParts::Term(leaf) => ParsedTerm::Term(leaf),
             ParsedParts::Ambiguity(alternatives) => ParsedTerm::Ambiguity(
                 alternatives
                     .into_iter()
-                    .map(|alternative| self.remove_brackets_and_syntactic_casts_node(alternative))
+                    .map(|alternative| self.remove_brackets_and_syntactic_casts_tree(alternative))
                     .collect(),
             ),
             ParsedParts::Production {
@@ -2374,14 +2554,14 @@ impl Grammar {
                     .any(|cast| label.is(*cast))
                 });
                 if (descriptor.bracket || syntactic_cast) && children.len() == 1 {
-                    return self.remove_brackets_and_syntactic_casts_node(children.remove(0));
+                    return self.remove_brackets_and_syntactic_casts_tree(children.remove(0));
                 }
                 ParsedTerm::Production {
                     production,
                     metadata,
                     children: children
                         .into_iter()
-                        .map(|child| self.remove_brackets_and_syntactic_casts_node(child))
+                        .map(|child| self.remove_brackets_and_syntactic_casts_tree(child))
                         .collect(),
                 }
             }
@@ -2401,7 +2581,7 @@ impl Grammar {
                     .any(|cast| label.is(*cast))
                 });
                 if (descriptor.bracket || syntactic_cast) && children.len() == 1 {
-                    return self.remove_brackets_and_syntactic_casts_node(children.remove(0));
+                    return self.remove_brackets_and_syntactic_casts_tree(children.remove(0));
                 }
                 ParsedTerm::InstantiatedProduction {
                     production,
@@ -2409,7 +2589,7 @@ impl Grammar {
                     metadata,
                     children: children
                         .into_iter()
-                        .map(|child| self.remove_brackets_and_syntactic_casts_node(child))
+                        .map(|child| self.remove_brackets_and_syntactic_casts_tree(child))
                         .collect(),
                 }
             }
@@ -3020,19 +3200,197 @@ impl Grammar {
         })
     }
 
-    /// Resolve a nullary overloaded production to the unique least production with the same
-    /// label. Overloads of one label denote one operation at different sorts; a nullary
-    /// application has no argument to select among them, so it is read at the most specific
-    /// one, whose value injects into every other.
+    /// Resolve the nullary overloaded productions of an owned tree; see
+    /// [`Self::resolve_packed_overloaded_terminators`], which this runs on the tree's packed form.
     pub(super) fn resolve_overloaded_terminators(
         &self,
         term: ParsedTerm,
     ) -> Result<ParsedTerm, ParseError> {
+        #[cfg(test)]
+        let tree = self.resolve_overloaded_terminators_tree(term.clone());
+        let mut session = LoweringSession::default();
+        let packed = session.intern_parsed(&term);
+        drop(term);
+        let resolved = self
+            .resolve_packed_overloaded_terminators(&mut session, &packed)
+            .map(|resolved| resolved.unpack());
+        #[cfg(test)]
+        assert!(
+            match (&resolved, &tree) {
+                (Ok(resolved), Ok(tree)) => resolved.identical(tree),
+                (Err(resolved), Err(tree)) => resolved == tree,
+                _ => false,
+            },
+            "resolving the terminators of the packed tree differs from the owned tree:\n\
+             {resolved:?}\n{tree:?}"
+        );
+        resolved
+    }
+
+    /// Resolve a nullary overloaded production to the unique least production with the same
+    /// label. Overloads of one label denote one operation at different sorts; a nullary
+    /// application has no argument to select among them, so it is read at the most specific
+    /// one, whose value injects into every other.
+    ///
+    /// The tail of a program list keeps the list's own terminator
+    /// ([`Self::program_list_terminator`]), decided at the parent from the input node there, so
+    /// the result for a node is a function of the node alone and is computed once per session
+    /// node. An ambiguity keeps its rewritten alternatives as they come, even when two become
+    /// equal; they are collected in structural order, as the owned tree's are. The error is the first a depth-first walk meets: a node's children left to right
+    /// before the node itself, an ambiguity's alternatives in structural order.
+    pub(super) fn resolve_packed_overloaded_terminators(
+        &self,
+        session: &mut LoweringSession,
+        term: &Rc<PackedTerm>,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveTerminators);
-        self.resolve_overloaded_terminators_node(term)
+        let mut resolved = rustc_hash::FxHashMap::default();
+        self.resolve_overloaded_terminators_node(session, &mut resolved, term)
     }
 
     fn resolve_overloaded_terminators_node(
+        &self,
+        session: &mut LoweringSession,
+        resolved: &mut rustc_hash::FxHashMap<*const PackedTerm, PackedTransformResult>,
+        term: &Rc<PackedTerm>,
+    ) -> PackedTransformResult {
+        if let Some(result) = resolved.get(&Rc::as_ptr(term)) {
+            return result.clone();
+        }
+        let result = crate::stack::guarded(|| match &term.node {
+            PackedNode::Term(_) => Ok(Rc::clone(term)),
+            PackedNode::Ambiguity(alternatives) => {
+                let alternatives = session.order.sorted(alternatives);
+                let rewritten = alternatives
+                    .iter()
+                    .map(|alternative| {
+                        self.resolve_overloaded_terminators_node(session, resolved, alternative)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if packed_nodes_unchanged(&alternatives, &rewritten) {
+                    return Ok(Rc::clone(term));
+                }
+                Ok(session.intern(PackedTerm::alternatives(rewritten.into_iter().collect())))
+            }
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let rewritten = children
+                    .iter()
+                    .enumerate()
+                    .map(|(child_index, child)| {
+                        match self.program_list_terminator(
+                            &mut session.order,
+                            *production,
+                            child_index,
+                            child,
+                        ) {
+                            Some(terminator) => Ok(terminator),
+                            None => {
+                                self.resolve_overloaded_terminators_node(session, resolved, child)
+                            }
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let selected = if rewritten.is_empty() {
+                    self.least_overloaded_terminator(*production)?
+                } else {
+                    None
+                };
+                if selected.is_none() && packed_nodes_unchanged(children, &rewritten) {
+                    return Ok(Rc::clone(term));
+                }
+                Ok(session.intern(PackedTerm::production(
+                    selected.unwrap_or(*production),
+                    rewritten,
+                    metadata.clone(),
+                )))
+            }
+            PackedNode::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => {
+                let rewritten = children
+                    .iter()
+                    .map(|child| self.resolve_overloaded_terminators_node(session, resolved, child))
+                    .collect::<Result<Vec<_>, _>>()?;
+                if packed_nodes_unchanged(children, &rewritten) {
+                    return Ok(Rc::clone(term));
+                }
+                Ok(session.intern(PackedTerm::instantiated_production(
+                    *production,
+                    parameters.clone(),
+                    rewritten,
+                    metadata.clone(),
+                )))
+            }
+        });
+        resolved.insert(Rc::as_ptr(term), result.clone());
+        result
+    }
+
+    /// The production a nullary node of `production` is read at: `None` when `production` has
+    /// no overloaded source and stays, otherwise the nullary production of the same label whose
+    /// source is the unique least overload of `production`'s source, or the error naming the
+    /// sorts of the least ones when there are several.
+    fn least_overloaded_terminator(&self, production: usize) -> Result<Option<usize>, ParseError> {
+        let current = &self.productions[production];
+        let Some(source) = current.source_production else {
+            return Ok(None);
+        };
+        if !self.overloads.contains(&source) {
+            return Ok(None);
+        }
+        let candidates = self
+            .productions
+            .iter()
+            .filter_map(|candidate| {
+                let candidate_source = candidate.source_production?;
+                (candidate.label == current.label
+                    && production_arity(candidate) == 0
+                    && self.overloads.less_than_eq(&candidate_source, &source))
+                .then_some(candidate_source)
+            })
+            .collect::<BTreeSet<_>>();
+        let least = self.overloads.minimal(candidates.iter());
+        if least.len() != 1 {
+            let possible_sorts = self
+                .productions
+                .iter()
+                .filter(|candidate| {
+                    candidate
+                        .source_production
+                        .is_some_and(|candidate| least.contains(&candidate))
+                })
+                .map(|candidate| candidate.result.clone())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            return Err(ParseError::OverloadedTerminator { possible_sorts });
+        }
+        let selected = *least.first().expect("length was checked above");
+        let selected = self
+            .productions
+            .iter()
+            .enumerate()
+            .find_map(|(index, candidate)| {
+                (candidate.source_production == Some(selected)
+                    && candidate.label == current.label
+                    && production_arity(candidate) == 0)
+                    .then_some(index)
+            })
+            .expect("a least source production came from a parser production");
+        Ok(Some(selected))
+    }
+
+    /// The owned-tree form of [`Self::resolve_packed_overloaded_terminators`], which the tests
+    /// check the packed pass against.
+    #[cfg(test)]
+    fn resolve_overloaded_terminators_tree(
         &self,
         term: ParsedTerm,
     ) -> Result<ParsedTerm, ParseError> {
@@ -3041,7 +3399,7 @@ impl Grammar {
             ParsedParts::Ambiguity(alternatives) => Ok(ParsedTerm::Ambiguity(
                 alternatives
                     .into_iter()
-                    .map(|alternative| self.resolve_overloaded_terminators_node(alternative))
+                    .map(|alternative| self.resolve_overloaded_terminators_tree(alternative))
                     .collect::<Result<_, _>>()?,
             )),
             ParsedParts::Production {
@@ -3054,71 +3412,21 @@ impl Grammar {
                     .enumerate()
                     .map(|(child_index, child)| {
                         if let Some(terminator) =
-                            self.program_list_terminator(production, child_index, &child)
+                            self.program_list_terminator_tree(production, child_index, &child)
                         {
                             Ok(terminator)
                         } else {
-                            self.resolve_overloaded_terminators_node(child)
+                            self.resolve_overloaded_terminators_tree(child)
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let current = &self.productions[production];
-                let Some(source) = current.source_production else {
-                    return Ok(ParsedTerm::Production {
-                        production,
-                        children,
-                        metadata,
-                    });
+                let selected = if children.is_empty() {
+                    self.least_overloaded_terminator(production)?
+                } else {
+                    None
                 };
-                if !children.is_empty() || !self.overloads.contains(&source) {
-                    return Ok(ParsedTerm::Production {
-                        production,
-                        children,
-                        metadata,
-                    });
-                }
-
-                let candidates = self
-                    .productions
-                    .iter()
-                    .filter_map(|candidate| {
-                        let candidate_source = candidate.source_production?;
-                        (candidate.label == current.label
-                            && production_arity(candidate) == 0
-                            && self.overloads.less_than_eq(&candidate_source, &source))
-                        .then_some(candidate_source)
-                    })
-                    .collect::<BTreeSet<_>>();
-                let least = self.overloads.minimal(candidates.iter());
-                if least.len() != 1 {
-                    let possible_sorts = self
-                        .productions
-                        .iter()
-                        .filter(|candidate| {
-                            candidate
-                                .source_production
-                                .is_some_and(|candidate| least.contains(&candidate))
-                        })
-                        .map(|candidate| candidate.result.clone())
-                        .collect::<BTreeSet<_>>()
-                        .into_iter()
-                        .collect();
-                    return Err(ParseError::OverloadedTerminator { possible_sorts });
-                }
-                let selected = *least.first().expect("length was checked above");
-                let selected = self
-                    .productions
-                    .iter()
-                    .enumerate()
-                    .find_map(|(index, candidate)| {
-                        (candidate.source_production == Some(selected)
-                            && candidate.label == current.label
-                            && production_arity(candidate) == 0)
-                            .then_some(index)
-                    })
-                    .expect("a least source production came from a parser production");
                 Ok(ParsedTerm::Production {
-                    production: selected,
+                    production: selected.unwrap_or(production),
                     children,
                     metadata,
                 })
@@ -3134,7 +3442,7 @@ impl Grammar {
                 metadata,
                 children: children
                     .into_iter()
-                    .map(|child| self.resolve_overloaded_terminators_node(child))
+                    .map(|child| self.resolve_overloaded_terminators_tree(child))
                     .collect::<Result<_, _>>()?,
             }),
         })
@@ -3364,20 +3672,16 @@ impl Grammar {
             .collect()
     }
 
-    fn remove_bracket_overloads(&self, alternatives: BTreeSet<ParsedTerm>) -> BTreeSet<ParsedTerm> {
+    /// Keep, among alternatives that are all brackets, those whose bracket production is
+    /// minimal; any other set of alternatives is kept whole. The selection reads only each
+    /// alternative's top production, so it is the same on owned and packed alternatives.
+    fn remove_bracket_overloads<T: Alternative>(&self, alternatives: BTreeSet<T>) -> BTreeSet<T> {
         let Some(productions) = alternatives
             .iter()
-            .map(|alternative| match alternative {
-                ParsedTerm::Production { production, .. }
-                | ParsedTerm::InstantiatedProduction { production, .. }
-                    if self.productions[*production].bracket =>
-                {
-                    Some(*production)
-                }
-                ParsedTerm::Production { .. }
-                | ParsedTerm::InstantiatedProduction { .. }
-                | ParsedTerm::Term(_)
-                | ParsedTerm::Ambiguity(_) => None,
+            .map(|alternative| {
+                alternative
+                    .top_production()
+                    .filter(|production| self.productions[*production].bracket)
             })
             .collect::<Option<BTreeSet<_>>>()
         else {
@@ -3404,12 +3708,10 @@ impl Grammar {
         alternatives
             .into_iter()
             .filter(|alternative| {
-                let production = match alternative {
-                    ParsedTerm::Production { production, .. }
-                    | ParsedTerm::InstantiatedProduction { production, .. } => production,
-                    ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => unreachable!(),
-                };
-                minimal.contains(production)
+                let production = alternative
+                    .top_production()
+                    .expect("every alternative is a bracket production");
+                minimal.contains(&production)
             })
             .collect()
     }
@@ -6742,6 +7044,307 @@ mod tests {
             error,
             ParseError::OverloadedTerminator {
                 possible_sorts: vec![Sort::new("First"), Sort::new("Second")],
+            }
+        );
+    }
+
+    /// The session nodes reachable from `root`.
+    fn packed_nodes(root: &Rc<PackedTerm>) -> usize {
+        let mut seen = HashSet::new();
+        let mut pending = vec![Rc::clone(root)];
+        while let Some(node) = pending.pop() {
+            if !seen.insert(Rc::as_ptr(&node)) {
+                continue;
+            }
+            match &node.node {
+                PackedNode::Production { children, .. }
+                | PackedNode::InstantiatedProduction { children, .. } => {
+                    pending.extend(children.iter().cloned());
+                }
+                PackedNode::Ambiguity(alternatives) => pending.extend(alternatives.iter().cloned()),
+                PackedNode::Term(_) => {}
+            }
+        }
+        seen.len()
+    }
+
+    #[test]
+    fn removing_brackets_keeps_an_ambiguity_whose_alternatives_become_equal() {
+        let mut grammar = Grammar::default();
+        let bracket = add_production(&mut grammar, "S", &["S"], "#bracket:S");
+        let wrap = add_production(&mut grammar, "S", &["S"], "wrap");
+        grammar.productions[bracket].bracket = true;
+        let node = |production: usize, child: ParsedTerm| ParsedTerm::Production {
+            production,
+            children: vec![child],
+            metadata: TermMetadata::default(),
+        };
+
+        let merged =
+            grammar.remove_brackets_and_syntactic_casts(ParsedTerm::Ambiguity(BTreeSet::from([
+                node(bracket, variable("a")),
+                variable("a"),
+            ])));
+        let nested =
+            grammar.remove_brackets_and_syntactic_casts(ParsedTerm::Ambiguity(BTreeSet::from([
+                node(
+                    bracket,
+                    ParsedTerm::Ambiguity(BTreeSet::from([variable("a"), variable("b")])),
+                ),
+                node(wrap, variable("a")),
+            ])));
+
+        assert_eq!(
+            merged,
+            ParsedTerm::Ambiguity(BTreeSet::from([variable("a")]))
+        );
+        assert_eq!(
+            nested,
+            ParsedTerm::Ambiguity(BTreeSet::from([
+                ParsedTerm::Ambiguity(BTreeSet::from([variable("a"), variable("b")])),
+                node(wrap, variable("a")),
+            ]))
+        );
+    }
+
+    #[test]
+    fn packed_passes_keep_the_annotations_of_leaves_that_are_equal_as_terms() {
+        let mut grammar = Grammar::default();
+        let bracket = add_production(&mut grammar, "S", &["S"], "#bracket:S");
+        let pair = add_production(&mut grammar, "S", &["S", "S"], "pair");
+        grammar.productions[bracket].bracket = true;
+        let annotated = |source: usize| {
+            ParsedTerm::Term(Term::variable("a").with_metadata(TermMetadata {
+                production: Some(identity(source)),
+                ..TermMetadata::default()
+            }))
+        };
+        let node = |production: usize, children: Vec<ParsedTerm>| ParsedTerm::Production {
+            production,
+            children,
+            metadata: TermMetadata::default(),
+        };
+        let both = node(pair, vec![annotated(1), annotated(2)]);
+        // The alternatives become equal as terms; both sides collect them in structural order.
+        let merging = ParsedTerm::Ambiguity(BTreeSet::from([
+            node(bracket, vec![annotated(1)]),
+            annotated(2),
+        ]));
+
+        let resolved = grammar
+            .resolve_overloaded_terminators(both.clone())
+            .unwrap();
+        let removed = grammar.remove_brackets_and_syntactic_casts(both.clone());
+        let merged = grammar.remove_brackets_and_syntactic_casts(merging);
+
+        assert!(resolved.identical(&both));
+        assert!(removed.identical(&both));
+        assert_eq!(
+            merged,
+            ParsedTerm::Ambiguity(BTreeSet::from([annotated(1)]))
+        );
+        assert!([1, 2].into_iter().any(|source| {
+            merged.identical(&ParsedTerm::Ambiguity(BTreeSet::from([annotated(source)])))
+        }));
+    }
+
+    #[test]
+    fn removing_brackets_from_a_forest_of_exponentially_many_trees_visits_each_node_once() {
+        let mut grammar = Grammar::default();
+        let bracket = add_production(&mut grammar, "S", &["S"], "#bracket:S");
+        let wrap = add_production(&mut grammar, "S", &["S"], "wrap");
+        let other = add_production(&mut grammar, "S", &["S"], "other");
+        grammar.productions[bracket].bracket = true;
+        let mut session = LoweringSession::default();
+        let node = |session: &mut LoweringSession, production: usize, child: &Rc<PackedTerm>| {
+            session.intern(PackedTerm::production(
+                production,
+                vec![Rc::clone(child)],
+                TermMetadata::default(),
+            ))
+        };
+        let leaf = session.intern(PackedTerm::leaf(Term::variable("a")));
+        // Level k + 1 is `bracket(wrap(level k))` or `other(level k)`: 2^64 trees.
+        let (mut forest, mut expected) = (Rc::clone(&leaf), leaf);
+        for _ in 0..64 {
+            let wrapped = node(&mut session, wrap, &forest);
+            let alternatives = BTreeSet::from([
+                node(&mut session, bracket, &wrapped),
+                node(&mut session, other, &forest),
+            ]);
+            forest = session.intern(PackedTerm::alternatives(alternatives));
+            let alternatives = BTreeSet::from([
+                node(&mut session, wrap, &expected),
+                node(&mut session, other, &expected),
+            ]);
+            expected = session.intern(PackedTerm::alternatives(alternatives));
+        }
+        super::super::forest::reset_unpacked_nodes();
+
+        let removed = grammar.remove_packed_brackets_and_syntactic_casts(&mut session, &forest);
+
+        assert!(Rc::ptr_eq(&removed, &expected));
+        assert_eq!(packed_nodes(&removed), 1 + 3 * 64);
+        assert_eq!(super::super::forest::unpacked_nodes(), 0);
+    }
+
+    #[test]
+    fn bracket_overloads_are_removed_alike_from_owned_and_packed_alternatives() {
+        let mut grammar = Grammar::default();
+        let mut bracket = |sort: &str| {
+            let index = grammar.productions.len();
+            grammar
+                .add(
+                    Sort::new(sort),
+                    vec![
+                        ProductionItem::Terminal("(".into()),
+                        nonterminal(sort),
+                        ProductionItem::Terminal(")".into()),
+                    ],
+                    Some(Label::new(format!("#bracket:{sort}"))),
+                    false,
+                    false,
+                )
+                .unwrap();
+            grammar.productions[index].bracket = true;
+            index
+        };
+        let (small, large) = (bracket("Small"), bracket("Large"));
+        let wrap = add_production(&mut grammar, "Large", &["Small"], "wrap");
+        grammar
+            .syntactic_subsort_relations
+            .insert((Sort::new("Small"), Sort::new("Large")));
+        let node = |production: usize| ParsedTerm::Production {
+            production,
+            children: vec![variable("a")],
+            metadata: TermMetadata::default(),
+        };
+
+        for (alternatives, kept) in [
+            (vec![node(small), node(large)], vec![node(small)]),
+            (
+                vec![node(small), node(large), node(wrap)],
+                vec![node(small), node(large), node(wrap)],
+            ),
+        ] {
+            let owned = alternatives.into_iter().collect::<BTreeSet<_>>();
+            let packed = owned
+                .iter()
+                .map(PackedTerm::from_parsed)
+                .collect::<BTreeSet<_>>();
+
+            let owned = grammar.remove_bracket_overloads(owned);
+            let packed = grammar
+                .remove_bracket_overloads(packed)
+                .iter()
+                .map(|alternative| alternative.unpack())
+                .collect::<BTreeSet<_>>();
+
+            assert_eq!(owned, kept.into_iter().collect());
+            assert_eq!(packed, owned);
+        }
+    }
+
+    #[test]
+    fn resolving_terminators_of_a_forest_of_exponentially_many_trees_visits_each_node_once() {
+        let sentences = [
+            terminal_production("Small", "small", "unit"),
+            subsort("Large", "Small"),
+            terminal_production("Large", "large", "unit"),
+        ];
+        let mut grammar = Grammar::from_sentences(&sentences).unwrap();
+        let unit = |result: &str| {
+            grammar
+                .productions
+                .iter()
+                .position(|production| {
+                    production.result.name == result
+                        && production
+                            .label
+                            .as_ref()
+                            .is_some_and(|label| label.name == "unit")
+                })
+                .unwrap()
+        };
+        let (small, large) = (unit("Small"), unit("Large"));
+        let pair = add_production(&mut grammar, "Large", &["Large", "Large"], "pair");
+        let wrap = add_production(&mut grammar, "Large", &["Large"], "wrap");
+        let mut session = LoweringSession::default();
+        let forest_and_expected = |session: &mut LoweringSession, terminator: usize| {
+            let unit = session.intern(PackedTerm::production(
+                terminator,
+                Vec::new(),
+                TermMetadata::default(),
+            ));
+            // Level k + 1 is `pair(level k, unit)` or `wrap(level k)`: 2^64 trees.
+            let mut level = Rc::clone(&unit);
+            for _ in 0..64 {
+                let alternatives = BTreeSet::from([
+                    session.intern(PackedTerm::production(
+                        pair,
+                        vec![Rc::clone(&level), Rc::clone(&unit)],
+                        TermMetadata::default(),
+                    )),
+                    session.intern(PackedTerm::production(
+                        wrap,
+                        vec![level],
+                        TermMetadata::default(),
+                    )),
+                ]);
+                level = session.intern(PackedTerm::alternatives(alternatives));
+            }
+            level
+        };
+        let forest = forest_and_expected(&mut session, large);
+        let expected = forest_and_expected(&mut session, small);
+        super::super::forest::reset_unpacked_nodes();
+
+        let resolved = grammar
+            .resolve_packed_overloaded_terminators(&mut session, &forest)
+            .unwrap();
+
+        assert!(Rc::ptr_eq(&resolved, &expected));
+        assert_eq!(super::super::forest::unpacked_nodes(), 0);
+    }
+
+    #[test]
+    fn the_terminator_error_of_an_ambiguity_is_its_structurally_first_alternatives() {
+        let mut ambiguous = Grammar::default();
+        let mut overloads = Vec::new();
+        let mut generals = Vec::new();
+        for (group, label) in ["unit", "nil"].into_iter().enumerate() {
+            let sources = (0..3)
+                .map(|index| identity(3 * group + index))
+                .collect::<Vec<_>>();
+            let mut productions = Vec::new();
+            for (source, sort) in sources.iter().zip(["First", "Second", "General"]) {
+                let production =
+                    add_production(&mut ambiguous, &format!("{sort}{label}"), &[], label);
+                ambiguous.productions[production].source_production = Some(*source);
+                productions.push(production);
+            }
+            overloads.push((sources[0], sources[2]));
+            overloads.push((sources[1], sources[2]));
+            generals.push(productions[2]);
+        }
+        ambiguous.overloads = PartialOrder::new(overloads).unwrap();
+        let general = |production: usize| ParsedTerm::Production {
+            production,
+            children: Vec::new(),
+            metadata: TermMetadata::default(),
+        };
+
+        let error = ambiguous
+            .resolve_overloaded_terminators(ParsedTerm::Ambiguity(BTreeSet::from([
+                general(generals[1]),
+                general(generals[0]),
+            ])))
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            ParseError::OverloadedTerminator {
+                possible_sorts: vec![Sort::new("Firstunit"), Sort::new("Secondunit")],
             }
         );
     }
