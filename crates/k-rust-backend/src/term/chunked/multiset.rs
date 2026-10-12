@@ -202,12 +202,26 @@ impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Summary for Multiset<E,
     }
 
     /// The lighter multiset's entries added to the heavier one.
+    ///
+    /// When the heavier one is a single leaf, each [`add`](Multiset::add) would copy that whole
+    /// leaf and recompute its summary, so the two are merged into one new sequence instead: one
+    /// pass over both, no more work than a single `add`'s copy plus the lighter one's entries. A
+    /// larger heavier multiset takes the entries one path copy each, sharing the rest.
     fn combine(self, right: &Self) -> Self {
         let (heavier, lighter) = if self.len() >= right.len() {
             (self, right)
         } else {
             (right.clone(), &self)
         };
+        if lighter.is_empty() {
+            return heavier;
+        }
+        if heavier.entries.is_one_leaf() {
+            tally(lighter.len());
+            return Self {
+                entries: Chunked::from_vec(merge_entries(&heavier.entries, &lighter.entries)),
+            };
+        }
         lighter
             .entries
             .iter()
@@ -216,7 +230,18 @@ impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Summary for Multiset<E,
 }
 
 impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Group for Multiset<E, B> {
+    /// `part`'s occurrences removed. As for [`combine`](Summary::combine), a multiset held in a
+    /// single leaf is rebuilt in one pass instead of copied once per entry of `part`.
     fn subtract(self, part: &Self) -> Self {
+        if part.is_empty() {
+            return self;
+        }
+        if self.entries.is_one_leaf() {
+            tally(part.len());
+            return Self {
+                entries: Chunked::from_vec(subtract_entries(&self.entries, &part.entries)),
+            };
+        }
         part.entries
             .iter()
             .fold(self, |rest, entry| rest.remove(&entry.element, entry.count))
@@ -225,4 +250,58 @@ impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Group for Multiset<E, B
     fn weight(&self) -> usize {
         self.len()
     }
+}
+
+/// The entries of two multisets merged in order of element, the counts of an element in both
+/// added.
+fn merge_entries<E: Ord + Clone + Hash + fmt::Debug, const B: usize>(
+    left: &Chunked<Occurrences<E>, B>,
+    right: &Chunked<Occurrences<E>, B>,
+) -> Vec<Occurrences<E>> {
+    let mut merged = Vec::with_capacity(left.len() + right.len());
+    let mut right = right.iter().peekable();
+    for entry in left {
+        while let Some(before) = right.next_if(|next| next.element < entry.element) {
+            merged.push(before.clone());
+        }
+        let count = right
+            .next_if(|next| next.element == entry.element)
+            .map_or(0, |same| same.count);
+        merged.push(Occurrences {
+            element: entry.element.clone(),
+            count: entry.count + count,
+        });
+    }
+    merged.extend(right.cloned());
+    merged
+}
+
+/// The entries of `whole` with the occurrences of `part`, which it holds, removed, in order of
+/// element; an element left with no occurrence is dropped.
+fn subtract_entries<E: Ord + Clone + Hash + fmt::Debug, const B: usize>(
+    whole: &Chunked<Occurrences<E>, B>,
+    part: &Chunked<Occurrences<E>, B>,
+) -> Vec<Occurrences<E>> {
+    let mut rest = Vec::with_capacity(whole.len());
+    let mut part = part.iter().peekable();
+    for entry in whole {
+        let count = match part.next_if(|next| next.element == entry.element) {
+            Some(removed) => entry
+                .count
+                .checked_sub(removed.count)
+                .expect("a multiset removes at most the occurrences it holds"),
+            None => entry.count,
+        };
+        if count > 0 {
+            rest.push(Occurrences {
+                element: entry.element.clone(),
+                count,
+            });
+        }
+    }
+    assert!(
+        part.next().is_none(),
+        "a multiset removes only an element it holds"
+    );
+    rest
 }

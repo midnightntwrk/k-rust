@@ -818,6 +818,14 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         self.root.as_ref().map_or(0, |root| root.height() + 1)
     }
 
+    /// Whether the sequence is a single leaf: not empty, and at most `B` items with no node
+    /// above them.
+    pub(crate) fn is_one_leaf(&self) -> bool {
+        self.root
+            .as_ref()
+            .is_some_and(|root| matches!(**root, Node::Leaf { .. }))
+    }
+
     /// Whether this is the only handle of the root: dropping it then frees the root, and the
     /// nodes below it that no other tree shares.
     pub(crate) fn owns_root(&self) -> bool {
