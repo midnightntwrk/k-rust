@@ -556,21 +556,24 @@ fn strict_outer_rejects_invalid_terminal_regex_list_and_require_strings() {
 #[test]
 fn strict_outer_decodes_legal_strings_once_in_every_context() {
     let source = concat!(
-        "requires \"raw\rpath.k\"\n",
+        "requires \"raw\u{b}path.k\"\n",
         "requires \"escaped\\npath.k\"\n",
-        "requires \"Q\\\"N\\nR\\rT\\tB\\\\C\rZ\"\n",
+        "requires \"Q\\\"N\\nR\\rT\\tB\\\\C\\fF\\x41\\u00e9\\U0001f600\u{2028}Z\"\n",
         "module MAIN\n",
         "  syntax S\n",
-        "  syntax Term ::= \"Q\\\"N\\nR\\rT\\tB\\\\C\rZ\"\n",
-        "  syntax Token ::= r\"a\\\\+Q\\\"N\\nR\\rT\\tB\\\\C\rZ\" [token]\n",
-        "  syntax Ss ::= List{S, \"Q\\\"N\\nR\\rT\\tB\\\\C\rZ\"}\n",
+        "  syntax Term ::= \"Q\\\"N\\nR\\rT\\tB\\\\C\\fF\\x41\\u00e9\\U0001f600\u{2028}Z\"\n",
+        "  syntax Token ::= r\"a\\\\+Q\\\"N\\nR\\rT\\tB\\\\C\\fF\\x41\\u00e9\\U0001f600\u{2028}Z\" [token]\n",
+        "  syntax Ss ::= List{S, \"Q\\\"N\\nR\\rT\\tB\\\\C\\fF\\x41\\u00e9\\U0001f600\u{2028}Z\"}\n",
         "endmodule\n",
     );
     let parsed = parse("valid-strings.k", source).unwrap();
 
-    assert_eq!(parsed.requires[0].path, "raw\rpath.k");
+    assert_eq!(parsed.requires[0].path, "raw\u{b}path.k");
     assert_eq!(parsed.requires[1].path, "escaped\npath.k");
-    assert_eq!(parsed.requires[2].path, "Q\"N\nR\rT\tB\\C\rZ");
+    assert_eq!(
+        parsed.requires[2].path,
+        "Q\"N\nR\rT\tB\\C\u{c}FA\u{e9}\u{1f600}\u{2028}Z"
+    );
     let [
         Sentence::Syntax(_),
         Sentence::Syntax(terminal),
@@ -586,7 +589,7 @@ fn strict_outer_decodes_legal_strings_once_in_every_context() {
     assert_eq!(
         terminal_blocks[0].productions[0].items,
         [k_rust::outer::ProductionItem::Terminal(
-            "Q\"N\nR\rT\tB\\C\rZ".into()
+            "Q\"N\nR\rT\tB\\C\u{c}FA\u{e9}\u{1f600}\u{2028}Z".into()
         )]
     );
     let k_rust::outer::SyntaxBody::Productions(regex_blocks) = &regex.body else {
@@ -595,7 +598,7 @@ fn strict_outer_decodes_legal_strings_once_in_every_context() {
     assert_eq!(
         regex_blocks[0].productions[0].items,
         [k_rust::outer::ProductionItem::Regex(
-            "a\\+Q\"N\nR\rT\tB\\C\rZ".into()
+            "a\\+Q\"N\nR\rT\tB\\C\u{c}FA\u{e9}\u{1f600}\u{2028}Z".into()
         )]
     );
     let k_rust::outer::SyntaxBody::Productions(list_blocks) = &list.body else {
@@ -606,7 +609,101 @@ fn strict_outer_decodes_legal_strings_once_in_every_context() {
     else {
         panic!("expected one user-list item")
     };
-    assert_eq!(separator, "Q\"N\nR\rT\tB\\C\rZ");
+    assert_eq!(separator, "Q\"N\nR\rT\tB\\C\u{c}FA\u{e9}\u{1f600}\u{2028}Z");
+}
+
+/// Every string of the definition text is a K `String` literal: the escapes `domains.md` defines
+/// each name one code point, and every character but `"`, `\`, newline and carriage return
+/// stands for itself.
+#[test]
+fn outer_strings_are_k_string_literals() {
+    type Context = (&'static str, fn(&str) -> String);
+    let contexts: [Context; 5] = [
+        ("string", |text| {
+            format!("module MAIN\n  syntax Foo ::= \"{text}\"\nendmodule\n")
+        }),
+        ("string", |text| {
+            format!("module MAIN\n  syntax Foo ::= r\"{text}\" [token]\nendmodule\n")
+        }),
+        ("string", |text| {
+            format!("module MAIN\n  syntax S\n  syntax Ss ::= List{{S, \"{text}\"}}\nendmodule\n")
+        }),
+        ("string", |text| {
+            format!("requires \"{text}\"\nmodule MAIN endmodule\n")
+        }),
+        ("attribute string", |text| {
+            format!("module MAIN\n  syntax Foo ::= \"a\" [foo(\"{text}\")]\nendmodule\n")
+        }),
+    ];
+
+    // The escapes, decoded once, with hexadecimal digits of either case.
+    let source = (contexts[4].1)(r"\f\x41\xe9 �\U0001F600\U0010ffff\u000b");
+    let parsed = parse("attribute-escapes.k", &source).unwrap();
+    let Sentence::Syntax(syntax) = &parsed.modules[0].sentences[0] else {
+        panic!("expected a syntax declaration")
+    };
+    let k_rust::outer::SyntaxBody::Productions(blocks) = &syntax.body else {
+        panic!("expected productions")
+    };
+    assert_eq!(
+        blocks[0].productions[0].attributes[0].value.as_deref(),
+        Some("\u{c}A\u{e9}\u{2028}\u{fffd}\u{1f600}\u{10ffff}\u{b}")
+    );
+
+    for (what, source_of) in contexts {
+        // A verbatim carriage return or newline is no string character; another line end is.
+        for line_end in ["\r", "\n"] {
+            let source = source_of(&format!("a{line_end}b"));
+            let error = parse("raw-line-end.k", &source).unwrap_err();
+            assert_eq!(error.message, format!("newline in {what}"), "{source:?}");
+            assert_eq!(
+                error.position.offset,
+                source.find(&format!("a{line_end}b")).unwrap() + 1
+            );
+            let source = source_of(&format!("a\\{line_end}b"));
+            let error = parse("escaped-line-end.k", &source).unwrap_err();
+            assert_eq!(error.message, format!("newline in {what}"), "{source:?}");
+        }
+        for verbatim in ["\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}", "\t"] {
+            let source = source_of(&format!("a{verbatim}b"));
+            assert!(parse("verbatim.k", &source).is_ok(), "{source:?}");
+        }
+
+        // Malformed escapes name the escape as written.
+        for (text, message) in [
+            (r"\q", format!(r"invalid escape `\q` in {what}")),
+            (r"\0", format!(r"invalid escape `\0` in {what}")),
+            (
+                r"\x4g",
+                format!(r"invalid escape `\x4` in {what}: `\x` takes 2 hexadecimal digits"),
+            ),
+            (
+                r"\u202",
+                format!(r"invalid escape `\u202` in {what}: `\u` takes 4 hexadecimal digits"),
+            ),
+            (
+                r"\U+0000041",
+                format!(r"invalid escape `\U` in {what}: `\U` takes 8 hexadecimal digits"),
+            ),
+            (
+                r"\uD800",
+                format!(r"escape `\uD800` in {what} names no Unicode scalar value"),
+            ),
+            (
+                r"\U00110000",
+                format!(r"escape `\U00110000` in {what} names no Unicode scalar value"),
+            ),
+        ] {
+            let source = source_of(&format!("a{text}"));
+            let error = parse("bad-escape.k", &source).unwrap_err();
+            assert_eq!(error.message, message, "{source:?}");
+            assert_eq!(
+                error.position.offset,
+                source.find('\\').unwrap(),
+                "{source:?}"
+            );
+        }
+    }
 }
 
 #[test]

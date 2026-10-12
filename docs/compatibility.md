@@ -697,6 +697,13 @@ This diverges from the pinned K's outer lexer, which ends `//` only at `\n` or `
 krust before this change read the text around bubbles with every Unicode `White_Space` character as whitespace (U+00A0 and U+2003 between `module` and its name were accepted) while splitting bubbles at ASCII space, tab, `\r` and `\n` only, and counted outer lines at `\n` only: in a file whose lines end in `\r`, an undefined sort on line 3 was reported at `1:51` where the pinned K reports `3:18`, which krust now reports too.
 (`outer_whitespace_is_the_default_layouts_whitespace` and `outer_line_comments_end_where_the_default_layouts_do` in [parser.rs](../crates/k-rust/src/outer/parser.rs); `line_comments_end_at_every_line_end`, `outer_tokens_and_bubbles_split_at_the_same_whitespace`, `outer_positions_count_every_line_terminator` and `unquoted_attribute_values_end_on_their_line` in [outer_parser.rs](../crates/k-rust/tests/outer_parser.rs).)
 
+A string of the definition text (a terminal, a token regex `r"…"`, a user-list separator, a `requires` path, a quoted attribute value) is a K `String` literal as `domains.md` defines it: any character but `"`, `\`, newline and carriage return stands for itself, and `\"`, `\\`, `\n`, `\r`, `\t`, `\f`, `\xHH`, `\uHHHH` and `\UHHHHHHHH` each name one code point.
+So a definition's terminal `"\u2028"` is the one-character string a program's `"\u2028"` is, and a regex's string is decoded before it is read as a regex: `r"[\u2028]"` is the class of U+2028.
+A string holds text, so an escape that names no Unicode scalar value (a surrogate, or a number above U+10FFFF) is an error.
+This diverges from the pinned K, which rejects `\f`, `\x`, `\u` and `\U` in each of these strings, so krust accepts definitions the pinned K rejects; and the pinned K accepts a carriage return written verbatim in each of them, which krust accepts in none.
+krust before this change rejected the four escapes too, and the verbatim carriage return in attribute strings only.
+(`outer_strings_are_k_string_literals` in [outer_parser.rs](../crates/k-rust/tests/outer_parser.rs).)
+
 ## Compiler-resolved fresh constants
 
 Within one rule or context, each distinct `!` variable receives a distinct consecutive offset from the generated counter and every occurrence of the same full variable name reuses that offset.

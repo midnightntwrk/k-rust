@@ -24,6 +24,7 @@ use crate::definition::AttributeKey;
 use crate::definition::attribute_keys::{KeyParameter, builtin_key};
 use crate::kast::Sort;
 use crate::kast::sort_role::{NumeralSpelling, is_numeral_spelling, numeral_spelling};
+use crate::kast::string::{HEX_ESCAPES, NAMED_ESCAPES};
 use crate::lines;
 
 use super::*;
@@ -596,37 +597,7 @@ impl<'a> Parser<'a> {
     fn attribute_value(&mut self) -> Result<String, ParseError> {
         if self.peek_char() == Some('"') {
             self.bump();
-            let mut value = String::new();
-            loop {
-                let ch = self
-                    .bump()
-                    .ok_or_else(|| self.error("unterminated attribute string"))?;
-                match ch {
-                    '"' => break,
-                    '\n' | '\r' => return Err(self.error("newline in attribute string")),
-                    '\\' => {
-                        let escaped = self
-                            .bump()
-                            .ok_or_else(|| self.error("unterminated attribute string"))?;
-                        value.push(match escaped {
-                            '"' => '"',
-                            'n' => '\n',
-                            'r' => '\r',
-                            't' => '\t',
-                            '\\' => '\\',
-                            '\n' | '\r' => {
-                                return Err(self.error("newline in attribute string"));
-                            }
-                            other => {
-                                return Err(self.error(format!(
-                                    "invalid escape `\\{other}` in attribute string"
-                                )));
-                            }
-                        });
-                    }
-                    other => value.push(other),
-                }
-            }
+            let value = self.string_literal("attribute string")?;
             self.skip_trivia()?;
             self.expect_raw(')')?;
             return Ok(value);
@@ -869,35 +840,67 @@ impl<'a> Parser<'a> {
     fn quoted(&mut self) -> Result<String, ParseError> {
         self.skip_trivia()?;
         self.expect_raw('"')?;
+        self.string_literal("string")
+    }
+
+    /// The characters of the K `String` literal whose opening quote precedes `self.offset`,
+    /// consuming it through its closing quote: any character but `"`, `\`, newline and carriage
+    /// return stands for itself, and each escape `domains.md` defines for `String` names one code
+    /// point (`crate::kast::string`'s tables). `what` names the literal in errors.
+    fn string_literal(&mut self, what: &str) -> Result<String, ParseError> {
         let mut result = String::new();
         loop {
             let start = self.offset;
             let ch = self
                 .bump()
-                .ok_or_else(|| self.error("unterminated string"))?;
+                .ok_or_else(|| self.error(format!("unterminated {what}")))?;
             match ch {
                 '"' => return Ok(result),
-                '\n' => return Err(self.error_at(start, "newline in string")),
-                '\\' => {
-                    let escaped = self
-                        .bump()
-                        .ok_or_else(|| self.error("unterminated escape"))?;
-                    let decoded = match escaped {
-                        'n' => '\n',
-                        'r' => '\r',
-                        't' => '\t',
-                        '\\' => '\\',
-                        '"' => '"',
-                        other => {
-                            return Err(self
-                                .error_at(start, format!("invalid escape `\\{other}` in string")));
-                        }
-                    };
-                    result.push(decoded);
-                }
+                '\n' | '\r' => return Err(self.error_at(start, format!("newline in {what}"))),
+                '\\' => result.push(self.string_escape(start, what)?),
                 other => result.push(other),
             }
         }
+    }
+
+    /// The code point the escape whose backslash is at `start` names, consuming the rest of it.
+    fn string_escape(&mut self, start: usize, what: &str) -> Result<char, ParseError> {
+        let letter = self
+            .peek_char()
+            .ok_or_else(|| self.error(format!("unterminated {what}")))?;
+        if matches!(letter, '\n' | '\r') {
+            return Err(self.error(format!("newline in {what}")));
+        }
+        self.bump();
+        if let Some((_, character)) = NAMED_ESCAPES.iter().find(|(name, _)| *name == letter) {
+            return Ok(*character);
+        }
+        let Some((_, digits)) = HEX_ESCAPES.iter().find(|(name, _)| *name == letter) else {
+            return Err(self.error_at(start, format!("invalid escape `\\{letter}` in {what}")));
+        };
+        let mut value = 0u32;
+        for _ in 0..*digits {
+            let Some(digit) = self.peek_char().and_then(|ch| ch.to_digit(16)) else {
+                return Err(self.error_at(
+                    start,
+                    format!(
+                        "invalid escape `{}` in {what}: `\\{letter}` takes {digits} hexadecimal digits",
+                        &self.input[start..self.offset]
+                    ),
+                ));
+            };
+            self.bump();
+            value = value * 16 + digit;
+        }
+        char::from_u32(value).ok_or_else(|| {
+            self.error_at(
+                start,
+                format!(
+                    "escape `{}` in {what} names no Unicode scalar value",
+                    &self.input[start..self.offset]
+                ),
+            )
+        })
     }
 
     fn regex(&mut self) -> Result<String, ParseError> {
