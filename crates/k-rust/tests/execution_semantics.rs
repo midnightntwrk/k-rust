@@ -727,13 +727,14 @@ fn the_run_driver_searches_the_renamings_of_one_state_once() {
 /// A definition with a `multiplicity="*"` cell `<r>` of collection type `COLLECTION`, and pairs
 /// of commands that read one instance written as a cell (`get`, `anyP`) and as an alias of that
 /// cell (`getA`, `anyPA`), or that read or remove one instance written as a cell (`rd`, `drop`)
-/// and as a left-side variable of the cell sort in `<rs>` (`rdV`, `dropV`). `mk` adds an
-/// instance written as a cell, `put` one held by a variable.
+/// and as a left-side variable of the cell sort in `<rs>` (`rdV`, `dropV`), or that look for a
+/// given instance held by a variable as itself (`has`) and as the variable of an alias
+/// (`hasA`). `mk` adds an instance written as a cell, `put` one held by a variable.
 const ALIASED_INSTANCES: &str = r#"
 module TEST-SYNTAX
   imports INT-SYNTAX
   syntax Cmd ::= mk(Int, Int) | put(Int, Int) | get(Int) | getA(Int) | anyP() | anyPA()
-               | rd() | rdV() | drop() | dropV()
+               | rd() | rdV() | drop() | dropV() | has(Int, Int) | hasA(Int, Int)
   syntax Pgm ::= Cmd | Cmd ";" Pgm
 endmodule
 
@@ -761,6 +762,12 @@ module TEST
   rule <k> rdV() => .K ... </k> <rs> R:RCell ... </rs> <out> ... .List => ListItem(ridOf(R)) ListItem(vOf(R)) </out>
   rule <k> drop() => .K ... </k> <rs> (<r> <rid> _ </rid> <v> _ </v> </r> => .Bag) ... </rs>
   rule <k> dropV() => .K ... </k> <rs> (_R:RCell => .Bag) ... </rs>
+
+  syntax KItem ::= hasR(RCell) | hasAR(RCell)
+  rule <k> has(I, V) => hasR(<r> <rid> I </rid> <v> V </v> </r>) ... </k>
+  rule <k> hasA(I, V) => hasAR(<r> <rid> I </rid> <v> V </v> </r>) ... </k>
+  rule <k> hasR(R) => .K ... </k> <rs> R ... </rs> <out> ... .List => ListItem(ridOf(R)) </out>
+  rule <k> hasAR(R) => .K ... </k> (<r> <rid> I </rid> ... </r> #as R) <out> ... .List => ListItem(I) </out>
 endmodule
 "#;
 
@@ -790,6 +797,8 @@ fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String
             .replace("LblanyPA'", "LblanyP'")
             .replace("LblrdV'", "Lblrd'")
             .replace("LbldropV'", "Lbldrop'")
+            .replace("LblhasA'", "Lblhas'")
+            .replace("LblhasAR'", "LblhasR'")
     };
     let print = |pattern: &serde_json::Value| {
         rename(Printer::compact().print_pattern(&codec::from_value(pattern).unwrap()))
@@ -860,19 +869,22 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
             &format!("{three}getA(3) ; getA(3)"),
         ),
         (&format!("{three}get(4)"), &format!("{three}getA(4)")),
+        ("mk(1,10) ; has(1,10)", "mk(1,10) ; hasA(1,10)"),
+        (&format!("{three}has(2,20)"), &format!("{three}hasA(2,20)")),
+        (&format!("{three}has(2,30)"), &format!("{three}hasA(2,30)")),
         (&format!("{three}anyP()"), &format!("{three}anyPA()")),
     ];
     let programs = pairs
         .iter()
         .flat_map(|(cell, alias)| [*cell, *alias])
         .collect::<Vec<_>>();
-    for collection in ["Map", "List"] {
+    for collection in ["Map", "Set", "List"] {
         let outcomes = aliased_instance_outcomes(collection, &programs);
         for ((cell, alias), outcome) in pairs.iter().zip(outcomes.chunks(2)) {
             assert_eq!(outcome[0], outcome[1], "{collection}: {cell} / {alias}");
         }
         // Not vacuous: two reads of the instance added last complete, and a search finds an
-        // instance (each of the three in a Map, whose instances are found by key).
+        // instance (each of the three in a Map or a Set, the first in a List).
         let (run, _) = &outcomes[12];
         assert!(
             run.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())") && !run.contains("error"),
@@ -883,9 +895,8 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
             !finals.is_empty() && finals.iter().all(|state| !state.contains("error")),
             "{collection}: {finals:?}"
         );
-        if collection == "Map" {
-            assert_eq!(finals.len(), 3, "{finals:?}");
-        }
+        let instances = if collection == "List" { 1 } else { 3 };
+        assert_eq!(finals.len(), instances, "{collection}: {finals:?}");
         // A right-side variable of the cell sort in its collection is the item holding its
         // value, as the cell written there is: the instance `put` adds is read as `mk`'s is.
         let added = aliased_instance_outcomes(

@@ -1761,3 +1761,136 @@ fn each_candidate_frame_of_a_symbolic_element_is_one_removal_from_the_subject() 
         );
     }
 }
+
+/// A set of the constructor terms `wrap(K)`, whose elements a pattern can alias, and a
+/// constructor pairing one with such a set.
+fn wrapped_set_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+        module MAIN
+            sort SortKey{} [hasDomainValues{}()]
+            sort SortWrapped{} []
+            hooked-sort SortWrappedSet{}
+                [hook{}("SET.Set"), unit{}(wrappedSetUnit{}()), element{}(wrappedSetItem{}()), concat{}(wrappedSetConcat{}())]
+            hooked-symbol wrappedSetUnit{}() : SortWrappedSet{} [function{}(), total{}(), hook{}("SET.unit")]
+            hooked-symbol wrappedSetItem{}(SortWrapped{}) : SortWrappedSet{} [function{}(), total{}(), hook{}("SET.element")]
+            hooked-symbol wrappedSetConcat{}(SortWrappedSet{}, SortWrappedSet{}) : SortWrappedSet{} [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+            symbol wrap{}(SortKey{}) : SortWrapped{} [constructor{}(), functional{}()]
+            symbol pairOf{}(SortWrapped{}, SortWrappedSet{}) : SortWrapped{} [constructor{}(), functional{}()]
+        endmodule []"#,
+    )
+    .expect("wrapped set definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("wrapped set definition should internalize")
+}
+
+/// Whether `term` holds a conjunction of two terms anywhere.
+fn holds_a_conjunction(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::And(..) => true,
+        TermKind::Application { arguments, .. } => arguments.iter().any(holds_a_conjunction),
+        TermKind::Injection { term, .. } => holds_a_conjunction(term),
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().any(holds_a_conjunction)
+                || rest.as_ref().is_some_and(holds_a_conjunction)
+        }
+        _ => false,
+    }
+}
+
+/// An alias `P #as A` of a set element, `\and(P, A)`, is the element `P` matches with `A`
+/// bound to it. Against several subject elements the set goes to the collection solver as the
+/// set holding `P`, with `A` bound to `P`, so each solution binds `A` to the element `P` takes
+/// there and no conjunction is left in the deferred pair for a condition to carry.
+#[test]
+fn an_aliased_set_element_among_several_binds_its_alias_to_each_element_its_pattern_takes() {
+    let definition = wrapped_set_definition();
+    let pattern = internal_term(
+        &definition,
+        r#"wrappedSetConcat{}(wrappedSetItem{}(\and{SortWrapped{}}(wrap{}(K:SortKey{}), A:SortWrapped{})), REST:SortWrappedSet{})"#,
+    );
+    let subject = internal_term(
+        &definition,
+        r#"wrappedSetConcat{}(wrappedSetItem{}(wrap{}(\dv{SortKey{}}("1"))), wrappedSetConcat{}(wrappedSetItem{}(wrap{}(\dv{SortKey{}}("2"))), wrappedSetItem{}(wrap{}(\dv{SortKey{}}("3")))))"#,
+    );
+    let MatchResult::Indeterminate {
+        substitution,
+        remainder,
+    } = match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject)
+    else {
+        panic!("a symbolic element among three is left to the collection solver");
+    };
+    assert!(
+        remainder
+            .iter()
+            .all(|(pattern, _)| !holds_a_conjunction(pattern)),
+        "{remainder:?}"
+    );
+    let solutions = solve_collection_pairs_in_definition(
+        MatchMode::Rewrite,
+        &definition,
+        substitution,
+        &remainder,
+        None,
+    )
+    .expect("a closed subject set is decidable");
+    let alias = variable("A", Sort::simple("SortWrapped"));
+    let key = variable("K", Sort::simple("SortKey"));
+    let aliased = internal_term(&definition, "wrap{}(K:SortKey{})");
+    let mut taken = solutions
+        .iter()
+        .map(|solution| {
+            let substitution = solution.matched.substitution();
+            assert_eq!(
+                substitution.get(&alias),
+                Some(&crate::substitution::substitute(&aliased, substitution)),
+                "{substitution:?}"
+            );
+            substitution[&key].clone()
+        })
+        .collect::<Vec<_>>();
+    taken.sort();
+    let keys = ["1", "2", "3"]
+        .map(|key| internal_term(&definition, &format!(r#"\dv{{SortKey{{}}}}("{key}")"#)));
+    assert_eq!(taken, keys);
+}
+
+/// When the alias's variable is bound before its set is matched, the element is that value,
+/// which the aliased pattern must match: the set holding it is matched as one holding the
+/// value, without a deferred conjunction.
+#[test]
+fn an_aliased_set_element_whose_alias_is_bound_is_the_bound_value() {
+    let definition = wrapped_set_definition();
+    let pattern = internal_term(
+        &definition,
+        r#"pairOf{}(A:SortWrapped{}, wrappedSetConcat{}(wrappedSetItem{}(\and{SortWrapped{}}(wrap{}(K:SortKey{}), A:SortWrapped{})), REST:SortWrappedSet{}))"#,
+    );
+    let subject = |given: &str| {
+        internal_term(
+            &definition,
+            &format!(
+                r#"pairOf{{}}(wrap{{}}(\dv{{SortKey{{}}}}("{given}")), wrappedSetConcat{{}}(wrappedSetItem{{}}(wrap{{}}(\dv{{SortKey{{}}}}("1"))), wrappedSetConcat{{}}(wrappedSetItem{{}}(wrap{{}}(\dv{{SortKey{{}}}}("2"))), wrappedSetItem{{}}(wrap{{}}(\dv{{SortKey{{}}}}("3"))))))"#
+            ),
+        )
+    };
+    let MatchResult::Success(substitution) =
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject("2"))
+    else {
+        panic!("the bound value is found among the subject's elements");
+    };
+    assert_eq!(
+        substitution.get(&variable("K", Sort::simple("SortKey"))),
+        Some(&internal_term(&definition, r#"\dv{SortKey{}}("2")"#))
+    );
+    assert_eq!(
+        substitution.get(&variable("REST", Sort::simple("SortWrappedSet"))),
+        Some(&internal_term(
+            &definition,
+            r#"wrappedSetConcat{}(wrappedSetItem{}(wrap{}(\dv{SortKey{}}("1"))), wrappedSetItem{}(wrap{}(\dv{SortKey{}}("3"))))"#
+        ))
+    );
+    assert!(matches!(
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject("4")),
+        MatchResult::Failed(_)
+    ));
+}
