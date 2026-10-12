@@ -189,6 +189,7 @@ module MAIN
     symbol lstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
     symbol sstate{}(SortInt{}, SortSet{}) : SortState{} [constructor{}()]
     symbol rstate{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
+    symbol qstate{}(SortInt{}, SortSet{}) : SortState{} [constructor{}()]
     symbol cmstate{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
     symbol clstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
     symbol csstate{}(SortInt{}, SortSet{}) : SortState{} [constructor{}()]
@@ -223,6 +224,16 @@ module MAIN
             mapConcat{}(mapItem{}(N:SortInt{}, V:SortInt{}), M:SortMap{})
         )
     ) [label{}("read")]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(
+            qstate{}(N:SortInt{}, setConcat{}(setItem{}(N:SortInt{}), S:SortSet{})),
+            \top{SortState{}}()
+        ),
+        qstate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            setConcat{}(setItem{}(N:SortInt{}), S:SortSet{})
+        )
+    ) [label{}("read-set")]
     axiom{} \rewrites{SortState{}}(
         \and{SortState{}}(cmstate{}(N:SortInt{}, C:SortMap{}), \top{SortState{}}()),
         cmstate{}(plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")), C:SortMap{})
@@ -430,6 +441,20 @@ fn reading_one_map_binding_by_matching_costs_the_same_on_a_larger_map() {
     let definition = definition(COLLECTIONS);
     assert_step_independent_of_size("map, one binding matched per step", 256, |size| {
         shape_steps(&definition, "rstate", "cmstate", &map_of, size, 0)
+    });
+}
+
+/// Reading one element by matching `SetItem(N) S` and writing the set back, the K idiom
+/// `<s> ... SetItem(N) ... </s>`: the step needs to know that the set holds `N`, and the rest of the
+/// set is bound to `S` and put back unread.
+#[test]
+fn reading_one_set_element_by_matching_costs_the_same_on_a_larger_set() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(COLLECTIONS);
+    assert_step_independent_of_size("set, one element matched per step", 256, |size| {
+        shape_steps(&definition, "qstate", "csstate", &set_of, size, 0)
     });
 }
 
