@@ -365,7 +365,8 @@ pub enum SearchEnd<E> {
 /// ```compile_fail
 /// use k_rust_backend::search::SearchResult;
 ///
-/// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![] };
+/// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![],
+/// initial_bottom: false };
 /// ```
 ///
 /// ```
