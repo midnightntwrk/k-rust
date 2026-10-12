@@ -3817,7 +3817,6 @@ impl inference::Lowering<Term> for InferredLowering<'_> {
         self.grammar.lower_inferred(inferred, self.start)
     }
 
-    #[cfg(feature = "z3-inference")]
     fn lower_forest(&self, inferred: &Rc<PackedTerm>) -> Result<Term, ParseError> {
         let lowered = self.grammar.lower_inferred_forest(inferred, self.start);
         // The tests check the forest's result against the trees' wherever building them is

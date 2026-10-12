@@ -7074,7 +7074,7 @@ mode = "one parsed tree (lower_inferred)"
 bound = "O(O) to pack the tree into a session, where equal subtrees become one node, then the session bound with N <= O"
 
 [[node.cost]]
-mode = "one inferred packed forest (z3, lower_inferred_forest)"
+mode = "one inferred packed forest (lower_inferred_forest): one Z3 inferred, or the join of two parts' inferred forests when sorts decide among every reading (infer_without_structural_preference)"
 bound = "O(F + G) to intern the forest into a session, then the session bound; no owned tree of its trees is built, whatever their number"
 
 [[node]]

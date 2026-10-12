@@ -1780,6 +1780,63 @@ endmodule
         }
     }
 
+    /// When sorts decide among every reading, a part of a structural choice is decided and
+    /// joined with another on its inferred forest, never on its trees. In
+    /// `f(A => B1 + ... + Bn) ~> h(C => D) ~> k(D)` no preferred reading is well sorted, since
+    /// the rewrite at `h` needs `D` both a `Gee` and a `Hoo`. Read as a rewrite at `f`, the sum is
+    /// the one left-nested `Foo` sum, whose variables are `Foo`s; read as the user's `=>`, it is a
+    /// `Bar` sum of any nesting, `+` on `Bar` having no associativity, whose variables are `Bar`s
+    /// below `Foo`. So inference over every reading keeps the rewrite, and the two parts at `f`
+    /// are well sorted: the parse is reported ambiguous between them. Inference over the arm's
+    /// part keeps a tree per nesting of the sum, all of one typing: 58,786 at twelve operands.
+    /// At six (42 trees) the forest's lowering is checked against its trees' (`InferredLowering`); at twelve
+    /// the parse unpacks fewer nodes than the part has trees, so it built none of them: what it
+    /// unpacks is the test build's check of the one tree inference over every reading keeps.
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn a_part_of_a_structural_choice_is_decided_and_joined_on_its_forest() {
+        let loaded = load_with_prelude(
+            r#"module MAIN
+  syntax Bar ::= Bar "+" Bar [symbol(plusBar)]
+  syntax Foo ::= Bar | Foo "+" Foo [left, symbol(plusFoo)] > Bar "=>" Bar [symbol(arrowfoo)]
+  syntax Hoo ::= "hoo" [symbol(hoo)]
+  syntax Gee ::= Hoo "=>" Hoo [symbol(arrowgee)]
+  syntax KItem ::= f(Foo) [symbol(f)] | h(Gee) [symbol(h)] | k(Hoo) [symbol(k)]
+  syntax K
+endmodule
+"#,
+        );
+        let grammar = module_rule_grammar_of(loaded.resolved(), "MAIN");
+        for (operands, nestings) in [(6, 42), (12, 58_786)] {
+            let sum = (1..=operands)
+                .map(|operand| format!("B{operand}"))
+                .collect::<Vec<_>>()
+                .join(" + ");
+            let body = format!("f(A => {sum}) ~> h(C => D) ~> k(D)");
+            let before = measure::snapshot().get(Counter::ParserUnpackedNodes);
+
+            let parsed = grammar.parse(&Sort::new("#RuleContent"), &body);
+
+            let unpacked = measure::snapshot().get(Counter::ParserUnpackedNodes) - before;
+            let Err(ParseError::Ambiguous { alternatives, .. }) = &parsed else {
+                panic!("{body}: {parsed:?}");
+            };
+            let terms = alternatives
+                .iter()
+                .map(|alternative| alternative.term.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(terms.len(), 2, "{body}: {terms:?}");
+            assert!(
+                terms[0].starts_with("#SemanticCastToFoo(A)=>plusFoo(")
+                    && terms[1].starts_with("arrowfoo(#SemanticCastToBar(A),plusBar("),
+                "{body}: {terms:?}"
+            );
+            if operands == 12 {
+                assert!(unpacked < nestings, "{body}: {unpacked} nodes unpacked");
+            }
+        }
+    }
+
     /// The rule grammar of `module`, as a rule of that module is parsed with it.
     fn module_rule_grammar_of(resolved: &ResolvedDefinition, module: &str) -> Grammar {
         let module = resolved.module_id(module).expect("the module is resolved");

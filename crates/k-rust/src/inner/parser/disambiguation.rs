@@ -133,7 +133,7 @@
 //! bound = "O(O) to pack the tree into a session, where equal subtrees become one node, then the session bound with N <= O"
 //!
 //! [[cost]]
-//! mode = "one inferred packed forest (z3, lower_inferred_forest)"
+//! mode = "one inferred packed forest (lower_inferred_forest): one Z3 inferred, or the join of two parts' inferred forests when sorts decide among every reading (infer_without_structural_preference)"
 //! bound = "O(F + G) to intern the forest into a session, then the session bound; no owned tree of its trees is built, whatever their number"
 //! ```
 //!
@@ -147,6 +147,8 @@
 //! 7. Infer sorts. The passes below run in one lowering session (`Grammar::lower_inferred_session`)
 //!    on the inferred forest in the z3 build (`Grammar::lower_inferred_forest`), and on the packed
 //!    form of the inferred tree otherwise (`Grammar::lower_inferred`), each once per session node;
+//!    when sorts decide among every reading, the ambiguity between two parts of a structural
+//!    choice is lowered on the join of their inferred forests (`Grammar::lower_inferred_forest`);
 //!    list completion runs between steps 9 and 10, once per session node and expected sort.
 //! 8. Resolve overloaded terminators (O(nodes * list candidates)).
 //! 9. Apply prefer/avoid and overload filtering, with the session's factoring of each surviving
@@ -1932,7 +1934,6 @@ impl Grammar {
     /// The lowering of a sort-inferred packed forest (`Grammar::lower_inferred` of its trees),
     /// computed from the forest in one lowering session (`Grammar::lower_inferred_session`),
     /// whatever its trees, without building their owned tree.
-    #[cfg(feature = "z3-inference")]
     pub(super) fn lower_inferred_forest(
         &self,
         forest: &Rc<PackedTerm>,

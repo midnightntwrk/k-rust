@@ -43,8 +43,8 @@ use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, TermSpan};
 
 use super::{
-    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts, ParsedTerm, Production,
-    inferred_variable_name,
+    Grammar, Item, LoweringSession, PackedNode, PackedTerm, ParseError, ParsedParts, ParsedTerm,
+    Production, cmp_packed_structurally, inferred_variable_name,
 };
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -140,16 +140,24 @@ impl LoweredTerm for ParsedTerm {
     }
 }
 
+/// Two inferred forests are the same result when they stand for the same owned tree, which
+/// their structural order decides without unpacking them.
+impl LoweredTerm for Rc<PackedTerm> {
+    fn same_lowering(&self, other: &Self) -> bool {
+        cmp_packed_structurally(self, other).is_eq()
+    }
+}
+
 /// How a caller turns the sort-inferred trees of a forest into its result.
 pub(super) trait Lowering<T> {
     /// The result for the inferred trees, packed as one owned tree.
     fn lower(&self, inferred: ParsedTerm) -> Result<T, ParseError>;
 
-    /// The result for an inferred packed forest. Only the Z3 engine infers a forest as a whole;
-    /// the portable one infers tree by tree. By default, the result for its trees as one owned
-    /// tree, which can have exponentially more nodes than the forest; the parse's lowering
-    /// overrides it to lower the forest itself.
-    #[cfg(feature = "z3-inference")]
+    /// The result for an inferred packed forest: one the Z3 engine inferred as a whole, or the
+    /// join of the inferred forests of two parts of a structural choice
+    /// (`Grammar::infer_without_structural_preference`). By default, the result for its trees
+    /// as one owned tree, which can have exponentially more nodes than the forest; the parse's
+    /// lowering and [`InferredForest`] override it to keep to the forest.
     fn lower_forest(&self, inferred: &Rc<PackedTerm>) -> Result<T, ParseError> {
         self.lower(inferred.unpack())
     }
@@ -158,6 +166,22 @@ pub(super) trait Lowering<T> {
 impl<T, F: Fn(ParsedTerm) -> Result<T, ParseError>> Lowering<T> for F {
     fn lower(&self, inferred: ParsedTerm) -> Result<T, ParseError> {
         self(inferred)
+    }
+}
+
+/// The inferred trees themselves, as a packed forest that stands for exactly the owned tree an
+/// engine hands its lowering: a forest the Z3 engine inferred is kept as it is, and the owned
+/// tree of the portable engine is packed as written ([`LoweringSession::intern_parsed`]). Like
+/// `Ok` on the owned tree, it never fails.
+struct InferredForest;
+
+impl Lowering<Rc<PackedTerm>> for InferredForest {
+    fn lower(&self, inferred: ParsedTerm) -> Result<Rc<PackedTerm>, ParseError> {
+        Ok(LoweringSession::default().intern_parsed(&inferred))
+    }
+
+    fn lower_forest(&self, inferred: &Rc<PackedTerm>) -> Result<Rc<PackedTerm>, ParseError> {
+        Ok(Rc::clone(inferred))
     }
 }
 
@@ -246,6 +270,12 @@ impl Grammar {
     /// gives, and where that choice would separate readings by rank this reports an ambiguity
     /// rather than choose. It runs only after the preferred readings failed inference, so a
     /// parse whose preferred readings are well sorted pays nothing for it.
+    ///
+    /// Each part's inferred trees are kept as their packed forest ([`InferredForest`]), and the
+    /// ambiguity between two parts is the packed node over both parts' readings, which stands for
+    /// the owned ambiguity over their trees and is lowered as a forest
+    /// ([`Lowering::lower_forest`]). A part's trees can be exponentially more than its forest's
+    /// nodes, so deciding and joining the parts costs what their forests do, never their trees.
     pub(super) fn infer_without_structural_preference<T: LoweredTerm>(
         &self,
         admitted: &Rc<PackedTerm>,
@@ -272,7 +302,7 @@ impl Grammar {
             _ => {}
         }
         for choice in &choices {
-            let mut well_sorted: Option<Result<ParsedTerm, ParseError>> = None;
+            let mut well_sorted: Option<Result<Rc<PackedTerm>, ParseError>> = None;
             for part in &choice.parts {
                 let Some(through) = self.readings_through(&merged, choice, part) else {
                     continue;
@@ -281,7 +311,7 @@ impl Grammar {
                     self.finish_pre_inference_packed_forest(through),
                     top_sort,
                     explicitly_anywhere,
-                    &Ok,
+                    &InferredForest,
                 );
                 if matches!(inferred, Err(ParseError::SortInference { .. })) {
                     continue;
@@ -292,10 +322,12 @@ impl Grammar {
                 };
                 return match (first, inferred) {
                     (Ok(first), Ok(second)) => {
+                        // A part's readings are the alternatives of its root ambiguity, or the
+                        // part itself, and the join is an ambiguity even over one reading.
                         let mut readings = BTreeSet::new();
                         for inferred in [first, second] {
-                            match &inferred {
-                                ParsedTerm::Ambiguity(nested) => {
+                            match &inferred.node {
+                                PackedNode::Ambiguity(nested) => {
                                     readings.extend(nested.iter().cloned())
                                 }
                                 _ => {
@@ -303,7 +335,7 @@ impl Grammar {
                                 }
                             }
                         }
-                        lower.lower(ParsedTerm::Ambiguity(readings))
+                        lower.lower_forest(&PackedTerm::alternatives(readings))
                     }
                     (Err(error), _) | (_, Err(error)) => Err(error),
                 };
