@@ -405,7 +405,11 @@ fn a_batch_of_entries_in_one_leaf_copies_its_nodes_once() {
         .as_ref()
         .map_or(0, |root| root.height());
     let batch: Multiset<u32, B> = Multiset::of((1..=k).map(|e| 100 * 1200 + e as u32));
-    let combined = whole.clone().combine(&batch);
+    let mut combined = None;
+    let combine_built = crate::term::chunked::internal_nodes_during(|| {
+        combined = Some(whole.clone().combine(&batch));
+    });
+    let combined = combined.expect("the combination ran");
     check_invariants(combined.entries());
     let added = entry_nodes(&combined)
         .difference(&entry_nodes(&whole))
@@ -421,7 +425,17 @@ fn a_batch_of_entries_in_one_leaf_copies_its_nodes_once() {
         added <= bound && bound < k * (height + 1),
         "{added} new nodes, bound {bound}, height {height}"
     );
-    let subtracted = combined.clone().subtract(&batch);
+    // The nodes the edit builds, not only those the result keeps: entries added one path copy
+    // at a time build `height` internal nodes each, and drop all but the last copy.
+    assert!(
+        combine_built <= bound,
+        "{combine_built} internal nodes built, bound {bound}, height {height}"
+    );
+    let mut subtracted = None;
+    let subtract_built = crate::term::chunked::internal_nodes_during(|| {
+        subtracted = Some(combined.clone().subtract(&batch));
+    });
+    let subtracted = subtracted.expect("the subtraction ran");
     check_invariants(subtracted.entries());
     assert_eq!(subtracted, whole);
     let removed = entry_nodes(&subtracted)
@@ -431,7 +445,8 @@ fn a_batch_of_entries_in_one_leaf_copies_its_nodes_once() {
         .difference(&entry_nodes(&whole))
         .count();
     assert!(
-        removed <= touched * (height + 2),
-        "{removed} new nodes for {touched} touched, height {height}"
+        removed <= touched * (height + 2) && subtract_built <= touched * (height + 2),
+        "{removed} new nodes, {subtract_built} internal nodes built, for {touched} touched, \
+         height {height}"
     );
 }
