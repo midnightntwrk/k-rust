@@ -320,7 +320,7 @@ impl TrivialApplication {
     /// The instances whose step is undefined because of this entry: the pattern the rule was
     /// applied to (`before`), its constraints conjoined with the conjuncts of `undefined`.
     /// `None` when the result is syntactically `\bottom`; no solver is asked, so the pattern may
-    /// have no instance ([`Self::decided_undefined_instances`] asks).
+    /// have no instance (the crate-internal `decided_undefined_instances` asks).
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "Predicate is syntax; only the listed variants are special here"
