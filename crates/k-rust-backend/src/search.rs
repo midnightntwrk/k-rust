@@ -100,7 +100,10 @@ use crate::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
     fresh::{FreshCounter, RequestNames},
-    matching::{MatchMode, MatchResult, match_terms_in_definition},
+    matching::{
+        CollectionMatches, MatchMode, MatchResult, match_collection_remainders_all_in_definition,
+        match_terms_in_definition,
+    },
     rewrite::{
         AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
         TraceKind, Truth, UndecidedStep, predicates_truth, rewrite_step_with_options,
@@ -575,11 +578,10 @@ fn match_disjunction_using(
             Ok(found) => found,
             Err(error) => return Ok(Err(error)),
         };
-        let Some(found) = found else {
-            continue;
-        };
-        if !matches.contains(&found) {
-            matches.push(found);
+        for found in found {
+            if !matches.contains(&found) {
+                matches.push(found);
+            }
         }
     }
     Ok(Ok(matches))
@@ -2099,8 +2101,7 @@ fn search_pattern_using(
             solver,
         );
         let found = match found {
-            Ok(Ok(Some(found))) => found,
-            Ok(Ok(None)) => return false,
+            Ok(Ok(found)) => found,
             Ok(Err(error)) => {
                 match_incomplete.push(pattern_match_incomplete(
                     undecided_match_state(state.clone(), &diagnostics),
@@ -2118,19 +2119,22 @@ fn search_pattern_using(
             }
         };
 
-        let found = SearchMatch {
-            substitution: found.substitution,
-            constraints: found.constraints,
-            state: state.clone(),
-            diagnostics,
-        };
-        retain_pattern_match(
-            &mut matches,
-            &mut retained,
-            &request,
-            found,
-            requested_bound,
-        )
+        // Each way the state matches is a solution of its own; the match's diagnostics concern
+        // every one of them.
+        found.into_iter().any(|found| {
+            retain_pattern_match(
+                &mut matches,
+                &mut retained,
+                &request,
+                SearchMatch {
+                    substitution: found.substitution,
+                    constraints: found.constraints,
+                    state: state.clone(),
+                    diagnostics: diagnostics.clone(),
+                },
+                requested_bound,
+            )
+        })
     };
     let graph = search_graph_collecting(
         definition,
@@ -2248,8 +2252,7 @@ fn search_pattern_paths_using(
             solver,
         );
         let found = match found {
-            Ok(Ok(Some(found))) => found,
-            Ok(Ok(None)) => return false,
+            Ok(Ok(found)) => found,
             Ok(Err(error)) => {
                 match_incomplete.push(pattern_match_incomplete(
                     undecided_match_state(witness_search_state(witness.clone()), &diagnostics),
@@ -2270,13 +2273,15 @@ fn search_pattern_paths_using(
             }
         };
 
-        matches.push(PathSearchMatch {
-            substitution: found.substitution,
-            constraints: found.constraints,
-            witness: witness.clone(),
-            diagnostics,
-        });
-        requested_bound.is_some_and(|bound| matches.len() >= bound)
+        found.into_iter().any(|found| {
+            matches.push(PathSearchMatch {
+                substitution: found.substitution,
+                constraints: found.constraints,
+                witness: witness.clone(),
+                diagnostics: diagnostics.clone(),
+            });
+            requested_bound.is_some_and(|bound| matches.len() >= bound)
+        })
     };
     let graph = search_paths_collecting(
         definition,
@@ -2308,7 +2313,7 @@ fn match_search_result(
     options: &SearchOptions,
     solver: &dyn SmtSolver,
 ) -> (
-    Stoppable<Result<Option<PatternMatch>, PatternMatchError>>,
+    Stoppable<Result<Vec<PatternMatch>, PatternMatchError>>,
     Vec<BackendDiagnostic>,
 ) {
     let (found, emitted) = diagnostic::collect(|| {
@@ -2402,6 +2407,13 @@ fn pattern_variables(pattern: &Pattern) -> BTreeSet<crate::term::Variable> {
         .collect()
 }
 
+/// Every way `subject` is an instance of `target`, each with its match condition.
+///
+/// A target whose map or set pattern takes the subject's entries in several ways (a key,
+/// element or cell instance the rest of the pattern does not fix) denotes the disjunction of
+/// those ways: an instance of the subject is an instance of the target exactly when it is one
+/// under one of the substitutions. Each way is a match of its own, in the collection solver's
+/// stable order, and an undecided condition of any way leaves the whole match undecided.
 fn match_pattern_with_variables(
     definition: &BackendDefinition,
     target: &Pattern,
@@ -2410,26 +2422,70 @@ fn match_pattern_with_variables(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
     retain_unknown: bool,
-) -> Stoppable<Result<Option<PatternMatch>, PatternMatchError>> {
-    let substitution = match match_terms_in_definition(
+) -> Stoppable<Result<Vec<PatternMatch>, PatternMatchError>> {
+    let substitutions = match match_terms_in_definition(
         MatchMode::Implies,
         definition,
         &target.term,
         &subject.term,
     ) {
-        MatchResult::Success(substitution) => substitution,
-        MatchResult::Failed(_) => return Ok(Ok(None)),
+        MatchResult::Success(substitution) => vec![substitution],
+        MatchResult::Failed(_) => return Ok(Ok(Vec::new())),
+        // The collection pairs the match deferred are solved for every way they hold; without
+        // narrowing, the solver gives up instead of placing a pattern entry in an opaque part of
+        // the subject, so the solutions it returns are every way there is.
         MatchResult::Indeterminate {
             substitution,
             remainder,
-        } => {
-            return Ok(Err(PatternMatchError::Indeterminate {
-                substitution,
-                remainder,
-            }));
-        }
+        } => match match_collection_remainders_all_in_definition(
+            MatchMode::Implies,
+            definition,
+            substitution.clone(),
+            &remainder,
+        ) {
+            CollectionMatches::Solutions(solutions) => solutions,
+            CollectionMatches::NoSolution(_) => return Ok(Ok(Vec::new())),
+            CollectionMatches::Undecided => {
+                return Ok(Err(PatternMatchError::Indeterminate {
+                    substitution,
+                    remainder,
+                }));
+            }
+        },
     };
+    let mut matches = Vec::with_capacity(substitutions.len());
+    for substitution in substitutions {
+        match match_condition(
+            definition,
+            target,
+            subject,
+            substitution,
+            output_variables,
+            options,
+            solver,
+            retain_unknown,
+        )? {
+            Ok(Some(found)) => matches.push(found),
+            Ok(None) => {}
+            Err(error) => return Ok(Err(error)),
+        }
+    }
+    Ok(Ok(matches))
+}
 
+/// The condition under which `subject` is an instance of `target` under `substitution`, or
+/// `None` when no instance is.
+#[allow(clippy::too_many_arguments)]
+fn match_condition(
+    definition: &BackendDefinition,
+    target: &Pattern,
+    subject: &Pattern,
+    substitution: Substitution,
+    output_variables: &BTreeSet<crate::term::Variable>,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    retain_unknown: bool,
+) -> Stoppable<Result<Option<PatternMatch>, PatternMatchError>> {
     // Every instance of the subject satisfies its knowledge (I7): the definedness of its term
     // and the obligations its own constraints state. The target's constraints are instantiated
     // with the definedness of their atoms stated (I1), except where that knowledge already

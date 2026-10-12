@@ -1,16 +1,19 @@
 //! An equation whose map pattern matches one subject in several ways is applied when one of its
 //! instances applies (`simplify::scan::scan_instances`): its `requires` is decided on each
 //! matching, not on the first one only, and a lower-priority equation fires only when every
-//! instance is refuted.
+//! instance is refuted. A search target that matches one subject in several ways matches it once
+//! per way.
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
     definition::BackendDefinition,
+    rewrite::Pattern,
     rule::Predicate,
+    search::{PatternMatchError, match_disjunction},
     simplify::{SimplificationOptions, simplify, simplify_predicate_with_solver},
     smt::NoSolver,
-    term::Term,
+    term::{Sort, Term, Variable},
 };
 
 const PRELUDE: &str = r#"
@@ -162,4 +165,81 @@ fn a_lower_priority_equation_applies_only_when_every_matching_is_refuted() {
         evaluate(&definition, &applied),
         term(&definition, &format!("mk{{}}({})", int(1)))
     );
+}
+
+/// A target `K |-> V M` matches the subject `{1 |-> 10, 2 |-> 20, 3 |-> 30}` in three ways, one
+/// per entry, each binding `M` to the other two; the subject is an instance of the target under
+/// any one of them, so each is a match. Fixing the value leaves one way, a pattern of one entry
+/// and no rest none (a refutation, not an undecided match). A subject with a frame of unknown
+/// entries is left undecided: the target's entry may lie in the frame on some instances, and a
+/// match states every way, so it is not narrowed to the ways the known entries give.
+#[test]
+fn a_target_that_matches_a_subject_in_several_ways_matches_it_once_per_way() {
+    let definition = load(1);
+    let subject = |source: &str| Pattern {
+        term: term(&definition, source),
+        constraints: Vec::new(),
+    };
+    let entry = |key: i64, value: i64| format!(r"cItem{{}}({}, {})", int(key), int(value));
+    let three = format!(
+        r"cConcat{{}}({}, cConcat{{}}({}, {}))",
+        entry(1, 10),
+        entry(2, 20),
+        entry(3, 30)
+    );
+    let int_variable = |name: &str| Variable::new(format!("Var{name}"), Sort::simple("SortInt"));
+    let matches = |target: &str, subject: &Pattern| {
+        match_disjunction(
+            &definition,
+            &target_pattern(target, &definition),
+            std::slice::from_ref(subject),
+        )
+        .expect("no stop is armed")
+    };
+    let found = matches(ENTRY, &subject(&three)).expect("every way is decided");
+    let mut ways = found
+        .iter()
+        .map(|found| {
+            assert!(found.constraints.is_empty(), "{found:?}");
+            (
+                found.substitution[&int_variable("K")].clone(),
+                found.substitution[&int_variable("V")].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    ways.sort();
+    let expected = [(1, 10), (2, 20), (3, 30)]
+        .map(|(key, value)| (term(&definition, &int(key)), term(&definition, &int(value))));
+    assert_eq!(ways, expected);
+
+    let valued = format!(
+        r"cConcat{{}}(cItem{{}}(VarK:SortInt{{}}, {}), VarM:SortC{{}})",
+        int(20)
+    );
+    let found = matches(&valued, &subject(&three)).expect("every way is decided");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(
+        found[0].substitution[&int_variable("K")],
+        term(&definition, &int(2))
+    );
+
+    let closed = r"cItem{}(VarK:SortInt{}, VarV:SortInt{})";
+    assert_eq!(matches(closed, &subject(&three)), Ok(Vec::new()));
+
+    let framed = subject(&format!(r"cConcat{{}}({}, VarN:SortC{{}})", entry(1, 10)));
+    assert!(
+        matches!(
+            matches(ENTRY, &framed),
+            Err(PatternMatchError::Indeterminate { .. })
+        ),
+        "{:?}",
+        matches(ENTRY, &framed)
+    );
+}
+
+fn target_pattern(target: &str, definition: &BackendDefinition) -> Pattern {
+    Pattern {
+        term: term(definition, target),
+        constraints: Vec::new(),
+    }
 }

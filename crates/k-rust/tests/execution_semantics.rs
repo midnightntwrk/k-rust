@@ -1099,20 +1099,134 @@ fn a_search_pattern_variable_of_a_collection_cell_sort_matches_one_instance() {
                     );
                     assert_eq!(bindings["VarR:SortRCell{}"], instance, "{context}");
                 }
-                // Not vacuous: one instance is matched by both patterns, and among three in a
-                // `List` the open pattern matches the front instance and the closed one nothing.
-                // Among three in a `Map` or a `Set` the search does not complete for the written
-                // cells either (TICKETS (d)), so there only the comparison checks the variable.
-                let expected = match (instances, variable.contains("..."), collection) {
-                    (1, _, _) => Some(1),
-                    (3, open, "List") => Some(usize::from(open)),
-                    _ => None,
+                // Not vacuous: one instance is matched by both patterns; among three the open
+                // pattern matches the front instance of a `List` and each instance of a `Map` or
+                // a `Set`, and the closed one nothing.
+                let count = match (instances, variable.contains("..."), collection) {
+                    (1, _, _) => 1,
+                    (3, false, _) => 0,
+                    (3, true, "List") => 1,
+                    _ => 3,
                 };
-                if let Some(count) = expected {
-                    assert!(variable_complete, "{context}");
-                    assert_eq!(by_variable.len(), count, "{context}");
-                }
+                assert!(variable_complete, "{context}");
+                assert_eq!(by_variable.len(), count, "{context}");
             }
+        }
+    }
+}
+
+/// A search pattern that matches one state in several ways denotes the disjunction of those
+/// ways: an instance of the state is an instance of the pattern under any one of the
+/// substitutions. With a cell-map or cell-set pattern whose instance cells nothing fixes, each
+/// way is a solution of its own, of the one final state: one per instance for one written
+/// instance, one per ordered pair of distinct instances for two, and none where no instance
+/// fits (a closed pattern of one instance among three, a value no instance holds).
+#[test]
+fn a_search_pattern_that_matches_a_state_in_several_ways_reports_each_way() {
+    let one = "<r> <rid> I </rid> <v> V </v> </r>";
+    let two = "<r> <rid> J </rid> <v> W </v> </r>";
+    let print = |value: &serde_json::Value| {
+        Printer::compact().print_pattern(&codec::from_value(value).unwrap())
+    };
+    let int = |value: u32| format!("\\dv{{SortInt{{}}}}(\"{value}\")");
+    for collection in ["Map", "Set"] {
+        let source = ALIASED_INSTANCES.replace("COLLECTION", collection);
+        for (instances, program) in [(1, "mk(1,10)"), (3, "mk(1,10) ; mk(2,20) ; mk(3,30)")] {
+            let compiled = compile(&source, "TEST", "TEST-SYNTAX", "Pgm", program);
+            // Each solution's bindings of `names`, in order, and the final states matched.
+            let search = |contents: &str, names: &[&str], max_results: Option<usize>| {
+                let target = compiled.target("TEST", contents);
+                let mut backend =
+                    Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
+                let response = backend
+                    .search_pattern(SearchPatternRequest {
+                        search_type: SearchTypeArg::Final,
+                        max_results,
+                        ..SearchPatternRequest::new(compiled.initial.clone(), target)
+                    })
+                    .unwrap();
+                assert!(
+                    response.incomplete.is_empty(),
+                    "{collection}, {instances}: {contents}: {:?}",
+                    response.incomplete
+                );
+                let mut solutions = response
+                    .matches
+                    .iter()
+                    .map(|found| {
+                        let bindings = found
+                            .bindings
+                            .iter()
+                            .map(|binding| (print(&binding.variable), print(&binding.value)))
+                            .collect::<std::collections::BTreeMap<_, _>>();
+                        names
+                            .iter()
+                            .map(|name| bindings[&format!("Var{name}:SortInt{{}}")].clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+                solutions.sort();
+                let states = response
+                    .matches
+                    .iter()
+                    .map(|found| print(&found.state.state))
+                    .collect::<std::collections::BTreeSet<_>>();
+                (solutions, states)
+            };
+            let context = format!("{collection}, {instances}");
+            let ids = if instances == 1 {
+                vec![1]
+            } else {
+                vec![1, 2, 3]
+            };
+            // Every instance, as its `I` and `V`.
+            let each = ids
+                .iter()
+                .map(|&id| vec![int(id), int(10 * id)])
+                .collect::<Vec<_>>();
+            let (open, states) = search(&format!("<rs> {one} ... </rs>"), &["I", "V"], None);
+            assert_eq!(open, each, "{context}: open");
+            assert_eq!(states.len(), 1, "{context}: {states:?}");
+            let (closed, _) = search(&format!("<rs> {one} </rs>"), &["I", "V"], None);
+            let expected_closed = if instances == 1 {
+                each.clone()
+            } else {
+                Vec::new()
+            };
+            assert_eq!(closed, expected_closed, "{context}: closed");
+            let (valued, _) = search(
+                "<rs> <r> <rid> I </rid> <v> 20 </v> </r> ... </rs>",
+                &["I"],
+                None,
+            );
+            let expected_valued = if instances == 1 {
+                Vec::new()
+            } else {
+                vec![vec![int(2)]]
+            };
+            assert_eq!(valued, expected_valued, "{context}: valued");
+            let (pairs, states) = search(&format!("<rs> {one} {two} ... </rs>"), &["I", "J"], None);
+            let expected_pairs = ids
+                .iter()
+                .flat_map(|&left| {
+                    ids.iter()
+                        .filter(move |&&right| right != left)
+                        .map(move |&right| vec![int(left), int(right)])
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(pairs, expected_pairs, "{context}: pairs");
+            assert_eq!(
+                states.len(),
+                usize::from(instances == 3),
+                "{context}: {states:?}"
+            );
+            // A result bound counts solutions, so it selects that many of the ways.
+            let (bounded, _) = search(&format!("<rs> {one} ... </rs>"), &["I", "V"], Some(2));
+            assert_eq!(bounded.len(), each.len().min(2), "{context}: bounded");
+            assert!(
+                bounded.iter().all(|way| each.contains(way)),
+                "{context}: {bounded:?}"
+            );
         }
     }
 }
