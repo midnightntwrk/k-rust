@@ -11559,14 +11559,16 @@ endmodule
 }
 
 /// A sort that declares `[locations]` asks that each term of it a program denotes be wrapped in
-/// `#location`, the symbol `K-LOCATIONS` declares, so `kcompile` refuses a main module whose view
-/// lacks that module, with or without a generated parser, at the declaration and naming the sort
-/// and the module to import. The import anywhere in the main module's view is enough, also
-/// through the syntax module, and `krun` then reads a program into located terms. `kast --module`
-/// parses in a module that is not a compiled definition, so it reads the same program unrefused.
+/// `#location`, the symbol `K-LOCATIONS` declares. Without that module in the main module's view
+/// only `krun` needs the symbol, to build its configuration, and only for a program holding a
+/// located term: `kcompile` warns at the declaration and compiles, with or without a generated
+/// parser, which prints the located term; `kast` prints it too; `krun` runs a program with no
+/// located term and refuses one with a located term at that term's place in the program. The
+/// import anywhere in the main module's view, also through the syntax module, silences the
+/// warning, and `krun` then reads the program into located terms.
 #[cfg(unix)]
 #[test]
-fn kcompile_refuses_a_located_sort_whose_main_module_does_not_import_k_locations() {
+fn a_located_sort_without_k_locations_warns_at_kcompile_and_krun_refuses_only_located_programs() {
     let source = |syntax_imports: &str, main_imports: &str| {
         format!(
             r#"
@@ -11574,11 +11576,12 @@ module LOC-SYNTAX
   imports INT-SYNTAX{syntax_imports}
   syntax Exp [locations]
   syntax Exp ::= Int | Exp "+" Exp [left, symbol(plus)]
+  syntax Pgm ::= Exp | "skip" [symbol(skip)]
 endmodule
 
 module LOC
   imports LOC-SYNTAX{main_imports}
-  configuration <k> $PGM:Exp </k>
+  configuration <k> $PGM:Pgm </k>
 endmodule
 "#
         )
@@ -11595,25 +11598,71 @@ endmodule
             .output()
             .unwrap()
     };
+    let krun = |kompiled: &Path, program: &Path| {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg("--definition")
+            .arg(kompiled)
+            .args(["--sort", "Pgm", "--depth", "0"])
+            .arg(program)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let warning = "definition.k:4:3: Warning[MissingLocationsImport]: Sort Exp ";
 
     let (root, definition) = fixture();
     fs::write(&definition, source("", "")).unwrap();
+    let located = root.join("located.loc");
+    fs::write(&located, "1 + 2").unwrap();
+    let unlocated = root.join("unlocated.loc");
+    fs::write(&unlocated, "skip").unwrap();
     for extra in [&[][..], &["--gen-bison-parser"][..]] {
-        let kompiled = root.join("refused");
+        let kompiled = root.join(format!("kompiled{}", extra.len()));
         let output = kcompile(&definition, &kompiled, extra);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(!output.status.success(), "{extra:?}: accepted");
         assert!(
-            stderr.contains("definition.k:4:3: Error[MissingLocationsImport]: Sort Exp ")
-                && stderr.contains("Add `imports K-LOCATIONS` to LOC."),
-            "{extra:?}: not refused at the declaration: {stderr}"
+            output.status.success()
+                && stderr.contains(warning)
+                && stderr.contains("Add `imports K-LOCATIONS` to LOC to run such programs."),
+            "{extra:?}: not compiled with the warning at the declaration: {stderr}"
         );
-        assert!(!kompiled.join("parser_PGM").exists());
+        if !extra.is_empty() {
+            let parsed = Command::new(kompiled.join("parser_PGM"))
+                .arg(&located)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            assert!(
+                parsed.status.success()
+                    && String::from_utf8_lossy(&parsed.stdout)
+                        .contains("Lbl'Hash'location{SortExp{}}("),
+                "{}",
+                String::from_utf8_lossy(&parsed.stderr)
+            );
+        }
+        let run = krun(&kompiled, &unlocated);
+        assert!(
+            run.status.success() && String::from_utf8_lossy(&run.stdout).contains("Lblskip{}()"),
+            "{extra:?}: a program without a located term does not run: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        let run = krun(&kompiled, &located);
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert!(
+            !run.status.success()
+                && stderr.contains(&format!(
+                    "{}:1:1-1:6: the value of `$PGM` holds a term of sort Exp, which declares 'locations'",
+                    located.display()
+                ))
+                && stderr.contains("Add `imports K-LOCATIONS` to LOC to run it."),
+            "{extra:?}: a located program is not refused at its located term: {stderr}"
+        );
     }
     let parsed = Command::new(env!("CARGO_BIN_EXE_krust"))
         .arg("kast")
         .arg(&definition)
-        .args(["--module", "LOC-SYNTAX", "--sort", "Exp"])
+        .args(["--module", "LOC", "--sort", "Pgm"])
         .args(["--expression", "1 + 2"])
         .stdin(Stdio::null())
         .output()
@@ -11634,22 +11683,14 @@ endmodule
         fs::write(&definition, source(syntax_imports, main_imports)).unwrap();
         let kompiled = root.join("kompiled");
         let output = kcompile(&definition, &kompiled, &[]);
+        let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            output.status.success(),
-            "{case}: {}",
-            String::from_utf8_lossy(&output.stderr)
+            output.status.success() && !stderr.contains("MissingLocationsImport"),
+            "{case}: {stderr}"
         );
         let program = root.join("program.loc");
         fs::write(&program, "1 + 2").unwrap();
-        let run = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .arg("krun")
-            .arg("--definition")
-            .arg(&kompiled)
-            .args(["--sort", "Exp", "--depth", "0"])
-            .arg(&program)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
+        let run = krun(&kompiled, &program);
         let stdout = String::from_utf8_lossy(&run.stdout);
         assert!(
             run.status.success() && stdout.matches("Lbl'Hash'location{SortExp{}}(").count() == 3,

@@ -512,7 +512,7 @@ pub fn program_file_name(path: &std::path::Path) -> String {
 /// The label of `syntax {Sort} Sort ::= #location(Sort, String, Int, Int, Int, Int)`, module
 /// `K-LOCATIONS` of `kast.md`: a term, the file of its text, and the first line and column of that
 /// text and the line and column just after it.
-const LOCATION_LABEL: &str = "#location";
+pub(crate) const LOCATION_LABEL: &str = "#location";
 
 /// A program's text and the file name its locations carry.
 struct ProgramText<'a> {

@@ -15,10 +15,10 @@ use std::{
 use crate::{
     definition::{AttributeKey, Definition, ResolveError, ResolvedDefinition, Sentence},
     inner::{
-        ParsedProgram, ProgramError, ProgramParseError, ProgramParser, UNNAMED_PROGRAM,
-        definition_with_named_projections,
+        LOCATION_LABEL, ParsedProgram, ProgramError, ProgramParseError, ProgramParser,
+        UNNAMED_PROGRAM, definition_with_named_projections,
     },
-    kast::Sort as KastSort,
+    kast::{Sort as KastSort, Term, WellKnownModule},
     kompile::{
         ExpandedProgram, MacroExpansionDefinition, SortInjectionError, SortInjector,
         TermConversionError, term_to_kore_from_resolved_with_token_module,
@@ -120,6 +120,8 @@ pub enum ConfigurationError {
         error: Box<SortInjectionError>,
     },
     SortInjection(SortInjectionError),
+    /// A value holding a located term while the main module's view does not declare `#location`.
+    UnlocatableTerm(Box<UnlocatableTerm>),
     Conversion(TermConversionError),
     Definition(ResolveError),
     Unplaceable {
@@ -175,6 +177,7 @@ impl fmt::Display for ConfigurationError {
                 "configuration variable `{variable}` has an undetermined instance: {error}"
             ),
             Self::SortInjection(error) => error.fmt(f),
+            Self::UnlocatableTerm(error) => error.fmt(f),
             Self::Conversion(error) => error.fmt(f),
             Self::Definition(error) => error.fmt(f),
             Self::Unplaceable { variable, sort } => write!(
@@ -186,6 +189,36 @@ impl fmt::Display for ConfigurationError {
 }
 
 impl std::error::Error for ConfigurationError {}
+
+/// A configuration value holding a located term, `#location{sort}(t, file, ...)` for a sort that
+/// declares `[locations]`, while the main module's view does not declare `#location`, so the value
+/// is not a term of the definition.
+#[derive(Debug)]
+pub struct UnlocatableTerm {
+    /// The configuration variable the value is for, `$PGM` for the program.
+    pub variable: String,
+    /// The sort the first located term (outermost, leftmost) is located at.
+    pub sort: KastSort,
+    /// Where that term's text is, `file:line:column-line:column`.
+    pub place: String,
+    pub main_module: String,
+}
+
+impl fmt::Display for UnlocatableTerm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            variable,
+            sort,
+            place,
+            main_module,
+        } = self;
+        let locations = WellKnownModule::Locations.as_str();
+        write!(
+            f,
+            "{place}: the value of `{variable}` holds a term of sort {sort}, which declares 'locations', so it is the located term #location{{{sort}}}(...); #location is declared by module {locations}, which the main module {main_module} does not import, so the value is not a term of this definition. Add `imports {locations}` to {main_module} to run it."
+        )
+    }
+}
 
 impl From<ProgramError> for ConfigurationError {
     fn from(error: ProgramError) -> Self {
@@ -550,6 +583,52 @@ impl<'g> ConfigurationAssembler<'g> {
 
 use value::ConfigurationValue;
 
+/// The sort and place (`file:line:column-line:column`) of the first located term of `term` in
+/// pre-order, the outermost and leftmost; `None` when it holds no `#location` application of the
+/// shape the program parsers build.
+fn first_located_term(term: &Term) -> Option<(KastSort, String)> {
+    let mut found = None;
+    term.visit_preorder(&mut |term| {
+        if found.is_some() {
+            return;
+        }
+        let Term::Apply { label, arguments } = term else {
+            return;
+        };
+        if label.name != LOCATION_LABEL {
+            return;
+        }
+        let ([sort], [_, file, numbers @ ..]) = (label.parameters.as_slice(), arguments.as_slice())
+        else {
+            return;
+        };
+        let token = |term: &Term| {
+            if let Term::Token { token, .. } = term.unannotated() {
+                Some(token.clone())
+            } else {
+                None
+            }
+        };
+        let Some(file) = token(file).and_then(|file| crate::kast::string::unquote(&file).ok())
+        else {
+            return;
+        };
+        let Some([start_line, start_column, end_line, end_column]) = numbers
+            .iter()
+            .map(token)
+            .collect::<Option<Vec<_>>>()
+            .and_then(|numbers| <[String; 4]>::try_from(numbers).ok())
+        else {
+            return;
+        };
+        found = Some((
+            sort.clone(),
+            format!("{file}:{start_line}:{start_column}-{end_line}:{end_column}"),
+        ));
+    });
+    found
+}
+
 // Only these builders can create a transport payload; neither takes an arbitrary pattern/sort pair.
 mod value {
     use super::*;
@@ -569,7 +648,17 @@ mod value {
             variable: &str,
         ) -> Result<Self, ConfigurationError> {
             let (term, sort) = injector.inject_ground(program).map_err(|error| {
-                if matches!(&error, SortInjectionError::UndeterminedInstance(_)) {
+                if let SortInjectionError::UnknownLabel(label) = &error
+                    && label == LOCATION_LABEL
+                    && let Some((sort, place)) = first_located_term(program.term())
+                {
+                    ConfigurationError::UnlocatableTerm(Box::new(UnlocatableTerm {
+                        variable: variable.into(),
+                        sort,
+                        place,
+                        main_module: main_module.into(),
+                    }))
+                } else if matches!(&error, SortInjectionError::UndeterminedInstance(_)) {
                     ConfigurationError::UndeterminedInstance {
                         variable: variable.into(),
                         error: Box::new(error),

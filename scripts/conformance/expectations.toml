@@ -88,11 +88,6 @@ decided_by = "docs/compatibility.md#set-concatenation-is-nilpotent"
 meaning = "The reference LLVM backend's concrete execution merges a Set concatenation whose operands share an element (including a type=\"Set\" cell collection given two equal cells); the concatenation is nilpotent, so that step is undefined, and the port ends the run in an undefined step, as symbolic execution does."
 
 [[category]]
-id = "located-sort-without-k-locations"
-decided_by = "docs/compatibility.md#located-sorts-need-k-locations"
-meaning = "A sort declares [locations] in a main module whose view lacks K-LOCATIONS; no program holding a term of that sort denotes a term of the compiled definition, so the port refuses the definition at compilation, where the reference compiles it and its parsers print the undeclared #location symbol."
-
-[[category]]
 id = "reference-prunes-undefined-step"
 decided_by = "docs/compatibility.md#undefined-steps-in-proofs"
 meaning = "The reference proves a claim by treating a rule application with an empty result as a vacuous branch; the claim is false on those configurations, whose step is undefined, so the port reports failed (proven only with --allow-vacuous)."
@@ -154,14 +149,13 @@ reason = "Sequence 32 (stale-floor-current-head, 3ce69c2): the definition.kore c
 
 [[case]]
 name = "bison-parser-library"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
-accepted_basis = "Measured on oi/w9-drv with the case's flags (--main-module TEST --syntax-module TEST --gen-glr-bison-parser --bison-parser-library): kcompile reports MissingLocationsImport at test.k:3:3 and builds no parser. Before that check the GLR parser library's stdout for test.in matched the reference once the #location line and column arguments were removed (N46)."
+accepted_verdict = "match"
+accepted_stage = "bison-parser"
+accepted_basis = "The GLR parser is installed as libparser_KItem_TEST.so; the manifest builds test.c against each reference and krust library, and test.in produces parser stdout that is equal once the #location line and column arguments are removed (N46; the two toolchains number them differently, docs/compatibility.md#generated-parser-locations). TEST does not import K-LOCATIONS, so kcompile warns MissingLocationsImport at test.k:3:3 and still compiles (docs/compatibility.md#located-sorts-need-k-locations)."
 baseline_verdict = "match"
 baseline_stage = "kompile"
-exclusion = "located-sort-without-k-locations"
-reason = "test.k declares `syntax Foo [locations]` in TEST, which imports nothing, so the parser's located term #location{Foo}(foo(), ...) is not a term of the compiled definition; the port refuses the definition at compilation (docs/compatibility.md#located-sorts-need-k-locations), while the reference compiles it and its parser library prints Lbl'Hash'location{SortFoo{}}(...) over a symbol its definition does not declare."
-whole_case_reason = "The only compared step runs the parser library that compilation builds, so no step is independent of the refused compilation."
+exclusion = ""
+reason = ""
 
 [[case]]
 name = "bit-range-llvm"
