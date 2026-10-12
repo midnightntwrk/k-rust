@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
-//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base",
+//! sites = ["Grammar::infer_packed_forest_z3", "Grammar::infer_sorts_z3", "encoding_base",
 //!     "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort",
 //!     "OrderRelation::new", "OrderRelation::full_disjunction", "Encoding::packed_term_constraint",
 //!     "Encoding::less_than_eq", "Encoding::solver_for", "Encoding::domain_solver",
@@ -734,12 +734,28 @@ type PackedModelMemo =
     BTreeMap<PackedModelKey, (Rc<PackedTerm>, Result<Rc<PackedTerm>, ParseError>)>;
 
 impl Grammar {
+    /// The sort-inferred trees of `infer_packed_forest_z3` as one owned tree.
+    #[cfg(test)]
     pub(super) fn infer_packed_sorts_z3(
         &self,
         term: Rc<PackedTerm>,
         top_sort: &Sort,
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
+        self.infer_packed_forest_z3(term, top_sort, explicitly_anywhere)
+            .map(|inferred| inferred.unpack())
+    }
+
+    /// The well-sorted trees of a forest, each with the sorts Z3 inferred for it, packed as
+    /// the pre-inference forest was (`Grammar::factor_pre_inference_packed_ambiguities`).
+    /// The forest is returned packed, since its trees, as an owned tree, can have
+    /// exponentially more nodes than it has.
+    pub(super) fn infer_packed_forest_z3(
+        &self,
+        term: Rc<PackedTerm>,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserInferenceZ3);
         let mut encoding =
             Encoding::for_packed_inference(self, &term, top_sort, explicitly_anywhere)?;
@@ -792,9 +808,7 @@ impl Grammar {
                 z3_error("Z3 produced no well-typed parse after model substitution")
             }));
         }
-        let inferred =
-            self.factor_pre_inference_packed_ambiguities(PackedTerm::ambiguity(candidates));
-        Ok(inferred.unpack())
+        Ok(self.factor_pre_inference_packed_ambiguities(PackedTerm::ambiguity(candidates)))
     }
 
     fn packed_lhs_is_function_or_macro(&self, root: &Rc<PackedTerm>) -> bool {
@@ -971,7 +985,7 @@ impl Grammar {
             SatResult::Sat => {}
         }
 
-        // Every admissible parameter vector is a candidate, as in `infer_packed_sorts_z3`.
+        // Every admissible parameter vector is a candidate, as in `infer_packed_forest_z3`.
         let models = encoding.maximal_models(&solver, seed)?;
         let mut candidates = BTreeSet::new();
         let mut first_error = None;
@@ -1314,7 +1328,7 @@ impl<'a> Encoding<'a> {
         Ok(encoding)
     }
 
-    /// The encoding of one `Grammar::infer_packed_sorts_z3` problem, before any constraint.
+    /// The encoding of one `Grammar::infer_packed_forest_z3` problem, before any constraint.
     fn for_packed_inference(
         grammar: &'a Grammar,
         term: &Rc<PackedTerm>,

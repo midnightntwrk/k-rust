@@ -85,7 +85,7 @@ Representation flow into [prepared definition manifest], [compiled definition]:
 - [0] parser.programs.parse — O(g + sum p) — out: [parsed program] — at k-rust/inner/programs.rs `ProgramParser::parse`
 - [1] definition.outer.lower — O(S + I x c + g x t log t) — in: [parsed source] → out: [lowered source] — at k-rust/outer/lower.rs `lower`
 - [1] parser.inference.portable — O(V x E) +2 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/inference.rs `Grammar::infer_sorts_portable`
-- [1] parser.inference.z3 — O(H + G^2 + R) plus one clone of the grammar's… +7 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/z3_inference.rs `Grammar::infer_packed_sorts_z3`
+- [1] parser.inference.z3 — O(H + G^2 + R) plus one clone of the grammar's… +7 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/z3_inference.rs `Grammar::infer_packed_forest_z3`
 - [2] parser.bubble.configurations — O(r + D + g + sum over b of p) — in: [lowered source] → out: [parsed configuration bubbles] — at k-rust/inner/config.rs `resolve_configuration_bubbles`
 - [2] parser.lower.term — O(N), each node built from its lowered children… — in: [sorted tree] → out: [parsed term] — at k-rust/inner/parser.rs `lower_term`
 - [3] definition.configuration.expand — O(N + G x (log G + k x eq) + M^2 + C x D) plus… — in: [parsed configuration bubbles] → out: [expanded configurations] — at k-rust/definition/configuration.rs `expand_configurations`
@@ -180,14 +180,14 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.diagnostic.ambiguity — O(A) — at k-rust/inner/parser.rs `AmbiguousParse`
 - parser.diagnostic.no_parse — O(B + K x log E) plus O(L) per scanner.winner… — at k-rust/inner/parser.rs `Grammar::no_parse`
 - parser.disambiguation.collapse_records — O(N + X x F) plus the structural ordering of each… — at k-rust/inner/parser/record.rs `Grammar::collapse_packed_record_productions`
-- parser.disambiguation.factor_packed — O(N x A) — at k-rust/inner/parser/disambiguation.rs `Grammar::factor_pre_inference_packed_ambiguities`
+- parser.disambiguation.factor_packed — O(N x A), plus the structural ordering that… — at k-rust/inner/parser/disambiguation.rs `Grammar::factor_pre_inference_packed_ambiguities`
 - parser.disambiguation.filter_overloads — O(N + t x R) plus one clone, f and one equality… +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::filter_overloads_prefer_avoid`
 - parser.disambiguation.insert_empty_lists — O(N x C), plus one PartialOrder::new over the… — at k-rust/inner/parser/lists.rs `Grammar::add_empty_lists`
 - parser.disambiguation.lift_top_lhs — O(N) — at k-rust/inner/parser/disambiguation.rs `Grammar::push_top_lhs_packed_ambiguity_up`
 - parser.disambiguation.priority — O(N) +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::filter_packed_priority`
 - parser.disambiguation.remove_brackets_casts — O(N) — at k-rust/inner/parser/disambiguation.rs `Grammar::remove_brackets_and_syntactic_casts`
 - parser.disambiguation.reserve_names — O(N) — at k-rust/inner/parser/forest.rs `packed_variable_names`
-- parser.disambiguation.resolve_ambiguity — O(N) lowering (parser.lower.term) when every… — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
+- parser.disambiguation.resolve_ambiguity — O(N) lowering (parser.lower.term) when every… +1 mode — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
 - parser.disambiguation.resolve_applications — O(N x R) to find each label's arities, plus O(N x… — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
 - parser.disambiguation.resolve_terminators — O(N x L + K x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_overloaded_terminators`
 - parser.earley.recognize — O(B x s) chart allocation plus O(p x d) plus the… +3 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`

@@ -2122,22 +2122,24 @@ impl Grammar {
             preferred: forest,
             admitted,
         } = self.prepare_packed_readings(PackedTerm::ambiguity(parses), &priority_memos)?;
-        let lower = |tree: ParsedTerm| self.lower_inferred(tree, start);
+        let lower = InferredLowering {
+            grammar: self,
+            start,
+        };
         // When no preferred reading is well sorted, sorts decide among the admitted ones.
         let unless_ill_sorted = |result: Result<Term, ParseError>| match (result, &admitted) {
-            (Err(error @ ParseError::SortInference { .. }), Some(admitted)) => {
-                self.infer_without_structural_preference(admitted, error, start, is_anywhere, lower)
-            }
+            (Err(error @ ParseError::SortInference { .. }), Some(admitted)) => self
+                .infer_without_structural_preference(admitted, error, start, is_anywhere, &lower),
             (result, _) => result,
         };
         // Checked mode compares the engines on an ambiguous forest by what each lowers to.
         #[cfg(feature = "z3-inference")]
         if inference::checked_inference_requested()
-            && let Some(checked) = self.checked_ambiguous_parse(&forest, start, is_anywhere, lower)
+            && let Some(checked) = self.checked_ambiguous_parse(&forest, start, is_anywhere, &lower)
         {
             return unless_ill_sorted(checked).map_err(Failure::Error);
         }
-        unless_ill_sorted(self.infer_packed_sorts(forest, start, is_anywhere, lower))
+        unless_ill_sorted(self.infer_packed_sorts(forest, start, is_anywhere, &lower))
             .map_err(Failure::Error)
     }
 
@@ -3785,6 +3787,35 @@ fn term_metadata(
     }
 }
 
+/// The lowering of a parse's inferred trees, `Grammar::lower_inferred`, which reports an
+/// ambiguity from the packed forest when its trees would report the same one
+/// (`Grammar::packed_ambiguity_report`), so that the parse does not build their owned tree.
+struct InferredLowering<'a> {
+    grammar: &'a Grammar,
+    start: &'a Sort,
+}
+
+impl inference::Lowering<Term> for InferredLowering<'_> {
+    fn lower(&self, inferred: ParsedTerm) -> Result<Term, ParseError> {
+        self.grammar.lower_inferred(inferred, self.start)
+    }
+
+    #[cfg(feature = "z3-inference")]
+    fn lower_packed(&self, inferred: &Rc<PackedTerm>) -> Option<Result<Term, ParseError>> {
+        let report = self.grammar.packed_ambiguity_report(inferred)?;
+        // The tests check the report against the trees' wherever building them is affordable.
+        #[cfg(test)]
+        if inference::packed_tree_count(inferred) <= 1 << 12 {
+            assert_eq!(
+                Err(report.clone()),
+                self.lower(inferred.unpack()),
+                "the packed report differs from the trees' report"
+            );
+        }
+        Some(Err(report))
+    }
+}
+
 /// The term a completed production denotes over its lowered children.
 ///
 /// Fails only for a production labelled `#OuterCast` whose result sort has no sort projection;
@@ -5057,7 +5088,7 @@ mod chart_tests {
         reset_unpacked_nodes();
 
         let inferred = grammar
-            .infer_packed_sorts(Rc::clone(&shared), &Sort::new("Good"), false, Ok)
+            .infer_packed_sorts(Rc::clone(&shared), &Sort::new("Good"), false, &Ok)
             .expect("Z3 retains the recursively well-sorted alternative");
 
         assert_eq!(inferred, baseline);

@@ -39,7 +39,7 @@
 //!
 //! [[cost]]
 //! mode = "one parse forest"
-//! bound = "O(N x A)"
+//! bound = "O(N x A), plus the structural ordering that chooses each ambiguity's first alternative, whose pair comparisons the pass shares"
 //! ```
 //!
 //! ```toml algorithm
@@ -112,8 +112,8 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.resolve_ambiguity"
 //! name = "resolution and reporting of remaining ambiguity"
-//! sites = ["Grammar::resolve_ambiguities", "Grammar::resolve_ambiguities_node", "Grammar::factor_ambiguities"]
-//! variable = "N = owned nodes; A = ambiguity alternatives"
+//! sites = ["Grammar::resolve_ambiguities", "Grammar::resolve_ambiguities_node", "Grammar::factor_ambiguities", "Grammar::packed_ambiguity_report", "Grammar::lowering_only_repacks", "Grammar::packed_readings"]
+//! variable = "N = owned nodes; A = ambiguity alternatives; F = nodes of an inferred packed forest; R = productions in the grammar"
 //! counters = []
 //! no_counter = "final ambiguity resolution has no dedicated counter"
 //! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -122,6 +122,10 @@
 //! [[cost]]
 //! mode = "one parsed tree"
 //! bound = "O(N) lowering (parser.lower.term) when every ambiguity has one reading; otherwise each node's readings are an expression over its children's, built once per structure: a product, the union of an ambiguity node's alternatives (equal terms merged by hash, O(A) per node), or the concatenation a `~>` node splices, with only the string tokens of a #KToken node's two children paired; the report is polynomial in N and never lists or counts the readings: each question it asks a node (root keys, subterms at a position of the readings of one key, items at an index of the words of one length, least reading, least word of a length) is answered once per node and argument from its children's answers, an item of a concatenation in O(N^2) over its children and the lengths before them, and it builds one term per entry it lists"
+//!
+//! [[cost]]
+//! mode = "one inferred packed forest (z3)"
+//! bound = "O(F + R) to check that the passes before resolution only repack its trees; when they do and it has several readings, the readings and the report as for a parsed tree with F in place of N, each node's readings built once, plus the structural ordering of each ambiguity's alternatives; otherwise the forest is unpacked and lowered as a parsed tree"
 //! ```
 //!
 //! Packed-DAG and owned-tree disambiguation in the following pipeline order.
@@ -131,7 +135,9 @@
 //! 4. Resolve `#KApply` (packed DAG, O(nodes * argument lists * productions)).
 //! 5. Factor packed ambiguities (packed DAG, O(nodes * alternatives)).
 //! 6. Lift top-LHS ambiguities (packed DAG, O(nodes)).
-//! 7. Infer sorts and unpack (packed DAG to owned tree).
+//! 7. Infer sorts and unpack (packed DAG to owned tree). In the z3 build, when the passes below
+//!    only repack the inferred forest's trees and it has several readings, the ambiguity is
+//!    reported from the forest instead (`Grammar::packed_ambiguity_report`).
 //! 8. Resolve overloaded terminators (owned tree, O(nodes * list candidates)).
 //! 9. Apply prefer/avoid and overload filtering (owned tree, O(nodes) plus re-factoring of each
 //!    surviving ambiguity), then the prefer/avoid frontier step on an ambiguity whose alternatives
@@ -156,7 +162,7 @@ use std::hash::{Hash, Hasher};
 use super::exclusion::{Exclusion, Side};
 use super::{
     AmbiguityPlace, AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts,
-    ParsedTerm, Production, StructuralOrder, cmp_packed_structurally, lower_term,
+    ParsedTerm, Production, StructuralOrder, lower_term,
 };
 use crate::kast::{
     FrontendSort, InternalLabel, ProductionIdentity, Sort, Term, TermMetadata, TermSpan, string,
@@ -188,6 +194,17 @@ struct KListMemo {
     shortest: HashMap<*const PackedTerm, (Rc<PackedTerm>, usize)>,
     order: StructuralOrder,
 }
+/// What one packed-factoring pass keeps: each node's factored result by identity (each entry
+/// keeps its input node alive so that its address is not reused), and the structural
+/// comparisons its choices of a first alternative made. A node is immutable and its structural
+/// order with another is a function of the two nodes, so a comparison made anywhere in the pass
+/// stays valid for the rest of it, and the alternatives of the ambiguities above a shared
+/// subforest compare that subforest once.
+#[derive(Default)]
+struct PackedFactoringMemo {
+    factored: HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+    order: StructuralOrder,
+}
 type PackedPriorityChildMemo =
     HashMap<(*const PackedTerm, usize, Option<Side>), (Rc<PackedTerm>, PackedTransformResult)>;
 
@@ -212,19 +229,19 @@ impl Grammar {
         term: Rc<PackedTerm>,
     ) -> Rc<PackedTerm> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationFactorPacked);
-        self.factor_packed_ambiguities(term, &mut HashMap::new())
+        self.factor_packed_ambiguities(term, &mut PackedFactoringMemo::default())
     }
 
     fn factor_packed_ambiguities(
         &self,
         term: Rc<PackedTerm>,
-        memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+        memo: &mut PackedFactoringMemo,
     ) -> Rc<PackedTerm> {
         crate::stack::guarded(|| {
             // Invariant: every memoized identity has a complete factored result; recursion only visits
             // unrecorded children or alternatives.
             let identity = Rc::as_ptr(&term);
-            if let Some((_, factored)) = memo.get(&identity) {
+            if let Some((_, factored)) = memo.factored.get(&identity) {
                 return Rc::clone(factored);
             }
             let factored = match &term.node {
@@ -302,7 +319,7 @@ impl Grammar {
             // Retain the input allocation as part of the entry. Factoring recursively creates
             // temporary ambiguity nodes; allowing one to drop while its raw address remains a key
             // would let a later allocation reuse the address and receive the wrong cached result.
-            memo.insert(identity, (term, Rc::clone(&factored)));
+            memo.factored.insert(identity, (term, Rc::clone(&factored)));
             factored
         })
     }
@@ -310,7 +327,7 @@ impl Grammar {
     fn factor_packed_production_alternatives(
         &self,
         alternatives: BTreeSet<Rc<PackedTerm>>,
-        memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+        memo: &mut PackedFactoringMemo,
     ) -> Rc<PackedTerm> {
         // Invariant: retained alternatives agree on the factored production prefix, and each
         // recursive difference occupies one child ambiguity.
@@ -319,7 +336,7 @@ impl Grammar {
         }
         let Some(first) = alternatives
             .iter()
-            .min_by(|left, right| cmp_packed_structurally(left, right))
+            .min_by(|left, right| memo.order.cmp(left, right))
         else {
             return PackedTerm::ambiguity(alternatives);
         };
@@ -1684,6 +1701,205 @@ impl Grammar {
         }
     }
 
+    /// The ambiguity report of a sort-inferred packed forest, computed once per node of the
+    /// forest, when it is the report `Grammar::lower_inferred` gives for the forest's trees;
+    /// `None` otherwise, and then the trees decide.
+    ///
+    /// A forest whose ambiguities nest has, as owned trees, one copy of a shared node below
+    /// each choice above it. Under `S ::= S S | S "d" | "d"`, eight `d`s have 349,074 trees
+    /// and an owned tree of 1.1 million nodes, and each further `d` multiplies both about
+    /// fourteenfold, while the forest grows polynomially with the input; so lowering the owned
+    /// tree takes time and memory exponential in the input. The readings of a node are a
+    /// function of the node (`Grammar::resolve_ambiguities_node`), so computing them once per
+    /// packed node gives the readings the owned tree has at every copy of it.
+    ///
+    /// When the passes `Grammar::lower_inferred` runs before resolving ambiguities only repack
+    /// the forest's trees (`Grammar::lowering_only_repacks`), the tree they give denotes the
+    /// forest's set of readings, and when that set has several elements the report is a
+    /// function of the set (`Grammar::resolve_ambiguities`), so it is this one. When the set
+    /// has one element, the result is that term as the lowered tree's first choice lowers it,
+    /// which depends on how the passes pack the trees, so the trees decide. A failure, of a
+    /// node's lowering or of the report, also leaves the decision to the trees.
+    #[cfg(feature = "z3-inference")]
+    pub(super) fn packed_ambiguity_report(&self, forest: &Rc<PackedTerm>) -> Option<ParseError> {
+        if !self.lowering_only_repacks(forest) {
+            return None;
+        }
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveAmbiguity);
+        let mut sets = ReadingSets::default();
+        let mut readings = HashMap::new();
+        let mut order = StructuralOrder::default();
+        match self
+            .packed_readings(forest, &mut sets, &mut readings, &mut order)
+            .ok()?
+        {
+            Readings::One(_) => None,
+            several @ Readings::Several(_) => self.ambiguity_report(several, &mut sets).ok(),
+        }
+    }
+
+    /// Whether every pass `Grammar::lower_inferred` runs before resolving ambiguities keeps the
+    /// trees of `forest`, so that the tree it hands to resolution denotes the same trees,
+    /// packed differently. It holds when no node of the forest is
+    /// - a bracket or a syntactic cast: `remove_brackets_and_syntactic_casts` replaces one by
+    ///   its child, and `remove_bracket_overloads` drops bracket alternatives;
+    /// - of a production whose source is in the overload relation:
+    ///   `resolve_overloaded_terminators` replaces a nullary one by its least overload, and
+    ///   `remove_overloads` drops an alternative whose source is above another's; a source
+    ///   outside the relation is above none, so every alternative stays;
+    /// - of a `prefer` or `avoid` production, or a token of one: the only nodes by which
+    ///   `filter_overloads_prefer_avoid` and its frontier step drop an alternative;
+    /// - of a production at a user-list sort or with a user-list argument, or a token or a
+    ///   variable of a user-list sort: `add_empty_lists` wraps a child only where it is
+    ///   expected at a user-list sort, an argument sort of the node's production or the sort a
+    ///   side of a rewrite has (`parsed_sort`), and `program_list_terminator` only picks the
+    ///   tail of a list production's node;
+    /// - instantiated: `add_empty_lists` completes its children against the instantiation it
+    ///   computes for them;
+    /// - an outer cast or a `#KToken` node. No pass acts on these; they are declined so that
+    ///   the failure of `lower_term` on an outer cast and the token text a `#KToken` node joins
+    ///   (`Grammar::token_readings`) are left to the trees.
+    ///
+    /// On such a forest every pass rebuilds each node as it is and keeps every alternative of
+    /// each ambiguity. What remains is that `filter_overloads_prefer_avoid` and
+    /// `factor_ambiguities` flatten nested ambiguities and move the ambiguity of alternatives
+    /// that share a production and differ in one child into that child, which keeps the set of
+    /// trees. `add_empty_lists` fails otherwise only on a cyclic subsort relation, on which
+    /// sort inference has already failed.
+    #[cfg(feature = "z3-inference")]
+    fn lowering_only_repacks(&self, forest: &Rc<PackedTerm>) -> bool {
+        let is_list = |sort: &Sort| self.user_lists.contains_key(sort);
+        // The sources of the `prefer` and `avoid` productions, by which `is_preferred` and
+        // `is_avoided` classify a token leaf.
+        let choosing_sources = self
+            .productions
+            .iter()
+            .filter(|production| production.prefer || production.avoid)
+            .filter_map(|production| production.source_production)
+            .collect::<HashSet<_>>();
+        let token_chooses = |leaf: &Term| {
+            leaf.metadata()
+                .and_then(|metadata| metadata.production)
+                .is_some_and(|source| choosing_sources.contains(&source))
+        };
+        let acts_on = |production: &Production| {
+            production.bracket
+                || production.prefer
+                || production.avoid
+                || production.label.as_ref().is_some_and(|label| {
+                    [
+                        InternalLabel::SyntacticCast,
+                        InternalLabel::SyntacticCastBraced,
+                        InternalLabel::OuterCast,
+                        InternalLabel::KToken,
+                    ]
+                    .iter()
+                    .any(|acted| label.is(*acted))
+                })
+                || production
+                    .source_production
+                    .is_some_and(|source| self.overloads.contains(&source))
+                || is_list(&production.result)
+                || production.items.iter().any(|item| match item {
+                    Item::NonTerminal(sort) => is_list(sort),
+                    Item::Terminal(_) | Item::Regex { .. } => false,
+                })
+        };
+        let mut visited = HashSet::new();
+        let mut pending = vec![Rc::clone(forest)];
+        // Invariant: every node pushed is checked once; a node fails the check or pushes its
+        // children, so the loop visits each node of the forest at most once.
+        while let Some(node) = pending.pop() {
+            if !visited.insert(Rc::as_ptr(&node)) {
+                continue;
+            }
+            match &node.node {
+                PackedNode::Term(leaf) => {
+                    let list_token = match leaf.unannotated() {
+                        Term::Token { sort, .. }
+                        | Term::Variable {
+                            sort: Some(sort), ..
+                        } => is_list(sort),
+                        _ => false,
+                    };
+                    if list_token || token_chooses(leaf) {
+                        return false;
+                    }
+                }
+                PackedNode::Production {
+                    production,
+                    children,
+                    ..
+                } => {
+                    if acts_on(&self.productions[*production]) {
+                        return false;
+                    }
+                    pending.extend(children.iter().cloned());
+                }
+                PackedNode::InstantiatedProduction { .. } => return false,
+                PackedNode::Ambiguity(alternatives) => pending.extend(alternatives.iter().cloned()),
+            }
+        }
+        true
+    }
+
+    /// The readings of a node of a packed forest, as `Grammar::resolve_ambiguities_node` gives
+    /// them for each owned copy of it, memoized in `readings` by node. The alternatives of an
+    /// ambiguity are taken in the order of their owned trees (`StructuralOrder`).
+    #[cfg(feature = "z3-inference")]
+    fn packed_readings(
+        &self,
+        term: &Rc<PackedTerm>,
+        sets: &mut ReadingSets,
+        readings: &mut HashMap<*const PackedTerm, Readings>,
+        order: &mut StructuralOrder,
+    ) -> Result<Readings, ParseError> {
+        if let Some(known) = readings.get(&Rc::as_ptr(term)) {
+            return Ok(known.clone());
+        }
+        let result = crate::stack::guarded(|| match &term.node {
+            PackedNode::Term(leaf) => Ok(Readings::One(leaf.clone())),
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let children = children
+                    .iter()
+                    .map(|child| self.packed_readings(child, sets, readings, order))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.production_readings(*production, None, children, metadata.clone(), sets)
+            }
+            PackedNode::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => {
+                let children = children
+                    .iter()
+                    .map(|child| self.packed_readings(child, sets, readings, order))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.production_readings(
+                    *production,
+                    Some(parameters.clone()),
+                    children,
+                    metadata.clone(),
+                    sets,
+                )
+            }
+            PackedNode::Ambiguity(alternatives) => {
+                let mut union = Vec::with_capacity(alternatives.len());
+                for alternative in order.sorted(alternatives) {
+                    union.push(self.packed_readings(&alternative, sets, readings, order)?);
+                }
+                Ok(sets.union(union))
+            }
+        })?;
+        readings.insert(Rc::as_ptr(term), result.clone());
+        Ok(result)
+    }
+
     /// The readings of one node of an inferred tree: its one term, or a node of `sets` that
     /// stands for several without listing them.
     ///
@@ -1747,10 +1963,23 @@ impl Grammar {
         metadata: crate::kast::TermMetadata,
         sets: &mut ReadingSets,
     ) -> Result<Readings, ParseError> {
-        let mut children = children
+        let children = children
             .into_iter()
             .map(|child| self.resolve_ambiguities_node(child, sets))
             .collect::<Result<Vec<_>, _>>()?;
+        self.production_readings(production, parameters, children, metadata, sets)
+    }
+
+    /// The readings of a node of `production` over children of the readings `children`
+    /// (`Grammar::resolve_ambiguities_node`).
+    fn production_readings(
+        &self,
+        production: usize,
+        parameters: Option<Vec<Sort>>,
+        mut children: Vec<Readings>,
+        metadata: crate::kast::TermMetadata,
+        sets: &mut ReadingSets,
+    ) -> Result<Readings, ParseError> {
         if children
             .iter()
             .all(|child| matches!(child, Readings::One(_)))
@@ -5230,6 +5459,80 @@ mod tests {
 
         assert!(matches!(factored, ParsedTerm::Ambiguity(ref items) if items.len() == 3));
         assert_eq!(render(&grammar, &factored), "amb{A, B, C}");
+    }
+
+    #[test]
+    fn factoring_a_forest_with_shared_subforests_matches_factoring_its_trees() {
+        // The forest of `Exp ::= Exp Exp` over six leaves: each span's node is an ambiguity of
+        // its splits, and every span is shared by each split of every span above it, so the
+        // structural comparisons that order one ambiguity's alternatives meet subforests that
+        // the ambiguities above it compare too.
+        let mut grammar = Grammar::default();
+        let pair = add_production(&mut grammar, "Exp", &["Exp", "Exp"], "pair");
+        let wrap = add_production(&mut grammar, "Exp", &["Exp", "Exp"], "wrap");
+        let leaves = 6;
+        let mut spans = BTreeMap::<(usize, usize), Rc<PackedTerm>>::new();
+        for start in 0..leaves {
+            spans.insert(
+                (start, start + 1),
+                PackedTerm::leaf(Term::variable(format!("X{start}"))),
+            );
+        }
+        for width in 2..=leaves {
+            for start in 0..=leaves - width {
+                let end = start + width;
+                let splits = (start + 1..end)
+                    .map(|middle| {
+                        PackedTerm::production(
+                            pair,
+                            vec![
+                                Rc::clone(&spans[&(start, middle)]),
+                                Rc::clone(&spans[&(middle, end)]),
+                            ],
+                            TermMetadata::default(),
+                        )
+                    })
+                    .collect();
+                spans.insert((start, end), PackedTerm::ambiguity(splits));
+            }
+        }
+        // Above the spans, alternatives that differ only in their second child: the factoring
+        // builds one `wrap` over the ambiguity of those children, flattened, whose splits differ
+        // at both positions and stay as they are.
+        let anchor = PackedTerm::leaf(Term::variable("A"));
+        let root = PackedTerm::ambiguity(
+            (2..=leaves)
+                .map(|end| {
+                    PackedTerm::production(
+                        wrap,
+                        vec![Rc::clone(&anchor), Rc::clone(&spans[&(0, end)])],
+                        TermMetadata::default(),
+                    )
+                })
+                .collect(),
+        );
+
+        let packed = grammar
+            .factor_pre_inference_packed_ambiguities(Rc::clone(&root))
+            .unpack();
+        let owned = grammar.factor_ambiguities(root.unpack());
+
+        assert_eq!(packed, owned);
+        let ParsedTerm::Production {
+            production,
+            children,
+            ..
+        } = &packed
+        else {
+            panic!("expected the alternatives' shared production to be factored")
+        };
+        assert_eq!(*production, wrap);
+        assert_eq!(children[0], variable("A"));
+        let splits_from_the_first_leaf = (2..=leaves).map(|end| end - 1).sum::<usize>();
+        assert!(matches!(
+            &children[1],
+            ParsedTerm::Ambiguity(splits) if splits.len() == splits_from_the_first_leaf
+        ));
     }
 
     #[test]

@@ -140,6 +140,33 @@ impl LoweredTerm for ParsedTerm {
     }
 }
 
+/// How a caller turns the sort-inferred trees of a forest into its result.
+pub(super) trait Lowering<T> {
+    /// The result for the inferred trees, packed as one owned tree.
+    fn lower(&self, inferred: ParsedTerm) -> Result<T, ParseError>;
+
+    /// The result for an inferred packed forest when it is known from the forest itself,
+    /// without the owned tree, which can have exponentially more nodes than the forest. Only
+    /// the Z3 engine infers a forest as a whole; the portable one infers tree by tree.
+    #[cfg(feature = "z3-inference")]
+    fn lower_packed(&self, _inferred: &Rc<PackedTerm>) -> Option<Result<T, ParseError>> {
+        None
+    }
+
+    /// The result for an inferred packed forest.
+    #[cfg(feature = "z3-inference")]
+    fn lower_forest(&self, inferred: &Rc<PackedTerm>) -> Result<T, ParseError> {
+        self.lower_packed(inferred)
+            .unwrap_or_else(|| self.lower(inferred.unpack()))
+    }
+}
+
+impl<T, F: Fn(ParsedTerm) -> Result<T, ParseError>> Lowering<T> for F {
+    fn lower(&self, inferred: ParsedTerm) -> Result<T, ParseError> {
+        self(inferred)
+    }
+}
+
 struct Solver<'a> {
     order: &'a PartialOrder<Sort>,
     bounds: Vec<Bounds>,
@@ -171,7 +198,7 @@ impl Grammar {
         term: Rc<PackedTerm>,
         top_sort: &Sort,
         explicitly_anywhere: bool,
-        lower: impl Fn(ParsedTerm) -> Result<T, ParseError>,
+        lower: &impl Lowering<T>,
     ) -> Result<T, ParseError> {
         if !self.packed_sort_inference_supported(&term) {
             #[cfg(feature = "z3-inference")]
@@ -190,7 +217,7 @@ impl Grammar {
             );
         }
         let unpacked = term.unpack();
-        lower(self.infer_sorts(unpacked, top_sort, explicitly_anywhere)?)
+        lower.lower(self.infer_sorts(unpacked, top_sort, explicitly_anywhere)?)
     }
 
     /// Decide a parse none of whose preferred readings is well sorted by the sorts of every
@@ -231,7 +258,7 @@ impl Grammar {
         preferred_error: ParseError,
         top_sort: &Sort,
         explicitly_anywhere: bool,
-        lower: impl Fn(ParsedTerm) -> Result<T, ParseError>,
+        lower: &impl Lowering<T>,
     ) -> Result<T, ParseError> {
         let readings = self.prefer_no_rewrite_inside_a_term(Rc::clone(admitted));
         let merged = self.merge_alternatives_at_every_position(&readings);
@@ -243,7 +270,7 @@ impl Grammar {
             self.finish_pre_inference_packed_forest(readings),
             top_sort,
             explicitly_anywhere,
-            &lower,
+            lower,
         );
         match decided {
             Err(ParseError::SortInference { .. }) => return Err(preferred_error),
@@ -260,7 +287,7 @@ impl Grammar {
                     self.finish_pre_inference_packed_forest(through),
                     top_sort,
                     explicitly_anywhere,
-                    Ok,
+                    &Ok,
                 );
                 if matches!(inferred, Err(ParseError::SortInference { .. })) {
                     continue;
@@ -282,7 +309,7 @@ impl Grammar {
                                 }
                             }
                         }
-                        lower(ParsedTerm::Ambiguity(readings))
+                        lower.lower(ParsedTerm::Ambiguity(readings))
                     }
                     (Err(error), _) | (_, Err(error)) => Err(error),
                 };
@@ -316,14 +343,15 @@ impl Grammar {
         term: Rc<PackedTerm>,
         top_sort: &Sort,
         explicitly_anywhere: bool,
-        lower: impl Fn(ParsedTerm) -> Result<T, ParseError>,
+        lower: &impl Lowering<T>,
     ) -> Result<T, ParseError> {
         if let Ok(decided) =
-            self.infer_ambiguous_sorts_portable(&term, top_sort, explicitly_anywhere, &lower)
+            self.infer_ambiguous_sorts_portable(&term, top_sort, explicitly_anywhere, lower)
         {
             return Ok(decided);
         }
-        lower(self.infer_packed_sorts_z3(term, top_sort, explicitly_anywhere)?)
+        let inferred = self.infer_packed_forest_z3(term, top_sort, explicitly_anywhere)?;
+        lower.lower_forest(&inferred)
     }
 
     /// Checked mode on an ambiguous forest in the z3 build: `None` when the forest is on the
@@ -347,16 +375,16 @@ impl Grammar {
         term: &Rc<PackedTerm>,
         top_sort: &Sort,
         explicitly_anywhere: bool,
-        lower: impl Fn(ParsedTerm) -> Result<Term, ParseError>,
+        lower: &impl Lowering<Term>,
     ) -> Option<Result<Term, ParseError>> {
         if self.packed_sort_inference_supported(term) {
             return None;
         }
         let portable =
-            self.infer_ambiguous_sorts_portable(term, top_sort, explicitly_anywhere, &lower);
+            self.infer_ambiguous_sorts_portable(term, top_sort, explicitly_anywhere, lower);
         let z3 = self
-            .infer_packed_sorts_z3(Rc::clone(term), top_sort, explicitly_anywhere)
-            .and_then(&lower);
+            .infer_packed_forest_z3(Rc::clone(term), top_sort, explicitly_anywhere)
+            .and_then(|inferred| lower.lower_forest(&inferred));
         if matches!(portable, Err(ParseError::Z3InferenceRequired { .. })) {
             return Some(z3);
         }
@@ -406,7 +434,7 @@ impl Grammar {
         term: &Rc<PackedTerm>,
         top_sort: &Sort,
         explicitly_anywhere: bool,
-        lower: impl Fn(ParsedTerm) -> Result<T, ParseError>,
+        lower: &impl Lowering<T>,
     ) -> Result<T, ParseError> {
         let (ambiguity, parametric_sorts) = self.packed_z3_reasons(term);
         let required = || ParseError::Z3InferenceRequired {
@@ -429,7 +457,7 @@ impl Grammar {
         {
             let mut lowered = trees
                 .iter()
-                .map(|tree| lower(joined(vec![PackedTerm::from_parsed(tree)])));
+                .map(|tree| lower.lower(joined(vec![PackedTerm::from_parsed(tree)])));
             let Some(Ok(first)) = lowered.next() else {
                 return Err(required());
             };
@@ -437,7 +465,7 @@ impl Grammar {
                 return Err(required());
             }
         }
-        lower(joined(groups.into_iter().map(|group| group.term).collect()))
+        lower.lower(joined(groups.into_iter().map(|group| group.term).collect()))
     }
 
     /// The well-sorted trees of an ambiguous monomorphic forest that no other tree's typing
@@ -1567,7 +1595,7 @@ fn engine_disagreement<T: std::fmt::Debug>(
 
 /// The number of complete trees of a packed forest, saturating at `usize::MAX`. Shared nodes
 /// are counted once each, so the count costs time linear in the forest's distinct nodes.
-fn packed_tree_count(term: &Rc<PackedTerm>) -> usize {
+pub(super) fn packed_tree_count(term: &Rc<PackedTerm>) -> usize {
     fn count(term: &Rc<PackedTerm>, memo: &mut HashMap<*const PackedTerm, usize>) -> usize {
         crate::stack::guarded(|| {
             if let Some(count) = memo.get(&Rc::as_ptr(term)) {
@@ -1928,7 +1956,7 @@ impl Grammar {
                 continue;
             }
             if let Ok(inferred) =
-                self.infer_packed_sorts(PackedTerm::from_parsed(&tree), start, false, Ok)
+                self.infer_packed_sorts(PackedTerm::from_parsed(&tree), start, false, &Ok)
             {
                 candidates.push((tree, ranks, inferred));
             }
@@ -2462,7 +2490,7 @@ mod tests {
         let (grammar, forest) = independent_ambiguities(within);
         assert!(!grammar.packed_sort_inference_supported(&forest));
         let decided = grammar
-            .infer_ambiguous_sorts_portable(&forest, &top, false, Ok)
+            .infer_ambiguous_sorts_portable(&forest, &top, false, &Ok)
             .expect("the all-`big` tree's typing strictly exceeds every other tree's");
         assert_eq!(
             Grammar::ambiguity_count(&decided),
@@ -2472,7 +2500,7 @@ mod tests {
 
         let (grammar, forest) = independent_ambiguities(within + 1);
         assert_eq!(
-            grammar.infer_ambiguous_sorts_portable(&forest, &top, false, Ok),
+            grammar.infer_ambiguous_sorts_portable(&forest, &top, false, &Ok),
             Err(ParseError::Z3InferenceRequired {
                 ambiguity: true,
                 parametric_sorts: false,
@@ -2527,11 +2555,11 @@ mod tests {
         let top = Sort::new("Big");
 
         let portable = grammar
-            .infer_ambiguous_sorts_portable(&forest, &top, false, Ok)
+            .infer_ambiguous_sorts_portable(&forest, &top, false, &Ok)
             .expect("both bracket readings are well-sorted");
         assert_eq!(Grammar::ambiguity_count(&portable), 2, "{portable:?}");
         let checked = grammar
-            .checked_ambiguous_parse(&forest, &top, false, |tree| {
+            .checked_ambiguous_parse(&forest, &top, false, &|tree| {
                 grammar.lower_inferred(tree, &top)
             })
             .expect("the portable engine decides the forest");
@@ -2550,13 +2578,13 @@ mod tests {
         let top = Sort::new("Good");
         let lower = |tree| grammar.lower_inferred(tree, &top);
         assert!(matches!(
-            grammar.infer_ambiguous_sorts_portable(&forest, &top, false, lower),
+            grammar.infer_ambiguous_sorts_portable(&forest, &top, false, &lower),
             Err(ParseError::Z3InferenceRequired { .. })
         ));
         let checked = grammar
-            .checked_ambiguous_parse(&forest, &top, false, lower)
+            .checked_ambiguous_parse(&forest, &top, false, &lower)
             .expect("checked mode decides every forest outside the unambiguous path");
-        let default = grammar.infer_packed_sorts(Rc::clone(&forest), &top, false, lower);
+        let default = grammar.infer_packed_sorts(Rc::clone(&forest), &top, false, &lower);
         assert!(default.is_ok(), "{default:?}");
         match (checked, default) {
             (Ok(checked), Ok(default)) => assert!(checked.identical(&default), "{checked:?}"),

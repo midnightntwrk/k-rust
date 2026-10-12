@@ -551,6 +551,66 @@ mod tests {
         Some(sentence.join(" "))
     }
 
+    /// The case of `completion_pruning_matches_unfiltered_recognition_with_priorities` that
+    /// ran a run of the suite out of memory: `S0 ::= S0 S0 | S0 "d" | "d" | "c" "a" "c" "a"`
+    /// over thirteen tokens is ambiguous with exponentially many trees: over eight `d`s alone
+    /// the grammar has 349,074 trees, an owned tree of 1.1 million nodes, and each further `d`
+    /// multiplies both about fourteenfold. Both recognitions report the ambiguity from the
+    /// forest, without building the owned tree of its trees (`forest::unpacked_nodes`), which
+    /// took memory exponential in the input.
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn an_ambiguity_of_exponentially_many_trees_is_reported_from_the_forest() {
+        let productions: Vec<(u8, Vec<u8>)> = vec![
+            (2, vec![6]),
+            (0, vec![7, 0]),
+            (0, vec![5, 3, 5, 3]),
+            (0, vec![6]),
+            (0, vec![0, 6]),
+            (2, vec![]),
+            (2, vec![3, 6]),
+            (2, vec![0, 5, 4, 4]),
+        ];
+        let mut sentences = vec![production("Start", vec![nt("S0")], "start")];
+        for (index, (result, items)) in productions.iter().enumerate() {
+            let items = items
+                .iter()
+                .map(|item| match item {
+                    0..=2 => nt(&format!("S{item}")),
+                    3 => terminal("a"),
+                    4 => terminal("b"),
+                    5 => terminal("c"),
+                    6 => terminal("d"),
+                    _ => nt("S0"),
+                })
+                .collect();
+            sentences.push(production(
+                &format!("S{result}"),
+                items,
+                &format!("p{index}"),
+            ));
+        }
+        sentences.push(Sentence::SyntaxPriority {
+            priorities: vec![
+                vec!["p1".to_string(), "p3".to_string()],
+                vec!["p5".to_string()],
+                vec!["p7".to_string()],
+            ],
+            attributes: Attributes::default(),
+        });
+        let grammar = Grammar::from_sentences(&sentences).unwrap();
+        let input = "d d c a c a d d d d d d d";
+
+        super::super::forest::reset_unpacked_nodes();
+        pruning_agrees_with_unfiltered_recognition(&grammar, input).unwrap();
+        let parsed = filtered(&grammar, input);
+        assert!(
+            matches!(parsed, Err(ParseError::Ambiguous { .. })),
+            "{parsed:?}"
+        );
+        assert_eq!(super::super::forest::unpacked_nodes(), 0);
+    }
+
     fn attempt(
         grammar: &Grammar,
         input: &str,
@@ -2877,7 +2937,7 @@ mod tests {
             .prepare_packed_forest(PackedTerm::ambiguity(recognition.parses), &memos)
             .unwrap();
         let lower = |tree| grammar.lower_inferred(tree, &start_sort);
-        let portable = grammar.infer_ambiguous_sorts_portable(&forest, &start_sort, false, lower);
+        let portable = grammar.infer_ambiguous_sorts_portable(&forest, &start_sort, false, &lower);
         let z3 = grammar
             .infer_packed_sorts_z3(std::rc::Rc::clone(&forest), &start_sort, false)
             .and_then(&lower);

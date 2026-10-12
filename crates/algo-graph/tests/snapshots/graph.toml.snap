@@ -6770,7 +6770,7 @@ symbol = "Grammar::factor_pre_inference_packed_ambiguities"
 
 [[node.cost]]
 mode = "one parse forest"
-bound = "O(N x A)"
+bound = "O(N x A), plus the structural ordering that chooses each ambiguity's first alternative, whose pair comparisons the pass shares"
 
 [[node]]
 kind = "algorithm"
@@ -6966,7 +6966,7 @@ id = "parser.disambiguation.resolve_ambiguity"
 provenance = "declared"
 area = "parser"
 name = "resolution and reporting of remaining ambiguity"
-variable = "N = owned nodes; A = ambiguity alternatives"
+variable = "N = owned nodes; A = ambiguity alternatives; F = nodes of an inferred packed forest; R = productions in the grammar"
 no_counter = "final ambiguity resolution has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -6992,9 +6992,28 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::factor_ambiguities"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::packed_ambiguity_report"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::lowering_only_repacks"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::packed_readings"
+
 [[node.cost]]
 mode = "one parsed tree"
 bound = "O(N) lowering (parser.lower.term) when every ambiguity has one reading; otherwise each node's readings are an expression over its children's, built once per structure: a product, the union of an ambiguity node's alternatives (equal terms merged by hash, O(A) per node), or the concatenation a `~>` node splices, with only the string tokens of a #KToken node's two children paired; the report is polynomial in N and never lists or counts the readings: each question it asks a node (root keys, subterms at a position of the readings of one key, items at an index of the words of one length, least reading, least word of a length) is answered once per node and argument from its children's answers, an item of a concatenation in O(N^2) over its children and the lengths before them, and it builds one term per entry it lists"
+
+[[node.cost]]
+mode = "one inferred packed forest (z3)"
+bound = "O(F + R) to check that the passes before resolution only repack its trees; when they do and it has several readings, the readings and the report as for a parsed tree with F in place of N, each node's readings built once, plus the structural ordering of each ambiguity's alternatives; otherwise the forest is unpacked and lowered as a parsed tree"
 
 [[node]]
 kind = "algorithm"
@@ -7605,12 +7624,12 @@ lean = [
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
-symbol = "Grammar::infer_packed_sorts_z3"
+symbol = "Grammar::infer_packed_forest_z3"
 
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
-symbol = "Grammar::infer_packed_sorts_z3"
+symbol = "Grammar::infer_packed_forest_z3"
 
 [[node.sites]]
 crate = "k-rust"
