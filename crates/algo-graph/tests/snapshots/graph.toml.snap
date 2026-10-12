@@ -7359,7 +7359,7 @@ bound = "O(1) unless the fingerprints tie, then O(N)"
 
 [[node.cost]]
 mode = "cmp_packed_structurally"
-bound = "O(P x A log A)"
+bound = "O(P x A) plus one sort of the alternatives of each compared ambiguity, O(A log A) comparisons"
 
 [[node.cost]]
 mode = "packed_terms_in_structural_order"
@@ -7367,7 +7367,7 @@ bound = "O(n log n) structural comparisons sharing one pair memo"
 
 [[node.cost]]
 mode = "StructuralOrder::sorted, the orderings of one pass"
-bound = "every distinct node pair the pass's orderings reach is compared once, O(A log A) per compared ambiguity pair, plus O(n log n) memo lookups per ordered set"
+bound = "every distinct node pair the pass's orderings reach is compared once, O(A) per compared ambiguity pair after each compared ambiguity's alternatives are sorted once, O(A log A), plus O(n log n) memo lookups per ordered set"
 
 [[node]]
 kind = "algorithm"
@@ -7842,7 +7842,7 @@ bound = "O(H + G^2 + R) plus one clone of the grammar's subsort order (built by 
 
 [[node.cost]]
 mode = "one inference"
-bound = "O(N x M + c)"
+bound = "O(N x M + c), plus the structural order of the forest's ambiguities (parser.forest.order), one StructuralOrder shared by the identities, the term constraint and every model application of the inference"
 
 [[node.cost]]
 mode = "unsatisfiable replay"

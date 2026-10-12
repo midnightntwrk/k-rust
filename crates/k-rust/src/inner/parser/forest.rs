@@ -24,7 +24,7 @@
 //!
 //! [[cost]]
 //! mode = "cmp_packed_structurally"
-//! bound = "O(P x A log A)"
+//! bound = "O(P x A) plus one sort of the alternatives of each compared ambiguity, O(A log A) comparisons"
 //!
 //! [[cost]]
 //! mode = "packed_terms_in_structural_order"
@@ -32,7 +32,7 @@
 //!
 //! [[cost]]
 //! mode = "StructuralOrder::sorted, the orderings of one pass"
-//! bound = "every distinct node pair the pass's orderings reach is compared once, O(A log A) per compared ambiguity pair, plus O(n log n) memo lookups per ordered set"
+//! bound = "every distinct node pair the pass's orderings reach is compared once, O(A) per compared ambiguity pair after each compared ambiguity's alternatives are sorted once, O(A log A), plus O(n log n) memo lookups per ordered set"
 //! ```
 //!
 //! ```toml algorithm
@@ -606,8 +606,12 @@ pub(super) fn cmp_packed_structurally(
 #[derive(Default)]
 pub(super) struct StructuralOrder {
     pairs: rustc_hash::FxHashMap<(*const PackedTerm, *const PackedTerm), std::cmp::Ordering>,
-    /// Every node a recorded pair names, kept alive while the pairs are, so that no other node
-    /// takes its address meanwhile.
+    /// The alternatives of each compared ambiguity in structural order, so that an ambiguity
+    /// compared with many others is sorted once: the order of its alternatives is a function of
+    /// the ambiguity.
+    alternatives: rustc_hash::FxHashMap<*const PackedTerm, Rc<[Rc<PackedTerm>]>>,
+    /// Every node a recorded pair or sorted ambiguity names, kept alive while the records are,
+    /// so that no other node takes its address meanwhile.
     nodes: rustc_hash::FxHashMap<*const PackedTerm, Rc<PackedTerm>>,
 }
 
@@ -928,13 +932,11 @@ fn compare_packed_structurally(
                 (PackedNode::Term(left), PackedNode::Term(right)) => left.cmp(right),
                 (PackedNode::Term(_), PackedNode::Ambiguity(_)) => Ordering::Less,
                 (PackedNode::Ambiguity(_), PackedNode::Term(_)) => Ordering::Greater,
-                (PackedNode::Ambiguity(left), PackedNode::Ambiguity(right)) => {
-                    let mut left = left.iter().cloned().collect::<Vec<_>>();
-                    let mut right = right.iter().cloned().collect::<Vec<_>>();
-                    left.sort_by(|left, right| compare(left, right, memo));
-                    right.sort_by(|left, right| compare(left, right, memo));
+                (PackedNode::Ambiguity(_), PackedNode::Ambiguity(_)) => {
+                    let left = sorted_alternatives(left, memo);
+                    let right = sorted_alternatives(right, memo);
                     left.iter()
-                        .zip(&right)
+                        .zip(right.iter())
                         .map(|(left, right)| compare(left, right, memo))
                         .find(|ordering| !ordering.is_eq())
                         .unwrap_or_else(|| left.len().cmp(&right.len()))
@@ -946,6 +948,28 @@ fn compare_packed_structurally(
             memo.nodes.entry(key.1).or_insert_with(|| Rc::clone(right));
             ordering
         })
+    }
+
+    /// The alternatives of `ambiguity` in structural order, sorted once per memo.
+    fn sorted_alternatives(
+        ambiguity: &Rc<PackedTerm>,
+        memo: &mut StructuralOrder,
+    ) -> Rc<[Rc<PackedTerm>]> {
+        let identity = Rc::as_ptr(ambiguity);
+        if let Some(sorted) = memo.alternatives.get(&identity) {
+            return Rc::clone(sorted);
+        }
+        let PackedNode::Ambiguity(alternatives) = &ambiguity.node else {
+            unreachable!("only ambiguities have alternatives to sort")
+        };
+        let mut sorted = alternatives.iter().cloned().collect::<Vec<_>>();
+        sorted.sort_by(|left, right| compare(left, right, memo));
+        let sorted = Rc::<[Rc<PackedTerm>]>::from(sorted);
+        memo.alternatives.insert(identity, Rc::clone(&sorted));
+        memo.nodes
+            .entry(identity)
+            .or_insert_with(|| Rc::clone(ambiguity));
+        sorted
     }
 
     compare(left, right, order)
@@ -1284,6 +1308,19 @@ mod tests {
                 }
             }
             prop_assert_eq!(cmp_packed_structurally(&left, &left), std::cmp::Ordering::Equal);
+            // One order shared by many comparisons reuses its pairs and sorted ambiguities and
+            // orders every pair as a fresh one does.
+            let mut order = StructuralOrder::default();
+            for (first, second) in [
+                (&middle, &left),
+                (&left, &right),
+                (&right, &middle),
+                (&left, &middle),
+                (&right, &left),
+                (&middle, &right),
+            ] {
+                prop_assert_eq!(order.cmp(first, second), cmp_packed_structurally(first, second));
+            }
             if cmp_packed_structurally(&left, &middle).is_le()
                 && cmp_packed_structurally(&middle, &right).is_le()
             {
