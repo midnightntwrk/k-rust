@@ -831,8 +831,11 @@ struct Concretizer<'use_, 'definition> {
     completed_parents: std::cell::Cell<usize>,
     /// The frames `...` of the last sentence's written parent cells that are not written after
     /// the items only, by the name of the variable each compiles to, with where it is written
-    /// and the label of its cell ([`Self::insert_rest`]).
-    rest_sides: BTreeMap<String, (RestSide, String)>,
+    /// ([`Self::place_lists`]).
+    rest_sides: BTreeMap<String, RestSide>,
+    /// Whether [`Self::sort_cells`] is below the right side of a rewrite, where a cell is built
+    /// rather than matched.
+    under_right_side: bool,
 }
 
 /// Where the frame `...` of a parent cell is written, when not after the items only.
@@ -842,6 +845,24 @@ enum RestSide {
     Leading,
     /// On both sides of the items (`<rs> ... <r> R </r> ... </rs>`).
     Both,
+}
+
+/// A term written in a cell body that is part of the list of an ordered (`type="List"`)
+/// `multiplicity="*"` child, in written order ([`Concretizer::place_lists`]).
+enum ListPart {
+    /// The child term placed for an item of the child's sort.
+    Item(Sort, Term),
+    /// The variable of unknown cell sort at this index among the body's variables, whose parts
+    /// are known once every item of the body is placed.
+    Unknown(usize),
+}
+
+/// The child of sort `sort` of `cell`, when it is an ordered (`type="List"`) `multiplicity="*"`
+/// child.
+fn list_child<'cell>(cell: &'cell Cell, sort: &Sort) -> Option<&'cell Child> {
+    cell.children.iter().find(|child| {
+        child.sort == *sort && child.multiplicity == Multiplicity::Star && child.ordered
+    })
 }
 
 /// A cell written inside a parent cell that the configuration does not place it under, lifted
@@ -907,6 +928,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             moved_cells: RefCell::new(Vec::new()),
             completed_parents: std::cell::Cell::new(0),
             rest_sides: BTreeMap::new(),
+            under_right_side: false,
         }
     }
 
@@ -918,6 +940,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         self.generated.clear();
         self.fragments.clear();
         self.rest_sides.clear();
+        self.under_right_side = false;
         self.conjoins_fragment = false;
         self.moved_cells.borrow_mut().clear();
         self.concretize_sentence(sentence).map_err(|message| {
@@ -1524,6 +1547,16 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         let mut others = Vec::new();
         let mut riders = Vec::new();
         let mut moved = Vec::new();
+        let target_level = self.model.levels[&cell.sort] + 1;
+        // The instances of a list are in the order of the body, so each item of `others` keeps
+        // its place among the cells written as children of `cell`: the number of those written
+        // before it, by its index in `others`.
+        let lists = cell
+            .children
+            .iter()
+            .any(|child| child.multiplicity == Multiplicity::Star && child.ordered);
+        let mut children_before = Vec::new();
+        let mut children = 0;
         // Invariant: the items before `item` are split into rewrites of one cell sort each where
         // they are rewrites of cells of several known sorts, in written order; each item is
         // visited once and split by one walk of its two sides.
@@ -1540,19 +1573,22 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         for (item, item_riders) in items {
             match self.model.slot_sort(&item) {
                 Some(sort) if self.model.is_strictly_below(&sort, &cell.sort) => {
+                    if self.model.levels[&sort] == target_level {
+                        children += 1;
+                    }
                     completion.push((item, item_riders));
                 }
                 Some(sort) => {
                     moved.push(self.lift(item, sort, label, cell, item_riders, origin)?);
                 }
                 None => {
+                    children_before.push(children);
                     others.push(item);
                     riders.extend(item_riders);
                 }
             }
         }
         let mut completion = self.place_in_written_ancestors(cell, completion)?;
-        let target_level = self.model.levels[&cell.sort] + 1;
         let level = |(item, _): &(Term, Vec<MovedCell>)| {
             self.model
                 .slot_sort(item)
@@ -1600,6 +1636,23 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 retained.extend(built);
             }
             completion = retained;
+        }
+        // `completion` now holds the cells written as children of `cell`, in written order (only
+        // deeper cells are wrapped, and each wrapper built is appended), then the wrappers built.
+        let mut completion = completion.into_iter();
+        if lists {
+            let mut placed = 0;
+            let mut merged = Vec::with_capacity(others.len() + completion.len());
+            // Invariant: `merged` holds the items of `others` before `item` and the first `placed` items of `completion`, each written before the next item of `others`, all in written order; each item is moved once.
+            for (item, before) in others.into_iter().zip(children_before) {
+                for (child, child_riders) in completion.by_ref().take(before - placed) {
+                    merged.push(child);
+                    riders.extend(child_riders);
+                }
+                placed = placed.max(before);
+                merged.push(item);
+            }
+            others = merged;
         }
         for (item, item_riders) in completion {
             others.push(item);
@@ -3197,8 +3250,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         } else {
                             RestSide::Leading
                         };
-                        self.rest_sides
-                            .insert(name.clone(), (side, label.name.clone()));
+                        self.rest_sides.insert(name.clone(), side);
                     }
                     contents.push(rest);
                 }
@@ -3368,10 +3420,16 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     }
                 }
             }
-            TermParts::Rewrite { left, right } => Term::Rewrite {
-                left: Box::new(self.sort_cells_with_fragments(*left, replace_fragments)?),
-                right: Box::new(self.sort_cells_with_fragments(*right, replace_fragments)?),
-            },
+            TermParts::Rewrite { left, right } => {
+                let left = self.sort_cells_with_fragments(*left, replace_fragments)?;
+                let under_right_side = std::mem::replace(&mut self.under_right_side, true);
+                let right = self.sort_cells_with_fragments(*right, replace_fragments);
+                self.under_right_side = under_right_side;
+                Term::Rewrite {
+                    left: Box::new(left),
+                    right: Box::new(right?),
+                }
+            }
             TermParts::As { pattern, alias } => Term::As {
                 pattern: Box::new(self.sort_cells_with_fragments(*pattern, replace_fragments)?),
                 alias: Box::new(self.sort_cells_with_fragments(*alias, replace_fragments)?),
@@ -3406,8 +3464,9 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     ) -> Result<Term, String> {
         let arguments = self.merge_one_sided_rewrites(arguments, cell);
         let mut ordered = BTreeMap::<Sort, Term>::new();
+        let mut listed = Vec::new();
         let mut unknown = Vec::new();
-        // Invariant: `ordered` holds the child terms placed for the items of `arguments` before `item`, concatenated per sort by `insert_child`, and `unknown` holds the bare variables among them; each item is visited once.
+        // Invariant: `ordered` holds the child terms placed for the items of `arguments` before `item` in children that are not lists, concatenated per sort by `insert_child`; `listed` holds, in written order, those placed in lists and the indexes in `unknown` of the bare variables among them, which `unknown` holds; each item is visited once.
         for item in arguments {
             if let Term::Rewrite { left, right } = item.unannotated() {
                 let left_side = left.as_ref();
@@ -3462,8 +3521,9 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         })
                         .or_else(|| unit(child))
                         .ok_or_else(|| format!("Cannot rewrite required cell {sort} to unit"))?;
-                    self.insert_child(
+                    self.place_item(
                         &mut ordered,
+                        &mut listed,
                         sort,
                         Term::Rewrite {
                             left: Box::new(left),
@@ -3473,8 +3533,9 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     )?;
                 }
             } else if let Some(sort) = self.model.sort_for_term(&item) {
-                self.insert_child(&mut ordered, sort, item, cell)?;
+                self.place_item(&mut ordered, &mut listed, sort, item, cell)?;
             } else if matches!(item.unannotated(), Term::Variable { .. }) {
+                listed.push(ListPart::Unknown(unknown.len()));
                 unknown.push(item);
             } else if let Term::As { pattern, alias } = item.unannotated() {
                 // `P #as V` denotes `P` and binds `V` to it, so it takes the child slot `P`
@@ -3503,60 +3564,72 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         }
                     ));
                 };
-                self.insert_child(&mut ordered, sort, item, cell)?;
+                self.place_item(&mut ordered, &mut listed, sort, item, cell)?;
             } else {
                 return Err(self.unplaceable_item(&item, None, cell));
             }
         }
-        // Invariant: `ordered` holds the children placed for the variables of `unknown` before `variable`; each variable without a fragment split scans `cell.children` once, O(|unknown| * |cell.children|).
-        for variable in unknown {
+        // The parts of each variable of `unknown` in lists, by its index, and the frame `...`
+        // among them with where it is written.
+        let mut unknown_parts = Vec::with_capacity(unknown.len());
+        let mut frame = None;
+        // Invariant: `ordered` holds the children placed outside lists for the variables of `unknown` before `variable`, and `unknown_parts` their parts in lists; each variable without a fragment split scans `cell.children` once, O(|unknown| * |cell.children|).
+        for (index, variable) in unknown.into_iter().enumerate() {
             #[expect(
                 clippy::wildcard_enum_match_arm,
                 reason = "Term is syntax; only the listed variants are special here"
             )]
             let variable_name = match variable.unannotated() {
-                Term::Variable { name, .. } => name,
+                Term::Variable { name, .. } => name.clone(),
                 _ => unreachable!(),
             };
-            let rest = self.rest_sides.get(variable_name).cloned();
-            if let Some(info) = self.fragments.get(variable_name) {
-                for (sort, split) in info.split.clone() {
-                    self.insert_rest(&mut ordered, sort, split, cell, rest.as_ref())?;
-                }
-                continue;
+            if self
+                .generated
+                .contains(&GeneratedVariableIdentity::element(variable_name.clone()))
+            {
+                frame = Some((index, self.rest_sides.get(&variable_name).copied()));
             }
-            let candidates = cell
-                .children
-                .iter()
-                .filter(|child| {
-                    child.multiplicity == Multiplicity::Star || !ordered.contains_key(&child.sort)
-                })
-                .collect::<Vec<_>>();
-            match candidates.as_slice() {
-                [] => {}
-                [child] => {
-                    let variable = set_variable_sort(variable, child.value_sort.clone());
-                    self.insert_rest(
-                        &mut ordered,
+            let parts = if let Some(info) = self.fragments.get(&variable_name) {
+                info.split.clone().into_iter().collect::<Vec<_>>()
+            } else {
+                let candidates = cell
+                    .children
+                    .iter()
+                    .filter(|child| {
+                        child.multiplicity == Multiplicity::Star
+                            || !ordered.contains_key(&child.sort)
+                    })
+                    .collect::<Vec<_>>();
+                match candidates.as_slice() {
+                    [] => Vec::new(),
+                    [child] => vec![(
                         child.sort.clone(),
-                        variable,
-                        cell,
-                        rest.as_ref(),
-                    )?;
+                        set_variable_sort(variable, child.value_sort.clone()),
+                    )],
+                    _ => {
+                        return Err(format!(
+                            "Cell fragment variable is ambiguous under {} across child sorts {}",
+                            label.name,
+                            candidates
+                                .iter()
+                                .map(|child| child.sort.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ));
+                    }
                 }
-                _ => {
-                    return Err(format!(
-                        "Cell fragment variable is ambiguous under {} across child sorts {}",
-                        label.name,
-                        candidates
-                            .iter()
-                            .map(|child| child.sort.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ));
+            };
+            let mut in_lists = Vec::new();
+            for (sort, part) in parts {
+                if list_child(cell, &sort).is_some() {
+                    in_lists.push((sort, part));
+                } else {
+                    self.insert_child(&mut ordered, sort, part, cell)?;
                 }
             }
+            unknown_parts.push((variable_name, in_lists));
         }
+        self.place_lists(&mut ordered, &listed, &unknown_parts, frame, cell)?;
         let mut result = Vec::with_capacity(cell.children.len());
         for child in &cell.children {
             if let Some(term) = ordered.remove(&child.sort) {
@@ -3834,53 +3907,176 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         Ok(())
     }
 
-    /// Place `term`, the part of a term of unknown cell sort written in a body of `cell` that
-    /// stands for children of sort `sort`, after the items of `ordered` placed there, as
-    /// [`Self::insert_child`] does; when `term` is a frame `...` (`rest`, where it is written)
-    /// and `sort` is an ordered (`type="List"`) `multiplicity="*"` child, place it where it is
-    /// written instead.
-    ///
-    /// The instances of a list are in an order the rule matches, and the frame stands for the
-    /// instances no item written beside it is: written before the items, it is the part of the
-    /// list before them (`<rs> ... <r> R </r> </rs>` writes `R` last), and written after them,
-    /// the part after them. Written on both sides of items of the list, it would stand for the
-    /// instances on either side of them, two parts of one list whose division the rule does not
-    /// state, and the rule is rejected: an instance of a list is written at one of its ends.
-    fn insert_rest(
+    /// Place `item`, a child term of sort `sort` written in a body of `cell`: in written order
+    /// in `listed` when `sort` is an ordered (`type="List"`) `multiplicity="*"` child, whose list
+    /// is concatenated once the variables of the body are placed too ([`Self::place_lists`]), and
+    /// in `ordered` otherwise ([`Self::insert_child`]).
+    fn place_item(
         &self,
         ordered: &mut BTreeMap<Sort, Term>,
+        listed: &mut Vec<ListPart>,
         sort: Sort,
-        term: Term,
+        item: Term,
         cell: &Cell,
-        rest: Option<&(RestSide, String)>,
     ) -> Result<(), String> {
-        let ordered_child = cell.children.iter().find(|child| {
-            child.sort == sort && child.multiplicity == Multiplicity::Star && child.ordered
-        });
-        match (rest, ordered_child) {
-            (Some((RestSide::Leading, _)), Some(child)) => {
-                let placed = match ordered.remove(&sort) {
-                    Some(items) => {
-                        let concat = child.concat.as_ref().ok_or_else(|| {
-                            format!("No concatenation label for repeated cell {sort}")
-                        })?;
-                        Term::Apply {
-                            label: concat.clone(),
-                            arguments: vec![term, items],
+        if list_child(cell, &sort).is_some() {
+            listed.push(ListPart::Item(sort, item));
+            Ok(())
+        } else {
+            self.insert_child(ordered, sort, item, cell)
+        }
+    }
+
+    /// Place in `ordered` the list of each ordered (`type="List"`) `multiplicity="*"` child of
+    /// `cell`: the concatenation, in the order they are written in the body, of the child terms
+    /// in `listed` and of the parts in that list of the body's variables of unknown cell sort
+    /// (`unknown_parts`, by the index `listed` gives, with the name each is written with), except
+    /// the frame `...` (`frame`: its index and where it is written, when not after the items
+    /// only), which is placed on the side of the items where it is written.
+    ///
+    /// The instances of a list are in an order the rule matches, and each term of the body states
+    /// its part of the list where it is written: an item one instance, a variable (of the list's
+    /// sort, of `Bag`, or of no cell sort) the part between the items written before it and those
+    /// written after it, and the frame the instances no item written beside it is, on its side of
+    /// them (`<rs> ... <r> R </r> </rs>` writes `R` last; a cell completion builds has its frame
+    /// after the cells it holds). A rule matches a list by the items at its two ends around at
+    /// most one part a term stands for: the items before that part are the first instances of the
+    /// list, those after it the last, a split at each end. Two such parts in a list the rule
+    /// matches divide the instances between them in a way the rule does not state, and an item
+    /// written between them could be any instance, so the rule is rejected, as it is when the
+    /// frame is written on both sides of items, standing for the two parts on either side of
+    /// them. A list built on the right side of a rewrite is not matched: it is the concatenation
+    /// of its parts, any number of which are variables.
+    fn place_lists(
+        &self,
+        ordered: &mut BTreeMap<Sort, Term>,
+        listed: &[ListPart],
+        unknown_parts: &[(String, Vec<(Sort, Term)>)],
+        frame: Option<(usize, Option<RestSide>)>,
+        cell: &Cell,
+    ) -> Result<(), String> {
+        let frame_index = frame.map(|(index, _)| index);
+        let frame_part = frame_index.map(ListPart::Unknown);
+        let leading = matches!(frame, Some((_, Some(RestSide::Leading))));
+        let both_sides = matches!(frame, Some((_, Some(RestSide::Both))));
+        let order = leading
+            .then_some(frame_part.as_ref())
+            .flatten()
+            .into_iter()
+            .chain(listed.iter().filter(
+                |part| !matches!(part, ListPart::Unknown(index) if Some(*index) == frame_index),
+            ))
+            .chain((!leading).then_some(frame_part.as_ref()).flatten())
+            .collect::<Vec<_>>();
+        let matched = !self.under_right_side;
+        for child in &cell.children {
+            if list_child(cell, &child.sort).is_none() {
+                continue;
+            }
+            let mut elements = Vec::new();
+            let mut rests = Vec::new();
+            let mut has_item = false;
+            let mut has_frame = false;
+            // Invariant: `elements` holds the child terms of the parts in `order` before `part` that are in `child`'s list, `rests` the written names of the terms among them that stand for a part of the list in a matched list, and `has_item` and `has_frame` whether an item and the frame are among them; each part is visited once, O(|order| + the size of their child terms).
+            for part in &order {
+                match part {
+                    ListPart::Item(sort, term) if *sort == child.sort => {
+                        has_item = true;
+                        if matched {
+                            self.list_rests(term, child, &mut rests);
+                        }
+                        elements.push(term.clone());
+                    }
+                    ListPart::Item(..) => {}
+                    ListPart::Unknown(index) => {
+                        let (name, parts) = &unknown_parts[*index];
+                        for (_, term) in parts.iter().filter(|(sort, _)| *sort == child.sort) {
+                            if Some(*index) == frame_index {
+                                has_frame = true;
+                                rests.push("...".to_owned());
+                            } else {
+                                rests.push(name.clone());
+                            }
+                            elements.push(term.clone());
                         }
                     }
-                    None => term,
+                }
+            }
+            let instance = &self.model.cells[&child.sort].label.name;
+            if both_sides && has_frame && has_item {
+                return Err(format!(
+                    "The cell {} is written with ... on both sides of items of its type=\"List\" collection of {instance} cells: a rule matches an instance of a list at one of its ends, so write ... before the items to match them at the end of the list, or after them to match them at its front",
+                    cell.label.name
+                ));
+            }
+            if matched && rests.len() > 1 {
+                let mut names = rests
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>();
+                let last = names.pop().unwrap_or_default();
+                return Err(format!(
+                    "The cell {} is written with {} and {last} among the items of its type=\"List\" collection of {instance} cells, each standing for a part of the list that no item written there is: a rule matches a list by the items at its two ends around at most one such part, and two of them divide the list in a way the rule does not state, so write at most one variable or ... in a list",
+                    cell.label.name,
+                    names.join(", ")
+                ));
+            }
+            let mut elements = elements.into_iter();
+            let Some(first) = elements.next() else {
+                continue;
+            };
+            // Invariant: `list` is the concatenation of the elements before `element`; each element is visited once.
+            let mut list = first;
+            for element in elements {
+                let concat = child.concat.as_ref().ok_or_else(|| {
+                    format!("No concatenation label for repeated cell {}", child.sort)
+                })?;
+                list = Term::Apply {
+                    label: concat.clone(),
+                    arguments: vec![list, element],
                 };
-                ordered.insert(sort, placed);
-                Ok(())
             }
-            (Some((RestSide::Both, written)), Some(child)) if ordered.contains_key(&sort) => {
-                let instance = &self.model.cells[&child.sort].label.name;
-                Err(format!(
-                    "The cell {written} is written with ... on both sides of items of its type=\"List\" collection of {instance} cells: a rule matches an instance of a list at one of its ends, so write ... before the items to match them at the end of the list, or after them to match them at its front"
-                ))
+            ordered.insert(child.sort.clone(), list);
+        }
+        Ok(())
+    }
+
+    /// Push to `rests` the name written for each variable of `term`, a child term placed in the
+    /// list of `child`, that stands for a part of the list where the rule matches it: on the left
+    /// side of a rewrite, a variable of no cell sort (a variable of the item's cell sort is one
+    /// item).
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
+    fn list_rests(&self, term: &Term, child: &Child, rests: &mut Vec<String>) {
+        match term.unannotated() {
+            Term::Rewrite { left, .. } => self.list_rests(left, child, rests),
+            Term::Apply { label, arguments }
+                if child
+                    .concat
+                    .as_ref()
+                    .is_some_and(|concat| concat.name == label.name) =>
+            {
+                for argument in arguments {
+                    self.list_rests(argument, child, rests);
+                }
             }
-            _ => self.insert_child(ordered, sort, term, cell),
+            Term::Variable { name, .. } if self.model.sort_for_term(term).is_none() => {
+                // A part of a variable written for several children has a name of its own; the
+                // rule writes the variable.
+                let written = self
+                    .fragments
+                    .iter()
+                    .find(|(_, info)| {
+                        info.split.values().any(|part| {
+                            matches!(part.unannotated(), Term::Variable { name: part, .. } if part == name)
+                        })
+                    })
+                    .map_or(name, |(written, _)| written);
+                rests.push(written.clone());
+            }
+            _ => {}
         }
     }
 

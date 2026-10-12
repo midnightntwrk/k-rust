@@ -8049,13 +8049,23 @@ fn rejects_a_term_holding_list_cells_placed_beside_written_instances() {
         let errors = concretized_cell_rule(LIST_ITEMS, rule).unwrap_err();
         assert_eq!(errors, [written], "{rule}");
     }
-    // Without a <fr> written in <stack>, B's cells are the list's only stated items.
+    // Without a <fr> written in <stack>, B's cells are the list's only stated items, so the <sp>
+    // rewrite is placed; the list it then holds is B's part beside the frame of <stack>, two parts
+    // a list pattern cannot divide.
     for rule in [
         "<stack> <cur> <x> X </x> </cur> ... </stack> (<sp> S </sp> B:Bag => <sp> 1 </sp> B:Bag)",
         "<stack> <cur> <x> X </x> (<sp> S </sp> B:Bag => <sp> 1 </sp> B:Bag) </cur> ... </stack>",
     ] {
-        concretized_cell_rule(LIST_ITEMS, rule)
-            .unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+        let errors = concretized_cell_rule(LIST_ITEMS, rule).unwrap_err();
+        let [error] = errors.as_slice() else {
+            panic!("{rule}: {errors:?}");
+        };
+        assert!(
+            error.starts_with(
+                "The cell <stack> is written with `B` and `...` among the items of its type=\"List\" collection of <fr> cells"
+            ),
+            "{rule}: {error}"
+        );
     }
 }
 

@@ -1461,3 +1461,232 @@ fn a_list_cell_frame_written_on_both_sides_of_its_items_is_rejected() {
         compile_rule(rule).unwrap_or_else(|error| panic!("{rule}: {error}"));
     }
 }
+
+/// A definition whose rules write a variable beside the instances of a `type="List"` cell
+/// collection: `mk` adds an instance at the front, and every other command writes `B` where the
+/// part of the list it stands for is.
+const LIST_CELL_VARIABLES: &str = r#"
+module LIST-CELL-VARIABLES-SYNTAX
+  imports INT-SYNTAX
+  syntax Cmd ::= mk(Int) | last() | first() | lastUntyped() | dropLast() | mkLast(Int) | ends()
+               | rotate() | probe()
+  syntax Pgm ::= Cmd | Cmd ";" Pgm
+endmodule
+
+module LIST-CELL-VARIABLES
+  imports LIST-CELL-VARIABLES-SYNTAX
+  imports INT
+  imports LIST
+  configuration
+    <T>
+      <k> $PGM:Pgm </k>
+      <rs> <r multiplicity="*" type="List"> <rid> 0 </rid> </r> </rs>
+      <out> .List </out>
+    </T>
+
+  rule <k> C:Cmd ; P:Pgm => C ~> P ... </k>
+  rule <k> mk(I) => .K ... </k> <rs> (.Bag => <r> <rid> I </rid> </r>) ... </rs>
+  rule <k> last() => .K ... </k> <rs> B:Bag <r> <rid> I </rid> </r> </rs> <out> ... .List => ListItem(I) </out>
+  rule <k> first() => .K ... </k> <rs> <r> <rid> I </rid> </r> B:Bag </rs> <out> ... .List => ListItem(I) </out>
+  rule <k> lastUntyped() => .K ... </k> <rs> B <r> <rid> I </rid> </r> </rs> <out> ... .List => ListItem(I) </out>
+  rule <k> dropLast() => .K ... </k> <rs> B:Bag (<r> <rid> I </rid> </r> => .Bag) </rs> <out> ... .List => ListItem(I) </out>
+  rule <k> mkLast(I) => .K ... </k> <rs> B:Bag (.Bag => <r> <rid> I </rid> </r>) </rs>
+  rule <k> ends() => .K ... </k> <rs> <r> <rid> I </rid> </r> B:Bag <r> <rid> J </rid> </r> </rs> <out> ... .List => ListItem(I) ListItem(J) </out>
+  rule <k> rotate() => .K ... </k> <rs> (<r> <rid> I </rid> </r> B:Bag => B:Bag <r> <rid> I </rid> </r>) </rs>
+endmodule
+"#;
+
+/// A variable written in a cell body beside instances of a `type="List"` collection (of `Bag`,
+/// or of no sort) stands for the part of the list between the items written before it and those
+/// written after it (`docs/compatibility.md#cells-written-inside-another-cell`). After three `mk`
+/// commands the list is `3 2 1`: `last`, `lastUntyped` and `dropLast` write the variable before
+/// the instance, so they read and remove the back; `first` writes it after, and reads the front;
+/// `mkLast` adds at the back; `ends` writes it between two instances, which are the front and
+/// the back; `rotate` moves the front instance behind the rest. Each program is run, and searched
+/// for its final states, which are the run's one leaf.
+#[test]
+fn a_list_cell_variable_stands_for_the_part_of_the_list_where_it_is_written() {
+    const MAIN: &str = "LIST-CELL-VARIABLES";
+    let run = |program: &str| {
+        let compiled = compile(
+            LIST_CELL_VARIABLES,
+            MAIN,
+            "LIST-CELL-VARIABLES-SYNTAX",
+            "Pgm",
+            program,
+        );
+        let result = execute(&compiled, MAIN, None);
+        let states = text(&result);
+        assert_eq!(states.len(), 1, "{program}: {states:?}");
+        assert_eq!(
+            result.leaves[0].reason,
+            HaltReasonOutput::Stuck,
+            "{program}: {states:?}"
+        );
+        let mut backend = Backend::new(&compiled.kore, MAIN, BackendOptions::default()).unwrap();
+        let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+        let finals = backend
+            .search_pattern(SearchPatternRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchPatternRequest::new(compiled.initial.clone(), target)
+            })
+            .unwrap()
+            .matches
+            .iter()
+            .map(|found| {
+                Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(finals, states, "{program}: search-final");
+        let state = states.into_iter().next().unwrap();
+        assert!(
+            state.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())"),
+            "{program}: {state}"
+        );
+        state
+    };
+    let int = |value: u32| format!("\\dv{{SortInt{{}}}}(\"{value}\")");
+    // The values in the `<out>` cell, in order.
+    let out = |state: &str| {
+        let cell = &state[state.find("Lbl'-LT-'out'-GT-'").unwrap()..];
+        let mut positions = (0..10)
+            .flat_map(|value| {
+                let item = format!(
+                    "LblListItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({}))",
+                    int(value)
+                );
+                cell.match_indices(&item)
+                    .map(|(at, _)| (at, value))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        positions.sort_unstable();
+        positions
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>()
+    };
+    // The instances in the `<rs>` cell, front first.
+    let ids = |state: &str| {
+        let start = state.find("Lbl'-LT-'rs'-GT-'").unwrap();
+        let end = state.find("Lbl'-LT-'out'-GT-'").unwrap();
+        let mut positions = (0..10)
+            .flat_map(|value| {
+                state[start..end]
+                    .match_indices(&format!("Lbl'-LT-'rid'-GT-'{{}}({})", int(value)))
+                    .map(|(at, _)| (at, value))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        positions.sort_unstable();
+        positions
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>()
+    };
+
+    let three = "mk(1) ; mk(2) ; mk(3) ; ";
+    for (program, read, left) in [
+        ("last()", vec![1], vec![3, 2, 1]),
+        ("lastUntyped()", vec![1], vec![3, 2, 1]),
+        ("first()", vec![3], vec![3, 2, 1]),
+        ("dropLast() ; dropLast()", vec![1, 2], vec![3]),
+        ("mkLast(4) ; last()", vec![4], vec![3, 2, 1, 4]),
+        ("ends()", vec![3, 1], vec![3, 2, 1]),
+        ("rotate() ; last()", vec![3], vec![2, 1, 3]),
+    ] {
+        let state = run(&format!("{three}{program}"));
+        assert_eq!(out(&state), read, "{program}: {state}");
+        assert_eq!(ids(&state), left, "{program}: {state}");
+    }
+}
+
+/// The list a rule matches is divided by the items written in it around at most one part that a
+/// term stands for; a variable beside another variable or beside the frame `...` (on either side
+/// of the items, or with none) would divide the rest of the list between two parts in a way the
+/// rule does not state. Such a rule is rejected with a located error naming the cell and both
+/// terms; the same variables on the right side of a rewrite, which builds the list, compile.
+#[test]
+fn a_list_cell_variable_beside_another_part_of_the_list_is_rejected() {
+    let with_rule = |rule: &str| {
+        let end = LIST_CELL_VARIABLES.rfind("endmodule").unwrap();
+        format!(
+            "{}  {rule}\n{}",
+            &LIST_CELL_VARIABLES[..end],
+            &LIST_CELL_VARIABLES[end..]
+        )
+    };
+    let compile_rule = |rule: &str| {
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let source = with_rule(rule);
+        let loaded = load_with_options(
+            ResolvedSource::new("test.k", &source),
+            "LIST-CELL-VARIABLES",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                ..CompilationBackend::Rust.load_options()
+            },
+        )
+        .unwrap();
+        compile_loaded_definition(&loaded, CompileOptions::default()).map(|_| ())
+    };
+    let rule_line = u32::try_from(
+        LIST_CELL_VARIABLES[..LIST_CELL_VARIABLES.rfind("endmodule").unwrap()]
+            .lines()
+            .count(),
+    )
+    .unwrap()
+        + 1;
+    for (rule, parts) in [
+        (
+            "rule <k> probe() => .K ... </k> <rs> B:Bag (<r> <rid> I </rid> </r> => .Bag) C:Bag </rs>",
+            "`B` and `C`",
+        ),
+        (
+            "rule <k> probe() => .K ... </k> <rs> B:Bag C:Bag </rs>",
+            "`B` and `C`",
+        ),
+        (
+            "rule <k> probe() => .K ... </k> <rs> B:Bag <r> <rid> I </rid> </r> ... </rs>",
+            "`B` and `...`",
+        ),
+        (
+            "rule <k> probe() => .K ... </k> <rs> ... <r> <rid> I </rid> </r> B:Bag </rs>",
+            "`...` and `B`",
+        ),
+        (
+            "rule <k> probe() => .K ... </k> <rs> B:Bag ... </rs>",
+            "`B` and `...`",
+        ),
+    ] {
+        let error = compile_rule(rule).expect_err(rule);
+        let [diagnostic] = error.diagnostics.as_slice() else {
+            panic!("{rule}: {error}");
+        };
+        assert_eq!(
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidCellConcretization,
+            "{rule}"
+        );
+        assert_eq!(diagnostic.source.as_deref(), Some("test.k"), "{rule}");
+        assert_eq!(
+            diagnostic.location.map(|location| location.start_line),
+            Some(rule_line),
+            "{rule}"
+        );
+        assert!(
+            diagnostic
+                .message
+                .starts_with(&format!("The cell <rs> is written with {parts} among the items of its type=\"List\" collection of <r> cells")),
+            "{rule}: {}",
+            diagnostic.message
+        );
+    }
+    compile_rule(
+        "rule <k> probe() => .K ... </k> <rs> (<r> <rid> I </rid> </r> B:Bag => B:Bag <r> <rid> I </rid> </r> B:Bag) </rs>",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+}
