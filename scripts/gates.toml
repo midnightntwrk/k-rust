@@ -276,14 +276,14 @@ paths = [
 ]
 
 # The native and the portable build compile every compile case of the manifest alike, the local
-# ones and the real semantics. `--refused` is the set the portable build refuses with
-# `Z3InferenceRequired` today: a definition its hosts cannot compile. A refusal outside it fails,
-# and so does a listed case that now compiles, so the record changes with the refusals it records.
+# ones and the real semantics. The portable build refuses none of them: a refusal with
+# `Z3InferenceRequired` would be a definition its hosts cannot compile, and fails the entry, which
+# then records it with `--refused` until the portable decision settles it.
 # The compiles are library calls in one test process per build; most of the time is the builds.
 [[gate]]
 name = "build-agreement"
 run = "certification"
-command = "scripts/build-agreement.sh --refused evm-equivalence,mir"
+command = "scripts/build-agreement.sh"
 paths = [
   "@inference",
   '^scripts/build-agreement\.sh$',
