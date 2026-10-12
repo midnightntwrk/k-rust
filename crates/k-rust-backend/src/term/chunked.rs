@@ -143,7 +143,10 @@
 //! keys alone, and give the repeated-key flag at a junction.
 //!
 //! All fields but the group summary have a constant size, and a copied node recomputes them from
-//! its children. The group summary can grow with the items (the variables they mention), so a
+//! its children or items; a leaf edited in one run, of items whose own summary is the unit (the
+//! entries of a variable multiset), derives them from the leaf it replaces and the run instead,
+//! so a one-entry edit hashes the entries on the shorter side of it, not all of the leaf's
+//! ([`NodeSummary::of_edited_items`]). The group summary can grow with the items (the variables they mention), so a
 //! copied node gets it by difference from the node it replaces: [`Group`] says when and why
 //! that is exact, and [`edit`] and [`seek`] which operations do so.
 //!
@@ -233,9 +236,16 @@ pub(crate) trait Summary: Clone + PartialEq + fmt::Debug {
     /// The summary of the items `self` summarizes followed by those `right` summarizes.
     #[must_use]
     fn combine(self, right: &Self) -> Self;
+
+    /// Whether every value is the identity, so a node's summary is known without its items'
+    /// (the unit summary). An edited leaf of such items derives its node summary from the
+    /// replaced leaf's ([`NodeSummary::of_edited_items`]); any other item summary is refolded.
+    const CONSTANT: bool = false;
 }
 
 impl Summary for () {
+    const CONSTANT: bool = true;
+
     fn identity() -> Self {}
 
     fn combine(self, _right: &Self) -> Self {}
@@ -317,10 +327,13 @@ const MODULUS: u64 = (1 << 61) - 1;
 /// The radix `r` of [`SequenceHash`]: a fixed residue other than 0 and 1.
 const RADIX: u64 = 0x1f3d_5b79_a2c4_e681 % MODULUS;
 
+/// The inverse of [`RADIX`] modulo the prime [`MODULUS`]: `r^(p-2)`, by Fermat's little theorem.
+const INVERSE_RADIX: u64 = power(RADIX, MODULUS - 2);
+
 /// `x` modulo [`MODULUS`], for `x < 2^122`. Since `2^61 = 1` modulo `2^61 - 1`, adding the bits
 /// above position 61 to the bits below it keeps the residue.
-fn reduce(x: u128) -> u64 {
-    let modulus = u128::from(MODULUS);
+const fn reduce(x: u128) -> u64 {
+    let modulus = MODULUS as u128;
     // Below 2^61 + 2^61: both halves are below 2^61 since x < 2^122.
     let folded = ((x & modulus) + (x >> 61)) as u64;
     let folded = (folded & MODULUS) + (folded >> 61);
@@ -331,13 +344,35 @@ fn reduce(x: u128) -> u64 {
     }
 }
 
-fn multiply(left: u64, right: u64) -> u64 {
-    reduce(u128::from(left) * u128::from(right))
+const fn multiply(left: u64, right: u64) -> u64 {
+    reduce(left as u128 * right as u128)
 }
 
 fn add(left: u64, right: u64) -> u64 {
     let sum = left + right;
     if sum >= MODULUS { sum - MODULUS } else { sum }
+}
+
+/// `left - right` modulo [`MODULUS`], for residues `left` and `right`.
+fn difference(left: u64, right: u64) -> u64 {
+    if left >= right {
+        left - right
+    } else {
+        left + MODULUS - right
+    }
+}
+
+/// `base^exponent` modulo [`MODULUS`], by squaring: `O(log exponent)` multiplications.
+const fn power(base: u64, mut exponent: u64) -> u64 {
+    let (mut result, mut square) = (1, base);
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = multiply(result, square);
+        }
+        square = multiply(square, square);
+        exponent >>= 1;
+    }
+    result
 }
 
 /// An item's hash spread over all 64 bits (the finalizer of SplitMix64), then reduced: item
@@ -374,6 +409,22 @@ impl SequenceHash {
 
     pub(crate) fn value(self) -> u64 {
         self.value
+    }
+
+    /// The hash of `items`, one item hash each.
+    fn of_items<I: Item>(items: &[I]) -> Self {
+        items.iter().fold(Self::EMPTY, |hash, item| {
+            hash.combine(&Self::of_item(item.hash64()))
+        })
+    }
+
+    /// The hash of a sequence of `length` items whose value is `value`, known as a difference
+    /// of other sequences' values.
+    fn of_value(value: u64, length: usize) -> Self {
+        Self {
+            value,
+            power: power(RADIX, length as u64),
+        }
     }
 }
 
@@ -440,12 +491,87 @@ impl<I: Item> NodeSummary<I> {
             collision: items
                 .windows(2)
                 .any(|pair| collides(Some(&pair[0]), Some(&pair[1]))),
-            hash: items.iter().fold(SequenceHash::EMPTY, |hash, item| {
-                hash.combine(&SequenceHash::of_item(item.hash64()))
-            }),
+            hash: SequenceHash::of_items(items),
             extra: items.iter().fold(I::Summary::identity(), |extra, item| {
                 extra.combine(&item.summary())
             }),
+            group,
+        }
+    }
+
+    /// The summary of `items`, which are `old`'s, the items of a leaf whose summary is
+    /// `summary`, with all but the first `prefix` and the last `suffix` replaced; `group` is the
+    /// group summary of `items`.
+    ///
+    /// When the item summary is [`CONSTANT`](Summary::CONSTANT) and `old` has no repeated key,
+    /// the summary is derived from `summary` and the items an edit touches, so a one-item edit
+    /// of a full leaf hashes a few items instead of all of them. Only the pairs at the replaced
+    /// run and its two junctions are new, so they alone can repeat a key. With `P`, `S` the
+    /// kept prefix and suffix and `R`, `A` the removed and added runs, `h(P ++ R ++ S) =
+    /// h(P)·r^(|R|+|S|) + h(R ++ S)`: the shorter of `P` and `S` is hashed, and the other part's
+    /// value is that of the old sequence less the hashed parts', shifted by the length change.
+    /// The work is the runs' lengths plus the shorter kept part's; when that is not below the
+    /// leaf's length, the items are folded as [`of_items_with`](Self::of_items_with) folds them.
+    fn of_edited_items(
+        old: &[I],
+        summary: &Self,
+        items: &[I],
+        (prefix, suffix): (usize, usize),
+        group: I::Group,
+    ) -> Self {
+        let removed = &old[prefix..old.len() - suffix];
+        let added = &items[prefix..items.len() - suffix];
+        if !I::Summary::CONSTANT
+            || summary.collision
+            || removed.len() + added.len() + prefix.min(suffix) >= items.len()
+        {
+            return Self::of_items_with(items, group);
+        }
+        let (removed_hash, added_hash) = (
+            SequenceHash::of_items(removed),
+            SequenceHash::of_items(added),
+        );
+        let hash = if prefix <= suffix {
+            let head = SequenceHash::of_items(&items[..prefix]);
+            // h(old) = h(P ++ R)·r^|S| + h(S).
+            let tail = SequenceHash::of_value(
+                difference(
+                    summary.hash.value,
+                    multiply(
+                        head.combine(&removed_hash).value,
+                        power(RADIX, suffix as u64),
+                    ),
+                ),
+                suffix,
+            );
+            head.combine(&added_hash).combine(&tail)
+        } else {
+            let tail = SequenceHash::of_items(&items[items.len() - suffix..]);
+            // h(P)·r^(|R|+|S|) = h(old) - h(R ++ S), and h(P)·r^(|A|+|S|) is that times
+            // r^|A| / r^|R|.
+            let head = multiply(
+                multiply(
+                    difference(summary.hash.value, removed_hash.combine(&tail).value),
+                    power(RADIX, added.len() as u64),
+                ),
+                power(INVERSE_RADIX, removed.len() as u64),
+            );
+            SequenceHash {
+                value: add(head, added_hash.combine(&tail).value),
+                power: power(RADIX, items.len() as u64),
+            }
+        };
+        let junctions =
+            &items[prefix.saturating_sub(1)..(items.len() - suffix + 1).min(items.len())];
+        Self {
+            count: items.len(),
+            first: items.first().cloned(),
+            last: items.last().cloned(),
+            collision: junctions
+                .windows(2)
+                .any(|pair| collides(Some(&pair[0]), Some(&pair[1]))),
+            hash,
+            extra: I::Summary::identity(),
             group,
         }
     }
@@ -605,6 +731,26 @@ impl<I: Item> Node<I> {
     /// A leaf whose group summary the caller knows: `group` is that of `items`.
     fn leaf_with(items: Vec<I>, group: I::Group) -> Self {
         let summary = NodeSummary::of_items_with(&items, group);
+        Self::Leaf {
+            items,
+            summary,
+            checked: Checked::default(),
+        }
+    }
+
+    /// A leaf whose group summary the caller knows, holding `items`, which are those of the leaf
+    /// `old` with all but the first `kept.0` and the last `kept.1` replaced
+    /// ([`NodeSummary::of_edited_items`]).
+    fn leaf_edited(old: &Self, items: Vec<I>, kept: (usize, usize), group: I::Group) -> Self {
+        let Self::Leaf {
+            items: old,
+            summary,
+            ..
+        } = old
+        else {
+            unreachable!("an edited leaf replaces a leaf")
+        };
+        let summary = NodeSummary::of_edited_items(old, summary, &items, kept, group);
         Self::Leaf {
             items,
             summary,

@@ -588,6 +588,114 @@ fn the_hash_arithmetic_is_modular() {
     );
 }
 
+#[test]
+fn the_inverse_radix_undoes_the_radix() {
+    use super::{INVERSE_RADIX, RADIX, multiply, power};
+    assert_eq!(multiply(RADIX, INVERSE_RADIX), 1);
+    assert_eq!(power(RADIX, 0), 1);
+    assert_eq!(
+        power(RADIX, 5),
+        (0..5).fold(1, |acc, _| multiply(acc, RADIX))
+    );
+}
+
+thread_local! {
+    /// The number of item hashes [`Hashed`] has computed on this thread.
+    static HASHES: Cell<usize> = const { Cell::new(0) };
+}
+
+/// An item with the unit summary that counts its hashes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Hashed(u8);
+
+impl Item for Hashed {
+    type Key = u8;
+    type Summary = ();
+    type Group = ();
+
+    fn key(&self) -> &u8 {
+        &self.0
+    }
+
+    fn hash64(&self) -> u64 {
+        HASHES.with(|count| count.set(count.get() + 1));
+        u64::from(self.0)
+    }
+
+    fn summary(&self) {}
+
+    fn group(&self) {}
+}
+
+/// `old` with `removed` items replaced by `added` after the first `prefix`, as an edited leaf's
+/// summary and as a fold of the new items; both must agree.
+fn edited_summary_agrees<I: Item>(old: &[I], prefix: usize, removed: usize, added: &[I]) {
+    let mut items = old[..prefix].to_vec();
+    items.extend_from_slice(added);
+    items.extend_from_slice(&old[prefix + removed..]);
+    let kept = (prefix, old.len() - prefix - removed);
+    let edited = NodeSummary::of_edited_items(
+        old,
+        &NodeSummary::of_items(old),
+        &items,
+        kept,
+        super::fold_groups(items.iter().map(Item::group)),
+    );
+    assert_eq!(
+        edited,
+        NodeSummary::of_items(&items),
+        "{old:?} at {kept:?}, {added:?}"
+    );
+}
+
+proptest! {
+    /// An edited leaf's summary is its items' fold, for items with the unit summary (derived
+    /// from the replaced leaf's, or folded when the replaced leaf repeats a key or the edit is
+    /// long) and with another summary (folded): replacements at either end and in the middle,
+    /// of any length, adding keys equal to their new neighbours' or not.
+    #[test]
+    fn an_edited_leaf_summary_is_the_fold_of_its_items(
+        old in prop::collection::vec(any::<u8>(), 0..70),
+        cut in (any::<prop::sample::Index>(), any::<prop::sample::Index>()),
+        added in prop::collection::vec((any::<u8>(), 0u8..3), 0..4),
+    ) {
+        let prefix = cut.0.index(old.len() + 1);
+        let removed = cut.1.index(old.len() - prefix + 1);
+        // Some added keys repeat the key before the edit or the one after it.
+        let neighbour = |choice: u8, key: u8| match choice {
+            1 if prefix > 0 => old[prefix - 1],
+            2 if prefix + removed < old.len() => old[prefix + removed],
+            _ => key,
+        };
+        let added: Vec<u8> = added.iter().map(|&(key, choice)| neighbour(choice, key)).collect();
+        let hashed = |keys: &[u8]| keys.iter().copied().map(Hashed).collect::<Vec<_>>();
+        edited_summary_agrees(&hashed(&old), prefix, removed, &hashed(&added));
+        let entries = |keys: &[u8]| {
+            keys.iter().map(|&key| Entry { key: key % 8, value: key }).collect::<Vec<_>>()
+        };
+        edited_summary_agrees(&entries(&old), prefix, removed, &entries(&added));
+    }
+}
+
+/// A one-item insertion into, removal from or replacement in a full leaf of distinct keys
+/// hashes the items of the shorter side of the edit and the edited ones, not the whole leaf.
+#[test]
+fn a_one_item_leaf_edit_hashes_the_shorter_side_only() {
+    let old: Vec<Hashed> = (0..64).map(|key| Hashed(key * 2)).collect();
+    let summary = NodeSummary::of_items(&old);
+    for (prefix, removed, added) in [(5, 0, 1), (60, 0, 1), (32, 1, 0), (10, 1, 1), (63, 1, 1)] {
+        let mut items = old[..prefix].to_vec();
+        items.extend((0..added).map(|_| Hashed(old[prefix.min(63)].0 + 1)));
+        items.extend_from_slice(&old[prefix + removed..]);
+        let kept = (prefix, old.len() - prefix - removed);
+        let before = HASHES.with(Cell::get);
+        let edited = NodeSummary::of_edited_items(&old, &summary, &items, kept, ());
+        let hashes = HASHES.with(Cell::get) - before;
+        assert_eq!(hashes, kept.0.min(kept.1) + removed + added, "{kept:?}");
+        assert_eq!(edited, NodeSummary::of_items(&items));
+    }
+}
+
 thread_local! {
     /// The number of [`Counted`] values alive on this thread.
     static LIVE: Cell<isize> = const { Cell::new(0) };

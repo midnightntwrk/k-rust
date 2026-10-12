@@ -303,8 +303,12 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         let group = node.summary().group.clone().combine(added);
         match node {
             Node::Leaf { items, .. } => {
+                let kept = (index, items.len() - index);
                 let mut items = items.clone();
                 items.insert(index, item);
+                if items.len() <= B {
+                    return (Arc::new(Node::leaf_edited(node, items, kept, group)), None);
+                }
                 Self::pack_items(items, group)
             }
             Node::Internal {
@@ -343,11 +347,12 @@ impl<I: Item, const B: usize> Chunked<I, B> {
     fn remove_from(node: &Node<I>, index: usize) -> (Node<I>, I, I::Group) {
         match node {
             Node::Leaf { items, summary, .. } => {
+                let kept = (index, items.len() - index - 1);
                 let mut items = items.clone();
                 let item = items.remove(index);
                 let removed = item.group();
                 let group = summary.group.clone().subtract(&removed);
-                (Node::leaf_with(items, group), item, removed)
+                (Node::leaf_edited(node, items, kept, group), item, removed)
             }
             Node::Internal {
                 height,
@@ -759,9 +764,11 @@ impl<I: Item<Group = ()>, const B: usize> Chunked<I, B> {
                 // compare keys `O(log B)` times each, and the runs between them are copied.
                 let mut merged = Vec::with_capacity(items.len() + added.len());
                 let mut rest = items.as_slice();
+                let mut prefix = None;
                 for new in added {
                     let before = rest.partition_point(|item| item.key() < new.key());
                     merged.extend_from_slice(&rest[..before]);
+                    prefix.get_or_insert(merged.len());
                     rest = &rest[before..];
                     match rest.split_first() {
                         Some((held, after)) if held.key() == new.key() => {
@@ -771,7 +778,11 @@ impl<I: Item<Group = ()>, const B: usize> Chunked<I, B> {
                         _ => merged.push(new.clone()),
                     }
                 }
+                let kept = (prefix.unwrap_or(0), rest.len());
                 merged.extend_from_slice(rest);
+                if merged.len() <= B {
+                    return vec![Arc::new(Node::leaf_edited(node, merged, kept, ()))];
+                }
                 Self::cut(merged, (), Item::group, Node::leaf_with)
             }
             Node::Internal {
@@ -832,9 +843,11 @@ impl<I: Item<Group = ()>, const B: usize> Chunked<I, B> {
                 // As in `add_into`, each reduced item's place is searched for.
                 let mut left = Vec::with_capacity(items.len());
                 let mut rest = items.as_slice();
+                let mut prefix = None;
                 for old in reduced {
                     let before = rest.partition_point(|item| item.key() < old.key());
                     left.extend_from_slice(&rest[..before]);
+                    prefix.get_or_insert(left.len());
                     let Some((held, after)) = rest[before..]
                         .split_first()
                         .filter(|(held, _)| held.key() == old.key())
@@ -844,8 +857,9 @@ impl<I: Item<Group = ()>, const B: usize> Chunked<I, B> {
                     left.extend(reduce(held, old));
                     rest = after;
                 }
+                let kept = (prefix.unwrap_or(0), rest.len());
                 left.extend_from_slice(rest);
-                (!left.is_empty()).then(|| Arc::new(Node::leaf_with(left, ())))
+                (!left.is_empty()).then(|| Arc::new(Node::leaf_edited(node, left, kept, ())))
             }
             Node::Internal {
                 height, children, ..
