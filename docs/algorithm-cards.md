@@ -34,6 +34,11 @@ When a bound names a variable, the card must define it in `variable`.
 A card with measurement counters uses `counters = ["CounterVariant", ...]`, with variant names from `Counter::ALL`.
 A card without a dedicated counter must use `counters = []` and state the reason in `no_counter`.
 
+A counter measures the work of the algorithms whose cards list it, its claimants, so an item that bumps it (writes `Counter::X` outside `measure.rs` and `#[cfg(test)]` code, a macro's tokens included) does a claimant's work.
+When no claimant's card names that item (its function, `Type::method`, or `impl Type`), the graph adds it to the sites of every claimant as a counted site, derived from the code rather than written on a card.
+A claimant naming it is enough: a caller may claim a callee algorithm's counter, measured inside its spans, and the callee's card already places the work.
+Counted sites follow the named ones in `graph.toml`, and coverage, profiles, and the atlas staleness check treat them as sites; a bump outside every item a site symbol names (a trait's default method, a constant's initializer) fails the freshness test, because no claimant could watch it.
+
 The optional primary-card keys are:
 
 - `invariant`, for the loop invariant stated by the module head; the corresponding `// Invariant:` comment remains at the loop;

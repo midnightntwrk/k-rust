@@ -13,8 +13,11 @@
 //! claim `ParserParseAttempts`, which the Earley recognizer bumps). The callee being named is what
 //! the invariant needs.
 //!
-//! This is the precise form of the `worklist without card` advisory, which guesses the same thing
-//! from a loop and an `// Invariant:` comment.
+//! The graph derives these sites from the code (`CounterClaims` in `src/cards.rs`): an item that
+//! bumps a claimed counter and that no claimant's card names becomes a counted site of every
+//! claimant. This test finds the bumps with its own scan of the sources, so it checks that
+//! derivation, not only the cards. It is the precise form of the `worklist without card`
+//! advisory, which guesses at uncarded work from a loop and an `// Invariant:` comment.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -158,7 +161,6 @@ fn source_files(root: &Path, directory: &Path, files: &mut Vec<String>) {
 }
 
 #[test]
-#[ignore = "K32: counted work outside every named site of the counted algorithm"]
 fn every_item_that_bumps_a_counter_is_a_named_site_of_an_algorithm_the_counter_measures() {
     let root = workspace_root();
     let build = build_graph(&root).expect("the workspace graph should build");

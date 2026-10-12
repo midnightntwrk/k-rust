@@ -173,6 +173,109 @@ pub(crate) struct SourceFacts {
     pub imports: BTreeMap<String, Vec<String>>,
     /// Path prefixes of the file's glob `use` declarations, as `[super]` for `use super::*`.
     pub glob_imports: BTreeSet<Vec<String>>,
+    /// The counters the file's items bump, outside `#[cfg(test)]` code; see [`CounterBump`].
+    pub counter_bumps: BTreeSet<CounterBump>,
+}
+
+/// The file that declares `Counter`; its `Counter::X` paths declare and name counters, they do
+/// not count work.
+pub(crate) const COUNTER_DECLARATION_FILE: &str = "crates/k-rust-kore/src/measure.rs";
+
+/// A `Counter::X` path in an item: outside the file that declares `Counter`, the item that
+/// writes it bumps the counter or passes it to a function that does, so the work it measures is
+/// done there. A path inside a macro's tokens (`debug_assert!`) counts too.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct CounterBump {
+    /// The site symbols that name the enclosing top-level item, most specific first: `function`,
+    /// or `Type::method` then `impl Type`; empty where no site symbol names the item (a trait's
+    /// default method, a constant's initializer, a method of an `impl` whose type is not a path).
+    pub sites: Vec<String>,
+    /// The counter's variant name, as `MatchingPairs` in `Counter::MatchingPairs`.
+    pub counter: String,
+}
+
+/// Where a counter bump belongs among the algorithms whose cards claim the counter.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CountedSite<'a> {
+    /// No card claims the counter, or the bump is in the file that declares `Counter`.
+    Unclaimed,
+    /// The enclosing item is a named site (an anchor or a `sites` entry) of a claimant.
+    Named,
+    /// No claimant names the enclosing item, so it is a counted site of every claimant.
+    Counted {
+        symbol: &'a str,
+        algorithms: &'a BTreeSet<String>,
+    },
+    /// Claimants exist, but no site symbol names the enclosing item.
+    Unnameable { algorithms: &'a BTreeSet<String> },
+}
+
+/// The counters each algorithm's cards claim, and the items they name.
+///
+/// A counter listed in an algorithm card's `counters` measures that algorithm's work, so an item
+/// that bumps it does some claimant's work. Each such item is a site of a claimant: one a card
+/// names, or else a counted site of every claimant, derived here from the code instead of being
+/// written on a card. "A claimant", not "every claimant": a caller may claim a callee
+/// algorithm's counter, measured inside its spans, and the callee's card naming the item already
+/// places the work.
+#[derive(Debug, Default)]
+pub(crate) struct CounterClaims {
+    claimants: BTreeMap<String, BTreeSet<String>>,
+    named: BTreeMap<String, BTreeSet<(String, String)>>,
+}
+
+impl CounterClaims {
+    pub(crate) fn new(cards: &[Card]) -> Self {
+        let mut claims = Self::default();
+        for card in cards
+            .iter()
+            .filter(|card| matches!(card.kind, CardKind::Primary | CardKind::Site))
+        {
+            for counter in &card.body.counters {
+                claims
+                    .claimants
+                    .entry(counter.clone())
+                    .or_default()
+                    .insert(card.body.id.clone());
+            }
+            claims
+                .named
+                .entry(card.body.id.clone())
+                .or_default()
+                .extend(
+                    card.body
+                        .sites
+                        .iter()
+                        .map(|symbol| (card.file.clone(), symbol.clone())),
+                );
+        }
+        claims
+    }
+
+    /// Where a bump in `file` belongs.
+    pub(crate) fn place<'a>(&'a self, file: &str, bump: &'a CounterBump) -> CountedSite<'a> {
+        let Some(algorithms) = self.claimants.get(&bump.counter) else {
+            return CountedSite::Unclaimed;
+        };
+        if file == COUNTER_DECLARATION_FILE {
+            return CountedSite::Unclaimed;
+        }
+        let Some(symbol) = bump.sites.first() else {
+            return CountedSite::Unnameable { algorithms };
+        };
+        let named = algorithms.iter().any(|algorithm| {
+            self.named.get(algorithm).is_some_and(|named| {
+                bump.sites
+                    .iter()
+                    .any(|site| named.contains(&(file.to_owned(), site.clone())))
+            })
+        });
+        if named {
+            CountedSite::Named
+        } else {
+            CountedSite::Counted { symbol, algorithms }
+        }
+    }
 }
 
 /// One identifier named by an outcome pattern.
@@ -227,6 +330,7 @@ impl SourceIndex {
                 outcome_patterns: visitor.outcome_patterns,
                 imports: visitor.imports,
                 glob_imports: visitor.glob_imports,
+                counter_bumps: visitor.counter_bumps,
             },
         );
     }
@@ -488,7 +592,7 @@ fn module_path(relative: &str) -> Option<Vec<String>> {
     Some(module)
 }
 
-fn crate_name(relative: &str) -> Option<String> {
+pub(crate) fn crate_name(relative: &str) -> Option<String> {
     relative.split('/').nth(1).map(ToOwned::to_owned)
 }
 
@@ -604,6 +708,11 @@ struct ItemVisitor {
     outcome_callees: Vec<Option<String>>,
     impl_types: Vec<Option<String>>,
     current_item: Option<String>,
+    /// The site symbols of the current top-level item; see [`CounterBump::sites`].
+    current_sites: Vec<String>,
+    /// How many enclosing items are `#[cfg(test)]`.
+    cfg_test_depth: usize,
+    counter_bumps: BTreeSet<CounterBump>,
     /// `let name = function(..);` bindings in the current top-level item, by name.
     call_bindings: BTreeMap<String, String>,
 }
@@ -641,24 +750,107 @@ impl ItemVisitor {
         self.outcome_callees.pop();
     }
 
-    fn visit_top_level_function(&mut self, item: String, visit: impl FnOnce(&mut Self)) {
+    fn visit_top_level_function(
+        &mut self,
+        item: String,
+        sites: Vec<String>,
+        visit: impl FnOnce(&mut Self),
+    ) {
         let top_level = self.function_depth == 0;
-        let enclosing = if top_level {
-            self.current_item.replace(item)
+        let (enclosing, enclosing_sites) = if top_level {
+            (
+                self.current_item.replace(item),
+                std::mem::replace(&mut self.current_sites, sites),
+            )
         } else {
-            self.current_item.clone()
+            (self.current_item.clone(), self.current_sites.clone())
         };
         self.function_depth += 1;
         visit(self);
         self.function_depth -= 1;
         self.current_item = enclosing;
+        self.current_sites = enclosing_sites;
         if top_level {
             self.call_bindings.clear();
         }
     }
 }
 
+impl ItemVisitor {
+    fn within_cfg(&mut self, attributes: &[syn::Attribute], visit: impl FnOnce(&mut Self)) {
+        let test = attributes.iter().any(is_cfg_test);
+        self.cfg_test_depth += usize::from(test);
+        visit(self);
+        self.cfg_test_depth -= usize::from(test);
+    }
+
+    fn add_counter_bump(&mut self, counter: String) {
+        if self.cfg_test_depth == 0 {
+            self.counter_bumps.insert(CounterBump {
+                sites: self.current_sites.clone(),
+                counter,
+            });
+        }
+    }
+
+    /// Every `Counter :: X` token sequence in a macro's tokens, which `syn` does not parse.
+    fn add_counter_bumps_in(&mut self, tokens: proc_macro2::TokenStream) {
+        use proc_macro2::TokenTree;
+        let tokens = tokens.into_iter().collect::<Vec<_>>();
+        for (index, token) in tokens.iter().enumerate() {
+            match token {
+                TokenTree::Group(group) => self.add_counter_bumps_in(group.stream()),
+                TokenTree::Ident(ident) if ident == "Counter" => {
+                    if let (
+                        Some(TokenTree::Punct(first)),
+                        Some(TokenTree::Punct(second)),
+                        Some(TokenTree::Ident(variant)),
+                    ) = (
+                        tokens.get(index + 1),
+                        tokens.get(index + 2),
+                        tokens.get(index + 3),
+                    ) && first.as_char() == ':'
+                        && second.as_char() == ':'
+                    {
+                        self.add_counter_bump(variant.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 impl<'ast> Visit<'ast> for ItemVisitor {
+    fn visit_item(&mut self, item: &'ast syn::Item) {
+        let attributes: &[syn::Attribute] = match item {
+            syn::Item::Const(item) => &item.attrs,
+            syn::Item::Enum(item) => &item.attrs,
+            syn::Item::Fn(item) => &item.attrs,
+            syn::Item::Impl(item) => &item.attrs,
+            syn::Item::Macro(item) => &item.attrs,
+            syn::Item::Mod(item) => &item.attrs,
+            syn::Item::Static(item) => &item.attrs,
+            syn::Item::Struct(item) => &item.attrs,
+            syn::Item::Trait(item) => &item.attrs,
+            syn::Item::Type(item) => &item.attrs,
+            syn::Item::Union(item) => &item.attrs,
+            _ => &[],
+        };
+        self.within_cfg(attributes, |visitor| visit::visit_item(visitor, item));
+    }
+
+    fn visit_impl_item(&mut self, item: &'ast syn::ImplItem) {
+        let attributes: &[syn::Attribute] = match item {
+            syn::ImplItem::Const(item) => &item.attrs,
+            syn::ImplItem::Fn(item) => &item.attrs,
+            syn::ImplItem::Macro(item) => &item.attrs,
+            syn::ImplItem::Type(item) => &item.attrs,
+            _ => &[],
+        };
+        self.within_cfg(attributes, |visitor| visit::visit_impl_item(visitor, item));
+    }
+
     fn visit_attribute(&mut self, attribute: &'ast syn::Attribute) {
         if attribute.path().is_ident("doc")
             && let syn::Meta::NameValue(name_value) = &attribute.meta
@@ -680,17 +872,22 @@ impl<'ast> Visit<'ast> for ItemVisitor {
             self.add_symbol(item.sig.ident.to_string());
             self.add_span(item.sig.ident.to_string(), item, true);
         }
-        self.visit_top_level_function(item.sig.ident.to_string(), |visitor| {
+        let name = item.sig.ident.to_string();
+        self.visit_top_level_function(name.clone(), vec![name], |visitor| {
             visit::visit_item_fn(visitor, item);
         });
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        let symbol = match self.impl_types.last().cloned().flatten() {
-            Some(type_name) => format!("{type_name}::{}", item.sig.ident),
-            None => item.sig.ident.to_string(),
+        let (symbol, sites) = match self.impl_types.last().cloned().flatten() {
+            Some(type_name) => {
+                let symbol = format!("{type_name}::{}", item.sig.ident);
+                let sites = vec![symbol.clone(), format!("impl {type_name}")];
+                (symbol, sites)
+            }
+            None => (item.sig.ident.to_string(), Vec::new()),
         };
-        self.visit_top_level_function(symbol, |visitor| {
+        self.visit_top_level_function(symbol, sites, |visitor| {
             visit::visit_impl_item_fn(visitor, item);
         });
     }
@@ -779,6 +976,7 @@ impl<'ast> Visit<'ast> for ItemVisitor {
         {
             self.visit_scrutinized_pattern(&arguments.pattern, &arguments.scrutinee);
         }
+        self.add_counter_bumps_in(invocation.tokens.clone());
         visit::visit_macro(self, invocation);
     }
 
@@ -840,6 +1038,11 @@ impl<'ast> Visit<'ast> for ItemVisitor {
     }
 
     fn visit_path(&mut self, path: &'ast syn::Path) {
+        if let [.., counter, variant] = path.segments.iter().collect::<Vec<_>>().as_slice()
+            && counter.ident == "Counter"
+        {
+            self.add_counter_bump(variant.ident.to_string());
+        }
         if let Some(Some(callee)) = self.outcome_callees.last() {
             let mut written = Vec::new();
             for segment in &path.segments {
@@ -1270,5 +1473,142 @@ impl Engine { fn step() { let Ok(Stepped::Done) = produce(1) else { return }; } 
         assert!(visitor.algorithm_spans.contains("BackendExample"));
         assert_eq!(visitor.raw_algo_spans, 1);
         assert!(visitor.has_loop);
+    }
+
+    fn bumps(source: &str) -> Vec<CounterBump> {
+        let file = syn::parse_file(source).unwrap();
+        let mut visitor = ItemVisitor::default();
+        visitor.visit_file(&file);
+        visitor.counter_bumps.into_iter().collect()
+    }
+
+    fn bump(sites: &[&str], counter: &str) -> CounterBump {
+        CounterBump {
+            sites: sites.iter().map(|site| (*site).to_owned()).collect(),
+            counter: counter.to_owned(),
+        }
+    }
+
+    #[test]
+    fn records_counter_bumps_with_the_site_symbols_of_their_item() {
+        let found = bumps(
+            r#"
+            fn run() { measure::bump(Counter::A); fn nested() { measure::add(Counter::B, 2); } }
+            impl Engine { fn step(&self) { debug_assert!(touch(measure::Counter::C)); } }
+            trait Walk { fn walk(&self) { measure::bump(Counter::D); } }
+            #[cfg(test)] fn helper() { measure::bump(Counter::E); }
+            #[cfg(test)] const CELL: Cell = Cell(Counter::F);
+            impl Engine { #[cfg(test)] fn probe() { measure::bump(Counter::G); } }
+            #[cfg(test)] mod tests { fn t() { measure::bump(Counter::H); } }
+            fn other() { let _ = FreshCounter::mint(); }
+            "#,
+        );
+        assert_eq!(
+            found,
+            [
+                bump(&[], "D"),
+                bump(&["Engine::step", "impl Engine"], "C"),
+                bump(&["run"], "A"),
+                bump(&["run"], "B"),
+            ]
+        );
+    }
+
+    fn site_card(kind: CardKind, id: &str, file: &str, sites: &[&str], counters: &[&str]) -> Card {
+        Card {
+            kind,
+            body: CardBody {
+                id: id.to_owned(),
+                sites: sites.iter().map(|site| (*site).to_owned()).collect(),
+                counters: counters
+                    .iter()
+                    .map(|counter| (*counter).to_owned())
+                    .collect(),
+                ..CardBody::default()
+            },
+            crate_name: "k-rust".to_owned(),
+            file: file.to_owned(),
+            source: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_counter_bump_is_a_counted_site_of_every_claimant_unless_one_names_it() {
+        let claims = CounterClaims::new(&[
+            site_card(
+                CardKind::Primary,
+                "parser.recognize",
+                "crates/k-rust/src/a.rs",
+                &["recognize"],
+                &["Attempts"],
+            ),
+            site_card(
+                CardKind::Primary,
+                "parser.bubbles",
+                "crates/k-rust/src/b.rs",
+                &["parse_bubble"],
+                &["Attempts"],
+            ),
+            site_card(
+                CardKind::Site,
+                "parser.recognize",
+                "crates/k-rust/src/c.rs",
+                &["impl Chart"],
+                &[],
+            ),
+            site_card(
+                CardKind::Primary,
+                "provenance.record",
+                "crates/k-rust/src/d.rs",
+                &["record"],
+                &["Steps"],
+            ),
+        ]);
+        let both = ["parser.bubbles", "parser.recognize"]
+            .map(ToOwned::to_owned)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+
+        // A callee's card names the item: the callers that claim its counter need not.
+        assert_eq!(
+            claims.place("crates/k-rust/src/a.rs", &bump(&["recognize"], "Attempts")),
+            CountedSite::Named
+        );
+        // `impl Chart` on a site card names every method of it.
+        assert_eq!(
+            claims.place(
+                "crates/k-rust/src/c.rs",
+                &bump(&["Chart::complete", "impl Chart"], "Attempts")
+            ),
+            CountedSite::Named
+        );
+        // The same symbol in another file is another item.
+        assert_eq!(
+            claims.place("crates/k-rust/src/e.rs", &bump(&["recognize"], "Attempts")),
+            CountedSite::Counted {
+                symbol: "recognize",
+                algorithms: &both
+            }
+        );
+        // A card that does not claim the counter does not place its work.
+        assert!(matches!(
+            claims.place("crates/k-rust/src/d.rs", &bump(&["record"], "Attempts")),
+            CountedSite::Counted {
+                symbol: "record",
+                ..
+            }
+        ));
+        assert!(matches!(
+            claims.place("crates/k-rust/src/e.rs", &bump(&[], "Steps")),
+            CountedSite::Unnameable { .. }
+        ));
+        assert_eq!(
+            claims.place("crates/k-rust/src/e.rs", &bump(&["run"], "Unclaimed")),
+            CountedSite::Unclaimed
+        );
+        assert_eq!(
+            claims.place(COUNTER_DECLARATION_FILE, &bump(&["Counter::name"], "Steps")),
+            CountedSite::Unclaimed
+        );
     }
 }

@@ -1592,6 +1592,16 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/confluence.rs"
 symbol = "Context::conditions"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence.rs"
+symbol = "Context::simplify"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence.rs"
+symbol = "Context::unify"
+
 [[node.cost]]
 mode = "one definition (check)"
 bound = "one pass over the e equations for the rows of the constructor and overload preconditions and for the per-equation reports, each one walk of the equation's left-hand side; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, its key simplified only when no earlier condition of the check renamed to it, and simplified as written instead when that key's answer could not be renamed back (twice at the key's first occurrence, once at every later one); then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
@@ -2253,6 +2263,16 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/apply.rs"
 symbol = "initial_match"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "match_terms_with_context_and_frames"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "match_with_settled_evidence"
+
 [[node.cost]]
 mode = "one matching problem"
 bound = "O(p x (a + s x t))"
@@ -2912,6 +2932,56 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "normalize_hereditary"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/predicates.rs"
+symbol = "predicate_root_truth"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/predicates.rs"
+symbol = "predicate_truth"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "Predicate::free_variables"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "collect_binders"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "mentions_any"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "mentions_free"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "count_assumption_nodes"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "count_conjunction_inputs"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "normalize_level"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "rename_binders_apart"
+
 [[node.cost]]
 mode = "one round"
 bound = 'n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds; per round, one copy of each input conjunct and of the k known predicates other than \top into the assumption list (the known ones are indexed borrowed), and one key per conjunct and known conjunct'
@@ -3036,6 +3106,16 @@ symbol = "apply_theory"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "apply_theory_noting_cuts"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "apply_equation"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_on_stack"
 
 [[node.cost]]
 mode = "one term lineage"
@@ -3921,6 +4001,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/definition/catalog.rs"
 symbol = "build_indexes"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ProductionCatalog::from_productions"
+
 [[node.cost]]
 mode = "ResolvedDefinition::production_catalog via from_deduplicated_arcs"
 bound = "O(n x p + n log n + l x (log n + k x eq))"
@@ -4224,6 +4309,41 @@ symbol = "attach_term_metadata"
 crate = "k-rust"
 file = "crates/k-rust/src/native.rs"
 symbol = "write_runnable_artifact"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "KeptParts::insert"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "ProvenanceEncoder::intern_set"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "ProvenanceEncoder::receipt"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "push_children"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "OriginReceipt::text"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "OriginReceipt::transient_value"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "OriginReceipt::value"
 
 [[node.cost]]
 mode = "one definition, encoded or decoded"
@@ -4565,6 +4685,46 @@ crate = "k-rust"
 file = "crates/k-rust/src/provenance.rs"
 symbol = "CarrierOrigins::origins"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/mod.rs"
+symbol = "sentence_mut"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "AnchorPath::child"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "AnchorPath::split_last"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "AnchorPath::to_vec"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "built_set"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance/origin_set.rs"
+symbol = "OriginSet::from_parts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance/origin_set.rs"
+symbol = "OriginSet::links"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance/origin_set.rs"
+symbol = "OriginSet::parts"
+
 [[node.cost]]
 mode = "one order-preserving generating pass with distinct fallback bucket keys"
 bound = "O(M^2 + D + N + L) expected"
@@ -4702,6 +4862,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/definition/relations.rs"
 symbol = "ResolvedDefinition::priorities"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ProductionCatalog::from_productions"
+
 [[node.cost]]
 mode = "one module"
 bound = "O(P^2 + C)"
@@ -4743,6 +4908,11 @@ symbol = "ResolvedDefinition::update"
 crate = "k-rust"
 file = "crates/k-rust/src/definition/resolve.rs"
 symbol = "find_cycle"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "modules_identical"
 
 [[node.cost]]
 mode = "ResolvedDefinition::resolve"
@@ -5814,6 +5984,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
 symbol = "OwiseCompetitors"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
+symbol = "OwiseCompetitors::scan"
+
 [[node.cost]]
 mode = "one module"
 bound = "O(R x (I + log R) + O x (m x c + log R))"
@@ -5997,6 +6172,16 @@ crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
 symbol = "Chain::repeats"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::select_rule"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "term_depth"
+
 [[node.cost]]
 mode = "one sentence, no macro rule with a parametric head"
 bound = "O((N + W x (P + U)) x R + K)"
@@ -6038,6 +6223,11 @@ symbol = "retarget_sentence"
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/retarget.rs"
 symbol = "retarget_term"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/mod.rs"
+symbol = "sentence_mut"
 
 [[node.cost]]
 mode = "one pass-owned replacement map"
@@ -6102,6 +6292,11 @@ symbol = "number_sentence"
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/number_sentences.rs"
 symbol = "unique_id_text"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/mod.rs"
+symbol = "sentence_mut"
 
 [[node.cost]]
 mode = "one definition"
@@ -6235,6 +6430,11 @@ symbol = "SortInjector::solve_parameters"
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/sort_injections.rs"
 symbol = "add_sort_injections_to_definition"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections.rs"
+symbol = "SortInjector::apply_placement"
 
 [[node.cost]]
 mode = "one sentence, excluding the instance search of each parametric application"
@@ -6650,6 +6850,11 @@ symbol = "delimited_task"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
 symbol = "owned_text"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "CountingWriter::write"
 
 [[node.cost]]
 mode = "one syntax tree"
@@ -7325,6 +7530,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::filter_completed_packed_priority"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::filter_packed_priority_memo"
+
 [[node.cost]]
 mode = "one parse forest"
 bound = "O(N)"
@@ -7473,6 +7683,11 @@ symbol = "Grammar::resolve_packed_applications"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::resolve_packed_applications"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_packed_applications_memo"
 
 [[node.cost]]
 mode = "one parse forest"
@@ -8107,6 +8322,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/inference.rs"
 symbol = "Grammar::infer_ambiguous_sorts_portable_first"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference.rs"
+symbol = "Grammar::infer_typed_sorts_portable"
+
 [[node.cost]]
 mode = "one tree"
 bound = "O(V x E)"
@@ -8240,6 +8460,16 @@ symbol = "Encoding::read_model"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
 symbol = "or_all"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "EncodingBase::build"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "check"
 
 [[node.cost]]
 mode = "encoding construction"
@@ -9185,6 +9415,11 @@ symbol = "encode_substitution_source"
 crate = "k-rust"
 file = "crates/k-rust/src/rpc.rs"
 symbol = "RpcValue::to_json_string"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/rpc.rs"
+symbol = "write_response"
 
 [[node.cost]]
 mode = "response encode"
