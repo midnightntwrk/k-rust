@@ -3142,23 +3142,37 @@ impl Grammar {
                 .waiting
                 .get(&self.productions[*production].result_id)
                 .map_or(&[][..], Vec::as_slice);
-            let Some(caller) = callers.get(*next_caller).copied() else {
+            // A caller whose rest can neither begin with `winner` nor match the empty string
+            // continues no completion here, whatever the node: that is a property of the
+            // caller and the token, so such callers are passed over before the edge, which
+            // depends on the node and costs more, is judged. They are most of the callers a
+            // search meets.
+            let Some((passed, caller, dot, continues, nullable)) = callers[*next_caller..]
+                .iter()
+                .enumerate()
+                .find_map(|(passed, caller)| {
+                    let dot = caller.dot + 1;
+                    let continues =
+                        reach
+                            .analysis
+                            .rest_can_start_with(caller.production, dot, winner);
+                    let nullable = reach.analysis.rest_is_nullable(caller.production, dot);
+                    (continues || nullable).then_some((passed, *caller, dot, continues, nullable))
+                })
+            else {
                 stack.pop();
                 continue;
             };
-            *next_caller += 1;
+            *next_caller += passed + 1;
             if !self.boundary_admits(caller, *stands_for, reach) {
                 continue;
             }
-            let dot = caller.dot + 1;
             let caller_node = (
                 caller.origin,
                 caller.production,
                 self.stands_for(caller.production, *stands_for),
             );
-            if reach
-                .analysis
-                .rest_can_start_with(caller.production, dot, winner)
+            if continues
                 && reach
                     .rest_follows(caller.production, dot, reach.from)
                     .is_some_and(|after| {
@@ -3167,7 +3181,7 @@ impl Grammar {
             {
                 break 'search true;
             }
-            if !reach.analysis.rest_is_nullable(caller.production, dot) {
+            if !nullable {
                 continue;
             }
             match memo.get(&(caller_node, winner)) {
