@@ -419,19 +419,11 @@ impl<'a> Normalizer<'a> {
                 ..
             } => {
                 self.sort(sort)?;
+                // k-rust's reader refuses a regex terminal's precedeRegex and followRegex
+                // (upstream eb394dc9), so no guard reaches here.
                 for item in items {
-                    match item {
-                        ProductionItem::NonTerminal { sort, .. } => self.sort(sort)?,
-                        ProductionItem::RegexTerminal {
-                            precede_regex,
-                            follow_regex,
-                            ..
-                        } if self.options.sentences != Sentences::All
-                            && (precede_regex.is_some() || follow_regex.is_some()) =>
-                        {
-                            return Err("unsupported KRegexTerminal representation".into());
-                        }
-                        _ => {}
+                    if let ProductionItem::NonTerminal { sort, .. } = item {
+                        self.sort(sort)?;
                     }
                 }
                 for sort in parameters {

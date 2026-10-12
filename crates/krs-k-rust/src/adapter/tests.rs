@@ -986,30 +986,38 @@ fn grammar_items_attributes_and_group_sentences_map_structurally() {
     assert_eq!(attributes.get_str("seqstrict"), Some("2"));
     assert_eq!(attributes.get_str("result"), Some("KResult"));
 
-    let token = ProductionSentence::new(
-        node("schema9.production.integer-token"),
-        symbol(
-            "schema9.production.integer-token",
-            "integerToken",
-            SymbolKind::Production,
-        ),
-        DefinitionSortRef::declared(SymbolId::new("sort.value").unwrap()),
-        vec![
-            IrProductionItem::regex_terminal(
-                node("schema9.production.integer-token.regex"),
-                Some("[A-Za-z0-9_]".to_owned()),
-                "[0-9]+",
-                None,
-            )
-            .unwrap(),
-        ],
-        vec![DefinitionProductionAttribute::Token {
-            origin: node("schema9.production.integer-token.attribute"),
-            lexical_precedence: Some(120),
-        }],
-    )
-    .unwrap();
-    let native_token = adapter.production(&token, MODULE, 1).unwrap();
+    let token_with = |precede_regex: Option<&str>| {
+        ProductionSentence::new(
+            node("schema9.production.integer-token"),
+            symbol(
+                "schema9.production.integer-token",
+                "integerToken",
+                SymbolKind::Production,
+            ),
+            DefinitionSortRef::declared(SymbolId::new("sort.value").unwrap()),
+            vec![
+                IrProductionItem::regex_terminal(
+                    node("schema9.production.integer-token.regex"),
+                    precede_regex.map(str::to_owned),
+                    "[0-9]+",
+                    None,
+                )
+                .unwrap(),
+            ],
+            vec![DefinitionProductionAttribute::Token {
+                origin: node("schema9.production.integer-token.attribute"),
+                lexical_precedence: Some(120),
+            }],
+        )
+        .unwrap()
+    };
+    // k-rust reads a regex terminal as its regex alone, so a guard is refused, not dropped.
+    assert!(matches!(
+        adapter.production(&token_with(Some("[A-Za-z0-9_]")), MODULE, 1),
+        Err(AdapterError::TokenRegexGuard { key })
+            if key.as_str() == "schema9.production.integer-token.regex"
+    ));
+    let native_token = adapter.production(&token_with(None), MODULE, 1).unwrap();
     assert!(
         matches!(native_token, Sentence::Production { label: None, items, attributes, .. }
         if matches!(items.as_slice(), [ProductionItem::RegexTerminal { regex, .. }] if regex == "[0-9]+")

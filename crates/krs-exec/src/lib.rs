@@ -1000,7 +1000,8 @@ fn prove_claims(
                 Ok(ProofLeaf {
                     state: term(&leaf.state)?,
                     depth: leaf.depth,
-                    outcome: leaf.outcome.clone(),
+                    outcome: leaf.outcome.name().to_owned(),
+                    detail: leaf.detail.clone(),
                 })
             })
             .collect::<Result<Vec<_>, ExecError>>()?;

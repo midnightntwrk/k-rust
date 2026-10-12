@@ -179,6 +179,12 @@ pub enum AdapterError {
         /// Emitted name of the group.
         group: String,
     },
+    /// A token regex carries a precede or follow guard. k-rust 0.6.0 reads a regex terminal as
+    /// its regex alone (upstream eb394dc9), and no KRS source writes a guard.
+    TokenRegexGuard {
+        /// Origin of the regex terminal.
+        key: SourceMapKey,
+    },
     /// The pinned outer K parser rejected a `raw_k!` text, or the text is not
     /// exactly one sentence of its declared kind.
     RawK {
@@ -195,6 +201,7 @@ impl ToDiagnostic for AdapterError {
             Self::MissingSymbol { key, .. } => (codes::native::ADAPTER_MISSING_SYMBOL, key),
             Self::MissingReference { key, .. } => (codes::native::ADAPTER_MISSING_REFERENCE, key),
             Self::EmptyProductionGroup { key, .. } => (codes::native::ADAPTER_EMPTY_GROUP, key),
+            Self::TokenRegexGuard { key } => (codes::native::ADAPTER_TOKEN_GUARD, key),
             Self::RawK { key, .. } => (codes::native::RAW_K_PARSE, key),
         };
         Diagnostic::error(code, self.to_string(), Location::Definition(key.clone()))
@@ -216,6 +223,10 @@ impl fmt::Display for AdapterError {
                 formatter,
                 "production group {group:?} named at {key} has no labelled member production"
             ),
+            Self::TokenRegexGuard { key } => write!(
+                formatter,
+                "the token regex at {key} has a precede or follow guard, which the native frontend does not read"
+            ),
             Self::RawK { message, .. } => write!(formatter, "raw K text rejected: {message}"),
         }
     }
@@ -227,6 +238,7 @@ impl Error for AdapterError {
             Self::MissingSymbol { .. }
             | Self::MissingReference { .. }
             | Self::EmptyProductionGroup { .. }
+            | Self::TokenRegexGuard { .. }
             | Self::RawK { .. } => None,
         }
     }

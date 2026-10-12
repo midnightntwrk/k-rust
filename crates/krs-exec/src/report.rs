@@ -326,8 +326,12 @@ pub struct ProofLeaf {
     pub state: Term,
     /// Rewrite steps from the claim's left-hand side.
     pub depth: u64,
-    /// The backend's leaf outcome.
+    /// The backend's leaf outcome, as the k-rust host wire names it (`stuck`, `indeterminate`, ...).
     pub outcome: String,
+    /// Why a `timeout`, `stack-exhausted` or `indeterminate` leaf ended there, in the backend's
+    /// words; absent for every other outcome.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 /// The result of proving one claim.

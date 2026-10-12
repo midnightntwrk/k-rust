@@ -99,11 +99,7 @@ impl Adapter<'_> {
                     label: None,
                     parameters: Vec::new(),
                     sort: NativeSort::new("#Layout"),
-                    items: vec![NativeItem::RegexTerminal {
-                        precede_regex: None,
-                        regex: sentence.regex().to_owned(),
-                        follow_regex: None,
-                    }],
+                    items: vec![NativeItem::regex(sentence.regex())],
                     attributes,
                 })
             }
@@ -185,14 +181,15 @@ impl Adapter<'_> {
                         })
                     }
                     GrammarProductionItemKind::RegexTerminal {
-                        precede_regex,
+                        precede_regex: None,
                         regex,
-                        follow_regex,
-                    } => Ok(NativeItem::RegexTerminal {
-                        precede_regex: precede_regex.clone(),
-                        regex: regex.clone(),
-                        follow_regex: follow_regex.clone(),
-                    }),
+                        follow_regex: None,
+                    } => Ok(NativeItem::regex(regex.as_str())),
+                    GrammarProductionItemKind::RegexTerminal { .. } => {
+                        Err(AdapterError::TokenRegexGuard {
+                            key: item.origin().key().clone(),
+                        })
+                    }
                 }
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
