@@ -112,8 +112,8 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.resolve_ambiguity"
 //! name = "resolution and reporting of remaining ambiguity"
-//! sites = ["Grammar::resolve_ambiguities", "Grammar::resolve_ambiguities_node", "Grammar::factor_ambiguities"]
-//! variable = "N = owned nodes; A = ambiguity alternatives"
+//! sites = ["Grammar::resolve_ambiguities", "Grammar::resolve_ambiguities_node", "Grammar::factor_ambiguities", "Grammar::packed_ambiguity_report", "Grammar::lowering_only_repacks", "Grammar::packed_readings"]
+//! variable = "N = owned nodes; A = ambiguity alternatives; F = nodes of an inferred packed forest; R = productions in the grammar"
 //! counters = []
 //! no_counter = "final ambiguity resolution has no dedicated counter"
 //! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -122,6 +122,10 @@
 //! [[cost]]
 //! mode = "one parsed tree"
 //! bound = "O(N) lowering (parser.lower.term) when every ambiguity has one reading; otherwise each node's readings are an expression over its children's, built once per structure: a product, the union of an ambiguity node's alternatives (equal terms merged by hash, O(A) per node), or the concatenation a `~>` node splices, with only the string tokens of a #KToken node's two children paired; the report is polynomial in N and never lists or counts the readings: each question it asks a node (root keys, subterms at a position of the readings of one key, items at an index of the words of one length, least reading, least word of a length) is answered once per node and argument from its children's answers, an item of a concatenation in O(N^2) over its children and the lengths before them, and it builds one term per entry it lists"
+//!
+//! [[cost]]
+//! mode = "one inferred packed forest (z3)"
+//! bound = "O(F + R) to check that the passes before resolution only repack its trees; when they do and it has several readings, the readings and the report as for a parsed tree with F in place of N, each node's readings built once, plus the structural ordering of each ambiguity's alternatives; otherwise the forest is unpacked and lowered as a parsed tree"
 //! ```
 //!
 //! Packed-DAG and owned-tree disambiguation in the following pipeline order.
@@ -131,7 +135,9 @@
 //! 4. Resolve `#KApply` (packed DAG, O(nodes * argument lists * productions)).
 //! 5. Factor packed ambiguities (packed DAG, O(nodes * alternatives)).
 //! 6. Lift top-LHS ambiguities (packed DAG, O(nodes)).
-//! 7. Infer sorts and unpack (packed DAG to owned tree).
+//! 7. Infer sorts and unpack (packed DAG to owned tree). In the z3 build, when the passes below
+//!    only repack the inferred forest's trees and it has several readings, the ambiguity is
+//!    reported from the forest instead (`Grammar::packed_ambiguity_report`).
 //! 8. Resolve overloaded terminators (owned tree, O(nodes * list candidates)).
 //! 9. Apply prefer/avoid and overload filtering (owned tree, O(nodes) plus re-factoring of each
 //!    surviving ambiguity), then the prefer/avoid frontier step on an ambiguity whose alternatives
