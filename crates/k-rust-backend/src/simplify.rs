@@ -588,46 +588,14 @@ fn occurs_under_total_context(term: &Term, subject: &Term) -> bool {
 /// states no term defined (`\not(t = 0)` holds where `t` is undefined), nor does a predicate
 /// under a binder, whose variable it does not fix.
 fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -> FxHashSet<Term> {
+    /// The children that are `ceil_free` are skipped as their parent is: a collection's are
+    /// passed over through its trees' summaries (`children_lacking`).
     fn collect(term: &Term, subterms: &mut FxHashSet<Term>) {
         if term.attributes().ceil_free() || !subterms.insert(term.clone()) {
             return;
         }
-        match term.kind() {
-            TermKind::Application { arguments, .. } => {
-                arguments
-                    .iter()
-                    .for_each(|argument| collect(argument, subterms));
-            }
-            TermKind::Injection { term, .. } => collect(term, subterms),
-            TermKind::And(left, right) => {
-                collect(left, subterms);
-                collect(right, subterms);
-            }
-            TermKind::Map { entries, rest, .. } => {
-                for (key, value) in entries {
-                    collect(key, subterms);
-                    collect(value, subterms);
-                }
-                if let Some(rest) = rest {
-                    collect(rest, subterms);
-                }
-            }
-            TermKind::List { heads, rest, .. } => {
-                heads.iter().for_each(|head| collect(head, subterms));
-                if let Some((middle, tails)) = rest {
-                    collect(middle, subterms);
-                    tails.iter().for_each(|tail| collect(tail, subterms));
-                }
-            }
-            TermKind::Set { elements, rest, .. } => {
-                elements
-                    .iter()
-                    .for_each(|element| collect(element, subterms));
-                if let Some(rest) = rest {
-                    collect(rest, subterms);
-                }
-            }
-            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        for child in crate::term::children_lacking(term.kind(), crate::term::Flag::CeilFree) {
+            collect(child, subterms);
         }
     }
 
@@ -2735,7 +2703,13 @@ pub(crate) fn refuse_uncomputed_applications(
                 }
                 .into());
             }
-            push_children(&term, &mut pending);
+            // An `evaluated` child is skipped as its parent is: a collection's are passed over
+            // through its trees' summaries.
+            pending.extend(
+                crate::term::children_lacking(term.kind(), crate::term::Flag::Evaluated)
+                    .into_iter()
+                    .cloned(),
+            );
         }
         Ok(())
     };

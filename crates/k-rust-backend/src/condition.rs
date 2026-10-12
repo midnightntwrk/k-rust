@@ -549,8 +549,12 @@ impl ConsumedDefinedness {
             }
             // A variable left-hand side binds the whole subject.
             (TermKind::Variable(_), _) => {}
+            // A `ceil_free` child consumes nothing; a collection's are passed over through its
+            // trees' summaries.
             _ => {
-                for child in crate::term::immediate_children(subject.kind()) {
+                for child in
+                    crate::term::children_lacking(subject.kind(), crate::term::Flag::CeilFree)
+                {
                     consume(child);
                 }
             }

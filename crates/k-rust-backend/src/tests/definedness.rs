@@ -735,6 +735,71 @@ fn keys_of_one_skeleton_need_no_apartness_check() {
     assert_eq!(made, 3 * 201);
 }
 
+/// A map without a rest whose keys share one header and repeat none, holding one undefined value
+/// among 4,096 entries: the walk reaches that entry through the entries' summaries and states no
+/// key disequality (two distinct keys of one header are apart), so it takes from its work list
+/// the map, that entry's key and value and the value's argument, not the other 8,190 children;
+/// the obligations are the full walk's. The same holds of a list of 4,096 items one of which is
+/// undefined. (A set's undefined element is one of its keys, which has no header, so the walk
+/// states its disequality from each other element.)
+#[test]
+fn one_undefined_item_of_a_large_collection_is_reached_without_the_others() {
+    let definition = definition();
+    let (map_definition, _, list_definition) = collection_definitions();
+    let (int, kitem, s) = (
+        Sort::simple("SortInt"),
+        Sort::simple("SortKItem"),
+        Sort::simple("SortS"),
+    );
+    let key = |value: usize| {
+        Term::injection(
+            int.clone(),
+            kitem.clone(),
+            Term::domain_value(int.clone(), value.to_string()),
+        )
+    };
+    let mut partial = Symbol::constructor("partial", vec![s.clone()], kitem.clone());
+    partial.attributes.symbol_type =
+        crate::term::SymbolType::Function(crate::term::FunctionType::Partial);
+    let undefined = Term::application(
+        Arc::new(partial),
+        vec![],
+        vec![Term::domain_value(s.clone(), "a")],
+    );
+    let map = Term::map(
+        map_definition,
+        (0..4096)
+            .map(|index| {
+                let value = if index == 1234 {
+                    undefined.clone()
+                } else {
+                    key(index)
+                };
+                (key(index), value)
+            })
+            .collect(),
+        None,
+    );
+    let mut elements = (0..4095).map(key).collect::<Vec<_>>();
+    elements.push(undefined.clone());
+    let list = Term::list(list_definition, elements, None);
+    for (term, walked) in [(map, 4), (list, 3)] {
+        crate::definedness::WALKED_TERMS.set(0);
+        let obligations = ceil_term(&definition, &term);
+        assert_eq!(
+            crate::definedness::WALKED_TERMS.get(),
+            walked,
+            "{}",
+            kind_name(&term)
+        );
+        assert_eq!(
+            obligations,
+            vec![crate::rule::Predicate::Ceil(undefined.clone())]
+        );
+        assert_eq!(obligations, ceil_term_without_attribute(&definition, &term));
+    }
+}
+
 /// `grouping_key`'s keys that are not rigid include collections, as its doc states: a key holding
 /// a collection is not rigid (`rigid_apart_skeleton_hash` gives `None` at a
 /// `FixedRoot::Collection`), so the grouping must check it pairwise, and a grouping that read a

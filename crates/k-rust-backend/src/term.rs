@@ -99,7 +99,7 @@ pub mod items;
 pub mod names;
 pub mod variables;
 
-use items::Flag;
+pub(crate) use items::Flag;
 pub use items::Items;
 pub use variables::{VariableLookup, Variables};
 
@@ -1986,6 +1986,40 @@ pub(crate) fn immediate_children(kind: &TermKind) -> Vec<&Term> {
             )
             .collect(),
         TermKind::Set { elements, rest, .. } => elements.iter().chain(rest).collect(),
+    }
+}
+
+/// The immediate children of a node of kind `kind` whose stored attributes lack `flag`, in the
+/// order of [`immediate_children`]. A collection's items are reached through the trees'
+/// summaries ([`Items::lacking`]), so the children that have the flag cost nothing: `O(f log n)`
+/// for `f` of `n` items lacking it, where `immediate_children` lists all `n`.
+pub(crate) fn children_lacking(kind: &TermKind, flag: Flag) -> Vec<&Term> {
+    let lacks = |term: &&Term| !flag.holds_of(term);
+    match kind {
+        TermKind::Map { entries, rest, .. } => entries
+            .lacking(flag)
+            .flat_map(|(key, value)| [key, value])
+            .chain(rest)
+            .filter(lacks)
+            .collect(),
+        TermKind::List { heads, rest, .. } => heads
+            .lacking(flag)
+            .chain(
+                rest.iter()
+                    .flat_map(|(middle, tails)| std::iter::once(middle).chain(tails.lacking(flag))),
+            )
+            .filter(lacks)
+            .collect(),
+        TermKind::Set { elements, rest, .. } => {
+            elements.lacking(flag).chain(rest).filter(lacks).collect()
+        }
+        TermKind::And(..)
+        | TermKind::Application { .. }
+        | TermKind::DomainValue { .. }
+        | TermKind::Variable(_)
+        | TermKind::Injection { .. } => {
+            immediate_children(kind).into_iter().filter(lacks).collect()
+        }
     }
 }
 

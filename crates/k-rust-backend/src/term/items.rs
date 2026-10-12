@@ -310,6 +310,66 @@ impl<T: Item<Summary = ItemSummary> + Keyed<Key = Term>> Items<T> {
     }
 }
 
+impl<T: Item<Summary = ItemSummary> + ItemTerms> Items<T> {
+    /// The items one of whose terms lacks `flag`, in order. The tree is descended only into the
+    /// subtrees whose summary counts such an item, so the `f` items are reached through their
+    /// ancestors, `O(f log n)` nodes; a sequence whose every item has the flag costs one look
+    /// at its root.
+    pub(crate) fn lacking(&self, flag: Flag) -> impl Iterator<Item = &T> {
+        self.0
+            .summary()
+            .is_some_and(|summary| !summary.extra.holds(flag))
+            .then(|| {
+                self.0.seek(chunked::seek::Where::new(
+                    move |summary: &NodeSummary<T>| !summary.extra.holds(flag),
+                    move |item: &T| !item.every_term(|term| flag.holds_of(term)),
+                ))
+            })
+            .into_iter()
+            .flatten()
+            .map(|(_, item)| item)
+    }
+}
+
+impl<T: Item<Summary = ItemSummary> + ItemTerms> Items<T> {
+    /// The first item one of whose terms holds a `<k>` cell (a nonzero `k_cells`), reached
+    /// through the subtrees whose summary counts one: `O(log n)` nodes.
+    pub(crate) fn first_with_k_cells(&self) -> Option<&T> {
+        self.0
+            .summary()
+            .is_some_and(|summary| summary.extra.k_cells() > 0)
+            .then(|| {
+                self.0.seek(chunked::seek::Where::new(
+                    |summary: &NodeSummary<T>| summary.extra.k_cells() > 0,
+                    |item: &T| !item.every_term(|term| term.attributes().k_cells() == 0),
+                ))
+            })
+            .into_iter()
+            .flatten()
+            .map(|(_, item)| item)
+            .next()
+    }
+}
+
+/// The terms of an item whose attributes its [`ItemSummary`] combines: an element itself, a map
+/// entry's key and value.
+pub(crate) trait ItemTerms {
+    /// Whether `test` holds of each of the item's terms.
+    fn every_term(&self, test: impl Fn(&Term) -> bool) -> bool;
+}
+
+impl ItemTerms for Term {
+    fn every_term(&self, test: impl Fn(&Term) -> bool) -> bool {
+        test(self)
+    }
+}
+
+impl ItemTerms for (Term, Term) {
+    fn every_term(&self, test: impl Fn(&Term) -> bool) -> bool {
+        test(&self.0) && test(&self.1)
+    }
+}
+
 impl<T: Item + Ord> Items<T> {
     /// In an ordered sequence, the sequence with each item `wants` picks replaced by `change`'s
     /// result, when it returns one, and in order again. The tree is entered only where `admits`
@@ -549,17 +609,20 @@ const FLAGS: usize = 6;
 impl Flag {
     /// Whether every term of `terms` has this flag.
     fn of_all(self, terms: &[&Term]) -> bool {
-        terms.iter().all(|term| {
-            let attributes = term.attributes();
-            match self {
-                Self::Evaluated => attributes.evaluated,
-                Self::ValueClaimed => attributes.value_claimed,
-                Self::ConstructorLike => attributes.constructor_like,
-                Self::ConcreteAfterNormalization => attributes.concrete_after_normalization,
-                Self::CanBeEvaluated => attributes.can_be_evaluated,
-                Self::CeilFree => attributes.ceil_free,
-            }
-        })
+        terms.iter().all(|term| self.holds_of(term))
+    }
+
+    /// Whether `term`'s stored attributes have this flag.
+    pub(crate) fn holds_of(self, term: &Term) -> bool {
+        let attributes = term.attributes();
+        match self {
+            Self::Evaluated => attributes.evaluated,
+            Self::ValueClaimed => attributes.value_claimed,
+            Self::ConstructorLike => attributes.constructor_like,
+            Self::ConcreteAfterNormalization => attributes.concrete_after_normalization,
+            Self::CanBeEvaluated => attributes.can_be_evaluated,
+            Self::CeilFree => attributes.ceil_free,
+        }
     }
 }
 
@@ -1537,6 +1600,86 @@ mod tests {
                     0 < pairs && pairs <= 2 * DEFAULT_BRANCHING,
                     "{comparison}: {pairs} pairs of items compared"
                 );
+            }
+        }
+    }
+
+    /// `children_lacking` gives the children `immediate_children` gives that lack a flag, in the
+    /// same order, on a map, a set and a list of 4,096 items whose few non-constructor-like
+    /// items (variables) stand at either end, in the middle and nowhere, with and without a
+    /// rest; reaching them through the summaries leaves out exactly the items that have it.
+    #[test]
+    fn the_children_lacking_a_flag_are_those_of_all_children_lacking_it() {
+        use crate::term::{ListDefinition, children_lacking, immediate_children};
+        const ITEMS: usize = 4096;
+        let collection = |sort: &str| {
+            Arc::new(ListDefinition {
+                symbols: CollectionSymbols {
+                    unit: format!("{sort}-unit").into(),
+                    element: format!("{sort}-element").into(),
+                    concat: format!("{sort}-concat").into(),
+                },
+                element_sort: Sort::simple("SortKey"),
+                list_sort: sort.into(),
+            })
+        };
+        let item = |index: usize, symbolic: &[usize]| {
+            if symbolic.contains(&index) {
+                variable(&format!("X{index:06}"), "SortKey")
+            } else {
+                key(index)
+            }
+        };
+        for symbolic in [
+            vec![],
+            vec![0],
+            vec![ITEMS - 1],
+            vec![7, ITEMS / 2, ITEMS - 3],
+        ] {
+            for with_rest in [false, true] {
+                let rest = |sort: &str| with_rest.then(|| variable("R", sort));
+                let map = Term::map(
+                    definition(),
+                    (0..ITEMS)
+                        .map(|index| (key(index), item(index, &symbolic)))
+                        .collect(),
+                    rest("SortMap"),
+                );
+                let set = Term::set(
+                    collection("SortSet"),
+                    (0..ITEMS).map(|index| item(index, &symbolic)).collect(),
+                    rest("SortSet"),
+                );
+                // Without a middle, the heads are all the items; with one, the first half.
+                let heads = if with_rest { ITEMS / 2 } else { ITEMS };
+                let list = Term::list(
+                    collection("SortList"),
+                    (0..heads).map(|index| item(index, &symbolic)).collect(),
+                    rest("SortList").map(|middle| {
+                        (
+                            middle,
+                            (ITEMS / 2..ITEMS)
+                                .map(|index| item(index, &symbolic))
+                                .collect(),
+                        )
+                    }),
+                );
+                for term in [map, set, list] {
+                    let expected: Vec<&Term> = immediate_children(term.kind())
+                        .into_iter()
+                        .filter(|child| !child.attributes().constructor_like)
+                        .collect();
+                    assert_eq!(
+                        children_lacking(term.kind(), Flag::ConstructorLike),
+                        expected,
+                        "{symbolic:?}, rest {with_rest}"
+                    );
+                    assert_eq!(
+                        expected.len(),
+                        symbolic.len() + usize::from(with_rest),
+                        "{symbolic:?}, rest {with_rest}"
+                    );
+                }
             }
         }
     }
