@@ -25,8 +25,8 @@ use k_rust_backend::{
     definition::{Admission, Admitted, BackendDefinition},
     externalize,
     fresh::RequestNames,
-    implication::ImplicationStatus,
-    proof::{ProofOptions, ProofSearchOrder, ProofStatus},
+    implication::{ImplicationFailure, ImplicationStatus},
+    proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, TraceKind,
         execute_observed_with_solver, execute_with_solver,
@@ -380,7 +380,31 @@ pub struct ImplicationResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub failure: Option<String>,
+    pub failure: Option<ImplicationFailureOutput>,
+}
+
+/// The part of the consequent that the antecedent's instances outside it fail, on an `invalid`
+/// or `unknown` implication that found one. It says nothing about whether such instances exist;
+/// the status does.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ImplicationFailureOutput {
+    /// The consequent's term does not match the antecedent's; there is no `condition`.
+    TermMismatch,
+    /// A remainder of matching the consequent's term against the antecedent's fails;
+    /// `condition` is the part of the antecedent that would lie in the consequent.
+    PartialCoverage,
+    /// The consequent's term matches, and its condition is refuted on the antecedent, or (on an
+    /// `unknown` result) fails on part of it; `condition` is the match's.
+    ConsequentCondition,
+}
+
+impl ImplicationFailureOutput {
+    pub const ALL: [Self; 3] = [
+        Self::TermMismatch,
+        Self::PartialCoverage,
+        Self::ConsequentCondition,
+    ];
 }
 
 pub const IMPLICATION_SCHEMA_VERSION: u32 = 2;
@@ -457,7 +481,58 @@ pub struct ProofResultOutput<K = Value> {
 pub struct ProofLeafOutput<K = Value> {
     pub state: K,
     pub depth: u64,
-    pub outcome: String,
+    pub outcome: ProofLeafOutcomeOutput,
+    /// Why a `timeout`, `stack-exhausted` or `indeterminate` leaf ended there, in words for a
+    /// reader. Absent on every other outcome. Its text is not part of the result: the outcome
+    /// is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Where the proof left one state of the claim's search.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProofLeafOutcomeOutput {
+    /// The state implies the claim's right-hand side.
+    Proven,
+    /// The claim is trusted: its one leaf is its left-hand side, taken as proven unexplored.
+    Trusted,
+    /// The state lies outside the claim's right-hand side, and the search did not continue it:
+    /// no rule or circularity gives it a successor. It disproves the claim only when the
+    /// result's status is `disproved`.
+    Stuck,
+    /// An undefined step: a rule applies to the state's instances and its result is empty for
+    /// them, so they have no successor.
+    Trivial,
+    /// The state's constraint simplifies to bottom: it has no instance.
+    Vacuous,
+    /// The state was reached at the depth bound, and not explored.
+    DepthBound,
+    /// The state was pending, unexplored, when the search's frontier exceeded the breadth
+    /// limit and the search ended.
+    BreadthBound,
+    /// The state's step passed its deadline; the proof ends there.
+    Timeout,
+    /// The state's step ran out of stack; the proof goes on with the other states.
+    StackExhausted,
+    /// Whether the state implies the right-hand side, or what its step or a circularity does to
+    /// it, was not decided; `detail` says which.
+    Indeterminate,
+}
+
+impl ProofLeafOutcomeOutput {
+    pub const ALL: [Self; 10] = [
+        Self::Proven,
+        Self::Trusted,
+        Self::Stuck,
+        Self::Trivial,
+        Self::Vacuous,
+        Self::DepthBound,
+        Self::BreadthBound,
+        Self::Timeout,
+        Self::StackExhausted,
+        Self::Indeterminate,
+    ];
 }
 
 #[derive(Debug)]
@@ -1155,7 +1230,7 @@ impl Backend {
                         ImplicationStatus::Indeterminate => "unknown",
                     }
                     .into(),
-                    failure: verdict.failure().map(|failure| format!("{failure:?}")),
+                    failure: verdict.failure().map(implication_failure),
                     condition: verdict
                         .into_condition()
                         .as_ref()
@@ -1312,12 +1387,15 @@ impl Backend {
                     .leaves
                     .into_iter()
                     .map(|leaf| {
+                        let (outcome, detail) =
+                            proof_leaf_outcome(&leaf.outcome, &leaf.pattern.term.sort())?;
                         Ok(ProofLeafOutput {
                             state: K::from_source(&externalize::constrained_pattern(
                                 &leaf.pattern,
                             ))?,
                             depth: leaf.depth,
-                            outcome: format!("{:?}", leaf.outcome),
+                            outcome,
+                            detail,
                         })
                     })
                     .collect::<Result<_, BackendError>>()?,
@@ -1604,6 +1682,48 @@ fn model_substitution(substitution: &Substitution, result_sort: &Sort) -> Option
     )
 }
 
+fn implication_failure(failure: ImplicationFailure) -> ImplicationFailureOutput {
+    match failure {
+        ImplicationFailure::TermMismatch => ImplicationFailureOutput::TermMismatch,
+        ImplicationFailure::PartialCoverage => ImplicationFailureOutput::PartialCoverage,
+        ImplicationFailure::ConsequentCondition => ImplicationFailureOutput::ConsequentCondition,
+    }
+}
+
+/// The published outcome of a proof leaf, with the words of its reason; a predicate they name is
+/// printed at `sort`, the sort of the leaf's term. A cancelled request or a failed solver prelude
+/// ends the proof without a leaf for the state it stopped, so neither is a leaf's outcome; named
+/// on one, it is the operation's error.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn proof_leaf_outcome(
+    outcome: &ProofLeafOutcome,
+    sort: &Sort,
+) -> Result<(ProofLeafOutcomeOutput, Option<String>), BackendError> {
+    Ok(match outcome {
+        ProofLeafOutcome::Proven(_) => (ProofLeafOutcomeOutput::Proven, None),
+        ProofLeafOutcome::Trusted => (ProofLeafOutcomeOutput::Trusted, None),
+        ProofLeafOutcome::Stuck => (ProofLeafOutcomeOutput::Stuck, None),
+        ProofLeafOutcome::Trivial => (ProofLeafOutcomeOutput::Trivial, None),
+        ProofLeafOutcome::Vacuous => (ProofLeafOutcomeOutput::Vacuous, None),
+        ProofLeafOutcome::DepthBound => (ProofLeafOutcomeOutput::DepthBound, None),
+        ProofLeafOutcome::BreadthBound => (ProofLeafOutcomeOutput::BreadthBound, None),
+        ProofLeafOutcome::Stopped(cause) => match cause {
+            StopCause::Deadline(_) => (ProofLeafOutcomeOutput::Timeout, Some(cause.to_string())),
+            StopCause::StackExhausted(_) => (
+                ProofLeafOutcomeOutput::StackExhausted,
+                Some(cause.to_string()),
+            ),
+            StopCause::Cancelled | StopCause::SolverPrelude(_) => {
+                return Err(BackendError::from(cause.clone()));
+            }
+        },
+        ProofLeafOutcome::Indeterminate(reason) => (
+            ProofLeafOutcomeOutput::Indeterminate,
+            Some(reason.at(sort).to_string()),
+        ),
+    })
+}
+
 fn proof_status(status: ProofStatus) -> &'static str {
     match status {
         ProofStatus::Proven => "proven",
@@ -1644,32 +1764,37 @@ mod tests {
     use crate::kore::{parser::parse_pattern, printer::Printer};
     use std::collections::BTreeSet;
 
-    #[test]
-    fn execution_halt_reasons_match_typescript_declarations() {
-        let expected: BTreeSet<String> = HaltReasonOutput::ALL
-            .into_iter()
-            .map(|reason| {
-                let spelling = serde_json::to_string(&reason).unwrap();
-                assert_eq!(
-                    serde_json::from_str::<HaltReasonOutput>(&spelling).unwrap(),
-                    reason
-                );
+    /// The wire spellings of `all`, each read back as its value, as a set of distinct names.
+    fn wire_names<T>(all: &[T]) -> BTreeSet<String>
+    where
+        T: Serialize + serde::de::DeserializeOwned + PartialEq + fmt::Debug,
+    {
+        let names: BTreeSet<String> = all
+            .iter()
+            .map(|value| {
+                let spelling = serde_json::to_string(value).unwrap();
+                assert_eq!(&serde_json::from_str::<T>(&spelling).unwrap(), value);
                 serde_json::from_str::<String>(&spelling).unwrap()
             })
             .collect();
-        assert_eq!(expected.len(), HaltReasonOutput::ALL.len());
+        assert_eq!(names.len(), all.len());
+        names
+    }
 
+    /// Assert that each package's TypeScript declaration of `interface` spells `field` as the
+    /// union of `expected`, one `| 'name'` line each.
+    fn assert_typescript_union(interface: &str, field: &str, expected: &BTreeSet<String>) {
         for package in ["k-rust-napi", "k-rust-wasm"] {
             let path = format!(
                 "{}/../{package}/typescript/index.ts",
                 env!("CARGO_MANIFEST_DIR")
             );
             let declaration = std::fs::read_to_string(&path).unwrap();
-            let leaf = declaration
-                .split_once("export interface ExecutionLeaf {")
+            let body = declaration
+                .split_once(&format!("export interface {interface} {{"))
                 .unwrap()
                 .1;
-            let union = leaf.split_once("  reason:\n").unwrap().1;
+            let union = body.split_once(&format!("  {field}:\n")).unwrap().1;
             let actual: BTreeSet<String> = union
                 .lines()
                 .take_while(|line| line.trim_start().starts_with('|'))
@@ -1681,8 +1806,35 @@ mod tests {
                         .to_string()
                 })
                 .collect();
-            assert_eq!(actual, expected, "{path}");
+            assert_eq!(&actual, expected, "{path} {interface}.{field}");
         }
+    }
+
+    #[test]
+    fn execution_halt_reasons_match_typescript_declarations() {
+        assert_typescript_union(
+            "ExecutionLeaf",
+            "reason",
+            &wire_names(&HaltReasonOutput::ALL),
+        );
+    }
+
+    #[test]
+    fn implication_failures_match_typescript_declarations() {
+        assert_typescript_union(
+            "ImplicationResult",
+            "failure?",
+            &wire_names(&ImplicationFailureOutput::ALL),
+        );
+    }
+
+    #[test]
+    fn proof_leaf_outcomes_match_typescript_declarations() {
+        assert_typescript_union(
+            "ProofLeaf",
+            "outcome",
+            &wire_names(&ProofLeafOutcomeOutput::ALL),
+        );
     }
 
     const DEFINITION: &str = r#"[]
@@ -2657,6 +2809,32 @@ mod tests {
         }
     }
 
+    /// A failed implication names the part of the consequent the antecedent fails by its wire
+    /// name.
+    #[test]
+    fn a_failed_implication_names_the_part_of_the_consequent_it_fails() {
+        let mut backend = backend();
+        for (consequent, failure) in [
+            ("b{}()", "term-mismatch"),
+            (
+                r#"\and{SortS{}}(a{}(), \equals{SortS{}, SortS{}}(a{}(), b{}()))"#,
+                "consequent-condition",
+            ),
+        ] {
+            let result = backend
+                .implies(ImplicationRequest {
+                    antecedent: kore("a{}()"),
+                    consequent: kore(consequent),
+                    module_name: None,
+                    schema_version: BACKEND_SCHEMA_VERSION,
+                })
+                .unwrap();
+            let result = serde_json::to_value(result).unwrap();
+            assert_eq!(result["status"], "invalid", "{result:#}");
+            assert_eq!(result["failure"], failure, "{result:#}");
+        }
+    }
+
     #[test]
     fn persistent_backend_answers_implications_between_bottom_top_and_a_regular_pattern() {
         let bottom = r#"\bottom{SortS{}}()"#;
@@ -3576,13 +3754,19 @@ endmodule
             matches!(result.status.as_str(), "failed" | "indeterminate"),
             "{result:#?}"
         );
-        assert!(
-            result
-                .leaves
-                .iter()
-                .all(|leaf| !leaf.outcome.contains("IterationLimit")),
-            "{result:#?}"
-        );
+        // The exhausted budget leaves the side condition undecided; it is not a failure of the
+        // simplification of the state.
+        for leaf in &result.leaves {
+            match leaf.outcome {
+                ProofLeafOutcomeOutput::Proven | ProofLeafOutcomeOutput::Stuck => {}
+                ProofLeafOutcomeOutput::Indeterminate => assert!(
+                    leaf.detail.as_deref().is_some_and(|detail| detail
+                        .starts_with("the requires clause of rule conditional is undecided")),
+                    "{result:#?}"
+                ),
+                _ => panic!("{result:#?}"),
+            }
+        }
         let completed = backend
             .prove(ProveRequest {
                 max_simplification_iterations: 256,
@@ -3983,11 +4167,11 @@ endmodule
         };
         let text = backend.prove_json(request.clone()).unwrap();
         let value = backend.prove(request).unwrap();
-        assert_eq!(
-            serde_json::from_str::<Value>(&text).unwrap(),
-            serde_json::to_value(&value).unwrap()
-        );
+        let json = serde_json::from_str::<Value>(&text).unwrap();
+        assert_eq!(json, serde_json::to_value(&value).unwrap());
         assert_eq!(value.leaves.len(), 1, "{value:#?}");
+        assert_eq!(json["leaves"][0]["outcome"], "depth-bound", "{json:#}");
+        assert!(json["leaves"][0].get("detail").is_none(), "{json:#}");
     }
 
     /// An n-ary `\and` of term arguments is internalized as a chain of `n - 1` binary

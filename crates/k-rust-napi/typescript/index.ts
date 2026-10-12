@@ -635,7 +635,18 @@ export interface ImplicationResult {
    */
   status: 'valid' | 'invalid' | 'unknown'
   condition?: ImplicationCondition
-  failure?: string
+  /**
+   * On an 'invalid' or 'unknown' result that found one, the part of the consequent that the
+   * antecedent's instances outside it fail: 'term-mismatch' (the consequent's term does not
+   * match; no condition), 'partial-coverage' (a remainder of that match fails; condition is the
+   * part of the antecedent that would lie in the consequent), 'consequent-condition' (the term
+   * matches and the consequent's condition is refuted, or on 'unknown' fails on part of the
+   * antecedent; condition is the match's).
+   */
+  failure?:
+    | 'term-mismatch'
+    | 'partial-coverage'
+    | 'consequent-condition'
 }
 
 export interface ModelResult {
@@ -664,7 +675,28 @@ export interface ProveOptions {
 export interface ProofLeaf {
   state: Kore
   depth: number
-  outcome: string
+  /**
+   * 'proven': the state implies the claim's right-hand side. 'trusted': the claim is trusted and
+   * this is its left-hand side, unexplored. 'stuck': outside the right-hand side with no
+   * successor (it disproves the claim only under status 'disproved'). 'trivial': an undefined
+   * step, a rule applies and its result is empty. 'vacuous': the constraint is bottom.
+   * 'depth-bound', 'breadth-bound': left unexplored at the bound. 'timeout': the step passed its
+   * deadline, ending the proof. 'stack-exhausted': the step ran out of stack, the proof goes on.
+   * 'indeterminate': the implication, the step or a circularity was not decided.
+   */
+  outcome:
+    | 'proven'
+    | 'trusted'
+    | 'stuck'
+    | 'trivial'
+    | 'vacuous'
+    | 'depth-bound'
+    | 'breadth-bound'
+    | 'timeout'
+    | 'stack-exhausted'
+    | 'indeterminate'
+  /** Why a 'timeout', 'stack-exhausted' or 'indeterminate' leaf ended there, for a reader only. */
+  detail?: string
 }
 
 export interface ProofResult {

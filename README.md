@@ -488,8 +488,12 @@ Each selected claim prints `claim <label>: <verdict>`, followed by its unproven 
 
 When leaves disagree the first word of this list applies, in the order `disproved`, `failed`,
 `indeterminate`, `depth bound`, `breadth bound`. The Node.js and WebAssembly `status` field uses the
-same words, with `depth-bound` and `breadth-bound`. The exit status is 0 exactly when every selected
-claim is proven. `--compiled-definition` accepts either a `kcompile --for-proving` output
+same words, with `depth-bound` and `breadth-bound`. Each of their leaves names its `outcome`:
+`proven`, `trusted`, `stuck`, `trivial`, `vacuous`, `depth-bound`, `breadth-bound`, `timeout`,
+`stack-exhausted` or `indeterminate`, the last three with a `detail` in words for a reader; their
+`implies` names a failed implication's `failure` as `term-mismatch`, `partial-coverage` or
+`consequent-condition` (`typescript/index.ts` of either package states what each means). The
+exit status is 0 exactly when every selected claim is proven. `--compiled-definition` accepts either a `kcompile --for-proving` output
 directory or its `definition.kore` file. Without a positional source file, it never reloads the
 original K sources. With a source file, it uses the neighboring `krust.json` and the
 `parsed.provenance.json` it names to compile that new specification against the prepared semantics. `--load-only`
