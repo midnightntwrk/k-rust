@@ -669,6 +669,7 @@ enum Node<I: Item> {
     Leaf {
         items: Vec<I>,
         summary: NodeSummary<I>,
+        #[cfg(debug_assertions)]
         checked: Checked,
     },
     Internal {
@@ -676,6 +677,7 @@ enum Node<I: Item> {
         height: usize,
         children: Vec<Arc<Node<I>>>,
         summary: NodeSummary<I>,
+        #[cfg(debug_assertions)]
         checked: Checked,
     },
 }
@@ -684,11 +686,12 @@ enum Node<I: Item> {
 /// the items below a node and the pairs of adjacent items there ([`Chunked::check_unchecked`],
 /// and [`Chunked::check_passed_over`] at the subtrees the definedness walk skips), so that a
 /// later check of a tree sharing the node skips it (a list's check has no pair condition:
-/// `definedness::check_list_items`); nothing in other builds. A node is never changed once
-/// built, so the mark stays true of it. The mark is not part of the node's value: a copy of a
-/// node is built unmarked.
+/// `definedness::check_list_items`); other builds have neither the check nor the field. A node is
+/// never changed once built, so the mark stays true of it. The mark is not part of the node's
+/// value: a copy of a node is built unmarked.
+#[cfg(debug_assertions)]
 #[derive(Default)]
-struct Checked(#[cfg(debug_assertions)] std::sync::atomic::AtomicBool);
+struct Checked(std::sync::atomic::AtomicBool);
 
 #[cfg(test)]
 thread_local! {
@@ -712,6 +715,7 @@ impl<I: Item> Node<I> {
         Self::Leaf {
             items,
             summary,
+            #[cfg(debug_assertions)]
             checked: Checked::default(),
         }
     }
@@ -724,6 +728,7 @@ impl<I: Item> Node<I> {
             height,
             children,
             summary,
+            #[cfg(debug_assertions)]
             checked: Checked::default(),
         }
     }
@@ -734,6 +739,7 @@ impl<I: Item> Node<I> {
         Self::Leaf {
             items,
             summary,
+            #[cfg(debug_assertions)]
             checked: Checked::default(),
         }
     }
@@ -754,6 +760,7 @@ impl<I: Item> Node<I> {
         Self::Leaf {
             items,
             summary,
+            #[cfg(debug_assertions)]
             checked: Checked::default(),
         }
     }
@@ -768,6 +775,7 @@ impl<I: Item> Node<I> {
             height,
             children,
             summary,
+            #[cfg(debug_assertions)]
             checked: Checked::default(),
         }
     }
