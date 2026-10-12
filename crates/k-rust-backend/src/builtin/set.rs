@@ -225,7 +225,7 @@ fn difference(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Op
                 }
             })
     } else {
-        Items::tree(
+        Items::from_vec(
             left_elements
                 .iter()
                 .filter(|element| right_elements.search(element).is_err())
@@ -284,7 +284,7 @@ fn intersection(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<
         .filter(|element| larger.search(element).is_ok())
         .cloned()
         .collect();
-    Ok(into.build_from(Items::tree(common), &definition.element_sort, None))
+    Ok(into.build_from(Items::from_vec(common), &definition.element_sort, None))
 }
 
 /// The two operands, the one with fewer elements first (the left one when they hold as many).
@@ -337,7 +337,7 @@ fn union(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<
         .cloned()
         .collect();
     Ok(into.build_from(
-        larger.union(&Items::tree(missing)),
+        larger.union(&Items::from_vec(missing)),
         &definition.element_sort,
         None,
     ))

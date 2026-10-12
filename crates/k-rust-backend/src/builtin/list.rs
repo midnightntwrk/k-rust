@@ -788,7 +788,7 @@ mod tests {
     fn make_length_above_usize_is_unsupported() {
         let length = BigInt::from(1_u8) << usize::BITS;
         let reference = size_of::<Term>();
-        let elements = (16_u64 << 30) / reference as u64;
+        let elements = (16_u64 << 30) / LIST_RESULT_PEAK_FACTOR / reference as u64;
 
         assert_eq!(
             make(&[int_term(length), item("x")], into(&items())),
@@ -796,9 +796,9 @@ mod tests {
                 UnsupportedHookReason::ResultTooLarge {
                     detail: format!(
                         "a List result of length a 65-bit integer is longer than its cap of \
-                         {elements} elements (16 GiB of {reference}-byte references): all of the \
-                         16 GiB this process may use (given by the caller), since one \
-                         application holds 1 byte per byte of its result"
+                         {elements} elements (4 GiB of {reference}-byte references): a quarter of \
+                         the 16 GiB this process may use (given by the caller), since one \
+                         application holds 4 bytes per byte of its result"
                     ),
                 }
             ))
@@ -820,17 +820,20 @@ mod tests {
             "a quarter of the largest allocation on this target"
         );
         let sixty_four = target_result_bytes(i64::MAX.unsigned_abs());
-        assert_eq!(list_result_cap_on(&ALLOWANCE, sixty_four).bytes(), 16 << 30);
+        assert_eq!(
+            list_result_cap_on(&ALLOWANCE, sixty_four).bytes(),
+            (16 << 30) / LIST_RESULT_PEAK_FACTOR
+        );
     }
 
     /// `makeList` is computed exactly when its references fit the allowance
     /// ([`LIST_RESULT_PEAK_FACTOR`] bytes per byte of them) and refused beyond it before anything
-    /// is allocated. Under an allowance of 1 MiB the cap is 1 MiB of references, which the hook
-    /// builds.
+    /// is allocated. Under an allowance of 1 MiB the cap is 1 MiB / [`LIST_RESULT_PEAK_FACTOR`]
+    /// of references, which the hook builds.
     #[test]
     fn make_length_is_capped_by_the_allowance() {
         let small = Allowance::given(1 << 20);
-        let cap = (1_u64 << 20) / size_of::<Term>() as u64;
+        let cap = (1_u64 << 20) / LIST_RESULT_PEAK_FACTOR / size_of::<Term>() as u64;
         assert!(matches!(
             super::make(&[int_term(cap.into()), item("x")], into(&items()), &small),
             Ok(BuiltinResult::Value(list)) if matches!(
@@ -866,10 +869,11 @@ mod tests {
 
     /// The most memory one `makeList` application holds, per byte of its references, is
     /// [`LIST_RESULT_PEAK_FACTOR`]: measured with the test allocator at two lengths, the peak
-    /// grows by exactly that many bytes per byte of references, which become the list without a
-    /// copy. The difference leaves out the few bytes an application holds whatever its length.
+    /// grows by at most that many bytes per byte of references, and by more than one byte less
+    /// (the factor is the measurement rounded up). The difference leaves out the few bytes an
+    /// application holds whatever its length.
     #[test]
-    fn make_holds_its_result_once() {
+    fn make_holds_its_result_bounded() {
         let metadata = items();
         let peak = |length: u64| {
             let arguments = [int_term(length.into()), item("x")];

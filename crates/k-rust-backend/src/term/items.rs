@@ -5,45 +5,35 @@
 //! map's entries, a list's heads and tails, a set's elements. Its methods are those of the
 //! persistent tree `Chunked` (design K22, revision 2, §11): length, iteration from either end,
 //! access by position, ordered search, and edits that return a new sequence and leave the old one
-//! as it is. Code that reads or builds a collection does so through these methods only, so the
-//! representation behind them can change without touching it.
+//! as it is. Code that reads or builds a collection does so through these methods only.
 //!
-//! # Two backings
+//! # The tree
 //!
-//! Each kind of collection has one backing, so every sequence a term of that kind holds has the
-//! same one:
+//! Every sequence is a `Chunked` tree. An edit copies the path to the items it changes and
+//! shares the rest with the sequence it was made from, and the summary of the root
+//! (`Items::summary`) gives what the attributes of the collection term need without reading the
+//! items (`ItemSummary`, and the multiset of the variables they mention).
 //!
-//! - a map's entries, `(Term, Term)`, and a set's elements, `Term`, are a `Chunked` tree. An
-//!   edit copies the path to the items it changes and shares the rest with the sequence it was
-//!   made from, and the summary of the root (`Items::summary`) gives what the attributes of the
-//!   collection term need without reading the items (`ItemSummary`, and the multiset of the
-//!   variables they mention);
-//! - a list's items, `Term`, are still one vector, whose edits copy it.
+//! A map's entries and a set's elements are ordered by the items' `Ord` (the ordered methods:
+//! [`search`](Items::search), [`insert`](Items::insert), [`union`](Items::union),
+//! `rebuild_where`); a list's items are ordered by position only, and
+//! are edited by position ([`split_at`](Items::split_at), [`join`](Items::join),
+//! `map_where`). The tree is the same for both: its count summary locates a
+//! position, and its first and last items an ordered key. A list's summary also holds the
+//! fields only an ordered collection reads (the key header, the symbolic-key count, the
+//! repeated-key flag); nothing reads them of a list.
 //!
-//! A map entry has one backing whatever builds it (`Stored::IN_TREE`). A list item and a set
-//! element are both `Term`, so the backing of `Items<Term>` is chosen when it is built: [`new`],
-//! [`from_vec`] and their conversions build a vector, `Items::tree` a tree, and an edit keeps
-//! the backing of the sequence it edits (of either operand's tree, for two). The term
-//! constructors give a set's elements a tree and a list's items a vector whatever they are handed
-//! (`TermKind::hold_kind_backings`), so two terms of one kind hold the same backing.
-//!
-//! Equality and order are those of the item sequence under both backings, as for the vector. The
-//! hash is the vector's for a vector and the tree's sequence hash for a tree: a polynomial hash
-//! of the sequence that does not depend on the tree's shape, so equal sequences built by
-//! different edits hash alike, and computing it costs a node's summary rather than a pass over
-//! the items. Equal sequences of different backings hash differently, which is why a term holds
-//! the one backing of its kind.
-//!
-//! [`new`]: Items::new
-//! [`from_vec`]: Items::from_vec
+//! Equality and order are those of the item sequence, as for a vector. The hash is the tree's
+//! sequence hash: a polynomial hash of the sequence that does not depend on the tree's shape, so
+//! equal sequences built by different edits hash alike, and computing it costs a node's summary
+//! rather than a pass over the items.
 //!
 //! # Crate-private bound
 //!
-//! The item types are bounded by the crate's own `Stored`, whose supertrait `Item` names the
-//! tree's summary types; neither is part of the public interface. A dependent crate uses
-//! `Items<Term>` and `Items<(Term, Term)>`, whose bounds hold, and never names the trait, so the
-//! `private_bounds` lint, which warns that such a crate cannot write the bound itself, is allowed
-//! here.
+//! The item types are bounded by the crate's own `Item`, which names the tree's summary types
+//! and is not part of the public interface. A dependent crate uses `Items<Term>` and
+//! `Items<(Term, Term)>`, whose bounds hold, and never names the trait, so the `private_bounds`
+//! lint, which warns that such a crate cannot write the bound itself, is allowed here.
 #![allow(private_bounds)]
 
 use std::{
@@ -53,7 +43,7 @@ use std::{
     hash::{Hash, Hasher},
     iter::FusedIterator,
     ops::RangeBounds,
-    slice, vec,
+    vec,
 };
 
 use rustc_hash::FxHasher;
@@ -68,33 +58,13 @@ use super::{
     key_header,
 };
 
-/// An item type of a collection term, and the backing its sequences are built with.
-pub(crate) trait Stored: Item {
-    /// Whether [`Items::new`] and [`Items::from_vec`] build a [`Chunked`] tree rather than a
-    /// vector for this item type.
-    const IN_TREE: bool;
-}
-
-impl Stored for (Term, Term) {
-    const IN_TREE: bool = true;
-}
-
-impl Stored for Term {
-    const IN_TREE: bool = false;
-}
-
 /// A sequence of collection items (see the [module documentation](self)).
 ///
 /// The items of a map or a set are in nondecreasing order (map entries by key, then value); the
 /// methods called ordered rely on it, and a constructor that does not establish it is the
 /// caller's responsibility, as for [`Term::map`] and [`Term::set`], which order what they are
 /// given. A list's items are in the list's order.
-pub struct Items<T: Stored>(Backing<T>);
-
-enum Backing<T: Item> {
-    Vec(Vec<T>),
-    Tree(Chunked<T>),
-}
+pub struct Items<T: Item>(Chunked<T>);
 
 /// What an ordered sequence of items is searched by: a map entry's key, a set element itself.
 pub trait Keyed {
@@ -119,314 +89,181 @@ impl Keyed for (Term, Term) {
     }
 }
 
-impl<T: Stored> Items<T> {
+impl<T: Item> Items<T> {
     /// The empty sequence.
     pub const fn new() -> Self {
-        Self(if T::IN_TREE {
-            Backing::Tree(Chunked::new())
-        } else {
-            Backing::Vec(Vec::new())
-        })
+        Self(Chunked::new())
     }
 
-    /// The sequence of `items`, in the order given. A tree is built bottom-up, in time linear in
-    /// the number of items.
+    /// The sequence of `items`, in the order given, built bottom-up in time linear in the number
+    /// of items.
     pub fn from_vec(items: Vec<T>) -> Self {
-        Self(if T::IN_TREE {
-            Backing::Tree(Chunked::from_vec(items))
-        } else {
-            Backing::Vec(items)
-        })
-    }
-
-    /// The sequence of `items`, in the order given, as a tree whatever the item type: a set's
-    /// elements. Built bottom-up, in time linear in the number of items.
-    pub(crate) fn tree(items: Vec<T>) -> Self {
-        Self(Backing::Tree(Chunked::from_vec(items)))
-    }
-
-    /// The same sequence as a tree: itself when it is one, its items loaded into one otherwise.
-    pub(crate) fn into_tree(self) -> Self {
-        match self.0 {
-            Backing::Vec(items) => Self::tree(items),
-            tree @ Backing::Tree(_) => Self(tree),
-        }
-    }
-
-    /// The same sequence as a vector: itself when it is one, its items copied out otherwise.
-    pub(crate) fn into_vector(self) -> Self {
-        match self.0 {
-            Backing::Tree(tree) => Self(Backing::Vec(tree.to_vec())),
-            vector @ Backing::Vec(_) => Self(vector),
-        }
-    }
-
-    /// Whether the sequence is held in a tree rather than a vector.
-    pub(crate) fn is_tree(&self) -> bool {
-        matches!(self.0, Backing::Tree(_))
+        Self(Chunked::from_vec(items))
     }
 
     pub fn len(&self) -> usize {
-        match &self.0 {
-            Backing::Vec(items) => items.len(),
-            Backing::Tree(tree) => tree.len(),
-        }
+        self.0.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        match &self.0 {
-            Backing::Vec(items) => items.is_empty(),
-            Backing::Tree(tree) => tree.is_empty(),
-        }
+        self.0.is_empty()
     }
 
     /// The items in order; the iterator also runs from the back.
     pub fn iter(&self) -> Iter<'_, T> {
-        Iter(match &self.0 {
-            Backing::Vec(items) => IterBacking::Slice(items.iter()),
-            Backing::Tree(tree) => IterBacking::Tree(tree.iter()),
-        })
+        Iter(self.0.iter())
     }
 
     /// The items at the positions of `range`, which lies within the sequence, in order.
     pub fn range(&self, range: impl RangeBounds<usize>) -> Iter<'_, T> {
-        Iter(match &self.0 {
-            Backing::Vec(items) => {
-                let range = (range.start_bound().cloned(), range.end_bound().cloned());
-                IterBacking::Slice(items[range].iter())
-            }
-            Backing::Tree(tree) => IterBacking::Tree(tree.range(range)),
-        })
+        Iter(self.0.range(range))
     }
 
     /// The item at position `index`, if the sequence is that long.
     pub fn get(&self, index: usize) -> Option<&T> {
-        match &self.0 {
-            Backing::Vec(items) => items.get(index),
-            Backing::Tree(tree) => tree.get(index),
-        }
+        self.0.get(index)
     }
 
     pub fn first(&self) -> Option<&T> {
-        match &self.0 {
-            Backing::Vec(items) => items.first(),
-            Backing::Tree(tree) => tree.summary().and_then(|summary| summary.first.as_ref()),
-        }
+        self.0.summary().and_then(|summary| summary.first.as_ref())
     }
 
     pub fn last(&self) -> Option<&T> {
-        match &self.0 {
-            Backing::Vec(items) => items.last(),
-            Backing::Tree(tree) => tree.summary().and_then(|summary| summary.last.as_ref()),
-        }
+        self.0.summary().and_then(|summary| summary.last.as_ref())
     }
 
     /// In a sequence ordered as `compare` orders its items against a probe (`Less` for those
     /// before it, `Greater` for those after it), `Ok` with the position of an item `compare`
     /// finds equal to the probe, or `Err` with the position at which the probe would go.
     pub fn search_by(&self, compare: impl FnMut(&T) -> Ordering) -> Result<usize, usize> {
-        match &self.0 {
-            Backing::Vec(items) => items.binary_search_by(compare),
-            Backing::Tree(tree) => tree.search_by(compare),
-        }
+        self.0.search_by(compare)
     }
 
     /// The number of leading items for which `before` holds, when it holds for a prefix of the
     /// sequence and for no item after it.
     pub fn partition_point(&self, before: impl FnMut(&T) -> bool) -> usize {
-        match &self.0 {
-            Backing::Vec(items) => items.partition_point(before),
-            Backing::Tree(tree) => tree.partition_point(before),
-        }
+        self.0.partition_point(before)
     }
 
     pub fn to_vec(&self) -> Vec<T> {
-        match &self.0 {
-            Backing::Vec(items) => items.clone(),
-            Backing::Tree(tree) => tree.to_vec(),
-        }
+        self.0.to_vec()
     }
 
     /// The first `index` items and the rest; `index` is at most the length.
     pub fn split_at(&self, index: usize) -> (Self, Self) {
-        match &self.0 {
-            Backing::Vec(items) => {
-                let (left, right) = items.split_at(index);
-                (
-                    Self(Backing::Vec(left.to_vec())),
-                    Self(Backing::Vec(right.to_vec())),
-                )
-            }
-            Backing::Tree(tree) => {
-                let (left, right) = tree.split_at(index);
-                (Self(Backing::Tree(left)), Self(Backing::Tree(right)))
-            }
-        }
+        let (left, right) = self.0.split_at(index);
+        (Self(left), Self(right))
     }
 
-    /// The items of this sequence followed by those of `other`; a tree when either is one.
+    /// The items of this sequence followed by those of `other`.
     pub fn join(&self, other: &Self) -> Self {
-        match (&self.0, &other.0) {
-            (Backing::Tree(left), Backing::Tree(right)) => Self(Backing::Tree(left.join(right))),
-            (Backing::Vec(left), Backing::Vec(right)) => {
-                Self(Backing::Vec(left.iter().chain(right).cloned().collect()))
-            }
-            (Backing::Tree(left), Backing::Vec(right)) => {
-                Self(Backing::Tree(left.join(&Chunked::from_vec(right.clone()))))
-            }
-            (Backing::Vec(left), Backing::Tree(right)) => {
-                Self(Backing::Tree(Chunked::from_vec(left.clone()).join(right)))
-            }
-        }
+        Self(self.0.join(&other.0))
     }
 
     /// The sequence with `item` inserted at position `index`, which is at most the length.
     pub fn insert_at(&self, index: usize, item: T) -> Self {
-        match &self.0 {
-            Backing::Vec(items) => {
-                let mut items = items.clone();
-                items.insert(index, item);
-                Self(Backing::Vec(items))
-            }
-            Backing::Tree(tree) => Self(Backing::Tree(tree.insert_at(index, item))),
-        }
+        Self(self.0.insert_at(index, item))
     }
 
     /// The sequence without the item at position `index`, which is below the length, and that
     /// item.
     pub fn remove_at(&self, index: usize) -> (Self, T) {
-        match &self.0 {
-            Backing::Vec(items) => {
-                let mut items = items.clone();
-                let item = items.remove(index);
-                (Self(Backing::Vec(items)), item)
-            }
-            Backing::Tree(tree) => {
-                let (tree, item) = tree.remove_at(index);
-                (Self(Backing::Tree(tree)), item)
-            }
-        }
+        let (tree, item) = self.0.remove_at(index);
+        (Self(tree), item)
     }
 
     /// The sequence with the item at position `index`, which is below the length, replaced by
     /// `item`.
     pub fn replace_at(&self, index: usize, item: T) -> Self {
-        match &self.0 {
-            Backing::Vec(items) => {
-                let mut items = items.clone();
-                items[index] = item;
-                Self(Backing::Vec(items))
-            }
-            Backing::Tree(tree) => Self(Backing::Tree(tree.replace_at(index, item))),
-        }
+        Self(self.0.replace_at(index, item))
+    }
+
+    /// The sequence with each item `wants` picks replaced, where it stands, by `change`'s
+    /// result when it returns one (`None` keeps the item): a list's rebuild. The tree is entered
+    /// only where `admits` holds of a subtree's summary, which it must wherever an item `wants`
+    /// picks is below, and only the paths to the replaced items are copied
+    /// (`Chunked::map_where`), so the work is that of the items reached.
+    pub(crate) fn map_where(
+        &self,
+        admits: impl Fn(&NodeSummary<T>) -> bool,
+        wants: impl Fn(&T) -> bool,
+        change: impl FnMut(&T) -> Option<T>,
+    ) -> Self {
+        Self(
+            self.0
+                .map_where(&chunked::seek::Where::new(admits, wants), change),
+        )
     }
 
     /// The pairs of items the two sequences hold at the same positions, in order, up to the end
-    /// of the shorter one. Two trees skip the nodes they hold at the same position, whose items
-    /// are the same (`Chunked::aligned`), so comparing two versions of a collection reads the
-    /// paths where they differ.
+    /// of the shorter one. The walk skips the nodes the trees hold at the same position, whose
+    /// items are the same (`Chunked::aligned`), so comparing two versions of a collection reads
+    /// the paths where they differ.
     pub(crate) fn aligned<'a>(&'a self, other: &'a Self) -> Aligned<'a, T> {
-        Aligned(match (&self.0, &other.0) {
-            (Backing::Tree(left), Backing::Tree(right)) => {
-                AlignedBacking::Tree(left.aligned(right))
-            }
-            _ => AlignedBacking::Zip(self.iter().zip(other.iter())),
-        })
+        Aligned(self.0.aligned(&other.0))
     }
 
-    /// The most item comparisons [`search_by`](Self::search_by) makes: a binary search makes at
-    /// most `⌈log2 w⌉ + 1` over `w` items, a vector's is one over all of them, and a tree's is one
-    /// on each node of a path from the root, over at most `B` children or items.
+    /// The most item comparisons [`search_by`](Self::search_by) makes: one binary search on each
+    /// node of a path from the root, over at most `B` children or items, and a binary search
+    /// makes at most `⌈log2 w⌉ + 1` comparisons over `w` items.
     #[cfg(test)]
     pub(crate) fn search_comparison_bound(&self) -> usize {
         let binary = |width: usize| width.next_power_of_two().ilog2() as usize + 1;
-        match &self.0 {
-            Backing::Vec(items) => binary(items.len()),
-            Backing::Tree(tree) => tree.levels() * binary(chunked::DEFAULT_BRANCHING),
-        }
+        self.0.levels() * binary(chunked::DEFAULT_BRANCHING)
     }
 
-    /// The most item comparisons one insertion or removal at a position makes: none in a
-    /// vector, and in a tree those of the summaries of the nodes it builds on one path, each of
-    /// which compares the keys of its adjacent items or children (`collision`); a node built
-    /// from a node and its sibling, when one would fall below the fill minimum, holds fewer than
-    /// `2B` of them.
+    /// The most item comparisons one insertion or removal at a position makes: those of the
+    /// summaries of the nodes it builds on one path, each of which compares the keys of its
+    /// adjacent items or children (`collision`); a node built from a node and its sibling, when
+    /// one would fall below the fill minimum, holds fewer than `2B` of them.
     #[cfg(test)]
     pub(crate) fn path_copy_comparison_bound(&self) -> usize {
-        match &self.0 {
-            Backing::Vec(_) => 0,
-            Backing::Tree(tree) => tree.levels() * 2 * chunked::DEFAULT_BRANCHING,
-        }
+        self.0.levels() * 2 * chunked::DEFAULT_BRANCHING
     }
 
-    /// Whether the two sequences are trees holding the same root node.
+    /// Whether the two sequences hold the same root node.
     #[cfg(test)]
     pub(crate) fn shares_root(&self, other: &Self) -> bool {
-        match (&self.0, &other.0) {
-            (Backing::Tree(left), Backing::Tree(right)) => left.shares_root(right),
-            _ => false,
-        }
+        self.0.shares_root(&other.0)
     }
 
-    /// The summary of the whole sequence: the root's for a tree, the identity for the empty
-    /// sequence, and the fold of the items for a vector (which reads every item).
+    /// The summary of the whole sequence: the root's, or the identity for the empty sequence.
     pub(crate) fn summary(&self) -> Cow<'_, NodeSummary<T>> {
-        match &self.0 {
-            Backing::Vec(items) => Cow::Owned(NodeSummary::of_items(items)),
-            Backing::Tree(tree) => tree
-                .summary()
-                .map_or_else(|| Cow::Owned(NodeSummary::identity()), Cow::Borrowed),
-        }
+        self.0
+            .summary()
+            .map_or_else(|| Cow::Owned(NodeSummary::identity()), Cow::Borrowed)
     }
 
-    /// Whether dropping this sequence may free an item: its vector, or the root of its tree, is
-    /// not shared with another sequence. An item a shared root holds is held by that other
-    /// sequence too.
+    /// Whether dropping this sequence may free an item: the root of its tree is not shared with
+    /// another sequence. An item a shared root holds is held by that other sequence too.
     pub(crate) fn may_free_items(&self) -> bool {
-        match &self.0 {
-            Backing::Vec(items) => !items.is_empty(),
-            Backing::Tree(tree) => tree.owns_root(),
-        }
+        self.0.owns_root()
     }
 
     /// Debug builds: hand the items a check has not passed to `items`, and the pairs of
-    /// adjacent items among them or next to them to `adjacent`. A tree hands over the leaves
-    /// and junctions not marked checked and returns their nodes, which the caller marks once the
+    /// adjacent items among them or next to them to `adjacent`. The leaves and junctions not
+    /// marked checked are handed over and their nodes returned, which the caller marks once the
     /// items have passed (`Chunked::check_unchecked`), so a sequence edited since its last check
-    /// hands over the paths the edits copied; a vector hands over all of its items every time.
+    /// hands over the paths the edits copied.
     #[cfg(debug_assertions)]
     pub(crate) fn check_unchecked<'t>(
         &'t self,
-        mut items: impl FnMut(&'t [T]),
-        mut adjacent: impl FnMut(&'t T, &'t T),
+        items: impl FnMut(&'t [T]),
+        adjacent: impl FnMut(&'t T, &'t T),
     ) -> chunked::Unchecked<'t, T> {
-        match &self.0 {
-            Backing::Vec(vector) => {
-                items(vector);
-                for pair in vector.windows(2) {
-                    adjacent(&pair[0], &pair[1]);
-                }
-                chunked::Unchecked::none()
-            }
-            Backing::Tree(tree) => tree.check_unchecked(items, adjacent),
-        }
+        self.0.check_unchecked(items, adjacent)
     }
 
     /// Hand each item of which this sequence held the last handle to `each`, in no particular
     /// order, through a work list: a tree node shared with another sequence is only released.
     pub(crate) fn dismantle(self, each: impl FnMut(T)) {
-        match self.0 {
-            Backing::Vec(items) => items.into_iter().for_each(each),
-            Backing::Tree(tree) => {
-                let mut work = chunked::Dismantle::new();
-                work.push(tree);
-                work.for_each(each);
-            }
-        }
+        let mut work = chunked::Dismantle::new();
+        work.push(self.0);
+        work.for_each(each);
     }
 }
 
-impl<T: Stored + Keyed> Items<T> {
+impl<T: Item + Keyed> Items<T> {
     /// In an ordered sequence, `Ok` with the position of the first item whose key is `key`, or
     /// `Err` with the position at which an item of that key would go.
     pub fn search(&self, key: &<T as Keyed>::Key) -> Result<usize, usize> {
@@ -443,90 +280,52 @@ impl<T: Stored + Keyed> Items<T> {
     }
 }
 
-impl<T: Stored + Keyed<Key = Term> + Item<Summary = ItemSummary>> Items<T> {
-    /// The number of items whose key is not constructor-like: the root summary's count for a
-    /// tree, a pass over the items for a vector.
+impl<T: Item<Summary = ItemSummary> + Keyed<Key = Term>> Items<T> {
+    /// The number of items whose key is not constructor-like: the root summary's count.
     pub(crate) fn symbolic_keys(&self) -> usize {
-        match &self.0 {
-            Backing::Vec(items) => items.iter().filter(|item| symbolic_key(*item)).count(),
-            Backing::Tree(tree) => tree
-                .summary()
-                .map_or(0, |summary| summary.extra.symbolic_keys()),
-        }
+        self.0
+            .summary()
+            .map_or(0, |summary| summary.extra.symbolic_keys())
     }
 
-    /// The items whose key is not constructor-like, in order. A tree is descended only into the
-    /// subtrees whose summary counts such a key, so the `s` items are reached through their
-    /// ancestors, `O(s log n)` nodes; a vector is filtered.
+    /// The items whose key is not constructor-like, in order. The tree is descended only into
+    /// the subtrees whose summary counts such a key, so the `s` items are reached through their
+    /// ancestors, `O(s log n)` nodes.
     pub(crate) fn symbolic_keyed(&self) -> impl Iterator<Item = &T> {
         self.symbolic_keyed_at().map(|(_, item)| item)
     }
 
     /// [`symbolic_keyed`](Self::symbolic_keyed), each item with its position.
     pub(crate) fn symbolic_keyed_at(&self) -> impl Iterator<Item = (usize, &T)> {
-        let (vector, tree) = match &self.0 {
-            // No descent when the root's summary counts none.
-            Backing::Tree(_) if self.symbolic_keys() == 0 => (None, None),
-            Backing::Vec(items) => (
-                Some(
-                    items
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, item)| symbolic_key(*item)),
-                ),
-                None,
-            ),
-            Backing::Tree(tree) => (
-                None,
-                Some(tree.seek(chunked::seek::Where::new(
+        // No descent when the root's summary counts none.
+        (self.symbolic_keys() > 0)
+            .then(|| {
+                self.0.seek(chunked::seek::Where::new(
                     |summary: &NodeSummary<T>| summary.extra.symbolic_keys() > 0,
-                    |item: &T| symbolic_key(item),
-                ))),
-            ),
-        };
-        vector
+                    |item: &T| !Keyed::key(item).attributes().constructor_like,
+                ))
+            })
             .into_iter()
             .flatten()
-            .chain(tree.into_iter().flatten())
     }
 }
 
-/// Whether `item`'s key is not constructor-like.
-fn symbolic_key<T: Keyed<Key = Term>>(item: &T) -> bool {
-    !Keyed::key(item).attributes().constructor_like
-}
-
-impl<T: Stored + Ord> Items<T> {
+impl<T: Item + Ord> Items<T> {
     /// In an ordered sequence, the sequence with each item `wants` picks replaced by `change`'s
-    /// result, when it returns one, and in order again. A tree is entered only where `admits`
+    /// result, when it returns one, and in order again. The tree is entered only where `admits`
     /// holds of a subtree's summary, which it must wherever an item `wants` picks is below; it
     /// copies the paths to the changed items and moves those that are no longer in order
-    /// (`Chunked::rebuild_where`), so the work is that of the items reached. A vector is
-    /// rebuilt and sorted.
+    /// (`Chunked::rebuild_where`), so the work is that of the items reached.
     pub(crate) fn rebuild_where(
         &self,
         admits: impl Fn(&NodeSummary<T>) -> bool,
         wants: impl Fn(&T) -> bool,
-        mut change: impl FnMut(&T) -> Option<T>,
+        change: impl FnMut(&T) -> Option<T>,
     ) -> Self {
-        match &self.0 {
-            Backing::Vec(items) => {
-                let mut items = items
-                    .iter()
-                    .map(|item| {
-                        wants(item)
-                            .then(|| change(item))
-                            .flatten()
-                            .unwrap_or_else(|| item.clone())
-                    })
-                    .collect::<Vec<_>>();
-                items.sort();
-                Self(Backing::Vec(items))
-            }
-            Backing::Tree(tree) => Self(Backing::Tree(
-                tree.rebuild_where(&chunked::seek::Where::new(admits, wants), change),
-            )),
-        }
+        Self(
+            self.0
+                .rebuild_where(&chunked::seek::Where::new(admits, wants), change),
+        )
     }
 
     /// In an ordered sequence, the sequence with `item` added after the items not above it.
@@ -542,132 +341,82 @@ impl<T: Stored + Ord> Items<T> {
     }
 
     /// The ordered sequence of the items of the two ordered sequences, each kept as often as
-    /// the two hold it together. Two trees share the nodes of the taller one whose range
-    /// receives none of the other's items (`Chunked::union`).
+    /// the two hold it together. The nodes of the taller tree whose range receives none of the
+    /// other's items are shared (`Chunked::union`).
     pub fn union(&self, other: &Self) -> Self {
-        match (&self.0, &other.0) {
-            (Backing::Tree(left), Backing::Tree(right)) => {
-                return Self(Backing::Tree(left.union(right)));
-            }
-            // A tree and a vector: the vector, ordered too, is loaded and united with the tree.
-            (Backing::Tree(tree), Backing::Vec(vector))
-            | (Backing::Vec(vector), Backing::Tree(tree)) => {
-                return Self(Backing::Tree(
-                    tree.union(&Chunked::from_vec(vector.clone())),
-                ));
-            }
-            (Backing::Vec(_), Backing::Vec(_)) => {}
-        }
-        let mut items = Vec::with_capacity(self.len() + other.len());
-        let (mut left, mut right) = (self.iter().peekable(), other.iter().peekable());
-        loop {
-            let next = match (left.peek(), right.peek()) {
-                (Some(l), Some(r)) => {
-                    if r < l {
-                        right.next()
-                    } else {
-                        left.next()
-                    }
-                }
-                (Some(_), None) => left.next(),
-                (None, _) => right.next(),
-            };
-            match next {
-                Some(item) => items.push(item.clone()),
-                None => return Self(Backing::Vec(items)),
-            }
-        }
+        Self(self.0.union(&other.0))
     }
 }
 
-impl<T: Stored> Clone for Items<T> {
+impl<T: Item> Clone for Items<T> {
     fn clone(&self) -> Self {
-        Self(match &self.0 {
-            Backing::Vec(items) => Backing::Vec(items.clone()),
-            Backing::Tree(tree) => Backing::Tree(tree.clone()),
-        })
+        Self(self.0.clone())
     }
 }
 
-/// Equal when the item sequences are. The sequences of one term kind have one backing, so two
-/// sequences compared as fields of terms have the same one; the comparison of the items in order
-/// covers any other case.
-impl<T: Stored> PartialEq for Items<T> {
+/// Equal when the item sequences are, whatever the trees' shapes.
+impl<T: Item> PartialEq for Items<T> {
     fn eq(&self, other: &Self) -> bool {
-        match (&self.0, &other.0) {
-            (Backing::Vec(left), Backing::Vec(right)) => left == right,
-            (Backing::Tree(left), Backing::Tree(right)) => left == right,
-            _ => self.len() == other.len() && self.iter().eq(other.iter()),
-        }
+        self.0 == other.0
     }
 }
 
-impl<T: Stored> Eq for Items<T> {}
+impl<T: Item> Eq for Items<T> {}
 
-/// The lexicographic order of the item sequences, as for the vector.
-impl<T: Stored + Ord> Ord for Items<T> {
+/// The lexicographic order of the item sequences, as for a vector.
+impl<T: Item + Ord> Ord for Items<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (&self.0, &other.0) {
-            (Backing::Vec(left), Backing::Vec(right)) => left.cmp(right),
-            (Backing::Tree(left), Backing::Tree(right)) => left.cmp(right),
-            _ => self.iter().cmp(other.iter()),
-        }
+        self.0.cmp(&other.0)
     }
 }
 
-impl<T: Stored + Ord> PartialOrd for Items<T> {
+impl<T: Item + Ord> PartialOrd for Items<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-/// A vector hashes as a vector does; a tree writes its sequence hash, which equal sequences share
-/// whatever the tree's shape (see the [module documentation](self)).
-impl<T: Stored + Hash> Hash for Items<T> {
+/// The tree's sequence hash, which equal sequences share whatever the tree's shape (see the
+/// [module documentation](self)).
+impl<T: Item> Hash for Items<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match &self.0 {
-            Backing::Vec(items) => items.hash(state),
-            Backing::Tree(tree) => tree.hash(state),
-        }
+        self.0.hash(state);
     }
 }
 
-impl<T: Stored> Default for Items<T> {
+impl<T: Item> Default for Items<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 /// The items' own debug form, as a vector of them prints it.
-impl<T: Stored> fmt::Debug for Items<T> {
+impl<T: Item> fmt::Debug for Items<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_list().entries(self.iter()).finish()
     }
 }
 
-impl<T: Stored> From<Vec<T>> for Items<T> {
+impl<T: Item> From<Vec<T>> for Items<T> {
     fn from(items: Vec<T>) -> Self {
         Self::from_vec(items)
     }
 }
 
 /// The items in order, as a vector.
-impl<T: Stored> From<Items<T>> for Vec<T> {
+impl<T: Item> From<Items<T>> for Vec<T> {
     fn from(items: Items<T>) -> Self {
-        match items.0 {
-            Backing::Vec(items) => items,
-            Backing::Tree(tree) => tree.to_vec(),
-        }
+        items.to_vec()
     }
 }
 
-impl<T: Stored> FromIterator<T> for Items<T> {
+impl<T: Item> FromIterator<T> for Items<T> {
     fn from_iter<I: IntoIterator<Item = T>>(items: I) -> Self {
         Self::from_vec(items.into_iter().collect())
     }
 }
 
-impl<'a, T: Stored> IntoIterator for &'a Items<T> {
+impl<'a, T: Item> IntoIterator for &'a Items<T> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;
 
@@ -676,8 +425,8 @@ impl<'a, T: Stored> IntoIterator for &'a Items<T> {
     }
 }
 
-/// The items in order, taken out of the sequence (a tree's are copied out of it first).
-impl<T: Stored> IntoIterator for Items<T> {
+/// The items in order, copied out of the sequence.
+impl<T: Item> IntoIterator for Items<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
 
@@ -687,23 +436,15 @@ impl<T: Stored> IntoIterator for Items<T> {
 }
 
 /// The items of an [`Items`] in order, from either end.
-pub struct Iter<'a, T: Stored>(IterBacking<'a, T>);
+pub struct Iter<'a, T: Item>(chunked::Iter<'a, T>);
 
-enum IterBacking<'a, T: Item> {
-    Slice(slice::Iter<'a, T>),
-    Tree(chunked::Iter<'a, T>),
-}
-
-impl<T: Stored> Clone for Iter<'_, T> {
+impl<T: Item> Clone for Iter<'_, T> {
     fn clone(&self) -> Self {
-        Self(match &self.0 {
-            IterBacking::Slice(items) => IterBacking::Slice(items.clone()),
-            IterBacking::Tree(items) => IterBacking::Tree(items.clone()),
-        })
+        Self(self.0.clone())
     }
 }
 
-impl<T: Stored> fmt::Debug for Iter<'_, T> {
+impl<T: Item> fmt::Debug for Iter<'_, T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Iter")
@@ -712,67 +453,44 @@ impl<T: Stored> fmt::Debug for Iter<'_, T> {
     }
 }
 
-impl<'a, T: Stored> Iterator for Iter<'a, T> {
+impl<'a, T: Item> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<&'a T> {
-        match &mut self.0 {
-            IterBacking::Slice(items) => items.next(),
-            IterBacking::Tree(items) => items.next(),
-        }
+        self.0.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        match &self.0 {
-            IterBacking::Slice(items) => items.size_hint(),
-            IterBacking::Tree(items) => items.size_hint(),
-        }
+        self.0.size_hint()
     }
 
     fn nth(&mut self, n: usize) -> Option<&'a T> {
-        match &mut self.0 {
-            IterBacking::Slice(items) => items.nth(n),
-            IterBacking::Tree(items) => items.nth(n),
-        }
+        self.0.nth(n)
     }
 }
 
-impl<T: Stored> DoubleEndedIterator for Iter<'_, T> {
+impl<T: Item> DoubleEndedIterator for Iter<'_, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        match &mut self.0 {
-            IterBacking::Slice(items) => items.next_back(),
-            IterBacking::Tree(items) => items.next_back(),
-        }
+        self.0.next_back()
     }
 
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
-        match &mut self.0 {
-            IterBacking::Slice(items) => items.nth_back(n),
-            IterBacking::Tree(items) => items.nth_back(n),
-        }
+        self.0.nth_back(n)
     }
 }
 
-impl<T: Stored> ExactSizeIterator for Iter<'_, T> {}
+impl<T: Item> ExactSizeIterator for Iter<'_, T> {}
 
-impl<T: Stored> FusedIterator for Iter<'_, T> {}
+impl<T: Item> FusedIterator for Iter<'_, T> {}
 
 /// The pairs of items two sequences hold at the same positions ([`Items::aligned`]).
-pub(crate) struct Aligned<'a, T: Stored>(AlignedBacking<'a, T>);
+pub(crate) struct Aligned<'a, T: Item>(chunked::Aligned<'a, T>);
 
-enum AlignedBacking<'a, T: Stored> {
-    Zip(std::iter::Zip<Iter<'a, T>, Iter<'a, T>>),
-    Tree(chunked::Aligned<'a, T>),
-}
-
-impl<'a, T: Stored> Iterator for Aligned<'a, T> {
+impl<'a, T: Item> Iterator for Aligned<'a, T> {
     type Item = (&'a T, &'a T);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let pair = match &mut self.0 {
-            AlignedBacking::Zip(pairs) => pairs.next(),
-            AlignedBacking::Tree(pairs) => pairs.next(),
-        };
+        let pair = self.0.next();
         #[cfg(test)]
         if pair.is_some() {
             ALIGNED_PAIRS.with(|count| count.set(count.get() + 1));
@@ -1435,18 +1153,6 @@ mod tests {
             })
         }
 
-        fn list_definition() -> Arc<ListDefinition> {
-            Arc::new(ListDefinition {
-                symbols: CollectionSymbols {
-                    unit: "SortList-unit".into(),
-                    element: "SortList-element".into(),
-                    concat: "SortList-concat".into(),
-                },
-                element_sort: Sort::simple("SortKey"),
-                list_sort: "SortList".into(),
-            })
-        }
-
         fn set(elements: Vec<Term>, rest: Option<Term>) -> Term {
             Term::set(set_definition(), elements, rest)
         }
@@ -1475,7 +1181,6 @@ mod tests {
                 })
                 .collect();
             let at_once = set(all.clone(), None);
-            assert!(elements(&at_once).is_tree());
             let mut ordered = all.clone();
             ordered.sort();
             for added in [
@@ -1551,42 +1256,6 @@ mod tests {
             assert_eq!(repeated.repeated_set_element(), Some(&key(50)));
             assert!(!repeated.attributes().ceil_free());
             assert!(!repeated.attributes().constructor_like);
-        }
-
-        /// A set's elements are a tree and a list's items a vector whatever backing a kind is
-        /// built with, so equal terms hold equal backings and hash alike.
-        #[test]
-        fn a_set_holds_a_tree_and_a_list_a_vector_whatever_they_are_built_with() {
-            let items = (0..100).map(key).collect::<Vec<_>>();
-            let from_vector = Term::new(TermKind::Set {
-                definition: set_definition(),
-                elements: Items::from_vec(items.clone()),
-                rest: None,
-            });
-            assert!(elements(&from_vector).is_tree());
-            assert_eq!(from_vector, set(items.clone(), None));
-            assert_eq!(
-                from_vector.attributes(),
-                set(items.clone(), None).attributes()
-            );
-
-            let from_tree = Term::new(TermKind::List {
-                definition: list_definition(),
-                heads: Items::tree(items.clone()),
-                rest: Some((variable("L", "SortList"), Items::tree(items.clone()))),
-            });
-            let TermKind::List { heads, rest, .. } = from_tree.kind() else {
-                panic!("a list term")
-            };
-            assert!(!heads.is_tree());
-            assert!(!rest.as_ref().expect("a rest").1.is_tree());
-            let built = Term::list(
-                list_definition(),
-                items.clone(),
-                Some((variable("L", "SortList"), items)),
-            );
-            assert_eq!(from_tree, built);
-            assert_eq!(from_tree.attributes(), built.attributes());
         }
 
         /// Substituting into a set rebuilds only the elements that mention a bound variable: an
@@ -1683,6 +1352,190 @@ mod tests {
                 assert!(
                     pairs <= 2 * DEFAULT_BRANCHING,
                     "{comparison}: {pairs} pairs of elements compared"
+                );
+            }
+        }
+    }
+
+    mod lists {
+        use super::*;
+        use crate::term::ListDefinition;
+
+        fn list_definition() -> Arc<ListDefinition> {
+            Arc::new(ListDefinition {
+                symbols: CollectionSymbols {
+                    unit: "SortList-unit".into(),
+                    element: "SortList-element".into(),
+                    concat: "SortList-concat".into(),
+                },
+                element_sort: Sort::simple("SortKey"),
+                list_sort: "SortList".into(),
+            })
+        }
+
+        fn list(heads: Vec<Term>, rest: Option<(Term, Vec<Term>)>) -> Term {
+            Term::list(list_definition(), heads, rest)
+        }
+
+        /// The heads, and the middle and tails, of a list term.
+        fn parts(list: &Term) -> (&Items<Term>, Option<&(Term, Items<Term>)>) {
+            let TermKind::List { heads, rest, .. } = list.kind() else {
+                panic!("a list term")
+            };
+            (heads, rest.as_ref())
+        }
+
+        /// Items `0..n`, every seventh a variable, so that the trees carry variables.
+        fn items(range: std::ops::Range<usize>) -> Vec<Term> {
+            range
+                .map(|index| {
+                    if index % 7 == 0 {
+                        variable(&format!("E{index:06}"), "SortKey")
+                    } else {
+                        key(index)
+                    }
+                })
+                .collect()
+        }
+
+        /// A list whose middle is a list of its definition, whose trees are joined with the
+        /// given ones, is the list of all the items in order built at once: equal, equally
+        /// ordered, with equal attributes (the hash and the variables included) although the
+        /// trees have different shapes. A nested middle with an opaque middle of its own keeps
+        /// that one, its heads joined after the outer heads and its tails before the outer tails.
+        #[test]
+        fn a_list_built_on_a_list_middle_is_the_list_of_all_its_items() {
+            const ITEMS: usize = 3000;
+            let all = items(0..ITEMS);
+            let at_once = list(all.clone(), None);
+            for (start, end) in [(0, ITEMS), (0, 1), (1, ITEMS), (1500, 1501), (40, 2960)] {
+                let middle = list(all[start..end].to_vec(), None);
+                let built = list(all[..start].to_vec(), Some((middle, all[end..].to_vec())));
+                assert_eq!(built, at_once, "{start}..{end}");
+                assert_eq!(built.cmp(&at_once), std::cmp::Ordering::Equal);
+                assert_eq!(built.attributes(), at_once.attributes(), "{start}..{end}");
+                assert_eq!(parts(&built).0.to_vec(), all, "{start}..{end}");
+                assert!(parts(&built).1.is_none());
+            }
+            let opaque = variable("L", "SortList");
+            let expected = list(
+                all[..1000].to_vec(),
+                Some((opaque.clone(), all[1500..].to_vec())),
+            );
+            let nested = list(
+                all[..300].to_vec(),
+                Some((
+                    list(
+                        all[300..1000].to_vec(),
+                        Some((opaque, all[1500..2000].to_vec())),
+                    ),
+                    all[2000..].to_vec(),
+                )),
+            );
+            assert_eq!(nested, expected);
+            assert_eq!(nested.attributes(), expected.attributes());
+            let (heads, rest) = parts(&nested);
+            assert_eq!(heads.len(), 1000);
+            assert_eq!(rest.expect("a middle").1.to_vec(), all[1500..].to_vec());
+        }
+
+        /// Appending or prepending one item to an `n`-item list joins a one-item tree to its
+        /// tree, which computes the own summary of the items of one leaf, the one at the
+        /// junction: not one per item, which a copy of the items would compute.
+        #[test]
+        fn adding_one_item_to_a_list_summarizes_one_leaf() {
+            const ITEMS: usize = 4096;
+            let base = list(items(0..ITEMS), None);
+            let item = key(ITEMS);
+            for (heads, tails) in [(vec![], vec![item.clone()]), (vec![item.clone()], vec![])] {
+                let mut added = None;
+                let summaries = element_summaries_during(|| {
+                    added = Some(list(heads.clone(), Some((base.clone(), tails.clone()))));
+                });
+                assert!(
+                    summaries <= DEFAULT_BRANCHING + 2,
+                    "{summaries} item summaries"
+                );
+                let added = added.expect("added");
+                assert_eq!(parts(&added).0.len(), ITEMS + 1);
+                assert_eq!(parts(&base).0.len(), ITEMS);
+            }
+        }
+
+        /// Substituting into a list replaces the items that mention a bound variable where they
+        /// stand, in its heads and its tails, and the result is the list built from the
+        /// substituted items. It summarizes at most the items of the leaf each replacement
+        /// rebuilds, whatever the list's length.
+        #[test]
+        fn substitution_rebuilds_only_the_items_that_mention_a_bound_variable() {
+            const ITEMS: usize = 4096;
+            let mut heads = (0..ITEMS).map(key).collect::<Vec<_>>();
+            heads[2000] = variable("E", "SortKey");
+            let mut tails = (0..ITEMS).map(key).collect::<Vec<_>>();
+            tails[10] = variable("E", "SortKey");
+            let middle = variable("L", "SortList");
+            let base = list(heads.clone(), Some((middle.clone(), tails.clone())));
+            let substitution = std::collections::BTreeMap::from([(
+                Variable::new("E", Sort::simple("SortKey")),
+                key(ITEMS),
+            )]);
+            let substitute = |term: &Term| crate::substitution::substitute(term, &substitution);
+            let mut substituted = None;
+            let summaries = element_summaries_during(|| substituted = Some(substitute(&base)));
+            let expected = list(
+                heads.iter().map(substitute).collect(),
+                Some((middle, tails.iter().map(substitute).collect())),
+            );
+            let substituted = substituted.expect("substituted");
+            assert_eq!(substituted, expected);
+            assert_eq!(substituted.attributes(), expected.attributes());
+            assert!(
+                summaries <= 2 * DEFAULT_BRANCHING,
+                "{summaries} item summaries"
+            );
+        }
+
+        /// Two versions of a list that share all but the paths to one head and one tail are
+        /// compared on the comparison work lists through the items of those paths only.
+        #[test]
+        fn the_comparison_work_lists_read_only_where_two_versions_of_a_list_differ() {
+            const ITEMS: usize = 4096;
+            let middle = variable("L", "SortList");
+            let base = list(
+                (0..ITEMS).map(key).collect(),
+                Some((middle.clone(), (0..ITEMS).map(key).collect())),
+            );
+            let replaced = |list: &Term, head: usize, tail: usize| {
+                let (heads, rest) = parts(list);
+                let (middle, tails) = rest.expect("a middle");
+                Term::list_of_items(
+                    list_definition(),
+                    heads.replace_at(2000, key(head)),
+                    Some((middle.clone(), tails.replace_at(3000, key(tail)))),
+                )
+            };
+            let changed = replaced(&base, 1, 2);
+            let changed_back = replaced(&changed, 2000, 3000);
+            assert!(!Arc::ptr_eq(&base.0, &changed_back.0));
+            let pairs_during = |run: &dyn Fn()| {
+                ALIGNED_PAIRS.with(|count| count.set(0));
+                run();
+                ALIGNED_PAIRS.with(std::cell::Cell::get)
+            };
+            let equal = pairs_during(&|| {
+                assert!(crate::term::equal_terms_on_work_list(&base, &changed_back));
+            });
+            let ordered = pairs_during(&|| {
+                assert_eq!(
+                    crate::term::order_terms_on_work_list(&base, &changed),
+                    parts(&base).0.to_vec().cmp(&parts(&changed).0.to_vec())
+                );
+            });
+            // Some pairs: the items are walked by the aligned walk, not compared at once.
+            for (comparison, pairs) in [("equality", equal), ("order", ordered)] {
+                assert!(
+                    0 < pairs && pairs <= 2 * DEFAULT_BRANCHING,
+                    "{comparison}: {pairs} pairs of items compared"
                 );
             }
         }

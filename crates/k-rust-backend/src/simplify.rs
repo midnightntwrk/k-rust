@@ -4760,28 +4760,54 @@ fn simplify_children(
                 rest.as_ref().map(&mut child).transpose()?,
             )
         }
+        // As for a map, but by position: only the items `child` may change are visited, in
+        // order (heads, middle, tails), and each changed one is replaced where it stands
+        // (`Items::map_where`).
         TermKind::List {
             definition,
             heads,
             rest,
-        } => Term::list(
-            definition.clone(),
-            heads
-                .iter()
-                .map(&mut child)
-                .collect::<Result<Vec<_>, _>>()?,
-            rest.as_ref()
-                .map(|(middle, tails)| {
-                    Ok::<_, Unwind<SimplificationError>>((
-                        child(middle)?,
-                        tails
-                            .iter()
-                            .map(&mut child)
-                            .collect::<SimplifyResult<Vec<_>>>()?,
-                    ))
-                })
-                .transpose()?,
-        ),
+        } => {
+            let path_condition = &assumptions.path_condition;
+            let items =
+                |items: &crate::term::Items<Term>,
+                 child: &mut dyn FnMut(&Term) -> SimplifyResult<Term>| {
+                    let mut failed = None;
+                    let items = items.map_where(
+                        |summary| {
+                            !summary.extra.holds(crate::term::items::Flag::Evaluated)
+                                || !path_condition.replacements.is_empty()
+                                || !crate::term::variables::disjoint(
+                                    &summary.group,
+                                    &path_condition.substitution,
+                                )
+                        },
+                        |_| true,
+                        |item| {
+                            if failed.is_some() {
+                                return None;
+                            }
+                            match child(item) {
+                                Ok(new_item) => (!new_item.ptr_eq(item)).then_some(new_item),
+                                Err(error) => {
+                                    failed = Some(error);
+                                    None
+                                }
+                            }
+                        },
+                    );
+                    failed.map_or(Ok(items), Err)
+                };
+            let heads = items(heads, &mut child)?;
+            let rest = match rest {
+                Some((middle, tails)) => {
+                    let middle = child(middle)?;
+                    Some((middle, items(tails, &mut child)?))
+                }
+                None => None,
+            };
+            Term::list_of_items(definition.clone(), heads, rest)
+        }
         // As for a map: only the elements `child` may change are visited.
         TermKind::Set {
             definition,

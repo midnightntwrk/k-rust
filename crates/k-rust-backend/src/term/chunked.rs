@@ -466,7 +466,8 @@ enum Node<I: Item> {
 
 /// Debug builds: whether the one check that reads it, `definedness::check_ceil_free`, has passed
 /// the items below a node and the pairs of adjacent items there ([`Chunked::check_unchecked`]),
-/// so that a later check of a tree sharing the node skips it; nothing in other builds. A node is never changed once built, so the mark stays
+/// so that a later check of a tree sharing the node skips it (a list's check has no pair
+/// condition: `definedness::check_list_items`); nothing in other builds. A node is never changed once built, so the mark stays
 /// true of it. The mark is not part of the node's value: a copy of a node is built unmarked.
 #[derive(Default)]
 struct Checked(#[cfg(debug_assertions)] std::sync::atomic::AtomicBool);

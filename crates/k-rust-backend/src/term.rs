@@ -14,7 +14,7 @@
 //! type = "k_rust_backend::term::Term"
 //! sites = ["Term", "TermData", "Term::new", "Term::allocate", "synthesize_attributes",
 //!     "set_kind_attributes", "marked_attributes", "Term::map", "Term::map_of_items", "Term::set",
-//!     "Term::set_of_items", "order_collection",
+//!     "Term::set_of_items", "Term::list", "Term::list_of_items", "order_collection",
 //!     "Term::with_evaluated_cache", "Term::marked_evaluated", "calculate_hash", "ceil_free",
 //!     "key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp",
 //!     "equal_nodes", "order_nodes"]
@@ -34,7 +34,9 @@
 //! with those of a same-definition rest, which keeps that order, retaining repeated keys and \
 //! bindings; Term::map orders its entries with order_collection first, and the other callers hand \
 //! over entries edited from a map's in their order. Only Term::set_of_items builds a Set kind, \
-//! with elements the same way, retaining repeated elements; Term::set orders them first. \
+//! with elements the same way, retaining repeated elements; Term::set orders them first. Only \
+//! Term::list_of_items builds a List kind, in the items' given order: it joins the heads and \
+//! tails of a same-definition list middle with its own, so no stored list has such a middle. \
 //! Allocation synthesizes shape from the completed kind and every immediate child: a repeated \
 //! map key or set element anywhere below a term excludes constructor_like and \
 //! concrete_after_normalization; a collision root also excludes structural evaluated. \
@@ -935,46 +937,22 @@ impl TermKind {
             Self::And(left, right) => deep(left) || deep(right),
             Self::Injection { term, .. } => deep(term),
             Self::Application { arguments, .. } => arguments.iter().any(deep),
-            // Whether the entries (elements) hold a deep subterm is not stored; when their tree's
-            // root is shared, dropping the node only releases it, and otherwise the work list
-            // frees the nodes it owns.
+            // Whether the entries (elements, items) hold a deep subterm is not stored; when their
+            // tree's root is shared, dropping the node only releases it, and otherwise the work
+            // list frees the nodes it owns.
             Self::Map { entries, rest, .. } => {
                 entries.may_free_items() || rest.as_ref().is_some_and(deep)
             }
             Self::List { heads, rest, .. } => {
-                heads.iter().any(deep)
+                heads.may_free_items()
                     || rest
                         .as_ref()
-                        .is_some_and(|(middle, tails)| deep(middle) || tails.iter().any(deep))
+                        .is_some_and(|(middle, tails)| deep(middle) || tails.may_free_items())
             }
             Self::Set { elements, rest, .. } => {
                 elements.may_free_items() || rest.as_ref().is_some_and(deep)
             }
             Self::DomainValue { .. } | Self::Variable(_) => false,
-        }
-    }
-
-    /// Give a set's elements a tree and a list's items vectors, whatever backing they were
-    /// handed in (see [`Items`]): equal terms of one kind then hold equal backings, so their
-    /// hashes agree. In place, and free when the items already have their kind's backing, as the
-    /// constructors of this module build them.
-    #[inline]
-    fn hold_kind_backings(&mut self) {
-        match self {
-            Self::Set { elements, .. } if !elements.is_tree() => {
-                *elements = std::mem::take(elements).into_tree();
-            }
-            Self::List { heads, rest, .. } => {
-                if heads.is_tree() {
-                    *heads = std::mem::take(heads).into_vector();
-                }
-                if let Some((_, tails)) = rest
-                    && tails.is_tree()
-                {
-                    *tails = std::mem::take(tails).into_vector();
-                }
-            }
-            _ => {}
         }
     }
 
@@ -1007,10 +985,10 @@ impl TermKind {
                 rest.into_iter().for_each(&mut take);
             }
             Self::List { heads, rest, .. } => {
-                heads.into_iter().for_each(&mut take);
+                heads.dismantle(&mut take);
                 if let Some((middle, tails)) = rest {
                     take(middle);
-                    tails.into_iter().for_each(&mut take);
+                    tails.dismantle(&mut take);
                 }
             }
             Self::Set { elements, rest, .. } => {
@@ -1276,34 +1254,54 @@ impl Term {
         })
     }
 
+    /// The list of `heads`, then `rest`'s middle term and its `tails`, flattened: a middle that
+    /// is a list of the same definition contributes its own heads, middle and tails, and a list
+    /// that is only a middle term is that term.
+    ///
+    /// A list term holds its heads and tails in persistent trees ([`Items`]), ordered by
+    /// position: flattening a list middle joins its trees with the ones given
+    /// (`Term::list_of_items`), so appending one item to an `n`-item list costs `O(log n)`
+    /// nodes, and the list's attributes are read from the trees' root summaries.
     pub fn list(
         definition: Arc<ListDefinition>,
-        mut heads: Vec<Self>,
+        heads: Vec<Self>,
         rest: Option<(Self, Vec<Self>)>,
     ) -> Self {
-        let rest = match rest {
+        Self::list_of_items(
+            definition,
+            Items::from_vec(heads),
+            rest.map(|(middle, tails)| (middle, Items::from_vec(tails))),
+        )
+    }
+
+    /// [`Term::list`] of trees of items: a list middle of the same definition is flattened by
+    /// joining its heads after `heads` and its tails before `tails` (or, without a middle of its
+    /// own, all of them into one sequence), `O(log n)` nodes per join, without reading the
+    /// items.
+    pub(crate) fn list_of_items(
+        definition: Arc<ListDefinition>,
+        heads: Items<Self>,
+        rest: Option<(Self, Items<Self>)>,
+    ) -> Self {
+        let (heads, rest) = match rest {
             Some((middle, tails)) => match middle.kind() {
                 TermKind::List {
                     definition: nested,
                     heads: nested_heads,
                     rest: nested_rest,
                 } if nested == &definition => {
-                    heads.extend(nested_heads.iter().cloned());
+                    let heads = heads.join(nested_heads);
                     match nested_rest {
-                        Some((nested_middle, nested_tails)) => {
-                            let mut combined_tails = nested_tails.to_vec();
-                            combined_tails.extend(tails);
-                            Some((nested_middle.clone(), combined_tails))
-                        }
-                        None => {
-                            heads.extend(tails);
-                            None
-                        }
+                        Some((nested_middle, nested_tails)) => (
+                            heads,
+                            Some((nested_middle.clone(), nested_tails.join(&tails))),
+                        ),
+                        None => (heads.join(&tails), None),
                     }
                 }
-                _ => Some((middle, tails)),
+                _ => (heads, Some((middle, tails))),
             },
-            None => None,
+            None => (heads, None),
         };
         if heads.is_empty()
             && let Some((middle, tails)) = &rest
@@ -1313,8 +1311,8 @@ impl Term {
         }
         Self::new(TermKind::List {
             definition,
-            heads: heads.into(),
-            rest: rest.map(|(middle, tails)| (middle, tails.into())),
+            heads,
+            rest,
         })
     }
 
@@ -1340,7 +1338,7 @@ impl Term {
         rest: Option<Self>,
     ) -> Self {
         order_collection(&mut elements);
-        Self::set_of_items(definition, Items::tree(elements), rest)
+        Self::set_of_items(definition, Items::from_vec(elements), rest)
     }
 
     /// [`Term::set`] of elements already in its order, as a tree: the tree is kept, or united
@@ -1834,8 +1832,6 @@ impl Term {
     }
 
     fn new(kind: TermKind) -> Self {
-        let mut kind = kind;
-        kind.hold_kind_backings();
         Self::allocate(TermAllocation::Structural(kind))
     }
 
@@ -1934,10 +1930,16 @@ fn marked_attributes(source: &Term, kind: &TermKind, value: bool) -> TermAttribu
 }
 
 /// Whether every immediate child of a node of kind `kind` has
-/// [`TermAttributes::value_claimed`]; a map's entries and a set's elements answer from their
-/// summary.
+/// [`TermAttributes::value_claimed`]; a map's entries, a list's items and a set's elements
+/// answer from their summary.
 fn children_value_claimed(kind: &TermKind) -> bool {
     match kind {
+        TermKind::List { heads, rest, .. } => {
+            list_items_hold(heads, rest, Flag::ValueClaimed)
+                && rest
+                    .as_ref()
+                    .is_none_or(|(middle, _)| middle.attributes().value_claimed)
+        }
         TermKind::Map { entries, rest, .. } => {
             entries.summary().extra.holds(Flag::ValueClaimed)
                 && rest
@@ -1952,6 +1954,15 @@ fn children_value_claimed(kind: &TermKind) -> bool {
         }
         _ => combine_attributes(immediate_children(kind)).value_claimed,
     }
+}
+
+/// Whether every item of a list, its heads and its tails, has `flag`, from the root summaries
+/// of their trees.
+fn list_items_hold(heads: &Items<Term>, rest: &Option<(Term, Items<Term>)>, flag: Flag) -> bool {
+    heads.summary().extra.holds(flag)
+        && rest
+            .as_ref()
+            .is_none_or(|(_, tails)| tails.summary().extra.holds(flag))
 }
 
 /// The immediate children of a node of kind `kind`: the terms whose stored attributes
@@ -2034,11 +2045,10 @@ fn ceil_free(kind: &TermKind) -> bool {
                 && summary.extra.keys_share_one_header()
                 && !summary.collision
         }
+        // The items' summaries; a list has no obligation of its own.
         TermKind::List { heads, rest, .. } => {
-            heads.iter().all(free)
-                && rest
-                    .as_ref()
-                    .is_none_or(|(middle, tails)| free(middle) && tails.iter().all(free))
+            list_items_hold(heads, rest, Flag::CeilFree)
+                && rest.as_ref().is_none_or(|(middle, _)| free(middle))
         }
         // The elements' summary, as for a map's keys.
         TermKind::Set { elements, rest, .. } => {
@@ -2093,7 +2103,13 @@ fn fold_children<B>(kind: &TermKind, init: B, mut step: impl FnMut(B, &Term) -> 
 /// `lean/KRust/TermAttributes.lean`; `tests::lean_bridge` compares the stored attribute with it at
 /// every subterm.
 fn has_macro_or_alias(kind: &TermKind) -> bool {
-    // A map's entries and a set's elements answer from their summary.
+    // A map's entries, a list's items and a set's elements answer from their summary.
+    if let TermKind::List { heads, rest, .. } = kind {
+        return heads.summary().extra.has_macro_or_alias()
+            || rest.as_ref().is_some_and(|(middle, tails)| {
+                middle.attributes().has_macro_or_alias || tails.summary().extra.has_macro_or_alias()
+            });
+    }
     let items = match kind {
         TermKind::Map { entries, rest, .. } => {
             Some((entries.summary().extra.has_macro_or_alias(), rest))
@@ -2130,6 +2146,12 @@ fn k_cells(kind: &TermKind) -> u8 {
     }
     // Saturating at 2 after each child is saturating the sum, so the entries' saturated sum
     // stands for theirs.
+    if let TermKind::List { heads, rest, .. } = kind {
+        let heads = heads.summary().extra.k_cells();
+        return rest.as_ref().map_or(heads, |(middle, tails)| {
+            (heads + middle.attributes().k_cells + tails.summary().extra.k_cells()).min(2)
+        });
+    }
     let items = match kind {
         TermKind::Map { entries, rest, .. } => Some((entries.summary().extra.k_cells(), rest)),
         TermKind::Set { elements, rest, .. } => Some((elements.summary().extra.k_cells(), rest)),
@@ -2610,6 +2632,10 @@ fn map_parts(definition: &Arc<MapDefinition>, term: &Term) -> (Items<(Term, Term
     }
 }
 
+/// `_List_` of `left` and `right`: when both are lists of `definition` and at most one has a
+/// middle, the list of their items in order, the trees joined (`O(log n)` nodes, no item read);
+/// a list without a middle and another term, the list with that term as its middle; otherwise
+/// the application itself.
 fn combine_lists(
     definition: Arc<ListDefinition>,
     symbol: Arc<Symbol>,
@@ -2631,26 +2657,14 @@ fn combine_lists(
             },
         ) if left_definition == &definition && right_definition == &definition => {
             match (left_rest, right_rest) {
-                (None, None) => {
-                    let mut heads = left_heads.to_vec();
-                    heads.extend(right_heads.iter().cloned());
-                    Term::list(definition, heads, None)
+                (None, rest) => {
+                    Term::list_of_items(definition, left_heads.join(right_heads), rest.clone())
                 }
-                (None, Some(rest)) => {
-                    let mut heads = left_heads.to_vec();
-                    heads.extend(right_heads.iter().cloned());
-                    let (middle, tails) = rest;
-                    Term::list(definition, heads, Some((middle.clone(), tails.to_vec())))
-                }
-                (Some((middle, tails)), None) => {
-                    let mut tails = tails.to_vec();
-                    tails.extend(right_heads.iter().cloned());
-                    Term::list(
-                        definition,
-                        left_heads.to_vec(),
-                        Some((middle.clone(), tails)),
-                    )
-                }
+                (Some((middle, tails)), None) => Term::list_of_items(
+                    definition,
+                    left_heads.clone(),
+                    Some((middle.clone(), tails.join(right_heads))),
+                ),
                 (Some(_), Some(_)) => {
                     Term::application_raw(symbol, sort_arguments, vec![left, right])
                 }
@@ -2664,7 +2678,7 @@ fn combine_lists(
             },
             _,
         ) if found == &definition => {
-            Term::list(definition, heads.to_vec(), Some((right, Vec::new())))
+            Term::list_of_items(definition, heads.clone(), Some((right, Items::new())))
         }
         (
             _,
@@ -2674,7 +2688,7 @@ fn combine_lists(
                 rest: None,
             },
         ) if found == &definition => {
-            Term::list(definition, Vec::new(), Some((left, heads.to_vec())))
+            Term::list_of_items(definition, Items::new(), Some((left, heads.clone())))
         }
         _ => Term::application_raw(symbol, sort_arguments, vec![left, right]),
     }
@@ -2710,7 +2724,7 @@ fn set_parts(definition: &Arc<SetDefinition>, term: &Term) -> (Items<Term>, Opti
             elements,
             rest,
         } if found == definition => (elements.clone(), rest.clone()),
-        _ => (Items::tree(Vec::new()), Some(term.clone())),
+        _ => (Items::from_vec(Vec::new()), Some(term.clone())),
     }
 }
 
@@ -2770,6 +2784,20 @@ impl<'a> ChildShape<'a> {
         self.variables.add(variables);
     }
 
+    /// Add the variables of a list's or a set's items: `large`, the keys of their summary's
+    /// multiset ([`large_items_variables`]), or, when there is none, each item's own variable
+    /// set.
+    fn add_items_variables(&mut self, items: &'a Items<Term>, large: Option<&'a Variables>) {
+        match large {
+            Some(variables) => self.add_variables(variables),
+            None => {
+                for item in items {
+                    self.add_variables(&item.attributes().variables);
+                }
+            }
+        }
+    }
+
     #[inline]
     fn add(&mut self, child: &'a Term) {
         let attributes = child.attributes();
@@ -2787,6 +2815,15 @@ impl<'a> ChildShape<'a> {
             ..self.attributes
         }
     }
+}
+
+/// The variables of a list's or a set's items as the keys of their summary's multiset, or
+/// `None` for at most `B` items. Those are one leaf, whose items' own variable sets are united
+/// as any node's children's are, sharing the largest one's handle
+/// ([`ChildShape::add_items_variables`]), instead of being copied out of the leaf's multiset.
+fn large_items_variables(items: &Items<Term>) -> Option<Variables> {
+    (items.len() > chunked::DEFAULT_BRANCHING)
+        .then(|| Variables::of_multiset(&items.summary().group))
 }
 
 #[cfg(debug_assertions)]
@@ -2866,26 +2903,35 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
             }
             shape.finish()
         }
-        TermKind::List { heads, rest, .. } => combine_attributes(
-            heads.iter().chain(
-                rest.iter()
-                    .flat_map(|(middle, tails)| std::iter::once(middle).chain(tails)),
-            ),
-        ),
+        TermKind::List { heads, rest, .. } => {
+            // The items' summaries, heads and tails. Items in a list may repeat: a list has no
+            // collision.
+            let holds = |flag| list_items_hold(heads, rest, flag);
+            let head_variables = large_items_variables(heads);
+            let tail_variables = rest
+                .as_ref()
+                .and_then(|(_, tails)| large_items_variables(tails));
+            let mut shape = ChildShape::of(TermAttributes {
+                evaluated: holds(Flag::Evaluated),
+                value_claimed: holds(Flag::ValueClaimed),
+                constructor_like: holds(Flag::ConstructorLike),
+                concrete_after_normalization: holds(Flag::ConcreteAfterNormalization),
+                can_be_evaluated: holds(Flag::CanBeEvaluated),
+                ..TermAttributes::default()
+            });
+            shape.add_items_variables(heads, head_variables.as_ref());
+            if let Some((middle, tails)) = rest {
+                shape.add(middle);
+                shape.add_items_variables(tails, tail_variables.as_ref());
+            }
+            shape.finish()
+        }
         TermKind::Set { elements, rest, .. } => {
             // The elements' summary, as for a map's entries: elements are sorted, so a repeated
             // element follows its first occurrence.
             let summary = elements.summary();
             collision_root = summary.collision;
-            // A set of at most `B` elements is one leaf, whose elements' own variable sets are
-            // united as any node's children's are, sharing the largest one's handle; a larger
-            // set's are the keys of its summary's multiset.
-            let small = elements.len() <= chunked::DEFAULT_BRANCHING;
-            let element_variables = if small {
-                Variables::new()
-            } else {
-                Variables::of_multiset(&summary.group)
-            };
+            let element_variables = large_items_variables(elements);
             let mut shape = ChildShape::of(TermAttributes {
                 evaluated: summary.extra.holds(Flag::Evaluated),
                 value_claimed: summary.extra.holds(Flag::ValueClaimed),
@@ -2894,13 +2940,7 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
                 can_be_evaluated: summary.extra.holds(Flag::CanBeEvaluated),
                 ..TermAttributes::default()
             });
-            if small {
-                for element in elements {
-                    shape.add_variables(&element.attributes().variables);
-                }
-            } else {
-                shape.add_variables(&element_variables);
-            }
+            shape.add_items_variables(elements, element_variables.as_ref());
             if let Some(rest) = rest {
                 shape.add(rest);
             }
@@ -2959,9 +2999,9 @@ fn validate_attributes(kind: &TermKind, attributes: &TermAttributes, cache: Eval
             check_child(term);
             (true, false)
         }
-        // The entries (elements) through their summary, which `chunked` keeps equal to the fold
-        // of the items' own: reading them here would make every map or set allocation linear in
-        // debug builds.
+        // The entries (items, elements) through their summary, which `chunked` keeps equal to the
+        // fold of the items' own: reading them here would make every collection allocation
+        // linear in debug builds.
         TermKind::Map { entries, rest, .. } => {
             let summary = entries.summary();
             assert!(!attributes.constructor_like || summary.extra.holds(Flag::ConstructorLike));
@@ -2976,16 +3016,18 @@ fn validate_attributes(kind: &TermKind, attributes: &TermAttributes, cache: Eval
             child_certified &= summary.extra.holds(Flag::ValueClaimed);
             (!summary.collision, summary.collision)
         }
+        // The items through their summaries, as for a map.
         TermKind::List { heads, rest, .. } => {
-            for child in heads {
-                check_child(child);
-            }
-            if let Some((middle, tails)) = rest {
+            let holds = |flag| list_items_hold(heads, rest, flag);
+            assert!(!attributes.constructor_like || holds(Flag::ConstructorLike));
+            assert!(
+                !attributes.concrete_after_normalization || holds(Flag::ConcreteAfterNormalization)
+            );
+            if let Some((middle, _)) = rest {
                 check_child(middle);
-                for child in tails {
-                    check_child(child);
-                }
             }
+            child_evaluated &= holds(Flag::Evaluated);
+            child_certified &= holds(Flag::ValueClaimed);
             (true, false)
         }
         TermKind::Set { elements, rest, .. } => {
@@ -3142,9 +3184,9 @@ pub(crate) fn equal_terms_on_work_list(left: &Term, right: &Term) -> bool {
 }
 
 /// A comparison [`equal_terms_on_work_list`] owes: of two children, or of the entries two maps
-/// (the elements two sets) hold at the same positions, which it takes one pair at a time from a
+/// (the elements two sets, the heads or tails two lists) hold at the same positions, which it takes one pair at a time from a
 /// walk that skips the tree nodes the collections share (`Items::aligned`), so two versions of a
-/// map or set cost the paths where they differ. The walk is boxed, so that the other comparisons
+/// collection cost the paths where they differ. The walk is boxed, so that the other comparisons
 /// owed stay two references wide.
 enum PendingEqual<'a> {
     Terms(&'a Term, &'a Term),
@@ -3271,17 +3313,24 @@ fn equal_nodes<'a, R>(
                 rest: other_rest,
             },
         ) => {
+            // The heads, then the middle and the tails, each sequence of items walked as a set's
+            // elements are.
+            let items = |left: &'a Items<Term>, right: &'a Items<Term>| {
+                (left.len() == right.len())
+                    .then(|| PendingEqual::Elements(Box::new(left.aligned(right))))
+            };
             let rest = match (rest, other_rest) {
                 (None, None) => Some(None),
                 (Some((middle, tails)), Some((other_middle, other_tails))) => {
-                    sequence(tails, other_tails)
-                        .map(|tails| Some(std::iter::once((middle, other_middle)).chain(tails)))
+                    items(tails, other_tails).map(|tails| {
+                        Some([PendingEqual::Terms(middle, other_middle), tails].into_iter())
+                    })
                 }
                 (None, Some(_)) | (Some(_), None) => None,
             };
-            match (sequence(heads, other_heads), rest) {
+            match (items(heads, other_heads), rest) {
                 (Some(heads), Some(rest)) if definition == other_definition => {
-                    queue(&mut terms(heads.chain(rest.into_iter().flatten())))
+                    queue(&mut std::iter::once(heads).chain(rest.into_iter().flatten()))
                 }
                 _ => None,
             }
@@ -3414,10 +3463,10 @@ pub(crate) fn order_terms_on_work_list(left: &Term, right: &Term) -> Ordering {
 }
 
 /// A comparison the derived order of two nodes makes: of two children, one already made, or of
-/// the entries two maps (the elements two sets) hold at the same positions, up to the end of the
-/// shorter one, which the work list takes one pair at a time from a walk that skips the tree
-/// nodes the collections share (`Items::aligned`), so two versions of a map or set cost the paths
-/// where they differ. The walk is boxed, so that the other comparisons owed stay two references
+/// the entries two maps (the elements two sets, the heads or tails two lists) hold at the same
+/// positions, up to the end of the shorter one, which the work list takes one pair at a time from
+/// a walk that skips the tree nodes the collections share (`Items::aligned`), so two versions of
+/// a collection cost the paths where they differ. The walk is boxed, so that the other comparisons owed stay two references
 /// wide.
 enum PendingOrder<'a> {
     Terms(&'a Term, &'a Term),
@@ -3557,18 +3606,26 @@ fn order_nodes<'a, R>(
                 rest: other_rest,
             },
         ) => {
+            // A sequence of items compared as a set's elements are: the aligned pairs, then the
+            // lengths.
+            let items = |left: &'a Items<Term>, right: &'a Items<Term>| {
+                [
+                    PendingOrder::Elements(Box::new(left.aligned(right))),
+                    PendingOrder::Decided(left.len().cmp(&right.len())),
+                ]
+            };
             let (middle, tails) = match (rest, other_rest) {
                 (None, None) => (None, None),
                 (None, Some(_)) => (Some(PendingOrder::Decided(Ordering::Less)), None),
                 (Some(_), None) => (Some(PendingOrder::Decided(Ordering::Greater)), None),
                 (Some((middle, tails)), Some((other_middle, other_tails))) => (
                     Some(PendingOrder::Terms(middle, other_middle)),
-                    Some(sequence(tails, other_tails)),
+                    Some(items(tails, other_tails)),
                 ),
             };
             queue(
                 &mut decided(definition.cmp(other_definition))
-                    .chain(sequence(heads, other_heads))
+                    .chain(items(heads, other_heads))
                     .chain(middle)
                     .chain(tails.into_iter().flatten()),
             )

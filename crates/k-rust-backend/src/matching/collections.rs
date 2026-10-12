@@ -43,7 +43,7 @@ use crate::{
     substitution::{Substitution, substitute},
     term::{
         Items, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable,
-        items::Stored,
+        chunked::Item,
     },
     unification::{MatchUnification, unify_from},
 };
@@ -994,7 +994,7 @@ fn set_parts(term: &Term) -> Option<(Arc<crate::term::SetDefinition>, Items<Term
             {
                 Some((
                     definition.clone(),
-                    Items::tree(Vec::new()),
+                    Items::from_vec(Vec::new()),
                     Some(term.clone()),
                 ))
             }
@@ -1681,7 +1681,7 @@ fn repeats_a_key(entries: &Items<(Term, Term)>) -> bool {
 /// The entries of a pattern map and of a subject map, split by their keys.
 pub(super) struct CommonKeys<K, V>
 where
-    (K, V): Stored,
+    (K, V): Item,
 {
     /// The pattern's and the subject's values of each key both bind, in key order.
     pub(super) values: Vec<(V, V)>,
@@ -1706,7 +1706,7 @@ pub(super) fn split_common_keys<'p, K: Ord + Clone + 'p, V: Clone + 'p>(
     subject: &Items<(K, V)>,
 ) -> CommonKeys<K, V>
 where
-    (K, V): Stored,
+    (K, V): Item,
 {
     find_common_keys(pattern, subject).split(subject)
 }
@@ -1724,7 +1724,7 @@ pub(super) struct FoundKeys<K, V> {
 
 impl<K: Clone, V: Clone> FoundKeys<K, V>
 where
-    (K, V): Stored,
+    (K, V): Item,
 {
     /// The split: the subject's other entries are its tree with the found entries removed,
     /// last first so that the positions of the ones still to remove do not move.
@@ -1770,7 +1770,7 @@ pub(super) fn find_common_keys<'p, K: Ord + Clone + 'p, V: Clone + 'p>(
     subject: &Items<(K, V)>,
 ) -> FoundKeys<K, V>
 where
-    (K, V): Stored,
+    (K, V): Item,
 {
     let mut values = Vec::new();
     let mut pattern_only = Vec::new();

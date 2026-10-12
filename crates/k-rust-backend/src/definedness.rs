@@ -178,8 +178,9 @@ fn ceil_term_walk(
 /// `ceilFree_sound` holds for every definition.
 ///
 /// A map whose keys share one header and which has no rest is checked through its entries' tree
-/// (`check_map_entries`), and a set likewise through its elements' (`check_set_elements`), so
-/// that a collection edited since its last check costs the paths the edits copied, not its size.
+/// (`check_map_entries`), a set likewise through its elements' (`check_set_elements`), and a list
+/// through its items' trees (`check_list_items`), so that a collection edited since its last
+/// check costs the paths the edits copied, not its size.
 #[cfg(debug_assertions)]
 fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
     if term.ceil_free_checked() {
@@ -191,6 +192,7 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
     let mut passed = Vec::new();
     let mut passed_entries = Vec::new();
     let mut passed_elements = Vec::new();
+    let mut passed_items = Vec::new();
     while let Some(node) = unchecked.pop() {
         if node.ceil_free_checked() {
             continue;
@@ -205,6 +207,11 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
             passed.push(node);
             continue;
         }
+        if let Some(items) = check_list_items(node, &mut unchecked) {
+            passed_items.extend(items);
+            passed.push(node);
+            continue;
+        }
         let after = ceil_term_node(definition, node, &mut obligations, &mut children);
         assert!(
             obligations.is_empty() && after.is_empty(),
@@ -216,7 +223,7 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
     for entries in passed_entries {
         entries.mark();
     }
-    for elements in passed_elements {
+    for elements in passed_elements.into_iter().chain(passed_items) {
         elements.mark();
     }
     for node in passed {
@@ -295,6 +302,37 @@ fn check_set_elements<'t>(
             );
         },
     ))
+}
+
+/// Debug builds: [`check_ceil_free`] at a list, which has no obligation of its own (the walk
+/// only collects its items' and middle's, `ceil_term_node`): pushes its middle, and the items of
+/// the tree nodes of its heads and tails not checked before, onto `unchecked`, and returns those
+/// nodes, to be marked once they pass; `None` for any other node.
+///
+/// A list puts no condition on adjacent items, so a node this check marks has passed its items
+/// only, not the pair condition a set's check adds; that holds because no set is built from a
+/// list's tree nodes (`SET.list2set` sorts the items and loads a new tree).
+#[cfg(debug_assertions)]
+fn check_list_items<'t>(
+    term: &'t Term,
+    unchecked: &mut Vec<&'t Term>,
+) -> Option<[crate::term::chunked::Unchecked<'t, Term>; 2]> {
+    let TermKind::List { heads, rest, .. } = term.kind() else {
+        return None;
+    };
+    let mut check = |items: &'t crate::term::Items<Term>| {
+        items.check_unchecked(|items| unchecked.extend(items), |_, _| {})
+    };
+    let heads = check(heads);
+    let tails = match rest {
+        Some((middle, tails)) => {
+            let tails = check(tails);
+            unchecked.push(middle);
+            tails
+        }
+        None => crate::term::chunked::Unchecked::none(),
+    };
+    Some([heads, tails])
 }
 
 /// One node of the definedness walk: appends the node's own obligations to `before` and its

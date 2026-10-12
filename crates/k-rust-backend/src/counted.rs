@@ -3,7 +3,7 @@
 
 use std::{cell::Cell, cmp::Ordering};
 
-use crate::term::{chunked::Item, items::Stored};
+use crate::term::chunked::Item;
 
 /// An item that counts the comparisons made on it in a shared cell.
 #[derive(Clone, Debug)]
@@ -33,8 +33,8 @@ impl Ord for Counted<'_> {
     }
 }
 
-/// A map entry of counted keys, stored as map entries are, in a tree ([`Stored`]), so a test of
-/// a search over map entries searches the tree. Its key is the counted item; the tree's own
+/// A map entry of counted keys, stored as map entries are, in a tree, so a test of a search over
+/// map entries searches the tree. Its key is the counted item; the tree's own
 /// summaries need nothing of it but its hash, which agrees with `Eq` as both read the values.
 impl<'a> Item for (Counted<'a>, u32) {
     type Key = Counted<'a>;
@@ -52,8 +52,4 @@ impl<'a> Item for (Counted<'a>, u32) {
     fn summary(&self) {}
 
     fn group(&self) {}
-}
-
-impl Stored for (Counted<'_>, u32) {
-    const IN_TREE: bool = true;
 }

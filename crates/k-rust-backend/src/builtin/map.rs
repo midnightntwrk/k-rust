@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     matching::SortGraph,
-    term::{Items, MapDefinition, Term, TermKind, items::Stored},
+    term::{Items, MapDefinition, Term, TermKind, chunked::Item},
 };
 
 pub(super) fn evaluate(
@@ -128,7 +128,7 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
 /// `key` is among them and where: a binary search finds it in `O(log n)` comparisons.
 fn place_of<K: Ord, V>(entries: &Items<(K, V)>, key: &K) -> Result<usize, usize>
 where
-    (K, V): Stored,
+    (K, V): Item,
 {
     entries.search_by(|(existing, _)| {
         #[cfg(test)]
@@ -152,7 +152,7 @@ fn compared_with_an_entry() {
 /// The index of the entry of `entries` whose key is `key`, syntactically (`place_of`).
 fn bound_at<K: Ord, V>(entries: &Items<(K, V)>, key: &K) -> Option<usize>
 where
-    (K, V): Stored,
+    (K, V): Item,
 {
     place_of(entries, key).ok()
 }

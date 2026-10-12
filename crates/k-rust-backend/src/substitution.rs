@@ -120,26 +120,31 @@ pub fn substitute(term: &Term, substitution: &Substitution) -> Term {
                 rest.as_ref().map(|term| substitute(term, substitution)),
             )
         }
+        // As for a map, but by position: only the items that mention a bound variable are
+        // reached, and each is replaced where it stands (`Items::map_where`); a middle that
+        // becomes a list is joined in.
         TermKind::List {
             definition,
             heads,
             rest,
-        } => Term::list(
-            definition.clone(),
-            heads
-                .iter()
-                .map(|term| substitute(term, substitution))
-                .collect(),
-            rest.as_ref().map(|(middle, tails)| {
-                (
-                    substitute(middle, substitution),
-                    tails
-                        .iter()
-                        .map(|term| substitute(term, substitution))
-                        .collect(),
+        } => {
+            let items = |items: &crate::term::Items<Term>| {
+                items.map_where(
+                    |summary| !crate::term::variables::disjoint(&summary.group, substitution),
+                    |_| true,
+                    |item| {
+                        let new_item = substitute(item, substitution);
+                        (!new_item.ptr_eq(item)).then_some(new_item)
+                    },
                 )
-            }),
-        ),
+            };
+            Term::list_of_items(
+                definition.clone(),
+                items(heads),
+                rest.as_ref()
+                    .map(|(middle, tails)| (substitute(middle, substitution), items(tails))),
+            )
+        }
         // As for a map: only the elements that mention a bound variable are reached, and one
         // that changes is moved to its place.
         TermKind::Set {

@@ -409,7 +409,6 @@ fn adding_one_map_entry_costs_the_same_on_a_larger_map() {
 }
 
 #[test]
-#[ignore = "K22: a step still copies the whole list, which the local fixes leave; un-ignore with the persistent representation"]
 fn adding_one_list_element_costs_the_same_on_a_larger_list() {
     let _one = ONE_AT_A_TIME
         .lock()
