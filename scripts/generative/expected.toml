@@ -110,7 +110,7 @@ reason = "a user token or terminal takes precedence over a token of the same mod
 [[category]]
 id = "rule-construct-in-token-phrase"
 outcome = "load_error"
-message = "holds program text only, and '.*' (begins a|is a) term of sort .* only as a construct of rules and configurations"
+message = "The parse reads the phrase of a token production of sort .* there, which holds program text only|The phrase of a token production of sort [^ ]+( or [^ ]+)* would go on with '"
 reason = "the phrase of a token production is the program text the token is scanned from; a variable, cast, bracket or rewrite is syntax of rules and configurations, not of programs, so it cannot stand in that phrase"
 
 [[category]]

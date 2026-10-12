@@ -2919,39 +2919,70 @@ endmodule
 }
 
 #[test]
-fn a_phrase_reading_program_text_explains_a_failure_a_shadowed_label_would_not() {
-    // `stop` is read as the phrase's literal and could also be a `#LowerId` label applied to
-    // `(N:Name)`; that application could go on with `(` but no further, as no application is
-    // followed by `;`. The phrase reads `stop`, then `(N:Name) ;` as its `Name` and `;`, so the
-    // whole rule fits it but for the variable, which no token's text holds: the program-text
-    // note is the explanation, and the reading as a label is not offered.
-    let source = "module MAIN
+fn a_phrase_reading_program_text_and_a_shadowed_label_are_both_noted() {
+    // `stop` is read as the phrase's literal, and could also be a `#LowerId` label applied to
+    // `(N:Name)`. Both readings would go on with `(`: the phrase had it read the cast as its
+    // `Name`, the application had the scanner read `stop` as `#LowerId`. One token does not tell
+    // which the rule means. Here the phrase fits the whole rule but for the cast, so it spells as
+    // program text; with a symbol `stop`, the application `stop(N:Name)` is the whole rule, which
+    // the same module without the token production reads and a backquoted label spells.
+    let module = |symbol: &str, rule: &str| {
+        format!(
+            "module MAIN
   syntax Name ::= r\"[0-9]+\" [token]
-  syntax Tree ::= \"stop\" Name \";\" [token] | \"go\"
-  rule stop (N:Name) ; => go
+  syntax Tree ::= \"stop\" Name \";\" [token] | \"go\"{symbol}
+  rule {rule}
 endmodule
-";
-    let error = match resolve_rule_bubbles(&lowered(source)) {
-        Err(RuleError::Parse(error)) => error.error,
-        other => panic!("expected a parse error, got {other:?}"),
+"
+        )
     };
-    let notes = no_parse_notes(&error);
-    assert!(
-        notes.previous.is_none() && notes.failing.is_none(),
-        "{notes:?}"
-    );
-    assert_eq!(
-        notes.program_text,
-        Some(ProgramTextPhrase {
-            construct: ProgramTextConstruct::Failing,
-            sort: Sort::new("Name"),
-            phrase_sorts: vec![Sort::new("Tree")],
-            literals: true,
-        }),
-        "{error}"
-    );
-    let program_text = source.replace("stop (N:Name) ;", "stop 1 ;");
-    resolve_rule_bubbles(&lowered(&program_text)).expect("program text spells the Tree token");
+    let label = " | f(Name) [symbol(stop)]";
+    for (symbol, rule, program_text) in [
+        ("", "stop (N:Name) ; => go", "stop 1 ; => go"),
+        (label, "stop(N:Name) => go", "`stop`(N:Name) => go"),
+    ] {
+        let error = match resolve_rule_bubbles(&lowered(&module(symbol, rule))) {
+            Err(RuleError::Parse(error)) => error.error,
+            other => panic!("{rule}: expected a parse error, got {other:?}"),
+        };
+        let notes = no_parse_notes(&error);
+        let previous = notes.previous.as_ref().expect("the shadowed label");
+        assert_eq!(
+            (previous.text.as_str(), previous.expected_sorts.as_slice()),
+            ("stop", [Sort::new("#LowerId")].as_slice()),
+            "{rule}: {error}"
+        );
+        assert!(notes.failing.is_none(), "{rule}: {notes:?}");
+        assert_eq!(
+            notes.program_text,
+            Some(ProgramTextPhrase {
+                construct: ProgramTextConstruct::Failing,
+                sort: Sort::new("Name"),
+                phrase_sorts: vec![Sort::new("Tree")],
+                literals: true,
+            }),
+            "{rule}: {error}"
+        );
+        // The note on the phrase comes first.
+        let message = error.to_string();
+        let phrase = message.find("The parse reads the phrase of a token production of sort Tree");
+        let label = message.find("The token 'stop' is read as \"stop\"");
+        assert!(
+            phrase.is_some() && label.is_some() && phrase < label,
+            "{rule}: {message}"
+        );
+        resolve_rule_bubbles(&lowered(&module(symbol, program_text)))
+            .unwrap_or_else(|error| panic!("{program_text}: {error:?}"));
+    }
+    resolve_rule_bubbles(&lowered(&format!(
+        "module MAIN
+  syntax Name ::= r\"[0-9]+\" [token]
+  syntax Tree ::= \"go\"{label}
+  rule stop(N:Name) => go
+endmodule
+"
+    )))
+    .expect("without the token production the rule is the application of `stop`");
 }
 
 #[test]

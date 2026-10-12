@@ -812,7 +812,7 @@ pub enum NoParseInput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NoParseNotes {
     /// The token before the failing one, when the lexeme that lost it could go on with the
-    /// failing token and no reading of it as scanned could.
+    /// failing token.
     pub previous: Option<ShadowedToken>,
     /// The failing token, when an expected lexeme that lost it matches its text.
     pub failing: Option<ShadowedToken>,
@@ -826,7 +826,6 @@ pub struct NoParseNotes {
 /// longest match, then the one of highest precedence, then a fixed order of the lexemes, and
 /// does not ask what the parse expects. The failure then needs the token read as the lexeme
 /// that lost.
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShadowedToken {
     pub text: String,
@@ -1123,11 +1122,11 @@ impl fmt::Display for ParseError {
                     )?,
                 }
                 if let Some(notes) = notes {
-                    for token in notes.previous.iter().chain(&notes.failing) {
-                        write_shadowed_token(formatter, token)?;
-                    }
                     if let Some(phrase) = &notes.program_text {
                         write_program_text_phrase(formatter, input, phrase)?;
+                    }
+                    for token in notes.previous.iter().chain(&notes.failing) {
+                        write_shadowed_token(formatter, token)?;
                     }
                 }
                 if let Some(limit) = work_limit {
@@ -3625,10 +3624,10 @@ impl Grammar {
             self.program_text_phrase(input, charts, after_previous..=chart_position, lexeme)
         });
         // The previous token was read, so its reading matters only where the lexeme that lost it
-        // lets the parse go on with the failing token, which no reading of the winner does; a
-        // phrase of program text that would go on with it is such a reading.
+        // lets the parse go on with the failing token, which no reading of the winner does. A
+        // phrase that would go on with it had it read a rule construct is no such reading, and
+        // one token decides neither which reading the rule means: both notes are given.
         let next = match input_kind {
-            NoParseInput::Token { .. } if program_text.is_some() => None,
             NoParseInput::Token { .. } => failing.map(|(_, _, lexeme)| Some(lexeme)),
             NoParseInput::EndOfInput => Some(None),
             NoParseInput::UnrecognizedInput { .. } => None,
