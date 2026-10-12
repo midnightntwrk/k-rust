@@ -11315,6 +11315,69 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A generated parser's scanner error for text no rule matches names the whole character in the
+/// column it locates: the unmatched byte and the UTF-8 continuation bytes after it, byte for byte,
+/// so U+0000 is a NUL byte and a multi-byte character all of its bytes; a lead byte that nothing
+/// continues is that byte alone. This holds in the middle and at the end of the input, for a
+/// character the scanner's input buffer splits (the scanner without anchors reads a file in chunks
+/// of 8192 bytes, so a run of spaces around that length puts the lead byte at the end of a chunk),
+/// and in the scanner that reads its whole input at once (with an anchored rule).
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_errors_name_the_whole_unexpected_character() {
+    let characters: [&[u8]; 5] = [
+        b"\0",
+        "\u{e9}".as_bytes(),
+        "\u{20ac}".as_bytes(),
+        "\u{1f600}".as_bytes(),
+        b"\xc3",
+    ];
+    for anchored in [false, true] {
+        let mark = if anchored {
+            "  syntax Mark ::= r\"^%[a-z]+\" [token]\n  syntax Pgm ::= \"k\" Mark\n"
+        } else {
+            ""
+        };
+        let definition = format!(
+            "module UNEXPECTED-SYNTAX\n  syntax Id ::= r\"[a-z]+\" [token]\n  syntax Pgm ::= Id \";\" Pgm | \".Pgm\"\n{mark}endmodule\n"
+        );
+        let (root, parser) = generate_parser(&definition, "UNEXPECTED-SYNTAX", &[]);
+        let program = root.join("program.pgm");
+        let mut cases = Vec::new();
+        for character in characters {
+            for rest in [&b";.Pgm"[..], b""] {
+                cases.push(([b"ab;", character, rest].concat(), 4, character));
+            }
+            if character.len() > 1 {
+                for spaces in 8180..8200 {
+                    cases.push((
+                        [&vec![b' '; spaces][..], character].concat(),
+                        spaces + 1,
+                        character,
+                    ));
+                }
+            }
+        }
+        for (text, column, character) in cases {
+            fs::write(&program, &text).unwrap();
+            let rejected = Command::new(&parser).arg(&program).output().unwrap();
+            let expected = [
+                format!("1:{column}:1:{}:syntax error: unexpected ", column + 1).as_bytes(),
+                character,
+                b"\n",
+            ]
+            .concat();
+            assert!(
+                !rejected.status.success() && rejected.stderr == expected,
+                "anchored {anchored}, {:?}: {:?}",
+                String::from_utf8_lossy(&text[text.len().saturating_sub(12)..]),
+                String::from_utf8_lossy(&rejected.stderr)
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 /// In-process program parsing locates the terms of `[locations]` sorts as a generated parser
 /// does: a term is wrapped in `#location` at its own sort and at the sort of its position when
 /// either declares `[locations]` (`Val` inside `Exp`, through its injection, when both do), a
@@ -12174,8 +12237,8 @@ fn k_cell(pattern: &Pattern) -> Option<&[Pattern]> {
 /// which an uninstrumented parser survives. Its anchor checks read the bytes around a match
 /// (`bison::scanner::LINE_ANCHORS`), up to three after it and before it. Built with
 /// AddressSanitizer, the parser must run the empty input, short programs, long candidates and
-/// anchors at both ends of the input, beside multi-byte and truncated line terminators, without a
-/// report. Without a C compiler that
+/// anchors at both ends of the input, beside multi-byte and truncated line terminators, and
+/// unexpected characters up to the end of the input, without a report. Without a C compiler that
 /// can build and run an AddressSanitizer program the test checks nothing.
 #[cfg(unix)]
 #[test]
@@ -12243,6 +12306,11 @@ endmodule
         ("a\u{2028}".as_bytes().to_vec(), true),
         (b"a\xE2\x80".to_vec(), false),
         (b"\xE2\x80b".to_vec(), false),
+        // An unexpected character is written with the continuation bytes after it
+        // (`bison::scanner::UNEXPECTED`), which may run to the end of the input.
+        ("b\u{1f600}".as_bytes().to_vec(), false),
+        ("\u{e9}\u{e9}".as_bytes().to_vec(), false),
+        (b"\xC3".to_vec(), false),
     ];
     for (index, (program, accepted)) in programs.iter().enumerate() {
         let input = root.join(format!("program-{index}.pgm"));

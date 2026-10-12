@@ -202,7 +202,7 @@ impl Scanner {
     ///
     /// Every action starts with `KRUST_LOCATE`, which sets the token's location and moves the
     /// line and column past the matched text (see [`LOCATE`]); the default rule's `ECHO` runs it
-    /// as well. The location is
+    /// as well (see [`UNEXPECTED`]). The location is
     /// set in the action rather than by `YY_USER_ACTION` and `%option yylineno`, which Flex runs
     /// before the action, because an anchored rule's action may still reject its match, and a
     /// rejected match must not move the line or column.
@@ -243,11 +243,8 @@ impl Scanner {
 char *filename;\n\
 static void krust_locate(yyscan_t yyscanner, YYLTYPE *location);\n\
 #define KRUST_LOCATE krust_locate(yyscanner, yylloc)\n\
-#define ECHO do {\\\n\
-  KRUST_LOCATE;\\\n\
-  fprintf (stderr, \"%d:%d:%d:%d:syntax error: unexpected %s\\n\", yylloc->first_line, yylloc->first_column, yylloc->last_line, yylloc->last_column, yytext);\\\n\
-  exit(1);\\\n\
-} while (0)\n",
+static void krust_unexpected(yyscan_t yyscanner, YYLTYPE *location);\n\
+#define ECHO krust_unexpected(yyscanner, yylloc)\n",
         );
         if uses_reject {
             output.push_str(
@@ -286,6 +283,7 @@ static int krust_at_line_end(yyscan_t yyscanner);\n\
         output.push_str("%%\n\n");
         output.push_str(&line_terminator_table());
         output.push_str(LOCATE);
+        output.push_str(UNEXPECTED);
         if uses_reject {
             output.push_str(SCAN_WHOLE_INPUT);
             output.push_str(LINE_ANCHORS);
@@ -379,6 +377,26 @@ const LOCATE: &str = "static void krust_locate(yyscan_t yyscanner, YYLTYPE *loca
   location->last_line = yylineno;\n\
   location->last_column = yycolumn + 1;\n\
   location->filename = filename;\n\
+}\n";
+
+/// The user-code function behind the default rule's `ECHO` (see [`Scanner::render`]), which runs
+/// on a byte that no rule matches: locate that byte, report it as unexpected and stop. The location
+/// spans the byte's column, and a column holds a byte that does not continue a UTF-8 sequence and
+/// the continuation bytes after it (see [`LOCATE`]), so the report writes the whole character in
+/// that column: the matched byte and the continuation bytes that `input` reads after it, which
+/// refills the buffer when the character continues past it. The bytes are written as they are, so
+/// a NUL byte is written too.
+const UNEXPECTED: &str = "static void krust_unexpected(yyscan_t yyscanner, YYLTYPE *location) {\n\
+  struct yyguts_t *yyg = (struct yyguts_t *)yyscanner;\n\
+  int byte;\n\
+  krust_locate(yyscanner, location);\n\
+  fprintf(stderr, \"%d:%d:%d:%d:syntax error: unexpected \", location->first_line,\n\
+          location->first_column, location->last_line, location->last_column);\n\
+  fwrite(yytext, 1, (size_t)yyleng, stderr);\n\
+  while (((byte = input(yyscanner)) & 0xC0) == 0x80)\n\
+    fputc(byte, stderr);\n\
+  fputc('\\n', stderr);\n\
+  exit(1);\n\
 }\n";
 
 /// The user-code functions behind `KRUST_AT_LINE_START` and `KRUST_AT_LINE_END` (see
