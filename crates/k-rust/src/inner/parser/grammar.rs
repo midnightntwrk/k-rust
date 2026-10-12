@@ -125,7 +125,7 @@ impl Grammar {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, debug_assertions))]
     pub(in crate::inner) fn from_configuration_sentences<'a>(
         sentences: impl IntoIterator<Item = &'a Sentence>,
         sort_denotations: SortDenotations,
