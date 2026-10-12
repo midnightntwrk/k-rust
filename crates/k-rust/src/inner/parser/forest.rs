@@ -39,13 +39,13 @@
 //! id = "parser.forest.intern"
 //! name = "hash-consing of the nodes of a lowering session"
 //! sites = ["LoweringSession::intern", "LoweringSession::intern_parsed", "LoweringSession::intern_forest"]
-//! variable = "B = session nodes with the interned node's fingerprint; C = the interned node's children or alternatives; O = owned nodes of a tree; F = nodes of a packed forest; G = their child edges"
+//! variable = "B = session nodes with the interned node's key (its fingerprint and the identities of its children or alternatives, or its own for a leaf); C = the interned node's children or alternatives; O = owned nodes of a tree; F = nodes of a packed forest; G = their child edges"
 //! counters = []
 //! no_counter = "session interning has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "LoweringSession::intern"
-//! bound = "one hash lookup and O(B x C) pointer comparisons; B is 1 unless fingerprints collide"
+//! bound = "one hash lookup and O(B x C) pointer comparisons; B is 1 unless keys collide"
 //!
 //! [[cost]]
 //! mode = "LoweringSession::intern_parsed"
@@ -653,7 +653,7 @@ impl StructuralOrder {
 /// node it returned alive until the session ends, so no memoized address is reused meanwhile.
 #[derive(Default)]
 pub(super) struct LoweringSession {
-    /// The session's nodes by fingerprint; one bucket holds the nodes of one fingerprint.
+    /// The session's nodes by [`intern_key`]; one bucket holds the nodes of one key.
     nodes: rustc_hash::FxHashMap<u64, Vec<Rc<PackedTerm>>>,
     /// The structural order of session nodes, shared by every pass that orders alternatives.
     pub(super) order: StructuralOrder,
@@ -671,7 +671,7 @@ impl LoweringSession {
     /// The session node with the structure of `term`, whose children or alternatives must be
     /// session nodes: `term` itself when the session has no such node yet.
     pub(super) fn intern(&mut self, term: Rc<PackedTerm>) -> Rc<PackedTerm> {
-        let bucket = self.nodes.entry(term.fingerprint).or_default();
+        let bucket = self.nodes.entry(intern_key(&term)).or_default();
         if let Some(existing) = bucket.iter().find(|existing| {
             Rc::ptr_eq(existing, &term) || same_header_over_same_nodes(&existing.node, &term.node)
         }) {
@@ -795,6 +795,33 @@ impl LoweringSession {
         interned.insert(Rc::as_ptr(term), Rc::clone(&node));
         node
     }
+}
+
+/// The key under which [`LoweringSession::intern`] looks a node up: its fingerprint and the
+/// identities of its children or alternatives, or a leaf's own identity. Two nodes it makes the
+/// same are equal in both, so they share a key, and nodes that differ only in which of several
+/// equal leaves they are over (a token repeated through a term, the singleton lists built over
+/// each copy) do not share a bucket: the fingerprint alone, which ignores identity, would put
+/// every one of them in one bucket and make interning them quadratic in their number.
+fn intern_key(term: &Rc<PackedTerm>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = rustc_hash::FxHasher::default();
+    term.fingerprint.hash(&mut hasher);
+    match &term.node {
+        PackedNode::Term(_) => Rc::as_ptr(term).hash(&mut hasher),
+        PackedNode::Production { children, .. }
+        | PackedNode::InstantiatedProduction { children, .. } => {
+            for child in children {
+                Rc::as_ptr(child).hash(&mut hasher);
+            }
+        }
+        PackedNode::Ambiguity(alternatives) => {
+            for alternative in alternatives {
+                Rc::as_ptr(alternative).hash(&mut hasher);
+            }
+        }
+    }
+    hasher.finish()
 }
 
 /// Whether two nodes have equal headers (variant, production, parameters, metadata) over the
@@ -1477,5 +1504,29 @@ mod tests {
 
         assert_ne!(left.cmp(&right), std::cmp::Ordering::Equal);
         assert_ne!(left, right);
+    }
+
+    /// Copies of one leaf, equal as terms, are distinct session nodes, as are equal nodes over
+    /// different copies (`f(x)` over each); the interner keeps each in its own bucket, so a term
+    /// that repeats a token many times is interned in time linear in its size, not quadratic in
+    /// the copies.
+    #[test]
+    fn interning_copies_of_an_equal_leaf_keeps_one_node_per_bucket() {
+        let copies = 1000;
+        let node = |production: usize, children: Vec<ParsedTerm>| ParsedTerm::Production {
+            production,
+            children,
+            metadata: TermMetadata::default(),
+        };
+        let tree = (0..copies).fold(variable("x"), |tree, _| {
+            node(1, vec![node(0, vec![variable("x")]), tree])
+        });
+        let mut session = LoweringSession::default();
+
+        let packed = session.intern_parsed(&tree);
+
+        assert_eq!(session.nodes.values().map(Vec::len).max(), Some(1));
+        assert_eq!(session.nodes.len(), 3 * copies + 1);
+        assert!(packed.unpack() == tree);
     }
 }

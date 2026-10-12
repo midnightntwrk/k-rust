@@ -7281,7 +7281,7 @@ id = "parser.forest.intern"
 provenance = "declared"
 area = "parser"
 name = "hash-consing of the nodes of a lowering session"
-variable = "B = session nodes with the interned node's fingerprint; C = the interned node's children or alternatives; O = owned nodes of a tree; F = nodes of a packed forest; G = their child edges"
+variable = "B = session nodes with the interned node's key (its fingerprint and the identities of its children or alternatives, or its own for a leaf); C = the interned node's children or alternatives; O = owned nodes of a tree; F = nodes of a packed forest; G = their child edges"
 no_counter = "session interning has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserForestIntern"
@@ -7308,7 +7308,7 @@ symbol = "LoweringSession::intern_forest"
 
 [[node.cost]]
 mode = "LoweringSession::intern"
-bound = "one hash lookup and O(B x C) pointer comparisons; B is 1 unless fingerprints collide"
+bound = "one hash lookup and O(B x C) pointer comparisons; B is 1 unless keys collide"
 
 [[node.cost]]
 mode = "LoweringSession::intern_parsed"
