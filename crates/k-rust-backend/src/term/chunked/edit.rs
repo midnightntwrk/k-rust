@@ -687,3 +687,196 @@ impl<I: Item + Ord, const B: usize> Chunked<I, B> {
         (nodes, group)
     }
 }
+
+/// The keyed edits of a sequence ordered by key with one item per key and no group summaries:
+/// a [`Multiset`](super::multiset::Multiset)'s entries.
+///
+/// A batch of `k` edits descends once: each internal node splits the batch by its children's
+/// first keys, so a node is copied once whatever number of the batch's keys fall in its range,
+/// and a node whose range receives none is shared. A batch applied one edit at a time copies a
+/// path per edit instead, `k` copies of the nodes the batch's keys share, which for keys that
+/// fall together (variables named alike, a collection's own) is most of the work.
+///
+/// ```toml algorithm-site
+/// id = "backend.term.chunked"
+/// role = "part"
+/// sites = ["Chunked::add_by_key", "Chunked::reduce_by_key"]
+/// ```
+impl<I: Item<Group = ()>, const B: usize> Chunked<I, B> {
+    /// The part of `batch`, ordered by key, that falls in `children[slot]`'s range: the keys
+    /// below the next child's first key, all of the rest for the last child. `batch` keeps what
+    /// is left.
+    fn part_for<'b>(children: &[Arc<Node<I>>], slot: usize, batch: &mut &'b [I]) -> &'b [I] {
+        let part = match children.get(slot + 1) {
+            Some(next) => {
+                let bound = next
+                    .summary()
+                    .first
+                    .as_ref()
+                    .expect("a node has items")
+                    .key();
+                batch.partition_point(|item| item.key() < bound)
+            }
+            None => batch.len(),
+        };
+        let (part, rest) = batch.split_at(part);
+        *batch = rest;
+        part
+    }
+
+    /// The sequence with the items of `added`, ordered by key with one per key, put in: an item
+    /// whose key the sequence holds is merged into that item by `merge(held, added)`, the others
+    /// are inserted in order. Each node whose range receives an item is copied once, and one
+    /// that overflows is cut as [`cut`](Self::cut) cuts.
+    pub(crate) fn add_by_key(&self, added: &[I], merge: impl Fn(&I, &I) -> I) -> Self {
+        match &self.root {
+            _ if added.is_empty() => self.clone(),
+            None => Self::from_vec(added.to_vec()),
+            Some(root) => Self::over(root.height(), Self::add_into(root, added, &merge), ()),
+        }
+    }
+
+    /// The nodes of `node`'s height, each between the fill bounds when there are several,
+    /// holding `node`'s items with `added`'s put in.
+    fn add_into(
+        node: &Arc<Node<I>>,
+        added: &[I],
+        merge: &impl Fn(&I, &I) -> I,
+    ) -> Vec<Arc<Node<I>>> {
+        match &**node {
+            Node::Leaf { items, .. } => {
+                let mut merged = Vec::with_capacity(items.len() + added.len());
+                let mut added = added.iter().peekable();
+                for item in items {
+                    while let Some(before) = added.next_if(|new| new.key() < item.key()) {
+                        merged.push(before.clone());
+                    }
+                    merged.push(match added.next_if(|new| new.key() == item.key()) {
+                        Some(same) => merge(item, same),
+                        None => item.clone(),
+                    });
+                }
+                merged.extend(added.cloned());
+                Self::cut(merged, (), Item::group, Node::leaf_with)
+            }
+            Node::Internal {
+                height, children, ..
+            } => {
+                let mut batch = added;
+                let mut united = Vec::with_capacity(children.len());
+                for (slot, child) in children.iter().enumerate() {
+                    let part = Self::part_for(children, slot, &mut batch);
+                    if part.is_empty() {
+                        united.push(child.clone());
+                    } else {
+                        united.extend(Self::add_into(child, part, merge));
+                    }
+                }
+                Self::cut(united, (), child_group, |children, ()| {
+                    Node::internal_with(*height, children, ())
+                })
+            }
+        }
+    }
+
+    /// The sequence with the item of each key of `reduced`, ordered by key with one per key,
+    /// replaced by `reduce(held, reduced)`, or removed when that is `None`. The sequence holds
+    /// every key of `reduced`. Each node whose range holds one of the keys is copied once; a
+    /// node left below the fill minimum is joined to an adjacent sibling, as
+    /// [`join`](Self::join) joins two trees.
+    pub(crate) fn reduce_by_key(
+        &self,
+        reduced: &[I],
+        reduce: impl Fn(&I, &I) -> Option<I>,
+    ) -> Self {
+        match &self.root {
+            _ if reduced.is_empty() => self.clone(),
+            None => panic!("a reduction names only keys the sequence holds"),
+            Some(root) => match Self::reduce_in(root, reduced, &reduce) {
+                None => Self::new(),
+                Some(root) => Self::rooted(root),
+            },
+        }
+    }
+
+    /// `node` with `reduced`'s items reduced: `None` when no item is left, otherwise one node
+    /// of `node`'s height or lower, which may hold fewer than `MIN_FILL` items or children while
+    /// every node below it holds at least that many.
+    ///
+    /// The children left are taken in order and a child that is lower than its siblings or
+    /// below the minimum is joined to the one before it (or the one after it, for the first):
+    /// a join keeps the taller or full node's width, so only the last node taken may be short,
+    /// and it is joined to the one before it at the end. Two full nodes a join of two short ones
+    /// returns become one node a level up, itself short. A node left with one child is replaced
+    /// by that child, one level lower, which its parent joins in turn.
+    fn reduce_in(
+        node: &Arc<Node<I>>,
+        reduced: &[I],
+        reduce: &impl Fn(&I, &I) -> Option<I>,
+    ) -> Option<Arc<Node<I>>> {
+        match &**node {
+            Node::Leaf { items, .. } => {
+                let mut left = Vec::with_capacity(items.len());
+                let mut reduced = reduced.iter().peekable();
+                for item in items {
+                    match reduced.next_if(|old| old.key() == item.key()) {
+                        Some(old) => left.extend(reduce(item, old)),
+                        None => left.push(item.clone()),
+                    }
+                }
+                assert!(
+                    reduced.next().is_none(),
+                    "a reduction names only keys the sequence holds"
+                );
+                (!left.is_empty()).then(|| Arc::new(Node::leaf_with(left, ())))
+            }
+            Node::Internal {
+                height, children, ..
+            } => {
+                let level = height - 1;
+                let short =
+                    |node: &Arc<Node<I>>| node.height() < level || node.width() < Self::MIN_FILL;
+                // Two nodes a join returns below the children's level are full: they become
+                // the two children of one node a level up, short again.
+                let join_last = |kept: &mut Vec<Arc<Node<I>>>, next: &Arc<Node<I>>| {
+                    let last = kept.pop().expect("a node to join");
+                    match Self::join_nodes(&last, next) {
+                        (one, Some(two)) if one.height() < level => {
+                            let height = one.height() + 1;
+                            kept.push(Arc::new(Node::internal_with(height, vec![one, two], ())));
+                        }
+                        (one, two) => {
+                            kept.push(one);
+                            kept.extend(two);
+                        }
+                    }
+                };
+                let mut batch = reduced;
+                let mut kept: Vec<Arc<Node<I>>> = Vec::with_capacity(children.len());
+                for (slot, child) in children.iter().enumerate() {
+                    let part = Self::part_for(children, slot, &mut batch);
+                    let child = if part.is_empty() {
+                        child.clone()
+                    } else {
+                        match Self::reduce_in(child, part, reduce) {
+                            Some(child) => child,
+                            None => continue,
+                        }
+                    };
+                    match kept.last() {
+                        Some(last) if short(last) || short(&child) => join_last(&mut kept, &child),
+                        _ => kept.push(child),
+                    }
+                }
+                if kept.len() > 1 && kept.last().is_some_and(short) {
+                    let last = kept.pop().expect("a last node");
+                    join_last(&mut kept, &last);
+                }
+                match kept.len() {
+                    0 | 1 => kept.pop(),
+                    _ => Some(Arc::new(Node::internal_with(*height, kept, ()))),
+                }
+            }
+        }
+    }
+}

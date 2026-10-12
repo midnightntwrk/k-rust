@@ -3331,6 +3331,16 @@ symbol = "Chunked::cut"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::add_by_key"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/chunked/edit.rs"
+symbol = "Chunked::reduce_by_key"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/term/chunked/multiset.rs"
 symbol = "Multiset"
 
@@ -3343,16 +3353,6 @@ symbol = "Multiset::add"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/term/chunked/multiset.rs"
 symbol = "Multiset::remove"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/term/chunked/multiset.rs"
-symbol = "merge_entries"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/term/chunked/multiset.rs"
-symbol = "subtract_entries"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -3525,7 +3525,11 @@ bound = "O(log² n) nodes, each a node of the tree from_vec builds of the copies
 
 [[node.cost]]
 mode = "variable set of a term built above its children (Variables, Union)"
-bound = "O(1) when one child holds them all; O(m log V) when the largest child's set is a tree; O(V) merge when every operand has at most B variables"
+bound = "O(1) when one child holds them all; when the largest child's set is a tree, its nodes whose range receives some of the m variables outside it, each copied once (at most O(m log V), one path when they fall together); O(V) merge when every operand has at most B variables"
+
+[[node.cost]]
+mode = "combine or subtract two variable multisets (a group summary's difference; Chunked::add_by_key, Chunked::reduce_by_key)"
+bound = "the lighter one's k entries, plus the heavier one's nodes whose range holds one of them, each copied once (at most O(k log(n/k + 1))), and for a subtraction one spine of O(log n) nodes per node left below the fill minimum"
 
 [[node]]
 kind = "algorithm"

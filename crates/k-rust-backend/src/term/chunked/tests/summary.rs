@@ -322,3 +322,116 @@ fn a_join_adds_the_shorter_trees_variables_along_the_spine() {
     let bound = (height(&tree) + 1) * (2 * (multiset_height(&joined) + 1) + 1);
     assert!(new_multiset_nodes(&joined, &tree) <= bound);
 }
+
+/// Every node of a multiset's tree.
+fn entry_nodes<const B: usize>(multiset: &Multiset<u32, B>) -> HashSet<*const Multinode> {
+    let mut nodes = HashSet::new();
+    let mut pending: Vec<&Arc<Multinode>> = multiset.entries().root.iter().collect();
+    while let Some(node) = pending.pop() {
+        if nodes.insert(Arc::as_ptr(node))
+            && let Node::Internal { children, .. } = &**node
+        {
+            pending.extend(children);
+        }
+    }
+    nodes
+}
+
+/// A batch on a large multiset agrees with its model of counts: a combination with entries new
+/// and held, and a subtraction that removes some elements and lowers the counts of others, at
+/// branching factors where the batch's keys reach many leaves at several levels and leave
+/// nodes below the fill minimum to be joined.
+fn batch_against_model<const B: usize>(size: u32, added: &[(u32, usize)], removed: &[u8]) {
+    let whole: Multiset<u32, B> = Multiset::of((0..size).flat_map(|e| [3 * e, 3 * e]));
+    let mut model: BTreeMap<u32, usize> = (0..size).map(|e| (3 * e, 2)).collect();
+    let part: Vec<u32> = added
+        .iter()
+        .flat_map(|&(element, count)| std::iter::repeat_n(element % (3 * size + 9), count))
+        .collect();
+    for element in &part {
+        *model.entry(*element).or_insert(0) += 1;
+    }
+    let combined = whole.clone().combine(&Multiset::of(part.iter().copied()));
+    check_invariants(combined.entries());
+    let entries = |m: &Multiset<u32, B>| -> Vec<(u32, usize)> {
+        m.entries().iter().map(|e| (e.element, e.count)).collect()
+    };
+    let expected = |model: &BTreeMap<u32, usize>| -> Vec<(u32, usize)> {
+        model.iter().map(|(&e, &c)| (e, c)).collect()
+    };
+    assert_eq!(entries(&combined), expected(&model));
+    let mut taken = Vec::new();
+    for (index, (&element, held)) in model.iter_mut().enumerate() {
+        let take = removed
+            .get(index % removed.len().max(1))
+            .map_or(0, |choice| usize::from(*choice) % (*held + 1));
+        taken.extend(std::iter::repeat_n(element, take));
+        *held -= take;
+    }
+    model.retain(|_, held| *held > 0);
+    let subtracted = combined.subtract(&Multiset::of(taken));
+    check_invariants(subtracted.entries());
+    assert_eq!(entries(&subtracted), expected(&model));
+}
+
+proptest! {
+    #[test]
+    fn a_batch_on_a_large_multiset_follows_its_model(
+        size in 0u32..700,
+        added in prop::collection::vec((any::<u32>(), 1usize..3), 0..300),
+        removed in prop::collection::vec(any::<u8>(), 0..50),
+    ) {
+        batch_against_model::<5>(size, &added, &removed);
+        batch_against_model::<6>(size, &added, &removed);
+        batch_against_model::<VARIABLES>(size, &added, &removed);
+    }
+}
+
+// A batch of `k` new elements that all fall between two adjacent elements of one leaf: the leaf
+// and the nodes above it are copied once, and the leaf's overflow is cut into at most
+// `(k + B) / (MIN_FILL + 1)` leaves, each level above holding at most a fraction `1 / (MIN_FILL
+// + 1)` as many new nodes plus the path's one. Applied one entry at a time, the batch would
+// copy the whole path `k` times, `k (h + 1)` nodes. Subtracting the batch again copies the
+// nodes whose range held its elements, and the joins of the nodes left below the minimum copy at
+// most one spine of `h + 1` nodes for each of them.
+#[test]
+fn a_batch_of_entries_in_one_leaf_copies_its_nodes_once() {
+    const B: usize = 5;
+    let k = 50;
+    let whole: Multiset<u32, B> = Multiset::of((0..2401).map(|e| 100 * e));
+    let height = whole
+        .entries()
+        .root
+        .as_ref()
+        .map_or(0, |root| root.height());
+    let batch: Multiset<u32, B> = Multiset::of((1..=k).map(|e| 100 * 1200 + e as u32));
+    let combined = whole.clone().combine(&batch);
+    check_invariants(combined.entries());
+    let added = entry_nodes(&combined)
+        .difference(&entry_nodes(&whole))
+        .count();
+    let min_fill = Chunked::<Occurrences<u32>, B>::MIN_FILL;
+    let mut bound = 0;
+    let mut level = (k + B).div_ceil(min_fill + 1);
+    for _ in 0..=height + 1 {
+        bound += level + 1;
+        level = level.div_ceil(min_fill + 1);
+    }
+    assert!(
+        added <= bound && bound < k * (height + 1),
+        "{added} new nodes, bound {bound}, height {height}"
+    );
+    let subtracted = combined.clone().subtract(&batch);
+    check_invariants(subtracted.entries());
+    assert_eq!(subtracted, whole);
+    let removed = entry_nodes(&subtracted)
+        .difference(&entry_nodes(&combined))
+        .count();
+    let touched = entry_nodes(&combined)
+        .difference(&entry_nodes(&whole))
+        .count();
+    assert!(
+        removed <= touched * (height + 2),
+        "{removed} new nodes for {touched} touched, height {height}"
+    );
+}

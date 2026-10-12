@@ -63,7 +63,11 @@
 //!
 //! [[cost]]
 //! mode = "variable set of a term built above its children (Variables, Union)"
-//! bound = "O(1) when one child holds them all; O(m log V) when the largest child's set is a tree; O(V) merge when every operand has at most B variables"
+//! bound = "O(1) when one child holds them all; when the largest child's set is a tree, its nodes whose range receives some of the m variables outside it, each copied once (at most O(m log V), one path when they fall together); O(V) merge when every operand has at most B variables"
+//!
+//! [[cost]]
+//! mode = "combine or subtract two variable multisets (a group summary's difference; Chunked::add_by_key, Chunked::reduce_by_key)"
+//! bound = "the lighter one's k entries, plus the heavier one's nodes whose range holds one of them, each copied once (at most O(k log(n/k + 1))), and for a subtraction one spine of O(log n) nodes per node left below the fill minimum"
 //! ```
 //!
 //! Every operation is persistent: it returns new trees and leaves its operands valid, sharing
@@ -1079,14 +1083,6 @@ impl<I: Item, const B: usize> Chunked<I, B> {
     #[cfg(test)]
     pub(crate) fn levels(&self) -> usize {
         self.root.as_ref().map_or(0, |root| root.height() + 1)
-    }
-
-    /// Whether the sequence is a single leaf: not empty, and at most `B` items with no node
-    /// above them.
-    pub(crate) fn is_one_leaf(&self) -> bool {
-        self.root
-            .as_ref()
-            .is_some_and(|root| matches!(**root, Node::Leaf { .. }))
     }
 
     /// Whether this is the only handle of the root: dropping it then frees the root, and the

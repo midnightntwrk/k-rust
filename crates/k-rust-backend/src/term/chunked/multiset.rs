@@ -4,7 +4,8 @@
 //!
 //! Adding or removing a few occurrences copies a path of the multiset's own tree, so the
 //! multisets of a node before and after an edit share all but that path. Combining two multisets
-//! adds the lighter one's entries to the heavier one, so its work is the lighter one's size.
+//! adds the lighter one's entries to the heavier one in one batch, so its work is the lighter
+//! one's size plus the nodes of the heavier one those entries reach, each copied once.
 //!
 //! Test builds count the entries each thread creates, changes or removes (`ENTRY_UPDATES`), so
 //! the tests can hold an edit of an item tree to the entries its difference names.
@@ -21,7 +22,7 @@ use crate::term::variables::VariableLookup;
 thread_local! {
     /// The multiset entries this thread has created, changed or removed: one per element of
     /// [`Multiset::of`], one per [`Multiset::add`] and per [`Multiset::remove`]. Combining and
-    /// subtracting go through `add` and `remove`, one call per entry of the lighter operand.
+    /// subtracting count one per entry of the lighter operand.
     pub(crate) static ENTRY_UPDATES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
@@ -72,7 +73,7 @@ pub(crate) struct Multiset<E: Ord + Clone + Hash + fmt::Debug, const B: usize = 
 /// ```toml algorithm-site
 /// id = "backend.term.chunked"
 /// role = "part"
-/// sites = ["Multiset", "Multiset::add", "Multiset::remove", "merge_entries", "subtract_entries"]
+/// sites = ["Multiset", "Multiset::add", "Multiset::remove"]
 /// ```
 impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Multiset<E, B> {
     pub(crate) const fn new() -> Self {
@@ -208,12 +209,10 @@ impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Summary for Multiset<E,
         Self::new()
     }
 
-    /// The lighter multiset's entries added to the heavier one.
-    ///
-    /// When the heavier one is a single leaf, each [`add`](Multiset::add) would copy that whole
-    /// leaf and recompute its summary, so the two are merged into one new sequence instead: one
-    /// pass over both, no more work than a single `add`'s copy plus the lighter one's entries. A
-    /// larger heavier multiset takes the entries one path copy each, sharing the rest.
+    /// The lighter multiset's entries added to the heavier one, in one batch
+    /// ([`Chunked::add_by_key`]): each node of the heavier one's tree whose range receives
+    /// entries is copied once, so the work is the lighter one's size plus the nodes it reaches,
+    /// not a path copy per entry.
     fn combine(self, right: &Self) -> Self {
         let (heavier, lighter) = if self.len() >= right.len() {
             (self, right)
@@ -223,92 +222,43 @@ impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Summary for Multiset<E,
         if lighter.is_empty() {
             return heavier;
         }
-        if heavier.entries.is_one_leaf() {
-            tally(lighter.len());
-            return Self {
-                entries: Chunked::from_vec(merge_entries(&heavier.entries, &lighter.entries)),
-            };
+        tally(lighter.len());
+        let added = lighter.entries.iter().cloned().collect::<Vec<_>>();
+        Self {
+            entries: heavier
+                .entries
+                .add_by_key(&added, |held, added| Occurrences {
+                    element: held.element.clone(),
+                    count: held.count + added.count,
+                }),
         }
-        lighter
-            .entries
-            .iter()
-            .fold(heavier, |sum, entry| sum.add(&entry.element, entry.count))
     }
 }
 
 impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Group for Multiset<E, B> {
-    /// `part`'s occurrences removed. As for [`combine`](Summary::combine), a multiset held in a
-    /// single leaf is rebuilt in one pass instead of copied once per entry of `part`.
+    /// `part`'s occurrences removed, in one batch ([`Chunked::reduce_by_key`]), as
+    /// [`combine`](Summary::combine) adds them.
     fn subtract(self, part: &Self) -> Self {
         if part.is_empty() {
             return self;
         }
-        if self.entries.is_one_leaf() {
-            tally(part.len());
-            return Self {
-                entries: Chunked::from_vec(subtract_entries(&self.entries, &part.entries)),
-            };
+        tally(part.len());
+        let removed = part.entries.iter().cloned().collect::<Vec<_>>();
+        Self {
+            entries: self.entries.reduce_by_key(&removed, |held, removed| {
+                let count = held
+                    .count
+                    .checked_sub(removed.count)
+                    .expect("a multiset removes at most the occurrences it holds");
+                (count > 0).then(|| Occurrences {
+                    element: held.element.clone(),
+                    count,
+                })
+            }),
         }
-        part.entries
-            .iter()
-            .fold(self, |rest, entry| rest.remove(&entry.element, entry.count))
     }
 
     fn weight(&self) -> usize {
         self.len()
     }
-}
-
-/// The entries of two multisets merged in order of element, the counts of an element in both
-/// added.
-fn merge_entries<E: Ord + Clone + Hash + fmt::Debug, const B: usize>(
-    left: &Chunked<Occurrences<E>, B>,
-    right: &Chunked<Occurrences<E>, B>,
-) -> Vec<Occurrences<E>> {
-    let mut merged = Vec::with_capacity(left.len() + right.len());
-    let mut right = right.iter().peekable();
-    for entry in left {
-        while let Some(before) = right.next_if(|next| next.element < entry.element) {
-            merged.push(before.clone());
-        }
-        let count = right
-            .next_if(|next| next.element == entry.element)
-            .map_or(0, |same| same.count);
-        merged.push(Occurrences {
-            element: entry.element.clone(),
-            count: entry.count + count,
-        });
-    }
-    merged.extend(right.cloned());
-    merged
-}
-
-/// The entries of `whole` with the occurrences of `part`, which it holds, removed, in order of
-/// element; an element left with no occurrence is dropped.
-fn subtract_entries<E: Ord + Clone + Hash + fmt::Debug, const B: usize>(
-    whole: &Chunked<Occurrences<E>, B>,
-    part: &Chunked<Occurrences<E>, B>,
-) -> Vec<Occurrences<E>> {
-    let mut rest = Vec::with_capacity(whole.len());
-    let mut part = part.iter().peekable();
-    for entry in whole {
-        let count = match part.next_if(|next| next.element == entry.element) {
-            Some(removed) => entry
-                .count
-                .checked_sub(removed.count)
-                .expect("a multiset removes at most the occurrences it holds"),
-            None => entry.count,
-        };
-        if count > 0 {
-            rest.push(Occurrences {
-                element: entry.element.clone(),
-                count,
-            });
-        }
-    }
-    assert!(
-        part.next().is_none(),
-        "a multiset removes only an element it holds"
-    );
-    rest
 }
