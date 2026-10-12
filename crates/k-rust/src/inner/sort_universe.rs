@@ -389,7 +389,7 @@ pub(in crate::inner) const fn rule_member_productions(role: SortRole) -> RuleMem
 #[cfg(not(feature = "z3-inference"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::inner) enum ScaffoldPosition {
-    /// Inside the rule kernel syntax, before `#RuleBody ::= #Rule<K>`, which derives through it.
+    /// Inside the rule kernel syntax, before `#RuleBody ::= #Rule:K`, which derives through it.
     BeforeRuleBody,
     /// After the rule cells.
     AfterRuleCells,

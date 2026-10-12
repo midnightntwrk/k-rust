@@ -63,7 +63,7 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.resolve_terminators"
 //! name = "resolution of overloaded list terminators"
-//! sites = ["Grammar::resolve_packed_overloaded_terminators", "Grammar::resolve_overloaded_terminators_node", "Grammar::least_overloaded_terminator"]
+//! sites = ["Grammar::resolve_packed_overloaded_terminators", "Grammar::resolve_packed_overloaded_terminators_each_tree", "Grammar::resolve_overloaded_terminators_node", "Grammar::least_overloaded_terminator"]
 //! variable = "N = session nodes reachable from the forest; E = their child edges; L = user lists; R = productions in the grammar; K = those nodes that are nullary and whose source production is overloaded"
 //! counters = []
 //! no_counter = "overloaded-terminator resolution has no dedicated counter"
@@ -72,6 +72,10 @@
 //! [[cost]]
 //! mode = "one packed forest"
 //! bound = "O(N + E x L + K x R), each node's result computed once, plus the structural ordering of each ambiguity's alternatives and of the terminator alternatives at a program list's tail, whose pair comparisons the session shares"
+//!
+//! [[cost]]
+//! mode = "each tree of a packed forest (resolve_packed_overloaded_terminators_each_tree)"
+//! bound = "the packed-forest bound, plus, at a program list's tail, one node for the alternatives of the ambiguity there, nested ones included, each mapped on its own"
 //! ```
 //!
 //! ```toml algorithm
@@ -116,8 +120,8 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.resolve_ambiguity"
 //! name = "resolution and reporting of remaining ambiguity"
-//! sites = ["Grammar::lower_inferred_session", "Grammar::lower_inferred_forest", "Grammar::resolve_packed_ambiguities", "Grammar::packed_readings"]
-//! variable = "N = session nodes that reach resolution; A = ambiguity alternatives; O = owned nodes of a tree; F = nodes of an inferred packed forest; G = their child edges and alternatives; R = productions in the grammar"
+//! sites = ["Grammar::lower_inferred_session", "Grammar::lower_inferred_forest", "Grammar::lower_each_inferred_tree", "Grammar::each_tree_terms", "Grammar::resolve_packed_ambiguities", "Grammar::packed_readings"]
+//! variable = "N = session nodes that reach resolution; A = ambiguity alternatives; O = owned nodes of a tree; F = nodes of an inferred packed forest; G = their child edges and alternatives; R = productions in the grammar; T = terms of one node's trees, each lowered alone, that differ only in an annotation, a one-item sequence against its item or a token's text; a = largest arity"
 //! counters = []
 //! no_counter = "final ambiguity resolution has no dedicated counter"
 //! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }, { type = "k_rust::inner::parser::forest::PackedTerm", role = "sorted forest" }]
@@ -135,6 +139,10 @@
 //! [[cost]]
 //! mode = "one inferred packed forest (lower_inferred_forest): one Z3 inferred, or the join of two parts' inferred forests when sorts decide among every reading (infer_without_structural_preference)"
 //! bound = "O(F + G) to intern the forest into a session, then the session bound; no owned tree of its trees is built, whatever their number"
+//!
+//! [[cost]]
+//! mode = "each tree of an inferred packed forest lowered alone (lower_each_inferred_tree), for a typing group whose trees instantiate formal parameters differently"
+//! bound = "O(F + G) to intern the forest, the per-tree forms of terminator resolution and list completion (parser.disambiguation.resolve_terminators, parser.disambiguation.insert_empty_lists), then each node's terms once: O(A x T) per ambiguity node and T^a lowerings (parser.lower.term) per production node, T being the terms listed at a child, pairwise apart only in an annotation, a one-item sequence against its item or a token's text, so that a `~>` chain of such items multiplies them, stopping at the first node where two terms differ in a way no ancestor can undo; no tree is built, whatever their number"
 //! ```
 //!
 //! Packed-DAG disambiguation in the following pipeline order.
@@ -1961,6 +1969,154 @@ impl Grammar {
         self.lower_inferred_session(&mut session, &forest, start)
     }
 
+    /// The one term every tree of a sort-inferred packed forest lowers to on its own
+    /// (`Grammar::lower_inferred` of each tree), `None` when two trees lower to different
+    /// terms (`Term::identical`) or a tree's lowering fails; computed on the forest, without
+    /// building a tree.
+    ///
+    /// Each pass runs in a form whose result is the forest of the trees it makes of each tree
+    /// alone: terminator resolution and list completion read, at an ambiguity, the alternative
+    /// each tree takes (`Grammar::resolve_packed_overloaded_terminators_each_tree`,
+    /// `Grammar::add_packed_empty_lists_each_tree`); overload and `prefer`/`avoid` filtering
+    /// and factoring act only at ambiguities, so a tree alone passes through them unchanged and
+    /// they are skipped. The lowered terms of the trees are then summarized per node
+    /// ([`Self::each_tree_terms`]), which reads a bracket or a syntactic cast as its child, as
+    /// `Grammar::remove_packed_brackets_and_syntactic_casts` removes them: that pass rebuilds an
+    /// ambiguity over its rewritten alternatives as a set, which keeps one of two that become
+    /// equal as terms, while two trees that become equal in all but a leaf's annotation lower
+    /// to two terms.
+    pub(super) fn lower_each_inferred_tree(
+        &self,
+        inferred: &Rc<PackedTerm>,
+        start: &Sort,
+    ) -> Option<Term> {
+        let mut session = LoweringSession::default();
+        let forest = session.intern_forest(inferred);
+        let resolved = self
+            .resolve_packed_overloaded_terminators_each_tree(&mut session, &forest)
+            .ok()?;
+        let listed = self
+            .add_packed_empty_lists_each_tree(&mut session, &resolved, start)
+            .ok()?;
+        let mut known = rustc_hash::FxHashMap::default();
+        match self.each_tree_terms(&listed, &mut known).ok()? {
+            EachTreeTerms::Listed(terms) if terms.len() == 1 => terms.first().cloned(),
+            EachTreeTerms::Listed(_) | EachTreeTerms::Distinct => None,
+        }
+    }
+
+    /// The terms the trees of a node lower to, each alone, as far as deciding whether they are
+    /// one term needs them, memoized in `known` by node.
+    ///
+    /// A leaf is its term. An ambiguity's terms are its alternatives'. A bracket's or a
+    /// syntactic cast's terms are its child's, which lowering reads in its place. Any other
+    /// production's terms are those `Grammar::lower_production` builds over every combination
+    /// of its children's terms, unless a child's are `EachTreeTerms::Distinct`, in which case so
+    /// are the node's.
+    ///
+    /// `Distinct` stands for a set holding two terms that every ancestor keeps apart: two terms
+    /// that are not tokens and whose items differ when each item is read without its own
+    /// annotation, an item being a sequence's element, and a term that is no sequence being its
+    /// one item. A node that denotes its child re-annotates the child, which leaves its items
+    /// as they are; a sequence splices its children's items, each verbatim; any other node
+    /// holds its children verbatim, and a `#KToken` node reads a child's text only when the
+    /// child is a string token. So above such a pair, holding the rest of the tree fixed, the
+    /// node's two terms are again such a pair, up to the root, whose trees then lower to two
+    /// terms. Terms that differ only where an ancestor may overwrite or drop the difference
+    /// (an annotation, a one-element sequence against its element, a string token's text) stay
+    /// listed, so the listed sets are pairwise equal up to those differences, and the products
+    /// over them are as small as the annotations and sequence shapes the forest's nodes take.
+    fn each_tree_terms(
+        &self,
+        term: &Rc<PackedTerm>,
+        known: &mut rustc_hash::FxHashMap<*const PackedTerm, (Rc<PackedTerm>, EachTreeTerms)>,
+    ) -> Result<EachTreeTerms, ParseError> {
+        if let Some((_, terms)) = known.get(&Rc::as_ptr(term)) {
+            return Ok(terms.clone());
+        }
+        let result = crate::stack::guarded(|| match &term.node {
+            PackedNode::Term(leaf) => Ok(EachTreeTerms::Listed(Rc::from([leaf.clone()]))),
+            PackedNode::Ambiguity(alternatives) => {
+                let mut terms = Vec::new();
+                for alternative in alternatives {
+                    match self.each_tree_terms(alternative, known)? {
+                        EachTreeTerms::Distinct => return Ok(EachTreeTerms::Distinct),
+                        EachTreeTerms::Listed(listed) => terms.extend(listed.iter().cloned()),
+                    }
+                }
+                Ok(EachTreeTerms::settle(terms))
+            }
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => self.each_tree_production_terms(*production, None, children, metadata, known),
+            PackedNode::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => self.each_tree_production_terms(
+                *production,
+                Some(parameters),
+                children,
+                metadata,
+                known,
+            ),
+        })?;
+        known.insert(Rc::as_ptr(term), (Rc::clone(term), result.clone()));
+        Ok(result)
+    }
+
+    /// [`Self::each_tree_terms`] of a node of `production` over `children`.
+    fn each_tree_production_terms(
+        &self,
+        production: usize,
+        parameters: Option<&Vec<Sort>>,
+        children: &[Rc<PackedTerm>],
+        metadata: &TermMetadata,
+        known: &mut rustc_hash::FxHashMap<*const PackedTerm, (Rc<PackedTerm>, EachTreeTerms)>,
+    ) -> Result<EachTreeTerms, ParseError> {
+        if let [child] = children
+            && self.only_shapes_the_parse(production)
+        {
+            return self.each_tree_terms(child, known);
+        }
+        let mut listed = Vec::with_capacity(children.len());
+        for child in children {
+            match self.each_tree_terms(child, known)? {
+                EachTreeTerms::Distinct => return Ok(EachTreeTerms::Distinct),
+                EachTreeTerms::Listed(terms) => listed.push(terms),
+            }
+        }
+        let mut terms = Vec::new();
+        let mut combination = vec![0; listed.len()];
+        // Invariant: `combination` is the next choice of one term per child, the last child
+        // varying fastest; every earlier choice has been lowered into `terms`.
+        loop {
+            let chosen = listed
+                .iter()
+                .zip(&combination)
+                .map(|(terms, index)| terms[*index].clone())
+                .collect();
+            terms.push(self.lower_production(
+                production,
+                parameters.map(Vec::as_slice),
+                chosen,
+                metadata.clone(),
+            )?);
+            let Some(position) = (0..listed.len())
+                .rev()
+                .find(|position| combination[*position] + 1 < listed[*position].len())
+            else {
+                break;
+            };
+            combination[position] += 1;
+            combination[position + 1..].fill(0);
+        }
+        Ok(EachTreeTerms::settle(terms))
+    }
+
     /// The readings of a node of a packed forest: its one term, or a node of `sets` that stands
     /// for several without listing them. They are a function of the node, computed once per
     /// node and kept in `readings` for the other edges that reach it, and each owned copy of the
@@ -3340,14 +3496,33 @@ impl Grammar {
     ) -> Result<Rc<PackedTerm>, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveTerminators);
         let mut resolved = rustc_hash::FxHashMap::default();
-        self.resolve_overloaded_terminators_node(session, &mut resolved, term)
+        self.resolve_overloaded_terminators_node(session, &mut resolved, term, false)
     }
 
+    /// The terminators of every tree of a packed forest resolved on its own, as a forest: the
+    /// trees of the result are exactly the trees [`Self::resolve_packed_overloaded_terminators`]
+    /// makes of each tree of `term` alone. The packed pass keeps, at a program list's tail, the
+    /// structurally first terminator alternative of an ambiguity there for every tree; a tree
+    /// alone keeps its own alternative there when it is the terminator and resolves it
+    /// otherwise, so this pass maps each alternative of such an ambiguity, nested ones
+    /// included, on its own. Everywhere else the packed pass is already a map of each node.
+    pub(super) fn resolve_packed_overloaded_terminators_each_tree(
+        &self,
+        session: &mut LoweringSession,
+        term: &Rc<PackedTerm>,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        let mut resolved = rustc_hash::FxHashMap::default();
+        self.resolve_overloaded_terminators_node(session, &mut resolved, term, true)
+    }
+
+    /// `each_tree`: resolve a program list's tail per tree
+    /// ([`Self::resolve_packed_overloaded_terminators_each_tree`]).
     fn resolve_overloaded_terminators_node(
         &self,
         session: &mut LoweringSession,
         resolved: &mut rustc_hash::FxHashMap<*const PackedTerm, PackedTransformResult>,
         term: &Rc<PackedTerm>,
+        each_tree: bool,
     ) -> PackedTransformResult {
         if let Some(result) = resolved.get(&Rc::as_ptr(term)) {
             return result.clone();
@@ -3359,7 +3534,12 @@ impl Grammar {
                 let rewritten = alternatives
                     .iter()
                     .map(|alternative| {
-                        self.resolve_overloaded_terminators_node(session, resolved, alternative)
+                        self.resolve_overloaded_terminators_node(
+                            session,
+                            resolved,
+                            alternative,
+                            each_tree,
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 if packed_nodes_unchanged(&alternatives, &rewritten) {
@@ -3372,10 +3552,8 @@ impl Grammar {
                 children,
                 metadata,
             } => {
-                let rewritten = children
-                    .iter()
-                    .enumerate()
-                    .map(|(child_index, child)| {
+                let mut resolve_child =
+                    |session: &mut LoweringSession, child_index: usize, child: &Rc<PackedTerm>| {
                         match self.program_list_terminator(
                             &mut session.order,
                             *production,
@@ -3383,10 +3561,28 @@ impl Grammar {
                             child,
                         ) {
                             Some(terminator) => Ok(terminator),
-                            None => {
-                                self.resolve_overloaded_terminators_node(session, resolved, child)
-                            }
+                            None => self.resolve_overloaded_terminators_node(
+                                session, resolved, child, each_tree,
+                            ),
                         }
+                    };
+                let rewritten = children
+                    .iter()
+                    .enumerate()
+                    .map(|(child_index, child)| match &child.node {
+                        PackedNode::Ambiguity(alternatives)
+                            if each_tree
+                                && self
+                                    .program_list_tail_terminator(*production, child_index)
+                                    .is_some() =>
+                        {
+                            let alternatives = flattened_alternatives(alternatives)
+                                .iter()
+                                .map(|alternative| resolve_child(session, child_index, alternative))
+                                .collect::<Result<BTreeSet<_>, _>>()?;
+                            Ok(session.intern(PackedTerm::alternatives(alternatives)))
+                        }
+                        _ => resolve_child(session, child_index, child),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let selected = if rewritten.is_empty() {
@@ -3411,7 +3607,11 @@ impl Grammar {
             } => {
                 let rewritten = children
                     .iter()
-                    .map(|child| self.resolve_overloaded_terminators_node(session, resolved, child))
+                    .map(|child| {
+                        self.resolve_overloaded_terminators_node(
+                            session, resolved, child, each_tree,
+                        )
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 if packed_nodes_unchanged(children, &rewritten) {
                     return Ok(Rc::clone(term));
@@ -5963,6 +6163,55 @@ pub(super) struct StructuralChoice {
     pub(super) parts: Vec<Rc<PackedTerm>>,
 }
 
+/// The terms the trees of a node lower to, each alone (`Grammar::each_tree_terms`).
+#[derive(Clone, Debug)]
+enum EachTreeTerms {
+    /// Every term, each once (`Term::identical`), no two of them `Distinct`.
+    Listed(Rc<[Term]>),
+    /// Two of the terms that every ancestor keeps apart, so that the root's trees lower to at
+    /// least two terms.
+    Distinct,
+}
+
+impl EachTreeTerms {
+    /// `terms` without repeats, or `Distinct` when two of them are kept apart by every
+    /// ancestor (`Grammar::each_tree_terms`).
+    fn settle(terms: Vec<Term>) -> Self {
+        let mut listed: Vec<Term> = Vec::with_capacity(terms.len());
+        for term in terms {
+            if listed.iter().any(|other| other.identical(&term)) {
+                continue;
+            }
+            if listed.iter().any(|other| kept_apart(other, &term)) {
+                return Self::Distinct;
+            }
+            listed.push(term);
+        }
+        Self::Listed(Rc::from(listed))
+    }
+}
+
+/// Whether every ancestor keeps two lowered terms apart (`Grammar::each_tree_terms`): neither is
+/// a token, and their items, each read without its own annotation, differ.
+fn kept_apart(left: &Term, right: &Term) -> bool {
+    fn items(term: &Term) -> Vec<&Term> {
+        match term.unannotated() {
+            Term::Sequence(items) => items.iter().map(Term::unannotated).collect(),
+            other => vec![other],
+        }
+    }
+    let token = |term: &Term| matches!(term.unannotated(), Term::Token { .. });
+    if token(left) || token(right) {
+        return false;
+    }
+    let (left, right) = (items(left), items(right));
+    left.len() != right.len()
+        || left
+            .iter()
+            .zip(&right)
+            .any(|(left, right)| !left.identical(right))
+}
+
 /// The alternatives of an ambiguity with every alternative that is itself an ambiguity replaced
 /// by its own alternatives.
 fn flattened_alternatives(alternatives: &BTreeSet<Rc<PackedTerm>>) -> BTreeSet<Rc<PackedTerm>> {
@@ -6044,7 +6293,7 @@ fn merge_alternatives_at_one_position(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::definition::{PartialOrder, ProductionItem, Sentence};
     use crate::kast::{Label, ProductionIdentity, Sort};
@@ -6056,7 +6305,7 @@ mod tests {
 
     thread_local! {
         /// The calls of `Grammar::lower_production` on this thread.
-        pub(super) static LOWERINGS: Cell<usize> = const { Cell::new(0) };
+        pub(in crate::inner::parser) static LOWERINGS: Cell<usize> = const { Cell::new(0) };
         /// The nodes `ReadingSets::push` adds on this thread.
         pub(super) static SET_NODES: Cell<usize> = const { Cell::new(0) };
     }
@@ -6495,6 +6744,77 @@ mod tests {
 
     fn ambiguity(alternatives: impl IntoIterator<Item = ParsedTerm>) -> ParsedTerm {
         ParsedTerm::Ambiguity(alternatives.into_iter().collect())
+    }
+
+    /// Two trees whose terms differ at a node only as a one-item sequence against its item,
+    /// `a ~> .K` against `a`, lower to one term above a `~>` that splices them: the difference
+    /// is listed there, not taken as two terms every ancestor keeps apart. Under a `pair`, which
+    /// holds its children verbatim, the same difference gives two terms.
+    #[test]
+    fn each_tree_terms_list_a_difference_that_an_ancestor_splices_away() {
+        let (grammar, node) = readings_fixture();
+        let start = Sort::new("Exp");
+        let lower = |tree: ParsedTerm| grammar.lower_inferred(tree, &start);
+        let choice = || {
+            ambiguity([
+                node(
+                    "~>",
+                    vec![node("a", vec![], 10), node("#EmptyK", vec![], 12)],
+                    5,
+                ),
+                node("a", vec![], 10),
+            ])
+        };
+        for (parent, one_term) in [("~>", true), ("pair", false)] {
+            let forest =
+                PackedTerm::from_parsed(&node(parent, vec![choice(), node("b", vec![], 20)], 0));
+            let each = grammar.lower_each_inferred_tree(&forest, &start);
+            let alone = super::super::inference::lower_each_tree_by_listing(&lower, &forest);
+            assert_eq!(each.is_some(), one_term, "{parent}: {each:?}");
+            assert!(
+                match (&each, &alone) {
+                    (Some(each), Some(alone)) => each.identical(alone),
+                    (None, None) => true,
+                    _ => false,
+                },
+                "{parent}: {each:?}\n{alone:?}"
+            );
+        }
+    }
+
+    /// Two trees whose terms differ at a node only in a token's text, the string tokens `"A"`
+    /// and `"\x41"`, lower to one term above a `#KToken` that reads the text they denote: the
+    /// difference is listed there, not taken as two terms every ancestor keeps apart.
+    #[test]
+    fn each_tree_terms_list_a_token_difference_that_an_ancestor_reads_away() {
+        let (grammar, node) = readings_fixture();
+        let mut grammar = grammar;
+        let token = add_production(
+            &mut grammar,
+            "Exp",
+            &["KString", "KString"],
+            InternalLabel::KToken.as_str(),
+        );
+        let string = |text: &str| {
+            ParsedTerm::Term(Term::Token {
+                token: format!("\"{text}\""),
+                sort: Sort::frontend(FrontendSort::KString),
+            })
+        };
+        let start = Sort::new("Exp");
+        let lower = |tree: ParsedTerm| grammar.lower_inferred(tree, &start);
+        let value = ParsedTerm::Production {
+            production: token,
+            children: vec![ambiguity([string("A"), string("\\x41")]), string("Int")],
+            metadata: crate::kast::TermMetadata::default(),
+        };
+        let forest = PackedTerm::from_parsed(&node("pair", vec![value, node("b", vec![], 20)], 0));
+        let each = grammar.lower_each_inferred_tree(&forest, &start);
+        let alone = super::super::inference::lower_each_tree_by_listing(&lower, &forest);
+        assert!(
+            matches!((&each, &alone), (Some(each), Some(alone)) if each.identical(alone)),
+            "{each:?}\n{alone:?}"
+        );
     }
 
     fn rendered(alternatives: &[AmbiguousParse]) -> Vec<&str> {

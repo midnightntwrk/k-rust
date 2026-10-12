@@ -716,6 +716,10 @@ fn ambiguous_definition(rule: &str, bubbles: usize) -> k_rust::definition::Defin
               syntax Exp ::= Exp "+" Exp [symbol(plus), avoid]
               syntax Exp ::= Exp "*" Exp [symbol(times)]
               syntax Exp ::= t(Exp, Exp, Exp, Exp, Exp, Exp, Exp) [symbol(t)]
+              syntax {{W}} MInt{{W}}
+              syntax MInt{{8}}
+              syntax {{W}} MInt{{W}} ::= mint(Exp) [symbol(mint)]
+              syntax Exp ::= u(MInt{{8}}) [symbol(u)]
               {rules}
             endmodule
             "#
@@ -733,14 +737,29 @@ fn resolve_ambiguous_bubbles(rule: &str, bubbles: usize) -> Snapshot {
     delta
 }
 
-/// Seven independent `1 + 2 * 3` ambiguities: the forest has 2^7 complete trees, more than the
-/// portable decision expands, so Z3 types it.
+/// Seven independent `1 + 2 * 3` ambiguities: the forest has 2^7 complete trees.
 const LARGE_AMBIGUOUS_RULE: &str =
     "t(1 + 2 * 3, 1 + 2 * 3, 1 + 2 * 3, 1 + 2 * 3, 1 + 2 * 3, 1 + 2 * 3, 1 + 2 * 3)";
 
+/// A `1 + 2 * 3` ambiguity under a production whose result sort `MInt{W}` carries a parameter,
+/// which only Z3 types.
+const PARAMETRIC_AMBIGUOUS_RULE: &str = "u(mint(1 + 2 * 3))";
+
+/// The portable decision types an ambiguous forest on the forest, so the number of its trees
+/// does not send it to Z3.
+#[test]
+fn a_large_monomorphic_ambiguous_bubble_needs_no_z3_check() {
+    if checked_inference() {
+        return;
+    }
+    let delta = resolve_ambiguous_bubbles(LARGE_AMBIGUOUS_RULE, 1);
+    assert_eq!(delta.get(Counter::ParserZ3Checks), 0);
+    assert_eq!(delta.get(Counter::ParserZ3EncodingBuilds), 0);
+}
+
 #[test]
 fn ambiguous_bubble_stays_within_the_pinned_z3_checks() {
-    let delta = resolve_ambiguous_bubbles(LARGE_AMBIGUOUS_RULE, 1);
+    let delta = resolve_ambiguous_bubbles(PARAMETRIC_AMBIGUOUS_RULE, 1);
     eprintln!("one ambiguous bubble: {:?}", nonzero(&delta));
     assert!(delta.get(Counter::ParserZ3Checks) >= 1);
     assert!(delta.get(Counter::ParserZ3Checks) <= Z3_CHECKS_AMBIGUOUS_BUBBLE);
@@ -757,13 +776,13 @@ fn a_monomorphic_ambiguous_bubble_needs_no_z3_check() {
     eprintln!("one monomorphic ambiguous bubble: {:?}", nonzero(&delta));
     assert_eq!(delta.get(Counter::ParserZ3Checks), 0);
     assert_eq!(delta.get(Counter::ParserZ3EncodingBuilds), 0);
-    assert!(delta.get(Counter::ParserPortableInferences) >= 2);
+    assert!(delta.get(Counter::ParserPortableInferences) >= 1);
 }
 
 #[test]
 fn z3_checks_are_paid_once_per_bubble() {
-    let one = resolve_ambiguous_bubbles(LARGE_AMBIGUOUS_RULE, 1);
-    let four = resolve_ambiguous_bubbles(LARGE_AMBIGUOUS_RULE, 4);
+    let one = resolve_ambiguous_bubbles(PARAMETRIC_AMBIGUOUS_RULE, 1);
+    let four = resolve_ambiguous_bubbles(PARAMETRIC_AMBIGUOUS_RULE, 4);
     assert_eq!(
         four.get(Counter::ParserZ3Checks),
         4 * one.get(Counter::ParserZ3Checks)
@@ -791,8 +810,10 @@ const AGENDA_POPS_CHAIN_15: u64 = 3290;
 /// Casted rule chain of 15 operands: 47 unpacked nodes, to unpack the parse for inference; the
 /// lowering passes run on the packed form of the inferred tree and unpack nothing.
 const UNPACKED_NODES_CHAIN_15: u64 = 52;
-/// One bubble of `LARGE_AMBIGUOUS_RULE`: 10 Z3 checks, as one `1 + 2 * 3` bubble took while Z3
-/// typed every ambiguous forest (8 before the admissible parameter vectors
-/// were chosen per inclusion-maximal set of live ambiguity readings, which costs a check
-/// that no larger live set exists and one that no other maximal set does).
-const Z3_CHECKS_AMBIGUOUS_BUBBLE: u64 = 11;
+/// One bubble of `PARAMETRIC_AMBIGUOUS_RULE`: 12 Z3 checks. (`LARGE_AMBIGUOUS_RULE` took 10
+/// while its trees exceeded what the portable decision listed, as one `1 + 2 * 3` bubble took
+/// while Z3 typed every ambiguous forest; 8 before the admissible parameter vectors were chosen
+/// per inclusion-maximal set of live ambiguity readings, which costs a check that no larger live
+/// set exists and one that no other maximal set does. The portable decision now types it on the
+/// forest, so the pin moved to a forest only Z3 types.)
+const Z3_CHECKS_AMBIGUOUS_BUBBLE: u64 = 13;

@@ -1024,8 +1024,8 @@ fn add_rule_k_syntax(
 fn add_rule_sort(grammar: &mut Grammar, sort: &Sort) -> Result<(), ParseError> {
     // A pattern of sort `S` in a rule is a term of sort `S`, an `#as` pattern `P #as V`, or a
     // rewrite `L => R` whose sides are each a term or an `#as` pattern of sort `S`:
-    //   #Rule<S>        ::= S | S "#as" S | S "=>" S   (operands of `=>` recognized as the side)
-    //   #RewriteSide<S> ::= S | S "#as" S
+    //   #Rule:S        ::= S | S "#as" S | S "=>" S   (operands of `=>` recognized as the side)
+    //   #RewriteSide:S ::= S | S "#as" S
     // `P #as V` is the conjunction of `P` and `V` at one position: it matches the terms that
     // match both and binds `V` to the matched term. Both conjuncts occupy that position, so the
     // alias is an operand of `sort` like the pattern: a bare variable there is bounded by `sort`,
@@ -1033,9 +1033,9 @@ fn add_rule_sort(grammar: &mut Grammar, sort: &Sort) -> Result<(), ParseError> {
     // sort `S` like any other, so it can also stand where a rewrite side stands.
     // The operands of `=>` stay declared `S`, so inference bounds a plain side by `S` and an
     // `#as` side by its own operands. A rewrite is not a side, so `A => B => C` and a rewrite as
-    // an operand of `#as` need parentheses, where the scope rules apply. `#Rule<S>` and
-    // `#RewriteSide<S>` each derive an `#as` directly, so an `#as` has one derivation wherever
-    // it stands: at a `#Rule<S>` position outside a rewrite, or as a side inside one.
+    // an operand of `#as` need parentheses, where the scope rules apply. `#Rule:S` and
+    // `#RewriteSide:S` each derive an `#as` directly, so an `#as` has one derivation wherever
+    // it stands: at a `#Rule:S` position outside a rewrite, or as a side inside one.
     let result = rule_sort(sort);
     let side = rewrite_side_sort(sort);
     let child = ProductionItem::NonTerminal {
@@ -1066,15 +1066,19 @@ fn add_rule_sort(grammar: &mut Grammar, sort: &Sort) -> Result<(), ParseError> {
     )
 }
 
+// The scaffolding sorts of a sort `S` are named `#Rule:S` and `#RewriteSide:S`. A sort name,
+// a user's or the frontend's, has no `:`, so neither family names a sort of the grammar, and the
+// two prefixes differ, so they do not name each other's sorts either. Without the separator,
+// `#Rule` followed by a user sort `Body` or `Content` would be the frontend's `#RuleBody` or
+// `#RuleContent`, and every rule body would also read as a rewrite at that user sort.
 #[cfg(not(feature = "z3-inference"))]
 fn rule_sort(sort: &Sort) -> Sort {
-    Sort::new(format!("#Rule{}", sort.name))
+    Sort::new(format!("#Rule:{}", sort.name))
 }
 
-// The prefix differs from `#Rule`, so no user sort name makes the two families collide.
 #[cfg(not(feature = "z3-inference"))]
 fn rewrite_side_sort(sort: &Sort) -> Sort {
-    Sort::new(format!("#RewriteSide{}", sort.name))
+    Sort::new(format!("#RewriteSide:{}", sort.name))
 }
 
 #[cfg(feature = "z3-inference")]

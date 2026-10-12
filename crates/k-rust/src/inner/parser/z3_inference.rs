@@ -203,6 +203,10 @@ struct Encoding<'a> {
     /// (`LivenessGraph::indicators`): it holds exactly when a well-sorted tree of the whole
     /// term passes through an alternative of that class.
     reading_indicators: Vec<Bool>,
+    /// One preference per family of bracket instances that reads one text at an ambiguity of
+    /// the term constraint (`LivenessGraph::bracket_preferences`), the last rank of the
+    /// parameter choice (`Encoding::admissible_parameters`).
+    bracket_preferences: Vec<Bool>,
     packed_ids: HashMap<*const PackedTerm, usize>,
     /// The structural order of the forest's nodes, shared by every step of one packed
     /// inference that orders the alternatives of an ambiguity (the preorder of `packed_ids`,
@@ -498,6 +502,10 @@ struct LivenessGraph {
     readings: Vec<usize>,
     /// Interned reading keys: a key names its children by their classes.
     reading_ids: BTreeMap<ReadingKey, usize>,
+    /// `(ambiguity, at value)` for each family of bracket instances that reads one text at an
+    /// ambiguity: `at value` holds when the family's instance at the value the position gives
+    /// is well-sorted there (`Encoding::bracket_target`).
+    bracket_targets: Vec<(usize, Bool)>,
 }
 
 /// What a node of a `LivenessGraph` is, apart from its children.
@@ -662,26 +670,7 @@ impl LivenessGraph {
         if self.alternatives.is_empty() {
             return Vec::new();
         }
-        let mut live: Vec<Option<Bool>> = vec![None; self.constraints.len()];
-        // Invariant: every node above `node` has its liveness, and users are above their nodes.
-        for node in (0..=root).rev() {
-            let reached = if node == root {
-                None
-            } else {
-                let users = self.users[node]
-                    .iter()
-                    .filter_map(|user| live[*user].clone())
-                    .collect::<Vec<_>>();
-                if users.is_empty() {
-                    continue;
-                }
-                Some(or_all(&users))
-            };
-            live[node] = Some(match reached {
-                Some(reached) => Bool::and(&[self.constraints[node].clone(), reached]),
-                None => self.constraints[node].clone(),
-            });
-        }
+        let live = self.live(root);
         let positions = self.positions(root);
         let mut classes: BTreeMap<(usize, usize, usize), Vec<Bool>> = BTreeMap::new();
         for (ambiguity, alternative) in &self.alternatives {
@@ -702,6 +691,50 @@ impl LivenessGraph {
                 ]));
         }
         classes.values().map(|members| or_all(members)).collect()
+    }
+
+    /// For each node reachable from `root`, the formula that holds exactly when the node is
+    /// live: its constraint holds and some user of it is live (the root: its constraint holds).
+    fn live(&self, root: usize) -> Vec<Option<Bool>> {
+        let mut live: Vec<Option<Bool>> = vec![None; self.constraints.len()];
+        // Invariant: every node above `node` has its liveness, and users are above their nodes.
+        for node in (0..=root).rev() {
+            let reached = if node == root {
+                None
+            } else {
+                let users = self.users[node]
+                    .iter()
+                    .filter_map(|user| live[*user].clone())
+                    .collect::<Vec<_>>();
+                if users.is_empty() {
+                    continue;
+                }
+                Some(or_all(&users))
+            };
+            live[node] = Some(match reached {
+                Some(reached) => Bool::and(&[self.constraints[node].clone(), reached]),
+                None => self.constraints[node].clone(),
+            });
+        }
+        live
+    }
+
+    /// One preference per recorded bracket family (`bracket_targets`) of an ambiguity reachable
+    /// from `root`: when the ambiguity is live, the family's instance at the value its position
+    /// gives is well-sorted. An ambiguity that is not live keeps no tree, so its preference
+    /// holds.
+    fn bracket_preferences(&self, root: usize) -> Vec<Bool> {
+        if self.bracket_targets.is_empty() {
+            return Vec::new();
+        }
+        let live = self.live(root);
+        self.bracket_targets
+            .iter()
+            .filter_map(|(ambiguity, at_value)| {
+                let live = live.get(*ambiguity)?.as_ref()?;
+                Some(Bool::or(&[live.not(), at_value.clone()]))
+            })
+            .collect()
     }
 }
 
@@ -1376,6 +1409,7 @@ impl<'a> Encoding<'a> {
         let (constraint, root) =
             self.constraint_node(term, &expected, root_context, &NodePath::root())?;
         self.reading_indicators = self.liveness.indicators(root);
+        self.bracket_preferences = self.liveness.bracket_preferences(root);
         Ok((constraint, expected, root_context))
     }
 
@@ -1397,6 +1431,7 @@ impl<'a> Encoding<'a> {
         let (constraint, root) =
             self.constraint_packed_node(term, &expected, root_context, &mut HashMap::new())?;
         self.reading_indicators = self.liveness.indicators(root);
+        self.bracket_preferences = self.liveness.bracket_preferences(root);
         Ok((constraint, expected, root_context))
     }
 
@@ -1415,6 +1450,7 @@ impl<'a> Encoding<'a> {
             packed_overload_preferences: Vec::new(),
             liveness: LivenessGraph::default(),
             reading_indicators: Vec::new(),
+            bracket_preferences: Vec::new(),
             packed_ids: HashMap::new(),
             order: RefCell::default(),
             anywhere,
@@ -1435,6 +1471,61 @@ impl<'a> Encoding<'a> {
     ) -> Result<Bool, ParseError> {
         self.constraint_node(term, expected, cast_context, path)
             .map(|(constraint, _)| constraint)
+    }
+
+    /// For each family of bracket instances among the alternatives of one ambiguity (`heads`:
+    /// each alternative's production when it has one child), the formula that holds when the
+    /// family's instance at the value the position gives is well-sorted there (`constraints`:
+    /// each alternative's constraint). That value is `expected`, or `K` where the position is
+    /// exempt from the sort constraint (`CastContext::Parser`).
+    ///
+    /// A bracket's sort is not written: the parser reads `( t )` through the family's instance
+    /// at every sort the position admits, and those are one reading, parsed exactly as without
+    /// the brackets (`docs/compatibility.md`, "Formal parameter preference"), which puts `t` at
+    /// the position. The instance at the position's value expects its child exactly there, so a
+    /// parametric production directly inside it takes the value it takes without the brackets;
+    /// a smaller instance would bound that production's parameter by a sort no text states.
+    /// A family of one instance has no choice and gets no formula.
+    fn bracket_targets(
+        &self,
+        heads: &[Option<usize>],
+        constraints: &[Bool],
+        expected: &Datatype,
+        cast_context: CastContext,
+    ) -> Result<Vec<Bool>, ParseError> {
+        let mut families = BTreeMap::<Option<&str>, Vec<(&Sort, &Bool)>>::new();
+        for (head, constraint) in heads.iter().zip(constraints) {
+            let Some(production) = head else {
+                continue;
+            };
+            let descriptor = &self.grammar.productions[*production];
+            if !descriptor.bracket || descriptor.parametric_origin.is_some() {
+                continue;
+            }
+            families
+                .entry(descriptor.parse_label.as_deref())
+                .or_default()
+                .push((&descriptor.result, constraint));
+        }
+        let target = if cast_context == CastContext::Parser {
+            self.sort_value(&Sort::new(BuiltinSort::K.k_name()), &BTreeMap::new())?
+        } else {
+            expected.clone()
+        };
+        families
+            .into_values()
+            .filter(|members| members.len() > 1)
+            .map(|members| {
+                let at_value = members
+                    .into_iter()
+                    .map(|(sort, constraint)| {
+                        let sort = self.sort_value(sort, &BTreeMap::new())?;
+                        Ok(Bool::and(&[constraint.clone(), sort.eq(&target)]))
+                    })
+                    .collect::<Result<Vec<_>, ParseError>>()?;
+                Ok(or_all(&at_value))
+            })
+            .collect()
     }
 
     /// The constraint of `term` at `expected` and its node in `self.liveness`.
@@ -1471,8 +1562,29 @@ impl<'a> Encoding<'a> {
                         .collect::<Result<Vec<_>, _>>()?
                         .into_iter()
                         .unzip();
+                    let heads = alternatives
+                        .iter()
+                        .map(|alternative| match alternative {
+                            ParsedTerm::Production {
+                                production,
+                                children,
+                                ..
+                            }
+                            | ParsedTerm::InstantiatedProduction {
+                                production,
+                                children,
+                                ..
+                            } if children.len() == 1 => Some(*production),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    let targets =
+                        self.bracket_targets(&heads, &constraints, expected, cast_context)?;
                     let constraint = or_all(&constraints);
                     let node = self.liveness.ambiguity(constraint.clone(), &nodes);
+                    self.liveness
+                        .bracket_targets
+                        .extend(targets.into_iter().map(|target| (node, target)));
                     Ok((constraint, node))
                 }
                 ParsedTerm::Term(term) => {
@@ -1680,8 +1792,24 @@ impl<'a> Encoding<'a> {
                             self.packed_overload_preferences.push(or_all(&preferred));
                         }
                     }
+                    let heads = alternatives
+                        .iter()
+                        .map(|alternative| match &alternative.node {
+                            PackedNode::Production {
+                                production,
+                                children,
+                                ..
+                            } if children.len() == 1 => Some(*production),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    let targets =
+                        self.bracket_targets(&heads, &constraints, expected, cast_context)?;
                     let constraint = or_all(&constraints);
                     let node = self.liveness.ambiguity(constraint.clone(), &nodes);
+                    self.liveness
+                        .bracket_targets
+                        .extend(targets.into_iter().map(|target| (node, target)));
                     Ok((constraint, node))
                 }
                 PackedNode::Term(leaf) => {
@@ -2670,6 +2798,12 @@ impl<'a> Encoding<'a> {
     ///    one vector per sort for a parameter nothing constrains. Those vectors keep the same
     ///    readings and differ only in the instance of a reading that is one parse, so returning
     ///    them all would present one parse as an ambiguity between its instances.
+    ///    Last, among the vectors of equal top rank, the most live bracket families sit at the
+    ///    instance at the value their position gives (`bracket_preferences`,
+    ///    `Encoding::bracket_targets`): at a position below `K`, the `K` preference cannot choose
+    ///    among the instances of `( t )` the position admits, and a parametric production
+    ///    directly inside a smaller instance would take that instance's sort, which no text
+    ///    states. The vectors this compares keep the same readings, so it removes no reading.
     ///
     /// Every vector that reaches these criteria is returned, and the caller applies each one as a
     /// candidate. The post-inference passes then see every such parse as an alternative of one
@@ -2715,6 +2849,12 @@ impl<'a> Encoding<'a> {
             let ranked_preferences =
                 self.ranked_top_preferences(|name| self.parameters.contains(name))?;
             let top_preferences = ranked_preferences.concat();
+            // The rank of an enumerated vector: its top preferences by group, then its bracket
+            // preferences.
+            let ranked = ranked_preferences
+                .into_iter()
+                .chain(std::iter::once(self.bracket_preferences.clone()))
+                .collect::<Vec<_>>();
             let mut admissible = Vec::new();
             let mut enumerated_count = 0;
             // Invariant: `admissible` holds the vectors of the maximal live sets found so far,
@@ -2745,7 +2885,7 @@ impl<'a> Encoding<'a> {
                         solver.assert(*indicator);
                     }
                     self.assert_preferred(solver, &top_preferences)?;
-                    self.enumerate_parameters(solver, &ranked_preferences, &mut enumerated_count)
+                    self.enumerate_parameters(solver, &ranked, &mut enumerated_count)
                 })();
                 solver.pop(1);
                 let enumerated = enumerated?;
@@ -3042,6 +3182,50 @@ impl<'a> Encoding<'a> {
         }
     }
 
+    /// Among the well-sorted alternatives of an ambiguity at `expected` (`heads`: each one's
+    /// production when it has one child), the positions of the instances of a bracket family
+    /// other than the instance at the value the position gives (`expected`, or `K` where the
+    /// position is exempt from the sort constraint), when that instance is well-sorted too.
+    /// Those instances read the same text as the one at the position's value, which is the
+    /// reading without the brackets (`Encoding::bracket_targets`), so the parse keeps only it.
+    fn shadowed_bracket_instances(
+        &self,
+        heads: &[Option<usize>],
+        expected: &Sort,
+        cast_context: CastContext,
+    ) -> BTreeSet<usize> {
+        let k = Sort::new(BuiltinSort::K.k_name());
+        let target = if cast_context == CastContext::Parser {
+            &k
+        } else {
+            expected
+        };
+        let mut families = BTreeMap::<Option<&str>, Vec<(usize, bool)>>::new();
+        for (index, head) in heads.iter().enumerate() {
+            let Some(production) = head else {
+                continue;
+            };
+            let descriptor = &self.grammar.productions[*production];
+            if !descriptor.bracket || descriptor.parametric_origin.is_some() {
+                continue;
+            }
+            families
+                .entry(descriptor.parse_label.as_deref())
+                .or_default()
+                .push((index, &descriptor.result == target));
+        }
+        families
+            .into_values()
+            .filter(|members| members.len() > 1 && members.iter().any(|(_, at)| *at))
+            .flat_map(|members| {
+                members
+                    .into_iter()
+                    .filter(|(_, at)| !at)
+                    .map(|(index, _)| index)
+            })
+            .collect()
+    }
+
     fn apply_model_packed(
         &self,
         term: Rc<PackedTerm>,
@@ -3058,7 +3242,7 @@ impl<'a> Encoding<'a> {
             }
             let result = (|| match &term.node {
                 PackedNode::Ambiguity(alternatives) => {
-                    let mut retained = BTreeSet::new();
+                    let mut applied = Vec::new();
                     let mut errors = Vec::new();
                     let alternatives = self.order.borrow_mut().sorted(alternatives);
                     for alternative in alternatives {
@@ -3069,15 +3253,34 @@ impl<'a> Encoding<'a> {
                             model,
                             memo,
                         ) {
-                            Ok(alternative) => match &alternative.node {
-                                PackedNode::Ambiguity(nested) => {
-                                    retained.extend(nested.iter().cloned());
-                                }
-                                _ => {
-                                    retained.insert(alternative);
-                                }
-                            },
+                            Ok(result) => applied.push((alternative, result)),
                             Err(error) => errors.push((alternative, error)),
+                        }
+                    }
+                    let heads = applied
+                        .iter()
+                        .map(|(alternative, _)| match &alternative.node {
+                            PackedNode::Production {
+                                production,
+                                children,
+                                ..
+                            } if children.len() == 1 => Some(*production),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    let shadowed = self.shadowed_bracket_instances(&heads, expected, cast_context);
+                    let mut retained = BTreeSet::new();
+                    for (index, (_, alternative)) in applied.into_iter().enumerate() {
+                        if shadowed.contains(&index) {
+                            continue;
+                        }
+                        match &alternative.node {
+                            PackedNode::Ambiguity(nested) => {
+                                retained.extend(nested.iter().cloned());
+                            }
+                            _ => {
+                                retained.insert(alternative);
+                            }
                         }
                     }
                     if retained.is_empty() {
@@ -3364,9 +3567,23 @@ impl<'a> Encoding<'a> {
         crate::stack::guarded(|| {
             match term.into_parts() {
                 ParsedParts::Ambiguity(alternatives) => {
-                    let mut retained = BTreeSet::new();
+                    let mut applied = Vec::new();
+                    let mut heads = Vec::new();
                     let mut first_error = None;
                     for (index, alternative) in alternatives.into_iter().enumerate() {
+                        let head = match &alternative {
+                            ParsedTerm::Production {
+                                production,
+                                children,
+                                ..
+                            }
+                            | ParsedTerm::InstantiatedProduction {
+                                production,
+                                children,
+                                ..
+                            } if children.len() == 1 => Some(*production),
+                            _ => None,
+                        };
                         match self.apply_model(
                             alternative,
                             expected,
@@ -3375,13 +3592,21 @@ impl<'a> Encoding<'a> {
                             model,
                         ) {
                             Ok(alternative) => {
-                                retained.insert(alternative);
+                                applied.push(alternative);
+                                heads.push(head);
                             }
                             Err(error) => {
                                 first_error.get_or_insert(error);
                             }
                         }
                     }
+                    let shadowed = self.shadowed_bracket_instances(&heads, expected, cast_context);
+                    let mut retained = applied
+                        .into_iter()
+                        .enumerate()
+                        .filter(|(index, _)| !shadowed.contains(index))
+                        .map(|(_, alternative)| alternative)
+                        .collect::<BTreeSet<_>>();
                     match retained.len() {
                         0 => Err(first_error.unwrap_or_else(|| {
                             z3_error("all ambiguity alternatives were ill-sorted")
@@ -4130,9 +4355,11 @@ fn inference_variable_key(term: &Term, name: &str, path: &NodePath) -> String {
     }
     if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
         // One source occurrence can appear beneath several alternatives in the shared parse
-        // forest. K's parser assigns that occurrence one inference variable; using its span here
-        // preserves the same identity after our value-based forest representation is factored.
-        format!("anonymous_{}_{}", span.start, span.end)
+        // forest and is one variable whichever alternative is chosen; its span and name keep
+        // that identity after the value-based forest representation is factored. The variables
+        // a record pattern stands in for its omitted fields share the pattern's span, one name
+        // per field, so the name is part of the occurrence.
+        format!("anonymous_{}_{}_{name}", span.start, span.end)
     } else {
         format!("anonymous_{}", path.render())
     }
@@ -4143,7 +4370,7 @@ fn packed_inference_variable_key(term: &Term, name: &str, identity: usize) -> St
         return format!("variable_{name}");
     }
     if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
-        format!("anonymous_{}_{}", span.start, span.end)
+        format!("anonymous_{}_{}_{name}", span.start, span.end)
     } else {
         format!("anonymous_n{identity}")
     }
@@ -5052,7 +5279,8 @@ mod tests {
     /// `reading_indicators`) no other such assignment strictly contains, and among the
     /// assignments that keep one set of readings, those with the largest number of true top
     /// preferences and, among those, the largest counts of the `K`, `KItem` and `Bag` groups in
-    /// that order, as `admissible_parameters` orders them. The counts and the node constraints
+    /// that order, then of the bracket preferences, as `admissible_parameters` orders them. The
+    /// counts and the node constraints
     /// are evaluated in the model of the pinned check.
     fn brute_force_admissible(
         problem: &ConformanceProblem,
@@ -5131,9 +5359,14 @@ mod tests {
                 satisfiable.push((
                     count(&model, &encoding.packed_overload_preferences),
                     live,
-                    // The top-preference count, then the count of each group in rank order.
+                    // The top-preference count, then the count of each group in rank order,
+                    // then the bracket preferences.
                     std::iter::once(count(&model, &ranked_preferences.concat()))
                         .chain(ranked_preferences.iter().map(|group| count(&model, group)))
+                        .chain(std::iter::once(count(
+                            &model,
+                            &encoding.bracket_preferences,
+                        )))
                         .collect::<Vec<_>>(),
                     assignment,
                 ));

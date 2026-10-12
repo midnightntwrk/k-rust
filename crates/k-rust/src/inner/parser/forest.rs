@@ -530,6 +530,7 @@ impl PackedTerm {
     }
 
     /// The packed form of an owned tree, sharing nothing.
+    #[cfg(test)]
     pub(super) fn from_parsed(term: &ParsedTerm) -> Rc<Self> {
         crate::stack::guarded(|| match term {
             ParsedTerm::Term(leaf) => Self::leaf(leaf.clone()),

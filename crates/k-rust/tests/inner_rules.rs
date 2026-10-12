@@ -759,12 +759,13 @@ fn polymorphic_rhs_keeps_overload_branch_parameters_independent() {
 }
 
 /// The two well-sorted readings, `capGas … => ite{Gas}(…)` and `capInt … => ite{Int}(…)`, give
-/// every variable the same sort, so they are one maximal typing and differ only in the overload
-/// and in the instantiation of `ite`'s parameter. The typing does not choose between them and
-/// they lower to different terms, so the portable build leaves the rule to Z3 instead of
-/// reporting an ambiguity; the z3 build takes the `Int` reading.
+/// every variable the same sort, so they are one maximal typing. They differ in the overload and,
+/// since a function rule's rewrite has its left-hand side's sort, in the instantiation of `ite`'s
+/// parameter, so no ambiguity node holds the overloads alone. The text applies the overload
+/// family `cap`, and means its most specific production that is well-sorted there: both builds
+/// take the `Int` reading.
 #[test]
-fn one_maximal_typing_split_by_overload_and_parameter_is_left_to_z3() {
+fn one_maximal_typing_split_by_overload_and_parameter_reads_the_most_specific_overload() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -776,39 +777,11 @@ fn one_maximal_typing_split_by_overload_and_parameter_is_left_to_z3() {
           rule cap(GCAP:Int, GAVAIL:Int, GEXTRA, IGNORED) => ite(GEXTRA, GCAP, GAVAIL)
         endmodule
     "#};
-    let resolved = resolve_rule_bubbles(&lowered(source));
-
-    #[cfg(not(feature = "z3-inference"))]
-    {
-        let error = resolved.expect_err("the portable build does not choose within one typing");
-        let RuleError::Parse(error) = error else {
-            panic!("expected a parse error, got {error:?}")
-        };
-        assert_eq!(
-            error.error,
-            ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            }
-        );
-    }
-    #[cfg(feature = "z3-inference")]
-    {
-        let resolved = resolved.expect("the z3 build decides the rule");
-        let body = resolved
-            .main_module()
-            .unwrap()
-            .local_sentences
-            .iter()
-            .find_map(|sentence| match &**sentence {
-                Sentence::Rule { body, .. } => Some(body.to_string()),
-                _ => None,
-            })
-            .expect("the rule should be resolved");
-        assert!(body.contains("capInt"), "{body}");
-        assert!(!body.contains("capGas"), "{body}");
-        assert!(body.contains("=>ite("), "{body}");
-    }
+    let resolved = resolve_rule_bubbles(&lowered(source)).expect("both builds decide the rule");
+    let body = only_rule_body(&resolved);
+    assert!(body.contains("capInt"), "{body}");
+    assert!(!body.contains("capGas"), "{body}");
+    assert!(body.contains("=>ite("), "{body}");
 }
 
 /// The body of the one rule `resolve_rule_bubbles` resolved in `definition`'s main module.
@@ -1430,8 +1403,9 @@ fn a_body_with_no_misplaced_construct_reports_its_own_violation() {
 /// `polymorphic_rhs_keeps_overload_branch_parameters_independent` (cgascap) without the
 /// prelude, so that the portable build reaches the rule: its two well-sorted readings share one
 /// maximal typing and differ in the `cap` overload and the instantiation of `ite`'s parameter.
+/// The text means the most specific overload well-sorted there, `capInt`, in both builds.
 #[test]
-fn cgascap_is_left_to_z3_in_the_portable_build() {
+fn cgascap_reads_the_most_specific_overload_in_both_builds() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -1448,29 +1422,11 @@ fn cgascap_is_left_to_z3_in_the_portable_build() {
             [concrete]
         endmodule
     "#};
-    let resolved = resolve_rule_bubbles(&lowered(source));
-
-    #[cfg(not(feature = "z3-inference"))]
-    {
-        let error = resolved.expect_err("the portable build does not choose within one typing");
-        let RuleError::Parse(error) = error else {
-            panic!("expected a parse error, got {error:?}")
-        };
-        assert_eq!(
-            error.error,
-            ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            }
-        );
-    }
-    #[cfg(feature = "z3-inference")]
-    {
-        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert!(body.contains("capInt"), "{body}");
-        assert!(!body.contains("capGas"), "{body}");
-        assert!(body.contains("=>ite("), "{body}");
-    }
+    let resolved = resolve_rule_bubbles(&lowered(source)).expect("both builds decide the rule");
+    let body = only_rule_body(&resolved);
+    assert!(body.contains("capInt"), "{body}");
+    assert!(!body.contains("capGas"), "{body}");
+    assert!(body.contains("=>ite("), "{body}");
 }
 
 /// `lam(0 => 0)(0)` reads as `lam1` over a rewrite or as `lam2` over a pattern and a body
@@ -1524,10 +1480,11 @@ fn preferred_reading_among_parameter_instantiations_is_left_to_z3() {
 /// parametric production each `pick` instantiates and at which sort. One parameter vector
 /// (`pick2`'s argument parameter at `Int`) types all four readings, so the z3 build does not
 /// trade a reading for a parameter at `K` (which gave `pick2{Int, K}(pick1{K}(0))`), and
-/// `prefer` resolves the group to `pick1{Int}(pick1{Int}(0))`. The portable decision does not
-/// model the choice among parameter instantiations, so it leaves the rule to Z3.
+/// `prefer` resolves the group to `pick1{Int}(pick1{Int}(0))`. The four are distinct readings,
+/// so the portable decision keeps each with its own instances, and `prefer` gives the same
+/// body in both builds.
 #[test]
-fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
+fn nested_preferred_reading_among_parameter_instantiations_is_the_prefer_reading() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -1538,32 +1495,18 @@ fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
           rule trigger => pick(pick(0))
         endmodule
     "#};
-    let resolved = resolve_rule_bubbles(&lowered(source));
-
-    #[cfg(not(feature = "z3-inference"))]
-    {
-        let error = resolved.expect_err("the portable build does not choose within one typing");
-        let RuleError::Parse(error) = error else {
-            panic!("expected a parse error, got {error:?}")
-        };
-        assert_eq!(
-            error.error,
-            ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            }
-        );
-    }
-    #[cfg(feature = "z3-inference")]
-    {
-        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert_eq!(body, r#"trigger(.KList)=>pick1(pick1(#token("0","Int")))"#);
-    }
+    let resolved = resolve_rule_bubbles(&lowered(source)).expect("both builds decide the rule");
+    assert_eq!(
+        only_rule_body(&resolved),
+        r#"trigger(.KList)=>pick1(pick1(#token("0","Int")))"#
+    );
 }
 
 /// `pick(0)` over `pick1 [prefer]` and `pick2`: `pick1{Int}(0)` and `pick2{Int, S2}(0)` share
 /// the empty typing. Placing `pick2`'s free argument parameter at `K` keeps both readings, so
 /// the parameter preference chooses only `pick2`'s instantiation and `prefer` takes `pick1`.
+/// The two are distinct readings, so the portable decision keeps both as well, each with its own
+/// instances, and `prefer` takes `pick1` in both builds.
 #[test]
 fn flat_preferred_reading_among_parameter_instantiations_is_the_prefer_reading() {
     let source = indoc! {r#"
@@ -1576,27 +1519,11 @@ fn flat_preferred_reading_among_parameter_instantiations_is_the_prefer_reading()
           rule trigger => pick(0)
         endmodule
     "#};
-    let resolved = resolve_rule_bubbles(&lowered(source));
-
-    #[cfg(not(feature = "z3-inference"))]
-    {
-        let error = resolved.expect_err("the portable build does not choose within one typing");
-        let RuleError::Parse(error) = error else {
-            panic!("expected a parse error, got {error:?}")
-        };
-        assert_eq!(
-            error.error,
-            ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            }
-        );
-    }
-    #[cfg(feature = "z3-inference")]
-    {
-        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert_eq!(body, r#"trigger(.KList)=>pick1(#token("0","Int"))"#);
-    }
+    let resolved = resolve_rule_bubbles(&lowered(source)).expect("both builds decide the rule");
+    assert_eq!(
+        only_rule_body(&resolved),
+        r#"trigger(.KList)=>pick1(#token("0","Int"))"#
+    );
 }
 
 /// `pickB [prefer]` has the result sort `Bool`, which no parameter vector places under the
@@ -4154,6 +4081,51 @@ fn rejects_duplicate_record_production_keys() {
     );
 }
 
+/// `neg(X)` reads as `negInt` with `X:Int` or as `negNat` with `X:Nat`, and both trees hold the
+/// variable the record pattern stands in for its omitted `right` field. That variable is one
+/// occurrence in both trees, at the pattern's span and with one name, so the typings compare:
+/// the `negInt` tree's exceeds the other's, and it is the parse in both builds.
+#[test]
+fn an_omitted_record_field_is_one_variable_in_every_tree_of_a_forest() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Nat
+          syntax Int ::= Nat
+          syntax Pair ::= "pair" "(" left: Int "," right: Int ")" [symbol(pair)]
+          syntax Int ::= "neg" "(" Int ")" [symbol(negInt)]
+          syntax Nat ::= "neg" "(" Nat ")" [symbol(negNat)]
+          rule pair(... left: neg(X)) => pair(X, X)
+        endmodule
+    "#});
+    let body = only_rule_body(&resolve_rule_bubbles(&definition).expect("the forest is decided"));
+    assert!(body.contains("negInt"), "{body}");
+    assert!(!body.contains("negNat"), "{body}");
+    assert!(body.contains("_right"), "{body}");
+}
+
+/// The omitted `left` and `mid` fields of one record pattern are two variables at the pattern's
+/// span, one `Int` and one `Bool`; a forest of two readings of `neg` keeps them apart in both
+/// engines (checked inference compares them, `every_rule_test_passes_under_checked_inference`).
+#[test]
+fn the_omitted_record_fields_of_one_pattern_are_distinct_variables_in_a_forest() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= "true" [token]
+          syntax Nat
+          syntax Int ::= Nat
+          syntax Triple ::= "triple" "(" left: Int "," mid: Bool "," right: Int ")" [symbol(triple)]
+          syntax Int ::= "neg" "(" Int ")" [symbol(negInt)]
+          syntax Nat ::= "neg" "(" Nat ")" [symbol(negNat)]
+          rule triple(... right: neg(X)) => triple(X, true, X)
+        endmodule
+    "#});
+    let body = only_rule_body(&resolve_rule_bubbles(&definition).expect("the forest is decided"));
+    assert!(body.contains("negInt"), "{body}");
+    assert!(body.contains("_left") && body.contains("_mid"), "{body}");
+}
+
 #[test]
 fn rejects_incompatible_variable_sort_bounds() {
     let definition = lowered(indoc! {r#"
@@ -4823,7 +4795,6 @@ fn fun_over_an_inner_rewrite_takes_the_preferred_fun2() {
 }
 
 /// The rule bodies of `source`'s main module `TEST`, loaded with the prelude.
-#[cfg(feature = "z3-inference")]
 fn test_rule_bodies(source: &str, name: &str) -> Vec<String> {
     let loaded = load_with_prelude(source, name, "TEST")
         .unwrap_or_else(|error| panic!("{name} should load: {error:?}"));
@@ -4889,6 +4860,67 @@ fn bracketed_parametric_term_in_a_k_cell_lowers_like_the_bare_term() {
     let bare = test_rule_bodies(&rule("0 #And 1"), "bare.k");
     assert_eq!(bracketed, bare);
     assert!(bare.iter().any(|body| body.contains("#And(")), "{bare:?}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn bracketed_parametric_term_below_k_lowers_like_the_bare_term() {
+    // At `foo`'s argument the position is `Exp`, which admits the `Int` and `Exp` instances of
+    // the bracket and not the `K` one. They are one reading; the `Exp` instance puts `#And` at
+    // `Exp`, as without the brackets, while the `Int` instance would bound `#And`'s parameter by
+    // a sort no text states. Both engines must take the `Exp` instance: under checked inference
+    // (`every_rule_test_passes_under_checked_inference`) the rule fails to load when they
+    // instantiate `#And` differently.
+    let rule = |right: &str| {
+        format!(
+            "module TEST\n  imports INT\n  imports ML-SYNTAX\n  syntax Exp ::= Int | foo(Exp)\n  \
+             configuration <k> $PGM:K </k>\n  rule <k> foo(_) => foo({right}) </k>\nendmodule\n"
+        )
+    };
+    let bracketed = test_rule_bodies(&rule("(0 #And 1)"), "bracketed.k");
+    let bare = test_rule_bodies(&rule("0 #And 1"), "bare.k");
+    assert_eq!(bracketed, bare);
+    assert!(bare.iter().any(|body| body.contains("#And(")), "{bare:?}");
+}
+
+#[test]
+fn bracketed_function_lhs_bounds_its_anywhere_rule_by_the_bracketed_term() {
+    // The left-hand side `X &Int M &Int M` is an `Int`. Bracketed, it reads one text at every
+    // sort above `Int`, including the list sort `Wides`, at which it would become a one-element
+    // list, and the rewrite would be bounded by that sort. The brackets do not change the sort
+    // of the term the rule rewrites, so they bound the rewrite at `Int` and the rule parses as
+    // without them.
+    let rule = |left: &str| {
+        format!(
+            "module TEST\n  imports INT\n  syntax Wide ::= Int\n  \
+             syntax Wides ::= List{{Wide, \"\"}}\n  configuration <k> $PGM:K </k>\n  \
+             rule {left} => X &Int M requires 0 <Int M [simplification]\nendmodule\n"
+        )
+    };
+    let bracketed = test_rule_bodies(&rule("(X &Int M &Int M)"), "bracketed.k");
+    let bare = test_rule_bodies(&rule("X &Int M &Int M"), "bare.k");
+    assert_eq!(bracketed, bare);
+    assert!(bare.iter().all(|body| !body.contains("Wides")), "{bare:?}");
+}
+
+#[test]
+fn a_user_sort_named_like_a_rule_scaffolding_sort_adds_no_reading() {
+    // A rule grammar gives each sort `S` a scaffolding sort where a rewrite of `S` stands. A user
+    // sort `Body` or `Content` must not make that sort the rule body's own `#RuleBody` or
+    // `#RuleContent`, or every rule body also reads as a rewrite at the user's sort.
+    let rule = |sorts: &str| {
+        format!(
+            "module TEST\n  imports INT\n  imports ML-SYNTAX\n{sorts}  \
+             syntax Local ::= local(Int)\n  configuration <k> $PGM:K </k>\n  \
+             rule #Ceil({{X}}:>Local) => #Ceil(X) [simplification]\nendmodule\n"
+        )
+    };
+    let named = test_rule_bodies(
+        &rule("  syntax Body ::= body(Int)\n  syntax Content ::= content(Int)\n"),
+        "named.k",
+    );
+    let plain = test_rule_bodies(&rule(""), "plain.k");
+    assert_eq!(named, plain);
 }
 
 #[cfg(feature = "z3-inference")]
@@ -5019,7 +5051,6 @@ fn sort_parameter_choice_erased_by_lowering_compiles() {
     );
 }
 
-#[cfg(feature = "z3-inference")]
 fn rule_bodies(loaded: &k_rust::outer::LoadedDefinition) -> Vec<String> {
     loaded
         .definition()
@@ -6804,4 +6835,45 @@ fn fu24_token_sort_uses_privately_imported_synonyms_in_rules() {
         if token == "1" && sort == &Sort::new("Int")),
         "{right}"
     );
+}
+
+/// `cap` at `Int`, and with `overloaded` also at `Gas`, over a function rule whose right-hand
+/// side holds `(GEXTRA)` at a `K` position, where the text reads through the bracket of `Int`
+/// and through the bracket of the list sort `Ints`: two trees of one reading with one
+/// instantiation of `ite`, which lower to two terms.
+fn overload_beside_bracket_pair(overloaded: bool) -> String {
+    let gas = if overloaded {
+        "syntax Gas ::= cap(Gas, Gas, Int, Int) [symbol(capGas), overload(cap), function, total]"
+    } else {
+        ""
+    };
+    format!(
+        r#"
+module MAIN
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Gas ::= Int
+  syntax Ints ::= List{{Int, ","}} [symbol(ints)]
+  syntax Int ::= "(" Int ")" [bracket]
+  syntax Ints ::= "(" Ints ")" [bracket]
+  syntax Int ::= keep(K, Int) [symbol(keep), function, total]
+  {gas}
+  syntax Int ::= cap(Int, Int, Int, Int) [symbol(capInt), overload(cap), function, total]
+  syntax {{S}} S ::= "ite" "(" Int "," S "," S ")" [symbol(ite), function, total]
+
+  rule cap(GCAP:Int, GAVAIL:Int, GEXTRA, IGNORED) => ite(keep((GEXTRA), 0), GCAP, GAVAIL)
+endmodule
+"#
+    )
+}
+
+/// The `Gas` reading of the overloaded rule instantiates `ite` at `Gas` and is dropped for the
+/// most specific overload; the trees left instantiate `ite` alike, so they are no parameter
+/// split, and the rule reads as it does where `cap` has only its `Int` production.
+#[test]
+fn trees_left_by_the_most_specific_overload_are_split_only_by_their_own_instantiations() {
+    let plain = resolve_rule_bubbles(&lowered(&overload_beside_bracket_pair(false)))
+        .expect("both builds decide the rule without the overload");
+    let overloaded = resolve_rule_bubbles(&lowered(&overload_beside_bracket_pair(true)))
+        .expect("both builds decide the rule with the overload");
+    assert_eq!(only_rule_body(&overloaded), only_rule_body(&plain));
 }

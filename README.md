@@ -146,9 +146,9 @@ the same loaded definition and `definition.kore` as the native build, under eith
 module exclusion. The CLI is deliberately native-only. A portable build returns a structured
 `Z3InferenceRequired` error when a rule needs parametric sort inference or contains an ambiguous
 forest the portable decision does not settle. Of the semantics the compatibility manifest
-compiles, the portable build refuses the WASM, MIR and KEVM definitions this way today and gives
-the native build's KORE for every other definition the native build compiles; the `build-agreement` entry of `scripts/gates.toml` records
-that refusal set and fails when it changes.
+compiles, the portable build refuses none this way today and gives the native build's KORE for
+every definition the native build compiles; the `build-agreement` entry of `scripts/gates.toml`
+records that empty refusal set and fails when it changes.
 
 ## CLI
 

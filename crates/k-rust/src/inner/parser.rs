@@ -113,6 +113,7 @@ use self::grammar::catalog_production;
 pub(super) use self::grammar::named_projection_productions;
 #[cfg(feature = "z3-inference")]
 use self::grammar::{render_added_production, render_production};
+use self::inference::SortTable;
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -1596,12 +1597,14 @@ fn chart_completion_candidates() -> usize {
 /// A grammar's subsort relation with the partial order it generates, built on first use.
 ///
 /// The order is a function of the relation alone, so every parse over one grammar shares one
-/// construction. Mutable access goes through `DerefMut`, which discards the built order, so the
-/// order can never describe an earlier relation.
+/// construction, and so does the portable forest decision's numbering of its sorts. Mutable access
+/// goes through `DerefMut`, which discards both, so neither can describe an earlier relation.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SubsortRelations {
     relations: BTreeSet<(Sort, Sort)>,
     order: OnceLock<Result<PartialOrder<Sort>, PartialOrderCycle<Sort>>>,
+    // Invariant: when set, this is `SortTable::new` of `order`; discarded with it.
+    sort_table: OnceLock<SortTable>,
 }
 
 impl SubsortRelations {
@@ -1610,6 +1613,14 @@ impl SubsortRelations {
         self.order
             .get_or_init(|| PartialOrder::new(self.relations.iter().cloned()))
             .as_ref()
+    }
+
+    /// The order's sorts numbered for the portable forest decision, with their down and up sets
+    /// (`SortTable`), built on first use like the order, so every forest decision over one
+    /// grammar shares one table; `None` when the relation has a cycle.
+    fn sort_table(&self) -> Option<&SortTable> {
+        let order = self.order().ok()?;
+        Some(self.sort_table.get_or_init(|| SortTable::new(order)))
     }
 }
 
@@ -1624,6 +1635,7 @@ impl std::ops::Deref for SubsortRelations {
 impl std::ops::DerefMut for SubsortRelations {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.order.take();
+        self.sort_table.take();
         &mut self.relations
     }
 }
@@ -3090,7 +3102,7 @@ impl Grammar {
     /// as in [`Self::completion_useful`]. A node is `(origin, production, stands for)`: each
     /// edge is judged with the production of the node the filters will see there
     /// ([`Self::stands_for`]), so that a sum that becomes an operand through an unlabelled
-    /// production (`#RuleE ::= E` in a rule grammar whose argument positions admit rewrites) is
+    /// production (`#Rule:E ::= E` in a rule grammar whose argument positions admit rewrites) is
     /// judged as the sum.
     ///
     /// The answer depends on the node, the final chart `origin` and `after`, and a later
@@ -4179,6 +4191,26 @@ impl inference::Lowering<Term> for InferredLowering<'_> {
         }
         lowered
     }
+
+    fn lower_each_tree(&self, inferred: &Rc<PackedTerm>) -> Result<Option<Term>, ParseError> {
+        let lowered = self.grammar.lower_each_inferred_tree(inferred, self.start);
+        // The tests check the forest's result against its trees' wherever listing them is
+        // affordable.
+        #[cfg(test)]
+        if inference::packed_tree_count(inferred) <= 1 << 12 {
+            let trees = inference::lower_each_tree_by_listing(self, inferred);
+            assert!(
+                match (&lowered, &trees) {
+                    (Some(lowered), Some(trees)) => lowered.identical(trees),
+                    (None, None) => true,
+                    _ => false,
+                },
+                "lowering each tree on the forest differs from lowering each tree alone:\n\
+                 {lowered:?}\n{trees:?}"
+            );
+        }
+        Ok(lowered)
+    }
 }
 
 /// The term a completed production denotes over its lowered children.
@@ -5203,12 +5235,21 @@ mod chart_tests {
         let names = packed_terms_in_structural_order(alternatives)
             .into_iter()
             .map(|alternative| {
-                let PackedNode::Production { children, .. } = &alternative.node else {
+                let PackedNode::Production {
+                    children, metadata, ..
+                } = &alternative.node
+                else {
                     panic!("expected collapsed record production");
                 };
-                let PackedNode::Term(Term::Variable { name, .. }) = &children[0].node else {
+                let PackedNode::Term(leaf) = &children[0].node else {
                     panic!("expected generated record variable");
                 };
+                let Term::Variable { name, .. } = leaf.unannotated() else {
+                    panic!("expected generated record variable");
+                };
+                // The variable stands at the span of the pattern whose field it fills.
+                assert!(metadata.span.is_some());
+                assert_eq!(leaf.metadata().and_then(|leaf| leaf.span), metadata.span);
                 name.clone()
             })
             .collect::<Vec<_>>();
@@ -5533,7 +5574,10 @@ mod chart_tests {
         let ParsedTerm::Production { children, .. } = &children[0] else {
             panic!("expected collapsed record");
         };
-        let ParsedTerm::Term(Term::Variable { name, .. }) = &children[0] else {
+        let ParsedTerm::Term(leaf) = &children[0] else {
+            panic!("expected generated record variable");
+        };
+        let Term::Variable { name, .. } = leaf.unannotated() else {
             panic!("expected generated record variable");
         };
 
