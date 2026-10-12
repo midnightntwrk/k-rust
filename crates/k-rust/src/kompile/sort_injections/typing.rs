@@ -387,6 +387,7 @@ impl<'a> SentenceTyper<'a> {
                 subsorts: View::Owned(subsorts),
                 next_sort_parameter: Cell::new(0),
                 natural_sorts: std::cell::RefCell::default(),
+                variable_names: std::cell::RefCell::default(),
             },
             declared,
         })

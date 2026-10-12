@@ -726,11 +726,14 @@ fn the_run_driver_searches_the_renamings_of_one_state_once() {
 
 /// A definition with a `multiplicity="*"` cell `<r>` of collection type `COLLECTION`, and pairs
 /// of commands that read one instance written as a cell (`get`, `anyP`) and as an alias of that
-/// cell (`getA`, `anyPA`). `mk` adds an instance written as a cell, `put` one held by a variable.
+/// cell (`getA`, `anyPA`), or that read or remove one instance written as a cell (`rd`, `drop`)
+/// and as a left-side variable of the cell sort in `<rs>` (`rdV`, `dropV`). `mk` adds an
+/// instance written as a cell, `put` one held by a variable.
 const ALIASED_INSTANCES: &str = r#"
 module TEST-SYNTAX
   imports INT-SYNTAX
   syntax Cmd ::= mk(Int, Int) | put(Int, Int) | get(Int) | getA(Int) | anyP() | anyPA()
+               | rd() | rdV() | drop() | dropV()
   syntax Pgm ::= Cmd | Cmd ";" Pgm
 endmodule
 
@@ -750,12 +753,20 @@ module TEST
   rule <k> getA(I) => .K ... </k> (<r> <rid> I </rid> <v> V </v> </r> #as _R) <out> ... .List => ListItem(V) </out>
   rule <k> anyP() => .K ... </k> <r> <rid> I </rid> ... </r> <out> ... .List => ListItem(I) </out>
   rule <k> anyPA() => .K ... </k> (<r> <rid> I </rid> ... </r> #as _R) <out> ... .List => ListItem(I) </out>
+
+  syntax Int ::= ridOf(RCell) [function] | vOf(RCell) [function]
+  rule ridOf(<r> <rid> I </rid> ... </r>) => I
+  rule vOf(<r> <v> V </v> ... </r>) => V
+  rule <k> rd() => .K ... </k> <rs> <r> <rid> I </rid> <v> V </v> </r> ... </rs> <out> ... .List => ListItem(I) ListItem(V) </out>
+  rule <k> rdV() => .K ... </k> <rs> R:RCell ... </rs> <out> ... .List => ListItem(ridOf(R)) ListItem(vOf(R)) </out>
+  rule <k> drop() => .K ... </k> <rs> (<r> <rid> _ </rid> <v> _ </v> </r> => .Bag) ... </rs>
+  rule <k> dropV() => .K ... </k> <rs> (_R:RCell => .Bag) ... </rs>
 endmodule
 "#;
 
 /// What a program ends in on [`ALIASED_INSTANCES`] for `collection`: the leaves (or the error)
-/// of its run and the final states of its search, each with the aliased commands renamed to
-/// their unaliased partners.
+/// of its run and the final states of its search, each with the aliased and variable commands
+/// renamed to their written-cell partners.
 fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String, Vec<String>)> {
     let source = ALIASED_INSTANCES.replace("COLLECTION", collection);
     let mut resolver = |_: &str, required: &str| {
@@ -777,6 +788,8 @@ fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String
     let rename = |text: String| {
         text.replace("LblgetA'", "Lblget'")
             .replace("LblanyPA'", "LblanyP'")
+            .replace("LblrdV'", "Lblrd'")
+            .replace("LbldropV'", "Lbldrop'")
     };
     let print = |pattern: &serde_json::Value| {
         rename(Printer::compact().print_pattern(&codec::from_value(pattern).unwrap()))
@@ -888,5 +901,63 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
             "{collection}: {}",
             added[0].0
         );
+    }
+}
+
+/// A variable of a cell's sort stands for one instance of the cell, so a rule that reads or
+/// removes an instance through a left-side variable `R:RCell` in `<rs>` applies exactly where
+/// the rule that writes the instance's cells applies, and ends in the same configuration: on no
+/// instance (stuck), on one, and on three (in a search, every instance a written cell matches:
+/// any of them in a Map or a Set, the first in a List).
+#[test]
+fn a_left_side_variable_of_a_collection_cell_sort_matches_one_instance() {
+    let three = "mk(1,10) ; mk(2,20) ; mk(3,30) ; ";
+    let pairs = [
+        ("rd()", "rdV()"),
+        ("drop()", "dropV()"),
+        ("mk(1,10) ; rd()", "mk(1,10) ; rdV()"),
+        ("mk(1,10) ; drop()", "mk(1,10) ; dropV()"),
+        (&format!("{three}rd()"), &format!("{three}rdV()")),
+        (&format!("{three}drop()"), &format!("{three}dropV()")),
+        (
+            &format!("{three}drop() ; drop() ; rd()"),
+            &format!("{three}dropV() ; dropV() ; rdV()"),
+        ),
+    ];
+    let programs = pairs
+        .iter()
+        .flat_map(|(cell, variable)| [*cell, *variable])
+        .collect::<Vec<_>>();
+    let done = "Lbl'-LT-'k'-GT-'{}(dotk{}())";
+    for collection in ["Map", "Set", "List"] {
+        let outcomes = aliased_instance_outcomes(collection, &programs);
+        for ((cell, variable), outcome) in pairs.iter().zip(outcomes.chunks(2)) {
+            assert_eq!(outcome[0], outcome[1], "{collection}: {cell} / {variable}");
+        }
+        // Not vacuous: with no instance both are stuck, with one or three both complete, and a
+        // search over three instances finds one final state per instance the rule can take.
+        for (index, (run, finals)) in outcomes.iter().enumerate() {
+            assert!(
+                !run.contains("error") && finals.iter().all(|state| !state.contains("error")),
+                "{collection}: {}: {run} {finals:?}",
+                programs[index]
+            );
+            assert_eq!(
+                run.contains(done),
+                index >= 4,
+                "{collection}: {}: {run}",
+                programs[index]
+            );
+        }
+        let instances = if collection == "List" { 1 } else { 3 };
+        for index in [8, 10, 12] {
+            assert_eq!(
+                outcomes[index].1.len(),
+                instances,
+                "{collection}: {}: {:?}",
+                programs[index],
+                outcomes[index].1
+            );
+        }
     }
 }
