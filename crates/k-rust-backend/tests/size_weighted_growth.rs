@@ -180,6 +180,8 @@ module MAIN
         [function{}(), total{}(), hook{}("LIST.element")]
     hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
         [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+    hooked-symbol listUpdate{}(SortList{}, SortInt{}, SortInt{}) : SortList{}
+        [function{}(), hook{}("LIST.update")]
     hooked-symbol setUnit{}() : SortSet{} [function{}(), total{}(), hook{}("SET.unit")]
     hooked-symbol setItem{}(SortInt{}) : SortSet{}
         [function{}(), total{}(), hook{}("SET.element")]
@@ -190,6 +192,9 @@ module MAIN
     symbol sstate{}(SortInt{}, SortSet{}) : SortState{} [constructor{}()]
     symbol rstate{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
     symbol qstate{}(SortInt{}, SortSet{}) : SortState{} [constructor{}()]
+    symbol fstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
+    symbol bstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
+    symbol ustate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
     symbol cmstate{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
     symbol clstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
     symbol csstate{}(SortInt{}, SortSet{}) : SortState{} [constructor{}()]
@@ -234,6 +239,33 @@ module MAIN
             setConcat{}(setItem{}(N:SortInt{}), S:SortSet{})
         )
     ) [label{}("read-set")]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(
+            fstate{}(N:SortInt{}, listConcat{}(listItem{}(X:SortInt{}), L:SortList{})),
+            \top{SortState{}}()
+        ),
+        fstate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            listConcat{}(L:SortList{}, listItem{}(X:SortInt{}))
+        )
+    ) [label{}("rotate-front")]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(
+            bstate{}(N:SortInt{}, listConcat{}(L:SortList{}, listItem{}(X:SortInt{}))),
+            \top{SortState{}}()
+        ),
+        bstate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            listConcat{}(listItem{}(X:SortInt{}), L:SortList{})
+        )
+    ) [label{}("rotate-back")]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(ustate{}(N:SortInt{}, L:SortList{}), \top{SortState{}}()),
+        ustate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            listUpdate{}(L:SortList{}, \dv{SortInt{}}("0"), N:SortInt{})
+        )
+    ) [label{}("list-update")]
     axiom{} \rewrites{SortState{}}(
         \and{SortState{}}(cmstate{}(N:SortInt{}, C:SortMap{}), \top{SortState{}}()),
         cmstate{}(plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")), C:SortMap{})
@@ -427,6 +459,35 @@ fn adding_one_set_element_costs_the_same_on_a_larger_set() {
     let definition = definition(COLLECTIONS);
     assert_step_independent_of_size("set, one element added per step", 256, |size| {
         shape_steps(&definition, "sstate", "csstate", &set_of, size, size)
+    });
+}
+
+/// Taking the item at one end of a list by matching `ListItem(X) L` (or `L ListItem(X)`) and
+/// putting it back at the other end, the K idiom of a queue: the step needs the one item, the
+/// rest of the list is bound to `L` and put back unread.
+#[test]
+fn rotating_a_list_by_matching_one_end_costs_the_same_on_a_larger_list() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(COLLECTIONS);
+    assert_step_independent_of_size("list, first item moved last per step", 256, |size| {
+        shape_steps(&definition, "fstate", "clstate", &list_of, size, 0)
+    });
+    assert_step_independent_of_size("list, last item moved first per step", 256, |size| {
+        shape_steps(&definition, "bstate", "clstate", &list_of, size, 0)
+    });
+}
+
+/// Overwriting one item of a list by `LIST.update`, the K idiom of an array.
+#[test]
+fn updating_one_list_item_costs_the_same_on_a_larger_list() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(COLLECTIONS);
+    assert_step_independent_of_size("list, one LIST.update per step", 256, |size| {
+        shape_steps(&definition, "ustate", "clstate", &list_of, size, 0)
     });
 }
 
