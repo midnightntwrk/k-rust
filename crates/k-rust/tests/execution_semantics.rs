@@ -890,3 +890,98 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
         );
     }
 }
+
+/// The instances of a `type="List"` cell collection keep their order, and a rule states the
+/// position of an instance it writes only among the items written side by side in one cell body,
+/// which come first, followed by the rest of the list that the cell's `...` stands for, wherever
+/// that `...` is written (`docs/compatibility.md#cells-written-inside-another-cell`). After three
+/// `mk` commands, each adding an instance at the front, the list is `3 2 1`:
+/// - `get(I)` writes one instance without its position (parent and frame supplied by
+///   completion), so it reads the front instance: `get(3)` rewrites, `get(2)` and `get(1)` are
+///   stuck;
+/// - `last()` writes `<rs> ... <r> .. </r> </rs>` and `dropLast()` writes
+///   `<rs> ... (<r> .. </r> => .Bag) </rs>`: the leading `...` is the same rest of the list, so
+///   they read and remove the front instance too, and `mkLast` adds at the front.
+/// The reference execution differential case `list-cell-positions`
+/// (`scripts/reference-differential.toml`) runs the same programs on this fixture.
+#[test]
+fn a_list_cell_instance_is_matched_at_the_front_of_its_collection() {
+    const SOURCE: &str = include_str!("fixtures/reference/execution/list-cell-positions/test.k");
+    const MAIN: &str = "LIST-CELL-POSITIONS";
+    let run = |program: &str| {
+        let compiled = compile(SOURCE, MAIN, "LIST-CELL-POSITIONS-SYNTAX", "Pgm", program);
+        let result = execute(&compiled, MAIN, None);
+        let states = text(&result);
+        assert_eq!(states.len(), 1, "{program}: {states:?}");
+        (
+            (result.leaves[0].reason, result.leaves[0].depth),
+            states.into_iter().next().unwrap(),
+        )
+    };
+    let three = "mk(1,10) ; mk(2,20) ; mk(3,30) ; ";
+    let empty_k = "Lbl'-LT-'k'-GT-'{}(dotk{}())";
+    let int = |value: u32| format!("\\dv{{SortInt{{}}}}(\"{value}\")");
+    let item = |value: u32| {
+        format!(
+            "LblListItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({}))",
+            int(value)
+        )
+    };
+    let rid = |value: u32| format!("Lbl'-LT-'rid'-GT-'{{}}({})", int(value));
+    // The `<out>` cell holds exactly `values`, in order.
+    let out = |state: &str, values: &[u32]| {
+        let start = state.find("Lbl'-LT-'out'-GT-'").unwrap();
+        let cell = &state[start..];
+        let positions = values
+            .iter()
+            .map(|value| cell.find(&item(*value)))
+            .collect::<Option<Vec<_>>>();
+        positions.is_some_and(|positions| positions.is_sorted())
+            && cell.matches("LblListItem{}").count() == values.len()
+    };
+    // The instances in the `<rs>` cell, front first.
+    let ids = |state: &str| {
+        let start = state.find("Lbl'-LT-'rs'-GT-'").unwrap();
+        let end = state.find("Lbl'-LT-'out'-GT-'").unwrap();
+        let mut positions = (0..10)
+            .filter_map(|value| state[start..end].find(&rid(value)).map(|at| (at, value)))
+            .collect::<Vec<_>>();
+        positions.sort();
+        positions
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>()
+    };
+
+    // Three sequencing steps and three mk steps, then the read.
+    let (leaf, front) = run(&format!("{three}get(3)"));
+    assert_eq!(leaf, (HaltReasonOutput::Stuck, 7), "{front}");
+    assert!(front.contains(empty_k) && out(&front, &[30]), "{front}");
+    assert_eq!(ids(&front), [3, 2, 1], "{front}");
+
+    for key in [2, 1] {
+        let (leaf, state) = run(&format!("{three}get({key})"));
+        assert_eq!(leaf, (HaltReasonOutput::Stuck, 6), "get({key}): {state}");
+        assert!(
+            !state.contains(empty_k) && state.contains("Lblget'") && out(&state, &[]),
+            "get({key}): {state}"
+        );
+    }
+
+    let (leaf, last) = run(&format!("{three}last()"));
+    assert_eq!(leaf, (HaltReasonOutput::Stuck, 7), "{last}");
+    assert!(last.contains(empty_k) && out(&last, &[3]), "{last}");
+
+    let (leaf, dropped) = run(&format!("{three}dropLast() ; dropLast()"));
+    assert_eq!(leaf, (HaltReasonOutput::Stuck, 9), "{dropped}");
+    assert!(
+        dropped.contains(empty_k) && out(&dropped, &[3, 2]),
+        "{dropped}"
+    );
+    assert_eq!(ids(&dropped), [1], "{dropped}");
+
+    let (leaf, added) = run("mk(1,10) ; mkLast(2,20) ; get(2)");
+    assert_eq!(leaf, (HaltReasonOutput::Stuck, 5), "{added}");
+    assert!(added.contains(empty_k) && out(&added, &[20]), "{added}");
+    assert_eq!(ids(&added), [2, 1], "{added}");
+}
