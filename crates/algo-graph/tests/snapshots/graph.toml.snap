@@ -7438,7 +7438,7 @@ bound = "O(F + G) to intern the forest into a session, then the session bound; n
 
 [[node.cost]]
 mode = "each tree of an inferred packed forest lowered alone (lower_each_inferred_tree), for a typing group whose trees instantiate formal parameters differently"
-bound = "O(F + G) to intern the forest, the per-tree forms of terminator resolution and list completion (parser.disambiguation.resolve_terminators, parser.disambiguation.insert_empty_lists), then each node's terms once: O(A x T) per ambiguity node and T^a lowerings (parser.lower.term) per production node, stopping at the first node where two terms differ in a way no ancestor can undo; no tree is built, whatever their number"
+bound = "O(F + G) to intern the forest, the per-tree forms of terminator resolution and list completion (parser.disambiguation.resolve_terminators, parser.disambiguation.insert_empty_lists), then each node's terms once: O(A x T) per ambiguity node and T^a lowerings (parser.lower.term) per production node, T being the terms listed at a child, pairwise apart only in an annotation, a one-item sequence against its item or a token's text, so that a `~>` chain of such items multiplies them, stopping at the first node where two terms differ in a way no ancestor can undo; no tree is built, whatever their number"
 
 [[node]]
 kind = "algorithm"
@@ -8100,7 +8100,7 @@ bound = "O(V x E)"
 
 [[node.cost]]
 mode = "ambiguous monomorphic forest"
-bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, O(N) per group to keep the trees whose function left-hand side is a most specific overload, plus, for a group whose trees instantiate formal parameters differently, O(N^2 x a) to tell whether two of its trees are one reading (Grammar::one_reading_twice, each pair of nodes once), and, when two are, the lowering of each of its trees alone computed on its forest of P nodes (parser.disambiguation.resolve_ambiguity, mode each tree), polynomial in P and independent of its number of trees; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it; the sorts' numbering, and each sort's down and up sets (S/64 words each), are built once per grammar, the first time a decision reads them (SortTable)"
+bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, O(N) per group to keep the trees whose function left-hand side is a most specific overload, plus, for a group whose trees instantiate formal parameters differently, O(N^2 x a) to tell whether two of its trees are one reading (Grammar::one_reading_twice, each pair of nodes once), and, when two are, the lowering of each of its trees alone computed on its forest of P nodes (parser.disambiguation.resolve_ambiguity, mode each tree), polynomial in P and in T, the most terms the trees of one node lower to that no ancestor keeps apart (they differ only in an annotation, a one-item sequence against its item, or a token's text, and a `~>` chain of such items multiplies them), and independent of its number of trees; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it; the sorts' numbering, and each sort's down and up sets (S/64 words each), are built once per grammar, the first time a decision reads them (SortTable)"
 
 [[node.cost]]
 mode = "variable realization"

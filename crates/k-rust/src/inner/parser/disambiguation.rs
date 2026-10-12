@@ -142,7 +142,7 @@
 //!
 //! [[cost]]
 //! mode = "each tree of an inferred packed forest lowered alone (lower_each_inferred_tree), for a typing group whose trees instantiate formal parameters differently"
-//! bound = "O(F + G) to intern the forest, the per-tree forms of terminator resolution and list completion (parser.disambiguation.resolve_terminators, parser.disambiguation.insert_empty_lists), then each node's terms once: O(A x T) per ambiguity node and T^a lowerings (parser.lower.term) per production node, stopping at the first node where two terms differ in a way no ancestor can undo; no tree is built, whatever their number"
+//! bound = "O(F + G) to intern the forest, the per-tree forms of terminator resolution and list completion (parser.disambiguation.resolve_terminators, parser.disambiguation.insert_empty_lists), then each node's terms once: O(A x T) per ambiguity node and T^a lowerings (parser.lower.term) per production node, T being the terms listed at a child, pairwise apart only in an annotation, a one-item sequence against its item or a token's text, so that a `~>` chain of such items multiplies them, stopping at the first node where two terms differ in a way no ancestor can undo; no tree is built, whatever their number"
 //! ```
 //!
 //! Packed-DAG disambiguation in the following pipeline order.
@@ -6744,6 +6744,42 @@ pub(super) mod tests {
 
     fn ambiguity(alternatives: impl IntoIterator<Item = ParsedTerm>) -> ParsedTerm {
         ParsedTerm::Ambiguity(alternatives.into_iter().collect())
+    }
+
+    /// Two trees whose terms differ at a node only as a one-item sequence against its item,
+    /// `a ~> .K` against `a`, lower to one term above a `~>` that splices them: the difference
+    /// is listed there, not taken as two terms every ancestor keeps apart. Under a `pair`, which
+    /// holds its children verbatim, the same difference gives two terms.
+    #[test]
+    fn each_tree_terms_list_a_difference_that_an_ancestor_splices_away() {
+        let (grammar, node) = readings_fixture();
+        let start = Sort::new("Exp");
+        let lower = |tree: ParsedTerm| grammar.lower_inferred(tree, &start);
+        let choice = || {
+            ambiguity([
+                node(
+                    "~>",
+                    vec![node("a", vec![], 10), node("#EmptyK", vec![], 12)],
+                    5,
+                ),
+                node("a", vec![], 10),
+            ])
+        };
+        for (parent, one_term) in [("~>", true), ("pair", false)] {
+            let forest =
+                PackedTerm::from_parsed(&node(parent, vec![choice(), node("b", vec![], 20)], 0));
+            let each = grammar.lower_each_inferred_tree(&forest, &start);
+            let alone = super::super::inference::lower_each_tree_by_listing(&lower, &forest);
+            assert_eq!(each.is_some(), one_term, "{parent}: {each:?}");
+            assert!(
+                match (&each, &alone) {
+                    (Some(each), Some(alone)) => each.identical(alone),
+                    (None, None) => true,
+                    _ => false,
+                },
+                "{parent}: {each:?}\n{alone:?}"
+            );
+        }
     }
 
     fn rendered(alternatives: &[AmbiguousParse]) -> Vec<&str> {
