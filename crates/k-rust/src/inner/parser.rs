@@ -2125,19 +2125,18 @@ impl Grammar {
         let lower = |tree: ParsedTerm| self.lower_inferred(tree, start);
         // When no preferred reading is well sorted, sorts decide among the admitted ones.
         let unless_ill_sorted = |result: Result<Term, ParseError>| match (result, &admitted) {
-            (Err(error @ ParseError::SortInference { .. }), Some(admitted)) => {
-                self.infer_without_structural_preference(admitted, error, start, is_anywhere, lower)
-            }
+            (Err(error @ ParseError::SortInference { .. }), Some(admitted)) => self
+                .infer_without_structural_preference(admitted, error, start, is_anywhere, &lower),
             (result, _) => result,
         };
         // Checked mode compares the engines on an ambiguous forest by what each lowers to.
         #[cfg(feature = "z3-inference")]
         if inference::checked_inference_requested()
-            && let Some(checked) = self.checked_ambiguous_parse(&forest, start, is_anywhere, lower)
+            && let Some(checked) = self.checked_ambiguous_parse(&forest, start, is_anywhere, &lower)
         {
             return unless_ill_sorted(checked).map_err(Failure::Error);
         }
-        unless_ill_sorted(self.infer_packed_sorts(forest, start, is_anywhere, lower))
+        unless_ill_sorted(self.infer_packed_sorts(forest, start, is_anywhere, &lower))
             .map_err(Failure::Error)
     }
 
@@ -5057,7 +5056,7 @@ mod chart_tests {
         reset_unpacked_nodes();
 
         let inferred = grammar
-            .infer_packed_sorts(Rc::clone(&shared), &Sort::new("Good"), false, Ok)
+            .infer_packed_sorts(Rc::clone(&shared), &Sort::new("Good"), false, &Ok)
             .expect("Z3 retains the recursively well-sorted alternative");
 
         assert_eq!(inferred, baseline);

@@ -7605,12 +7605,12 @@ lean = [
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
-symbol = "Grammar::infer_packed_sorts_z3"
+symbol = "Grammar::infer_packed_forest_z3"
 
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
-symbol = "Grammar::infer_packed_sorts_z3"
+symbol = "Grammar::infer_packed_forest_z3"
 
 [[node.sites]]
 crate = "k-rust"

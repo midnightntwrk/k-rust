@@ -2877,7 +2877,7 @@ mod tests {
             .prepare_packed_forest(PackedTerm::ambiguity(recognition.parses), &memos)
             .unwrap();
         let lower = |tree| grammar.lower_inferred(tree, &start_sort);
-        let portable = grammar.infer_ambiguous_sorts_portable(&forest, &start_sort, false, lower);
+        let portable = grammar.infer_ambiguous_sorts_portable(&forest, &start_sort, false, &lower);
         let z3 = grammar
             .infer_packed_sorts_z3(std::rc::Rc::clone(&forest), &start_sort, false)
             .and_then(&lower);
