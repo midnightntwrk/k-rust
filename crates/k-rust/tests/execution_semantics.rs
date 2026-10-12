@@ -902,6 +902,7 @@ fn an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches() {
 /// - `last()` writes `<rs> ... <r> .. </r> </rs>` and `dropLast()` writes
 ///   `<rs> ... (<r> .. </r> => .Bag) </rs>`: the leading `...` is the same rest of the list, so
 ///   they read and remove the front instance too, and `mkLast` adds at the front.
+///
 /// The reference execution differential case `list-cell-positions`
 /// (`scripts/reference-differential.toml`) runs the same programs on this fixture.
 #[test]
