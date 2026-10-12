@@ -120,6 +120,7 @@ impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
     }
 
     /// The variables, in order.
+    #[inline]
     pub(crate) fn iter(&self) -> Iter<'_, V> {
         match &self.backing {
             Backing::Empty => Iter::Slice([].iter()),

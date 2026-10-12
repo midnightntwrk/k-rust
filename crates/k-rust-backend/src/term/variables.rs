@@ -104,6 +104,7 @@ impl Variables {
     }
 
     /// The variables, in order.
+    #[inline]
     pub fn iter(&self) -> Iter<'_> {
         Iter(self.0.iter())
     }
@@ -155,9 +156,14 @@ impl Variables {
     }
 
     /// Whether the two sets share no variable: the smaller set's variables are looked up in the
-    /// larger one.
+    /// larger one. This set's own variables are walked directly, not through
+    /// [`VariableLookup::any_variable`]'s callback.
     pub fn is_disjoint<L: VariableLookup + ?Sized>(&self, other: &L) -> bool {
-        disjoint(self, other)
+        if self.len() <= other.variable_count() {
+            !self.iter().any(|variable| other.holds_variable(variable))
+        } else {
+            !other.any_variable(&mut |variable| self.contains(variable))
+        }
     }
 
     /// The variables both sets hold: the smaller set's variables are looked up in the larger one.
