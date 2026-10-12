@@ -552,6 +552,28 @@ pub(crate) fn match_equation_in_definition(
         subject,
         true,
         unread_frames,
+        Scopes::Apart,
+    )
+}
+
+/// [`match_terms_in_definition`] in `Rewrite` mode for a rewrite rule's left-hand side `pattern`
+/// whose variables are apart from `subject`'s, as `rule::rename_apart` leaves a rule it is
+/// given with the subject's variables (renamed, or found apart already): the match does not
+/// look for shared variables again.
+pub(crate) fn match_rule_in_definition(
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+) -> MatchResult {
+    match_terms_with_context_and_frames(
+        MatchMode::Rewrite,
+        definition.sort_graph(),
+        Some(definition),
+        pattern,
+        subject,
+        false,
+        &NO_FRAMES,
+        Scopes::Apart,
     )
 }
 
@@ -675,9 +697,22 @@ fn match_terms_with_context(
         subject,
         equation_root,
         &NO_FRAMES,
+        Scopes::Unknown,
     )
 }
 
+/// What the caller knows of the variables of a pattern and its subject.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scopes {
+    /// The pattern's variables are apart from the subject's: the pattern is a rule's or an
+    /// equation's left-hand side that `rule::rename_apart` returned (or found apart) for this
+    /// subject.
+    Apart,
+    /// Nothing is known; the two sides may share a variable.
+    Unknown,
+}
+
+#[allow(clippy::too_many_arguments)]
 fn match_terms_with_context_and_frames(
     mode: MatchMode,
     sorts: &SortGraph,
@@ -686,17 +721,28 @@ fn match_terms_with_context_and_frames(
     subject: &Term,
     equation_root: bool,
     unread_frames: &BTreeSet<Variable>,
+    scopes: Scopes,
 ) -> MatchResult {
     let _span = measure::algorithm_span(Algorithm::BackendMatchingSyntactic);
     measure::bump(Counter::MatchingProblems);
     if pattern == subject {
         return MatchResult::Success(Substitution::new());
     }
-    // Rule application renames a rule's variables apart from the subject before matching
-    // (`rule::rename_apart`), so this guard only meets callers whose two sides share one scope,
-    // where a variable on both sides is one variable and needs unification. The shared
+    debug_assert!(
+        scopes == Scopes::Unknown
+            || pattern
+                .attributes()
+                .variables
+                .is_disjoint(&subject.attributes().variables),
+        "a pattern renamed apart shares a variable with its subject"
+    );
+    // A variable on both sides of a pair whose sides share one scope is one variable and needs
+    // unification, which matching does not do. Rule application renames a rule's variables
+    // apart from the subject before matching (`rule::rename_apart`) and says so (`Scopes::Apart`),
+    // so the lookups only run for callers whose two sides may share a scope. The shared
     // variables are gathered only to report them.
     if mode != MatchMode::Implies
+        && scopes == Scopes::Unknown
         && !pattern
             .attributes()
             .variables

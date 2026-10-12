@@ -49,7 +49,7 @@ use crate::{
     diagnostic::{self, Occurrences, Sequenced},
     fresh::{FreshCounter, fresh_variable},
     ite::SplitSide,
-    matching::{MatchMode, MatchResult, match_terms_in_definition},
+    matching::{MatchResult, match_rule_in_definition},
     rule::{Predicate, RewriteRule, RuleRhs, rename_apart},
     simplify::{
         BudgetPolicy, ConditionIndeterminacy, ContradictedTotal, RuleCondition,
@@ -655,12 +655,9 @@ fn initial_match(
         (matching, matched.conditions)
     } else {
         (
-            match_terms_in_definition(
-                MatchMode::Rewrite,
-                context.definition,
-                &context.rule.lhs,
-                &context.pattern.term,
-            ),
+            // `apply_rule_with_match` renamed the rule apart from the subject's variables
+            // before reaching this match, or found it apart.
+            match_rule_in_definition(context.definition, &context.rule.lhs, &context.pattern.term),
             Vec::new(),
         )
     }
