@@ -56,8 +56,9 @@ pub(crate) use collections::{
 #[cfg(test)]
 pub(crate) use collections::cancel_common_opaque_chunks;
 use collections::{
-    CommonKeys, MapRemainder, PairRemainder, binds_each_key_once, find_common_keys,
-    is_opaque_concat, list_update_cannot_match, pair_prefix, pair_suffix, prepend,
+    CommonKeys, MapRemainder, PairRemainder, binds_each_key_once, find_common_elements,
+    find_common_keys, is_opaque_concat, list_update_cannot_match, pair_prefix, pair_suffix,
+    prepend,
 };
 
 use std::{
@@ -1074,9 +1075,9 @@ impl<'a> Matcher<'a> {
                 },
             ) if left == right => self.match_sets(
                 left.clone(),
-                left_elements.to_vec(),
+                left_elements,
                 left_rest.clone(),
-                right_elements.to_vec(),
+                right_elements,
                 right_rest.clone(),
             ),
             (
@@ -1769,12 +1770,19 @@ impl<'a> Matcher<'a> {
         Ok(())
     }
 
+    /// The pattern's elements are taken under the substitution so far, which may reorder them
+    /// or make two of them equal; the subject's are as `Term::set` stores them, a tree in the
+    /// set's order, so each pattern element is sought in it (`find_common_elements`), and the
+    /// subject's elements outside the common ones are its tree with the found ones removed by
+    /// path copy: a match that finds `k` elements of an `n`-element subject builds
+    /// `O(k log n)` nodes and shares the others. Whether the subject repeats an element, and
+    /// whether its other elements are all constructor-like, is read from its tree's summary.
     fn match_sets(
         &mut self,
         definition: Arc<crate::term::SetDefinition>,
-        pattern_elements: Vec<Term>,
+        pattern_elements: &Items<Term>,
         pattern_rest: Option<Term>,
-        subject_elements: Vec<Term>,
+        subject_elements: &Items<Term>,
         subject_rest: Option<Term>,
     ) -> Result<(), FailReason> {
         if pattern_rest
@@ -1785,58 +1793,51 @@ impl<'a> Matcher<'a> {
                 .is_some_and(|rest| is_opaque_concat(rest, &definition.symbols.concat))
         {
             return self.defer(
-                Term::set(definition.clone(), pattern_elements, pattern_rest),
-                Term::set(definition, subject_elements, subject_rest),
+                Term::set_of_items(definition.clone(), pattern_elements.clone(), pattern_rest),
+                Term::set_of_items(definition, subject_elements.clone(), subject_rest),
             );
         }
-        let pattern_elements = pattern_elements
-            .into_iter()
-            .map(|element| substitute(&element, &self.substitution))
+        let mut pattern_elements = pattern_elements
+            .iter()
+            .map(|element| substitute(element, &self.substitution))
             .collect::<Vec<_>>();
         check_duplicate_elements(&definition, &pattern_elements, &pattern_rest)?;
-        check_duplicate_elements(&definition, &subject_elements, &subject_rest)?;
-        let mut pattern_elements = pattern_elements.into_iter().collect::<BTreeSet<_>>();
-        let mut subject_elements = subject_elements.into_iter().collect::<BTreeSet<_>>();
-        let common = pattern_elements
-            .intersection(&subject_elements)
-            .cloned()
-            .collect::<Vec<_>>();
-        for element in common {
-            pattern_elements.remove(&element);
-            subject_elements.remove(&element);
-        }
-
-        let pattern_symbolic = pattern_elements
-            .iter()
-            .filter(|element| !element.attributes().constructor_like)
-            .cloned()
-            .collect::<Vec<_>>();
-        let pattern_concrete = pattern_elements
-            .iter()
-            .filter(|element| element.attributes().constructor_like)
-            .cloned()
-            .collect::<Vec<_>>();
-        let subject_symbolic = subject_elements
-            .iter()
-            .filter(|element| !element.attributes().constructor_like)
-            .cloned()
-            .collect::<Vec<_>>();
+        check_stored_duplicate_elements(&definition, subject_elements, &subject_rest)?;
+        // The pattern's elements are pairwise different now, so sorting them gives the set's
+        // order, in which the subject's are stored.
+        pattern_elements.sort();
+        let found = find_common_elements(&pattern_elements, subject_elements);
         let set = |elements, rest| Term::set(definition.clone(), elements, rest);
 
-        if let Some(element) = pattern_concrete.first() {
-            if subject_symbolic.is_empty() && subject_rest.is_none() {
+        // A constructor-like pattern element that the subject does not hold syntactically,
+        // while the subject has no rest and every other element of it is constructor-like, is
+        // held by no subject element at all: distinct constructor-like terms denote distinct
+        // values. The match fails on that element (the least such), decided from the subject's
+        // summary before its other elements are taken apart from the found ones. Otherwise a
+        // symbolic subject element or the subject's rest may hold it, which the collection
+        // solver decides.
+        if let Some(element) = found
+            .pattern_only
+            .iter()
+            .find(|element| element.attributes().constructor_like)
+        {
+            if subject_rest.is_none() && found.others_constructor_like(subject_elements) {
                 return Err(FailReason::KeyNotFound(element.clone()));
             }
+            let subject_only = found.subject_only(subject_elements);
             return self.defer(
-                set(pattern_elements.into_iter().collect(), pattern_rest),
-                set(subject_elements.into_iter().collect(), subject_rest),
+                set(found.pattern_only, pattern_rest),
+                Term::set_of_items(definition.clone(), subject_only, subject_rest),
             );
         }
 
-        if pattern_symbolic.is_empty() {
-            let subject_is_empty = subject_elements.is_empty() && subject_rest.is_none();
+        let subject_only = found.subject_only(subject_elements);
+        let pattern_only = found.pattern_only;
+        let subject_set = |elements, rest| Term::set_of_items(definition.clone(), elements, rest);
+        if pattern_only.is_empty() {
+            let subject_is_empty = subject_only.is_empty() && subject_rest.is_none();
             let subject_has_rest = subject_rest.is_some();
-            let subject = set(subject_elements.into_iter().collect(), subject_rest);
+            let subject = subject_set(subject_only, subject_rest);
             if let Some(rest) = pattern_rest {
                 self.enqueue(rest, subject);
                 return Ok(());
@@ -1853,26 +1854,27 @@ impl<'a> Matcher<'a> {
             ));
         }
 
-        if pattern_symbolic.len() == 1 && subject_elements.len() == 1 && subject_rest.is_none() {
+        // Every pattern element left is symbolic (the constructor-like ones returned above).
+        if pattern_only.len() == 1 && subject_only.len() == 1 && subject_rest.is_none() {
             self.enqueue(
-                pattern_symbolic.into_iter().next().unwrap(),
-                subject_elements.into_iter().next().unwrap(),
+                pattern_only.into_iter().next().unwrap(),
+                subject_only.first().expect("one element").clone(),
             );
             if let Some(rest) = pattern_rest {
-                self.enqueue(rest, set(Vec::new(), subject_rest));
+                self.enqueue(rest, set(Vec::new(), None));
             }
             return Ok(());
         }
 
-        if subject_elements.is_empty() && subject_rest.is_none() {
+        if subject_only.is_empty() && subject_rest.is_none() {
             return Err(FailReason::DifferentContents(
-                set(pattern_elements.into_iter().collect(), pattern_rest),
+                set(pattern_only, pattern_rest),
                 set(Vec::new(), None),
             ));
         }
         self.defer(
-            set(pattern_elements.into_iter().collect(), pattern_rest),
-            set(subject_elements.into_iter().collect(), subject_rest),
+            set(pattern_only, pattern_rest),
+            subject_set(subject_only, subject_rest),
         )
     }
 
@@ -2699,6 +2701,29 @@ fn check_duplicate_elements(
         ));
     }
     Ok(())
+}
+
+/// [`check_duplicate_elements`] for a subject's elements, which are stored in the set's order, so
+/// a repeat is a pair of neighbours and the tree's summary says whether there is one: no element
+/// is read unless there is.
+fn check_stored_duplicate_elements(
+    definition: &Arc<crate::term::SetDefinition>,
+    elements: &Items<Term>,
+    rest: &Option<Term>,
+) -> Result<(), FailReason> {
+    if !elements.summary().collision {
+        return Ok(());
+    }
+    let element = elements
+        .iter()
+        .zip(elements.iter().skip(1))
+        .find(|(left, right)| left == right)
+        .map(|(left, _)| left.clone())
+        .expect("a collision is a pair of adjacent equal elements");
+    Err(FailReason::DuplicateKeys(
+        element,
+        Term::set_of_items(definition.clone(), elements.clone(), rest.clone()),
+    ))
 }
 
 /// Whether `term` is an application of a function-typed symbol (`SymbolType::Function`). This is

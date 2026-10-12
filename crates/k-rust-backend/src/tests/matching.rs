@@ -1383,3 +1383,182 @@ fn a_ground_key_missing_beside_a_subject_frame_is_not_refuted() {
         }
     }
 }
+
+/// `n` ground elements of `set_definition`, `0 .. n` padded so that their order is the numbers'.
+fn ground_set(n: usize) -> (Term, impl Fn(usize) -> Term) {
+    let element = |index: usize| domain_value(Sort::simple("SetElement"), &format!("{index:05}"));
+    let subject = Term::set(set_definition(), (0..n).map(element).collect(), None);
+    (subject, element)
+}
+
+/// A pattern that names one element of an `n`-element subject set beside a rest variable binds
+/// the rest to the subject's tree without that element: a removal, which summarizes only the
+/// elements of the nodes it rebuilds on one path (at most `2B`, in a leaf and the sibling it may
+/// be merged with), not the `n - 1` elements of a set built anew from a copy.
+#[test]
+fn matching_one_element_of_a_set_binds_the_rest_to_one_removal_from_the_subject() {
+    const ELEMENTS: usize = 4096;
+    let (subject, element) = ground_set(ELEMENTS);
+    let TermKind::Set {
+        elements: subject_elements,
+        ..
+    } = subject.kind()
+    else {
+        unreachable!()
+    };
+    let rest = variable("REST", Sort::simple("SetSort"));
+    let bound = 2 * crate::term::chunked::DEFAULT_BRANCHING;
+    for index in [0, ELEMENTS / 2, ELEMENTS - 1] {
+        let pattern = Term::set(
+            set_definition(),
+            vec![element(index)],
+            Some(Term::variable(rest.clone())),
+        );
+        let mut result = None;
+        let summarized = crate::term::items::element_summaries_during(|| {
+            result = Some(match_terms(
+                MatchMode::Rewrite,
+                &sort_graph(),
+                &pattern,
+                &subject,
+            ));
+        });
+        assert!(
+            summarized <= bound,
+            "element {index}: {summarized} element summaries, bound {bound}"
+        );
+        let expected =
+            Term::set_of_items(set_definition(), subject_elements.remove_at(index).0, None);
+        assert_eq!(
+            result,
+            Some(MatchResult::Success(Substitution::from([(
+                rest.clone(),
+                expected
+            )]))),
+            "element {index}"
+        );
+    }
+}
+
+/// A constructor-like pattern element that a set of constructor-like elements does not hold
+/// refutes the match from the elements' summary alone: no set of the subject's other elements is
+/// built (no element summarized), so the failure costs the search and not the size of the
+/// subject.
+#[test]
+fn a_ground_element_missing_from_a_ground_set_fails_without_copying_its_other_elements() {
+    const ELEMENTS: usize = 4096;
+    let (subject, element) = ground_set(ELEMENTS);
+    for rest in [None, Some(var("REST", Sort::simple("SetSort")))] {
+        let pattern = Term::set(set_definition(), vec![element(ELEMENTS + 1)], rest);
+        for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+            let summarized = crate::term::items::element_summaries_during(|| {
+                assert_eq!(
+                    match_terms(mode, &sort_graph(), &pattern, &subject),
+                    MatchResult::Failed(FailReason::KeyNotFound(element(ELEMENTS + 1))),
+                    "{mode:?}"
+                );
+            });
+            assert_eq!(
+                summarized, 0,
+                "{mode:?}: a set of the subject's other elements was built"
+            );
+        }
+    }
+}
+
+/// A constructor-like pattern element that the subject does not hold syntactically is refuted
+/// only when every subject element is constructor-like and the subject has no rest: a symbolic
+/// subject element may denote it, and so may a subject rest.
+#[test]
+fn a_ground_element_missing_beside_a_symbolic_element_or_a_subject_rest_is_not_refuted() {
+    let element = |name: &str| domain_value(Sort::simple("SetElement"), name);
+    for (subject_elements, subject_rest) in [
+        (
+            vec![
+                element("a"),
+                var("E", Sort::simple("SetElement")),
+                element("c"),
+            ],
+            None,
+        ),
+        (
+            vec![element("a"), element("c")],
+            Some(var("FRAME", Sort::simple("SetSort"))),
+        ),
+    ] {
+        let subject = Term::set(set_definition(), subject_elements, subject_rest);
+        for rest in [None, Some(var("REST", Sort::simple("SetSort")))] {
+            let pattern = Term::set(set_definition(), vec![element("b")], rest);
+            for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+                let result = match_terms(mode, &sort_graph(), &pattern, &subject);
+                assert!(
+                    !matches!(result, MatchResult::Failed(_)),
+                    "{mode:?} on {subject:?}: {result:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Each candidate the collection solver tries for a symbolic pattern element against an
+/// `n`-element closed subject binds the pattern's rest to the subject's tree without that
+/// element: one removal per candidate, which summarizes at most `2B` elements, not a copy of
+/// the other `n - 1`.
+#[test]
+fn each_candidate_frame_of_a_symbolic_element_is_one_removal_from_the_subject() {
+    const ELEMENTS: usize = 1024;
+    let definition = collection_definition();
+    let one = internal_term(&definition, r#"setItem{}(\dv{SortElement{}}("0"))"#);
+    let TermKind::Set {
+        definition: set, ..
+    } = one.kind()
+    else {
+        panic!("a set item should internalize as a set");
+    };
+    let element = |index: usize| {
+        internal_term(
+            &definition,
+            &format!(r#"\dv{{SortElement{{}}}}("{index:05}")"#),
+        )
+    };
+    let subject = Term::set(set.clone(), (0..ELEMENTS).map(element).collect(), None);
+    let pattern = internal_term(
+        &definition,
+        "setConcat{}(setItem{}(ELEMENT:SortElement{}), REST:SortSet{})",
+    );
+    let mut solutions = None;
+    let summarized = crate::term::items::element_summaries_during(|| {
+        solutions = solve_with_test_frames(&definition, &[(pattern, subject.clone())]);
+    });
+    let solutions = solutions.expect("a closed subject set is decided");
+    assert_eq!(solutions.len(), ELEMENTS);
+    let bound = ELEMENTS * 2 * crate::term::chunked::DEFAULT_BRANCHING;
+    assert!(
+        summarized <= bound,
+        "{summarized} element summaries for {ELEMENTS} candidates, bound {bound}"
+    );
+    let TermKind::Set {
+        elements: subject_elements,
+        ..
+    } = subject.kind()
+    else {
+        unreachable!()
+    };
+    let rest = Variable::new("REST", Sort::simple("SortSet"));
+    let element_variable = Variable::new("ELEMENT", Sort::simple("SortElement"));
+    for solution in &solutions {
+        let substitution = solution.matched.substitution();
+        let bound_element = substitution
+            .get(&element_variable)
+            .expect("ELEMENT is bound");
+        let index = subject_elements
+            .search(bound_element)
+            .expect("ELEMENT is bound to a subject element");
+        let expected = Term::set_of_items(set.clone(), subject_elements.remove_at(index).0, None);
+        assert_eq!(
+            substitution.get(&rest),
+            Some(&expected),
+            "ELEMENT = {bound_element:?}"
+        );
+    }
+}
