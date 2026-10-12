@@ -121,16 +121,24 @@ impl<'a, I: Item, S: Seek<I>> Iterator for Sought<'a, I, S> {
             };
             let start = *position;
             *position += node.summary().count;
-            if !self.seek.admits(start, node.summary()) {
-                continue;
+            self.enter(node, start);
+        }
+    }
+}
+
+impl<'a, I: Item, S: Seek<I>> Sought<'a, I, S> {
+    /// Descend into `node`, whose first item is at `start`, when the seek admits it: a leaf's
+    /// items come next, an internal node's children are the innermost level.
+    fn enter(&mut self, node: &'a Node<I>, start: usize) {
+        if !self.seek.admits(start, node.summary()) {
+            return;
+        }
+        match node {
+            Node::Leaf { items, .. } => {
+                self.items = items.iter();
+                self.position = start;
             }
-            match &**node {
-                Node::Leaf { items, .. } => {
-                    self.items = items.iter();
-                    self.position = start;
-                }
-                Node::Internal { children, .. } => self.nodes.push((children.iter(), start)),
-            }
+            Node::Internal { children, .. } => self.nodes.push((children.iter(), start)),
         }
     }
 }
@@ -153,13 +161,20 @@ impl<G: Group> Difference<G> {
 impl<I: Item, const B: usize> Chunked<I, B> {
     /// The items `seek` wants, with their positions, in order. The descent enters only the
     /// subtrees `seek` admits.
+    ///
+    /// The root is entered at once, so a seek in a tree of one leaf (a collection of at most `B`
+    /// items) keeps no stack of levels and allocates nothing.
     pub(crate) fn seek<S: Seek<I>>(&self, seek: S) -> Sought<'_, I, S> {
-        Sought {
+        let mut sought = Sought {
             seek,
-            nodes: vec![(self.root.as_slice().iter(), 0)],
+            nodes: Vec::new(),
             items: [].iter(),
             position: 0,
+        };
+        if let Some(root) = &self.root {
+            sought.enter(root, 0);
         }
+        sought
     }
 
     /// The items at the positions of `range`, from either end. The iterator starts in time

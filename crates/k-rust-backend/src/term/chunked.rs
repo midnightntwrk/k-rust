@@ -977,15 +977,30 @@ pub(crate) struct Iter<'a, I: Item> {
 }
 
 impl<'a, I: Item> Iter<'a, I> {
+    /// The items below `root`. A leaf root is opened at once at both ends, so iterating a tree
+    /// of one leaf (a collection of at most `B` items) keeps no stack of levels and allocates
+    /// nothing; the count of items left keeps the two ends from crossing, as in a shared leaf
+    /// further down.
     fn new(root: Option<&'a Arc<Node<I>>>) -> Self {
-        let roots = root.map_or(&[][..], slice::from_ref);
-        Self {
-            front: vec![roots.iter()],
+        let mut iter = Self {
+            front: Vec::new(),
             front_items: [].iter(),
-            back: vec![roots.iter()],
+            back: Vec::new(),
             back_items: [].iter(),
             remaining: root.map_or(0, |root| root.summary().count),
+        };
+        match root.map(|root| &**root) {
+            None => {}
+            Some(Node::Leaf { items, .. }) => {
+                iter.front_items = items.iter();
+                iter.back_items = items.iter();
+            }
+            Some(Node::Internal { children, .. }) => {
+                iter.front.push(children.iter());
+                iter.back.push(children.iter());
+            }
         }
+        iter
     }
 }
 
@@ -1118,9 +1133,13 @@ impl<I: Item> Next<'_, I> {
     }
 }
 
-/// The rest of a sequence being walked: a stack of slices of nodes or items, the innermost on
-/// top, whose concatenation is what is left.
+/// The rest of a sequence being walked: a stack of slices of nodes or items, whose
+/// concatenation, innermost first, is what is left. The innermost slice is held apart from the
+/// stack, and opening a node that was the last of its slice replaces that slice instead of
+/// stacking an empty one, so walking a tree of one leaf (a collection of at most `B` items)
+/// allocates nothing.
 struct Cursor<'a, I: Item> {
+    top: Rest<'a, I>,
     stack: Vec<Rest<'a, I>>,
 }
 
@@ -1132,32 +1151,27 @@ enum Rest<'a, I: Item> {
 impl<'a, I: Item> Cursor<'a, I> {
     fn new(root: Option<&'a Arc<Node<I>>>) -> Self {
         Self {
-            stack: root
-                .map(|root| Rest::Nodes(slice::from_ref(root)))
-                .into_iter()
-                .collect(),
+            top: Rest::Nodes(root.map_or(&[][..], slice::from_ref)),
+            stack: Vec::new(),
         }
     }
 
     /// The node or item that comes next, if any.
     fn peek(&mut self) -> Option<Next<'a, I>> {
         loop {
-            match self.stack.last()? {
+            match self.top {
                 Rest::Nodes([node, ..]) => return Some(Next::Node(node)),
                 Rest::Items([item, ..]) => return Some(Next::Item(item)),
-                Rest::Nodes([]) | Rest::Items([]) => {
-                    self.stack.pop();
-                }
+                Rest::Nodes([]) | Rest::Items([]) => self.top = self.stack.pop()?,
             }
         }
     }
 
     /// Step past what [`peek`](Self::peek) returned.
     fn skip(&mut self) {
-        match self.stack.last_mut() {
-            Some(Rest::Nodes(nodes)) => *nodes = &nodes[1..],
-            Some(Rest::Items(items)) => *items = &items[1..],
-            None => {}
+        match &mut self.top {
+            Rest::Nodes(nodes) => *nodes = &nodes[1..],
+            Rest::Items(items) => *items = &items[1..],
         }
     }
 
@@ -1167,10 +1181,14 @@ impl<'a, I: Item> Cursor<'a, I> {
             return;
         };
         self.skip();
-        self.stack.push(match &**node {
+        let contents = match &**node {
             Node::Leaf { items, .. } => Rest::Items(items),
             Node::Internal { children, .. } => Rest::Nodes(children),
-        });
+        };
+        let outer = std::mem::replace(&mut self.top, contents);
+        if !matches!(outer, Rest::Nodes([]) | Rest::Items([])) {
+            self.stack.push(outer);
+        }
     }
 }
 

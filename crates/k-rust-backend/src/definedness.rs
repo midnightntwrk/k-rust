@@ -350,6 +350,20 @@ fn check_list_items<'t>(
     Some([heads, tails])
 }
 
+/// Push the items of a list segment onto `children`: those that are not `ceil_free` when
+/// `skip`, all of them otherwise.
+fn push_list_items<'a>(
+    items: &'a crate::term::Items<Term>,
+    skip: bool,
+    children: &mut Vec<&'a Term>,
+) {
+    if skip {
+        children.extend(items.lacking(crate::term::Flag::CeilFree));
+    } else {
+        children.extend(items);
+    }
+}
+
 /// One node of the definedness walk: appends the node's own obligations to `before` and its
 /// children, left to right, to `children`, and returns the obligations that follow the
 /// children's.
@@ -429,18 +443,10 @@ fn ceil_term_node<'a>(
             after
         }
         TermKind::List { heads, rest, .. } => {
-            let items =
-                |items: &'a crate::term::Items<Term>| -> Box<dyn Iterator<Item = &'a Term>> {
-                    if skip {
-                        Box::new(items.lacking(crate::term::Flag::CeilFree))
-                    } else {
-                        Box::new(items.iter())
-                    }
-                };
-            children.extend(items(heads));
+            push_list_items(heads, skip, children);
             if let Some((middle, tails)) = rest {
                 children.push(middle);
-                children.extend(items(tails));
+                push_list_items(tails, skip, children);
             }
             Vec::new()
         }
