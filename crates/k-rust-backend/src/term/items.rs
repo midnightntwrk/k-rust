@@ -69,14 +69,16 @@ use std::{
 
 use rustc_hash::FxHasher;
 
+#[cfg(debug_assertions)]
+use super::Sort;
 use super::{
-    KeyHeader, Sort, Term, Variable,
+    Term, Variable,
     chunked::{
         self, Chunked, Item, NodeSummary, Summary,
         multiset::Multiset,
         summary::{Any, Count, Failing, Saturating, Uniform},
     },
-    key_header,
+    has_key_header, same_apart_skeleton,
 };
 
 /// A sequence of collection items (see the [module documentation](self)).
@@ -120,6 +122,12 @@ impl<T: Item> Items<T> {
     /// of items.
     pub fn from_vec(items: Vec<T>) -> Self {
         Self(Chunked::from_vec(items))
+    }
+
+    /// The sequence of `count` copies of `item`, equal to [`from_vec`](Self::from_vec) of them,
+    /// in `O(log² count)` nodes shared between the positions that hold the same subtree.
+    pub fn repeat(item: &T, count: usize) -> Self {
+        Self(Chunked::repeat(item, count))
     }
 
     pub fn len(&self) -> usize {
@@ -346,15 +354,36 @@ impl<T: Item<Summary = ItemSummary> + ItemTerms> Items<T> {
         self.0
             .summary()
             .is_some_and(|summary| !summary.extra.holds(flag))
-            .then(|| {
-                self.0.seek(chunked::seek::Where::new(
-                    move |summary: &NodeSummary<T>| !summary.extra.holds(flag),
-                    move |item: &T| !item.every_term(|term| flag.holds_of(term)),
-                ))
-            })
+            .then(|| self.0.seek(Self::lacking_seek(flag)))
             .into_iter()
             .flatten()
             .map(|(_, item)| item)
+    }
+
+    /// The seek of [`lacking`](Self::lacking): the subtrees whose summary counts an item lacking
+    /// `flag`, and the items one of whose terms lacks it.
+    fn lacking_seek(flag: Flag) -> impl chunked::seek::Seek<T> {
+        chunked::seek::Where::new(
+            move |summary: &NodeSummary<T>| !summary.extra.holds(flag),
+            move |item: &T| !item.every_term(|term| flag.holds_of(term)),
+        )
+    }
+
+    /// Debug builds: hand to `passed` the items [`lacking`](Self::lacking) passes over, and the
+    /// pairs of adjacent items within its skipped subtrees to `apart`; the nodes returned, those
+    /// of the skipped subtrees in which `apart` accepted every pair, are for the caller to mark
+    /// once the items have passed (`Chunked::check_passed_over`). An item passed over is handed
+    /// over again only while it shares a leaf with an item `lacking` returns, or lies in a
+    /// skipped subtree with a pair `apart` refused.
+    #[cfg(debug_assertions)]
+    pub(crate) fn check_passed_over_lacking<'t>(
+        &'t self,
+        flag: Flag,
+        passed: impl FnMut(&'t T),
+        apart: impl FnMut(&'t T, &'t T) -> bool,
+    ) -> chunked::Unchecked<'t, T> {
+        self.0
+            .check_passed_over(&Self::lacking_seek(flag), passed, apart)
     }
 }
 
@@ -653,25 +682,32 @@ impl Flag {
     }
 }
 
-/// [`KeyHeader`] as a value a summary holds: the class of a key whose distinctness from another
-/// key of the class `structurally_distinct_after_normalization` decides.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum Header {
-    DomainValue,
-    Injection { source: Sort, target: Sort },
-}
+/// The header of a key that has one (`super::has_key_header`, `keyHeader` in the Lean model),
+/// as a value a summary holds: the key's apartness skeleton, represented by the key itself and
+/// compared with [`same_apart_skeleton`]. Two distinct keys of one header are apart, so the keys
+/// of a sorted collection that all share one header are pairwise apart when no two adjacent ones
+/// are equal.
+///
+/// Holding the key keeps the comparison of two headers to a walk of the two keys, without
+/// building a skeleton: for a key cell such as `<id>(\dv{Int}("1"))`, two nodes and no
+/// allocation.
+#[derive(Clone, Debug)]
+pub(crate) struct Header(Term);
 
 impl Header {
     fn of(key: &Term) -> Option<Self> {
-        key_header(key).map(|header| match header {
-            KeyHeader::DomainValue => Self::DomainValue,
-            KeyHeader::Injection { source, target } => Self::Injection {
-                source: source.clone(),
-                target: target.clone(),
-            },
-        })
+        has_key_header(key).then(|| Self(key.clone()))
     }
 }
+
+/// One skeleton: an equivalence on the keys `Header::of` admits.
+impl PartialEq for Header {
+    fn eq(&self, other: &Self) -> bool {
+        same_apart_skeleton(&self.0, &other.0)
+    }
+}
+
+impl Eq for Header {}
 
 /// What the attributes of a collection term need from its items, as a [`Summary`] of constant
 /// size: the attributes that are a conjunction, a disjunction or a saturating sum over the
@@ -903,7 +939,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::term::{CollectionSymbols, MapDefinition, TermKind, chunked::DEFAULT_BRANCHING};
+    use crate::term::{
+        CollectionSymbols, MapDefinition, Sort, TermKind, chunked::DEFAULT_BRANCHING,
+    };
 
     fn definition() -> Arc<MapDefinition> {
         Arc::new(MapDefinition {

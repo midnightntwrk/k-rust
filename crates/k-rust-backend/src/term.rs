@@ -16,7 +16,7 @@
 //!     "set_kind_attributes", "marked_attributes", "Term::map", "Term::map_of_items", "Term::set",
 //!     "Term::set_of_items", "Term::list", "Term::list_of_items", "order_collection",
 //!     "Term::with_evaluated_cache", "Term::marked_evaluated", "calculate_hash", "ceil_free",
-//!     "key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp",
+//!     "has_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp",
 //!     "equal_nodes", "order_nodes"]
 //! invariant = """\
 //! Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is \
@@ -200,6 +200,9 @@ fn builtin_name(sort: BuiltinSort) -> Name {
     names[index].clone()
 }
 
+/// The kind of a variable. Element variables order before set variables, and a [`Variable`]
+/// orders by kind first, so a set of variables holds a set variable exactly when its greatest
+/// is one (`Variables::last`).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum VariableKind {
     Element,
@@ -1864,6 +1867,20 @@ impl Term {
         }))
     }
 
+    /// This term with its stored `ceil_free` attribute set, whatever its kind: a unit-test
+    /// fixture of a wrong attribute, for the debug check of the definedness walk's shortcut.
+    #[cfg(all(test, debug_assertions))]
+    pub(crate) fn with_ceil_free_for_test(&self) -> Self {
+        let mut attributes = self.attributes().clone();
+        attributes.ceil_free = true;
+        Self(Arc::new(TermData {
+            attributes,
+            kind: self.kind().clone(),
+            #[cfg(debug_assertions)]
+            ceil_free_checked: std::sync::atomic::AtomicBool::new(false),
+        }))
+    }
+
     /// Debug builds only: whether `definedness::check_ceil_free` has checked this node and every
     /// node below it.
     #[cfg(debug_assertions)]
@@ -2041,16 +2058,19 @@ pub(crate) fn children_lacking(kind: &TermKind, flag: Flag) -> Vec<&Term> {
 ///   disequality for each pair of keys (elements) that `elements_are_apart`
 ///   does not separate.
 ///
-/// For the pairs, the attribute accepts only keys that share one `KeyHeader`: all domain values,
-/// or all `inj{S, T}` of a domain value for one `S` and `T`. Two distinct such keys are separated
-/// by `structurally_distinct_after_normalization` alone, so the matcher that
-/// `elements_are_apart` falls back on is never needed. Keys with different
-/// headers, such as `inj{Int, KItem}(1)` and `inj{String, KItem}("a")`, may need the sort graph's injection comparison, which the attribute does not consult.
-/// The attribute is false for them. Distinctness of the keys themselves comes from the sorted
-/// order the constructors keep and a check here: `Term::set` sorts its elements and keeps a
-/// repeated one (concatenation is nilpotent, so the repeat makes the set `\bottom`); `Term::map`
-/// sorts its entries by `(key, value)` and keeps a repeated key, with the same value or not
-/// (the map is `\bottom` then too). Repeats are adjacent in both, and the attribute checks that
+/// For the pairs, the attribute accepts only keys that share one header (`has_key_header`): keys
+/// rigid through free roots alone (domain values, injections, applications of free
+/// constructors, such as `inj{Int, KItem}(1)` or a key cell `<id>(1)`) with one apartness
+/// skeleton (`same_apart_skeleton`). Two distinct such keys are apart for every definition
+/// (`rigid_apart_skeleton_hash`), so the matcher that `elements_are_apart` falls back on is never
+/// needed. Keys with different headers, such as `inj{Int, KItem}(1)` and `inj{String,
+/// KItem}("a")`, may need the sort graph's injection comparison, which the attribute does not
+/// consult; a key under an equation head is apart from another only through the certificate of
+/// a normal form, not through its shape. The attribute is false for them. Distinctness of the
+/// keys themselves comes from the sorted order the constructors keep and a check here:
+/// `Term::set` sorts its elements and keeps a repeated one (concatenation is nilpotent, so the
+/// repeat makes the set `\bottom`); `Term::map` sorts its entries by `(key, value)` and keeps a
+/// repeated key, with the same value or not (the map is `\bottom` then too). Repeats are adjacent in both, and the attribute checks that
 /// adjacent elements (keys) differ.
 /// Those constructor invariants and the order they rely on are checked by
 /// `tests/backend/term_order.rs` (`constructed_collections_are_sorted`,
@@ -2305,55 +2325,73 @@ pub(crate) fn rigid_apart_skeleton_hash<'t>(
 /// equal symbols, sort arguments and arities, equal injection sorts and equal domain-value sorts
 /// at every position. Compares the pairs of nodes on a work list.
 pub(crate) fn same_apart_skeleton(left: &Term, right: &Term) -> bool {
-    let mut pending = vec![(left, right)];
-    while let Some((left, right)) = pending.pop() {
-        if left.ptr_eq(right) {
-            continue;
-        }
-        let same = match (left.kind(), right.kind()) {
-            (
-                TermKind::DomainValue { sort: left, .. },
-                TermKind::DomainValue { sort: right, .. },
-            ) => left == right,
-            (
-                TermKind::Injection {
-                    source: left_source,
-                    target: left_target,
-                    term: left,
-                },
-                TermKind::Injection {
-                    source: right_source,
-                    target: right_target,
-                    term: right,
-                },
-            ) => {
-                pending.push((left, right));
-                left_source == right_source && left_target == right_target
+    // The first argument pair of each application pair, and an injection pair's operands, are
+    // compared in place, so that keys whose nodes have at most one argument each are compared
+    // without allocating.
+    let mut pending = Vec::new();
+    let (mut left, mut right) = (left, right);
+    loop {
+        let next = if left.ptr_eq(right) {
+            None
+        } else {
+            match (left.kind(), right.kind()) {
+                (
+                    TermKind::DomainValue { sort: left, .. },
+                    TermKind::DomainValue { sort: right, .. },
+                ) => {
+                    if left != right {
+                        return false;
+                    }
+                    None
+                }
+                (
+                    TermKind::Injection {
+                        source: left_source,
+                        target: left_target,
+                        term: left,
+                    },
+                    TermKind::Injection {
+                        source: right_source,
+                        target: right_target,
+                        term: right,
+                    },
+                ) => {
+                    if left_source != right_source || left_target != right_target {
+                        return false;
+                    }
+                    Some((left, right))
+                }
+                (
+                    TermKind::Application {
+                        symbol: left_symbol,
+                        sort_arguments: left_sorts,
+                        arguments: left_arguments,
+                    },
+                    TermKind::Application {
+                        symbol: right_symbol,
+                        sort_arguments: right_sorts,
+                        arguments: right_arguments,
+                    },
+                ) => {
+                    if !(Arc::ptr_eq(left_symbol, right_symbol) || left_symbol == right_symbol)
+                        || left_sorts != right_sorts
+                        || left_arguments.len() != right_arguments.len()
+                    {
+                        return false;
+                    }
+                    let mut pairs = left_arguments.iter().zip(right_arguments);
+                    let first = pairs.next();
+                    pending.extend(pairs);
+                    first
+                }
+                _ => return false,
             }
-            (
-                TermKind::Application {
-                    symbol: left_symbol,
-                    sort_arguments: left_sorts,
-                    arguments: left_arguments,
-                },
-                TermKind::Application {
-                    symbol: right_symbol,
-                    sort_arguments: right_sorts,
-                    arguments: right_arguments,
-                },
-            ) => {
-                pending.extend(left_arguments.iter().zip(right_arguments));
-                (Arc::ptr_eq(left_symbol, right_symbol) || left_symbol == right_symbol)
-                    && left_sorts == right_sorts
-                    && left_arguments.len() == right_arguments.len()
-            }
-            _ => false,
         };
-        if !same {
-            return false;
+        match next.or_else(|| pending.pop()) {
+            Some((next_left, next_right)) => (left, right) = (next_left, next_right),
+            None => return true,
         }
     }
-    true
 }
 
 /// Levels of argument and operand pairs [`Term::apart_with`] searches by recursion before it
@@ -2602,25 +2640,43 @@ pub(crate) enum InjectionComparison {
     Undecided,
 }
 
-/// The class of a collection key for which `structurally_distinct_after_normalization` decides
-/// distinctness from another key of the same class (`keyHeader` in the Lean model).
-#[derive(PartialEq)]
-enum KeyHeader<'a> {
-    DomainValue,
-    Injection { source: &'a Sort, target: &'a Sort },
-}
-
-fn key_header(key: &Term) -> Option<KeyHeader<'_>> {
-    match key.kind() {
-        TermKind::DomainValue { .. } => Some(KeyHeader::DomainValue),
-        TermKind::Injection {
-            source,
-            target,
-            term,
-        } if matches!(term.kind(), TermKind::DomainValue { .. }) => {
-            Some(KeyHeader::Injection { source, target })
+/// Whether `key` has a key header (`keyHeader` in the Lean model): whether it is rigid through
+/// free roots alone, every node of it a domain value, an injection, or an application of a
+/// symbol whose role is [`HeadRole::FreeConstructor`]. Its header is then its apartness skeleton
+/// ([`same_apart_skeleton`]), and two distinct keys of one header are apart for every definition
+/// and every injection callback (see [`rigid_apart_skeleton_hash`]: such a key is rigid, and a
+/// free root needs no certificate, so the class depends on the key alone).
+///
+/// One walk, the first argument of each application taken in place and the others kept on a
+/// work list, so that a key whose nodes have at most one argument each, such as a key cell
+/// `<id>(\dv{Int}("1"))`, is walked without allocating, and a key of any height takes a
+/// bounded native stack.
+fn has_key_header(key: &Term) -> bool {
+    let mut pending = Vec::new();
+    let mut node = key;
+    loop {
+        match node.kind() {
+            TermKind::DomainValue { .. } => match pending.pop() {
+                Some(next) => node = next,
+                None => return true,
+            },
+            TermKind::Injection { term, .. } => node = term,
+            TermKind::Application {
+                symbol, arguments, ..
+            } if symbol.attributes.head_role() == HeadRole::FreeConstructor => {
+                match arguments.split_first() {
+                    Some((first, others)) => {
+                        pending.extend(others);
+                        node = first;
+                    }
+                    None => match pending.pop() {
+                        Some(next) => node = next,
+                        None => return true,
+                    },
+                }
+            }
+            _ => return false,
         }
-        _ => None,
     }
 }
 
@@ -4246,6 +4302,119 @@ mod tests {
         }
     }
 
+    /// Keys rigid through free roots with one skeleton share a header, so a map or set of them
+    /// without a rest and without a repeat is `ceil_free`, read from the items' summary: key
+    /// cells `id(1)`, `id(2)`, alone, injected, or nested in another constructor. Keys of two
+    /// constructors, of one constructor over two sorts, under an equation head (`anywhere`), or
+    /// holding a variable share none.
+    #[test]
+    fn keys_of_one_free_constructor_skeleton_share_a_header() {
+        let map_definition = Arc::new(MapDefinition {
+            symbols: collection_symbols(),
+            key_sort: Sort::simple("Key"),
+            value_sort: Sort::simple("Value"),
+            map_sort: "Map".into(),
+        });
+        let set_definition = Arc::new(SetDefinition {
+            symbols: collection_symbols(),
+            element_sort: Sort::simple("Element"),
+            list_sort: "Set".into(),
+        });
+        let symbol = |name: &str, anywhere: bool| {
+            let mut symbol = Symbol::constructor(name, vec![], Sort::simple("Key"));
+            symbol.attributes = SymbolAttributes::constructor().with_anywhere(anywhere);
+            Arc::new(symbol)
+        };
+        let (id, jd, pair, tag) = (
+            symbol("id", false),
+            symbol("jd", false),
+            symbol("pair", false),
+            symbol("tag", true),
+        );
+        let apply = |symbol: &Arc<Symbol>, arguments: Vec<Term>| {
+            Term::application(symbol.clone(), vec![], arguments)
+        };
+        let int = |value: &str| Term::domain_value(Sort::simple("SortInt"), value);
+        let string = |value: &str| Term::domain_value(Sort::simple("SortString"), value);
+        let injected =
+            |term: Term| Term::injection(Sort::simple("Key"), Sort::simple("KItem"), term);
+        let cases = [
+            (
+                vec![apply(&id, vec![int("1")]), apply(&id, vec![int("2")])],
+                true,
+            ),
+            (
+                vec![
+                    injected(apply(&id, vec![int("1")])),
+                    injected(apply(&id, vec![int("2")])),
+                ],
+                true,
+            ),
+            (
+                vec![
+                    apply(&pair, vec![apply(&id, vec![int("1")]), int("1")]),
+                    apply(&pair, vec![apply(&id, vec![int("1")]), int("2")]),
+                    apply(&pair, vec![apply(&id, vec![int("2")]), int("1")]),
+                ],
+                true,
+            ),
+            (
+                vec![apply(&id, vec![int("1")]), apply(&jd, vec![int("2")])],
+                false,
+            ),
+            (
+                vec![apply(&id, vec![int("1")]), apply(&id, vec![string("2")])],
+                false,
+            ),
+            (
+                vec![apply(&tag, vec![int("1")]), apply(&tag, vec![int("2")])],
+                false,
+            ),
+            (
+                vec![
+                    apply(&id, vec![int("1")]),
+                    apply(
+                        &id,
+                        vec![Term::variable(Variable::new("X", Sort::simple("SortInt")))],
+                    ),
+                ],
+                false,
+            ),
+        ];
+        for (keys, shared) in cases {
+            let value = int("0");
+            let entries = keys
+                .iter()
+                .map(|key| (key.clone(), value.clone()))
+                .collect();
+            let map = Term::map(map_definition.clone(), entries, None);
+            let set = Term::set(set_definition.clone(), keys.clone(), None);
+            for collection in [&map, &set] {
+                let summary = match collection.kind() {
+                    TermKind::Map { entries, .. } => {
+                        entries.summary().extra.keys_share_one_header()
+                    }
+                    TermKind::Set { elements, .. } => {
+                        elements.summary().extra.keys_share_one_header()
+                    }
+                    _ => unreachable!("a map or a set"),
+                };
+                assert_eq!(summary, shared, "{keys:?}");
+                assert_eq!(collection.attributes().ceil_free(), shared, "{keys:?}");
+            }
+            // A repeated key keeps the header but not the attribute.
+            let mut twice = keys.clone();
+            twice.push(keys[0].clone());
+            let repeated = Term::set(set_definition.clone(), twice, None);
+            let TermKind::Set { elements, .. } = repeated.kind() else {
+                unreachable!("a set");
+            };
+            assert_eq!(elements.summary().extra.keys_share_one_header(), shared);
+            assert!(elements.summary().collision);
+            assert!(!repeated.attributes().ceil_free(), "{keys:?}");
+        }
+    }
+
     #[test]
     fn valid_collection_shapes_and_anywhere_certificates_keep_their_contracts() {
         let value = Term::domain_value(sort(), "1");
@@ -4291,7 +4460,7 @@ mod tests {
                 {
                     assert!(
                         !collection.attributes().ceil_free(),
-                        "concrete keys need not share a conservative KeyHeader"
+                        "keys of two constructors share no header"
                     );
                 }
             }

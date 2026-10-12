@@ -343,10 +343,10 @@ fn generated_collection_collisions_have_negative_shape_flags() {
         check_hereditary_collisions(&term, &format!("generated case {case}"), &mut coverage);
     }
     coverage.assert_covered();
-    assert_eq!(coverage.root_sets, 30);
-    assert_eq!(coverage.root_maps, 28);
-    assert_eq!(coverage.inherited, 55);
-    assert_eq!(coverage.concrete_controls, 805);
+    assert_eq!(coverage.root_sets, 25);
+    assert_eq!(coverage.root_maps, 19);
+    assert_eq!(coverage.inherited, 38);
+    assert_eq!(coverage.concrete_controls, 800);
 }
 
 /// Keys for the grouping of `collection_disequalities`: rigid keys of a few skeletons over a
@@ -797,6 +797,137 @@ fn one_undefined_item_of_a_large_collection_is_reached_without_the_others() {
             vec![crate::rule::Predicate::Ceil(undefined.clone())]
         );
         assert_eq!(obligations, ceil_term_without_attribute(&definition, &term));
+    }
+}
+
+/// A collection of 4,096 items with one undefined item, built over `item` at each position:
+/// the map binds `key(index)` to it, the set and the list hold it.
+#[cfg(debug_assertions)]
+fn collections_of(item: impl Fn(usize) -> Term) -> [Term; 3] {
+    let (map_definition, set_definition, list_definition) = collection_definitions();
+    [
+        Term::map(
+            map_definition,
+            (0..4096)
+                .map(|index| (collection_key(index), item(index)))
+                .collect(),
+            None,
+        ),
+        Term::set(set_definition, (0..4096).map(&item).collect(), None),
+        Term::list(list_definition, (0..4096).map(&item).collect(), None),
+    ]
+}
+
+/// `inj{Int, KItem}(\dv{Int}(index))`.
+#[cfg(debug_assertions)]
+fn collection_key(index: usize) -> Term {
+    let (int, kitem) = (Sort::simple("SortInt"), Sort::simple("SortKItem"));
+    Term::injection(
+        int.clone(),
+        kitem,
+        Term::domain_value(int, index.to_string()),
+    )
+}
+
+/// `partial(\dv{S}(name))`, an application of a partial function: its ceil is an obligation.
+#[cfg(debug_assertions)]
+fn undefined_item(name: &str) -> Term {
+    let (kitem, s) = (Sort::simple("SortKItem"), Sort::simple("SortS"));
+    let mut partial = Symbol::constructor("partial", vec![s.clone()], kitem);
+    partial.attributes.symbol_type =
+        crate::term::SymbolType::Function(crate::term::FunctionType::Partial);
+    Term::application(Arc::new(partial), vec![], vec![Term::domain_value(s, name)])
+}
+
+/// Debug builds: a collection that is not `ceil_free`, since it holds an undefined item the walk
+/// takes, and that also holds an item whose stored `ceil_free` attribute is wrong (an
+/// application of a partial function, forged `ceil_free`). The walk passes over the forged item
+/// through the collection's summaries, as over every other `ceil_free` item, and the debug check
+/// of the items it passes over finds the forged item's obligation. The forged item is a map
+/// value, a set element and a list item, among 4,096 items, so that it lies in a subtree the walk
+/// skips whole.
+#[cfg(debug_assertions)]
+#[test]
+fn the_debug_check_finds_a_wrong_ceil_free_item_the_walk_passes_over() {
+    let definition = definition();
+    let forged = undefined_item("forged").with_ceil_free_for_test();
+    let taken = undefined_item("taken");
+    for term in collections_of(|index| match index {
+        100 => forged.clone(),
+        3000 => taken.clone(),
+        _ => collection_key(index),
+    }) {
+        assert!(!term.attributes().ceil_free(), "{}", kind_name(&term));
+        let walked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            ceil_term(&definition, &term)
+        }));
+        let failure = walked.expect_err(kind_name(&term));
+        let message = failure
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .unwrap_or_default();
+        assert!(
+            message.starts_with("a ceil_free term has definedness obligations")
+                && message.contains("forged"),
+            "{}: {message}",
+            kind_name(&term)
+        );
+    }
+}
+
+/// Debug builds: the check of the items the walk passes over reads each tree node once. Of a map,
+/// a set and a list of 4,096 items one of which is undefined, a first walk hands over every
+/// other item; a second walk hands over only the items of the leaf it enters to reach the
+/// undefined one, the checked subtrees beside that leaf being marked; and a walk of the
+/// collection with one item added hands over, beyond those, the items of the leaves the addition
+/// built, at most two leaves' worth (`Chunked::check_passed_over`). Neither grows with the items.
+#[cfg(debug_assertions)]
+#[test]
+fn the_debug_check_of_passed_over_items_reads_what_an_edit_built() {
+    use crate::{definedness::PASSED_OVER_ITEMS, term::chunked::DEFAULT_BRANCHING};
+    let definition = definition();
+    let (map_definition, set_definition, list_definition) = collection_definitions();
+    let taken = undefined_item("taken");
+    let handed_over = |term: &Term| {
+        PASSED_OVER_ITEMS.set(0);
+        ceil_term(&definition, term);
+        PASSED_OVER_ITEMS.get()
+    };
+    for term in collections_of(|index| {
+        if index == 3000 {
+            taken.clone()
+        } else {
+            collection_key(index)
+        }
+    }) {
+        let added = collection_key(5000);
+        let edited = match term.kind() {
+            TermKind::Map { .. } => Term::map(
+                map_definition.clone(),
+                vec![(added.clone(), added)],
+                Some(term.clone()),
+            ),
+            TermKind::Set { .. } => {
+                Term::set(set_definition.clone(), vec![added], Some(term.clone()))
+            }
+            _ => Term::list(
+                list_definition.clone(),
+                vec![added],
+                Some((term.clone(), Vec::new())),
+            ),
+        };
+        let name = kind_name(&term);
+        assert_eq!(handed_over(&term), 4095, "{name}");
+        let again = handed_over(&term);
+        assert!(
+            again < DEFAULT_BRANCHING,
+            "{name}: {again} items handed over again"
+        );
+        let after_edit = handed_over(&edited);
+        assert!(
+            after_edit <= again + 2 * DEFAULT_BRANCHING,
+            "{name}: {after_edit} items handed over after one addition"
+        );
     }
 }
 

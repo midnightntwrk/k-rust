@@ -239,13 +239,9 @@ pub(super) struct CompletedNodes {
     pub(super) cycle: Option<ParseError>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct Chart {
     pub(super) states: IndexMap<State, Derivations>,
-    // Each bucket is considered once at this position. Its marker also permits omission of
-    // impossible callers that would not expand the same bucket again. Caller-specific nullable
-    // completion must still run on every request.
-    pub(super) predicted: Vec<bool>,
     pub(super) waiting: IndexMap<usize, Vec<State>>,
     pub(super) completed: IndexMap<usize, Vec<State>>,
     pub(super) agenda: Agenda,
@@ -255,7 +251,9 @@ pub(super) struct Chart {
     pub(super) popped: StateSet,
     // One completed node for each stable (sort, origin, end) chart boundary: every parse of a
     // sort over one span fits wherever that sort is expected over that span, so the parses share
-    // one packed node.
+    // one packed node. Read only while this position is dispatched and, at a position whose
+    // remaining input is layout, by the root collection; `Grammar::recognize` releases it
+    // elsewhere once the position is saturated, as it does `cycle_nodes` and the agenda.
     pub(super) completed_nodes: RefCell<IndexMap<CompletedNodeKey, Rc<CompletedNodes>>>,
     // The nodes ending here that productions flagged by `SameSpanCycles` built, each with the
     // building production; the entry keeps its node alive so the address stays unique.
@@ -266,28 +264,7 @@ pub(super) struct Chart {
     pub(super) layout_start: Option<usize>,
 }
 
-impl Default for Chart {
-    fn default() -> Self {
-        Self::new(0)
-    }
-}
-
 impl Chart {
-    pub(super) fn new(sort_count: usize) -> Self {
-        Self {
-            states: IndexMap::default(),
-            predicted: vec![false; sort_count],
-            waiting: IndexMap::default(),
-            completed: IndexMap::default(),
-            agenda: Agenda::default(),
-            #[cfg(any(test, feature = "measure"))]
-            popped: StateSet::default(),
-            completed_nodes: RefCell::new(IndexMap::default()),
-            cycle_nodes: RefCell::new(IndexMap::default()),
-            layout_start: None,
-        }
-    }
-
     /// The span of the text of a node completed at this chart's position `end` from `origin`:
     /// from the start of its first token to the end of its last, as input offsets.
     ///
@@ -370,7 +347,10 @@ pub(super) enum Derivations {
     #[default]
     Empty,
     One(Derivation),
-    Many(BTreeSet<Derivation>),
+    // Boxed: most items have one derivation, and the chart's state maps store this value inline
+    // for every item, so the set's own fields would widen every entry.
+    #[allow(clippy::box_collection)]
+    Many(Box<BTreeSet<Derivation>>),
 }
 
 impl Derivations {
@@ -394,7 +374,7 @@ impl Derivations {
                 if derivation_covers(&candidate, &existing) {
                     Self::One(candidate)
                 } else {
-                    let mut stored = BTreeSet::from([existing, candidate]);
+                    let mut stored = Box::new(BTreeSet::from([existing, candidate]));
                     factor_derivations(&mut stored);
                     Self::from_set(stored)
                 }
@@ -408,7 +388,8 @@ impl Derivations {
         };
     }
 
-    fn from_set(mut stored: BTreeSet<Derivation>) -> Self {
+    #[allow(clippy::box_collection)]
+    fn from_set(mut stored: Box<BTreeSet<Derivation>>) -> Self {
         if stored.len() == 1 {
             Self::One(stored.pop_first().expect("one derivation exists"))
         } else if stored.is_empty() {
@@ -501,7 +482,7 @@ impl IntoIterator for Derivations {
         match self {
             Self::Empty => DerivationIntoIter::Empty,
             Self::One(derivation) => DerivationIntoIter::One(Some(derivation)),
-            Self::Many(derivations) => DerivationIntoIter::Many(derivations.into_iter()),
+            Self::Many(derivations) => DerivationIntoIter::Many((*derivations).into_iter()),
         }
     }
 }
@@ -1023,7 +1004,7 @@ mod tests {
             dot: 1,
             origin: 0,
         };
-        let mut chart = Chart::new(grammar.sorts.len());
+        let mut chart = Chart::default();
         grammar
             .add_chart_state(&mut chart, state, [derivation(variable("A"))])
             .unwrap();

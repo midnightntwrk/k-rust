@@ -1,7 +1,9 @@
 //! The memory this process is allowed, read once per run.
 //!
 //! A hook whose result size an argument's value sets (`padRightBytes`, `padLeftBytes`,
-//! `Int2Bytes`, `makeList`; `^Int` and `<<Int` keep their own bound, `MAX_INT_RESULT_BITS`) may
+//! `Int2Bytes`; `^Int` and `<<Int` keep their own bound, `MAX_INT_RESULT_BITS`, and `makeList`
+//! shares one node between the equal subtrees of its copies, so its memory does not grow with
+//! its length) may
 //! be asked for a result no allocation can hold. The allowance is the line against which such a
 //! result is judged: the smallest of the limits the operating system enforces on this process,
 //! each of which turns an allocation above it into a failed allocation or a killed process.

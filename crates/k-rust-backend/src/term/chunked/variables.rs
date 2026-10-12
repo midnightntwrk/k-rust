@@ -20,7 +20,9 @@
 //! backing and the backing is not part of the set's value.
 //!
 //! A union whose largest operand is a tree inserts the other operands' missing variables into
-//! that tree, each by a path copy: `O(m log V)` for the `m` variables outside it, among `V`. A
+//! that tree in one batch ([`Chunked::add_by_key`]): each node whose range receives some of the
+//! `m` variables outside it is copied once, at most `O(m log V)` nodes among `V` and as few as a
+//! path when they fall together. A
 //! union whose largest operand is a slice has at most `B` variables per operand and nothing large
 //! to share, so it merges the operands' variables into one sorted sequence.
 //!
@@ -136,6 +138,19 @@ impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
         }
     }
 
+    /// The greatest variable, in constant time: a tree's root summary keeps its last entry.
+    #[inline]
+    pub(crate) fn last(&self) -> Option<&V> {
+        match &self.backing {
+            Backing::Empty => None,
+            Backing::Slice(variables) => variables.last(),
+            Backing::Tree(entries) => entries
+                .summary()
+                .and_then(|summary| summary.last.as_ref())
+                .map(|entry| &entry.element),
+        }
+    }
+
     /// Whether the set holds `variable`, in time logarithmic in its size.
     #[inline]
     pub(crate) fn contains(&self, variable: &V) -> bool {
@@ -237,7 +252,7 @@ impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
 /// operand holds, and then:
 ///
 /// - when none is left, returns the largest operand's handle;
-/// - when the largest operand is a tree, inserts each one left into it, by a path copy;
+/// - when the largest operand is a tree, inserts the ones left into it in one batch;
 /// - otherwise (every operand has at most `B` variables) merges the ones left with the largest
 ///   operand's into one ordered sequence.
 ///
@@ -295,15 +310,14 @@ impl<'a, V: Ord + Clone + Hash + fmt::Debug, const B: usize> Union<'a, V, B> {
         others.dedup();
         match &largest.backing {
             Backing::Tree(entries) => {
-                let mut entries = entries.clone();
-                for element in others {
-                    let index = entries
-                        .search(&element)
-                        .expect_err("a variable the largest operand lacks");
-                    entries = entries.insert_at(index, Occurrences { element, count: 1 });
-                }
+                let added = others
+                    .into_iter()
+                    .map(|element| Occurrences { element, count: 1 })
+                    .collect::<Vec<_>>();
                 Variables {
-                    backing: Backing::Tree(entries),
+                    backing: Backing::Tree(
+                        entries.add_by_key(&added, |_, _| unreachable!("a variable it lacks")),
+                    ),
                 }
             }
             Backing::Empty | Backing::Slice(_) => {

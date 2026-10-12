@@ -10,7 +10,7 @@
 //! ```toml algorithm
 //! id = "backend.term.chunked"
 //! name = "persistent B+-tree of item chunks with monoid summaries per node"
-//! sites = ["Chunked", "Chunked::from_vec", "Chunked::get", "Chunked::search", "Chunked::search_by", "Chunked::iter", "Chunked::aligned", "Chunked::eq_by", "Chunked::cmp_by", "Chunked::drop", "NodeSummary", "SequenceHash", "Dismantle"]
+//! sites = ["Chunked", "Chunked::from_vec", "Chunked::repeat", "Chunked::get", "Chunked::search", "Chunked::search_by", "Chunked::iter", "Chunked::aligned", "Chunked::eq_by", "Chunked::cmp_by", "Chunked::drop", "NodeSummary", "SequenceHash", "Dismantle"]
 //! variable = "n = items of the tree (of the larger operand of a join or union); k = items of the smaller operand of a union; s = items a seek wants; u = items a rebuild changes; D = items of two compared versions outside the nodes they share; d = distinct variables of the items an edit adds or removes; V = distinct variables of the tree's items; m = variables of a union of variable sets outside its largest operand. The branching factor B is a constant (32 for collection items, 64 for variable trees), so a node is O(1) work"
 //! counters = []
 //! no_counter = "a tree operation is part of the hook, match, substitution or simplification that calls it, which carry the counters; test builds bound the summaries an operation computes (entry and multiset-entry counts), and tests/size_weighted_growth.rs bounds the bytes a rewrite step allocates on a larger collection"
@@ -58,8 +58,16 @@
 //! bound = "O(n)"
 //!
 //! [[cost]]
+//! mode = "bulk load of n copies of one item (LIST.make)"
+//! bound = "O(log² n) nodes, each a node of the tree from_vec builds of the copies"
+//!
+//! [[cost]]
 //! mode = "variable set of a term built above its children (Variables, Union)"
-//! bound = "O(1) when one child holds them all; O(m log V) when the largest child's set is a tree; O(V) merge when every operand has at most B variables"
+//! bound = "O(1) when one child holds them all; when the largest child's set is a tree, its nodes whose range receives some of the m variables outside it, each copied once (at most O(m log V), one path when they fall together); O(V) merge when every operand has at most B variables"
+//!
+//! [[cost]]
+//! mode = "combine or subtract two variable multisets (a group summary's difference; Chunked::add_by_key, Chunked::reduce_by_key)"
+//! bound = "the lighter one's k entries, plus the heavier one's nodes whose range holds one of them, each copied once (at most O(k log(n/k + 1))), and for a subtraction one spine of O(log n) nodes per node left below the fill minimum"
 //! ```
 //!
 //! Every operation is persistent: it returns new trees and leaves its operands valid, sharing
@@ -135,7 +143,10 @@
 //! keys alone, and give the repeated-key flag at a junction.
 //!
 //! All fields but the group summary have a constant size, and a copied node recomputes them from
-//! its children. The group summary can grow with the items (the variables they mention), so a
+//! its children or items; a leaf edited in one run, of items whose own summary is the unit (the
+//! entries of a variable multiset), derives them from the leaf it replaces and the run instead,
+//! so a one-entry edit hashes the entries on the shorter side of it, not all of the leaf's
+//! ([`NodeSummary::of_edited_items`]). The group summary can grow with the items (the variables they mention), so a
 //! copied node gets it by difference from the node it replaces: [`Group`] says when and why
 //! that is exact, and [`edit`] and [`seek`] which operations do so.
 //!
@@ -225,9 +236,16 @@ pub(crate) trait Summary: Clone + PartialEq + fmt::Debug {
     /// The summary of the items `self` summarizes followed by those `right` summarizes.
     #[must_use]
     fn combine(self, right: &Self) -> Self;
+
+    /// Whether every value is the identity, so a node's summary is known without its items'
+    /// (the unit summary). An edited leaf of such items derives its node summary from the
+    /// replaced leaf's ([`NodeSummary::of_edited_items`]); any other item summary is refolded.
+    const CONSTANT: bool = false;
 }
 
 impl Summary for () {
+    const CONSTANT: bool = true;
+
     fn identity() -> Self {}
 
     fn combine(self, _right: &Self) -> Self {}
@@ -309,10 +327,13 @@ const MODULUS: u64 = (1 << 61) - 1;
 /// The radix `r` of [`SequenceHash`]: a fixed residue other than 0 and 1.
 const RADIX: u64 = 0x1f3d_5b79_a2c4_e681 % MODULUS;
 
+/// The inverse of [`RADIX`] modulo the prime [`MODULUS`]: `r^(p-2)`, by Fermat's little theorem.
+const INVERSE_RADIX: u64 = power(RADIX, MODULUS - 2);
+
 /// `x` modulo [`MODULUS`], for `x < 2^122`. Since `2^61 = 1` modulo `2^61 - 1`, adding the bits
 /// above position 61 to the bits below it keeps the residue.
-fn reduce(x: u128) -> u64 {
-    let modulus = u128::from(MODULUS);
+const fn reduce(x: u128) -> u64 {
+    let modulus = MODULUS as u128;
     // Below 2^61 + 2^61: both halves are below 2^61 since x < 2^122.
     let folded = ((x & modulus) + (x >> 61)) as u64;
     let folded = (folded & MODULUS) + (folded >> 61);
@@ -323,13 +344,35 @@ fn reduce(x: u128) -> u64 {
     }
 }
 
-fn multiply(left: u64, right: u64) -> u64 {
-    reduce(u128::from(left) * u128::from(right))
+const fn multiply(left: u64, right: u64) -> u64 {
+    reduce(left as u128 * right as u128)
 }
 
 fn add(left: u64, right: u64) -> u64 {
     let sum = left + right;
     if sum >= MODULUS { sum - MODULUS } else { sum }
+}
+
+/// `left - right` modulo [`MODULUS`], for residues `left` and `right`.
+fn difference(left: u64, right: u64) -> u64 {
+    if left >= right {
+        left - right
+    } else {
+        left + MODULUS - right
+    }
+}
+
+/// `base^exponent` modulo [`MODULUS`], by squaring: `O(log exponent)` multiplications.
+const fn power(base: u64, mut exponent: u64) -> u64 {
+    let (mut result, mut square) = (1, base);
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = multiply(result, square);
+        }
+        square = multiply(square, square);
+        exponent >>= 1;
+    }
+    result
 }
 
 /// An item's hash spread over all 64 bits (the finalizer of SplitMix64), then reduced: item
@@ -366,6 +409,22 @@ impl SequenceHash {
 
     pub(crate) fn value(self) -> u64 {
         self.value
+    }
+
+    /// The hash of `items`, one item hash each.
+    fn of_items<I: Item>(items: &[I]) -> Self {
+        items.iter().fold(Self::EMPTY, |hash, item| {
+            hash.combine(&Self::of_item(item.hash64()))
+        })
+    }
+
+    /// The hash of a sequence of `length` items whose value is `value`, known as a difference
+    /// of other sequences' values.
+    fn of_value(value: u64, length: usize) -> Self {
+        Self {
+            value,
+            power: power(RADIX, length as u64),
+        }
     }
 }
 
@@ -432,12 +491,87 @@ impl<I: Item> NodeSummary<I> {
             collision: items
                 .windows(2)
                 .any(|pair| collides(Some(&pair[0]), Some(&pair[1]))),
-            hash: items.iter().fold(SequenceHash::EMPTY, |hash, item| {
-                hash.combine(&SequenceHash::of_item(item.hash64()))
-            }),
+            hash: SequenceHash::of_items(items),
             extra: items.iter().fold(I::Summary::identity(), |extra, item| {
                 extra.combine(&item.summary())
             }),
+            group,
+        }
+    }
+
+    /// The summary of `items`, which are `old`'s, the items of a leaf whose summary is
+    /// `summary`, with all but the first `prefix` and the last `suffix` replaced; `group` is the
+    /// group summary of `items`.
+    ///
+    /// When the item summary is [`CONSTANT`](Summary::CONSTANT) and `old` has no repeated key,
+    /// the summary is derived from `summary` and the items an edit touches, so a one-item edit
+    /// of a full leaf hashes a few items instead of all of them. Only the pairs at the replaced
+    /// run and its two junctions are new, so they alone can repeat a key. With `P`, `S` the
+    /// kept prefix and suffix and `R`, `A` the removed and added runs, `h(P ++ R ++ S) =
+    /// h(P)·r^(|R|+|S|) + h(R ++ S)`: the shorter of `P` and `S` is hashed, and the other part's
+    /// value is that of the old sequence less the hashed parts', shifted by the length change.
+    /// The work is the runs' lengths plus the shorter kept part's; when that is not below the
+    /// leaf's length, the items are folded as [`of_items_with`](Self::of_items_with) folds them.
+    fn of_edited_items(
+        old: &[I],
+        summary: &Self,
+        items: &[I],
+        (prefix, suffix): (usize, usize),
+        group: I::Group,
+    ) -> Self {
+        let removed = &old[prefix..old.len() - suffix];
+        let added = &items[prefix..items.len() - suffix];
+        if !I::Summary::CONSTANT
+            || summary.collision
+            || removed.len() + added.len() + prefix.min(suffix) >= items.len()
+        {
+            return Self::of_items_with(items, group);
+        }
+        let (removed_hash, added_hash) = (
+            SequenceHash::of_items(removed),
+            SequenceHash::of_items(added),
+        );
+        let hash = if prefix <= suffix {
+            let head = SequenceHash::of_items(&items[..prefix]);
+            // h(old) = h(P ++ R)·r^|S| + h(S).
+            let tail = SequenceHash::of_value(
+                difference(
+                    summary.hash.value,
+                    multiply(
+                        head.combine(&removed_hash).value,
+                        power(RADIX, suffix as u64),
+                    ),
+                ),
+                suffix,
+            );
+            head.combine(&added_hash).combine(&tail)
+        } else {
+            let tail = SequenceHash::of_items(&items[items.len() - suffix..]);
+            // h(P)·r^(|R|+|S|) = h(old) - h(R ++ S), and h(P)·r^(|A|+|S|) is that times
+            // r^|A| / r^|R|.
+            let head = multiply(
+                multiply(
+                    difference(summary.hash.value, removed_hash.combine(&tail).value),
+                    power(RADIX, added.len() as u64),
+                ),
+                power(INVERSE_RADIX, removed.len() as u64),
+            );
+            SequenceHash {
+                value: add(head, added_hash.combine(&tail).value),
+                power: power(RADIX, items.len() as u64),
+            }
+        };
+        let junctions =
+            &items[prefix.saturating_sub(1)..(items.len() - suffix + 1).min(items.len())];
+        Self {
+            count: items.len(),
+            first: items.first().cloned(),
+            last: items.last().cloned(),
+            collision: junctions
+                .windows(2)
+                .any(|pair| collides(Some(&pair[0]), Some(&pair[1]))),
+            hash,
+            extra: I::Summary::identity(),
             group,
         }
     }
@@ -453,7 +587,12 @@ impl<I: Item> NodeSummary<I> {
     /// The fold of the children's summaries, but for the group summary, which is `group`.
     fn of_children_with(children: &[Arc<Node<I>>], group: I::Group) -> Self {
         Self {
-            count: children.iter().map(|child| child.summary().count).sum(),
+            count: children
+                .iter()
+                .try_fold(0_usize, |count, child| {
+                    count.checked_add(child.summary().count)
+                })
+                .expect(SEQUENCE_COUNT_OVERFLOW),
             first: children
                 .first()
                 .and_then(|child| child.summary().first.clone()),
@@ -488,6 +627,11 @@ impl<I: Item> NodeSummary<I> {
     }
 }
 
+/// A sequence counts its items in a `usize`, so a join whose count would pass `usize::MAX`
+/// has no count to give: it stops the run rather than wrap to a length the items do not have
+/// (a list of `usize::MAX` copies from `makeList` reaches it in one concatenation).
+const SEQUENCE_COUNT_OVERFLOW: &str = "a sequence of more than usize::MAX items";
+
 impl<I: Item> Summary for NodeSummary<I> {
     fn identity() -> Self {
         Self {
@@ -503,7 +647,10 @@ impl<I: Item> Summary for NodeSummary<I> {
 
     fn combine(self, right: &Self) -> Self {
         Self {
-            count: self.count + right.count,
+            count: self
+                .count
+                .checked_add(right.count)
+                .expect(SEQUENCE_COUNT_OVERFLOW),
             collision: self.collision
                 || right.collision
                 || collides(self.last.as_ref(), right.first.as_ref()),
@@ -522,6 +669,7 @@ enum Node<I: Item> {
     Leaf {
         items: Vec<I>,
         summary: NodeSummary<I>,
+        #[cfg(debug_assertions)]
         checked: Checked,
     },
     Internal {
@@ -529,17 +677,21 @@ enum Node<I: Item> {
         height: usize,
         children: Vec<Arc<Node<I>>>,
         summary: NodeSummary<I>,
+        #[cfg(debug_assertions)]
         checked: Checked,
     },
 }
 
 /// Debug builds: whether the one check that reads it, `definedness::check_ceil_free`, has passed
-/// the items below a node and the pairs of adjacent items there ([`Chunked::check_unchecked`]),
-/// so that a later check of a tree sharing the node skips it (a list's check has no pair
-/// condition: `definedness::check_list_items`); nothing in other builds. A node is never changed once built, so the mark stays
-/// true of it. The mark is not part of the node's value: a copy of a node is built unmarked.
+/// the items below a node and the pairs of adjacent items there ([`Chunked::check_unchecked`],
+/// and [`Chunked::check_passed_over`] at the subtrees the definedness walk skips), so that a
+/// later check of a tree sharing the node skips it (a list's check has no pair condition:
+/// `definedness::check_list_items`); other builds have neither the check nor the field. A node is
+/// never changed once built, so the mark stays true of it. The mark is not part of the node's
+/// value: a copy of a node is built unmarked.
+#[cfg(debug_assertions)]
 #[derive(Default)]
-struct Checked(#[cfg(debug_assertions)] std::sync::atomic::AtomicBool);
+struct Checked(std::sync::atomic::AtomicBool);
 
 #[cfg(test)]
 thread_local! {
@@ -563,6 +715,7 @@ impl<I: Item> Node<I> {
         Self::Leaf {
             items,
             summary,
+            #[cfg(debug_assertions)]
             checked: Checked::default(),
         }
     }
@@ -575,6 +728,7 @@ impl<I: Item> Node<I> {
             height,
             children,
             summary,
+            #[cfg(debug_assertions)]
             checked: Checked::default(),
         }
     }
@@ -585,6 +739,28 @@ impl<I: Item> Node<I> {
         Self::Leaf {
             items,
             summary,
+            #[cfg(debug_assertions)]
+            checked: Checked::default(),
+        }
+    }
+
+    /// A leaf whose group summary the caller knows, holding `items`, which are those of the leaf
+    /// `old` with all but the first `kept.0` and the last `kept.1` replaced
+    /// ([`NodeSummary::of_edited_items`]).
+    fn leaf_edited(old: &Self, items: Vec<I>, kept: (usize, usize), group: I::Group) -> Self {
+        let Self::Leaf {
+            items: old,
+            summary,
+            ..
+        } = old
+        else {
+            unreachable!("an edited leaf replaces a leaf")
+        };
+        let summary = NodeSummary::of_edited_items(old, summary, &items, kept, group);
+        Self::Leaf {
+            items,
+            summary,
+            #[cfg(debug_assertions)]
             checked: Checked::default(),
         }
     }
@@ -599,6 +775,7 @@ impl<I: Item> Node<I> {
             height,
             children,
             summary,
+            #[cfg(debug_assertions)]
             checked: Checked::default(),
         }
     }
@@ -642,35 +819,117 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         mut items: impl FnMut(&'t [I]),
         mut adjacent: impl FnMut(&'t I, &'t I),
     ) -> Unchecked<'t, I> {
-        use std::sync::atomic::Ordering::Relaxed;
-        let mut pending = self.root.iter().collect::<Vec<_>>();
         let mut visited = Vec::new();
-        while let Some(node) = pending.pop() {
+        if let Some(root) = &self.root {
+            check_subtree(root, &mut items, &mut adjacent, &mut visited);
+        }
+        Unchecked(visited)
+    }
+
+    /// Hand to `passed` the items a descent by `seek` ([`Chunked::seek`]) passes over without
+    /// reading them: every item of a subtree the seek does not admit, and each item of an
+    /// admitted leaf that it does not want. Within each subtree not admitted, the pairs of
+    /// adjacent items go to `apart`, as [`check_unchecked`](Self::check_unchecked) hands them
+    /// over; a node marked checked is skipped with everything below it, there and at the admitted
+    /// nodes. Returned, for the caller to mark once the items have passed, are the nodes of each
+    /// subtree not admitted in which `apart` accepted every pair. An admitted node is never
+    /// returned: it holds an item the descent reads, which a check of the items passed over does
+    /// not reach.
+    ///
+    /// The seek decides which subtrees it skips from their summaries alone, so a summary that
+    /// claimed of a subtree what one of its items does not satisfy would hide that item from the
+    /// descent; handing the subtree's items over lets the caller check the claim on each of them.
+    /// Once a subtree not admitted has passed and is marked, a later descent of a tree sharing it
+    /// skips it again without a check, so a tree edited since its last check hands over the
+    /// nodes the edits built and the leaves the descent enters.
+    pub(crate) fn check_passed_over<'t, S: seek::Seek<I>>(
+        &'t self,
+        seek: &S,
+        mut passed: impl FnMut(&'t I),
+        mut apart: impl FnMut(&'t I, &'t I) -> bool,
+    ) -> Unchecked<'t, I> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut pending = self.root.iter().map(|root| (root, 0)).collect::<Vec<_>>();
+        let mut visited = Vec::new();
+        while let Some((node, start)) = pending.pop() {
             if node.checked().load(Relaxed) {
                 continue;
             }
+            if !seek.admits(start, node.summary()) {
+                let mut every_pair_apart = true;
+                let mut subtree = Vec::new();
+                check_subtree(
+                    node,
+                    &mut |items: &'t [I]| items.iter().for_each(&mut passed),
+                    &mut |left, right| {
+                        every_pair_apart = every_pair_apart && apart(left, right);
+                    },
+                    &mut subtree,
+                );
+                if every_pair_apart {
+                    visited.append(&mut subtree);
+                }
+                continue;
+            }
             match &**node {
-                Node::Leaf { items: leaf, .. } => {
-                    items(leaf);
-                    for pair in leaf.windows(2) {
-                        adjacent(&pair[0], &pair[1]);
+                Node::Leaf { items, .. } => {
+                    for (offset, item) in items.iter().enumerate() {
+                        if !seek.wants(start + offset, item) {
+                            passed(item);
+                        }
                     }
                 }
                 Node::Internal { children, .. } => {
-                    for pair in children.windows(2) {
-                        let (Some(last), Some(first)) =
-                            (&pair[0].summary().last, &pair[1].summary().first)
-                        else {
-                            unreachable!("a node has items")
-                        };
-                        adjacent(last, first);
+                    let mut position = start;
+                    for child in children {
+                        pending.push((child, position));
+                        position += child.summary().count;
                     }
-                    pending.extend(children);
                 }
             }
-            visited.push(node);
         }
         Unchecked(visited)
+    }
+}
+
+/// Debug builds: [`Chunked::check_unchecked`] below `root`, appending the nodes visited to
+/// `visited`.
+#[cfg(debug_assertions)]
+fn check_subtree<'t, I: Item>(
+    root: &'t Arc<Node<I>>,
+    items: &mut impl FnMut(&'t [I]),
+    adjacent: &mut impl FnMut(&'t I, &'t I),
+    visited: &mut Vec<&'t Arc<Node<I>>>,
+) {
+    use std::sync::atomic::Ordering::Relaxed;
+    // A node shared by several positions of the subtree (`Chunked::repeat`) holds the same items
+    // and pairs at each of them, so it is handed over once.
+    let mut seen = std::collections::HashSet::new();
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        if node.checked().load(Relaxed) || !seen.insert(Arc::as_ptr(node)) {
+            continue;
+        }
+        match &**node {
+            Node::Leaf { items: leaf, .. } => {
+                items(leaf);
+                for pair in leaf.windows(2) {
+                    adjacent(&pair[0], &pair[1]);
+                }
+            }
+            Node::Internal { children, .. } => {
+                for pair in children.windows(2) {
+                    let (Some(last), Some(first)) =
+                        (&pair[0].summary().last, &pair[1].summary().first)
+                    else {
+                        unreachable!("a node has items")
+                    };
+                    adjacent(last, first);
+                }
+                pending.extend(children);
+            }
+        }
+        visited.push(node);
     }
 }
 
@@ -704,15 +963,31 @@ impl<I: Item> Unchecked<'_, I> {
 /// `p·(min+1)..=p·(b-1)`, two parts start at `2·min + 2 <= b + 1`, and the ranges of `p` and
 /// `p + 1` parts (`p >= 2`) meet, since `p·(b - 1) + 1 >= p·2·min + 1 >= (p + 1)·(min + 1)`.
 fn even_parts(n: usize, b: usize, min: usize, target: usize) -> impl Iterator<Item = usize> {
+    let (parts, base, longer) = even_cut(n, b, min, target);
+    (0..parts).map(move |part| base + usize::from(part < longer))
+}
+
+/// [`even_parts`] as runs of equal parts, `(size, number of parts)` in order: the longer parts
+/// first, then the shorter ones; either run may hold no parts.
+fn even_part_runs(n: usize, b: usize, min: usize, target: usize) -> [(usize, usize); 2] {
+    let (parts, base, longer) = even_cut(n, b, min, target);
+    [(base + 1, longer), (base, parts - longer)]
+}
+
+/// The cut [`even_parts`] makes: the number of parts, the size of the shorter parts, and the
+/// number of parts one longer than that, which come first.
+fn even_cut(n: usize, b: usize, min: usize, target: usize) -> (usize, usize, usize) {
     let parts = if n <= b {
         n.min(1)
     } else {
-        ((n + target / 2) / target).clamp(n.div_ceil(b - 1), n / (min + 1))
+        // `n / target` rounded to the nearest, without overflowing at `usize::MAX` items.
+        let nearest = n / target + (n % target + target / 2) / target;
+        nearest.clamp(n.div_ceil(b - 1), n / (min + 1))
     };
     // No parts (and no division) for nothing.
     let base = n.checked_div(parts).unwrap_or(0);
     let longer = n.checked_rem(parts).unwrap_or(0);
-    (0..parts).map(move |part| base + usize::from(part < longer))
+    (parts, base, longer)
 }
 
 /// A persistent sequence of items in a B-tree of branching factor `B`; see the module
@@ -763,6 +1038,83 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                 .collect();
         }
         Self { root: level.pop() }
+    }
+
+    /// The sequence of `count` copies of `item`, in the shape [`from_vec`](Self::from_vec) gives
+    /// it, built in `O(log² count)` nodes: one node stands for every subtree that holds the same
+    /// items in the same shape, so the tree of `count` copies holds `O(log² count)` nodes where
+    /// loading the copies one by one fills `count / B` leaves.
+    ///
+    /// `from_vec` cuts each level into parts of two sizes, the longer ones first
+    /// ([`even_part_runs`]). Each level is built here as runs of one node repeated: the parts of
+    /// one size that lie within one run are one node, built once, and a part holding a junction
+    /// of two runs is built on its own. The leaves are two nodes, with one junction. A cluster of
+    /// adjacent junctions spanning at most two nodes falls within at most two parts of the level
+    /// above (a part spans at least three), so it stays a cluster of at most two mixed nodes; and
+    /// each level adds one junction, its switch of part size. So the level at height `h` holds
+    /// at most `h + 1` clusters and the runs between them: at most `3h + 4` distinct nodes
+    /// (`repeating_an_item_shares_its_nodes` checks it, and finds at most four).
+    pub(crate) fn repeat(item: &I, count: usize) -> Self {
+        let target = Self::FILL_TARGET;
+        let mut level: Vec<(Arc<Node<I>>, usize)> =
+            even_part_runs(count, B, Self::MIN_FILL, target)
+                .into_iter()
+                .filter(|&(_, parts)| parts > 0)
+                .map(|(size, parts)| (Arc::new(Node::leaf(vec![item.clone(); size])), parts))
+                .collect();
+        let mut height = 0;
+        while level.iter().map(|(_, copies)| copies).sum::<usize>() > 1 {
+            height += 1;
+            level = Self::group_runs(height, level);
+        }
+        Self {
+            root: level.pop().map(|(node, _)| node),
+        }
+    }
+
+    /// The level above `runs` (nodes of height `height - 1`, each repeated the given number of
+    /// times), cut as [`from_vec`](Self::from_vec) cuts it, as runs of nodes of height `height`.
+    fn group_runs(height: usize, runs: Vec<(Arc<Node<I>>, usize)>) -> Vec<(Arc<Node<I>>, usize)> {
+        let nodes = runs.iter().map(|(_, copies)| copies).sum();
+        let mut runs = runs.into_iter();
+        // The run being consumed and the copies of its node not yet placed.
+        let mut current: Option<(Arc<Node<I>>, usize)> = None;
+        let mut level = Vec::new();
+        for (size, mut parts) in even_part_runs(nodes, B, Self::MIN_FILL, Self::FILL_TARGET) {
+            while parts > 0 {
+                let (node, left) =
+                    current.get_or_insert_with(|| runs.next().expect("the parts cover the level"));
+                if *left >= size {
+                    // Parts within the run: one node, repeated.
+                    let copies = (*left / size).min(parts);
+                    level.push((
+                        Arc::new(Node::internal(height, vec![node.clone(); size])),
+                        copies,
+                    ));
+                    *left -= copies * size;
+                    parts -= copies;
+                    if *left == 0 {
+                        current = None;
+                    }
+                    continue;
+                }
+                // One part straddling runs.
+                let mut children = Vec::with_capacity(size);
+                while children.len() < size {
+                    let (node, left) = current
+                        .get_or_insert_with(|| runs.next().expect("the parts cover the level"));
+                    let take = (*left).min(size - children.len());
+                    children.extend(std::iter::repeat_n(node.clone(), take));
+                    *left -= take;
+                    if *left == 0 {
+                        current = None;
+                    }
+                }
+                level.push((Arc::new(Node::internal(height, children)), 1));
+                parts -= 1;
+            }
+        }
+        level
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -898,14 +1250,6 @@ impl<I: Item, const B: usize> Chunked<I, B> {
     #[cfg(test)]
     pub(crate) fn levels(&self) -> usize {
         self.root.as_ref().map_or(0, |root| root.height() + 1)
-    }
-
-    /// Whether the sequence is a single leaf: not empty, and at most `B` items with no node
-    /// above them.
-    pub(crate) fn is_one_leaf(&self) -> bool {
-        self.root
-            .as_ref()
-            .is_some_and(|root| matches!(**root, Node::Leaf { .. }))
     }
 
     /// Whether this is the only handle of the root: dropping it then frees the root, and the

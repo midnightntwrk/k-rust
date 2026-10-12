@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
-//! bound = "one RequestNames::state_key per leaf (backend.fresh.variables) and O(L^2) key comparisons"
+//! bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key per such leaf (backend.fresh.variables) and O(L^2) key comparisons"
 //!
 //! [[cost]]
 //! mode = "trace storage with retain_trace false"
@@ -1319,18 +1319,34 @@ fn final_leaves(
 /// leaf keeps its own trace, branch, and diagnostics: they describe the one path the leaf
 /// reports, and the merged paths ended in the same configuration, so whether that
 /// configuration is normalized is the same for each.
+///
+/// A key only tells a leaf apart from the other leaves that carry a configuration, so with
+/// fewer than two such leaves no key is computed: a state key renames every variable the
+/// request does not name, and an execution that keeps introducing variables ends with a leaf
+/// holding all of them.
 fn merge_equal_final_leaves(
     request: &RequestNames,
     leaves: Vec<ExecutionLeaf>,
 ) -> Vec<ExecutionLeaf> {
+    let carries_configuration = |leaf: &ExecutionLeaf| {
+        !matches!(
+            leaf.halt_reason,
+            HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
+        )
+    };
+    if leaves
+        .iter()
+        .filter(|leaf| carries_configuration(leaf))
+        .nth(1)
+        .is_none()
+    {
+        return leaves;
+    }
     let mut seen = Vec::new();
     leaves
         .into_iter()
         .filter(|leaf| {
-            if matches!(
-                leaf.halt_reason,
-                HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
-            ) {
+            if !carries_configuration(leaf) {
                 return true;
             }
             let key = (
@@ -2055,6 +2071,56 @@ mod tests {
                 HaltReason::Stuck,
                 HaltReason::DepthBound
             ]
+        );
+    }
+
+    // A key is computed only to compare a leaf with another one carrying a configuration: a
+    // leaf beside trivial or vacuous ones (which carry none) gets none, two such leaves get one
+    // each. Seeded: computing the key of every leaf makes the first count 1.
+    #[test]
+    fn a_final_leaf_alone_among_configurations_gets_no_state_key() {
+        let definition = definition("");
+        let leaf = |name, halt_reason| ExecutionLeaf {
+            pattern: subject(&definition, name),
+            depth: 1,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+            effects: Vec::new(),
+            io: ExecutionIoState::default(),
+            halt_reason,
+            diagnostics: Vec::new(),
+        };
+        let vacuous = HaltReason::Vacuous {
+            depth: 1,
+            rule_id: None,
+            label: None,
+            constraint: Predicate::False,
+            contradicted_total: None,
+        };
+        let keys = |leaves| {
+            let before = crate::fresh::STATE_KEYS.with(std::cell::Cell::get);
+            let kept = merge_equal_final_leaves(&RequestNames::default(), leaves).len();
+            (
+                kept,
+                crate::fresh::STATE_KEYS.with(std::cell::Cell::get) - before,
+            )
+        };
+
+        assert_eq!(
+            keys(vec![
+                leaf("stuck", HaltReason::Stuck),
+                leaf("vacuous", vacuous.clone())
+            ]),
+            (2, 0)
+        );
+        assert_eq!(keys(vec![leaf("stuck", HaltReason::Stuck)]), (1, 0));
+        assert_eq!(
+            keys(vec![
+                leaf("same", HaltReason::Stuck),
+                leaf("same", HaltReason::DepthBound)
+            ]),
+            (1, 2)
         );
     }
 

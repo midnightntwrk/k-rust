@@ -247,6 +247,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         match node {
             Node::Leaf { items, summary, .. } => {
                 let mut replaced: Option<Vec<I>> = None;
+                let first = changed.len();
                 let mut removed = Vec::new();
                 let mut added = Vec::new();
                 for (offset, item) in items.iter().enumerate() {
@@ -261,12 +262,16 @@ impl<I: Item, const B: usize> Chunked<I, B> {
                     }
                 }
                 let items = replaced?;
+                let kept = (
+                    changed[first] - position,
+                    position + items.len() - 1 - changed[changed.len() - 1],
+                );
                 let difference = Difference {
                     removed: fold_groups(removed),
                     added: fold_groups(added),
                 };
                 let group = difference.apply(&summary.group);
-                Some((Node::leaf_with(items, group), difference))
+                Some((Node::leaf_edited(node, items, kept, group), difference))
             }
             Node::Internal {
                 height,

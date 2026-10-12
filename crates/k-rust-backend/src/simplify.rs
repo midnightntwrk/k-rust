@@ -6439,14 +6439,18 @@ fn decide_equation_bindings(
 /// in `t` therefore does not justify the substitution and the attempt stays indeterminate: the
 /// subject is retained, and no other equation of the group fires in its place. The converse
 /// direction, a rule-side set variable bound to any subject pattern, is sound and unaffected.
+///
+/// `Variable` orders by kind first and [`VariableKind::Set`] is the greater kind, so a value
+/// holds a set variable exactly when its greatest variable is one: one look per binding,
+/// whatever the number of variables the value holds.
 pub(crate) fn binds_element_variable_to_set_pattern(substitution: &Substitution) -> bool {
     substitution.iter().any(|(variable, value)| {
         variable.kind == VariableKind::Element
             && value
                 .attributes()
                 .variables
-                .iter()
-                .any(|bound| bound.kind == VariableKind::Set)
+                .last()
+                .is_some_and(|greatest| greatest.kind == VariableKind::Set)
     })
 }
 

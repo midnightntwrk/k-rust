@@ -925,7 +925,7 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 /// cost, not a property of the semantics, and it is fixed rather than read from the host: a
 /// faster host divides the times by a constant, which leaves the growth unchanged. Memory is not
 /// what it bounds: a 2^24-bit value is 2 MiB, 5,050,446 bytes of decimal text, far below what a
-/// process may use (`Bytes` and `List` results are capped by that instead, see `ResultCap`).
+/// process may use (`Bytes` results are capped by that instead, see `ResultCap`).
 pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 
 /// The most bytes one `padRightBytes`, `padLeftBytes` or `Int2Bytes` application holds at once,
@@ -939,14 +939,6 @@ pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 /// byte of result between the two lengths, which leaves out the few bytes every application holds
 /// whatever its length.
 pub(crate) const BYTES_RESULT_PEAK_FACTOR: u64 = 2;
-
-/// The most bytes one `makeList` application holds at once, per byte of its result (one term
-/// reference per element): 4. The hook builds the elements' references in one vector, the list
-/// term loads them into the leaves of its tree (a second copy), and each leaf and internal node
-/// adds its summary and handle, about twice the references again at the leaves' fill.
-/// Measured as [`BYTES_RESULT_PEAK_FACTOR`] is, by `make_holds_its_result_bounded` in
-/// `builtin/list.rs`: 3.95 in test builds, whose leaf summaries also keep the items' sorts.
-pub(crate) const LIST_RESULT_PEAK_FACTOR: u64 = 4;
 
 /// The largest result a hook whose result size an argument's value sets computes, in bytes: the
 /// result of `R` bytes is computed exactly when `factor * R <= L`, `L` the memory the process may
@@ -1031,24 +1023,17 @@ pub(crate) fn describe_bytes(bytes: u64) -> String {
     format!("{text} {}", UNITS[exponent as usize - 1])
 }
 
-/// The most memory, in bytes, that one `List` result whose length an argument's value sets may
-/// take on this target ([`target_result_bytes`] of `isize::MAX`): 2^29 bytes, 512 MiB, on a
-/// 32-bit target, and 2^61 bytes on a 64-bit one, where it never binds.
-pub(crate) const TARGET_RESULT_BYTES: u64 = target_result_bytes(isize::MAX as u64);
-
 /// The longest `Bytes` result whose length an argument's value sets on this target
 /// ([`target_bytes_result_len`] of `isize::MAX`): 2^27 bytes, 128 MiB, on a 32-bit target, and
 /// 2^59 bytes on a 64-bit one, where it never binds.
 pub(crate) const TARGET_BYTES_RESULT_LEN: u64 = target_bytes_result_len(isize::MAX as u64);
 
 // Checked where the backend is built for a 32-bit target (`k-rust-wasm` on wasm32), whose tests
-// do not build there: the target terms bind below what the 4 GiB address space allows.
+// do not build there: the target term binds below what the 4 GiB address space allows.
 const _: () = assert!(
     usize::BITS != 32
-        || (TARGET_RESULT_BYTES == 1 << 29
-            && TARGET_BYTES_RESULT_LEN == 1 << 27
-            && TARGET_BYTES_RESULT_LEN < (1 << 32) / BYTES_RESULT_PEAK_FACTOR
-            && TARGET_RESULT_BYTES < (1 << 32) / LIST_RESULT_PEAK_FACTOR)
+        || (TARGET_BYTES_RESULT_LEN == 1 << 27
+            && TARGET_BYTES_RESULT_LEN < (1 << 32) / BYTES_RESULT_PEAK_FACTOR)
 );
 
 /// The longest `Bytes` result on a target whose largest allocation is `largest_allocation`
@@ -1064,18 +1049,6 @@ const _: () = assert!(
 /// refuses to exceed by panicking. On a 64-bit target the term is 2^59 bytes and never binds.
 pub(crate) const fn target_bytes_result_len(largest_allocation: u64) -> u64 {
     largest_allocation.saturating_add(1) / 16
-}
-
-/// The most memory one `List` result may take on a target whose largest allocation is
-/// `largest_allocation` bytes: a quarter of it, `(largest_allocation + 1) / 4`.
-///
-/// Rust refuses an allocation above `isize::MAX` bytes by panicking, and on a 32-bit target that
-/// is half the address space (a WebAssembly instance's whole memory is at most 4 GiB), so the
-/// memory the process may use does not bound one allocation there. A `List` result is built
-/// from one allocation of its references ([`LIST_RESULT_PEAK_FACTOR`]); a quarter of the largest
-/// allocation keeps it far from that limit, with room for the rest of the run.
-pub(crate) const fn target_result_bytes(largest_allocation: u64) -> u64 {
-    largest_allocation.saturating_add(1) / 4
 }
 
 /// The largest result `^Int` and `<<Int` compute when the result's size is set by the value of an
