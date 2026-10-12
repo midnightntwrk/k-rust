@@ -34,7 +34,9 @@ use crate::{
     definition::{
         AttributeKey, CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence,
         StructuralCheckBackend, StructuralCheckOptions,
-        checks::{check_definition_with_options, check_singleton_overloads},
+        checks::{
+            check_definition_with_options, check_locations_import, check_singleton_overloads,
+        },
         production_kind::ProductionKind,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
@@ -957,13 +959,18 @@ pub(super) fn checked_input(
         options
             .diagnostics
             .apply(stage(timings, prologue_phase::DEFINITION_CHECKS, || {
-                check_definition_with_options(
+                let mut diagnostics = check_definition_with_options(
                     &resolved,
                     options.backend.structural_check_options(
                         options.check_mode.clone(),
                         options.builtin_source_prefixes.clone(),
                     ),
-                )
+                )?;
+                // The main module is the compiled definition here, which programs are read for;
+                // a parse module (`kast --module`) is not, so this check is compilation's only.
+                diagnostics.extend(check_locations_import(&resolved));
+                diagnostics.sort();
+                Ok::<_, crate::definition::CheckError>(diagnostics)
             })?);
     let mut diagnostics = loaded.diagnostics().to_vec();
     diagnostics.extend(checked);

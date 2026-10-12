@@ -11513,6 +11513,108 @@ endmodule
     );
 }
 
+/// A sort that declares `[locations]` asks that each term of it a program denotes be wrapped in
+/// `#location`, the symbol `K-LOCATIONS` declares, so `kcompile` refuses a main module whose view
+/// lacks that module, with or without a generated parser, at the declaration and naming the sort
+/// and the module to import. The import anywhere in the main module's view is enough, also
+/// through the syntax module, and `krun` then reads a program into located terms. `kast --module`
+/// parses in a module that is not a compiled definition, so it reads the same program unrefused.
+#[cfg(unix)]
+#[test]
+fn kcompile_refuses_a_located_sort_whose_main_module_does_not_import_k_locations() {
+    let source = |syntax_imports: &str, main_imports: &str| {
+        format!(
+            r#"
+module LOC-SYNTAX
+  imports INT-SYNTAX{syntax_imports}
+  syntax Exp [locations]
+  syntax Exp ::= Int | Exp "+" Exp [left, symbol(plus)]
+endmodule
+
+module LOC
+  imports LOC-SYNTAX{main_imports}
+  configuration <k> $PGM:Exp </k>
+endmodule
+"#
+        )
+    };
+    let kcompile = |definition: &Path, output: &Path, extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kcompile")
+            .arg(definition)
+            .args(["--main-module", "LOC", "--syntax-module", "LOC-SYNTAX"])
+            .arg("--output-directory")
+            .arg(output)
+            .args(extra)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+
+    let (root, definition) = fixture();
+    fs::write(&definition, source("", "")).unwrap();
+    for extra in [&[][..], &["--gen-bison-parser"][..]] {
+        let kompiled = root.join("refused");
+        let output = kcompile(&definition, &kompiled, extra);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{extra:?}: accepted");
+        assert!(
+            stderr.contains("definition.k:4:3: Error[MissingLocationsImport]: Sort Exp ")
+                && stderr.contains("Add `imports K-LOCATIONS` to LOC."),
+            "{extra:?}: not refused at the declaration: {stderr}"
+        );
+        assert!(!kompiled.join("parser_PGM").exists());
+    }
+    let parsed = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kast")
+        .arg(&definition)
+        .args(["--module", "LOC-SYNTAX", "--sort", "Exp"])
+        .args(["--expression", "1 + 2"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        parsed.status.success()
+            && String::from_utf8_lossy(&parsed.stdout).contains("#location{Exp}"),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+
+    for (case, syntax_imports, main_imports) in [
+        ("main", "", "\n  imports K-LOCATIONS"),
+        ("syntax", "\n  imports K-LOCATIONS", ""),
+    ] {
+        let (root, definition) = fixture();
+        fs::write(&definition, source(syntax_imports, main_imports)).unwrap();
+        let kompiled = root.join("kompiled");
+        let output = kcompile(&definition, &kompiled, &[]);
+        assert!(
+            output.status.success(),
+            "{case}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let program = root.join("program.loc");
+        fs::write(&program, "1 + 2").unwrap();
+        let run = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg("--definition")
+            .arg(&kompiled)
+            .args(["--sort", "Exp", "--depth", "0"])
+            .arg(&program)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        assert!(
+            run.status.success() && stdout.matches("Lbl'Hash'location{SortExp{}}(").count() == 3,
+            "{case}: {stdout}{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 /// A `#LineMarker` production says which text is a marker but not what the marker sets for the
 /// text after it, so krust gives it no meaning and refuses the definition at load, alike on every
 /// parser route: in-process parsing, the generated parser of `kast --gen-parser`, and the parser

@@ -537,6 +537,7 @@ pub enum WellKnownModule {
     StdinStream,
     StdoutStream,
     LanguageParsing,
+    Locations,
 }
 
 impl WellKnownModule {
@@ -552,6 +553,7 @@ impl WellKnownModule {
             Self::StdinStream => "STDIN-STREAM",
             Self::StdoutStream => "STDOUT-STREAM",
             Self::LanguageParsing => "LANGUAGE-PARSING",
+            Self::Locations => "K-LOCATIONS",
         }
     }
 }
