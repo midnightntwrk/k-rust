@@ -200,6 +200,9 @@ fn builtin_name(sort: BuiltinSort) -> Name {
     names[index].clone()
 }
 
+/// The kind of a variable. Element variables order before set variables, and a [`Variable`]
+/// orders by kind first, so a set of variables holds a set variable exactly when its greatest
+/// is one (`Variables::last`).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum VariableKind {
     Element,

@@ -109,6 +109,13 @@ impl Variables {
         Iter(self.0.iter())
     }
 
+    /// The greatest variable, in constant time. Variables are ordered by kind first, so this is
+    /// a set variable exactly when the set holds one.
+    #[inline]
+    pub fn last(&self) -> Option<&Variable> {
+        self.0.last()
+    }
+
     #[inline]
     pub fn contains(&self, variable: &Variable) -> bool {
         self.0.contains(variable)
@@ -297,6 +304,35 @@ impl FusedIterator for Iter<'_> {}
 mod tests {
     use super::*;
     use crate::term::{Sort, VariableKind};
+
+    /// `last` is the greatest variable, so it is a set variable exactly when the set holds one,
+    /// on sets backed by a slice and by a tree, with the set variable's sort and name before,
+    /// among and after the element variables'.
+    #[test]
+    fn the_last_variable_is_a_set_variable_exactly_when_the_set_holds_one() {
+        let element = |index: usize| Variable::new(format!("V{index:04}"), Sort::simple("SortB"));
+        for count in [0, 1, 7, 200] {
+            let elements: Variables = (0..count).map(element).collect();
+            assert_eq!(elements.last(), elements.iter().next_back());
+            assert!(
+                elements
+                    .last()
+                    .is_none_or(|last| last.kind == VariableKind::Element)
+            );
+            for (sort, name) in [("SortA", "A"), ("SortB", "V0003x"), ("SortC", "Z")] {
+                let set = Variable {
+                    kind: VariableKind::Set,
+                    sort: Sort::simple(sort),
+                    name: name.into(),
+                };
+                let with_set: Variables = (0..count)
+                    .map(element)
+                    .chain(std::iter::once(set.clone()))
+                    .collect();
+                assert_eq!(with_set.last(), Some(&set), "{count} element variables");
+            }
+        }
+    }
 
     /// `holds_name` agrees with a scan of the names, on sets backed by a slice and by a tree,
     /// whose variables of one name come in several kinds and sorts, for names held in one run

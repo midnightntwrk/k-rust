@@ -138,6 +138,19 @@ impl<V: Ord + Clone + Hash + fmt::Debug, const B: usize> Variables<V, B> {
         }
     }
 
+    /// The greatest variable, in constant time: a tree's root summary keeps its last entry.
+    #[inline]
+    pub(crate) fn last(&self) -> Option<&V> {
+        match &self.backing {
+            Backing::Empty => None,
+            Backing::Slice(variables) => variables.last(),
+            Backing::Tree(entries) => entries
+                .summary()
+                .and_then(|summary| summary.last.as_ref())
+                .map(|entry| &entry.element),
+        }
+    }
+
     /// Whether the set holds `variable`, in time logarithmic in its size.
     #[inline]
     pub(crate) fn contains(&self, variable: &V) -> bool {
