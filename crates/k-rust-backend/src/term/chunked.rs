@@ -461,7 +461,12 @@ impl<I: Item> NodeSummary<I> {
     /// The fold of the children's summaries, but for the group summary, which is `group`.
     fn of_children_with(children: &[Arc<Node<I>>], group: I::Group) -> Self {
         Self {
-            count: children.iter().map(|child| child.summary().count).sum(),
+            count: children
+                .iter()
+                .try_fold(0_usize, |count, child| {
+                    count.checked_add(child.summary().count)
+                })
+                .expect(SEQUENCE_COUNT_OVERFLOW),
             first: children
                 .first()
                 .and_then(|child| child.summary().first.clone()),
@@ -496,6 +501,11 @@ impl<I: Item> NodeSummary<I> {
     }
 }
 
+/// A sequence counts its items in a `usize`, so a join whose count would pass `usize::MAX`
+/// has no count to give: it stops the run rather than wrap to a length the items do not have
+/// (a list of `usize::MAX` copies from `makeList` reaches it in one concatenation).
+const SEQUENCE_COUNT_OVERFLOW: &str = "a sequence of more than usize::MAX items";
+
 impl<I: Item> Summary for NodeSummary<I> {
     fn identity() -> Self {
         Self {
@@ -511,7 +521,10 @@ impl<I: Item> Summary for NodeSummary<I> {
 
     fn combine(self, right: &Self) -> Self {
         Self {
-            count: self.count + right.count,
+            count: self
+                .count
+                .checked_add(right.count)
+                .expect(SEQUENCE_COUNT_OVERFLOW),
             collision: self.collision
                 || right.collision
                 || collides(self.last.as_ref(), right.first.as_ref()),

@@ -958,6 +958,16 @@ fn repeating_an_item_builds_the_tree_of_its_copies() {
     }
 }
 
+/// A sequence counts its items in a `usize`: a join past `usize::MAX` items stops rather than
+/// wrap to a count the items do not have (`usize::MAX` copies and one more item would count 0).
+#[test]
+#[should_panic(expected = "a sequence of more than usize::MAX items")]
+fn a_sequence_longer_than_usize_max_is_not_counted() {
+    let full = Chunked::<Entry, 6>::repeat(&Entry { key: 1, value: 0 }, usize::MAX);
+    let one = Chunked::<Entry, 6>::repeat(&Entry { key: 1, value: 0 }, 1);
+    let _ = full.join(&one);
+}
+
 /// The distinct nodes of a repeated item at each height `h` are at most `3h + 4`, whatever the
 /// length: the junctions where a level changes node lie in clusters of at most two mixed nodes,
 /// one cluster per level below plus one (each level's switch of part size), and between the
