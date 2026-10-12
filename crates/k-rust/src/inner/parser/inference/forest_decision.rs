@@ -807,7 +807,15 @@ impl Grammar {
                 let (term, instantiations) = decision
                     .apply(term, root, &typing, &mut memo)?
                     .expect("a maximal typing's trees are well-sorted under it");
-                let term = self.most_specific_function_lhs(&term);
+                let kept = self.most_specific_function_lhs(&term);
+                // The instantiations are those of the trees `kept` holds: dropping the trees of a
+                // less specific overload can leave trees that all instantiate alike.
+                let instantiations = if Rc::ptr_eq(&kept, &term) {
+                    instantiations
+                } else {
+                    decision.kept_instantiations(&kept, &mut HashMap::new())
+                };
+                let term = kept;
                 let parameter_split = instantiations.len() > 1 && self.one_reading_twice(&term);
                 Ok(DecidedGroup {
                     term,
@@ -2138,6 +2146,56 @@ fn typing_variable(leaf: &Term, name: &str) -> Option<TypingVariable> {
     leaf.metadata()
         .and_then(|metadata| metadata.span)
         .map(|span| TypingVariable::Anonymous(span, name.to_owned()))
+}
+
+impl ForestDecision<'_> {
+    /// Up to two distinct instantiation lists of the trees of `term`, a forest `apply` built,
+    /// memoized in `memo` by node: the lists `apply` returns with it, for a subset of its trees.
+    fn kept_instantiations(
+        &mut self,
+        term: &Rc<PackedTerm>,
+        memo: &mut HashMap<*const PackedTerm, Vec<Instantiations>>,
+    ) -> Vec<Instantiations> {
+        if let Some(lists) = memo.get(&Rc::as_ptr(term)) {
+            return lists.clone();
+        }
+        let lists = crate::stack::guarded(|| match &term.node {
+            PackedNode::Term(_) => vec![Rc::new(Vec::new())],
+            PackedNode::Ambiguity(alternatives) => {
+                let mut lists = Vec::new();
+                for alternative in alternatives {
+                    let alternative = self.kept_instantiations(alternative, memo);
+                    union_instantiations(&mut lists, alternative);
+                }
+                lists
+            }
+            PackedNode::Production { children, .. } => {
+                let mut lists = vec![Rc::new(Vec::new())];
+                for child in children {
+                    lists = sum_instantiations(&lists, &self.kept_instantiations(child, memo));
+                }
+                lists
+            }
+            PackedNode::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                ..
+            } => {
+                let mut lists = vec![Rc::new(Vec::new())];
+                for child in children {
+                    lists = sum_instantiations(&lists, &self.kept_instantiations(child, memo));
+                }
+                let values = parameters
+                    .iter()
+                    .map(|parameter| self.index.id(parameter))
+                    .collect();
+                sum_instantiations(&lists, &[Rc::new(vec![(*production, values)])])
+            }
+        });
+        memo.insert(Rc::as_ptr(term), lists.clone());
+        lists
+    }
 }
 
 /// Add `lists` to `into`, keeping at most two distinct lists: two distinct lists below a node

@@ -6836,3 +6836,44 @@ fn fu24_token_sort_uses_privately_imported_synonyms_in_rules() {
         "{right}"
     );
 }
+
+/// `cap` at `Int`, and with `overloaded` also at `Gas`, over a function rule whose right-hand
+/// side holds `(GEXTRA)` at a `K` position, where the text reads through the bracket of `Int`
+/// and through the bracket of the list sort `Ints`: two trees of one reading with one
+/// instantiation of `ite`, which lower to two terms.
+fn overload_beside_bracket_pair(overloaded: bool) -> String {
+    let gas = if overloaded {
+        "syntax Gas ::= cap(Gas, Gas, Int, Int) [symbol(capGas), overload(cap), function, total]"
+    } else {
+        ""
+    };
+    format!(
+        r#"
+module MAIN
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Gas ::= Int
+  syntax Ints ::= List{{Int, ","}} [symbol(ints)]
+  syntax Int ::= "(" Int ")" [bracket]
+  syntax Ints ::= "(" Ints ")" [bracket]
+  syntax Int ::= keep(K, Int) [symbol(keep), function, total]
+  {gas}
+  syntax Int ::= cap(Int, Int, Int, Int) [symbol(capInt), overload(cap), function, total]
+  syntax {{S}} S ::= "ite" "(" Int "," S "," S ")" [symbol(ite), function, total]
+
+  rule cap(GCAP:Int, GAVAIL:Int, GEXTRA, IGNORED) => ite(keep((GEXTRA), 0), GCAP, GAVAIL)
+endmodule
+"#
+    )
+}
+
+/// The `Gas` reading of the overloaded rule instantiates `ite` at `Gas` and is dropped for the
+/// most specific overload; the trees left instantiate `ite` alike, so they are no parameter
+/// split, and the rule reads as it does where `cap` has only its `Int` production.
+#[test]
+fn trees_left_by_the_most_specific_overload_are_split_only_by_their_own_instantiations() {
+    let plain = resolve_rule_bubbles(&lowered(&overload_beside_bracket_pair(false)))
+        .expect("both builds decide the rule without the overload");
+    let overloaded = resolve_rule_bubbles(&lowered(&overload_beside_bracket_pair(true)))
+        .expect("both builds decide the rule with the overload");
+    assert_eq!(only_rule_body(&overloaded), only_rule_body(&plain));
+}
