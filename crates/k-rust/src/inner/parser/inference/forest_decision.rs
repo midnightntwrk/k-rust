@@ -1647,12 +1647,16 @@ mod tests {
     fn grammar() -> (Grammar, Vec<(usize, usize)>) {
         let mut grammar = Grammar::default();
         let mut productions = Vec::new();
+        // Every production has a terminal, as a written one does: a production of one
+        // nonterminal and nothing else would also state a subsort, here of a sort below itself.
         let mut add = |grammar: &mut Grammar, result: &str, items: &[&str], label: &str| {
             let index = grammar.productions.len();
             grammar
                 .add(
                     Sort::new(result),
-                    items.iter().map(|sort| nonterminal(sort)).collect(),
+                    std::iter::once(ProductionItem::Terminal(label.into()))
+                        .chain(items.iter().map(|sort| nonterminal(sort)))
+                        .collect(),
                     Some(Label::new(label)),
                     false,
                     false,
@@ -1676,7 +1680,10 @@ mod tests {
             grammar
                 .add(
                     Sort::new(sort),
-                    vec![nonterminal(sort)],
+                    vec![
+                        nonterminal(sort),
+                        ProductionItem::Terminal(format!(":{sort}")),
+                    ],
                     Some(Label::semantic_cast(&Sort::new(sort))),
                     false,
                     false,
@@ -1691,11 +1698,20 @@ mod tests {
         for sort in ["Int", "Exp", "KItem", "K"] {
             let index = grammar.productions.len();
             grammar
-                .add(Sort::new(sort), vec![nonterminal(sort)], None, false, true)
+                .add(
+                    Sort::new(sort),
+                    vec![
+                        ProductionItem::Terminal("(".into()),
+                        nonterminal(sort),
+                        ProductionItem::Terminal(")".into()),
+                    ],
+                    None,
+                    false,
+                    true,
+                )
                 .unwrap();
             grammar.productions[index].bracket = true;
             grammar.productions[index].parse_label = Some("(_)".into());
-            productions.push((index, 1));
         }
         let mut parametric = |grammar: &mut Grammar,
                               label: &str,
@@ -1706,7 +1722,9 @@ mod tests {
             grammar
                 .add(
                     Sort::new("K"),
-                    items.iter().map(|_| nonterminal("K")).collect(),
+                    std::iter::once(ProductionItem::Terminal(label.into()))
+                        .chain(items.iter().map(|_| nonterminal("K")))
+                        .collect(),
                     Some(Label::new(label)),
                     false,
                     false,
@@ -1716,7 +1734,9 @@ mod tests {
                 label: Some(Label::new(label)),
                 parameters: parameters.iter().map(|sort| Sort::new(*sort)).collect(),
                 result: Sort::new(result),
-                items: items.iter().map(|sort| nonterminal(sort)).collect(),
+                items: std::iter::once(ProductionItem::Terminal(label.into()))
+                    .chain(items.iter().map(|sort| nonterminal(sort)))
+                    .collect(),
                 attributes: Attributes::default(),
                 substitution: parameters
                     .iter()
@@ -1752,6 +1772,9 @@ mod tests {
         Leaf(u8),
         Node(u8, Vec<Tree>),
         Ambiguity(Vec<Tree>),
+        /// `( t )` read through the bracket instances the mask selects (at least one), all
+        /// over the one forest of `t`, as the parser reads one text at several instances.
+        Bracket(u8, Box<Tree>),
     }
 
     fn tree() -> impl Strategy<Value = Tree> {
@@ -1761,14 +1784,20 @@ mod tests {
                 prop_oneof![
                     3 => (any::<u8>(), prop::collection::vec(inner.clone(), 1..3))
                         .prop_map(|(production, children)| Tree::Node(production, children)),
-                    2 => prop::collection::vec(inner, 2..4).prop_map(Tree::Ambiguity),
+                    2 => prop::collection::vec(inner.clone(), 2..4).prop_map(Tree::Ambiguity),
+                    1 => (1u8..16, inner).prop_map(|(mask, child)| Tree::Bracket(mask, Box::new(child))),
                 ]
             })
     }
 
     /// The forest of `tree`: a leaf is a variable `X`, `Y`, `Z`, an anonymous variable with or
     /// without a span, or a token; a node applies a production of its arity.
-    fn pack(tree: &Tree, productions: &[(usize, usize)], next_span: &mut usize) -> Rc<PackedTerm> {
+    fn pack(
+        tree: &Tree,
+        productions: &[(usize, usize)],
+        brackets: &[usize],
+        next_span: &mut usize,
+    ) -> Rc<PackedTerm> {
         match tree {
             Tree::Leaf(leaf) => PackedTerm::leaf(match leaf {
                 0 => Term::variable("X"),
@@ -1805,17 +1834,43 @@ mod tests {
                     *production,
                     children
                         .iter()
-                        .map(|child| pack(child, productions, next_span))
+                        .map(|child| pack(child, productions, brackets, next_span))
                         .collect(),
                     TermMetadata::default(),
                 )
             }
+            // An ambiguity reads one text, so it holds at most one bracket reading; the others
+            // would read other texts at the same span.
             Tree::Ambiguity(alternatives) => PackedTerm::ambiguity(
                 alternatives
                     .iter()
-                    .map(|alternative| pack(alternative, productions, next_span))
+                    .enumerate()
+                    .filter(|(index, alternative)| {
+                        !matches!(alternative, Tree::Bracket(..))
+                            || !alternatives[..*index]
+                                .iter()
+                                .any(|earlier| matches!(earlier, Tree::Bracket(..)))
+                    })
+                    .map(|(_, alternative)| pack(alternative, productions, brackets, next_span))
                     .collect::<BTreeSet<_>>(),
             ),
+            Tree::Bracket(mask, child) => {
+                let child = pack(child, productions, brackets, next_span);
+                PackedTerm::ambiguity(
+                    brackets
+                        .iter()
+                        .enumerate()
+                        .filter(|(bit, _)| mask & (1 << bit) != 0)
+                        .map(|(_, bracket)| {
+                            PackedTerm::production(
+                                *bracket,
+                                vec![Rc::clone(&child)],
+                                TermMetadata::default(),
+                            )
+                        })
+                        .collect(),
+                )
+            }
         }
     }
 
@@ -1870,7 +1925,12 @@ mod tests {
             anywhere in any::<bool>(),
         ) {
             let (grammar, productions) = grammar();
-            let forest = pack(&tree, &productions, &mut 0);
+            prop_assert!(grammar.subsort_relations.order().is_ok());
+            prop_assert!(grammar.syntactic_subsort_relations.order().is_ok());
+            let brackets = (0..grammar.productions.len())
+                .filter(|index| grammar.productions[*index].bracket)
+                .collect::<Vec<_>>();
+            let forest = pack(&tree, &productions, &brackets, &mut 0);
             let top = Sort::new(["K", "Int", "Exp", "Bool"][top]);
             assert_forest_decision_agrees(&grammar, &forest, &top, anywhere);
             // Z3 compares typings over the variables of the whole forest, while the portable

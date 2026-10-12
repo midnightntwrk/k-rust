@@ -597,6 +597,12 @@ impl Grammar {
                 .map(|tree| self.erase_bracket_instances(tree))
                 .collect::<BTreeSet<_>>()
         };
+        let readings = |trees: &BTreeSet<ParsedTerm>| {
+            trees
+                .iter()
+                .map(|tree| erase_instances(tree.clone()))
+                .collect::<BTreeSet<_>>()
+        };
         match (decided, per_tree) {
             (Ok(groups), Ok(per_tree)) => {
                 // Up to the instances of brackets, each forest group keeps a nonempty subset of
@@ -624,6 +630,14 @@ impl Grammar {
                     assert!(
                         !group.parameter_split || per_tree[owner].1,
                         "the parameter splits of {term:?} differ"
+                    );
+                    // Every reading the per-tree group keeps is kept, at some instance of its
+                    // brackets and parameters: shadowing a bracket instance drops an instance,
+                    // never a reading.
+                    assert_eq!(
+                        readings(&kept),
+                        readings(&per_tree[owner].0),
+                        "the readings of {term:?} differ"
                     );
                 }
                 assert_eq!(
@@ -1903,6 +1917,33 @@ pub(super) fn expand_packed_trees(term: &Rc<PackedTerm>) -> Vec<ParsedTerm> {
     expand(term, &mut HashMap::new()).as_ref().clone()
 }
 
+/// `tree` (with its brackets erased) with every instantiated production read as its production:
+/// the reading a tree is, whatever sorts its parameters were instantiated at.
+#[cfg(test)]
+fn erase_instances(tree: ParsedTerm) -> ParsedTerm {
+    crate::stack::guarded(|| match tree.into_parts() {
+        ParsedParts::Production {
+            production,
+            children,
+            metadata,
+        }
+        | ParsedParts::InstantiatedProduction {
+            production,
+            children,
+            metadata,
+            ..
+        } => ParsedTerm::Production {
+            production,
+            children: children.into_iter().map(erase_instances).collect(),
+            metadata,
+        },
+        ParsedParts::Term(leaf) => ParsedTerm::Term(leaf),
+        ParsedParts::Ambiguity(alternatives) => {
+            ParsedTerm::Ambiguity(alternatives.into_iter().map(erase_instances).collect())
+        }
+    })
+}
+
 #[cfg(test)]
 /// The formal-parameter instantiations of one inferred tree: each parametric production it
 /// uses with the sorts its parameters were instantiated at, in a canonical order.
@@ -2750,10 +2791,23 @@ mod tests {
         // per-tree decision keeps (`Grammar::check_forest_decision`).
         match (&forest_decision, &per_tree) {
             (_, Err(ParseError::Z3InferenceRequired { .. })) => {}
-            (Ok(forest_trees), Ok(per_tree_trees)) => assert!(
-                !forest_trees.is_empty() && forest_trees.is_subset(per_tree_trees),
-                "{forest:?}"
-            ),
+            (Ok(forest_trees), Ok(per_tree_trees)) => {
+                assert!(
+                    !forest_trees.is_empty() && forest_trees.is_subset(per_tree_trees),
+                    "{forest:?}"
+                );
+                let readings = |trees: &BTreeSet<ParsedTerm>| {
+                    trees
+                        .iter()
+                        .map(|tree| super::erase_instances(tree.clone()))
+                        .collect::<BTreeSet<_>>()
+                };
+                assert_eq!(
+                    readings(forest_trees),
+                    readings(per_tree_trees),
+                    "{forest:?}"
+                );
+            }
             _ => assert_eq!(forest_decision, per_tree, "{forest:?}"),
         }
     }
