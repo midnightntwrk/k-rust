@@ -1,13 +1,12 @@
 use std::{collections::BTreeMap, fmt::Write as _, fs, io, path::Path, process::Output};
 
-use proc_macro2::{Delimiter, Group, LineColumn, TokenStream, TokenTree};
-use quote::ToTokens;
-use syn::{
-    spanned::Spanned,
-    visit::{self, Visit},
-};
+use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 
-use crate::{Error, git_command};
+use crate::{
+    Error,
+    cards::{LocatedDoc, named_source},
+    git_command,
+};
 
 /// A card whose implementation site changed without its fence changing.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -337,108 +336,28 @@ struct LocatedItem {
     tokens: String,
 }
 
-#[derive(Clone, Debug)]
-struct LocatedDoc {
-    value: String,
-    range: ItemRange,
-}
-
 fn parse_source(source: &str) -> Result<ParsedSource, Error> {
-    let file = syn::parse_file(source)
+    let named = named_source(source)
         .map_err(|error| Error::Invalid(format!("could not parse changed Rust source: {error}")))?;
-    let mut visitor = SourceVisitor::default();
-    visitor.visit_file(&file);
-    let cards = extract_cards(&visitor.docs)?;
-    Ok(ParsedSource {
-        cards,
-        items: visitor.items,
-    })
-}
-
-#[derive(Default)]
-struct SourceVisitor {
-    docs: Vec<LocatedDoc>,
-    items: BTreeMap<String, Vec<LocatedItem>>,
-    function_depth: usize,
-}
-
-impl SourceVisitor {
-    fn add_item<T: ToTokens + Spanned>(&mut self, symbol: String, item: &T) {
-        self.items.entry(symbol).or_default().push(LocatedItem {
-            range: span_range(item.span()),
-            tokens: strip_doc_attributes(item.to_token_stream()).to_string(),
-        });
-    }
-}
-
-impl<'ast> Visit<'ast> for SourceVisitor {
-    fn visit_attribute(&mut self, attribute: &'ast syn::Attribute) {
-        if attribute.path().is_ident("doc")
-            && let syn::Meta::NameValue(name_value) = &attribute.meta
-            && let syn::Expr::Lit(expression) = &name_value.value
-            && let syn::Lit::Str(value) = &expression.lit
-        {
-            self.docs.push(LocatedDoc {
-                value: value.value(),
-                range: span_range(attribute.span()),
-            });
-        }
-        visit::visit_attribute(self, attribute);
-    }
-
-    fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        if self.function_depth == 0 {
-            self.add_item(item.sig.ident.to_string(), item);
-        }
-        self.function_depth += 1;
-        visit::visit_item_fn(self, item);
-        self.function_depth -= 1;
-    }
-
-    fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        self.function_depth += 1;
-        visit::visit_impl_item_fn(self, item);
-        self.function_depth -= 1;
-    }
-
-    fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
-        if item.attrs.iter().any(is_cfg_test) {
-            return;
-        }
-        visit::visit_item_mod(self, item);
-    }
-
-    fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
-        self.add_item(item.ident.to_string(), item);
-        visit::visit_item_struct(self, item);
-    }
-
-    fn visit_item_enum(&mut self, item: &'ast syn::ItemEnum) {
-        self.add_item(item.ident.to_string(), item);
-        visit::visit_item_enum(self, item);
-    }
-
-    fn visit_item_union(&mut self, item: &'ast syn::ItemUnion) {
-        self.add_item(item.ident.to_string(), item);
-        visit::visit_item_union(self, item);
-    }
-
-    fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
-        self.add_item(item.ident.to_string(), item);
-        visit::visit_item_type(self, item);
-    }
-
-    fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
-        if let Some(type_name) = impl_type_name(&item.self_ty) {
-            self.add_item(format!("impl {type_name}"), item);
-            for impl_item in &item.items {
-                if let syn::ImplItem::Fn(function) = impl_item {
-                    self.add_item(format!("{type_name}::{}", function.sig.ident), function);
-                }
-            }
-        }
-        visit::visit_item_impl(self, item);
-    }
+    let cards = extract_cards(&named.docs)?;
+    let items = named
+        .items
+        .into_iter()
+        .map(|(symbol, items)| {
+            let items = items
+                .into_iter()
+                .map(|(span, tokens)| LocatedItem {
+                    range: ItemRange {
+                        start: span.start,
+                        end: span.end,
+                    },
+                    tokens: strip_doc_attributes(tokens).to_string(),
+                })
+                .collect();
+            (symbol, items)
+        })
+        .collect();
+    Ok(ParsedSource { cards, items })
 }
 
 /// Remove `#[doc = ..]` and `#![doc = ..]` attributes, so that a doc-comment edit compares equal.
@@ -481,19 +400,13 @@ fn strip_doc_attributes(tokens: TokenStream) -> TokenStream {
     output.into_iter().collect()
 }
 
-fn span_range(span: proc_macro2::Span) -> ItemRange {
-    let LineColumn { line: start, .. } = span.start();
-    let LineColumn { line: end, .. } = span.end();
-    ItemRange { start, end }
-}
-
 fn extract_cards(docs: &[LocatedDoc]) -> Result<Vec<LocatedCard>, Error> {
     let mut cards = Vec::new();
     let mut current: Option<(CardKind, usize, usize, String)> = None;
     for doc in docs {
         if current
             .as_ref()
-            .is_some_and(|(_, _, previous_end, _)| doc.range.start > *previous_end + 1)
+            .is_some_and(|(_, _, previous_end, _)| doc.start > *previous_end + 1)
         {
             current = None;
         }
@@ -511,7 +424,7 @@ fn extract_cards(docs: &[LocatedDoc]) -> Result<Vec<LocatedCard>, Error> {
                     lean: body.lean,
                     range: ItemRange {
                         start: *start,
-                        end: doc.range.end,
+                        end: doc.end,
                     },
                 });
                 current = None;
@@ -519,29 +432,20 @@ fn extract_cards(docs: &[LocatedDoc]) -> Result<Vec<LocatedCard>, Error> {
             } else {
                 body.push_str(doc.value.strip_prefix(' ').unwrap_or(&doc.value));
                 body.push('\n');
-                *previous_end = doc.range.end;
+                *previous_end = doc.end;
                 continue;
             }
         }
         current = match doc.value.trim() {
-            "```toml algorithm" | "```algorithm" => Some((
-                CardKind::Primary,
-                doc.range.start,
-                doc.range.end,
-                String::new(),
-            )),
-            "```toml algorithm-site" | "```algorithm-site" => Some((
-                CardKind::Site,
-                doc.range.start,
-                doc.range.end,
-                String::new(),
-            )),
-            "```toml algorithm-representation" | "```algorithm-representation" => Some((
-                CardKind::Representation,
-                doc.range.start,
-                doc.range.end,
-                String::new(),
-            )),
+            "```toml algorithm" | "```algorithm" => {
+                Some((CardKind::Primary, doc.start, doc.end, String::new()))
+            }
+            "```toml algorithm-site" | "```algorithm-site" => {
+                Some((CardKind::Site, doc.start, doc.end, String::new()))
+            }
+            "```toml algorithm-representation" | "```algorithm-representation" => {
+                Some((CardKind::Representation, doc.start, doc.end, String::new()))
+            }
             _ => None,
         };
     }
@@ -554,24 +458,6 @@ struct DriftCardBody {
     sites: Vec<String>,
     #[serde(default)]
     lean: Vec<String>,
-}
-
-fn is_cfg_test(attribute: &syn::Attribute) -> bool {
-    matches!(
-        &attribute.meta,
-        syn::Meta::List(list)
-            if list.path.is_ident("cfg") && list.tokens.to_string() == "test"
-    )
-}
-
-fn impl_type_name(ty: &syn::Type) -> Option<String> {
-    let syn::Type::Path(path) = ty else {
-        return None;
-    };
-    path.path
-        .segments
-        .last()
-        .map(|segment| segment.ident.to_string())
 }
 
 #[cfg(test)]
@@ -615,7 +501,7 @@ fn run() -> usize {
     fn doc_attributes_are_stripped_before_comparison() {
         let tokens = |source: &str| {
             let item = syn::parse_str::<syn::Item>(source).unwrap();
-            strip_doc_attributes(item.to_token_stream()).to_string()
+            strip_doc_attributes(quote::ToTokens::to_token_stream(&item)).to_string()
         };
         assert_eq!(
             tokens("/// Runs it.\nfn run() { //! inner\n 1 }"),

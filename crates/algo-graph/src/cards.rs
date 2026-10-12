@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use quote::ToTokens;
 use serde::Deserialize;
 use syn::{
     spanned::Spanned,
@@ -491,10 +492,10 @@ fn crate_name(relative: &str) -> Option<String> {
     relative.split('/').nth(1).map(ToOwned::to_owned)
 }
 
-fn extract_fences(docs: &[String]) -> Vec<(CardKind, String)> {
+fn extract_fences(docs: &[LocatedDoc]) -> Vec<(CardKind, String)> {
     let mut fences = Vec::new();
     let mut current: Option<(CardKind, String)> = None;
-    for doc in docs {
+    for doc in docs.iter().map(|doc| doc.value.as_str()) {
         if let Some((kind, body)) = &mut current {
             if doc.trim() == "```" {
                 fences.push((*kind, std::mem::take(body)));
@@ -541,13 +542,57 @@ pub(crate) fn item_spans(source: &str) -> syn::Result<BTreeMap<String, Vec<ItemS
     Ok(visitor.item_spans)
 }
 
+/// One doc attribute (a `///` or `//!` line) and the source lines it spans.
+#[derive(Clone, Debug)]
+pub(crate) struct LocatedDoc {
+    pub value: String,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// A source file as `algo-graph drift` compares it: its doc attributes in source order, and each
+/// item a site symbol can name, under that symbol (named as [`item_spans`] names it), with the
+/// item's tokens.
+pub(crate) struct NamedSource {
+    pub docs: Vec<LocatedDoc>,
+    pub items: BTreeMap<String, Vec<(ItemSpan, proc_macro2::TokenStream)>>,
+}
+
+pub(crate) fn named_source(source: &str) -> syn::Result<NamedSource> {
+    let file = syn::parse_file(source)?;
+    let mut visitor = ItemVisitor {
+        item_tokens: Some(BTreeMap::new()),
+        ..ItemVisitor::default()
+    };
+    visitor.visit_file(&file);
+    let mut tokens = visitor.item_tokens.unwrap_or_default();
+    let items = visitor
+        .item_spans
+        .into_iter()
+        .map(|(symbol, spans)| {
+            let tokens = tokens.remove(&symbol).unwrap_or_default();
+            (symbol, spans.into_iter().zip(tokens).collect())
+        })
+        .collect();
+    Ok(NamedSource {
+        docs: visitor.docs,
+        items,
+    })
+}
+
+/// The one namer of the items a card's `sites` entries name: the graph's source index, the item
+/// spans that coverage and profiles attribute lines by, and `algo-graph drift` all read a file
+/// through it, so a symbol names the same item everywhere.
 #[derive(Default)]
 struct ItemVisitor {
     symbols: BTreeMap<String, usize>,
     /// The lines of each symbol's items; a symbol that resolves to several items has several.
     item_spans: BTreeMap<String, Vec<ItemSpan>>,
+    /// The tokens of each symbol's items, in the order of `item_spans`; recorded only when
+    /// `Some`, for `algo-graph drift`.
+    item_tokens: Option<BTreeMap<String, Vec<proc_macro2::TokenStream>>>,
     types: BTreeSet<String>,
-    docs: Vec<String>,
+    docs: Vec<LocatedDoc>,
     algorithm_spans: BTreeSet<String>,
     raw_algo_spans: usize,
     has_loop: bool,
@@ -568,14 +613,20 @@ impl ItemVisitor {
         *self.symbols.entry(symbol).or_default() += 1;
     }
 
-    fn add_type(&mut self, symbol: String, item: &impl Spanned) {
+    fn add_type(&mut self, symbol: String, item: &impl ToTokens) {
         self.add_symbol(symbol.clone());
         self.add_span(symbol.clone(), item, false);
         self.types.insert(symbol);
     }
 
-    fn add_span(&mut self, symbol: String, item: &impl Spanned, code: bool) {
+    fn add_span(&mut self, symbol: String, item: &impl ToTokens, code: bool) {
         let span = item.span();
+        if let Some(tokens) = &mut self.item_tokens {
+            tokens
+                .entry(symbol.clone())
+                .or_default()
+                .push(item.to_token_stream());
+        }
         self.item_spans.entry(symbol).or_default().push(ItemSpan {
             start: span.start().line,
             end: span.end().line,
@@ -614,7 +665,12 @@ impl<'ast> Visit<'ast> for ItemVisitor {
             && let syn::Expr::Lit(expression) = &name_value.value
             && let syn::Lit::Str(value) = &expression.lit
         {
-            self.docs.push(value.value());
+            let span = attribute.span();
+            self.docs.push(LocatedDoc {
+                value: value.value(),
+                start: span.start().line,
+                end: span.end().line,
+            });
         }
         visit::visit_attribute(self, attribute);
     }
