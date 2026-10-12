@@ -49,6 +49,14 @@ pub(crate) enum OriginPart {
     Set(OriginSet),
 }
 
+/// Building a node from its parts, reading a node's parts and flattening a set to its links are
+/// the set work of recording receipts, which that algorithm's counters count.
+///
+/// ```toml algorithm-site
+/// id = "definition.provenance.record"
+/// role = "part"
+/// sites = ["OriginSet::from_parts", "OriginSet::parts", "OriginSet::links"]
+/// ```
 impl OriginSet {
     /// The empty set.
     pub fn new() -> Self {

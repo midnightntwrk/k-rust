@@ -3984,6 +3984,11 @@ symbol = "ProductionCatalog::from_arc_productions"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ProductionCatalog::from_productions"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
 symbol = "ProductionCatalog"
 
 [[node.sites]]
@@ -4000,11 +4005,6 @@ symbol = "ProductionCatalog::from_visible"
 crate = "k-rust"
 file = "crates/k-rust/src/definition/catalog.rs"
 symbol = "build_indexes"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/definition/catalog.rs"
-symbol = "ProductionCatalog::from_productions"
 
 [[node.cost]]
 mode = "ResolvedDefinition::production_catalog via from_deduplicated_arcs"
@@ -4657,6 +4657,21 @@ symbol = "record_generated_origins"
 
 [[node.sites]]
 crate = "k-rust"
+file = "crates/k-rust/src/provenance/origin_set.rs"
+symbol = "OriginSet::from_parts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance/origin_set.rs"
+symbol = "OriginSet::parts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance/origin_set.rs"
+symbol = "OriginSet::links"
+
+[[node.sites]]
+crate = "k-rust"
 file = "crates/k-rust/src/provenance.rs"
 symbol = "record_generated_origins"
 
@@ -4709,21 +4724,6 @@ symbol = "AnchorPath::to_vec"
 crate = "k-rust"
 file = "crates/k-rust/src/provenance.rs"
 symbol = "built_set"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/provenance/origin_set.rs"
-symbol = "OriginSet::from_parts"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/provenance/origin_set.rs"
-symbol = "OriginSet::links"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/provenance/origin_set.rs"
-symbol = "OriginSet::parts"
 
 [[node.cost]]
 mode = "one order-preserving generating pass with distinct fallback bucket keys"
@@ -4861,11 +4861,6 @@ symbol = "ResolvedDefinition::overloads"
 crate = "k-rust"
 file = "crates/k-rust/src/definition/relations.rs"
 symbol = "ResolvedDefinition::priorities"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/definition/catalog.rs"
-symbol = "ProductionCatalog::from_productions"
 
 [[node.cost]]
 mode = "one module"
