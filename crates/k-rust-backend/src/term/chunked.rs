@@ -111,7 +111,8 @@ use std::{
     vec,
 };
 
-/// The branching factor of a [`Chunked`] that names none: that of a map's entries.
+/// The branching factor of a [`Chunked`] that names none: that of a map's entries and of a
+/// set's elements.
 ///
 /// An edit copies one node per level, `B` handles or items each, over `log_B n` levels, so a
 /// smaller `B` copies less per level and a larger one has fewer levels and fewer summaries. Chosen
@@ -121,6 +122,15 @@ use std::{
 /// less than 32 on 16,000 `MAP.update`s and 3.9 % more on the symbolic map class test, 64 costs
 /// 10.6 % more on the updates and its root, which every edit copies, widens in proportion to the
 /// map up to `B²` entries (the map class test then fails). 32 is kept.
+///
+/// Sets use it too (K22 step 5a, 32 against 64, the variable trees' factor): a set's elements are
+/// edited by path copies as a map's entries are, so the same trade holds. At 64, a benchmark of
+/// 20,000 insertions, searches, removals and one-element unions each on sets of 256, 2,048 and
+/// 16,384 elements costs 45 % more instructions, 16,000 `S SetItem(N)` steps 12 % more (41 % more
+/// on the set's part over a counter control), and the set class test 36 % more bytes at 2,048
+/// elements; the KEVM storage
+/// loop at 16,384 slots does not separate the two (size-dependent part 53.7 G at 32, 52.7 G at
+/// 64, within its run-to-run spread).
 pub(crate) const DEFAULT_BRANCHING: usize = 32;
 
 /// The branching factor of the trees of variables: a [`Multiset`](multiset::Multiset) of
