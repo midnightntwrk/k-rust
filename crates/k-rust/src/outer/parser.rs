@@ -1262,7 +1262,8 @@ fn split_label(raw: &str) -> (Option<String>, &str) {
     (None, raw)
 }
 
-#[cfg(test)]
+// The default layout is reachable here only in the `cli` build, whose suite runs these tests.
+#[cfg(all(test, feature = "cli"))]
 mod tests {
     use super::*;
 
