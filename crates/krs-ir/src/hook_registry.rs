@@ -369,7 +369,7 @@ pub const HOOK_REGISTRY: &[RegisteredHook] = {
         hook("SET.list2set", Implemented, None),
         hook("SET.set2list", Implemented, None),
         hook("SET.size", Implemented, None),
-        hook("SET.union", Unsupported, None),
+        hook("SET.union", Implemented, None),
         hook("SET.unit", Implemented, None),
         hook("STRING.base2string", Implemented, None),
         hook("STRING.category", Unsupported, None),
