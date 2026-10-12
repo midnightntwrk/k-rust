@@ -2930,7 +2930,8 @@ fn a_phrase_reading_program_text_and_a_shadowed_label_are_both_noted() {
         format!(
             "module MAIN
   syntax Name ::= r\"[0-9]+\" [token]
-  syntax Tree ::= \"stop\" Name \";\" [token] | \"go\"{symbol}
+  syntax Tree ::= \"stop\" Name \";\" [token]
+  syntax Pgm ::= \"go\"{symbol}
   rule {rule}
 endmodule
 "
@@ -2977,7 +2978,7 @@ endmodule
     resolve_rule_bubbles(&lowered(&format!(
         "module MAIN
   syntax Name ::= r\"[0-9]+\" [token]
-  syntax Tree ::= \"go\"{label}
+  syntax Pgm ::= \"go\"{label}
   rule stop(N:Name) => go
 endmodule
 "
