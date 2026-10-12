@@ -204,16 +204,40 @@ impl ListResult<'_> {
         self.elements.elements(elements, from)
     }
 
+    /// The items of a list argument whose element sort is `from`, as items of the result: the
+    /// argument's tree itself when `from` is the result's element sort, so that a hook editing a
+    /// list of the result sort shares every node it does not edit, and the converted items in a
+    /// new tree otherwise.
+    pub(super) fn items(&self, items: &Items<Term>, from: &Sort) -> Option<Items<Term>> {
+        if *from == self.elements.definition.element_sort {
+            return Some(items.clone());
+        }
+        self.elements(items, from).map(Items::from_vec)
+    }
+
     /// The list of `heads`, and of an opaque middle and its `tails` when the middle is a value
     /// of the result sort; the elements are already the result's (`element`, `elements`).
     pub(super) fn build(self, heads: Vec<Term>, rest: Option<(Term, Vec<Term>)>) -> Option<Term> {
+        self.build_items(
+            Items::from_vec(heads),
+            rest.map(|(middle, tails)| (middle, Items::from_vec(tails))),
+        )
+    }
+
+    /// [`build`](Self::build) of trees of the result's items (`items`), which the list holds
+    /// as they are.
+    pub(super) fn build_items(
+        self,
+        heads: Items<Term>,
+        rest: Option<(Term, Items<Term>)>,
+    ) -> Option<Term> {
         let definition = self.elements.definition;
         if let Some((middle, _)) = &rest
             && !fits(middle, &definition.list_sort)
         {
             return None;
         }
-        Some(Term::list(definition, heads, rest))
+        Some(Term::list_of_items(definition, heads, rest))
     }
 }
 
