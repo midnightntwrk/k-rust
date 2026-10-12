@@ -1162,3 +1162,61 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
         assert!(result.contains(stated), "{program} krun: {result}");
     }
 }
+
+/// The definedness of `sti(X /Int Y)` is `Y` not 0. When the initial constraints establish it
+/// (`Y >Int 0`), the configuration has no undefined instance, so nothing is restricted or named;
+/// when they refute it together (`Y *Int Y ==Int 0`, which no single obligation's simplification
+/// decides), the configuration has no instance at all and the run ends as one simplified to
+/// `\bottom`, without naming a condition under which it would be defined.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_to_name() {
+    use k_rust::backend::{BackendDiagnosticOutput, ExecutionStrategy};
+
+    let compiled = compile(UNDEFINED_INSTANCES, "UD", "UD-SYNTAX", "Pgm", "zero()");
+    let program = r#"Lblsti{}(Lbl'UndsSlsh'Int'Unds'{}(VarX:SortInt{}, VarY:SortInt{}))"#;
+    let initial = |condition: &str| {
+        parse_pattern(&format!(
+            r#"\and{{SortGeneratedTopCell{{}}}}({}, \equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(\dv{{SortBool{{}}}}("true"), {condition}))"#,
+            Printer::compact().print_pattern(&undefined_instances_initial(program))
+        ))
+        .unwrap()
+    };
+    let positive = r#"Lbl'Unds-GT-'Int'Unds'{}(VarY:SortInt{}, \dv{SortInt{}}("0"))"#;
+    let square_zero = r#"Lbl'UndsEqlsEqls'Int'Unds'{}(Lbl'UndsStar'Int'Unds'{}(VarY:SortInt{}, VarY:SortInt{}), \dv{SortInt{}}("0"))"#;
+    for (condition, heads) in [(positive, vec!["Lbldonei{}("]), (square_zero, vec![])] {
+        for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+            let mut backend =
+                Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
+            let result = backend
+                .execute(ExecuteRequest {
+                    strategy,
+                    ..ExecuteRequest::new(initial(condition))
+                })
+                .unwrap();
+            let states = text(&result);
+            assert!(
+                heads
+                    .iter()
+                    .all(|head| states.iter().any(|state| state.contains(head)))
+                    && (heads.is_empty()
+                        == result
+                            .leaves
+                            .iter()
+                            .all(|leaf| leaf.reason == HaltReasonOutput::Vacuous)),
+                "{condition} {strategy:?}: {states:#?}"
+            );
+            assert!(
+                result
+                    .leaves
+                    .iter()
+                    .all(|leaf| !leaf.diagnostics.iter().any(|diagnostic| matches!(
+                        diagnostic,
+                        BackendDiagnosticOutput::UndefinedInitialInstances { .. }
+                    ))),
+                "{condition} {strategy:?}: {:#?}",
+                result.leaves
+            );
+        }
+    }
+}

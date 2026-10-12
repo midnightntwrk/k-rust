@@ -846,28 +846,51 @@ pub(crate) fn initial_definedness(
     if obligations.is_empty() {
         return Ok(InitialDefinedness::Where(obligations));
     }
-    Ok(
-        match simplify_predicates_with_solver(
-            definition,
-            &obligations,
-            &pattern.constraints,
-            options,
-            solver,
-        )? {
-            Ok(simplified) if predicates_truth(&simplified) == Truth::False => {
-                InitialDefinedness::Undefined
-            }
-            Ok(simplified) => InitialDefinedness::Where(
-                simplified
-                    .into_iter()
-                    .filter(|obligation| {
-                        obligation != &Predicate::True && !pattern.constraints.contains(obligation)
-                    })
-                    .collect(),
-            ),
-            Err(_failure) => InitialDefinedness::Where(obligations),
-        },
-    )
+    let open = match simplify_predicates_with_solver(
+        definition,
+        &obligations,
+        &pattern.constraints,
+        options,
+        solver,
+    )? {
+        Ok(simplified) if predicates_truth(&simplified) == Truth::False => {
+            return Ok(InitialDefinedness::Undefined);
+        }
+        Ok(simplified) => simplified
+            .into_iter()
+            .filter(|obligation| {
+                obligation != &Predicate::True && !pattern.constraints.contains(obligation)
+            })
+            .collect::<Vec<_>>(),
+        Err(_failure) => obligations,
+    };
+    if open.is_empty() {
+        return Ok(InitialDefinedness::Where(open));
+    }
+    // The simplification decides each obligation alone; the solver decides them together under
+    // `φ`. No instance where they all hold: the configuration has no instance. No instance where
+    // one fails: `φ` establishes the definedness, so there is nothing to restrict or to name.
+    let mut defined = pattern.constraints.clone();
+    defined.extend(open.iter().cloned());
+    if matches!(
+        solver.is_sat(&defined, &Substitution::new())?,
+        Ok(Satisfiability::Unsat)
+    ) {
+        return Ok(InitialDefinedness::Undefined);
+    }
+    let all_hold = match open.as_slice() {
+        [obligation] => obligation.clone(),
+        _ => Predicate::And(open.clone()),
+    };
+    let mut undefined = pattern.constraints.clone();
+    undefined.push(Predicate::Not(Box::new(all_hold)));
+    if matches!(
+        solver.is_sat(&undefined, &Substitution::new())?,
+        Ok(Satisfiability::Unsat)
+    ) {
+        return Ok(InitialDefinedness::Where(Vec::new()));
+    }
+    Ok(InitialDefinedness::Where(open))
 }
 
 pub fn execute(
