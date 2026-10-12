@@ -56,7 +56,7 @@ use k_rust::{
         pipeline::{emission_phase, load_phase},
     },
     kore::{
-        ast::{Definition as KoreDefinition, Pattern as KorePattern},
+        ast::{Definition as KoreDefinition, Pattern as KorePattern, Sentence as KoreSentence},
         codec as kore_codec, json as kore_json,
         node::PatternSource,
         parser::{
@@ -64,7 +64,9 @@ use k_rust::{
             parse_pattern as parse_kore_pattern,
         },
         printer::Printer as KorePrinter,
+        walk::for_each_post_order,
     },
+    names::KoreAttribute,
     native::{
         ExecutionPayload, FileResolver, load_runnable_artifact, unpublish_runnable_artifact,
         write_runnable_artifact,
@@ -2468,17 +2470,6 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             Ok(error) => krun_configuration_error(*error),
             Err(error) => error,
         })?;
-    let execution_input = if io {
-        if std::io::stdin().is_terminal() {
-            eprintln!(
-                "note: pre-buffering standard input until end of file (--io on batch mode); \
-                 end the input with Ctrl-D"
-            );
-        }
-        Some(read_stdin_for_stream()?)
-    } else {
-        None
-    };
     let initial = assembler.finish().map_err(krun_configuration_error)?;
     let config_vars_parse_seconds = started.elapsed().as_secs_f64();
     drop(config_vars_parse_phase);
@@ -2493,6 +2484,22 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         parse_kore_definition(&compiled.definition_kore)?
     };
     let definition_parse_seconds = definition_parse_started.elapsed().as_secs_f64();
+    // The console's input; `None` runs without a console (`--io off`). A run in which no
+    // console read can occur takes no console input, so it is given none instead of waiting
+    // for standard input to end (`docs/compatibility.md`, "Whenever a run takes console input").
+    let execution_input = if !io {
+        None
+    } else if reads_console_input(&syntax, &initial) {
+        if std::io::stdin().is_terminal() {
+            eprintln!(
+                "note: pre-buffering standard input until end of file (--io on batch mode); \
+                 end the input with Ctrl-D"
+            );
+        }
+        Some(read_stdin_for_stream()?)
+    } else {
+        Some(Vec::new())
+    };
 
     #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
     {
@@ -3749,6 +3756,81 @@ fn read_stdin() -> io::Result<String> {
     let mut source = String::new();
     io::stdin().read_to_string(&mut source)?;
     Ok(source)
+}
+
+/// Whether a run of `definition` from `initial` can read console input: whether a symbol hooked to
+/// a console read (`IO.getc`, `IO.read`) occurs in the initial configuration or anywhere in the
+/// definition's sentences, attributes included.
+///
+/// A step builds its result from the term it rewrites, from instances of the axioms' patterns,
+/// from the symbols the definition's attributes name (collection units, elements and
+/// concatenations, overloads), and from the values of builtin hooks, none of which is a console
+/// read application; so when no console read occurs in the initial configuration or the
+/// definition, no step reaches one and the run's result does not depend on standard input. A
+/// hook attribute that cannot be read is counted as a console read, so a declaration this check
+/// does not understand never skips input the run might take.
+fn reads_console_input(definition: &KoreDefinition, initial: &KorePattern) -> bool {
+    let reads: BTreeSet<&str> = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            KoreSentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } => match attributes.string(KoreAttribute::Hook) {
+                Ok(Some("IO.getc" | "IO.read")) | Err(_) => Some(symbol.name.as_str()),
+                Ok(_) => None,
+            },
+            _ => None,
+        })
+        .collect();
+    if reads.is_empty() {
+        return false;
+    }
+    let mut patterns = vec![initial];
+    patterns.extend(&definition.attributes.0);
+    for module in &definition.modules {
+        patterns.extend(&module.attributes.0);
+        for sentence in &module.sentences {
+            match sentence {
+                KoreSentence::Import { attributes, .. }
+                | KoreSentence::SortDeclaration { attributes, .. }
+                | KoreSentence::SymbolDeclaration { attributes, .. } => {
+                    patterns.extend(&attributes.0);
+                }
+                KoreSentence::AliasDeclaration {
+                    left,
+                    right,
+                    attributes,
+                    ..
+                } => {
+                    patterns.extend([&**left, &**right]);
+                    patterns.extend(&attributes.0);
+                }
+                KoreSentence::Axiom {
+                    pattern,
+                    attributes,
+                    ..
+                }
+                | KoreSentence::Claim {
+                    pattern,
+                    attributes,
+                    ..
+                } => {
+                    patterns.push(pattern);
+                    patterns.extend(&attributes.0);
+                }
+            }
+        }
+    }
+    patterns.into_iter().any(|pattern| {
+        let mut found = false;
+        for_each_post_order(pattern, |node| {
+            found |= matches!(node, KorePattern::Application { symbol, .. }
+                if reads.contains(symbol.name.as_str()));
+        });
+        found
+    })
 }
 
 fn read_stdin_for_stream() -> io::Result<Vec<u8>> {

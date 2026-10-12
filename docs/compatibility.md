@@ -93,7 +93,9 @@ Their input cursor and ordered descriptor transcript are branch-local, and rolle
 Input is pre-buffered before execution; live output is delivered exactly once from the selected `--strategy any` trace.
 Other descriptors and IO hooks remain unsupported, pure simplification receives no console state, search rejects `--io on`, and RPC does not perform host IO.
 
-Whenever a run takes console input from standard input, standard input is read to end of file before the first step: under `--io on`, and under `--io off` when the definition declares `$STDIN` and the program is not itself read from standard input.
+Whenever a run takes console input from standard input, standard input is read to end of file before the first step: under `--io on` when a console read (a symbol hooked to `IO.getc` or `IO.read`) occurs in the initial configuration or anywhere in the definition, and under `--io off` when the definition declares `$STDIN` and the program is not itself read from standard input.
+A run under `--io on` in which no console read occurs takes no console input: a step builds its result only from the term it rewrites, the definition's patterns and the symbols its attributes name, and builtin values, so no step reaches a console read, the result does not depend on standard input, and standard input is left unread (`krun_io_on_does_not_wait_for_standard_input_when_the_definition_cannot_read_the_console` in [cli.rs](../crates/k-rust/tests/cli.rs)).
+The decision is made for the definition and the initial configuration, not for the steps a run takes, so a run that never executes the definition's console read still reads its input to end of file.
 It is read then because console input is part of the initial state, not a host resource that execution consumes.
 Execution evaluates rewrite candidates tentatively and may fork, so a read by a rolled-back candidate or by a sibling branch must not change the bytes another branch reads.
 The evaluator therefore holds no process handles: every branch reads one immutable byte sequence through its own cursor, and its reads are a function of that sequence and the cursor.
