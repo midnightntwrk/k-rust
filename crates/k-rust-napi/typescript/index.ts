@@ -149,9 +149,18 @@ export interface SerializedKore {
   kore: Kore
 }
 
+/** One axiom sentence: where its author wrote it, when it says so, and its place in the KORE definition, which no other sentence shares. */
 export interface RuleOrigin {
   source: string | null
   location: string | null
+  /** Omitted for a sentence the backend read on its own rather than from its definition. */
+  sentence?: RuleSentence
+}
+
+/** The declaring module and the sentence's zero-based index among all of that module's sentences, whatever their kind. */
+export interface RuleSentence {
+  module: string
+  index: number
 }
 
 /** An application of a symbol declared total (or functional) that one of its equations reduced to bottom. */

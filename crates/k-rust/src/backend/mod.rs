@@ -2710,15 +2710,19 @@ mod tests {
         }])
     }
 
-    /// The rule's axiom is a sentence of the definition written without `Source` or `Location`,
-    /// so its origin is present and names neither.
-    fn condition_exhausted_json(rule_id: &str) -> Value {
+    /// The rule's axiom is the sentence `sentence` of module `MAIN`, written without `Source`
+    /// or `Location`, so its origin is present and names it by that place alone.
+    fn condition_exhausted_json(rule_id: &str, sentence: usize) -> Value {
         serde_json::json!([
             {"kind": "simplification-budget-exhausted", "limit": 3, "subject": "predicates"},
             {
                 "kind": "rule-condition-unsimplified",
                 "ruleId": rule_id,
-                "origin": {"source": null, "location": null},
+                "origin": {
+                    "source": null,
+                    "location": null,
+                    "sentence": {"module": "MAIN", "index": sentence}
+                },
                 "limit": 3
             }
         ])
@@ -2761,7 +2765,7 @@ mod tests {
         );
         assert_eq!(
             entry_at(&states["states"], None, "c{}()")["diagnostics"],
-            condition_exhausted_json("norm-c")
+            condition_exhausted_json("norm-c", 11)
         );
         assert_eq!(paths["witnesses"].as_array().unwrap().len(), 3, "{paths:#}");
         assert_eq!(
@@ -2775,7 +2779,7 @@ mod tests {
         );
         assert_eq!(
             entry_at(&paths["witnesses"], None, "c{}()")["diagnostics"],
-            condition_exhausted_json("norm-c")
+            condition_exhausted_json("norm-c", 11)
         );
     }
 
@@ -2799,13 +2803,19 @@ mod tests {
         for (response, field) in [(&states, "state"), (&paths, "witness")] {
             let on_b = entry_at(&response["matches"], Some(field), "b{}()");
             assert!(on_b[field].get("diagnostics").is_none(), "{response:#}");
-            assert_eq!(on_b["diagnostics"], condition_exhausted_json("check-ok"));
+            assert_eq!(
+                on_b["diagnostics"],
+                condition_exhausted_json("check-ok", 12)
+            );
             let on_c = entry_at(&response["matches"], Some(field), "c{}()");
             assert_eq!(
                 on_c[field]["diagnostics"],
-                condition_exhausted_json("norm-c")
+                condition_exhausted_json("norm-c", 11)
             );
-            assert_eq!(on_c["diagnostics"], condition_exhausted_json("check-ok"));
+            assert_eq!(
+                on_c["diagnostics"],
+                condition_exhausted_json("check-ok", 12)
+            );
         }
     }
 

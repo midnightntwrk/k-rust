@@ -2268,6 +2268,7 @@ mod undecided_reason_tests {
                 symbol a{}() : SortS{} [constructor{}(), functional{}()]
                 symbol f{}(SortS{}) : SortS{} [function{}()]
                 symbol g{}(SortS{}) : SortS{} [function{}()]
+                symbol h{}(SortS{}) : SortS{} [function{}()]
                 axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
                     f{}(X:SortS{}), \and{SortS{}}(a{}(), \top{SortS{}}())))
                     [simplification{}()]
@@ -2276,6 +2277,9 @@ mod undecided_reason_tests {
                     [simplification{}(),
                      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(test.k)"),
                      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,20)")]
+                axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                    h{}(X:SortS{}), \and{SortS{}}(a{}(), \top{SortS{}}())))
+                    [simplification{}()]
             endmodule []"#,
         )
         .expect("the definition parses");
@@ -2293,8 +2297,9 @@ mod undecided_reason_tests {
         assert_eq!(
             names,
             [
-                "at sentence index 4 (zero-based) of module MAIN",
-                "at test.k:7:3"
+                "at sentence index 5 (zero-based) of module MAIN",
+                "at test.k:7:3",
+                "at sentence index 7 (zero-based) of module MAIN"
             ]
         );
     }
