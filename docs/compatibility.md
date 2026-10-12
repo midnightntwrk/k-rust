@@ -326,13 +326,13 @@ This diverges from the pinned K's generated parsers, whose Flex classes and `.` 
 The scanner's Bison token names keep each class as written (`[^a]`), since they name the token for a reader of the definition.
 (`kast_gen_parser_scanner_matches_classes_and_dot_against_whole_characters` in [cli.rs](../crates/k-rust/tests/cli.rs), `flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does` and `flex_printer_classes_denote_the_characters_of_the_class` in [definition_regex.rs](../crates/k-rust/tests/definition_regex.rs).)
 
-## Negated token-regex classes hold any character
+## Token-regex classes hold any character
 
-A negated class `[^...]` in a token or layout regex denotes the characters outside it, so any character may be a member: krust accepts `r"[^é]"`.
-Both scanners krust builds match such a class against whole characters: the Flex scanner as the UTF-8 encodings of the characters outside it (see "Generated parser tokens are characters"), and the in-process scanner as the class of the characters outside it, computed as a set of scalar values, since the `regex` crate's own negation of a class whose members lie on either side of the surrogate gap (`[^\x{D7FF}\x{E000}]`) also matches those members.
-A non-ASCII range endpoint stays rejected, in a negated class as in any other.
-This diverges from the pinned K, which rejects a non-ASCII member of a negated class with "Unsupported non-ASCII characters found in negated character class".
-(`a_negated_class_may_hold_any_character` in [k-rust-regex's tests](../crates/k-rust-regex/tests/regex.rs), `flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does` and `flex_printer_classes_denote_the_characters_of_the_class` in [definition_regex.rs](../crates/k-rust/tests/definition_regex.rs).)
+A character class in a token or layout regex denotes a set of characters, so any character may be a member or a range endpoint, in a negated class as in any other: krust accepts `r"[^é]"`, `r"[à-ÿ]"` and `r"[^a-zà-ÿ]"`.
+A range denotes the characters from its start to its end; one across the surrogate code points, which are no characters, such as U+D7FF-U+E000, holds the characters on either side of them and nothing else.
+Both scanners krust builds match a class against whole characters: the Flex scanner as the UTF-8 encodings of the characters the class denotes (see "Generated parser tokens are characters"); the in-process scanner reads a positive class as written, and a negated class as the class of the characters outside it, computed as a set of scalar values, since the `regex` crate's own negation of a class whose members lie on either side of the surrogate gap (`[^\x{D7FF}\x{E000}]`) also matches those members.
+This diverges from the pinned K, which rejects a non-ASCII range endpoint with "Unsupported non-ASCII characters found in character class range" and a non-ASCII member of a negated class with "Unsupported non-ASCII characters found in negated character class".
+(`a_class_may_hold_any_character_as_a_member_or_a_range_endpoint` in [k-rust-regex's tests](../crates/k-rust-regex/tests/regex.rs), `kast_gen_parser_scanner_matches_a_class_range_of_non_ascii_characters` in [cli.rs](../crates/k-rust/tests/cli.rs), `flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does`, `a_class_range_across_the_surrogate_gap_holds_exactly_its_characters` and `flex_printer_classes_denote_the_characters_of_the_class` in [definition_regex.rs](../crates/k-rust/tests/definition_regex.rs).)
 
 ## Generated parser token literals
 

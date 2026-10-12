@@ -78,29 +78,17 @@ fn descending_repeat_is_reported_with_its_operand() {
 }
 
 #[test]
-fn a_negated_class_may_hold_any_character() {
-    // Only a non-ASCII range endpoint is reported, in a negated class as in any other.
-    assert!(issues("[^é][^\u{2028}\u{2029}]é[^é🙂]").is_empty());
-    assert_eq!(
-        issues("[^é][^a-ü]é[^é]"),
-        [Issue::NonAsciiInClassRange(vec!['ü'])]
+fn a_class_may_hold_any_character_as_a_member_or_a_range_endpoint() {
+    assert!(
+        issues("[^é][^\u{2028}\u{2029}]é[^é🙂][é-ü][^a-ü][\u{D7FF}-\u{E000}][\u{80}-\u{10FFFF}]")
+            .is_empty()
     );
 }
 
 #[test]
-fn non_ascii_range_endpoint_is_reported_in_any_class() {
+fn issues_are_reported_in_preorder() {
     assert_eq!(
-        messages("[é-ü][a-é]"),
-        ["Unsupported non-ASCII characters found in character class range: [é, ü]"]
-    );
-    // A non-ASCII member of a plain class is expressible for a byte scanner.
-    assert!(issues("[aé]é").is_empty());
-}
-
-#[test]
-fn descending_issues_precede_non_ascii_issues() {
-    assert_eq!(
-        issues("[^é]x{3,1}[à-a]"),
+        issues("[^é]x{3,1}[à-a][^ü-é]"),
         [
             Issue::DescendingRepeat {
                 body: RegexBody::Char('x'),
@@ -111,7 +99,10 @@ fn descending_issues_precede_non_ascii_issues() {
                 start: 'à',
                 end: 'a'
             },
-            Issue::NonAsciiInClassRange(vec!['à']),
+            Issue::DescendingCharRange {
+                start: 'ü',
+                end: 'é'
+            },
         ]
     );
 }

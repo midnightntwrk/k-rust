@@ -10812,6 +10812,51 @@ endmodule
     );
 }
 
+/// A class range denotes the characters from its start to its end, whatever their encoded length:
+/// both parsers accept exactly those characters, and a range across the surrogate gap holds the
+/// characters on either side of it and nothing else; a range in a negated class removes its
+/// characters from the class.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_matches_a_class_range_of_non_ascii_characters() {
+    let definition = "
+module RANGES-SYNTAX
+  syntax Accented ::= r\"~[\u{E0}-\u{FF}]+\" [token]
+  syntax Gap ::= r\"@[\u{D7FF}-\u{E000}]\" [token]
+  syntax Outside ::= r\"%[^a-z\u{80}-\u{10FFFF}]\" [token]
+  syntax Pgm ::= \"a\" Accented | \"g\" Gap | \"o\" Outside
+endmodule
+
+module RANGES
+  imports RANGES-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+";
+    let programs = [
+        ("a ~\u{E0}\u{E9}\u{FF}", true),
+        ("a ~\u{E9}", true),
+        ("a ~\u{DF}", false),
+        ("a ~\u{100}", false),
+        ("a ~\u{E9}a", false),
+        ("g @\u{D7FF}", true),
+        ("g @\u{E000}", true),
+        ("g @\u{D7FE}", false),
+        ("g @\u{E001}", false),
+        ("o %A", true),
+        ("o %%", true),
+        ("o %a", false),
+        ("o %\u{80}", false),
+        ("o %\u{E9}", false),
+        ("o %\u{10FFFF}", false),
+    ];
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "RANGES",
+        "RANGES-SYNTAX",
+        &owned_programs(&programs),
+    );
+}
+
 /// U+0000 is a character like any other: a token whose text holds it is that whole text, in
 /// every kind of literal and in a token subsort's phrase, and its literal holds the character.
 /// A generated scanner keeps such a text whole whether it reads its input in chunks or, for an

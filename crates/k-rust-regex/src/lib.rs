@@ -322,17 +322,11 @@ pub fn parse(input: &str) -> Result<Regex, ParseError> {
 
 /// A reason a parsed regex is still not an acceptable K token regex.
 ///
-/// The variants fall in two groups:
-///
-/// - Well-formedness of the regex language: [`Issue::DescendingCharRange`] and
-///   [`Issue::DescendingRepeat`] denote empty sets written in a form that is almost certainly a
-///   mistake, so they are rejected rather than silently matching nothing.
-/// - A restriction kept from a byte-level scanner target: [`Issue::NonAsciiInClassRange`] is well
-///   formed as a regex. It was rejected because a Flex class of bytes cannot take a non-ASCII
-///   character as a range endpoint; the Flex printer now writes every class as the UTF-8
-///   encodings of its characters (see [`RegexBody::to_flex_string`]), so it would scan it, and
-///   the restriction stays only until the definitions it rejects are decided separately. A
-///   negated class may hold any character: both printers write it as the characters outside it.
+/// Both variants concern well-formedness of the regex language: they denote empty sets written in
+/// a form that is almost certainly a mistake, so they are rejected rather than silently matching
+/// nothing. Any character may be a class member or a range endpoint, in a negated class as in any
+/// other: both printers write a class as the characters it denotes (see
+/// [`RegexBody::to_flex_string`] and [`RegexBody::to_rust_string`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Issue {
@@ -344,8 +338,6 @@ pub enum Issue {
         at_least: u32,
         at_most: u32,
     },
-    /// Non-ASCII range endpoints in any class, without duplicates, in first-occurrence order.
-    NonAsciiInClassRange(Vec<char>),
 }
 
 impl Display for Issue {
@@ -374,48 +366,24 @@ impl Display for Issue {
                     at_most: *at_most,
                 }
             ),
-            Self::NonAsciiInClassRange(characters) => write!(
-                formatter,
-                "Unsupported non-ASCII characters found in character class range: [{}]",
-                join_characters(characters)
-            ),
         }
     }
 }
 
 impl std::error::Error for Issue {}
 
-fn join_characters(characters: &[char]) -> String {
-    characters
-        .iter()
-        .map(char::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Report every [`Issue`] of a parsed regex that does not depend on a surrounding definition.
-///
-/// Descending ranges and repetitions come first, one per occurrence in preorder; then at most one
-/// [`Issue::NonAsciiInClassRange`].
+/// Report every [`Issue`] of a parsed regex that does not depend on a surrounding definition, one
+/// per occurrence, in preorder.
 /// Named references are not examined; see [`RegexBody::named_references`].
 pub fn check(regex: &Regex) -> Vec<Issue> {
     let mut issues = Vec::new();
-    let mut range_non_ascii = Vec::new();
     regex.body.visit_preorder(&mut |body| match body {
         RegexBody::CharClass { members, .. } => {
             for member in members {
-                match *member {
-                    CharClass::Char(_) => {}
-                    CharClass::Range { start, end } => {
-                        for character in [start, end] {
-                            if !character.is_ascii() {
-                                push_unique(&mut range_non_ascii, character);
-                            }
-                        }
-                        if start > end {
-                            issues.push(Issue::DescendingCharRange { start, end });
-                        }
-                    }
+                if let CharClass::Range { start, end } = *member
+                    && start > end
+                {
+                    issues.push(Issue::DescendingCharRange { start, end });
                 }
             }
         }
@@ -430,16 +398,7 @@ pub fn check(regex: &Regex) -> Vec<Issue> {
         }),
         _ => {}
     });
-    if !range_non_ascii.is_empty() {
-        issues.push(Issue::NonAsciiInClassRange(range_non_ascii));
-    }
     issues
-}
-
-fn push_unique(values: &mut Vec<char>, value: char) {
-    if !values.contains(&value) {
-        values.push(value);
-    }
 }
 
 struct Parser {
@@ -1212,9 +1171,15 @@ fn print_rust_regex(body: &RegexBody, output: &mut String) -> Result<(), Unexpan
 /// Print a negated class as the class of the characters outside it.
 ///
 /// The `regex` crate's own negation is not exact: it reads `[^\x{D7FF}\x{E000}]`, two characters
-/// on either side of the surrogate gap, as matching both of them (regex 1.13.1). The complement
-/// computed here is a set of scalar values, so the class printed from it matches exactly the
-/// characters the negated class denotes.
+/// on either side of the surrogate gap, as matching both of them (regex 1.13.1, regex-syntax
+/// 0.8.11). Its set of ranges keeps the two apart, since their code points are not adjacent, and
+/// the gap it computes between them runs from the character after U+D7FF to the one before U+E000,
+/// that is from U+E000 down to U+D7FF; it builds that inverted range with its bounds swapped, as
+/// U+D7FF-U+E000, which holds both. Only its negation and class difference compute such gaps; a
+/// positive class, ranges across the gap included, is read as written and compiled to the
+/// encodings of exactly its scalar values, so the positive class printed here from the
+/// complement, which is a set of scalar values, matches exactly the characters the negated class
+/// denotes.
 fn print_rust_negated_class(members: &[CharClass], output: &mut String) {
     let (low, high) = SURROGATES;
     let characters = class_scalar_ranges(true, members)
