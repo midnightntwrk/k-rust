@@ -2034,11 +2034,18 @@ fn mint_unbound_rule_variables(
 
 /// The rule's existentials, each renamed to a mint of the request's counter that keeps its
 /// `Ex#` marker (`Ex#Var'Ques'X!3`).
+///
+/// The state's names are gathered only when there is an existential to mint, as
+/// `mint_unbound_rule_variables` does: a rule without one pays nothing for the configuration's
+/// variables.
 fn freshen_existentials(
     rule: &RewriteRule,
     pattern: &Pattern,
     fresh_counter: &mut FreshCounter,
 ) -> Substitution {
+    if rule.existentials.is_empty() {
+        return Substitution::new();
+    }
     let mut names_to_avoid = pattern_variable_names(pattern);
     rule.existentials
         .iter()

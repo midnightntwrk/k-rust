@@ -439,6 +439,11 @@ fn reading_one_map_binding_by_matching_costs_the_same_on_a_larger_map() {
 /// `N |-> V<N>` by `N |-> N`, so it removes one variable from the map's and the configuration's
 /// variable sets: the step changes one binding and one variable, and what it pays for the other
 /// bindings and variables must not grow with them.
+///
+/// The steps subtracted are those carrying a ground map (`cmstate` on `map_of`), not the
+/// symbolic one: a carry of the symbolic map is itself a step on a configuration of as many
+/// variables, so any per-step cost in the number of variables would cancel in the difference
+/// and the check would pass whatever that cost is.
 #[test]
 fn overwriting_one_symbolic_map_binding_costs_the_same_on_a_larger_map() {
     let _one = ONE_AT_A_TIME
@@ -448,7 +453,15 @@ fn overwriting_one_symbolic_map_binding_costs_the_same_on_a_larger_map() {
     assert_step_independent_of_size(
         "symbolic map, one variable binding overwritten per step",
         256,
-        |size| shape_steps(&definition, "mstate", "cmstate", &symbolic_map_of, size, 0),
+        |size| {
+            steps_from(&definition, "mstate", &symbolic_map_of, size, 0).saturating_sub(steps_from(
+                &definition,
+                "cmstate",
+                &map_of,
+                size,
+                0,
+            ))
+        },
     );
 }
 

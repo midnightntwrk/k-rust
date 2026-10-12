@@ -39,17 +39,32 @@ fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
     }
 }
 
+/// The conjunction of `predicates`, with each of its free variables that `pattern` does not hold
+/// (neither its term nor its constraints) bound by an existential, outermost first in variable
+/// order.
+///
+/// The state's term is looked up variable by variable, never copied: a step on a configuration
+/// of `V` variables pays for the condition's variables, not for `V`. The constraints' variables
+/// are gathered only when some variable of the condition is not the term's.
 pub(crate) fn quantify_introduced_variables(
     pattern: &Pattern,
     predicates: Vec<Predicate>,
 ) -> Predicate {
     let mut condition = conjoin(predicates);
-    let state_variables = pattern_free_variables(pattern);
-    let introduced = condition
+    let state_term_variables = &pattern.term.attributes().variables;
+    let mut introduced = condition
         .free_variables()
-        .difference(&state_variables)
-        .cloned()
+        .into_iter()
+        .filter(|variable| !state_term_variables.contains(variable))
         .collect::<Vec<_>>();
+    if !introduced.is_empty() {
+        let constraint_variables = pattern
+            .constraints
+            .iter()
+            .flat_map(Predicate::free_variables)
+            .collect::<BTreeSet<_>>();
+        introduced.retain(|variable| !constraint_variables.contains(variable));
+    }
     for variable in introduced.into_iter().rev() {
         condition = Predicate::Exists(variable, Box::new(condition));
     }
