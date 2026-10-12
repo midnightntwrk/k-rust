@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "recognition (the chart loop of recognize)"
-//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it, and for a chain written directly as a side of a rewrite, whose readings that take the rewrite as an operand break a relation and are skipped; the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
+//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it, and for a chain written directly as a side of a rewrite, whose readings that take the rewrite as an operand break a relation and are skipped; the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them; a chart pops its states by decreasing origin (Agenda), so every shorter span ending at the chart is complete before a longer one reads it and a completed state is popped again only when a same-span or empty child grows: one version of a span's nodes rather than one per growth of the spans below it, and the forest of an ambiguous input has its spans and splits, not those versions"
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
@@ -2379,7 +2379,7 @@ impl Grammar {
             let mut lookahead: Option<Option<Option<usize>>> = None;
             // Invariant: every queued state has new derivation information not yet dispatched;
             // processing either advances it or monotonically grows a chart state.
-            while let Some(state) = charts[position].agenda.pop_front() {
+            while let Some(state) = charts[position].agenda.pop() {
                 measure::bump(Counter::ParserChartAgendaPops);
                 #[cfg(any(test, feature = "measure"))]
                 let revisit = !charts[position].popped.insert(state);

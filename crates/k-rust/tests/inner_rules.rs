@@ -6016,7 +6016,9 @@ fn unary_cycle_message_names_its_productions_and_location() {
 
 // `wrap : Exp ::= Opt Exp Opt` with a nullable `Opt` derives `Exp` from `Exp` over the same text,
 // so every `Exp` has infinitely many parses. The parser reports the repetition at the first rule
-// instead of building ever deeper wrappers.
+// instead of building ever deeper wrappers. Spans ending at one position are completed shortest
+// first, so the text reported is `1`, the shortest one that repeats, rather than the `q 1` around
+// it, which repeats as well.
 #[cfg(feature = "z3-inference")]
 #[test]
 fn a_nullable_wrapper_makes_a_rule_over_its_sort_a_cyclic_derivation() {
@@ -6038,7 +6040,7 @@ fn a_nullable_wrapper_makes_a_rule_over_its_sort_a_cyclic_derivation() {
     };
     assert_eq!(
         error.error.to_string(),
-        "Parsing ambiguity: `q 1` has infinitely many parses because these productions \
+        "Parsing ambiguity: `1` has infinitely many parses because these productions \
          derive Exp from itself without consuming input:\n    syntax Exp ::= Opt Exp Opt [klabel(wrap), symbol]\n\
          where Opt matches the empty string."
     );
@@ -6046,7 +6048,7 @@ fn a_nullable_wrapper_makes_a_rule_over_its_sort_a_cyclic_derivation() {
         panic!("expected a cyclic derivation, got {:?}", error.error);
     };
     let span = cycle.span.expect("the cyclic text has a span");
-    assert_eq!(&source[span.start..span.end].trim_end(), &"q 1");
+    assert_eq!(&source[span.start..span.end].trim_end(), &"1");
 }
 
 // Without single-nonterminal productions both orders agree. The two readings of `a(X, Y)`

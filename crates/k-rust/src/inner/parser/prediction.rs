@@ -2943,4 +2943,82 @@ mod tests {
             .and_then(&lower);
         assert_eq!(portable, z3);
     }
+
+    /// The forest of `S ::= S S | S "d" | "d"` over `d`^n holds, for every span of `L >= 2`
+    /// tokens, one ambiguity of a `S S` node per split, `L - 1`, and one `S "d"` node, and
+    /// nothing else: C(n + 1, 3) + C(n, 2) alternatives in all. A chart that
+    /// completes a longer span before the shorter spans below it are complete builds a version
+    /// of its nodes per growth of those spans, and the ambiguities above keep every version
+    /// beside the latest, so the count then grows with the number of versions, exponentially in
+    /// n.
+    #[test]
+    fn the_forest_of_an_ambiguous_chain_has_one_node_per_split_of_each_span() {
+        use std::collections::HashSet;
+
+        use super::super::forest::PackedNode;
+
+        let grammar = Grammar::from_sentences(&[
+            production("Start", vec![nt("S")], "start"),
+            production("S", vec![nt("S"), nt("S")], "pair"),
+            production("S", vec![nt("S"), terminal("d")], "post"),
+            production("S", vec![terminal("d")], "d"),
+        ])
+        .unwrap();
+        let n = 12;
+        let input = vec!["d"; n].join(" ");
+        let start = grammar
+            .sort_id(grammar.sort_denotations.denote(&Sort::new("Start")))
+            .unwrap();
+        let mut scanner_cache = vec![None; input.len() + 1];
+        let start_position = grammar.canonical_position(&input, 0, &mut scanner_cache);
+        let memos = std::cell::RefCell::new(PackedPriorityMemos::default());
+        let recognition = grammar
+            .recognize(
+                start,
+                start_position,
+                &input,
+                ParseProvenance {
+                    source: SourceId(7),
+                    base_offset: 100,
+                },
+                PredictionMode::Unfiltered,
+                PriorityFilter::Enforced,
+                None,
+                false,
+                &mut false,
+                &mut WorkMeter::unlimited(),
+                &mut scanner_cache,
+                &memos,
+            )
+            .unwrap();
+        // Ambiguities told apart by structure, so that equal copies count once.
+        let mut ambiguities = BTreeSet::new();
+        let mut seen = HashSet::new();
+        let mut pending: Vec<_> = recognition.parses.into_iter().collect();
+        while let Some(node) = pending.pop() {
+            if !seen.insert(std::rc::Rc::as_ptr(&node)) {
+                continue;
+            }
+            match &node.node {
+                PackedNode::Production { children, .. }
+                | PackedNode::InstantiatedProduction { children, .. } => {
+                    pending.extend(children.iter().cloned());
+                }
+                PackedNode::Ambiguity(nodes) => {
+                    pending.extend(nodes.iter().cloned());
+                    ambiguities.insert(node);
+                }
+                PackedNode::Term(_) => {}
+            }
+        }
+        let alternatives: usize = ambiguities
+            .iter()
+            .map(|ambiguity| match &ambiguity.node {
+                PackedNode::Ambiguity(nodes) => nodes.len(),
+                _ => unreachable!("only ambiguities are kept"),
+            })
+            .sum();
+        assert_eq!(ambiguities.len(), n * (n - 1) / 2);
+        assert_eq!(alternatives, (n + 1) * n * (n - 1) / 6 + n * (n - 1) / 2);
+    }
 }
