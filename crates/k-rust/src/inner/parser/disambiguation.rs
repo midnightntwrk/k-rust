@@ -39,7 +39,7 @@
 //!
 //! [[cost]]
 //! mode = "one parse forest"
-//! bound = "O(N x A)"
+//! bound = "O(N x A), plus the structural ordering that chooses each ambiguity's first alternative, whose pair comparisons the pass shares"
 //! ```
 //!
 //! ```toml algorithm
@@ -156,7 +156,7 @@ use std::hash::{Hash, Hasher};
 use super::exclusion::{Exclusion, Side};
 use super::{
     AmbiguityPlace, AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts,
-    ParsedTerm, Production, StructuralOrder, cmp_packed_structurally, lower_term,
+    ParsedTerm, Production, StructuralOrder, lower_term,
 };
 use crate::kast::{
     FrontendSort, InternalLabel, ProductionIdentity, Sort, Term, TermMetadata, TermSpan, string,
@@ -188,6 +188,17 @@ struct KListMemo {
     shortest: HashMap<*const PackedTerm, (Rc<PackedTerm>, usize)>,
     order: StructuralOrder,
 }
+/// What one packed-factoring pass keeps: each node's factored result by identity (each entry
+/// keeps its input node alive so that its address is not reused), and the structural
+/// comparisons its choices of a first alternative made. A node is immutable and its structural
+/// order with another is a function of the two nodes, so a comparison made anywhere in the pass
+/// stays valid for the rest of it, and the alternatives of the ambiguities above a shared
+/// subforest compare that subforest once.
+#[derive(Default)]
+struct PackedFactoringMemo {
+    factored: HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+    order: StructuralOrder,
+}
 type PackedPriorityChildMemo =
     HashMap<(*const PackedTerm, usize, Option<Side>), (Rc<PackedTerm>, PackedTransformResult)>;
 
@@ -212,19 +223,19 @@ impl Grammar {
         term: Rc<PackedTerm>,
     ) -> Rc<PackedTerm> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationFactorPacked);
-        self.factor_packed_ambiguities(term, &mut HashMap::new())
+        self.factor_packed_ambiguities(term, &mut PackedFactoringMemo::default())
     }
 
     fn factor_packed_ambiguities(
         &self,
         term: Rc<PackedTerm>,
-        memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+        memo: &mut PackedFactoringMemo,
     ) -> Rc<PackedTerm> {
         crate::stack::guarded(|| {
             // Invariant: every memoized identity has a complete factored result; recursion only visits
             // unrecorded children or alternatives.
             let identity = Rc::as_ptr(&term);
-            if let Some((_, factored)) = memo.get(&identity) {
+            if let Some((_, factored)) = memo.factored.get(&identity) {
                 return Rc::clone(factored);
             }
             let factored = match &term.node {
@@ -302,7 +313,7 @@ impl Grammar {
             // Retain the input allocation as part of the entry. Factoring recursively creates
             // temporary ambiguity nodes; allowing one to drop while its raw address remains a key
             // would let a later allocation reuse the address and receive the wrong cached result.
-            memo.insert(identity, (term, Rc::clone(&factored)));
+            memo.factored.insert(identity, (term, Rc::clone(&factored)));
             factored
         })
     }
@@ -310,7 +321,7 @@ impl Grammar {
     fn factor_packed_production_alternatives(
         &self,
         alternatives: BTreeSet<Rc<PackedTerm>>,
-        memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+        memo: &mut PackedFactoringMemo,
     ) -> Rc<PackedTerm> {
         // Invariant: retained alternatives agree on the factored production prefix, and each
         // recursive difference occupies one child ambiguity.
@@ -319,7 +330,7 @@ impl Grammar {
         }
         let Some(first) = alternatives
             .iter()
-            .min_by(|left, right| cmp_packed_structurally(left, right))
+            .min_by(|left, right| memo.order.cmp(left, right))
         else {
             return PackedTerm::ambiguity(alternatives);
         };
@@ -5442,6 +5453,80 @@ mod tests {
 
         assert!(matches!(factored, ParsedTerm::Ambiguity(ref items) if items.len() == 3));
         assert_eq!(render(&grammar, &factored), "amb{A, B, C}");
+    }
+
+    #[test]
+    fn factoring_a_forest_with_shared_subforests_matches_factoring_its_trees() {
+        // The forest of `Exp ::= Exp Exp` over six leaves: each span's node is an ambiguity of
+        // its splits, and every span is shared by each split of every span above it, so the
+        // structural comparisons that order one ambiguity's alternatives meet subforests that
+        // the ambiguities above it compare too.
+        let mut grammar = Grammar::default();
+        let pair = add_production(&mut grammar, "Exp", &["Exp", "Exp"], "pair");
+        let wrap = add_production(&mut grammar, "Exp", &["Exp", "Exp"], "wrap");
+        let leaves = 6;
+        let mut spans = BTreeMap::<(usize, usize), Rc<PackedTerm>>::new();
+        for start in 0..leaves {
+            spans.insert(
+                (start, start + 1),
+                PackedTerm::leaf(Term::variable(format!("X{start}"))),
+            );
+        }
+        for width in 2..=leaves {
+            for start in 0..=leaves - width {
+                let end = start + width;
+                let splits = (start + 1..end)
+                    .map(|middle| {
+                        PackedTerm::production(
+                            pair,
+                            vec![
+                                Rc::clone(&spans[&(start, middle)]),
+                                Rc::clone(&spans[&(middle, end)]),
+                            ],
+                            TermMetadata::default(),
+                        )
+                    })
+                    .collect();
+                spans.insert((start, end), PackedTerm::ambiguity(splits));
+            }
+        }
+        // Above the spans, alternatives that differ only in their second child: the factoring
+        // builds one `wrap` over the ambiguity of those children, flattened, whose splits differ
+        // at both positions and stay as they are.
+        let anchor = PackedTerm::leaf(Term::variable("A"));
+        let root = PackedTerm::ambiguity(
+            (2..=leaves)
+                .map(|end| {
+                    PackedTerm::production(
+                        wrap,
+                        vec![Rc::clone(&anchor), Rc::clone(&spans[&(0, end)])],
+                        TermMetadata::default(),
+                    )
+                })
+                .collect(),
+        );
+
+        let packed = grammar
+            .factor_pre_inference_packed_ambiguities(Rc::clone(&root))
+            .unpack();
+        let owned = grammar.factor_ambiguities(root.unpack());
+
+        assert_eq!(packed, owned);
+        let ParsedTerm::Production {
+            production,
+            children,
+            ..
+        } = &packed
+        else {
+            panic!("expected the alternatives' shared production to be factored")
+        };
+        assert_eq!(*production, wrap);
+        assert_eq!(children[0], variable("A"));
+        let splits_from_the_first_leaf = (2..=leaves).map(|end| end - 1).sum::<usize>();
+        assert!(matches!(
+            &children[1],
+            ParsedTerm::Ambiguity(splits) if splits.len() == splits_from_the_first_leaf
+        ));
     }
 
     #[test]

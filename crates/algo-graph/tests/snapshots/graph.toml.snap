@@ -6770,7 +6770,7 @@ symbol = "Grammar::factor_pre_inference_packed_ambiguities"
 
 [[node.cost]]
 mode = "one parse forest"
-bound = "O(N x A)"
+bound = "O(N x A), plus the structural ordering that chooses each ambiguity's first alternative, whose pair comparisons the pass shares"
 
 [[node]]
 kind = "algorithm"
