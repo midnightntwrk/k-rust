@@ -255,6 +255,30 @@ impl SetResult<'_> {
         }
         Some(Term::set(definition, elements, rest))
     }
+
+    /// The set of `elements`, in the order a set of element sort `from` holds them (a set
+    /// argument's, or ordered edits of them), and of an opaque `rest` when it is a value of the
+    /// result sort: their tree is kept when `from` is the result's element sort, and the
+    /// elements are converted and ordered again otherwise.
+    pub(super) fn build_from(
+        self,
+        elements: Items<Term>,
+        from: &Sort,
+        rest: Option<Term>,
+    ) -> Option<Term> {
+        if *from != self.elements.definition.element_sort {
+            let elements = self.elements(&elements, from)?;
+            return self.build(elements, rest);
+        }
+        let definition = self.elements.definition;
+        if rest
+            .as_ref()
+            .is_some_and(|rest| !fits(rest, &definition.list_sort))
+        {
+            return None;
+        }
+        Some(Term::set_of_items(definition, elements, rest))
+    }
 }
 
 /// A map result being built in the declared result sort.
