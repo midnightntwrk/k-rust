@@ -343,10 +343,18 @@ fn shape_steps(
 /// what the steps pay for the elements they do not touch. A step that copies, re-synthesizes or
 /// rebuilds the collection pays for every element beyond the baseline's: `SCALE * size - 128`
 /// against `size - 128`, 15 times between 256 and 2048 elements. A step that touches one
-/// element and the path to it pays at most a logarithmic factor (11/8 between 256 and 2048
-/// elements, under 3 even doubled for node splits). The check asks for at most `SCALE / 2`, with
-/// an eighth of what the baseline steps allocate as a floor, so that a step that pays almost
-/// nothing for the collection at either size is not judged by the ratio of two small numbers.
+/// element and the path to it pays for the nodes of that path, a logarithmic cost, and the
+/// subtraction makes a ratio of it ill-conditioned: an exact `c log2 n` leaves `c` at 256
+/// elements and `4c` at 2048, already `SCALE / 2`, and a tree's path is a step function of its
+/// height, which may be the same at the baseline and at `size` (leaving next to nothing to divide
+/// by) and one level more at `SCALE * size`. So the ratio is not what admits the logarithmic
+/// class; the floor is, and the floor is what the baseline steps allocate in all: the check asks
+/// `2 * large <= SCALE * small + base`. A step that copies the collection pays some `P` at `size`
+/// for the 128 elements beyond the baseline's and `15 P` at `SCALE * size`, while the baseline
+/// steps pay `P` for their own 128 elements and some `C` for their work apart from the
+/// collection, so such a step passes only if `C` is at least `21 P`: its other work would have
+/// to cost 21 copies of 128 elements, which is far from the case for every shape here (each
+/// reads or writes one element and a counter).
 ///
 /// This compares steps with steps, so the per-step costs that do not depend on the collection
 /// (matching the state, the counter, the step's own logs) cancel, unlike a total over `n` and
@@ -362,12 +370,12 @@ fn assert_step_independent_of_size(shape: &str, size: u64, step_bytes: impl Fn(u
                 let small = step_bytes(size).saturating_sub(base);
                 let large = step_bytes(SCALE * size).saturating_sub(base);
                 eprintln!(
-                    "{shape}: {STEPS} steps pay {small} bytes for {size} elements, {large} for {}, ratio {:.1}",
+                    "{shape}: {STEPS} steps pay {small} bytes for {size} elements, {large} for {}, ratio {:.1}, baseline steps {base}",
                     SCALE * size,
                     large as f64 / small.max(1) as f64
                 );
                 assert!(
-                    2 * large <= SCALE * small + base / SCALE,
+                    2 * large <= SCALE * small + base,
                     "{shape}: {STEPS} steps on {} elements pay {large} bytes for the elements they do not touch, against {small} on {size}: the step grows with the collection",
                     SCALE * size
                 );
@@ -416,7 +424,6 @@ fn adding_one_set_element_costs_the_same_on_a_larger_set() {
 /// Reading one binding by matching `K |-> V M` and writing the map back, the K idiom
 /// `<m> ... K |-> V ... </m>`: the step needs the binding of `K` and nothing else of the map.
 #[test]
-#[ignore = "K22: the frame still copies the map without the binding, which the local fixes leave; un-ignore with the persistent representation"]
 fn reading_one_map_binding_by_matching_costs_the_same_on_a_larger_map() {
     let _one = ONE_AT_A_TIME
         .lock()
