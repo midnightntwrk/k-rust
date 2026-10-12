@@ -4177,6 +4177,28 @@ fn an_omitted_record_field_is_one_variable_in_every_tree_of_a_forest() {
     assert!(body.contains("_right"), "{body}");
 }
 
+/// The omitted `left` and `mid` fields of one record pattern are two variables at the pattern's
+/// span, one `Int` and one `Bool`; a forest of two readings of `neg` keeps them apart in both
+/// engines (checked inference compares them, `every_rule_test_passes_under_checked_inference`).
+#[test]
+fn the_omitted_record_fields_of_one_pattern_are_distinct_variables_in_a_forest() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= "true" [token]
+          syntax Nat
+          syntax Int ::= Nat
+          syntax Triple ::= "triple" "(" left: Int "," mid: Bool "," right: Int ")" [symbol(triple)]
+          syntax Int ::= "neg" "(" Int ")" [symbol(negInt)]
+          syntax Nat ::= "neg" "(" Nat ")" [symbol(negNat)]
+          rule triple(... right: neg(X)) => triple(X, true, X)
+        endmodule
+    "#});
+    let body = only_rule_body(&resolve_rule_bubbles(&definition).expect("the forest is decided"));
+    assert!(body.contains("negInt"), "{body}");
+    assert!(body.contains("_left") && body.contains("_mid"), "{body}");
+}
+
 #[test]
 fn rejects_incompatible_variable_sort_bounds() {
     let definition = lowered(indoc! {r#"
