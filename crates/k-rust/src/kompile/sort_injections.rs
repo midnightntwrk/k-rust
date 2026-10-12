@@ -918,6 +918,33 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         )
     }
 
+    /// Add injections to a standalone pattern in the supplied top-level sort, with the names of
+    /// the variables minted for it. A pattern is matched against terms, so it is read as a rule's
+    /// left side is: a variable of a collection's element sort written in that collection is
+    /// the pattern of one item, keyed in a map by a minted variable. Minted names avoid every
+    /// variable of `term` and of `beside`, the terms that share its variables.
+    pub fn inject_pattern<'a>(
+        &self,
+        term: &'a Term,
+        expected: &Sort,
+        beside: impl IntoIterator<Item = &'a Term>,
+    ) -> Result<(Term, BTreeSet<String>), SortInjectionError> {
+        let names = FreshNames::for_terms(std::iter::once(term).chain(beside));
+        let injected = self.naming(
+            || names.clone(),
+            || self.memoized(|| self.inject_with_position(term, expected, true)),
+        )?;
+        let mut minted = BTreeSet::new();
+        injected.visit_preorder(&mut |subterm| {
+            if let Term::Variable { name, .. } = subterm
+                && !names.contains(name)
+            {
+                minted.insert(name.clone());
+            }
+        });
+        Ok((injected, minted))
+    }
+
     /// Infer a standalone term's top sort and add every injection below it.
     pub fn inject_at_top(&self, term: &Term) -> Result<Term, SortInjectionError> {
         self.naming(

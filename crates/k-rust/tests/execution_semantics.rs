@@ -1032,6 +1032,91 @@ fn a_left_side_variable_of_a_collection_cell_sort_matches_one_instance() {
     }
 }
 
+/// A search pattern is matched against states, so a variable of a `multiplicity="*"` cell's sort
+/// written in its collection (`<rs> R:RCell ... </rs>`) stands there for one instance as on a
+/// rule's left side: the pattern of one item, keyed in a `Map` by a minted variable. The pattern
+/// then matches where the pattern that writes the instance's cells matches, in a `Map`, a `Set`
+/// and a `List`, on one instance and on three, with `R` bound to the instance whose cells the
+/// written pattern binds.
+#[test]
+fn a_search_pattern_variable_of_a_collection_cell_sort_matches_one_instance() {
+    let written = "<r> <rid> I </rid> <v> V </v> </r>";
+    let pairs = [
+        (
+            "<rs> R:RCell ... </rs>",
+            format!("<rs> {written} ... </rs>"),
+        ),
+        ("<rs> R:RCell </rs>", format!("<rs> {written} </rs>")),
+    ];
+    let print = |value: &serde_json::Value| {
+        Printer::compact().print_pattern(&codec::from_value(value).unwrap())
+    };
+    for collection in ["Map", "Set", "List"] {
+        let source = ALIASED_INSTANCES.replace("COLLECTION", collection);
+        for (instances, program) in [(1, "mk(1,10)"), (3, "mk(1,10) ; mk(2,20) ; mk(3,30)")] {
+            let compiled = compile(&source, "TEST", "TEST-SYNTAX", "Pgm", program);
+            // Each match's state and bindings by variable, and whether the search is complete.
+            let search = |contents: &str| {
+                let target = compiled.target("TEST", contents);
+                let printed = Printer::compact().print_pattern(&target);
+                assert!(!printed.contains("RCellMapKey"), "{contents}: {printed}");
+                let mut backend =
+                    Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
+                let response = backend
+                    .search_pattern(SearchPatternRequest {
+                        search_type: SearchTypeArg::Final,
+                        ..SearchPatternRequest::new(compiled.initial.clone(), target)
+                    })
+                    .unwrap();
+                let matches = response
+                    .matches
+                    .iter()
+                    .map(|found| {
+                        let bindings = found
+                            .bindings
+                            .iter()
+                            .map(|binding| (print(&binding.variable), print(&binding.value)))
+                            .collect::<std::collections::BTreeMap<_, _>>();
+                        (print(&found.state.state), bindings)
+                    })
+                    .collect::<Vec<_>>();
+                (matches, response.incomplete.is_empty())
+            };
+            for (variable, cells) in &pairs {
+                let context = format!("{collection}, {instances}: {variable}");
+                let (by_variable, variable_complete) = search(variable);
+                let (by_cells, cells_complete) = search(cells);
+                assert_eq!(variable_complete, cells_complete, "{context}");
+                assert_eq!(by_variable.len(), by_cells.len(), "{context}");
+                for ((state, bindings), (cells_state, cells_bindings)) in
+                    by_variable.iter().zip(&by_cells)
+                {
+                    assert_eq!(state, cells_state, "{context}");
+                    let [rid, v] = ["VarI:SortInt{}", "VarV:SortInt{}"]
+                        .map(|name| cells_bindings[name].as_str());
+                    let instance = format!(
+                        "Lbl'-LT-'r'-GT-'{{}}(Lbl'-LT-'rid'-GT-'{{}}({rid}), Lbl'-LT-'v'-GT-'{{}}({v}))"
+                    );
+                    assert_eq!(bindings["VarR:SortRCell{}"], instance, "{context}");
+                }
+                // Not vacuous: one instance is matched by both patterns, and among three in a
+                // `List` the open pattern matches the front instance and the closed one nothing.
+                // Among three in a `Map` or a `Set` the search does not complete for the written
+                // cells either (TICKETS (d)), so there only the comparison checks the variable.
+                let expected = match (instances, variable.contains("..."), collection) {
+                    (1, _, _) => Some(1),
+                    (3, open, "List") => Some(usize::from(open)),
+                    _ => None,
+                };
+                if let Some(count) = expected {
+                    assert!(variable_complete, "{context}");
+                    assert_eq!(by_variable.len(), count, "{context}");
+                }
+            }
+        }
+    }
+}
+
 /// A rule that reads an instance through `P #as V` and leaves it in place has `V` on its right
 /// side, and in a cell map that item is keyed by its instance's key. `V` is the instance `P`
 /// matched, whose key is `P`'s key cell as matched, so the compiled right side holds that key
