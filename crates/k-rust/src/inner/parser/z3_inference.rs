@@ -1473,7 +1473,6 @@ impl<'a> Encoding<'a> {
             .map(|(constraint, _)| constraint)
     }
 
-    /// The constraint of `term` at `expected` and its node in `self.liveness`.
     /// For each family of bracket instances among the alternatives of one ambiguity (`heads`:
     /// each alternative's production when it has one child), the formula that holds when the
     /// family's instance at the value the position gives is well-sorted there (`constraints`:
@@ -1529,6 +1528,7 @@ impl<'a> Encoding<'a> {
             .collect()
     }
 
+    /// The constraint of `term` at `expected` and its node in `self.liveness`.
     fn constraint_node(
         &mut self,
         term: &ParsedTerm,
