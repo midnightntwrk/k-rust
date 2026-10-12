@@ -74,6 +74,20 @@ def evar (x : String) : Term := .var .element "SortInt" x
 -- `k ↦ 1` and `k ↦ 2` survive the pair dedup; the adjacency check rejects them.
 #guard !ceilFree (.map "M" [(int "1", int "1"), (int "1", int "2")] none)
 #guard ceilFree (.and (int "1") (int "2"))
+-- Keys of free constructors over domain values, such as cell-map keys `<id>(1)`, share a header
+-- when they have one skeleton; keys of two constructors, or under an equation head, do not.
+#guard ceilFree (.map "M" [(.app (ctor "id") [] [int "1"], int "0"),
+                           (.app (ctor "id") [] [int "2"], int "0")] none)
+#guard ceilFree (.set "S" [injK "SortId" (.app (ctor "id") [] [int "1"]),
+                           injK "SortId" (.app (ctor "id") [] [int "2"])] none)
+#guard !ceilFree (.map "M" [(.app (ctor "id") [] [int "1"], int "0"),
+                            (.app (ctor "jd") [] [int "1"], int "0")] none)
+#guard !ceilFree (.map "M" [(.app (ctor "id") [] [int "1"], int "0"),
+                            (.app (ctor "id") [] [.dv "SortString" "1"], int "0")] none)
+#guard !ceilFree (.map "M" [(.app anywhereCtor [] [int "1"], int "0"),
+                            (.app anywhereCtor [] [int "2"], int "0")] none)
+#guard !ceilFree (.map "M" [(.app (ctor "id") [] [evar "X"], int "0"),
+                            (.app (ctor "id") [] [int "2"], int "0")] none)
 
 -- The k-cell count saturates at 2; the walk stops below a k cell.
 #guard kCells (.app (ctor "top") [] [.app kcell [] [.app kcell [] []], int "0"]) == 1

@@ -343,10 +343,10 @@ fn generated_collection_collisions_have_negative_shape_flags() {
         check_hereditary_collisions(&term, &format!("generated case {case}"), &mut coverage);
     }
     coverage.assert_covered();
-    assert_eq!(coverage.root_sets, 30);
-    assert_eq!(coverage.root_maps, 28);
-    assert_eq!(coverage.inherited, 55);
-    assert_eq!(coverage.concrete_controls, 805);
+    assert_eq!(coverage.root_sets, 25);
+    assert_eq!(coverage.root_maps, 19);
+    assert_eq!(coverage.inherited, 38);
+    assert_eq!(coverage.concrete_controls, 800);
 }
 
 /// Keys for the grouping of `collection_disequalities`: rigid keys of a few skeletons over a

@@ -14,8 +14,9 @@ of an injective string encoding.
 The attributes `ceilFree`, `hasMacro` and `kCells`, and the fetch `fetchK`, were designed here
 (OT-01, OT-02) before the Rust had them; the functions they replace (`ceil_term_recursive`,
 `macro_or_alias_symbol`, `find_k_cells`) are modelled from the Rust at the anchor commit.
-OT-01 implements `ceilFree` as crates/k-rust-backend/src/term.rs `ceil_free` (with `key_header`
-and `share_one_key_header` for `keyHeader` and `oneHeader`), stored by `Term::new` in
+OT-01 implements `ceilFree` as crates/k-rust-backend/src/term.rs `ceil_free` (with
+`has_key_header`, term/items.rs `Header` and `keys_share_one_header` for `freeRigid`, `keyHeader`
+and `oneHeader`), stored by `Term::new` in
 `TermAttributes::ceil_free`; `ceil_term_recursive` returned at once when it was set, and the
 walk it replaced was kept as `ceil_term_node`. That recursion is now `ceil_term_walk`, a loop over
 a work list that deduplicates once and skips `ceil_free` subterms; section 9b models it as `walk`
@@ -409,18 +410,37 @@ end
 
 /-! ## 4. The attribute `ceil_free` (OT-01, narrowed key class) -/
 
-/-- The header of a key whose distinctness from another key with the same header
-`structurally_distinct_after_normalization` decides: a domain value, or an injection with a given
-source and target of a domain value. -/
-inductive Header where
-  | dv
-  | inj (source target : SortName)
-deriving DecidableEq
+/- term.rs `has_key_header`: every node of the key is a domain value, an injection, or an
+application of a free constructor. Such a key is `rigid` for every `ev` (`rigid_of_freeRigid`):
+no node of it needs a certificate. -/
+mutual
+def freeRigid : Term → Bool
+  | .dv _ _     => true
+  | .inj _ _ t  => freeRigid t
+  | .app f _ as => f.isFree && freeRigidList as
+  | _           => false
+def freeRigidList : List Term → Bool
+  | []      => true
+  | t :: ts => freeRigid t && freeRigidList ts
+end
 
-def keyHeader : Term → Option Header
-  | .dv _ _            => some .dv
-  | .inj s t (.dv _ _) => some (.inj s t)
-  | _                  => none
+/- The term with the texts of its domain values erased below injections and applications: two
+`freeRigid` keys with one skeleton have one apartness skeleton (`sameSkeleton_of_skeleton`). -/
+mutual
+def skeleton : Term → Term
+  | .dv s _      => .dv s ""
+  | .inj s t x   => .inj s t (skeleton x)
+  | .app f fs as => .app f fs (skeletonList as)
+  | t            => t
+def skeletonList : List Term → List Term
+  | []      => []
+  | t :: ts => skeleton t :: skeletonList ts
+end
+
+/-- The header of a key whose distinctness from another key with the same header holds for every
+definition (`apart_complete`): its skeleton, when the key is `freeRigid` (items.rs `Header`, the
+key itself compared with term.rs `same_apart_skeleton`). -/
+def keyHeader (k : Term) : Option Term := if freeRigid k then some (skeleton k) else none
 
 /-- OT-01's narrowed class: every key has a header, and all keys share the first one. -/
 def oneHeader : List Term → Bool
@@ -583,7 +603,7 @@ theorem set_pairwise_distinct {le : Term → Term → Bool} (hle : TotalOrder le
   (adjacent_pairwise (strict_trans hle) es
     (adjacent_and es hs (adjacentElementsDiffer_adjacent es hadj))).imp fun h => h.2
 
-/-! ## 7. Structural distinctness decides the narrowed key class -/
+/-! ## 7. The keys of the narrowed class share one header -/
 
 theorem oneHeader_same : ∀ ks : List Term, oneHeader ks = true →
     ∀ k ∈ ks, ∀ k' ∈ ks, (keyHeader k).isSome ∧ keyHeader k = keyHeader k'
@@ -599,54 +619,6 @@ theorem oneHeader_same : ∀ ks : List Term, oneHeader ks = true →
       intro a ha b hb
       rw [hx a ha, hx b hb]
       exact ⟨hs, rfl⟩
-
-theorem keyHeader_some {k : Term} {h : Header} (hk : keyHeader k = some h) :
-    (∃ s v, k = .dv s v ∧ h = .dv) ∨ (∃ s t a x, k = .inj s t (.dv a x) ∧ h = .inj s t) := by
-  unfold keyHeader at hk
-  split at hk
-  · cases hk; exact .inl ⟨_, _, rfl, rfl⟩
-  · cases hk; exact .inr ⟨_, _, _, _, rfl, rfl⟩
-  · cases hk
-
-theorem ne_or_ne_of_ne {α β} [DecidableEq α] {a a' : α} {b b' : β}
-    (h : ¬(a = a' ∧ b = b')) : ¬a = a' ∨ ¬b = b' := by
-  by_cases ha : a = a'
-  · exact .inr fun hb => h ⟨ha, hb⟩
-  · exact .inl ha
-
-/-- Two distinct keys with the same header are structurally distinct (term.rs), whatever `ev` and `injd`: the
-`self == other` guard is false, both keys are concrete, and the arm for their header decides. -/
-theorem structDistinct_complete (ev : Term → Bool) (injd : Term → Term → Bool) (k k' : Term)
-    (h : (keyHeader k).isSome) (hh : keyHeader k = keyHeader k') (hne : k ≠ k') :
-    structDistinct ev injd k k' = true := by
-  obtain ⟨hdr, hk⟩ := Option.isSome_iff_exists.mp h
-  have hk' : keyHeader k' = some hdr := hh ▸ hk
-  rcases keyHeader_some hk with ⟨s, v, rfl, rfl⟩ | ⟨s, t, a, x, rfl, rfl⟩ <;>
-  rcases keyHeader_some hk' with ⟨s', v', rfl, h2⟩ | ⟨s', t', a', x', rfl, h2⟩ <;>
-    simp only [reduceCtorEq, Header.inj.injEq] at h2
-  · simp only [structDistinct, concrete]
-    simpa [hne] using ne_or_ne_of_ne fun ⟨h1, h2⟩ => hne (by rw [h1, h2])
-  · obtain ⟨rfl, rfl⟩ := h2
-    simp only [structDistinct, concrete]
-    have : ¬(a = a' ∧ x = x') := fun ⟨h1, h2⟩ => hne (by rw [h1, h2])
-    simpa [hne, Ne.symm] using ne_or_ne_of_ne this
-
-/-- A: two distinct keys with the same header are apart, whatever `ev` and `injd`; their domain
-values differ, directly or below matching injections. -/
-theorem apart_complete (ev : Term → Bool) (injd : Term → Term → Bool) (k k' : Term)
-    (h : (keyHeader k).isSome) (hh : keyHeader k = keyHeader k') (hne : k ≠ k') :
-    apart ev injd k k' = true := by
-  obtain ⟨hdr, hk⟩ := Option.isSome_iff_exists.mp h
-  have hk' : keyHeader k' = some hdr := hh ▸ hk
-  rcases keyHeader_some hk with ⟨s, v, rfl, rfl⟩ | ⟨s, t, a, x, rfl, rfl⟩ <;>
-  rcases keyHeader_some hk' with ⟨s', v', rfl, h2⟩ | ⟨s', t', a', x', rfl, h2⟩ <;>
-    simp only [reduceCtorEq, Header.inj.injEq] at h2
-  · simp only [apart]
-    simpa [hne] using ne_or_ne_of_ne fun ⟨h1, h2⟩ => hne (by rw [h1, h2])
-  · obtain ⟨rfl, rfl⟩ := h2
-    simp only [apart]
-    have : ¬(a = a' ∧ x = x') := fun ⟨h1, h2⟩ => hne (by rw [h1, h2])
-    simpa [hne, Ne.symm] using ne_or_ne_of_ne this
 
 /-! ## 7b. Keys of one rigid skeleton are apart exactly when they differ
 
@@ -747,6 +719,93 @@ theorem normDistinct_of_sameSkeleton (O : Oracles) (a b : Term)
     (ha : rigid O.evaluated a = true) (hb : rigid O.evaluated b = true)
     (hs : sameSkeleton a b = true) (hne : a ≠ b) : normDistinct O a b = true := by
   simp [normDistinct, apart_of_sameSkeleton O.evaluated O.injectionsDistinct a b ha hb hs hne]
+
+/-! ## 7c. Keys of one header are apart
+
+A key header (`keyHeader`) is the skeleton of a key rigid through free roots, so two keys of one
+header are rigid for every `ev` and have one apartness skeleton. -/
+
+mutual
+theorem rigid_of_freeRigid (ev : Term → Bool) :
+    ∀ t : Term, freeRigid t = true → rigid ev t = true
+  | .dv _ _, _ => by simp [rigid]
+  | .inj _ _ t, h => by
+      simp only [freeRigid] at h
+      simp [rigid, rigid_of_freeRigid ev t h]
+  | .app f fs as, h => by
+      simp only [freeRigid, Bool.and_eq_true] at h
+      simp [rigid, h.1, rigidList_of_freeRigidList ev as h.2]
+  | .and _ _, h => by simp [freeRigid] at h
+  | .var _ _ _, h => by simp [freeRigid] at h
+  | .map _ _ _, h => by simp [freeRigid] at h
+  | .list _ _ _, h => by simp [freeRigid] at h
+  | .set _ _ _, h => by simp [freeRigid] at h
+theorem rigidList_of_freeRigidList (ev : Term → Bool) :
+    ∀ ts : List Term, freeRigidList ts = true → rigidList ev ts = true
+  | [], _ => by simp [rigidList]
+  | t :: ts, h => by
+      simp only [freeRigidList, Bool.and_eq_true] at h
+      simp [rigidList, rigid_of_freeRigid ev t h.1, rigidList_of_freeRigidList ev ts h.2]
+end
+
+mutual
+theorem sameSkeleton_of_skeleton :
+    ∀ a b : Term, freeRigid a = true → skeleton a = skeleton b → sameSkeleton a b = true
+  | .dv s _, b, _, h => by
+      cases b
+      case dv s' v' =>
+        simp only [skeleton, Term.dv.injEq] at h
+        simp [sameSkeleton, h.1]
+      all_goals simp [skeleton] at h
+  | .inj s t x, b, ha, h => by
+      cases b
+      case inj s' t' y =>
+        simp only [skeleton, Term.inj.injEq] at h
+        obtain ⟨rfl, rfl, h⟩ := h
+        simp only [freeRigid] at ha
+        simp [sameSkeleton, sameSkeleton_of_skeleton x y ha h]
+      all_goals simp [skeleton] at h
+  | .app f fs as, b, ha, h => by
+      cases b
+      case app g gs bs =>
+        simp only [skeleton, Term.app.injEq] at h
+        obtain ⟨rfl, rfl, h⟩ := h
+        simp only [freeRigid, Bool.and_eq_true] at ha
+        simp [sameSkeleton, sameSkeletonList_of_skeletonList as bs ha.2 h]
+      all_goals simp [skeleton] at h
+  | .and _ _, _, ha, _ => by simp [freeRigid] at ha
+  | .var _ _ _, _, ha, _ => by simp [freeRigid] at ha
+  | .map _ _ _, _, ha, _ => by simp [freeRigid] at ha
+  | .list _ _ _, _, ha, _ => by simp [freeRigid] at ha
+  | .set _ _ _, _, ha, _ => by simp [freeRigid] at ha
+theorem sameSkeletonList_of_skeletonList :
+    ∀ as bs : List Term, freeRigidList as = true → skeletonList as = skeletonList bs →
+      sameSkeletonList as bs = true
+  | [], bs, _, h => by
+      cases bs
+      · simp [sameSkeletonList]
+      · simp [skeletonList] at h
+  | _ :: _, [], _, h => by simp [skeletonList] at h
+  | a :: as, b :: bs, ha, h => by
+      simp only [skeletonList, List.cons.injEq] at h
+      simp only [freeRigidList, Bool.and_eq_true] at ha
+      simp [sameSkeletonList, sameSkeleton_of_skeleton a b ha.1 h.1,
+        sameSkeletonList_of_skeletonList as bs ha.2 h.2]
+end
+
+/-- A: two distinct keys with the same header are apart, whatever `ev` and `injd`: both are rigid
+through free roots and have one apartness skeleton (`apart_of_sameSkeleton`). -/
+theorem apart_complete (ev : Term → Bool) (injd : Term → Term → Bool) (k k' : Term)
+    (h : (keyHeader k).isSome) (hh : keyHeader k = keyHeader k') (hne : k ≠ k') :
+    apart ev injd k k' = true := by
+  unfold keyHeader at h hh
+  by_cases hk : freeRigid k = true
+  · by_cases hk' : freeRigid k' = true
+    · simp only [hk, hk', ite_true, Option.some.injEq] at hh
+      exact apart_of_sameSkeleton ev injd k k' (rigid_of_freeRigid ev k hk)
+        (rigid_of_freeRigid ev k' hk') (sameSkeleton_of_skeleton k k' hk hh) hne
+    · simp [hk, hk'] at hh
+  · simp [hk] at h
 
 /-! ## 8. The side obligations vanish on the narrowed class -/
 

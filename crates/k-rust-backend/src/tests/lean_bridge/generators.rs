@@ -129,8 +129,9 @@ pub(crate) fn term() -> impl Strategy<Value = Term> {
 }
 
 /// Like `term`, but two map keys or set elements in three are drawn from `collection_key`, so
-/// that maps and sets whose keys share one header (the `ceil_free` class of term.rs), keys with
-/// different headers, and equal keys under different values are all frequent.
+/// that maps and sets whose keys share one header (the `ceil_free` class of term.rs; domain
+/// values, injections of them, or applications of one constructor to them), keys with different
+/// headers, and equal keys under different values are all frequent.
 pub(in crate::tests) fn term_with_ground_keys() -> impl Strategy<Value = Term> {
     terms(true)
 }
@@ -154,10 +155,23 @@ fn collection_key() -> impl Strategy<Value = Term> {
             Just(Sort::simple("SortKItem"))
         ]
     };
+    // A free constructor of one of two names, such as a key cell `<id>(1)`, or any symbol
+    // (an equation head, a function or a macro has no header).
+    let constructor = prop_oneof![
+        3 => prop_oneof![Just("LblId"), Just("LblJd")].prop_map(|name| {
+            Arc::new(Symbol::constructor(name, Vec::new(), Sort::simple("SortKItem")))
+        }),
+        1 => symbol(),
+    ];
     prop_oneof![
-        domain_value(),
-        (sort(), sort(), domain_value())
+        2 => domain_value(),
+        2 => (sort(), sort(), domain_value())
             .prop_map(|(source, target, term)| Term::injection(source, target, term)),
+        1 => (constructor, domain_value()).prop_map(|(symbol, value)| Term::application(
+            symbol,
+            Vec::new(),
+            vec![value]
+        )),
     ]
 }
 
@@ -497,8 +511,8 @@ pub(in crate::tests) fn one_edit_neighbours(term: &Term) -> Vec<(Edit, Term)> {
 
 /// The classes the documentation of [`term`] and [`term_with_ground_keys`] names, counted over
 /// their terms: two definitions per collection kind, domain values that are not UTF-8, k cells
-/// at the root and below it, and maps and sets whose keys share one header, have different
-/// headers, or repeat a key under different values.
+/// at the root and below it, and maps and sets whose keys share one header (among them keys
+/// applying one symbol), have different headers, or repeat a key under different values.
 #[derive(Debug, Default)]
 struct GeneratedClasses {
     /// `(kind, the second definition)` of each collection.
@@ -507,6 +521,7 @@ struct GeneratedClasses {
     k_cell_at_root: usize,
     k_cell_below: usize,
     shared_header: usize,
+    shared_application_header: usize,
     different_headers: usize,
     equal_keys_different_values: usize,
 }
@@ -532,6 +547,9 @@ impl GeneratedClasses {
                 let first = header(keys[0]);
                 if keys.iter().all(|key| header(key) == first) {
                     self.shared_header += 1;
+                    if matches!(keys[0].kind(), TermKind::Application { .. }) {
+                        self.shared_application_header += 1;
+                    }
                 } else {
                     self.different_headers += 1;
                 }
@@ -643,6 +661,10 @@ fn the_generators_produce_the_classes_their_documentation_names() {
         (
             classes.shared_header,
             "collection whose keys share one header",
+        ),
+        (
+            classes.shared_application_header,
+            "collection whose keys are applications of one symbol",
         ),
         (
             classes.different_headers,

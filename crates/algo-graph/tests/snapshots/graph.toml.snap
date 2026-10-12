@@ -8721,7 +8721,7 @@ symbol = "ceil_free"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/term.rs"
-symbol = "key_header"
+symbol = "has_key_header"
 
 [[node.sites]]
 crate = "k-rust-backend"

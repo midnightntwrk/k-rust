@@ -253,9 +253,9 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
 /// to be marked once they pass; `None` for any other node, which the walk checks as it is.
 ///
 /// Without a rest, the obligations of the node are the disequalities of its pairs of keys that
-/// are not apart. The keys are domain values, or injections of domain values, all with one
-/// header (`key_header`), so two of them are apart exactly when they differ; ordered, they all
-/// differ when each differs from the next. So checking that each key is apart from the next
+/// are not apart. The keys are rigid through free roots alone, all with one header (one
+/// apartness skeleton, `term::has_key_header`), so two of them are apart exactly when they
+/// differ; ordered, they all differ when each differs from the next. So checking that each key is apart from the next
 /// (`elements_are_apart`, the walk's own test of a pair) checks every pair, and the pairs and
 /// keys the tree hands over are those of the nodes not checked before
 /// (`Items::check_unchecked`): a map edited since its last check costs the copied paths.

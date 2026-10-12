@@ -612,6 +612,101 @@ fn naming_a_new_variable_beside_a_symbolic_map_costs_the_same_on_a_larger_map() 
     );
 }
 
+/// A cell map as kompile builds a `multiplicity="*"` cell of type `Map`: instances
+/// `instance(id(I), V)` keyed by their key cell `id(I)`, a free constructor application. `istate`
+/// carries the map untouched; `gstate` reads instance `N` by matching it and writes the map back,
+/// the K idiom `<r> <id> N </id> <v> V </v> </r>`.
+const CELL_MAP: &str = r#"[]
+module MAIN
+    hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+    sort SortId{} []
+    sort SortInstance{} []
+    hooked-sort SortInstanceMap{}
+        [hook{}("MAP.Map"), unit{}(instanceUnit{}()), element{}(instanceItem{}()),
+         concat{}(instanceConcat{}())]
+    sort SortState{} []
+    hooked-symbol plusInt{}(SortInt{}, SortInt{}) : SortInt{}
+        [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+    symbol id{}(SortInt{}) : SortId{} [constructor{}()]
+    symbol instance{}(SortId{}, SortInt{}) : SortInstance{} [constructor{}()]
+    hooked-symbol instanceUnit{}() : SortInstanceMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+    hooked-symbol instanceItem{}(SortId{}, SortInstance{}) : SortInstanceMap{}
+        [function{}(), total{}(), hook{}("MAP.element")]
+    hooked-symbol instanceConcat{}(SortInstanceMap{}, SortInstanceMap{}) : SortInstanceMap{}
+        [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+    symbol istate{}(SortInt{}, SortInstanceMap{}) : SortState{} [constructor{}()]
+    symbol gstate{}(SortInt{}, SortInstanceMap{}) : SortState{} [constructor{}()]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(istate{}(N:SortInt{}, M:SortInstanceMap{}), \top{SortState{}}()),
+        istate{}(plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")), M:SortInstanceMap{})
+    ) [label{}("carry-instances")]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(
+            gstate{}(
+                N:SortInt{},
+                instanceConcat{}(
+                    instanceItem{}(id{}(N:SortInt{}), instance{}(id{}(N:SortInt{}), V:SortInt{})),
+                    M:SortInstanceMap{}
+                )
+            ),
+            \top{SortState{}}()
+        ),
+        gstate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            instanceConcat{}(
+                instanceItem{}(id{}(N:SortInt{}), instance{}(id{}(N:SortInt{}), V:SortInt{})),
+                M:SortInstanceMap{}
+            )
+        )
+    ) [label{}("read-instance")]
+endmodule []"#;
+
+/// `n` instances `id(index) |-> instance(id(index), index)`.
+fn instances_of(n: u64) -> String {
+    collection_text("instanceConcat{}", "instanceUnit{}", n, |index| {
+        let key = format!(r#"id{{}}(\dv{{SortInt{{}}}}("{index}"))"#);
+        format!(r#"instanceItem{{}}({key}, instance{{}}({key}, \dv{{SortInt{{}}}}("{index}")))"#)
+    })
+}
+
+/// A step on a configuration holding a cell map, which leaves the map as it is: what the step pays
+/// for the configuration, its definedness among it, must not grow with the instances. The keys
+/// are distinct applications of one free constructor to integers, so every two of them are apart
+/// and the map states no obligation; the map's summary says so (one key header, no repeated
+/// key) without reading the instances.
+///
+/// No carry is subtracted: the carry is the step measured.
+#[test]
+fn carrying_a_cell_map_costs_the_same_on_a_larger_map() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(CELL_MAP);
+    assert_step_independent_of_size("cell map, carried per step", 1024, |size| {
+        steps_from(&definition, "istate", &instances_of, size, 0)
+    });
+}
+
+/// Reading one instance of a cell map by matching it and writing the map back, beside the carry
+/// of [`carrying_a_cell_map_costs_the_same_on_a_larger_map`]: the step needs one instance and
+/// its place, and the map it writes back keeps the summary that decides its keys apart.
+#[test]
+fn reading_one_cell_map_instance_costs_the_same_on_a_larger_map() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(CELL_MAP);
+    assert_step_independent_of_size("cell map, one instance matched per step", 1024, |size| {
+        steps_from(&definition, "gstate", &instances_of, size, 0).saturating_sub(steps_from(
+            &definition,
+            "istate",
+            &instances_of,
+            size,
+            0,
+        ))
+    });
+}
+
 // ---------- chains: one level of a nested input per unit ----------
 
 /// `size(c^n(z)) = n` by the non-tail recursion `size(c(T)) = 1 + size(T)` (`fn.k`).
