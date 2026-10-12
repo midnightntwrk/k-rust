@@ -250,6 +250,11 @@ struct Solver<'a> {
     parameter_slots: HashSet<usize>,
     constraint_cache: BTreeSet<(SortRef, SortRef)>,
     next_anonymous: usize,
+    /// In an anywhere rule, the sort of the term each bracket node encloses, its own brackets
+    /// stripped, when that term has a sort of its own: the sort a bracketed left-hand side
+    /// bounds the rule's rewrite by. A parametric term has none; its position, the outermost
+    /// bracket, gives it one.
+    bracket_contents: HashMap<*const ParsedTerm, SortRef>,
 }
 
 /// The concrete sorts each variable reaches along its bounds of one direction.
@@ -1249,7 +1254,17 @@ impl<'a> Solver<'a> {
             parameter_slots: HashSet::new(),
             constraint_cache: BTreeSet::new(),
             next_anonymous: 0,
+            bracket_contents: HashMap::new(),
         }
+    }
+
+    /// The sort of the term `node` stands for, `sort` being the node's own: brackets only group,
+    /// so a bracket stands for the term it encloses.
+    fn content_sort(&self, node: &ParsedTerm, sort: &SortRef) -> SortRef {
+        self.bracket_contents
+            .get(&std::ptr::from_ref(node))
+            .unwrap_or(sort)
+            .clone()
     }
 
     fn infer(
@@ -1306,6 +1321,22 @@ impl<'a> Solver<'a> {
                         .iter()
                         .map(|child| self.infer(grammar, child, anywhere_top))
                         .collect::<Result<Vec<_>, _>>()?;
+                    if anywhere_top.is_some() && production.bracket && children.len() == 1 {
+                        let content = match &children[0] {
+                            ParsedTerm::Production { production, .. }
+                                if grammar.productions[*production].bracket =>
+                            {
+                                self.bracket_contents
+                                    .get(&std::ptr::from_ref(&children[0]))
+                                    .cloned()
+                            }
+                            _ => Some(child_sorts[0].clone())
+                                .filter(|sort| matches!(sort, SortRef::Concrete(_))),
+                        };
+                        if let Some(content) = content {
+                            self.bracket_contents.insert(term, content);
+                        }
+                    }
                     let (expected, actual) = if let Some(origin) = &production.parametric_origin {
                         (
                             origin
@@ -1375,7 +1406,10 @@ impl<'a> Solver<'a> {
                             ) {
                                 SortRef::Concrete(Sort::new("K"))
                             } else {
-                                child_sorts[0].clone()
+                                // The rule rewrites the term its left-hand side writes, whose
+                                // sort brackets do not change: a bracket instance above that
+                                // sort would bound the right-hand side by a sort no text states.
+                                self.content_sort(&children[0], &child_sorts[0])
                             }
                         });
                     for (index, ((term, child), expected)) in children

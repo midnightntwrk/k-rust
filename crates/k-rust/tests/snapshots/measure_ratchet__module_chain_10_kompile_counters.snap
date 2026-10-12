@@ -5,7 +5,7 @@ description: kompile of the 10-module chain
 kompile.resolve_calls = 7
 kompile.resolve_updates = 41
 kompile.resolve_update_sentence_visits = 65682
-kompile.resolve_metadata_compares = 53537
+kompile.resolve_metadata_compares = 53513
 kompile.resolve_module_rebuilds = 584
 kompile.rule_bubbles_parsed = 257
 kompile.sentences_transformed = 3309

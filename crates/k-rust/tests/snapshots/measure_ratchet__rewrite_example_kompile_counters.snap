@@ -5,7 +5,7 @@ description: kompile of examples/rewrite.k
 kompile.resolve_calls = 7
 kompile.resolve_updates = 41
 kompile.resolve_update_sentence_visits = 46766
-kompile.resolve_metadata_compares = 36910
+kompile.resolve_metadata_compares = 36886
 kompile.resolve_module_rebuilds = 455
 kompile.rule_bubbles_parsed = 198
 kompile.sentences_transformed = 1986

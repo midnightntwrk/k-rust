@@ -4957,6 +4957,26 @@ fn bracketed_parametric_term_below_k_lowers_like_the_bare_term() {
 }
 
 #[test]
+fn bracketed_function_lhs_bounds_its_anywhere_rule_by_the_bracketed_term() {
+    // The left-hand side `X &Int M &Int M` is an `Int`. Bracketed, it reads one text at every
+    // sort above `Int`, including the list sort `Wides`, at which it would become a one-element
+    // list, and the rewrite would be bounded by that sort. The brackets do not change the sort
+    // of the term the rule rewrites, so they bound the rewrite at `Int` and the rule parses as
+    // without them.
+    let rule = |left: &str| {
+        format!(
+            "module TEST\n  imports INT\n  syntax Wide ::= Int\n  \
+             syntax Wides ::= List{{Wide, \"\"}}\n  configuration <k> $PGM:K </k>\n  \
+             rule {left} => X &Int M requires 0 <Int M [simplification]\nendmodule\n"
+        )
+    };
+    let bracketed = test_rule_bodies(&rule("(X &Int M &Int M)"), "bracketed.k");
+    let bare = test_rule_bodies(&rule("X &Int M &Int M"), "bare.k");
+    assert_eq!(bracketed, bare);
+    assert!(bare.iter().all(|body| !body.contains("Wides")), "{bare:?}");
+}
+
+#[test]
 fn a_user_sort_named_like_a_rule_scaffolding_sort_adds_no_reading() {
     // A rule grammar gives each sort `S` a scaffolding sort where a rewrite of `S` stands. A user
     // sort `Body` or `Content` must not make that sort the rule body's own `#RuleBody` or

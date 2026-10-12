@@ -318,7 +318,8 @@ enum Top {
     /// `#RuleContent` production and of a `#withConfig` body.
     Search,
     /// Under the left-hand side of the top rewrite, kept only in trees whose left-hand side has
-    /// `class`; `outer` is the result of the left-hand side's outermost node once it is known.
+    /// `class`; `outer` is the result of the left-hand side's outermost bracket, when one
+    /// encloses it.
     Lhs {
         class: LhsClass,
         outer: Option<Outer>,
@@ -333,6 +334,19 @@ enum LhsClass {
     /// The rule is an anywhere rule whose rewrite is bounded by the left-hand side's sort, or
     /// (`None`) by a parameter slot, which the decision refuses.
     Anywhere(Option<usize>),
+}
+
+/// The sort a left-hand side bounds its anywhere rule's rewrite by, given the result `own` of its
+/// outermost node with brackets stripped and the result `outer` of its outermost bracket, if
+/// any. The rule rewrites the term the left-hand side writes, and brackets do not change its
+/// sort: a bracket instance above that sort would bound the right-hand side by a sort no text
+/// states. A term whose result is a parameter has no sort of its own; its position, the
+/// outermost bracket, gives it one.
+fn enclosed(own: Outer, outer: Option<Outer>) -> Outer {
+    match (own, outer) {
+        (Outer::Parameter, Some(outer)) => outer,
+        (own, _) => own,
+    }
 }
 
 /// The result of a node: a sort, or one of its production's parameter slots.
@@ -941,7 +955,7 @@ impl ForestDecision<'_> {
             Term::Token { sort, .. } => Outer::Sort(self.index.id(sort)),
             _ => Outer::Parameter,
         };
-        LhsClass::Anywhere(match outer.unwrap_or(own) {
+        LhsClass::Anywhere(match enclosed(own, outer) {
             Outer::Sort(sort) => Some(sort),
             Outer::Parameter => None,
         })
@@ -1050,11 +1064,11 @@ impl ForestDecision<'_> {
                 children,
                 ..
             } => {
-                let outer = Some(outer.unwrap_or(self.production_result(*production)));
+                let result = self.production_result(*production);
                 if self.grammar.productions[*production].bracket && children.len() == 1 {
-                    self.lhs_classes(&children[0], outer, classes);
+                    self.lhs_classes(&children[0], Some(outer.unwrap_or(result)), classes);
                 } else {
-                    classes.insert(self.production_class(*production, outer));
+                    classes.insert(self.production_class(*production, enclosed(result, outer)));
                 }
             }
             PackedNode::InstantiatedProduction { .. } => {
@@ -1063,14 +1077,16 @@ impl ForestDecision<'_> {
         })
     }
 
-    fn production_class(&self, production: usize, outer: Option<Outer>) -> LhsClass {
+    /// The class of a left-hand side whose outermost node, brackets stripped, is `production`
+    /// with the sort `sort` (`enclosed`).
+    fn production_class(&self, production: usize, sort: Outer) -> LhsClass {
         let descriptor = &self.grammar.productions[production];
         if !(self.explicitly_anywhere || descriptor.function || descriptor.macro_like) {
             return LhsClass::Plain;
         }
-        LhsClass::Anywhere(match outer {
-            Some(Outer::Sort(sort)) => Some(sort),
-            Some(Outer::Parameter) | None => None,
+        LhsClass::Anywhere(match sort {
+            Outer::Sort(sort) => Some(sort),
+            Outer::Parameter => None,
         })
     }
 
@@ -1197,13 +1213,16 @@ impl ForestDecision<'_> {
                 {
                     lhs_slot = Some(slot);
                 }
-                let outer = Some(outer.unwrap_or(match actual {
+                let result = match actual {
                     Ok(sort) => Outer::Sort(sort),
                     Err(_) => Outer::Parameter,
-                }));
+                };
                 if descriptor.bracket && children.len() == 1 {
-                    child_top[0] = Top::Lhs { class, outer };
-                } else if self.production_class(production, outer) != class {
+                    child_top[0] = Top::Lhs {
+                        class,
+                        outer: Some(outer.unwrap_or(result)),
+                    };
+                } else if self.production_class(production, enclosed(result, outer)) != class {
                     return Ok(NodeEval::Ill);
                 }
             }
@@ -1974,6 +1993,58 @@ mod tests {
             }
         }
         Some(found)
+    }
+
+    /// A function rule's left-hand side inside a bracket bounds its rewrite by the bracketed
+    /// term's sort: of the bracket's instances over `f(X)`, an `Int`, only the `Int` one is
+    /// well-sorted under the rewrite that bound gives, so the forest keeps one tree.
+    #[test]
+    fn a_bracketed_function_lhs_bounds_its_rewrite_by_the_bracketed_term() {
+        let (grammar, _) = grammar();
+        let find = |wanted: &dyn Fn(&super::super::super::Production) -> bool| {
+            (0..grammar.productions.len())
+                .find(|index| wanted(&grammar.productions[*index]))
+                .unwrap()
+        };
+        let labelled = |label: &str| {
+            find(&|production| {
+                production
+                    .label
+                    .as_ref()
+                    .is_some_and(|candidate| candidate.name == label)
+            })
+        };
+        let node = |production: usize, children: Vec<Rc<PackedTerm>>| {
+            PackedTerm::production(production, children, TermMetadata::default())
+        };
+        let x = PackedTerm::leaf(Term::Variable {
+            name: "X".into(),
+            sort: None,
+        });
+        let application = node(labelled("f"), vec![x]);
+        let lhs = PackedTerm::ambiguity(
+            ["Int", "Exp", "KItem", "K"]
+                .into_iter()
+                .map(|sort| {
+                    let bracket = find(&|production| {
+                        production.bracket && production.result == Sort::new(sort)
+                    });
+                    node(bracket, vec![Rc::clone(&application)])
+                })
+                .collect(),
+        );
+        let forest = node(labelled("#KRewrite"), vec![lhs, application]);
+        let top = Sort::new("K");
+        assert_forest_decision_agrees(&grammar, &forest, &top, false);
+        let groups = grammar
+            .decide_forest(&forest, &top, false, &|| ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            })
+            .expect("the forest is decided");
+        assert_eq!(groups.len(), 1);
+        assert_eq!(super::super::packed_tree_count(&groups[0].term), 1);
+        assert!(!groups[0].parameter_split);
     }
 
     proptest! {
