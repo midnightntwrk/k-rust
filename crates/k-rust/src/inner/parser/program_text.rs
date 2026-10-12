@@ -128,7 +128,7 @@ impl Grammar {
 /// The program-text copy of `sort`. No declared sort name has a `#` after its first character,
 /// so the copy is no sort of the definition (as the `Ne#` and `#Terminator` sorts of a program
 /// list are none).
-fn program_text_sort(sort: &Sort) -> Sort {
+pub(super) fn program_text_sort(sort: &Sort) -> Sort {
     Sort::with_parameters(
         format!("{}#ProgramText", sort.name),
         sort.parameters.clone(),

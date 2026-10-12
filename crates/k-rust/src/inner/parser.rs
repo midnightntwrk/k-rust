@@ -144,6 +144,7 @@ use self::lists::UserList;
 #[cfg(feature = "cli")]
 pub(crate) use self::parametric::concretize_parametric_productions;
 use self::prediction::PredictionAnalysis;
+use self::program_text::program_text_sort;
 #[cfg(feature = "cli")]
 pub(crate) use self::scanner::DEFAULT_LAYOUT;
 pub(super) use self::scanner::Scanner;
@@ -677,6 +678,7 @@ fn write_shadowed_token(formatter: &mut fmt::Formatter<'_>, token: &ShadowedToke
         expected,
         expected_sorts,
         literal_sorts,
+        label,
         in_phrase,
     } = token;
     write!(
@@ -687,6 +689,14 @@ fn write_shadowed_token(formatter: &mut fmt::Formatter<'_>, token: &ShadowedToke
         sorts(scanned_sorts),
         sorts(expected_sorts),
     )?;
+    if let Some(label) = label {
+        write!(formatter, " As a label, write it {label}")?;
+        formatter.write_str(if literal_sorts.is_empty() {
+            "."
+        } else {
+            "; as a term,"
+        })?;
+    }
     if !literal_sorts.is_empty() {
         let literals = literal_sorts
             .iter()
@@ -698,14 +708,67 @@ fn write_shadowed_token(formatter: &mut fmt::Formatter<'_>, token: &ShadowedToke
                 )
             })
             .collect::<Vec<_>>();
-        write!(formatter, " Write it {}.", literals.join(" or "))?;
+        let write = if label.is_some() {
+            " write it"
+        } else {
+            " Write it"
+        };
+        write!(formatter, "{write} {}.", literals.join(" or "))?;
     } else if *in_phrase {
-        formatter.write_str(
+        formatter.write_str(if label.is_some() {
+            " Where it stands in the phrase of a token production, which reads program text \
+             only, write the whole phrase as a #token literal of that production's sort."
+        } else {
             " It stands in the phrase of a token production, which reads program text only: \
-             write the whole phrase as a #token literal of that production's sort.",
-        )?;
+             write the whole phrase as a #token literal of that production's sort."
+        })?;
     }
     Ok(())
+}
+
+/// Why the parse cannot go on in the phrase of a token production (`ParseError::NoParse`),
+/// and how a rule writes the token that phrase spells.
+fn write_program_text_phrase(
+    formatter: &mut fmt::Formatter<'_>,
+    input: &NoParseInput,
+    phrase: &ProgramTextPhrase,
+) -> fmt::Result {
+    let ProgramTextPhrase {
+        construct,
+        sort,
+        phrase_sorts,
+        literals,
+    } = phrase;
+    let phrase_sorts = phrase_sorts
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(" or ");
+    match (construct, input) {
+        (ProgramTextConstruct::Failing, NoParseInput::Token { value }) => write!(
+            formatter,
+            " The parse reads the phrase of a token production of sort {phrase_sorts} there, \
+             which holds program text only, and '{value}' begins a term of sort {sort} there \
+             only as a construct of rules and configurations (a variable, a cast, a bracket, a rewrite), \
+             which no program spells."
+        )?,
+        (ProgramTextConstruct::Before { text }, NoParseInput::Token { value }) => write!(
+            formatter,
+            " The phrase of a token production of sort {phrase_sorts} would go on with '{value}' \
+             after '{text}', but that phrase holds program text only, and '{text}' is a term \
+             of sort {sort} only as a construct of rules and configurations (a variable, a cast, a \
+             bracket, a rewrite), which no program spells."
+        )?,
+        _ => return Ok(()),
+    }
+    formatter.write_str(" A token's text is fixed: a rule spells the token as program text")?;
+    if *literals {
+        write!(
+            formatter,
+            ", or as a whole as a #token literal of sort {phrase_sorts}"
+        )?;
+    }
+    formatter.write_str(".")
 }
 
 /// The entries of a reported subterm, numbered from 1 (`ParseError::Ambiguous`).
@@ -760,20 +823,24 @@ pub enum NoParseInput {
     UnrecognizedInput { value: String },
 }
 
+/// What explains a parse failure beyond the failing token (`ParseError::NoParse`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NoParseNotes {
+    /// The token before the failing one, when the lexeme that lost it could go on with the
+    /// failing token.
+    pub previous: Option<ShadowedToken>,
+    /// The failing token, when an expected lexeme that lost it matches its text.
+    pub failing: Option<ShadowedToken>,
+    /// The phrase of a token production that would go on with the failing token, were it not
+    /// restricted to program text.
+    pub program_text: Option<ProgramTextPhrase>,
+}
+
 /// A token of the input next to a parse failure whose text a lexeme the parse expected there
 /// also matches, which the scanner did not choose: it reads one token at each position, the
 /// longest match, then the one of highest precedence, then a fixed order of the lexemes, and
 /// does not ask what the parse expects. The failure then needs the token read as the lexeme
 /// that lost.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Shadowed {
-    /// The token before the failing one, when the lexeme that lost it could go on with the
-    /// failing token.
-    pub previous: Option<ShadowedToken>,
-    /// The failing token.
-    pub failing: Option<ShadowedToken>,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShadowedToken {
     pub text: String,
@@ -786,12 +853,43 @@ pub struct ShadowedToken {
     /// The sorts whose token productions expected that lexeme there.
     pub expected_sorts: Vec<Sort>,
     /// The expected sorts a `#token` literal can write at this position: none when the grammar
-    /// has no `#token` literals, or when the token stands in the phrase of a token production,
-    /// which reads program text only.
+    /// has no `#token` literals, when the token stands in the phrase of a token production,
+    /// which reads program text only, or when it fills no place a literal, a term, fills.
     pub literal_sorts: Vec<Sort>,
+    /// The backquoted spelling of the token as a label, when the expected lexeme stands where
+    /// a `KLabel` is read, as the label of an application: there the token is a label, which a
+    /// `#token` literal, a term, does not write.
+    pub label: Option<String>,
     /// Whether the token stands in the phrase of a token production in a grammar with `#token`
     /// literals: that phrase is then written as a literal of its own sort as a whole.
     pub in_phrase: bool,
+}
+
+/// A parse failure inside the phrase of a token production of a rule or configuration, where the
+/// phrase reads program text only (`Grammar::read_token_text_as_program_text`) and the input
+/// holds a construct those grammars add to the module's syntax (a variable, a cast, a bracket, a
+/// rewrite): the phrase would read it at the declared sort of the phrase's nonterminal, and go on
+/// with the failing token.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProgramTextPhrase {
+    /// The construct the phrase does not read: the failing token, which begins it, or the
+    /// construct ending just before the failing token.
+    pub construct: ProgramTextConstruct,
+    /// The declared sort of the phrase's nonterminal, which reads the construct in a rule.
+    pub sort: Sort,
+    /// The sorts of the token productions whose phrase is being read.
+    pub phrase_sorts: Vec<Sort>,
+    /// Whether the grammar has `#token` literals, which write the whole phrase.
+    pub literals: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProgramTextConstruct {
+    /// The failing token begins the construct.
+    Failing,
+    /// The construct of this text ends before the failing token, and the phrase would go on with
+    /// that token after it.
+    Before { text: String },
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -835,9 +933,9 @@ pub enum ParseError {
         expected: Box<[String]>,
         input: NoParseInput,
         previous: Option<Box<str>>,
-        /// The token before the failing one and the failing token, when the parse expected
-        /// another lexeme there that also matches their text; boxed, as it is rarely present.
-        shadowed: Option<Box<Shadowed>>,
+        /// Why the parse expected another reading of the token before the failing one or of
+        /// the failing token (`NoParseNotes`); boxed, as it is rarely present.
+        notes: Option<Box<NoParseNotes>>,
         span: Option<TermSpan>,
         /// The chart steps the diagnostic was limited to, when it was abandoned there
         /// (`DiagnosticWork`): the position is then where the recognition under the priority
@@ -1018,7 +1116,7 @@ impl fmt::Display for ParseError {
             Self::NoParse {
                 input,
                 previous,
-                shadowed,
+                notes,
                 work_limit,
                 ..
             } => {
@@ -1042,8 +1140,11 @@ impl fmt::Display for ParseError {
                         "Scanner error: unexpected character sequence '{value}'."
                     )?,
                 }
-                if let Some(shadowed) = shadowed {
-                    for token in shadowed.previous.iter().chain(&shadowed.failing) {
+                if let Some(notes) = notes {
+                    if let Some(phrase) = &notes.program_text {
+                        write_program_text_phrase(formatter, input, phrase)?;
+                    }
+                    for token in notes.previous.iter().chain(&notes.failing) {
                         write_shadowed_token(formatter, token)?;
                     }
                 }
@@ -1922,7 +2023,7 @@ impl Grammar {
                     expected,
                     input,
                     previous,
-                    shadowed,
+                    notes,
                     span,
                     work_limit: _,
                 } => ParseError::NoParse {
@@ -1930,7 +2031,7 @@ impl Grammar {
                     expected,
                     input,
                     previous,
-                    shadowed,
+                    notes,
                     span,
                     work_limit: Some(limit),
                 },
@@ -3554,27 +3655,41 @@ impl Grammar {
             }
             cursor = winner_end;
         }
+        // A phrase of a token production that would go on with the failing token, were it not
+        // restricted to program text, goes on with it after the previous token as scanned.
+        let program_text = failing.and_then(|(_, _, lexeme)| {
+            let after_previous = previous.map_or(chart_position, |(_, end, _)| end);
+            self.program_text_phrase(input, charts, after_previous..=chart_position, lexeme)
+        });
         // The previous token was read, so its reading matters only where the lexeme that lost it
-        // lets the parse go on with the failing token, which no reading of the winner does.
+        // lets the parse go on with the failing token, which no reading of the winner does. A
+        // phrase that would go on with it had it read a rule construct is no such reading, and
+        // one token decides neither which reading the rule means: both notes are given.
         let next = match input_kind {
             NoParseInput::Token { .. } => failing.map(|(_, _, lexeme)| Some(lexeme)),
             NoParseInput::EndOfInput => Some(None),
             NoParseInput::UnrecognizedInput { .. } => None,
         };
-        let shadowed = Shadowed {
+        let mut notes = NoParseNotes {
             previous: next
                 .zip(previous)
                 .and_then(|(next, token)| self.shadowed_token(input, charts, token, Some(next))),
             failing: failing.and_then(|token| self.shadowed_token(input, charts, token, None)),
+            program_text,
         };
-        let shadowed =
-            (shadowed.previous.is_some() || shadowed.failing.is_some()).then(|| Box::new(shadowed));
+        // The note on the phrase already says how to write it.
+        if let (Some(failing), Some(_)) = (&mut notes.failing, &notes.program_text) {
+            failing.in_phrase = false;
+        }
+        let notes =
+            (notes.previous.is_some() || notes.failing.is_some() || notes.program_text.is_some())
+                .then(|| Box::new(notes));
         ParseError::NoParse {
             position,
             expected,
             input: input_kind,
             previous: previous.map(|(start, end, _)| input[start..end].into()),
-            shadowed,
+            notes,
             span: diagnostic_provenance.then_some(TermSpan {
                 source: provenance.source,
                 start: provenance.base_offset + position,
@@ -3601,13 +3716,31 @@ impl Grammar {
             sorts: BTreeSet<&'a Sort>,
             literal_sorts: BTreeSet<&'a Sort>,
             in_phrase: bool,
+            label: bool,
         }
-        let token_literals = self
-            .scanner
-            .lexeme_id(&Item::Terminal("#token".to_owned()))
-            .is_some();
+        let token_literal = self.scanner.lexeme_id(&Item::Terminal("#token".to_owned()));
+        let token_literals = token_literal.is_some();
+        let continues =
+            |state: &State| next.is_none_or(|next| self.continues_with(charts, state, next));
+        let chart = charts.get(start)?;
+        // The places a `#token` literal beginning where the token does fills. The literal is a
+        // term, so it is advised only where the token fills one of them: not where the token is
+        // a label, say.
+        let literal_places = token_literal.map(|literal| {
+            let literals = chart
+                .states
+                .keys()
+                .filter(|state| {
+                    state.dot == 0
+                        && self.productions[state.production].item_lexeme_ids.first()
+                            == Some(&Some(literal))
+                })
+                .copied();
+            self.token_places(charts, literals)
+        });
+        let label_sort = self.sort_id(&Sort::new("KLabel"));
         let mut expected = BTreeMap::<usize, Expected<'_>>::new();
-        for state in charts.get(start)?.states.keys() {
+        for state in chart.states.keys() {
             let production = &self.productions[state.production];
             let Some(Some(lexeme)) = production.item_lexeme_ids.get(state.dot) else {
                 continue;
@@ -3627,9 +3760,24 @@ impl Grammar {
             // reads the phrase of a token production (`read_token_text_as_program_text`).
             if self.sort_id(&production.result) != Some(production.result_id) {
                 entry.in_phrase = token_literals;
-            } else if token_literals {
+                continue;
+            }
+            let places = self.token_places(charts, std::iter::once(*state));
+            if literal_places.as_ref().is_some_and(|literals| {
+                places
+                    .iter()
+                    .any(|place| literals.contains(place) && continues(place))
+            }) {
                 entry.literal_sorts.insert(&production.result);
             }
+            // The item of an application or a wrapped label that reads a `KLabel`, whose
+            // backquoted spelling is any label.
+            entry.label |= places.iter().any(|place| {
+                let production = &self.productions[place.production];
+                label_sort.is_some()
+                    && production.item_sort_ids.get(place.dot) == Some(&label_sort)
+                    && continues(place)
+            });
         }
         // One expected lexeme suffices to say why the token is not the one the parse expects;
         // the lexeme of a token production is named first, as only it has a `#token` spelling.
@@ -3653,8 +3801,157 @@ impl Grammar {
             expected: self.scanner.lexeme_description(*lexeme),
             expected_sorts: owned(&found.sorts),
             literal_sorts: owned(&found.literal_sorts),
+            label: found
+                .label
+                .then(|| backquoted_label(&input[start..end]))
+                .flatten(),
+            // A label and a phrase are different places the token fills: the advice for one
+            // does not write the other.
             in_phrase: found.in_phrase && found.literal_sorts.is_empty(),
         })
+    }
+
+    /// The places in chart `start` that the phrases `states` begin there fill: each state, and
+    /// the states waiting for its sort, followed out of every production of one item, whose
+    /// phrase is that of its item, up to the first production with other items. The item at the
+    /// dot of such a production is where the phrase stands among others.
+    fn token_places(
+        &self,
+        charts: &[Chart],
+        states: impl IntoIterator<Item = State>,
+    ) -> HashSet<State> {
+        let mut places = HashSet::new();
+        let mut pending = states
+            .into_iter()
+            .map(|state| (state, true))
+            .collect::<Vec<_>>();
+        while let Some((state, follow)) = pending.pop() {
+            if !places.insert(state) && !follow {
+                continue;
+            }
+            let production = &self.productions[state.production];
+            if !follow && production.items.len() != 1 {
+                continue;
+            }
+            if let Some(callers) = charts[state.origin].waiting.get(&production.result_id) {
+                pending.extend(
+                    callers
+                        .iter()
+                        .filter(|caller| !places.contains(*caller))
+                        .map(|caller| (*caller, false)),
+                );
+            }
+        }
+        places
+    }
+
+    /// The phrase of a token production that would go on with the failing token, of lexeme
+    /// `failing`, were its nonterminals read at their declared sorts rather than at their
+    /// program-text copies (`read_token_text_as_program_text`), which the rule or configuration
+    /// constructs that the declared sorts admit are not part of:
+    ///
+    /// - a state at the failure expects a copy whose declared sort, and not the copy, can begin
+    ///   with the failing token, as a variable or a bracket begins there; or
+    /// - a state expects a copy where a construct of its declared sort begins, which ends at the
+    ///   failure, and the state could go on with the failing token after it, as after a bracket
+    ///   that opens a phrase whose first item is a nonterminal.
+    ///
+    /// `failure` holds the charts from the end of the token before the failing one to the last
+    /// chart the parse reached, where items wait for the failing token past any layout and
+    /// constructs before it end. Only a construct the chart recognized is found: one the parse
+    /// read at the declared sort because something else expected that sort there. The priority
+    /// and associativity relations are not consulted.
+    fn program_text_phrase(
+        &self,
+        input: &str,
+        charts: &[Chart],
+        failure: std::ops::RangeInclusive<usize>,
+        failing: usize,
+    ) -> Option<ProgramTextPhrase> {
+        let analysis = self
+            .prediction_analysis
+            .get_or_init(|| PredictionAnalysis::new(self));
+        let charts_at_failure = || charts[failure.clone()].iter().enumerate();
+        let begins = charts_at_failure().find_map(|(_, chart)| {
+            chart.states.keys().find_map(|state| {
+                let (original, copy) = self.program_text_item(state)?;
+                (analysis.sort_can_start_with(original, failing)
+                    && !analysis.sort_can_start_with(copy, failing))
+                .then_some((*state, original, ProgramTextConstruct::Failing))
+            })
+        });
+        let before = || {
+            charts_at_failure().find_map(|(offset, chart)| {
+                let end = failure.start() + offset;
+                chart.completed.iter().find_map(|(sort, completed)| {
+                    let copy = self.sort_id(&program_text_sort(&self.sorts[*sort]))?;
+                    let copied = |origin| {
+                        chart
+                            .completed
+                            .get(&copy)
+                            .is_some_and(|states| states.iter().any(|state| state.origin == origin))
+                    };
+                    completed.iter().find_map(|construct| {
+                        let origin = construct.origin;
+                        if origin == end || copied(origin) {
+                            return None;
+                        }
+                        let state = charts[origin].states.keys().find(|state| {
+                            self.program_text_item(state) == Some((*sort, copy))
+                                && self.continues_with(charts, state, Some(failing))
+                        })?;
+                        let (start, end) = chart.text_span(origin, end);
+                        let text = input[start..end].to_owned();
+                        Some((*state, *sort, ProgramTextConstruct::Before { text }))
+                    })
+                })
+            })
+        };
+        let (state, original, construct) = begins.or_else(before)?;
+        Some(ProgramTextPhrase {
+            construct,
+            sort: self.sorts[original].clone(),
+            phrase_sorts: self.phrase_sorts(charts, state),
+            literals: self
+                .scanner
+                .lexeme_id(&Item::Terminal("#token".to_owned()))
+                .is_some(),
+        })
+    }
+
+    /// The declared sort id and the program-text copy id of the nonterminal `state` expects,
+    /// when that nonterminal is recognized at its program-text copy.
+    fn program_text_item(&self, state: &State) -> Option<(usize, usize)> {
+        let production = &self.productions[state.production];
+        let Some(Item::NonTerminal(sort)) = production.items.get(state.dot) else {
+            return None;
+        };
+        let copy = production.item_sort_ids[state.dot]?;
+        if self.sorts[copy] != program_text_sort(sort) {
+            return None;
+        }
+        Some((self.sort_id(sort)?, copy))
+    }
+
+    /// The sorts of the token productions whose phrase `state` reads: the callers of a copied
+    /// production are followed out to the first production that is no copy, which is a token
+    /// production, as only token productions recognize an item at a copy.
+    fn phrase_sorts(&self, charts: &[Chart], state: State) -> Vec<Sort> {
+        let mut sorts = BTreeSet::new();
+        let mut pending = vec![state];
+        let mut seen = HashSet::new();
+        while let Some(state) = pending.pop() {
+            if !seen.insert(state) {
+                continue;
+            }
+            let production = &self.productions[state.production];
+            if self.sort_id(&production.result) == Some(production.result_id) {
+                sorts.insert(production.result.clone());
+            } else if let Some(callers) = charts[state.origin].waiting.get(&production.result_id) {
+                pending.extend(callers.iter().copied());
+            }
+        }
+        sorts.into_iter().collect()
     }
 
     /// Whether `state`, which expects a lexeme, could go on with the token `next` (`None`: the
@@ -3692,6 +3989,25 @@ impl Grammar {
         }
         false
     }
+}
+
+/// `text` as a backquoted label, which reads any label that holds no line break: a backquote or
+/// a backslash in it is escaped with a backslash. A text that already begins with a backquote is
+/// the backquoted spelling itself, which the scanner read as something else: it has no other.
+fn backquoted_label(text: &str) -> Option<String> {
+    if text.is_empty() || text.starts_with('`') || text.contains(['\n', '\r']) {
+        return None;
+    }
+    let mut label = String::with_capacity(text.len() + 2);
+    label.push('`');
+    for character in text.chars() {
+        if matches!(character, '`' | '\\') {
+            label.push('\\');
+        }
+        label.push(character);
+    }
+    label.push('`');
+    Some(label)
 }
 
 /// Whether `production` is a token production of a single lexeme, whose token is that lexeme's
@@ -4024,7 +4340,7 @@ mod chart_tests {
                         expected: vec!["\"a\"".into(), "\"b\"".into(), "Choice".into()].into(),
                         input: input_kind,
                         previous: None,
-                        shadowed: None,
+                        notes: None,
                         span: None,
                         work_limit: None,
                     })
@@ -4041,7 +4357,7 @@ mod chart_tests {
                     expected: vec![].into(),
                     input: NoParseInput::UnrecognizedInput { value: "?".into() },
                     previous: None,
-                    shadowed: None,
+                    notes: None,
                     span: None,
                     work_limit: None,
                 })
@@ -4108,7 +4424,7 @@ mod chart_tests {
                     expected: vec!["\"z\"".into()].into(),
                     input: NoParseInput::UnrecognizedInput { value: "?".into() },
                     previous: Some("ab".into()),
-                    shadowed: None,
+                    notes: None,
                     span: None,
                     work_limit: None,
                 })

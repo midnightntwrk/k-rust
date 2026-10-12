@@ -108,6 +108,12 @@ message = "unexpected token '(k|top|T|generatedTop0)' following token '<'|Incons
 reason = "a user token or terminal takes precedence over a token of the same module (a cell name or an Int literal), so the text lexes differently"
 
 [[category]]
+id = "rule-construct-in-token-phrase"
+outcome = "load_error"
+message = "The parse reads the phrase of a token production of sort .* there, which holds program text only|The phrase of a token production of sort [^ ]+( or [^ ]+)* would go on with '"
+reason = "the phrase of a token production is the program text the token is scanned from; a variable, cast, bracket or rewrite is syntax of rules and configurations, not of programs, so it cannot stand in that phrase"
+
+[[category]]
 id = "terminator-symbol-on-non-list"
 outcome = "compile_error"
 message = "terminator-symbol"

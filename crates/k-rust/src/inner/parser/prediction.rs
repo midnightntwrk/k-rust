@@ -339,6 +339,11 @@ impl PredictionAnalysis {
         }
     }
 
+    /// Whether a phrase of the sort `sort` can begin with the lexeme `lexeme`.
+    pub(super) fn sort_can_start_with(&self, sort: usize, lexeme: usize) -> bool {
+        self.first[sort].contains(lexeme)
+    }
+
     /// Whether the items of `production` from `dot` on can all match the empty string; `true`
     /// for a production the analysis does not cover.
     pub(super) fn rest_is_nullable(&self, production: usize, dot: usize) -> bool {
@@ -2486,7 +2491,7 @@ mod tests {
                         expected,
                         input,
                         previous,
-                        shadowed,
+                        notes,
                         span,
                         work_limit,
                     }) => {
@@ -2495,7 +2500,7 @@ mod tests {
                             .map(|name| if pair && name == "P" { &operand } else { name })
                             .collect::<BTreeSet<_>>();
                         format!(
-                            "NoParse {position} {expected:?} {input:?} {previous:?} {shadowed:?} {span:?} {work_limit:?}"
+                            "NoParse {position} {expected:?} {input:?} {previous:?} {notes:?} {span:?} {work_limit:?}"
                         )
                     }
                     Err(error) => format!("{error:?}"),

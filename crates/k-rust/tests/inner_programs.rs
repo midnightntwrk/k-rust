@@ -186,7 +186,7 @@ fn parse_program_exposes_the_structured_noparse_diagnostic() {
                     value: "bad".into(),
                 },
                 previous: Some("ok".into()),
-                shadowed: None,
+                notes: None,
                 span: Some(TermSpan {
                     source: SourceId(7),
                     start: 3,
