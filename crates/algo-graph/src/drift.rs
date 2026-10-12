@@ -1,10 +1,17 @@
-use std::{collections::BTreeMap, fmt::Write as _, fs, io, path::Path, process::Output};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
+    fs, io,
+    io::{BufRead, BufReader, Read, Write as _},
+    path::Path,
+    process::{Output, Stdio},
+};
 
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 
 use crate::{
     Error,
-    cards::{LocatedDoc, named_source},
+    cards::{self, Card, CountedSite, CounterBump, CounterClaims, LocatedDoc, named_source},
     git_command,
 };
 
@@ -17,6 +24,9 @@ pub struct DriftFinding {
     pub hunks: Vec<String>,
     /// The card's `lean` theorems: their models mirror the changed site and must be re-checked.
     pub lean: Vec<String>,
+    /// For a counted site (`docs/algorithm-cards.md`), the counters the item bumps that the
+    /// algorithm claims; empty for a site a card names.
+    pub counters: Vec<String>,
 }
 
 /// The report produced for a Git revision range.
@@ -27,23 +37,37 @@ pub struct DriftReport {
 
 /// Find card sites whose parsed Rust item changed while the card fence did not.
 ///
+/// A site is a named one (a card's `sites` entry, in the card's file) or a counted one: an item
+/// that bumps a counter which no claimant's card names (`docs/algorithm-cards.md`), reported for
+/// each algorithm that claims the counter, read from the cards of the whole tree at `until`.
+///
 /// `until = None` compares `since` with the index and working tree. Findings are
 /// advisory: their presence never turns this operation into an error.
 pub fn drift(root: &Path, since: &str, until: Option<&str>) -> Result<DriftReport, Error> {
     let patch = git_diff(root, since, until)?;
-    let files = parse_patch(&patch)?;
-    let mut findings = Vec::new();
-
-    for file_diff in files {
-        let Some(after_source) = revision_source(root, until, &file_diff.file)? else {
+    let mut changed = Vec::new();
+    for diff in parse_patch(&patch)? {
+        let Some(after_source) = revision_source(root, until, &diff.file)? else {
             continue;
         };
-        let before_source = revision_source(root, Some(since), &file_diff.file)?;
-        findings.extend(drift_file(
-            &file_diff,
-            before_source.as_deref(),
-            &after_source,
-        )?);
+        let before_source = revision_source(root, Some(since), &diff.file)?;
+        changed.push(ChangedFile {
+            before: before_source.as_deref().map(parse_source).transpose()?,
+            after: parse_source(&after_source)?,
+            diff,
+        });
+    }
+
+    let mut findings = changed.iter().flat_map(named_findings).collect::<Vec<_>>();
+    if changed.iter().any(|file| {
+        !file.after.counter_bumps.is_empty()
+            || file
+                .before
+                .as_ref()
+                .is_some_and(|before| !before.counter_bumps.is_empty())
+    }) {
+        let cards = cards_at(root, until)?;
+        findings.extend(counted_findings(&changed, &cards));
     }
 
     findings.sort_by(|left, right| {
@@ -56,11 +80,27 @@ pub fn drift(root: &Path, since: &str, until: Option<&str>) -> Result<DriftRepor
 pub fn render_drift(report: &DriftReport) -> String {
     let mut output = String::new();
     for finding in &report.findings {
-        let _ = writeln!(
-            output,
-            "card {} ({}): site {} changed while its card did not",
-            finding.card_id, finding.file, finding.item
-        );
+        if finding.counters.is_empty() {
+            let _ = writeln!(
+                output,
+                "card {} ({}): site {} changed while its card did not",
+                finding.card_id, finding.file, finding.item
+            );
+        } else {
+            let _ = writeln!(
+                output,
+                "card {} ({}): counted site {} changed while its card did not; it bumps {}",
+                finding.card_id,
+                finding.file,
+                finding.item,
+                finding
+                    .counters
+                    .iter()
+                    .map(|counter| format!("Counter::{counter}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
         if !finding.lean.is_empty() {
             let _ = writeln!(
                 output,
@@ -248,70 +288,249 @@ fn parse_line_range(value: &str) -> Option<LineRange> {
     })
 }
 
-fn drift_file(
-    diff: &FileDiff,
-    before_source: Option<&str>,
-    after_source: &str,
-) -> Result<Vec<DriftFinding>, Error> {
-    let before = before_source.map(parse_source).transpose()?;
-    let after = parse_source(after_source)?;
-    let mut findings = Vec::new();
+/// A changed file: its diff and its source parsed at both ends of the range.
+struct ChangedFile {
+    diff: FileDiff,
+    before: Option<ParsedSource>,
+    after: ParsedSource,
+}
 
-    for (card_index, card) in after.cards.iter().enumerate() {
-        let occurrence = after.cards[..card_index]
+impl ChangedFile {
+    /// Whether a hunk touches the fence of `self.after.cards[index]`, at either end.
+    fn card_changed(&self, index: usize) -> bool {
+        let card = &self.after.cards[index];
+        let occurrence = self.after.cards[..index]
             .iter()
             .filter(|candidate| candidate.kind == card.kind && candidate.id == card.id)
             .count();
-        let old_card = before.as_ref().and_then(|source| {
+        let old_card = self.before.as_ref().and_then(|source| {
             source
                 .cards
                 .iter()
                 .filter(|candidate| candidate.kind == card.kind && candidate.id == card.id)
                 .nth(occurrence)
         });
-        let card_changed = diff.hunks.iter().any(|hunk| {
+        self.diff.hunks.iter().any(|hunk| {
             hunk.new.intersects(card.range)
                 || old_card.is_some_and(|old| hunk.old.intersects(old.range))
-        });
-        if card_changed {
+        })
+    }
+
+    /// The hunks that change the item `symbol` names, or none when its tokens are unchanged.
+    fn item_change(&self, symbol: &str) -> Vec<String> {
+        let old_item = self
+            .before
+            .as_ref()
+            .and_then(|source| source.items.get(symbol))
+            .and_then(|items| items.first());
+        let new_item = self.after.items.get(symbol).and_then(|items| items.first());
+        if old_item.map(|item| &item.tokens) == new_item.map(|item| &item.tokens) {
+            return Vec::new();
+        }
+        self.diff
+            .hunks
+            .iter()
+            .filter(|hunk| {
+                old_item.is_some_and(|item| hunk.old.intersects(item.range))
+                    || new_item.is_some_and(|item| hunk.new.intersects(item.range))
+            })
+            .map(|hunk| hunk.text.clone())
+            .collect()
+    }
+}
+
+/// The changed sites that the file's own cards name.
+fn named_findings(changed: &ChangedFile) -> Vec<DriftFinding> {
+    let mut findings = Vec::new();
+    for (card_index, card) in changed.after.cards.iter().enumerate() {
+        if changed.card_changed(card_index) {
             continue;
         }
-
         for site in &card.sites {
-            let old_item = before
-                .as_ref()
-                .and_then(|source| source.items.get(site))
-                .and_then(|items| items.first());
-            let new_item = after.items.get(site).and_then(|items| items.first());
-            let relevant = diff
-                .hunks
-                .iter()
-                .filter(|hunk| {
-                    old_item.is_some_and(|item| hunk.old.intersects(item.range))
-                        || new_item.is_some_and(|item| hunk.new.intersects(item.range))
-                })
-                .collect::<Vec<_>>();
-            if relevant.is_empty()
-                || old_item.map(|item| &item.tokens) == new_item.map(|item| &item.tokens)
-            {
+            let hunks = changed.item_change(site);
+            if hunks.is_empty() {
                 continue;
             }
             findings.push(DriftFinding {
                 card_id: card.id.clone(),
-                file: diff.file.clone(),
+                file: changed.diff.file.clone(),
                 item: site.clone(),
-                hunks: relevant.iter().map(|hunk| hunk.text.clone()).collect(),
+                hunks,
                 lean: card.lean.clone(),
+                counters: Vec::new(),
             });
         }
     }
-    Ok(findings)
+    findings
+}
+
+/// The changed counted sites: an item of a graph source file (not a test target) that bumps a
+/// counter at either end of the range, where
+/// `cards`, the cards of the whole tree at the end of the range, place it as a counted site of
+/// the counter's claimants. A claimant is not reported when a card of it that claims the counter
+/// changed in the range.
+fn counted_findings(changed: &[ChangedFile], cards: &[Card]) -> Vec<DriftFinding> {
+    let claims = CounterClaims::new(cards);
+    let mut findings = BTreeMap::<(String, String, String), DriftFinding>::new();
+    for file in changed
+        .iter()
+        .filter(|file| cards::is_graph_source(&file.diff.file))
+    {
+        let bumps = file
+            .before
+            .iter()
+            .flat_map(|before| &before.counter_bumps)
+            .chain(&file.after.counter_bumps)
+            .collect::<BTreeSet<_>>();
+        for bump in bumps {
+            let CountedSite::Counted { symbol, algorithms } = claims.place(&file.diff.file, bump)
+            else {
+                continue;
+            };
+            let hunks = file.item_change(symbol);
+            if hunks.is_empty() {
+                continue;
+            }
+            for algorithm in algorithms {
+                let claiming = cards
+                    .iter()
+                    .filter(|card| {
+                        &card.body.id == algorithm && card.body.counters.contains(&bump.counter)
+                    })
+                    .collect::<Vec<_>>();
+                if claiming
+                    .iter()
+                    .any(|card| claim_changed(changed, card, &bump.counter))
+                {
+                    continue;
+                }
+                let finding = findings
+                    .entry((file.diff.file.clone(), algorithm.clone(), symbol.to_owned()))
+                    .or_insert_with(|| DriftFinding {
+                        card_id: algorithm.clone(),
+                        file: file.diff.file.clone(),
+                        item: symbol.to_owned(),
+                        hunks: hunks.clone(),
+                        lean: Vec::new(),
+                        counters: Vec::new(),
+                    });
+                for card in claiming {
+                    for theorem in &card.body.lean {
+                        if !finding.lean.contains(theorem) {
+                            finding.lean.push(theorem.clone());
+                        }
+                    }
+                }
+                if !finding.counters.contains(&bump.counter) {
+                    finding.counters.push(bump.counter.clone());
+                }
+            }
+        }
+    }
+    findings.into_values().collect()
+}
+
+/// Whether the range changed the fence of `card`, a card of the tree at its end that claims
+/// `counter`.
+fn claim_changed(changed: &[ChangedFile], card: &Card, counter: &str) -> bool {
+    changed
+        .iter()
+        .filter(|file| file.diff.file == card.file)
+        .any(|file| {
+            file.after.cards.iter().enumerate().any(|(index, located)| {
+                located.id == card.body.id
+                    && located.counters.iter().any(|claimed| claimed == counter)
+                    && file.card_changed(index)
+            })
+        })
+}
+
+/// The cards of every workspace source file at `revision`, or in the working tree for `None`.
+/// A file that does not parse contributes no card.
+fn cards_at(root: &Path, revision: Option<&str>) -> Result<Vec<Card>, Error> {
+    let mut ignored = Vec::new();
+    let Some(revision) = revision else {
+        return Ok(cards::read_cards(root, &mut ignored)?.0);
+    };
+    let listing = git_stdout(
+        root,
+        &[
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            revision,
+            "--",
+            "crates",
+        ],
+    )?;
+    let files = listing
+        .split('\0')
+        .filter(|path| cards::is_graph_source(path))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    let sources = revision_sources(root, revision, &files)?;
+    Ok(cards::index_sources(sources, &mut ignored).0)
+}
+
+/// The text of each of `files` at `revision`, read by one `git cat-file --batch`.
+fn revision_sources(
+    root: &Path,
+    revision: &str,
+    files: &[String],
+) -> Result<Vec<(String, String)>, Error> {
+    let mut child = git_command(root)
+        .args(["cat-file", "--batch"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(Error::Io)?;
+    let mut stdin = child.stdin.take().expect("stdin is piped");
+    let requests = files
+        .iter()
+        .map(|file| format!("{revision}:{file}\n"))
+        .collect::<String>();
+    // Written from another thread: git answers each request as it reads it, so writing every
+    // request before reading could fill both pipes.
+    let writer = std::thread::spawn(move || stdin.write_all(requests.as_bytes()));
+    let mut output = BufReader::new(child.stdout.take().expect("stdout is piped"));
+    let mut sources = Vec::with_capacity(files.len());
+    for file in files {
+        let mut header = String::new();
+        output.read_line(&mut header).map_err(Error::Io)?;
+        if header.trim_end().ends_with(" missing") {
+            continue;
+        }
+        // `<object id> <type> <size>`, then the contents and a newline.
+        let Some(size) = header
+            .split_whitespace()
+            .nth(2)
+            .and_then(|size| size.parse::<usize>().ok())
+        else {
+            return Err(Error::Invalid(format!(
+                "git cat-file --batch answered {file} with {header:?}"
+            )));
+        };
+        let mut contents = vec![0; size + 1];
+        output.read_exact(&mut contents).map_err(Error::Io)?;
+        contents.pop();
+        if let Ok(source) = String::from_utf8(contents) {
+            sources.push((file.clone(), source));
+        }
+    }
+    writer
+        .join()
+        .expect("the request writer does not panic")
+        .map_err(Error::Io)?;
+    child.wait().map_err(Error::Io)?;
+    Ok(sources)
 }
 
 #[derive(Clone, Debug, Default)]
 struct ParsedSource {
     cards: Vec<LocatedCard>,
     items: BTreeMap<String, Vec<LocatedItem>>,
+    counter_bumps: BTreeSet<CounterBump>,
 }
 
 #[derive(Clone, Debug)]
@@ -320,6 +539,7 @@ struct LocatedCard {
     id: String,
     sites: Vec<String>,
     lean: Vec<String>,
+    counters: Vec<String>,
     range: ItemRange,
 }
 
@@ -357,7 +577,11 @@ fn parse_source(source: &str) -> Result<ParsedSource, Error> {
             (symbol, items)
         })
         .collect();
-    Ok(ParsedSource { cards, items })
+    Ok(ParsedSource {
+        cards,
+        items,
+        counter_bumps: named.counter_bumps,
+    })
 }
 
 /// Remove `#[doc = ..]` and `#![doc = ..]` attributes, so that a doc-comment edit compares equal.
@@ -422,6 +646,7 @@ fn extract_cards(docs: &[LocatedDoc]) -> Result<Vec<LocatedCard>, Error> {
                     id: body.id,
                     sites: body.sites,
                     lean: body.lean,
+                    counters: body.counters,
                     range: ItemRange {
                         start: *start,
                         end: doc.end,
@@ -458,6 +683,8 @@ struct DriftCardBody {
     sites: Vec<String>,
     #[serde(default)]
     lean: Vec<String>,
+    #[serde(default)]
+    counters: Vec<String>,
 }
 
 #[cfg(test)]
@@ -613,6 +840,97 @@ impl Value {
         assert!(report.findings.is_empty());
     }
 
+    const CLAIMANT: &str = r#"//! ```toml algorithm
+//! id = "backend.example"
+//! name = "example"
+//! sites = ["run"]
+//! counters = ["ExampleSteps"]
+//! [[cost]]
+//! mode = "one call"
+//! bound = "O(1)"
+//! ```
+
+fn run() -> usize {
+    walk::walk()
+}
+"#;
+
+    const WALK: &str = r#"pub fn walk() -> usize {
+    measure::bump(Counter::ExampleSteps);
+    1
+}
+
+pub fn unrelated() -> usize {
+    1
+}
+"#;
+
+    #[test]
+    fn reports_a_counted_site_of_each_claimant_of_the_counter_it_bumps() {
+        let Some(repository) = TestRepository::new() else {
+            return;
+        };
+        repository.write_file("walk.rs", WALK);
+        if !repository.commit_source(CLAIMANT) {
+            return;
+        }
+        repository.write_file(
+            "walk.rs",
+            &WALK.replace("    1\n}\n\npub", "    2\n}\n\npub"),
+        );
+
+        let report = drift(&repository.path, "HEAD", None).unwrap();
+        assert_eq!(report.findings.len(), 1, "{report:?}");
+        let finding = &report.findings[0];
+        assert_eq!(
+            (
+                finding.card_id.as_str(),
+                finding.file.as_str(),
+                finding.item.as_str()
+            ),
+            ("backend.example", "crates/example/src/walk.rs", "walk")
+        );
+        assert_eq!(finding.counters, ["ExampleSteps"]);
+        assert!(render_drift(&report).contains(
+            "counted site walk changed while its card did not; it bumps Counter::ExampleSteps"
+        ));
+
+        // The same range read from two commits, whose cards come from the later one.
+        if !repository.commit() {
+            return;
+        }
+        let committed = drift(&repository.path, "HEAD~1", Some("HEAD")).unwrap();
+        assert_eq!(committed, report);
+
+        // A change to the claiming card's fence in the same range is its review.
+        repository.write_source(&CLAIMANT.replace("name = \"example\"", "name = \"walked\""));
+        assert!(
+            drift(&repository.path, "HEAD~1", None)
+                .unwrap()
+                .findings
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_counted_item_named_by_a_claimant_is_reported_once_as_its_site() {
+        let Some(repository) = TestRepository::new() else {
+            return;
+        };
+        let named = CLAIMANT
+            .replace("sites = [\"run\"]", "sites = [\"run\", \"walk\"]")
+            .replace("    walk::walk()\n}\n", "    walk()\n}\n\nfn walk() -> usize {\n    measure::bump(Counter::ExampleSteps);\n    1\n}\n");
+        if !repository.commit_source(&named) {
+            return;
+        }
+        repository.write_source(&named.replace("ExampleSteps);\n    1", "ExampleSteps);\n    2"));
+
+        let report = drift(&repository.path, "HEAD", None).unwrap();
+        assert_eq!(report.findings.len(), 1, "{report:?}");
+        assert_eq!(report.findings[0].item, "walk");
+        assert!(report.findings[0].counters.is_empty());
+    }
+
     struct TestRepository {
         path: PathBuf,
     }
@@ -632,12 +950,21 @@ impl Value {
         }
 
         fn write_source(&self, source: &str) {
-            fs::write(self.path.join("crates/example/src/lib.rs"), source).unwrap();
+            self.write_file("lib.rs", source);
+        }
+
+        fn write_file(&self, name: &str, source: &str) {
+            fs::write(self.path.join("crates/example/src").join(name), source).unwrap();
         }
 
         /// Commit `source`; `false` (with a message) when `git` refuses to commit.
         fn commit_source(&self, source: &str) -> bool {
             self.write_source(source);
+            self.commit()
+        }
+
+        /// Commit the working tree; `false` (with a message) when `git` refuses to commit.
+        fn commit(&self) -> bool {
             git(&self.path, &["add", "."])
                 && git(
                     &self.path,

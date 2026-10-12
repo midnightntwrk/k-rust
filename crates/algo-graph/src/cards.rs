@@ -509,15 +509,25 @@ pub(crate) fn read_cards(
         }
     }
     files.sort();
+    let mut sources = Vec::with_capacity(files.len());
+    for path in files {
+        sources.push((relative_path(root, &path), fs::read_to_string(&path)?));
+    }
+    Ok(index_sources(sources, report))
+}
 
+/// The cards and source index of the workspace source files `sources`, each a path relative to
+/// the workspace root (`crates/<crate>/src/...`) with its text.
+pub(crate) fn index_sources(
+    sources: Vec<(String, String)>,
+    report: &mut Vec<String>,
+) -> (Vec<Card>, SourceIndex) {
     let mut cards = Vec::new();
     let mut index = SourceIndex::default();
-    for path in files {
-        let relative = relative_path(root, &path);
+    for (relative, source) in sources {
         let Some(crate_name) = crate_name(&relative) else {
             continue;
         };
-        let source = fs::read_to_string(&path)?;
         match syn::parse_file(&source) {
             Ok(file) => {
                 let mut visitor = ItemVisitor::default();
@@ -544,7 +554,7 @@ pub(crate) fn read_cards(
             )),
         }
     }
-    Ok((cards, index))
+    (cards, index)
 }
 
 fn collect_rust_files(directory: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -590,6 +600,13 @@ fn module_path(relative: &str) -> Option<Vec<String>> {
         module.extend(segments.into_iter().map(ToOwned::to_owned));
     }
     Some(module)
+}
+
+/// Whether a workspace-relative path is a source file the graph reads: a `.rs` file below a
+/// crate's `src` directory (`crates/<crate>/src/...`), as [`read_cards`] collects them.
+pub(crate) fn is_graph_source(relative: &str) -> bool {
+    let parts = relative.split('/').collect::<Vec<_>>();
+    parts.len() > 3 && parts[0] == "crates" && parts[2] == "src" && relative.ends_with(".rs")
 }
 
 pub(crate) fn crate_name(relative: &str) -> Option<String> {
@@ -656,10 +673,11 @@ pub(crate) struct LocatedDoc {
 
 /// A source file as `algo-graph drift` compares it: its doc attributes in source order, and each
 /// item a site symbol can name, under that symbol (named as [`item_spans`] names it), with the
-/// item's tokens.
+/// item's tokens, and its counter bumps.
 pub(crate) struct NamedSource {
     pub docs: Vec<LocatedDoc>,
     pub items: BTreeMap<String, Vec<(ItemSpan, proc_macro2::TokenStream)>>,
+    pub counter_bumps: BTreeSet<CounterBump>,
 }
 
 pub(crate) fn named_source(source: &str) -> syn::Result<NamedSource> {
@@ -681,6 +699,7 @@ pub(crate) fn named_source(source: &str) -> syn::Result<NamedSource> {
     Ok(NamedSource {
         docs: visitor.docs,
         items,
+        counter_bumps: visitor.counter_bumps,
     })
 }
 

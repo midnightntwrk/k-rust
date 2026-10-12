@@ -37,7 +37,7 @@ A card without a dedicated counter must use `counters = []` and state the reason
 A counter measures the work of the algorithms whose cards list it, its claimants, so an item that bumps it (writes `Counter::X` outside `measure.rs` and `#[cfg(test)]` code, a macro's tokens included) does a claimant's work.
 When no claimant's card names that item (its function, `Type::method`, or `impl Type`), the graph adds it to the sites of every claimant as a counted site, derived from the code rather than written on a card.
 A claimant naming it is enough: a caller may claim a callee algorithm's counter, measured inside its spans, and the callee's card already places the work.
-Counted sites follow the named ones in `graph.toml`, and coverage, profiles, and the atlas staleness check treat them as sites; a bump outside every item a site symbol names (a trait's default method, a constant's initializer) fails the freshness test, because no claimant could watch it.
+Counted sites follow the named ones in `graph.toml`, and coverage, profiles, the atlas staleness check, and `algo-graph drift` treat them as sites; a bump outside every item a site symbol names (a trait's default method, a constant's initializer) fails the freshness test, because no claimant could watch it.
 
 The optional primary-card keys are:
 
@@ -164,6 +164,7 @@ cargo run -p algo-graph -- drift --since <revision>
 
 Use `--until <revision>` to inspect a closed revision range instead of the index and working tree.
 The command reports a card when a changed Git hunk intersects one of its named Rust items but does not intersect the card fence.
+It also reports each claimant of a counter when a changed item of a `crates/<crate>/src` file bumps that counter at either end of the range and is a counted site, which the cards of the whole tree at the end of the range decide; a change to a claimant's card that lists the counter, in the same range, omits that claimant.
 It compares the `syn` token stream of the item at both ends of the range, so comment-only and formatting-only edits are omitted.
 Each finding names the card, the item, and the relevant zero-context hunks.
 The report is advisory and always exits successfully when findings are present; it is not part of the workspace freshness test.
