@@ -347,7 +347,10 @@ pub(super) enum Derivations {
     #[default]
     Empty,
     One(Derivation),
-    Many(BTreeSet<Derivation>),
+    // Boxed: most items have one derivation, and the chart's state maps store this value inline
+    // for every item, so the set's own fields would widen every entry.
+    #[allow(clippy::box_collection)]
+    Many(Box<BTreeSet<Derivation>>),
 }
 
 impl Derivations {
@@ -371,7 +374,7 @@ impl Derivations {
                 if derivation_covers(&candidate, &existing) {
                     Self::One(candidate)
                 } else {
-                    let mut stored = BTreeSet::from([existing, candidate]);
+                    let mut stored = Box::new(BTreeSet::from([existing, candidate]));
                     factor_derivations(&mut stored);
                     Self::from_set(stored)
                 }
@@ -385,7 +388,8 @@ impl Derivations {
         };
     }
 
-    fn from_set(mut stored: BTreeSet<Derivation>) -> Self {
+    #[allow(clippy::box_collection)]
+    fn from_set(mut stored: Box<BTreeSet<Derivation>>) -> Self {
         if stored.len() == 1 {
             Self::One(stored.pop_first().expect("one derivation exists"))
         } else if stored.is_empty() {
@@ -478,7 +482,7 @@ impl IntoIterator for Derivations {
         match self {
             Self::Empty => DerivationIntoIter::Empty,
             Self::One(derivation) => DerivationIntoIter::One(Some(derivation)),
-            Self::Many(derivations) => DerivationIntoIter::Many(derivations.into_iter()),
+            Self::Many(derivations) => DerivationIntoIter::Many((*derivations).into_iter()),
         }
     }
 }
