@@ -653,6 +653,15 @@ The kast gate runs both sides on every entry and fails when either moves.
 
 No reference-corpus definition uses an anchor. Another reference differential case that does needs a declared normalisation, exclusion or recorded divergence.
 
+## Default layout line ends
+
+The default layout, module `DEFAULT-LAYOUT` of [kast.md](../crates/k-rust/builtin/kast.md), which programs of a definition that declares no `#Layout` production and the rule and configuration grammars use, reads lines as locations and token-regex anchors do: a line end is one of the eight line terminators (see "Token regex line anchors").
+A `//` comment ends at the first line end, and every line end is whitespace: a line end separates lines, so text after one is on the next line, never inside a comment of the line before.
+So `a // c` U+2028 `b` is the tokens `a` and `b`, as `a // c` `\n` `b` is, and `a` U+2028 `b` is the same two tokens.
+The comment's class excludes `\n` through `\r` (line feed, vertical tab, form feed and carriage return) and U+0085, U+2028 and U+2029, and the whitespace class holds the same characters with space and tab; `crates/k-rust/src/inner/parser/scanner.rs` holds the layout both scanners use, which a test keeps equal to the module.
+This diverges from the pinned K's default layout, `//[^\n\r]*` and `[\ \n\r\t]`: there the comment in `a // c` U+2028 `b` runs on to the next `\n` or `\r` and takes `b` with it, and a vertical tab, form feed, U+0085, U+2028 or U+2029 outside a comment is a scanner error.
+(`the_default_line_comment_ends_at_every_line_end_a_location_counts` in [cli.rs](../crates/k-rust/tests/cli.rs), which runs both scanners; `the_default_layout_is_the_default_layout_module_of_the_prelude`, `the_default_line_comment_ends_at_every_line_terminator` and `every_line_terminator_is_default_layout` in [scanner.rs](../crates/k-rust/src/inner/parser/scanner.rs).)
+
 ## Compiler-resolved fresh constants
 
 Within one rule or context, each distinct `!` variable receives a distinct consecutive offset from the generated counter and every occurrence of the same full variable name reuses that offset.

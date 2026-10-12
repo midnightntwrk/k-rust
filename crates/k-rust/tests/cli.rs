@@ -10945,6 +10945,35 @@ fn regex_line_anchors_hold_at_every_line_end_a_location_counts() {
     );
 }
 
+/// The default layout's line comment ends at a line end, and a line end is any line terminator a
+/// location counts: after each of them both scanners read the next token, which a comment that
+/// ran to the next `\n` would swallow. Every line end is also whitespace, so it separates two
+/// tokens. Without a line end, the comment runs to the end of the text.
+#[cfg(unix)]
+#[test]
+fn the_default_line_comment_ends_at_every_line_end_a_location_counts() {
+    const LINE_ENDS: [&str; 8] = [
+        "\n", "\r", "\r\n", "\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}",
+    ];
+    let definition = "module COMMENT-SYNTAX\n  syntax Pgm ::= \"a\" \"b\"\nendmodule\n";
+    let mut programs = LINE_ENDS
+        .iter()
+        .flat_map(|line_end| {
+            [
+                (format!("a // c\u{2027}é{line_end}b"), true),
+                (format!("a{line_end}b"), true),
+            ]
+        })
+        .collect::<Vec<_>>();
+    programs.push(("a // c\u{2027}é b".to_owned(), false));
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "COMMENT-SYNTAX",
+        "COMMENT-SYNTAX",
+        &programs,
+    );
+}
+
 /// A `$`-anchored candidate the generated scanner rejects, here one whose text spans a newline,
 /// must not move the line or column of the tokens scanned after it: the locations are those of
 /// the same definition without the anchored lexeme.
@@ -11400,8 +11429,9 @@ endmodule
 /// builds of one function from program text to a term, so each program must get the same term
 /// from both, modulo injections, or be rejected by both, and what the generated parser prints is
 /// KORE, whose string literals are printable ASCII. Programs: `[locations]` (both wrap, or
-/// neither), a non-ASCII token and a line separator matched by a negated class (a token is a
-/// sequence of characters), a `String` token holding non-ASCII and a control character, and
+/// neither), a two-byte and a three-byte character matched by a negated class (a token is a
+/// sequence of characters), a line separator between tokens (a line end, which the default
+/// layout skips), a `String` token holding non-ASCII and a control character, and
 /// operators whose nesting priority and associativity decide, among them a labelled production
 /// with one nonterminal and no terminal (`wrap`), below which neither parser judges an edge.
 #[cfg(unix)]
@@ -11439,7 +11469,8 @@ endmodule
             ("x + x", true),
             ("\"a\" + x", true),
             ("x + \u{e9}", true),
-            ("\u{2028}", true),
+            ("\u{2027}", true),
+            ("x +\u{2028}x", true),
             ("\"\u{e9}\u{1}\"", true),
             ("x + a", false),
         ]),
@@ -11967,8 +11998,9 @@ endmodule
         (b"a\r".to_vec(), true),
         (b"b".to_vec(), true),
         (b"\rb".to_vec(), true),
-        ("\u{2028}b".as_bytes().to_vec(), false),
-        ("a\u{2028}".as_bytes().to_vec(), false),
+        // A line separator is a line end the default layout skips.
+        ("\u{2028}b".as_bytes().to_vec(), true),
+        ("a\u{2028}".as_bytes().to_vec(), true),
         (b"a\xE2\x80".to_vec(), false),
         (b"\xE2\x80b".to_vec(), false),
     ];

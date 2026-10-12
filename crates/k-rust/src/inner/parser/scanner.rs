@@ -32,10 +32,14 @@ use crate::lines;
 use super::grammar::ProductionText;
 use super::{ParseError, TokenPrecedenceDeclaration, expand_regex_body};
 
+/// The `#Layout` regexes of module `DEFAULT-LAYOUT` (`builtin/kast.md`): a block comment, a line
+/// comment, which ends at a line end, and one whitespace character, which may be a line end. A
+/// line end is a line terminator of `crate::lines`: `\n` through `\r` (line feed, vertical tab,
+/// form feed and carriage return), U+0085, U+2028 and U+2029.
 pub(crate) const DEFAULT_LAYOUT: [&str; 3] = [
     r"(\/\*([^\*]|(\*+([^\*\/])))*\*+\/)",
-    r"(\/\/[^\n\r]*)",
-    r"([\ \n\r\t])",
+    "(\\/\\/[^\\n-\\r\u{85}\u{2028}\u{2029}]*)",
+    "([\\ \\t\\n-\\r\u{85}\u{2028}\u{2029}])",
 ];
 
 #[derive(Clone, Debug)]
@@ -572,6 +576,77 @@ mod tests {
             compile_item(&ProductionItem::regex("("), &BTreeMap::new()),
             Err(ParseError::InvalidRegex { regex, .. }) if regex == "("
         ));
+    }
+
+    /// The scanners use `DEFAULT_LAYOUT` where a definition declares no layout, and the prelude
+    /// declares the same layout as module `DEFAULT-LAYOUT`, so the two must be one layout.
+    #[test]
+    fn the_default_layout_is_the_default_layout_module_of_the_prelude() {
+        let text =
+            outer::extract_fenced_k_code(include_str!("../../../builtin/kast.md"), "k").unwrap();
+        let file = outer::parse("kast.md", &text).unwrap();
+        let module = file
+            .modules
+            .iter()
+            .find(|module| module.name == "DEFAULT-LAYOUT")
+            .unwrap();
+        let regexes = module
+            .sentences
+            .iter()
+            .flat_map(|sentence| match sentence {
+                outer::Sentence::Syntax(outer::SyntaxDeclaration {
+                    body: outer::SyntaxBody::Productions(blocks),
+                    ..
+                }) => blocks.as_slice(),
+                _ => &[],
+            })
+            .flat_map(|block| &block.productions)
+            .flat_map(|production| &production.items)
+            .map(|item| match item {
+                outer::ProductionItem::Regex(regex) => regex.as_str(),
+                other => panic!("DEFAULT-LAYOUT holds a non-regex item {other:?}"),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(regexes, DEFAULT_LAYOUT);
+    }
+
+    /// A line comment ends where its line does: at every line terminator a location counts, so
+    /// the text after the terminator is scanned again, not swallowed by the comment.
+    #[test]
+    fn the_default_line_comment_ends_at_every_line_terminator() {
+        let layout = Layout::default();
+        for terminator in lines::LINE_TERMINATORS {
+            let input = format!("// a\u{2027}é{terminator}b");
+            assert_eq!(
+                layout.longest_match(&input, 0),
+                Some(input.len() - terminator.len() - 1),
+                "{terminator:?}"
+            );
+        }
+        let unterminated = "// a\u{2027}é\u{86}\u{e}b";
+        assert_eq!(
+            layout.longest_match(unterminated, 0),
+            Some(unterminated.len())
+        );
+    }
+
+    /// Every line end is layout, so a line terminator a comment ends at, or one between two
+    /// tokens, is skipped like `\n`.
+    #[test]
+    fn every_line_terminator_is_default_layout() {
+        let layout = Layout::default();
+        for terminator in lines::LINE_TERMINATORS {
+            let input = format!("{terminator}b");
+            assert_eq!(
+                layout.longest_match(&input, 0),
+                Some(terminator.chars().next().unwrap().len_utf8()),
+                "{terminator:?}"
+            );
+        }
+        for not_layout in ["\u{e}", "\u{86}", "\u{2027}", "\u{a0}"] {
+            assert_eq!(layout.longest_match(not_layout, 0), None, "{not_layout:?}");
+        }
     }
 
     #[test]
