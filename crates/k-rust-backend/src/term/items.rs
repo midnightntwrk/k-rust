@@ -25,7 +25,7 @@
 //! [`from_vec`] and their conversions build a vector, `Items::tree` a tree, and an edit keeps
 //! the backing of the sequence it edits (of either operand's tree, for two). The term
 //! constructors give a set's elements a tree and a list's items a vector whatever they are handed
-//! (`TermKind`'s `with_backings`), so two terms of one kind hold the same backing.
+//! (`TermKind::hold_kind_backings`), so two terms of one kind hold the same backing.
 //!
 //! Equality and order are those of the item sequence under both backings, as for the vector. The
 //! hash is the vector's for a vector and the tree's sequence hash for a tree: a polynomial hash
@@ -1618,6 +1618,32 @@ mod tests {
             assert!(
                 summaries <= 3 * 2 * DEFAULT_BRANCHING,
                 "{summaries} element summaries"
+            );
+        }
+
+        /// The variables of a set of at most `B` elements are united from its elements' own sets
+        /// as any node's children's are, so a set around one symbolic element holds that
+        /// element's set; a larger set's are read from its summary's multiset.
+        #[test]
+        fn a_small_set_shares_the_variable_set_of_its_one_symbolic_element() {
+            let x = variable("X", "SortKey");
+            let small = set((0..10).map(key).chain([x.clone()]).collect(), None);
+            assert!(
+                small
+                    .attributes()
+                    .variables
+                    .shares_handle(&x.attributes().variables)
+            );
+            let symbolic = (0..2 * DEFAULT_BRANCHING)
+                .map(|index| variable(&format!("E{index:03}"), "SortKey"))
+                .collect::<Vec<_>>();
+            let large = set(symbolic.clone(), None);
+            assert_eq!(
+                large.attributes().variables.to_btree_set(),
+                symbolic
+                    .iter()
+                    .flat_map(|element| element.attributes().variables.iter().cloned())
+                    .collect()
             );
         }
 

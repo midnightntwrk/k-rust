@@ -954,33 +954,27 @@ impl TermKind {
         }
     }
 
-    /// The kind with a set's elements in a tree and a list's items in vectors, whatever backing
-    /// they were handed in (see [`Items`]): equal terms of one kind then hold equal backings, so
-    /// their hashes agree. Free when the items already have their kind's backing, as the
+    /// Give a set's elements a tree and a list's items vectors, whatever backing they were
+    /// handed in (see [`Items`]): equal terms of one kind then hold equal backings, so their
+    /// hashes agree. In place, and free when the items already have their kind's backing, as the
     /// constructors of this module build them.
-    fn with_backings(self) -> Self {
+    #[inline]
+    fn hold_kind_backings(&mut self) {
         match self {
-            Self::Set {
-                definition,
-                elements,
-                rest,
-            } if !elements.is_tree() => Self::Set {
-                definition,
-                elements: elements.into_tree(),
-                rest,
-            },
-            Self::List {
-                definition,
-                heads,
-                rest,
-            } if heads.is_tree() || rest.as_ref().is_some_and(|(_, tails)| tails.is_tree()) => {
-                Self::List {
-                    definition,
-                    heads: heads.into_vector(),
-                    rest: rest.map(|(middle, tails)| (middle, tails.into_vector())),
+            Self::Set { elements, .. } if !elements.is_tree() => {
+                *elements = std::mem::take(elements).into_tree();
+            }
+            Self::List { heads, rest, .. } => {
+                if heads.is_tree() {
+                    *heads = std::mem::take(heads).into_vector();
+                }
+                if let Some((_, tails)) = rest
+                    && tails.is_tree()
+                {
+                    *tails = std::mem::take(tails).into_vector();
                 }
             }
-            kind => kind,
+            _ => {}
         }
     }
 
@@ -1840,7 +1834,9 @@ impl Term {
     }
 
     fn new(kind: TermKind) -> Self {
-        Self::allocate(TermAllocation::Structural(kind.with_backings()))
+        let mut kind = kind;
+        kind.hold_kind_backings();
+        Self::allocate(TermAllocation::Structural(kind))
     }
 
     #[deny(clippy::wildcard_enum_match_arm)]
@@ -2881,7 +2877,15 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
             // element follows its first occurrence.
             let summary = elements.summary();
             collision_root = summary.collision;
-            let element_variables = Variables::of_multiset(&summary.group);
+            // A set of at most `B` elements is one leaf, whose elements' own variable sets are
+            // united as any node's children's are, sharing the largest one's handle; a larger
+            // set's are the keys of its summary's multiset.
+            let small = elements.len() <= chunked::DEFAULT_BRANCHING;
+            let element_variables = if small {
+                Variables::new()
+            } else {
+                Variables::of_multiset(&summary.group)
+            };
             let mut shape = ChildShape::of(TermAttributes {
                 evaluated: summary.extra.holds(Flag::Evaluated),
                 value_claimed: summary.extra.holds(Flag::ValueClaimed),
@@ -2890,7 +2894,13 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
                 can_be_evaluated: summary.extra.holds(Flag::CanBeEvaluated),
                 ..TermAttributes::default()
             });
-            shape.add_variables(&element_variables);
+            if small {
+                for element in elements {
+                    shape.add_variables(&element.attributes().variables);
+                }
+            } else {
+                shape.add_variables(&element_variables);
+            }
             if let Some(rest) = rest {
                 shape.add(rest);
             }
