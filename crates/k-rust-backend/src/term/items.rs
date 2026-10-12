@@ -242,6 +242,12 @@ impl<T: Item> Items<T> {
         self.0.levels() * 2 * chunked::DEFAULT_BRANCHING
     }
 
+    /// Test builds: the number of levels of the tree, leaves included.
+    #[cfg(test)]
+    pub(crate) fn levels(&self) -> usize {
+        self.0.levels()
+    }
+
     /// Whether the two sequences hold the same root node.
     #[cfg(test)]
     pub(crate) fn shares_root(&self, other: &Self) -> bool {
@@ -994,12 +1000,21 @@ mod tests {
         );
         for place in [0, 1, ENTRIES, 2 * ENTRIES + 1] {
             ENTRY_SUMMARIES.with(|count| count.set(0));
-            let added = Term::map(
-                definition(),
-                vec![(key(place), value(0))],
-                Some(map.clone()),
-            );
+            let mut added = None;
+            let internal = chunked::internal_nodes_during(|| {
+                added = Some(Term::map(
+                    definition(),
+                    vec![(key(place), value(0))],
+                    Some(map.clone()),
+                ));
+            });
+            let added = added.expect("added");
             let summaries = ENTRY_SUMMARIES.with(std::cell::Cell::get);
+            let internal_levels = entries(&map).levels() - 1;
+            assert!(
+                internal <= 2 * internal_levels,
+                "key {place}: {internal} internal nodes built over {internal_levels} internal levels"
+            );
             assert!(
                 summaries <= DEFAULT_BRANCHING + 2,
                 "key {place}: {summaries} entry summaries"
@@ -1300,9 +1315,17 @@ mod tests {
             let base = set((0..ELEMENTS).map(|index| key(2 * index)).collect(), None);
             for place in [0, 1, ELEMENTS, 2 * ELEMENTS + 1] {
                 let mut added = None;
-                let summaries = element_summaries_during(|| {
-                    added = Some(set(vec![key(place)], Some(base.clone())));
+                let mut summaries = 0;
+                let internal = chunked::internal_nodes_during(|| {
+                    summaries = element_summaries_during(|| {
+                        added = Some(set(vec![key(place)], Some(base.clone())));
+                    });
                 });
+                let internal_levels = elements(&base).levels() - 1;
+                assert!(
+                    internal <= 2 * internal_levels,
+                    "element {place}: {internal} internal nodes built over {internal_levels} internal levels"
+                );
                 assert!(
                     summaries <= DEFAULT_BRANCHING + 2,
                     "element {place}: {summaries} element summaries"
@@ -1533,9 +1556,17 @@ mod tests {
             let item = key(ITEMS);
             for (heads, tails) in [(vec![], vec![item.clone()]), (vec![item.clone()], vec![])] {
                 let mut added = None;
-                let summaries = element_summaries_during(|| {
-                    added = Some(list(heads.clone(), Some((base.clone(), tails.clone()))));
+                let mut summaries = 0;
+                let internal = chunked::internal_nodes_during(|| {
+                    summaries = element_summaries_during(|| {
+                        added = Some(list(heads.clone(), Some((base.clone(), tails.clone()))));
+                    });
                 });
+                let internal_levels = parts(&base).0.levels() - 1;
+                assert!(
+                    internal <= 2 * internal_levels,
+                    "{internal} internal nodes built over {internal_levels} internal levels"
+                );
                 assert!(
                     summaries <= DEFAULT_BRANCHING + 2,
                     "{summaries} item summaries"

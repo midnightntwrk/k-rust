@@ -541,6 +541,22 @@ enum Node<I: Item> {
 #[derive(Default)]
 struct Checked(#[cfg(debug_assertions)] std::sync::atomic::AtomicBool);
 
+#[cfg(test)]
+thread_local! {
+    /// Test builds: the internal nodes this thread has built.
+    static INTERNAL_NODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Test builds: the number of internal nodes `run` builds on this thread. An edit of one item
+/// copies the internal nodes on one path and, where a node splits or merges, a sibling at each
+/// level: at most two per internal level, whatever the number of items.
+#[cfg(test)]
+pub(crate) fn internal_nodes_during(run: impl FnOnce()) -> usize {
+    let before = INTERNAL_NODES.with(std::cell::Cell::get);
+    run();
+    INTERNAL_NODES.with(std::cell::Cell::get) - before
+}
+
 impl<I: Item> Node<I> {
     fn leaf(items: Vec<I>) -> Self {
         let summary = NodeSummary::of_items(&items);
@@ -552,6 +568,8 @@ impl<I: Item> Node<I> {
     }
 
     fn internal(height: usize, children: Vec<Arc<Self>>) -> Self {
+        #[cfg(test)]
+        INTERNAL_NODES.with(|count| count.set(count.get() + 1));
         let summary = NodeSummary::of_children(&children);
         Self::Internal {
             height,
@@ -574,6 +592,8 @@ impl<I: Item> Node<I> {
     /// An internal node whose group summary the caller knows: `group` is that of the items
     /// below `children`.
     fn internal_with(height: usize, children: Vec<Arc<Self>>, group: I::Group) -> Self {
+        #[cfg(test)]
+        INTERNAL_NODES.with(|count| count.set(count.get() + 1));
         let summary = NodeSummary::of_children_with(&children, group);
         Self::Internal {
             height,
