@@ -727,13 +727,11 @@ impl LoweringSession {
     /// The session node of a packed forest, with the forest's sharing: each node of `forest`
     /// is interned once, after its children. A node over unchanged children is itself, so
     /// unpacking the result gives the forest's trees, ambiguity nodes where the forest has them.
-    #[cfg(feature = "z3-inference")]
     pub(super) fn intern_forest(&mut self, forest: &Rc<PackedTerm>) -> Rc<PackedTerm> {
         let mut interned = rustc_hash::FxHashMap::default();
         self.intern_forest_node(&mut interned, forest)
     }
 
-    #[cfg(feature = "z3-inference")]
     fn intern_forest_node(
         &mut self,
         interned: &mut rustc_hash::FxHashMap<*const PackedTerm, Rc<PackedTerm>>,

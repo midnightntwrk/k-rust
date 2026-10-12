@@ -7404,7 +7404,7 @@ mode = "one parsed tree (lower_inferred)"
 bound = "O(O) to pack the tree into a session, where equal subtrees become one node, then the session bound with N <= O"
 
 [[node.cost]]
-mode = "one inferred packed forest (z3, lower_inferred_forest)"
+mode = "one inferred packed forest (lower_inferred_forest): one Z3 inferred, or the join of two parts' inferred forests when sorts decide among every reading (infer_without_structural_preference)"
 bound = "O(F + G) to intern the forest into a session, then the session bound; no owned tree of its trees is built, whatever their number"
 
 [[node]]
@@ -7566,7 +7566,7 @@ symbol = "InstanceNodes::intern"
 
 [[node.cost]]
 mode = "recognition (the chart loop of recognize)"
-bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it, and for a chain written directly as a side of a rewrite, whose readings that take the rewrite as an operand break a relation and are skipped; the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
+bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it, and for a chain written directly as a side of a rewrite, whose readings that take the rewrite as an operand break a relation and are skipped; the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them; a chart pops its states by decreasing origin (Agenda), so every shorter span ending at the chart is complete before a longer one reads it and a completed state is popped again only when a same-span or empty child grows: one version of a span's nodes rather than one per growth of the spans below it, and the forest of an ambiguous input has its spans and splits, not those versions"
 
 [[node.cost]]
 mode = "one parse attempt (parse_attempt)"

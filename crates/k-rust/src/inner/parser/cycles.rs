@@ -542,8 +542,10 @@ mod tests {
             production("A", vec![terminal("1")], Some("a1")),
             production("B", vec![nt("Opt"), nt("A")], Some("ba")),
         ]);
+        // `1` and `q 1` both repeat; the spans ending at one position are completed shortest
+        // first, so the repetition over `1` is met first.
         let cycle = cycle(parse(&grammar, "A", "q 1"));
-        assert_eq!(cycle.text, "q 1");
+        assert_eq!(cycle.text, "1");
         assert_eq!(cycle.productions.len(), 2);
         assert!(cycle.productions.contains(&"syntax A ::= B Opt".to_owned()));
         assert!(cycle.productions.contains(&"syntax B ::= Opt A".to_owned()));

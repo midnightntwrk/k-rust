@@ -248,7 +248,7 @@ pub(super) struct Chart {
     pub(super) predicted: Vec<bool>,
     pub(super) waiting: IndexMap<usize, Vec<State>>,
     pub(super) completed: IndexMap<usize, Vec<State>>,
-    pub(super) agenda: VecDeque<State>,
+    pub(super) agenda: Agenda,
     // Revisit accounting (`parser.chart_revisit_pops`) needs the set of states popped so far;
     // it is kept only where something reads it.
     #[cfg(any(test, feature = "measure"))]
@@ -279,7 +279,7 @@ impl Chart {
             predicted: vec![false; sort_count],
             waiting: IndexMap::default(),
             completed: IndexMap::default(),
-            agenda: VecDeque::new(),
+            agenda: Agenda::default(),
             #[cfg(any(test, feature = "measure"))]
             popped: StateSet::default(),
             completed_nodes: RefCell::new(IndexMap::default()),
@@ -315,6 +315,53 @@ impl Chart {
             Some(token_end) => (token_end, token_end),
             None => (origin, end),
         }
+    }
+}
+
+/// The states of one chart whose new derivations are still to be dispatched, popped by
+/// decreasing origin, and in the order they were queued among states of one origin.
+///
+/// A completed state over `origin..end` hands its callers its nodes over its derivations as they
+/// stand when it is popped, so it is popped again, and builds its nodes again, each time a
+/// derivation of it grows. Its derivations at this chart are made of nodes completed here from a
+/// later origin (a child over a shorter span ending here) or from the same origin (a child over
+/// the same span, through a unary production or a nullable rest). Dispatching a state creates
+/// states at this chart only at its own origin or earlier (a completion advances callers that
+/// started no later than the completed state) or at this chart's own position (a prediction).
+/// Popping the latest origin first therefore completes every shorter span ending here before a
+/// longer one reads it: a state over `origin..end` is popped again only when a same-span or empty
+/// child grows. In the order of queueing, a longer span could be popped before the shorter spans
+/// below it were complete and be popped once more for each of them as they grew, and every such
+/// pop builds a new version of its nodes for its callers, which do the same: the number of
+/// versions multiplies along the spans, and the ambiguity a caller packs keeps every version
+/// beside the latest (an earlier version over a child that grew is not equal to the later one,
+/// so coverage does not remove it), so the forest of a highly ambiguous input grows with the
+/// number of versions rather than with the spans and splits it has.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Agenda(BTreeMap<usize, VecDeque<State>>);
+
+impl Agenda {
+    pub(super) fn push(&mut self, state: State) {
+        self.0.entry(state.origin).or_default().push_back(state);
+    }
+
+    pub(super) fn pop(&mut self) -> Option<State> {
+        let mut latest = self.0.last_entry()?;
+        let state = latest.get_mut().pop_front();
+        if latest.get().is_empty() {
+            latest.remove();
+        }
+        state
+    }
+
+    #[cfg(test)]
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[cfg(test)]
+    pub(super) fn clear(&mut self) {
+        self.0.clear();
     }
 }
 
@@ -519,7 +566,7 @@ impl Chart {
             }
             counters.agenda_enqueues += 1;
         });
-        self.agenda.push_back(state);
+        self.agenda.push(state);
         Ok((true, new_state))
     }
 
@@ -570,7 +617,7 @@ impl Chart {
             }
             counters.agenda_enqueues += 1;
         });
-        self.agenda.push_back(state);
+        self.agenda.push(state);
         Ok((true, new_state))
     }
 }
@@ -1097,7 +1144,7 @@ mod tests {
                 .add(state, [derivation(ambiguity(&["A", "B"]))])
                 .unwrap()
         );
-        assert_eq!(chart.agenda.pop_front(), Some(state));
+        assert_eq!(chart.agenda.pop(), Some(state));
 
         assert!(!chart.add(state, [derivation(variable("A"))]).unwrap());
         assert!(chart.agenda.is_empty());
@@ -1120,7 +1167,8 @@ mod tests {
                 .add(state, [derivation(ambiguity(&["A", "B"]))])
                 .unwrap()
         );
-        assert_eq!(chart.agenda.into_iter().collect::<Vec<_>>(), vec![state]);
+        assert_eq!(chart.agenda.pop(), Some(state));
+        assert!(chart.agenda.is_empty());
         assert_eq!(
             chart.states[&state]
                 .iter()
