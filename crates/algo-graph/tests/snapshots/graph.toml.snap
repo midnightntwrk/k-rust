@@ -7992,7 +7992,7 @@ id = "parser.inference.portable"
 provenance = "declared"
 area = "parser"
 name = "portable sort inference by bound propagation"
-variable = "V = sort-bound vertices; E = bound edges; S = concrete sorts among the bounds; T = complete trees of an ambiguous forest, at most PORTABLE_AMBIGUITY_TREE_LIMIT"
+variable = "V = sort-bound vertices (of a forest: variables); E = bound edges; S = concrete sorts among the bounds (of a forest: sorts of the subsort order); I = instances of an ambiguous forest, a node with one context its ancestors give it; a = largest arity; W = distinct typings of the trees of one instance; M = maximal typings; G = trees of a typing group whose trees instantiate formal parameters differently"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferencePortable"
@@ -8001,6 +8001,31 @@ registry_name = "ParserInferencePortable"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/inference.rs"
 symbol = "Grammar::infer_sorts_portable"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference/forest_decision.rs"
+symbol = "Grammar::decide_forest"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference/forest_decision.rs"
+symbol = "ForestDecision::summaries"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference/forest_decision.rs"
+symbol = "ForestDecision::close"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference/forest_decision.rs"
+symbol = "ForestDecision::eval"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference/forest_decision.rs"
+symbol = "ForestDecision::apply"
 
 [[node.sites]]
 crate = "k-rust"
@@ -8027,18 +8052,13 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/inference.rs"
 symbol = "Grammar::infer_ambiguous_sorts_portable_first"
 
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/inference.rs"
-symbol = "Grammar::maximal_typing_groups"
-
 [[node.cost]]
 mode = "one tree"
 bound = "O(V x E)"
 
 [[node.cost]]
 mode = "ambiguous monomorphic forest"
-bound = "O(T x V x E) for the per-tree inferences plus O(T^2 x V) order checks for the maximality filter"
+bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus one lowering per tree for the G trees of a typing group whose trees instantiate formal parameters differently; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it"
 
 [[node.cost]]
 mode = "variable realization"
