@@ -4154,6 +4154,29 @@ fn rejects_duplicate_record_production_keys() {
     );
 }
 
+/// `neg(X)` reads as `negInt` with `X:Int` or as `negNat` with `X:Nat`, and both trees hold the
+/// variable the record pattern stands in for its omitted `right` field. That variable is one
+/// occurrence in both trees, at the pattern's span and with one name, so the typings compare:
+/// the `negInt` tree's exceeds the other's, and it is the parse in both builds.
+#[test]
+fn an_omitted_record_field_is_one_variable_in_every_tree_of_a_forest() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Nat
+          syntax Int ::= Nat
+          syntax Pair ::= "pair" "(" left: Int "," right: Int ")" [symbol(pair)]
+          syntax Int ::= "neg" "(" Int ")" [symbol(negInt)]
+          syntax Nat ::= "neg" "(" Nat ")" [symbol(negNat)]
+          rule pair(... left: neg(X)) => pair(X, X)
+        endmodule
+    "#});
+    let body = only_rule_body(&resolve_rule_bubbles(&definition).expect("the forest is decided"));
+    assert!(body.contains("negInt"), "{body}");
+    assert!(!body.contains("negNat"), "{body}");
+    assert!(body.contains("_right"), "{body}");
+}
+
 #[test]
 fn rejects_incompatible_variable_sort_bounds() {
     let definition = lowered(indoc! {r#"

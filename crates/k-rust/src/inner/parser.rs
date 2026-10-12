@@ -5185,12 +5185,21 @@ mod chart_tests {
         let names = packed_terms_in_structural_order(alternatives)
             .into_iter()
             .map(|alternative| {
-                let PackedNode::Production { children, .. } = &alternative.node else {
+                let PackedNode::Production {
+                    children, metadata, ..
+                } = &alternative.node
+                else {
                     panic!("expected collapsed record production");
                 };
-                let PackedNode::Term(Term::Variable { name, .. }) = &children[0].node else {
+                let PackedNode::Term(leaf) = &children[0].node else {
                     panic!("expected generated record variable");
                 };
+                let Term::Variable { name, .. } = leaf.unannotated() else {
+                    panic!("expected generated record variable");
+                };
+                // The variable stands at the span of the pattern whose field it fills.
+                assert!(metadata.span.is_some());
+                assert_eq!(leaf.metadata().and_then(|leaf| leaf.span), metadata.span);
                 name.clone()
             })
             .collect::<Vec<_>>();
@@ -5515,7 +5524,10 @@ mod chart_tests {
         let ParsedTerm::Production { children, .. } = &children[0] else {
             panic!("expected collapsed record");
         };
-        let ParsedTerm::Term(Term::Variable { name, .. }) = &children[0] else {
+        let ParsedTerm::Term(leaf) = &children[0] else {
+            panic!("expected generated record variable");
+        };
+        let Term::Variable { name, .. } = leaf.unannotated() else {
             panic!("expected generated record variable");
         };
 

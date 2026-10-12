@@ -97,11 +97,14 @@ impl PortableError {
 }
 
 /// A variable of a rule as it is identified across the alternative trees of one forest: a named
-/// variable by its name, an anonymous one by its source occurrence.
+/// variable by its name, an anonymous one by its source occurrence, the span it stands at and
+/// its name. A written anonymous variable is the only variable at its span; the variables a
+/// record pattern stands in for its omitted fields share the pattern's span and are told apart
+/// by their names, one per field (`omitted_field_variable` in `record.rs`).
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum TypingVariable {
     Named(String),
-    Anonymous(TermSpan),
+    Anonymous(TermSpan, String),
 }
 
 /// One tree typed by the portable engine, with the sorts it realized for the tree's variables.
@@ -1233,7 +1236,7 @@ impl<'a> Solver<'a> {
                 VariableId::Anonymous(_) => term
                     .metadata()
                     .and_then(|metadata| metadata.span)
-                    .map(TypingVariable::Anonymous),
+                    .map(|span| TypingVariable::Anonymous(span, name.to_owned())),
             };
             self.typing_variables.insert(id.clone(), typing_variable);
             self.variables.insert(id, variable);

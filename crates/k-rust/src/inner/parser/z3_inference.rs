@@ -4130,9 +4130,11 @@ fn inference_variable_key(term: &Term, name: &str, path: &NodePath) -> String {
     }
     if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
         // One source occurrence can appear beneath several alternatives in the shared parse
-        // forest. K's parser assigns that occurrence one inference variable; using its span here
-        // preserves the same identity after our value-based forest representation is factored.
-        format!("anonymous_{}_{}", span.start, span.end)
+        // forest and is one variable whichever alternative is chosen; its span and name keep
+        // that identity after the value-based forest representation is factored. The variables
+        // a record pattern stands in for its omitted fields share the pattern's span, one name
+        // per field, so the name is part of the occurrence.
+        format!("anonymous_{}_{}_{name}", span.start, span.end)
     } else {
         format!("anonymous_{}", path.render())
     }
@@ -4143,7 +4145,7 @@ fn packed_inference_variable_key(term: &Term, name: &str, identity: usize) -> St
         return format!("variable_{name}");
     }
     if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
-        format!("anonymous_{}_{}", span.start, span.end)
+        format!("anonymous_{}_{}_{name}", span.start, span.end)
     } else {
         format!("anonymous_n{identity}")
     }

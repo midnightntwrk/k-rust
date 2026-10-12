@@ -379,10 +379,10 @@ impl Grammar {
                     let stem = field.as_deref().unwrap_or("Gen");
                     let key = root_metadata.span.map(|span| (span, original, index));
                     if let Some(name) = key.as_ref().and_then(|key| generated.get(key)) {
-                        return PackedTerm::leaf(Term::Variable {
-                            name: name.clone(),
-                            sort: None,
-                        });
+                        return PackedTerm::leaf(omitted_field_variable(
+                            name.clone(),
+                            root_metadata.span,
+                        ));
                     }
                     // Invariant: every rejected candidate is already reserved and `next`
                     // strictly increases until the first definition-wide fresh name is inserted.
@@ -396,7 +396,7 @@ impl Grammar {
                     if let Some(key) = key {
                         generated.insert(key, name.clone());
                     }
-                    PackedTerm::leaf(Term::Variable { name, sort: None })
+                    PackedTerm::leaf(omitted_field_variable(name, root_metadata.span))
                 })
                 .collect();
             alternatives.insert(PackedTerm::production(
@@ -598,10 +598,10 @@ impl Grammar {
                     let stem = field.as_deref().unwrap_or("Gen");
                     let key = root_metadata.span.map(|span| (span, original, index));
                     if let Some(name) = key.as_ref().and_then(|key| generated.get(key)) {
-                        return ParsedTerm::Term(Term::Variable {
-                            name: name.clone(),
-                            sort: None,
-                        });
+                        return ParsedTerm::Term(omitted_field_variable(
+                            name.clone(),
+                            root_metadata.span,
+                        ));
                     }
                     let name = loop {
                         let candidate = format!("_{stem}{}", *next);
@@ -613,7 +613,7 @@ impl Grammar {
                     if let Some(key) = key {
                         generated.insert(key, name.clone());
                     }
-                    ParsedTerm::Term(Term::Variable { name, sort: None })
+                    ParsedTerm::Term(omitted_field_variable(name, root_metadata.span))
                 })
                 .collect();
             alternatives.insert(ParsedTerm::Production {
@@ -808,6 +808,30 @@ fn cmp_packed_record_fields(
         })
         .find(|ordering| !ordering.is_eq())
         .unwrap_or_else(|| left.len().cmp(&right.len()))
+}
+
+/// The anonymous variable that stands for an omitted field of a record pattern written at
+/// `span`.
+///
+/// The variable is part of the term written at `span`, so it is given that span. Every collapse
+/// of the pattern gives the field one name (`generated`, keyed by the span, the original
+/// production and the field), and the name is reserved for it, so no other variable of the
+/// forest has it. The span and the name together therefore identify one source occurrence,
+/// whichever reading of the pattern's text contains it, which is the identity sort inference
+/// gives an anonymous variable across the trees of a forest (`TypingVariable::Anonymous`). A tree
+/// holds at most one node of the original production at that span, since the production's `(`
+/// and `)` are terminals, so the variable occurs once in a tree, as an anonymous variable does.
+/// A pattern without a span gives the field a new name in each collapse and no identity, and
+/// its variable stays without a span.
+fn omitted_field_variable(name: String, span: Option<TermSpan>) -> Term {
+    let variable = Term::Variable { name, sort: None };
+    match span {
+        Some(span) => variable.with_metadata(super::TermMetadata {
+            span: Some(span),
+            ..super::TermMetadata::default()
+        }),
+        None => variable,
+    }
 }
 
 fn nonterminal(sort: Sort) -> ProductionItem {
