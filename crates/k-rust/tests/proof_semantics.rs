@@ -292,3 +292,95 @@ fn an_implication_through_an_untranslated_function_splits_on_its_condition() {
         assert_eq!(result.status, status, "{spec}: {result:?}");
     }
 }
+
+/// Cells `<r>` of a `multiplicity="*"` collection of type `$TYPE`, which `mk` adds at the front of
+/// a list and `mkBack` at its back. The claims' right sides place an instance between parts of
+/// the collection (`?A <r> … </r> ?C`), or before one part (`one`, `one-rest`, `absent`).
+const COLLECTION_CELL_ITEM_ANYWHERE: &str = r#"
+module LCELL-SYNTAX
+  imports INT-SYNTAX
+  syntax Cmd ::= mk(Int) | mkBack(Int)
+  syntax Pgm ::= Cmd | Cmd ";" Pgm
+endmodule
+
+module LCELL
+  imports LCELL-SYNTAX
+  imports INT
+  configuration
+    <T>
+      <k> $PGM:Pgm </k>
+      <rs> <r multiplicity="*" type="$TYPE"> <rid> 0 </rid> </r> </rs>
+    </T>
+
+  rule <k> C:Cmd ; P:Pgm => C ~> P ... </k>
+  rule <k> mk(I) => .K ... </k> <rs> (.Bag => <r> <rid> I </rid> </r>) ... </rs>
+  rule <k> mkBack(I) => .K ... </k> <rs> B:Bag (.Bag => <r> <rid> I </rid> </r>) </rs>
+endmodule
+
+module LCELL-SPEC
+  imports LCELL
+  claim [one]: <k> mk(1) => .K ... </k> <rs> (<r> <rid> 0 </rid> </r> L:Bag => <r> <rid> 1 </rid> </r> ?C:Bag) </rs>
+  claim [front]: <k> mk(1) => .K ... </k> <rs> (<r> <rid> 0 </rid> </r> L:Bag => ?A:Bag <r> <rid> 1 </rid> </r> ?C:Bag) </rs>
+  claim [middle-concrete]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 2 </rid> </r> ?C:Bag) </rs>
+  claim [after-segment]: <k> mkBack(5) => .K ... </k> <rs> (<r> <rid> 0 </rid> </r> L:Bag => ?A:Bag <r> <rid> 5 </rid> </r> ?C:Bag) </rs>
+  claim [before-segment]: <k> mk(7) ; mkBack(5) => .K ... </k> <rs> (<r> <rid> 0 </rid> </r> L:Bag => ?A:Bag <r> <rid> 0 </rid> </r> ?C:Bag) </rs>
+  claim [two-items]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 3 </rid> </r> ?B:Bag <r> <rid> 1 </rid> </r> ?C:Bag) </rs>
+  claim [absent-closed]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 9 </rid> </r> ?C:Bag) </rs>
+  claim [absent-open]: <k> mk(2) => .K ... </k> <rs> (<r> <rid> 0 </rid> </r> L:Bag => ?A:Bag <r> <rid> 9 </rid> </r> ?C:Bag) </rs>
+  claim [wrong-order]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 1 </rid> </r> ?B:Bag <r> <rid> 3 </rid> </r> ?C:Bag) </rs>
+  claim [one-rest]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> 2 </rid> </r> ?C:Bag) </rs>
+  claim [absent]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> 9 </rid> </r> ?C:Bag) </rs>
+endmodule
+"#;
+
+/// A list is a finite sequence and concatenation is associative, so `?A <r> X </r> ?C` denotes
+/// the lists that hold `<r> X </r>` anywhere: a final list that holds it at a known position is
+/// one of them, whatever the opaque part `L` beside it is (`front`, `after-segment`,
+/// `before-segment`), and two items are found in their written order (`two-items`). Every
+/// element of a list without a part is at a known position, so an item at none of them
+/// (`absent-closed`) and two items in the other order (`wrong-order`) disprove those claims,
+/// while an item absent from the known items may be in `L` (`absent-open`), which leaves that
+/// claim unproven. In a set or a map, where an item
+/// beside a part is decided without positions, an instance with a part (`one-rest`) is found and
+/// an absent one is not.
+#[test]
+fn a_claim_finds_a_collection_cell_instance_between_two_parts_at_any_position() {
+    let status = |kore: &str, claim: &str| {
+        prove(
+            kore,
+            "LCELL-SPEC",
+            &format!("LCELL-SPEC.{claim}"),
+            ProveRequest::default(),
+        )
+        .status
+    };
+    let list = compile(
+        &COLLECTION_CELL_ITEM_ANYWHERE.replace("$TYPE", "List"),
+        "LCELL-SPEC",
+        "LCELL",
+    );
+    for claim in [
+        "one",
+        "front",
+        "middle-concrete",
+        "after-segment",
+        "before-segment",
+        "two-items",
+    ] {
+        assert_eq!(status(&list, claim), "proven", "List {claim}");
+    }
+    for claim in ["absent-closed", "wrong-order"] {
+        assert_eq!(status(&list, claim), "disproved", "List {claim}");
+    }
+    assert_ne!(status(&list, "absent-open"), "proven", "List absent-open");
+
+    for collection in ["Set", "Map"] {
+        let kore = compile(
+            &COLLECTION_CELL_ITEM_ANYWHERE.replace("$TYPE", collection),
+            "LCELL-SPEC",
+            "LCELL",
+        );
+        assert_eq!(status(&kore, "one-rest"), "proven", "{collection} one-rest");
+        assert_ne!(status(&kore, "absent"), "proven", "{collection} absent");
+    }
+}
