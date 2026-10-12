@@ -569,19 +569,21 @@ pub(crate) fn match_term_pairs_in_definition(
     if pairs.is_empty() {
         return MatchResult::Success(Substitution::new());
     }
-    let pattern_variables = pairs
-        .iter()
-        .flat_map(|(pattern, _)| pattern.attributes().variables.iter().cloned())
-        .collect::<BTreeSet<_>>();
-    let subject_variables = pairs
-        .iter()
-        .flat_map(|(_, subject)| subject.attributes().variables.iter().cloned())
-        .collect::<BTreeSet<_>>();
-    let shared_variables = pattern_variables
-        .intersection(&subject_variables)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    if mode != MatchMode::Implies && !shared_variables.is_empty() {
+    // A variable is on both sides when some pattern's variable set meets some subject's: each
+    // pair of sets is tested by looking the smaller one's variables up in the larger, so a
+    // subject that holds a large configuration's variables is not copied. The pairs are few
+    // (a predicate's terms), and the shared variables themselves are gathered only to report
+    // them.
+    if mode != MatchMode::Implies
+        && pairs.iter().any(|(pattern, _)| {
+            pairs.iter().any(|(_, subject)| {
+                !pattern
+                    .attributes()
+                    .variables
+                    .is_disjoint(&subject.attributes().variables)
+            })
+        })
+    {
         return match mode {
             // Matching binds pattern variables only; a variable on both sides needs
             // unification. The pairs themselves are the remainder, so that the caller can
@@ -591,6 +593,17 @@ pub(crate) fn match_term_pairs_in_definition(
                 remainder: pairs,
             },
             MatchMode::Evaluate => {
+                let shared_variables = pairs
+                    .iter()
+                    .flat_map(|(pattern, _)| {
+                        pairs.iter().flat_map(move |(_, subject)| {
+                            pattern
+                                .attributes()
+                                .variables
+                                .intersection(&subject.attributes().variables)
+                        })
+                    })
+                    .collect::<BTreeSet<_>>();
                 MatchResult::Failed(FailReason::SharedVariables(shared_variables))
             }
             MatchMode::Implies => unreachable!(),
@@ -679,14 +692,16 @@ fn match_terms_with_context_and_frames(
     if pattern == subject {
         return MatchResult::Success(Substitution::new());
     }
-    let shared_variables = pattern
-        .attributes()
-        .variables
-        .intersection(&subject.attributes().variables);
     // Rule application renames a rule's variables apart from the subject before matching
     // (`rule::rename_apart`), so this guard only meets callers whose two sides share one scope,
-    // where a variable on both sides is one variable and needs unification.
-    if mode != MatchMode::Implies && !shared_variables.is_empty() {
+    // where a variable on both sides is one variable and needs unification. The shared
+    // variables are gathered only to report them.
+    if mode != MatchMode::Implies
+        && !pattern
+            .attributes()
+            .variables
+            .is_disjoint(&subject.attributes().variables)
+    {
         return match mode {
             // As in `match_term_pairs_in_definition`: the pair is the remainder, not a
             // placeholder over the shared variables, which would drop the pair.
@@ -694,9 +709,12 @@ fn match_terms_with_context_and_frames(
                 substitution: Substitution::new(),
                 remainder: vec![(pattern.clone(), subject.clone())],
             },
-            MatchMode::Evaluate => {
-                MatchResult::Failed(FailReason::SharedVariables(shared_variables))
-            }
+            MatchMode::Evaluate => MatchResult::Failed(FailReason::SharedVariables(
+                pattern
+                    .attributes()
+                    .variables
+                    .intersection(&subject.attributes().variables),
+            )),
             MatchMode::Implies => unreachable!(),
         };
     }
