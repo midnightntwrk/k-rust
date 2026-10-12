@@ -810,7 +810,13 @@ impl Grammar {
     /// share subterms, on how alternatives of one node are packed, or on which sorts readings
     /// pass through.
     pub(super) fn prefer_structural_readings(&self, forest: Rc<PackedTerm>) -> Rc<PackedTerm> {
-        self.prefer_structural_readings_memo(&forest, None, false, true, &mut HashMap::new())
+        self.prefer_structural_readings_memo(
+            &forest,
+            None,
+            false,
+            true,
+            &mut PreferenceMemo::default(),
+        )
     }
 
     /// Among the readings of a forest, keep at every position in a term no rule changes (a side
@@ -822,7 +828,13 @@ impl Grammar {
     /// preferred readings have no well-sorted one
     /// (`Grammar::infer_without_structural_preference`).
     pub(super) fn prefer_no_rewrite_inside_a_term(&self, forest: Rc<PackedTerm>) -> Rc<PackedTerm> {
-        self.prefer_structural_readings_memo(&forest, None, false, false, &mut HashMap::new())
+        self.prefer_structural_readings_memo(
+            &forest,
+            None,
+            false,
+            false,
+            &mut PreferenceMemo::default(),
+        )
     }
 
     /// The readings of `term`, every reading of a position at `place` (`None` at the parse's
@@ -844,9 +856,11 @@ impl Grammar {
                 place.map(|place| (place.declared.clone(), place.recognized.clone())),
                 in_term,
             );
-            if let Some((_, preferred)) = memo.get(&key) {
+            if let Some((_, preferred)) = memo.readings.get(&key) {
                 return Rc::clone(preferred);
             }
+            #[cfg(test)]
+            PREFERENCE_CHOICES.with(|count| count.set(count.get() + 1));
             // In a term no rule changes, a rewrite ranks after every other reading: no rule has a
             // rewrite in a side of another or in a condition, so where another reading exists, the
             // rewrite is not what the rule means there.
@@ -872,7 +886,8 @@ impl Grammar {
                 constructs,
                 memo,
             );
-            memo.insert(key, (Rc::clone(term), Rc::clone(&preferred)));
+            memo.readings
+                .insert(key, (Rc::clone(term), Rc::clone(&preferred)));
             preferred
         })
     }
@@ -903,7 +918,8 @@ impl Grammar {
                             )]
                         }
                         _ => {
-                            let merged = merge_alternatives_at_one_position(&group);
+                            let merged =
+                                merge_alternatives_at_one_position(&group, &mut memo.unions);
                             let kept = self.prefer_structural_readings_below(
                                 &merged, place, in_term, constructs, memo,
                             );
@@ -1108,13 +1124,14 @@ impl Grammar {
         &self,
         forest: &Rc<PackedTerm>,
     ) -> Rc<PackedTerm> {
-        self.merge_alternatives_memo(forest, &mut HashMap::new())
+        self.merge_alternatives_memo(forest, &mut HashMap::new(), &mut PositionUnions::new())
     }
 
     fn merge_alternatives_memo(
         &self,
         term: &Rc<PackedTerm>,
         memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+        unions: &mut PositionUnions,
     ) -> Rc<PackedTerm> {
         if let Some((_, merged)) = memo.get(&Rc::as_ptr(term)) {
             return Rc::clone(merged);
@@ -1126,9 +1143,9 @@ impl Grammar {
                 for group in self.alternatives_at_one_position(&alternatives) {
                     let node = match group.as_slice() {
                         [alternative] => Rc::clone(alternative),
-                        _ => merge_alternatives_at_one_position(&group),
+                        _ => merge_alternatives_at_one_position(&group, unions),
                     };
-                    let node = self.merge_alternatives_memo(&node, memo);
+                    let node = self.merge_alternatives_memo(&node, memo, unions);
                     match &node.node {
                         PackedNode::Ambiguity(nested) => retained.extend(nested.iter().cloned()),
                         _ => {
@@ -1145,7 +1162,7 @@ impl Grammar {
             } => {
                 let merged = children
                     .iter()
-                    .map(|child| self.merge_alternatives_memo(child, memo))
+                    .map(|child| self.merge_alternatives_memo(child, memo, unions))
                     .collect::<Vec<_>>();
                 if merged
                     .iter()
@@ -5893,9 +5910,32 @@ pub(super) struct StructuralPlace<'a> {
 
 /// The readings [`Grammar::prefer_structural_readings`] kept of a node at a place, by the node's
 /// identity, the place's declared and recognized sorts and whether the place is in a term no
-/// rule changes, with the node kept alive beside its entry.
-type PreferenceMemo =
-    HashMap<(*const PackedTerm, Option<(Sort, Sort)>, bool), (Rc<PackedTerm>, Rc<PackedTerm>)>;
+/// rule changes, with the node kept alive beside its entry; and the readings of the positions
+/// it merged (`merge_alternatives_at_one_position`).
+#[derive(Default)]
+struct PreferenceMemo {
+    readings: HashMap<StructuralPosition, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+    unions: PositionUnions,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The choices `Grammar::prefer_structural_readings_memo` made on this thread, one per node
+    /// and place it was not memoized for.
+    pub(super) static PREFERENCE_CHOICES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The node of the readings of one position that `merge_alternatives_at_one_position` built, by
+/// the identities of those readings, in the order of their set. The node holds them, so no
+/// address in a key is reused while the table lives.
+///
+/// The readings kept at a position are a function of the position's readings (and its place),
+/// and the memo of that choice is keyed by node identity. Built anew for each group that merges
+/// them, the same readings would be a new node each time, and the choice below them would be
+/// made again for every group above that reaches them, so for every path down to them: with
+/// shared subforests, a number of times exponential in their depth. Interned, every group that
+/// reaches the same readings reaches one node, chosen once.
+type PositionUnions = HashMap<Vec<*const PackedTerm>, Rc<PackedTerm>>;
 
 /// A node of a forest at a place of one declared and one recognized sort, in a term no rule
 /// changes or not: one position of the readings that reach the node there
@@ -5962,7 +6002,10 @@ fn position_key(term: &PackedTerm) -> Option<PositionKey<'_>> {
 
 /// One node for a group of [`Grammar::alternatives_at_one_position`]: the group's production
 /// over, at each child slot, the union of the group's children there.
-fn merge_alternatives_at_one_position(group: &[&Rc<PackedTerm>]) -> Rc<PackedTerm> {
+fn merge_alternatives_at_one_position(
+    group: &[&Rc<PackedTerm>],
+    unions: &mut PositionUnions,
+) -> Rc<PackedTerm> {
     let PackedNode::Production {
         production,
         children,
@@ -5988,7 +6031,12 @@ fn merge_alternatives_at_one_position(group: &[&Rc<PackedTerm>]) -> Rc<PackedTer
             if union.len() == 1 {
                 union.pop_first().expect("one alternative")
             } else {
-                PackedTerm::ambiguity(union)
+                let key = union.iter().map(Rc::as_ptr).collect();
+                Rc::clone(
+                    unions
+                        .entry(key)
+                        .or_insert_with(|| PackedTerm::ambiguity(union)),
+                )
             }
         })
         .collect();

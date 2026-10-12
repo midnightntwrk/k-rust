@@ -3021,4 +3021,84 @@ mod tests {
         assert_eq!(ambiguities.len(), n * (n - 1) / 2);
         assert_eq!(alternatives, (n + 1) * n * (n - 1) / 6 + n * (n - 1) / 2);
     }
+
+    /// The preference for K's own constructs chooses once per node of the forest and place.
+    /// Under `S ::= "" | "c" S S S | "c" "c"`, over `c`^n, many alternatives of an ambiguity apply
+    /// one production over one split (the empty `S` reached from several items), so the choice
+    /// merges them into one node per position, whose children are the union of theirs. Built
+    /// anew per merge, equal unions were new nodes that the memo, keyed by identity, never met
+    /// again, and the choice below them was made once per path down to them: at n = 16, 32 s and
+    /// 3.9 GB in the test build, where the forest had 7,000 nodes.
+    #[test]
+    fn the_structural_preference_chooses_once_per_node_and_place() {
+        use std::collections::HashSet;
+
+        use super::super::disambiguation::PREFERENCE_CHOICES;
+        use super::super::forest::PackedNode;
+
+        let grammar = Grammar::from_sentences(&[
+            production("Start", vec![nt("S")], "start"),
+            production("S", vec![], "empty"),
+            production(
+                "S",
+                vec![terminal("c"), nt("S"), nt("S"), nt("S")],
+                "triple",
+            ),
+            production("S", vec![terminal("c"), terminal("c")], "pair"),
+        ])
+        .unwrap();
+        let n = 14;
+        let input = vec!["c"; n].join(" ");
+        let start = grammar
+            .sort_id(grammar.sort_denotations.denote(&Sort::new("Start")))
+            .unwrap();
+        let mut scanner_cache = vec![None; input.len() + 1];
+        let start_position = grammar.canonical_position(&input, 0, &mut scanner_cache);
+        let memos = std::cell::RefCell::new(PackedPriorityMemos::default());
+        let recognition = grammar
+            .recognize(
+                start,
+                start_position,
+                &input,
+                ParseProvenance {
+                    source: SourceId(7),
+                    base_offset: 100,
+                },
+                PredictionMode::Unfiltered,
+                PriorityFilter::Enforced,
+                None,
+                false,
+                &mut false,
+                &mut WorkMeter::unlimited(),
+                &mut scanner_cache,
+                &memos,
+            )
+            .unwrap();
+        let forest = PackedTerm::ambiguity(recognition.parses);
+        let mut seen = HashSet::new();
+        let mut pending = vec![std::rc::Rc::clone(&forest)];
+        while let Some(node) = pending.pop() {
+            if !seen.insert(std::rc::Rc::as_ptr(&node)) {
+                continue;
+            }
+            match &node.node {
+                PackedNode::Production { children, .. }
+                | PackedNode::InstantiatedProduction { children, .. } => {
+                    pending.extend(children.iter().cloned());
+                }
+                PackedNode::Ambiguity(nodes) => pending.extend(nodes.iter().cloned()),
+                PackedNode::Term(_) => {}
+            }
+        }
+        PREFERENCE_CHOICES.with(|count| count.set(0));
+        grammar.prefer_structural_readings(forest);
+        let choices = PREFERENCE_CHOICES.with(std::cell::Cell::get);
+        // One choice per node and place, the nodes being the forest's and the unions of its
+        // merged positions: 586 for 3,890 nodes, where one per path down to a union made 584,141.
+        assert!(
+            choices <= 2 * seen.len(),
+            "{choices} choices for {} nodes",
+            seen.len()
+        );
+    }
 }
