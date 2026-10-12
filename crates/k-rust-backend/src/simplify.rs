@@ -4782,18 +4782,46 @@ fn simplify_children(
                 })
                 .transpose()?,
         ),
+        // As for a map: only the elements `child` may change are visited.
         TermKind::Set {
             definition,
             elements,
             rest,
-        } => Term::set(
-            definition.clone(),
-            elements
-                .iter()
-                .map(&mut child)
-                .collect::<Result<Vec<_>, _>>()?,
-            rest.as_ref().map(&mut child).transpose()?,
-        ),
+        } => {
+            let path_condition = &assumptions.path_condition;
+            let mut failed = None;
+            let elements = elements.rebuild_where(
+                |summary| {
+                    !summary.extra.holds(crate::term::items::Flag::Evaluated)
+                        || !path_condition.replacements.is_empty()
+                        || !crate::term::variables::disjoint(
+                            &summary.group,
+                            &path_condition.substitution,
+                        )
+                },
+                |_| true,
+                |element| {
+                    if failed.is_some() {
+                        return None;
+                    }
+                    match child(element) {
+                        Ok(new_element) => (!new_element.ptr_eq(element)).then_some(new_element),
+                        Err(error) => {
+                            failed = Some(error);
+                            None
+                        }
+                    }
+                },
+            );
+            if let Some(error) = failed {
+                return Err(error);
+            }
+            Term::set_of_items(
+                definition.clone(),
+                elements,
+                rest.as_ref().map(&mut child).transpose()?,
+            )
+        }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => term.clone(),
     };
     let term = if children_unchanged.get() {

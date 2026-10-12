@@ -761,7 +761,8 @@ mod tests {
     /// In a constructor-like set, `SET.in` compares a constructor-like element with the elements
     /// the binary search visits and with no other: a held element is found by the search, and
     /// one not held differs from every element without being compared with each (`absent`).
-    /// The search's own count bounds those comparisons by `ilog2(n) + 1`.
+    /// The search's own count bounds those comparisons by one binary search per level of the
+    /// elements' tree (`Items::search_comparison_bound`).
     #[test]
     fn membership_compares_the_element_only_with_the_elements_the_search_visits() {
         const ELEMENTS: u32 = 4096;
@@ -778,7 +779,7 @@ mod tests {
             run();
             ELEMENT_COMPARISONS.with(std::cell::Cell::get)
         };
-        let bound = ELEMENTS.ilog2() as usize + 1;
+        let bound = elements.search_comparison_bound();
         for probe in [2, ELEMENTS, 2 * ELEMENTS, 1, ELEMENTS + 1, 2 * ELEMENTS + 1] {
             let probed = item(&probe.to_string());
             let searched = compared_by(&|| {

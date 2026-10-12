@@ -140,16 +140,22 @@ pub fn substitute(term: &Term, substitution: &Substitution) -> Term {
                 )
             }),
         ),
+        // As for a map: only the elements that mention a bound variable are reached, and one
+        // that changes is moved to its place.
         TermKind::Set {
             definition,
             elements,
             rest,
-        } => Term::set(
+        } => Term::set_of_items(
             definition.clone(),
-            elements
-                .iter()
-                .map(|term| substitute(term, substitution))
-                .collect(),
+            elements.rebuild_where(
+                |summary| !crate::term::variables::disjoint(&summary.group, substitution),
+                |_| true,
+                |element| {
+                    let new_element = substitute(element, substitution);
+                    (!new_element.ptr_eq(element)).then_some(new_element)
+                },
+            ),
             rest.as_ref().map(|term| substitute(term, substitution)),
         ),
     }

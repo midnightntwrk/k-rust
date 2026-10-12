@@ -10,20 +10,32 @@
 //!
 //! # Two backings
 //!
-//! Each item type chooses its backing (`Stored::IN_TREE`), so every sequence of one item type
-//! has the same one:
+//! Each kind of collection has one backing, so every sequence a term of that kind holds has the
+//! same one:
 //!
-//! - a map's entries, `(Term, Term)`, are a `Chunked` tree. An edit copies the path to the
-//!   items it changes and shares the rest with the sequence it was made from, and the summary of
-//!   the root (`Items::summary`) gives what the attributes of the map term need without
-//!   reading the entries (`ItemSummary`, and the multiset of the variables they mention);
-//! - a list's and a set's items, `Term`, are still one vector, whose edits copy it.
+//! - a map's entries, `(Term, Term)`, and a set's elements, `Term`, are a `Chunked` tree. An
+//!   edit copies the path to the items it changes and shares the rest with the sequence it was
+//!   made from, and the summary of the root (`Items::summary`) gives what the attributes of the
+//!   collection term need without reading the items (`ItemSummary`, and the multiset of the
+//!   variables they mention);
+//! - a list's items, `Term`, are still one vector, whose edits copy it.
+//!
+//! A map entry has one backing whatever builds it (`Stored::IN_TREE`). A list item and a set
+//! element are both `Term`, so the backing of `Items<Term>` is chosen when it is built: [`new`],
+//! [`from_vec`] and their conversions build a vector, `Items::tree` a tree, and an edit keeps
+//! the backing of the sequence it edits (of either operand's tree, for two). The term
+//! constructors give a set's elements a tree and a list's items a vector whatever they are handed
+//! (`TermKind`'s `with_backings`), so two terms of one kind hold the same backing.
 //!
 //! Equality and order are those of the item sequence under both backings, as for the vector. The
 //! hash is the vector's for a vector and the tree's sequence hash for a tree: a polynomial hash
 //! of the sequence that does not depend on the tree's shape, so equal sequences built by
 //! different edits hash alike, and computing it costs a node's summary rather than a pass over
-//! the items.
+//! the items. Equal sequences of different backings hash differently, which is why a term holds
+//! the one backing of its kind.
+//!
+//! [`new`]: Items::new
+//! [`from_vec`]: Items::from_vec
 //!
 //! # Crate-private bound
 //!
@@ -56,9 +68,10 @@ use super::{
     key_header,
 };
 
-/// An item type of a collection term, and the backing its sequences use.
+/// An item type of a collection term, and the backing its sequences are built with.
 pub(crate) trait Stored: Item {
-    /// Whether the sequences of this item type are [`Chunked`] trees rather than vectors.
+    /// Whether [`Items::new`] and [`Items::from_vec`] build a [`Chunked`] tree rather than a
+    /// vector for this item type.
     const IN_TREE: bool;
 }
 
@@ -124,6 +137,33 @@ impl<T: Stored> Items<T> {
         } else {
             Backing::Vec(items)
         })
+    }
+
+    /// The sequence of `items`, in the order given, as a tree whatever the item type: a set's
+    /// elements. Built bottom-up, in time linear in the number of items.
+    pub(crate) fn tree(items: Vec<T>) -> Self {
+        Self(Backing::Tree(Chunked::from_vec(items)))
+    }
+
+    /// The same sequence as a tree: itself when it is one, its items loaded into one otherwise.
+    pub(crate) fn into_tree(self) -> Self {
+        match self.0 {
+            Backing::Vec(items) => Self::tree(items),
+            tree @ Backing::Tree(_) => Self(tree),
+        }
+    }
+
+    /// The same sequence as a vector: itself when it is one, its items copied out otherwise.
+    pub(crate) fn into_vector(self) -> Self {
+        match self.0 {
+            Backing::Tree(tree) => Self(Backing::Vec(tree.to_vec())),
+            vector @ Backing::Vec(_) => Self(vector),
+        }
+    }
+
+    /// Whether the sequence is held in a tree rather than a vector.
+    pub(crate) fn is_tree(&self) -> bool {
+        matches!(self.0, Backing::Tree(_))
     }
 
     pub fn len(&self) -> usize {
@@ -224,11 +264,19 @@ impl<T: Stored> Items<T> {
         }
     }
 
-    /// The items of this sequence followed by those of `other`.
+    /// The items of this sequence followed by those of `other`; a tree when either is one.
     pub fn join(&self, other: &Self) -> Self {
         match (&self.0, &other.0) {
             (Backing::Tree(left), Backing::Tree(right)) => Self(Backing::Tree(left.join(right))),
-            _ => Self::from_vec(self.iter().chain(other).cloned().collect()),
+            (Backing::Vec(left), Backing::Vec(right)) => {
+                Self(Backing::Vec(left.iter().chain(right).cloned().collect()))
+            }
+            (Backing::Tree(left), Backing::Vec(right)) => {
+                Self(Backing::Tree(left.join(&Chunked::from_vec(right.clone()))))
+            }
+            (Backing::Vec(left), Backing::Tree(right)) => {
+                Self(Backing::Tree(Chunked::from_vec(left.clone()).join(right)))
+            }
         }
     }
 
@@ -497,8 +545,18 @@ impl<T: Stored + Ord> Items<T> {
     /// the two hold it together. Two trees share the nodes of the taller one whose range
     /// receives none of the other's items (`Chunked::union`).
     pub fn union(&self, other: &Self) -> Self {
-        if let (Backing::Tree(left), Backing::Tree(right)) = (&self.0, &other.0) {
-            return Self(Backing::Tree(left.union(right)));
+        match (&self.0, &other.0) {
+            (Backing::Tree(left), Backing::Tree(right)) => {
+                return Self(Backing::Tree(left.union(right)));
+            }
+            // A tree and a vector: the vector, ordered too, is loaded and united with the tree.
+            (Backing::Tree(tree), Backing::Vec(vector))
+            | (Backing::Vec(vector), Backing::Tree(tree)) => {
+                return Self(Backing::Tree(
+                    tree.union(&Chunked::from_vec(vector.clone())),
+                ));
+            }
+            (Backing::Vec(_), Backing::Vec(_)) => {}
         }
         let mut items = Vec::with_capacity(self.len() + other.len());
         let (mut left, mut right) = (self.iter().peekable(), other.iter().peekable());
@@ -516,7 +574,7 @@ impl<T: Stored + Ord> Items<T> {
             };
             match next {
                 Some(item) => items.push(item.clone()),
-                None => return Self::from_vec(items),
+                None => return Self(Backing::Vec(items)),
             }
         }
     }
@@ -531,8 +589,9 @@ impl<T: Stored> Clone for Items<T> {
     }
 }
 
-/// Equal when the item sequences are. One item type has one backing, so two sequences compared
-/// here have the same one; the comparison of the items in order covers any other case.
+/// Equal when the item sequences are. The sequences of one term kind have one backing, so two
+/// sequences compared as fields of terms have the same one; the comparison of the items in order
+/// covers any other case.
 impl<T: Stored> PartialEq for Items<T> {
     fn eq(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
@@ -956,12 +1015,33 @@ impl Item for Term {
     }
 
     fn summary(&self) -> ItemSummary {
+        #[cfg(test)]
+        ELEMENT_SUMMARIES.with(|count| count.set(count.get() + 1));
         ItemSummary::of(self, &[self])
     }
 
     fn group(&self) -> Multiset<Variable> {
+        if self.attributes().variables.is_empty() {
+            return Multiset::new();
+        }
         mentioned(&[self])
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test builds: the set or list elements whose own summary this thread has computed, which a
+    /// node does for each element it holds when it is built from its elements.
+    static ELEMENT_SUMMARIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Test builds: the number of set or list elements whose own summary `run` computes on this
+/// thread.
+#[cfg(test)]
+pub(crate) fn element_summaries_during(run: impl FnOnce()) -> usize {
+    let before = ELEMENT_SUMMARIES.with(std::cell::Cell::get);
+    run();
+    ELEMENT_SUMMARIES.with(std::cell::Cell::get) - before
 }
 
 #[cfg(test)]
@@ -1336,5 +1416,249 @@ mod tests {
                 .variables
                 .shares_handle(&x.attributes().variables)
         );
+    }
+
+    /// The tests of a set's elements, which a tree holds as it holds a map's entries.
+    mod sets {
+        use super::*;
+        use crate::term::{ListDefinition, SetDefinition};
+
+        fn set_definition() -> Arc<SetDefinition> {
+            Arc::new(ListDefinition {
+                symbols: CollectionSymbols {
+                    unit: "SortSet-unit".into(),
+                    element: "SortSet-element".into(),
+                    concat: "SortSet-concat".into(),
+                },
+                element_sort: Sort::simple("SortKey"),
+                list_sort: "SortSet".into(),
+            })
+        }
+
+        fn list_definition() -> Arc<ListDefinition> {
+            Arc::new(ListDefinition {
+                symbols: CollectionSymbols {
+                    unit: "SortList-unit".into(),
+                    element: "SortList-element".into(),
+                    concat: "SortList-concat".into(),
+                },
+                element_sort: Sort::simple("SortKey"),
+                list_sort: "SortList".into(),
+            })
+        }
+
+        fn set(elements: Vec<Term>, rest: Option<Term>) -> Term {
+            Term::set(set_definition(), elements, rest)
+        }
+
+        fn elements(set: &Term) -> &Items<Term> {
+            let TermKind::Set { elements, .. } = set.kind() else {
+                panic!("a set term")
+            };
+            elements
+        }
+
+        /// A set built on a set rest of its definition, whose tree takes the new elements in, is
+        /// the set of all the elements built at once: equal, equally ordered, with equal
+        /// attributes (the hash and the variables included) although the two trees have
+        /// different shapes.
+        #[test]
+        fn a_set_built_on_a_set_rest_is_the_set_of_all_its_elements() {
+            const ELEMENTS: usize = 3000;
+            let all: Vec<Term> = (0..ELEMENTS)
+                .map(|index| {
+                    if index % 7 == 0 {
+                        variable(&format!("E{index:06}"), "SortKey")
+                    } else {
+                        key(index)
+                    }
+                })
+                .collect();
+            let at_once = set(all.clone(), None);
+            assert!(elements(&at_once).is_tree());
+            let mut ordered = all.clone();
+            ordered.sort();
+            for added in [
+                vec![0],
+                vec![ELEMENTS / 2],
+                vec![ELEMENTS - 1],
+                vec![3, 500, 2999],
+            ] {
+                let (new, old): (Vec<_>, Vec<_>) = all
+                    .iter()
+                    .cloned()
+                    .enumerate()
+                    .partition(|(index, _)| added.contains(index));
+                let rest = set(old.into_iter().map(|(_, element)| element).collect(), None);
+                let built = set(
+                    new.into_iter().map(|(_, element)| element).collect(),
+                    Some(rest.clone()),
+                );
+                assert_eq!(built, at_once, "{added:?}");
+                assert_eq!(built.cmp(&at_once), std::cmp::Ordering::Equal, "{added:?}");
+                assert_eq!(built.attributes(), at_once.attributes(), "{added:?}");
+                assert_eq!(elements(&built).to_vec(), ordered, "{added:?}");
+                assert_eq!(elements(&rest).len(), ELEMENTS - added.len(), "{added:?}");
+            }
+        }
+
+        /// Adding one element to an `n`-element set computes the own summary of the elements of
+        /// one leaf, the one the element lands in, and of the new element: not one per element
+        /// of the set, which a copy of the elements would compute.
+        #[test]
+        fn adding_one_element_to_a_set_summarizes_one_leaf_of_its_rest() {
+            const ELEMENTS: usize = 4096;
+            let base = set((0..ELEMENTS).map(|index| key(2 * index)).collect(), None);
+            for place in [0, 1, ELEMENTS, 2 * ELEMENTS + 1] {
+                let mut added = None;
+                let summaries = element_summaries_during(|| {
+                    added = Some(set(vec![key(place)], Some(base.clone())));
+                });
+                assert!(
+                    summaries <= DEFAULT_BRANCHING + 2,
+                    "element {place}: {summaries} element summaries"
+                );
+                assert_eq!(elements(&added.expect("added")).len(), ELEMENTS + 1);
+                assert_eq!(elements(&base).len(), ELEMENTS);
+            }
+        }
+
+        /// The summary of a set's elements counts the elements that are not constructor-like and
+        /// records a repeated element, which makes the set `\bottom` and is then found among its
+        /// elements; the repeat alone keeps a set of ground elements of one header from being
+        /// `ceil_free`.
+        #[test]
+        fn the_elements_summary_counts_symbolic_elements_and_records_a_repeat() {
+            let symbolic = (0..5).map(|index| variable(&format!("E{index}"), "SortKey"));
+            let base = set(symbolic.chain((0..100).map(key)).collect(), None);
+            let summary = elements(&base).summary();
+            assert_eq!(summary.extra.symbolic_keys(), 5);
+            assert!(!summary.collision);
+            assert_eq!(base.repeated_set_element(), None);
+            assert!(!summary.extra.keys_share_one_header());
+
+            let repeated = set(vec![key(50)], Some(base));
+            assert!(elements(&repeated).summary().collision);
+            assert_eq!(repeated.repeated_set_element(), Some(&key(50)));
+            assert!(!repeated.attributes().evaluated);
+            assert!(!repeated.attributes().ceil_free());
+
+            let ground = set((0..100).map(key).collect(), None);
+            assert!(ground.attributes().ceil_free());
+            assert!(ground.attributes().constructor_like);
+            let repeated = set(vec![key(50)], Some(ground));
+            assert!(elements(&repeated).summary().collision);
+            assert_eq!(repeated.repeated_set_element(), Some(&key(50)));
+            assert!(!repeated.attributes().ceil_free());
+            assert!(!repeated.attributes().constructor_like);
+        }
+
+        /// A set's elements are a tree and a list's items a vector whatever backing a kind is
+        /// built with, so equal terms hold equal backings and hash alike.
+        #[test]
+        fn a_set_holds_a_tree_and_a_list_a_vector_whatever_they_are_built_with() {
+            let items = (0..100).map(key).collect::<Vec<_>>();
+            let from_vector = Term::new(TermKind::Set {
+                definition: set_definition(),
+                elements: Items::from_vec(items.clone()),
+                rest: None,
+            });
+            assert!(elements(&from_vector).is_tree());
+            assert_eq!(from_vector, set(items.clone(), None));
+            assert_eq!(
+                from_vector.attributes(),
+                set(items.clone(), None).attributes()
+            );
+
+            let from_tree = Term::new(TermKind::List {
+                definition: list_definition(),
+                heads: Items::tree(items.clone()),
+                rest: Some((variable("L", "SortList"), Items::tree(items.clone()))),
+            });
+            let TermKind::List { heads, rest, .. } = from_tree.kind() else {
+                panic!("a list term")
+            };
+            assert!(!heads.is_tree());
+            assert!(!rest.as_ref().expect("a rest").1.is_tree());
+            let built = Term::list(
+                list_definition(),
+                items.clone(),
+                Some((variable("L", "SortList"), items)),
+            );
+            assert_eq!(from_tree, built);
+            assert_eq!(from_tree.attributes(), built.attributes());
+        }
+
+        /// Substituting into a set rebuilds only the elements that mention a bound variable: an
+        /// element that changes is moved to its place, and the result is the set built from the
+        /// substituted elements. The substitution summarizes at most the elements of the leaves
+        /// its edits rebuild, whatever the set's size.
+        #[test]
+        fn substitution_rebuilds_only_the_elements_that_mention_a_bound_variable() {
+            const ELEMENTS: usize = 4096;
+            let mut all = (0..ELEMENTS)
+                .map(|index| key(2 * index))
+                .collect::<Vec<_>>();
+            all.push(variable("E", "SortKey"));
+            let base = set(all.clone(), None);
+            let substitution = std::collections::BTreeMap::from([(
+                Variable::new("E", Sort::simple("SortKey")),
+                key(4097),
+            )]);
+            let substitute = |term: &Term| crate::substitution::substitute(term, &substitution);
+            let mut substituted = None;
+            let summaries = element_summaries_during(|| substituted = Some(substitute(&base)));
+            let expected = set(all.iter().map(substitute).collect(), None);
+            let substituted = substituted.expect("substituted");
+            assert_eq!(substituted, expected);
+            assert_eq!(
+                elements(&substituted).to_vec(),
+                elements(&expected).to_vec()
+            );
+            assert!(
+                summaries <= 3 * 2 * DEFAULT_BRANCHING,
+                "{summaries} element summaries"
+            );
+        }
+
+        /// Two versions of a set that share all but the path to one element are compared on the
+        /// comparison work lists through the elements of that path only.
+        #[test]
+        fn the_comparison_work_lists_read_only_where_two_versions_of_a_set_differ() {
+            const ELEMENTS: usize = 4096;
+            let base = set((0..ELEMENTS).map(|index| key(2 * index)).collect(), None);
+            let replaced = |set: &Term, old: usize, new: usize| {
+                let elements = elements(set);
+                let index = elements.search(&key(old)).expect("an element");
+                Term::set_of_items(
+                    set_definition(),
+                    elements.remove_at(index).0.insert(key(new)),
+                    None,
+                )
+            };
+            let changed = replaced(&base, 2000, 2001);
+            let changed_back = replaced(&changed, 2001, 2000);
+            assert!(!Arc::ptr_eq(&base.0, &changed_back.0));
+            let pairs_during = |run: &dyn Fn()| {
+                ALIGNED_PAIRS.with(|count| count.set(0));
+                run();
+                ALIGNED_PAIRS.with(std::cell::Cell::get)
+            };
+            let equal = pairs_during(&|| {
+                assert!(crate::term::equal_terms_on_work_list(&base, &changed_back));
+            });
+            let ordered = pairs_during(&|| {
+                assert_eq!(
+                    crate::term::order_terms_on_work_list(&base, &changed),
+                    elements(&base).to_vec().cmp(&elements(&changed).to_vec())
+                );
+            });
+            for (comparison, pairs) in [("equality", equal), ("order", ordered)] {
+                assert!(
+                    pairs <= 2 * DEFAULT_BRANCHING,
+                    "{comparison}: {pairs} pairs of elements compared"
+                );
+            }
+        }
     }
 }

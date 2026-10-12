@@ -178,8 +178,8 @@ fn ceil_term_walk(
 /// `ceilFree_sound` holds for every definition.
 ///
 /// A map whose keys share one header and which has no rest is checked through its entries' tree
-/// (`check_map_entries`), so that a map edited since its last check costs the paths the edits
-/// copied, not its size.
+/// (`check_map_entries`), and a set likewise through its elements' (`check_set_elements`), so
+/// that a collection edited since its last check costs the paths the edits copied, not its size.
 #[cfg(debug_assertions)]
 fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
     if term.ceil_free_checked() {
@@ -190,12 +190,18 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
     let mut unchecked = vec![term];
     let mut passed = Vec::new();
     let mut passed_entries = Vec::new();
+    let mut passed_elements = Vec::new();
     while let Some(node) = unchecked.pop() {
         if node.ceil_free_checked() {
             continue;
         }
         if let Some(entries) = check_map_entries(definition, node, &mut unchecked) {
             passed_entries.push(entries);
+            passed.push(node);
+            continue;
+        }
+        if let Some(elements) = check_set_elements(definition, node, &mut unchecked) {
+            passed_elements.push(elements);
             passed.push(node);
             continue;
         }
@@ -209,6 +215,9 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
     }
     for entries in passed_entries {
         entries.mark();
+    }
+    for elements in passed_elements {
+        elements.mark();
     }
     for node in passed {
         node.mark_ceil_free_checked();
@@ -250,6 +259,39 @@ fn check_map_entries<'t>(
             assert!(
                 elements_are_apart(definition, left, right),
                 "a ceil_free map binds keys that are not apart, {left:?} and {right:?}: {term:?}"
+            );
+        },
+    ))
+}
+
+/// Debug builds: [`check_ceil_free`] at a set without a rest whose elements share one header,
+/// as [`check_map_entries`] at a map, with the elements as the keys: each element apart from the
+/// next checks every pair, and the elements and pairs handed over are those of the tree nodes not
+/// checked before.
+#[cfg(debug_assertions)]
+fn check_set_elements<'t>(
+    definition: &BackendDefinition,
+    term: &'t Term,
+    unchecked: &mut Vec<&'t Term>,
+) -> Option<crate::term::chunked::Unchecked<'t, Term>> {
+    let TermKind::Set {
+        elements,
+        rest: None,
+        ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    if !elements.summary().extra.keys_share_one_header() {
+        return None;
+    }
+    Some(elements.check_unchecked(
+        |items| unchecked.extend(items),
+        |left, right| {
+            assert!(
+                elements_are_apart(definition, left, right),
+                "a ceil_free set holds elements that are not apart, {left:?} and {right:?}: \
+                 {term:?}"
             );
         },
     ))

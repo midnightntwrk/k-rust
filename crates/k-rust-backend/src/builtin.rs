@@ -301,14 +301,23 @@ fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
             .chain(rest.iter().flat_map(|(_, tails)| tails))
             .map(|element| (element, &definition.element_sort))
             .collect(),
+        // The elements' summary keeps their sorts when they all agree, so a set is checked
+        // without reading the elements the hook did not touch.
         TermKind::Set {
             definition,
             elements,
             ..
-        } => elements
-            .iter()
-            .map(|element| (element, &definition.element_sort))
-            .collect(),
+        } => {
+            debug_assert!(
+                elements
+                    .summary()
+                    .extra
+                    .all_of_sorts(&definition.element_sort, &definition.element_sort),
+                "{hook} evaluated to a set holding an element of another sort than its \
+                 collection's: {value:?}"
+            );
+            Vec::new()
+        }
         // The entries' summary keeps their sorts when they all agree, so a map is checked
         // without reading the entries the hook did not touch.
         TermKind::Map {
