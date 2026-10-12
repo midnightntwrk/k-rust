@@ -1207,7 +1207,7 @@ fn malformed_configuration() {
         expected,
         input,
         previous,
-        shadowed,
+        notes,
         span,
         work_limit: None,
     } = *error
@@ -1221,7 +1221,7 @@ fn malformed_configuration() {
         }
     );
     assert_eq!(previous.as_deref(), Some(">"));
-    assert!(shadowed.is_none(), "{shadowed:?}");
+    assert!(notes.is_none(), "{notes:?}");
     // `position` counts from the start of the bubble contents, which begin at `<k>`; `span` is
     // the same character as an absolute range of the source.
     assert_eq!(position, at - entry.find("<k>").unwrap());

@@ -6,7 +6,10 @@
 
 use indoc::indoc;
 use k_rust::definition::{Attributes, Sentence, StructuralCheckOptions, check_rhs_variables};
-use k_rust::inner::{ParseError, RuleError, parse_rule_content, resolve_rule_bubbles};
+use k_rust::inner::{
+    NoParseNotes, ParseError, ProgramTextConstruct, ProgramTextPhrase, RuleError,
+    parse_rule_content, resolve_rule_bubbles,
+};
 use k_rust::kast::{Sort, Term, TermSpan};
 use k_rust::outer::{LoadOptions, ResolvedSource, load, load_with_options};
 use k_rust::provenance::{SourceId, SourceTable};
@@ -2647,7 +2650,11 @@ fn reference_scan_b_lowercase_identifier_is_not_a_user_token_in_rules() {
     let RuleError::Parse(error) = error else {
         panic!("expected a parse error, got {error:?}")
     };
-    let ParseError::NoParse { ref shadowed, .. } = error.error else {
+    let ParseError::NoParse {
+        notes: ref shadowed,
+        ..
+    } = error.error
+    else {
         panic!("expected no parse, got {:?}", error.error)
     };
     let shadowed = shadowed.as_deref().expect("a shadowed token");
@@ -2768,7 +2775,11 @@ endmodule
         Err(RuleError::Parse(error)) => error.error,
         other => panic!("expected a parse error, got {other:?}"),
     };
-    let ParseError::NoParse { ref shadowed, .. } = error else {
+    let ParseError::NoParse {
+        notes: ref shadowed,
+        ..
+    } = error
+    else {
         panic!("expected no parse, got {error:?}")
     };
     let shadowed = shadowed.as_deref().expect("a shadowed token");
@@ -2818,6 +2829,129 @@ fn a_phrase_holding_a_rule_construct_is_no_token() {
             "{rule}: {error:?}"
         );
     }
+}
+
+/// The notes of a rule's parse failure.
+fn no_parse_notes(error: &ParseError) -> &NoParseNotes {
+    match error {
+        ParseError::NoParse {
+            notes: Some(notes), ..
+        } => notes,
+        error => panic!("expected no parse with notes, got {error:?}"),
+    }
+}
+
+#[test]
+fn a_rule_construct_in_a_phrase_is_explained_by_the_phrase_reading_program_text() {
+    // Each construct begins where the phrase expects a `Name` or the rest of a `Names` list,
+    // which a rule spells with it but the phrase does not read.
+    for (rule, token, sort) in [
+        ("run 1 . X => stop", "X", "Name"),
+        ("run 1 . (2:Name) => stop", "(", "Name"),
+        ("run 1 . (2 => 3) => stop", "(", "Name"),
+        ("run 1 , X => stop", "X", "Names"),
+        ("run .Names => stop", ".Names", "Names"),
+    ] {
+        let error = phrase_token_rule_error(rule);
+        let notes = no_parse_notes(&error);
+        assert_eq!(
+            notes.program_text,
+            Some(ProgramTextPhrase {
+                construct: ProgramTextConstruct::Failing,
+                sort: Sort::new(sort),
+                phrase_sorts: vec![Sort::new("Toks")],
+                literals: true,
+            }),
+            "{rule}: {error}"
+        );
+        let message = error.to_string();
+        assert!(
+            message.contains(&format!(
+                "The parse reads the phrase of a token production of sort Toks there, which \
+                 holds program text only, and '{token}' begins a term of sort {sort} there only \
+                 as a construct of rules and configurations"
+            )) && message.ends_with(
+                "A token's text is fixed: a rule spells the token as program text, or as a whole \
+                 as a #token literal of sort Toks."
+            ),
+            "{rule}: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_bracket_that_opens_a_phrase_is_explained_by_the_phrase_reading_program_text() {
+    // The bracket is read as a `Tree` of the rule, after which only the phrase, whose first
+    // `Tree` is program text, would go on with `<+>`.
+    let source = "module MAIN
+  syntax Tree ::= \"done\" | \"mk\"
+  syntax Tree ::= Tree \"<+>\" Tree [token]
+  rule mk => ((done) <+> done)
+endmodule
+";
+    let error = match resolve_rule_bubbles(&lowered(source)) {
+        Err(RuleError::Parse(error)) => error.error,
+        other => panic!("expected a parse error, got {other:?}"),
+    };
+    let notes = no_parse_notes(&error);
+    assert_eq!(
+        notes.program_text,
+        Some(ProgramTextPhrase {
+            construct: ProgramTextConstruct::Before {
+                text: "(done)".into()
+            },
+            sort: Sort::new("Tree"),
+            phrase_sorts: vec![Sort::new("Tree")],
+            literals: true,
+        }),
+        "{error}"
+    );
+    assert!(
+        error.to_string().contains(
+            "The phrase of a token production of sort Tree would go on with '<+>' after \
+             '(done)', but that phrase holds program text only, and '(done)' is a term of sort \
+             Tree only as a construct of rules and configurations"
+        ),
+        "{error}"
+    );
+    let literal = source.replace("((done) <+> done)", "#token(\"done <+> done\", \"Tree\")");
+    resolve_rule_bubbles(&lowered(&literal)).expect("the literal spells the Tree token");
+}
+
+#[test]
+fn a_phrase_reading_program_text_explains_a_failure_a_shadowed_label_would_not() {
+    // `stop` is read as the phrase's literal and could also be a `#LowerId` label applied to
+    // `(N:Name)`; that application could go on with `(` but no further, as no application is
+    // followed by `;`. The phrase reads `stop`, then `(N:Name) ;` as its `Name` and `;`, so the
+    // whole rule fits it but for the variable, which no token's text holds: the program-text
+    // note is the explanation, and the reading as a label is not offered.
+    let source = "module MAIN
+  syntax Name ::= r\"[0-9]+\" [token]
+  syntax Tree ::= \"stop\" Name \";\" [token] | \"go\"
+  rule stop (N:Name) ; => go
+endmodule
+";
+    let error = match resolve_rule_bubbles(&lowered(source)) {
+        Err(RuleError::Parse(error)) => error.error,
+        other => panic!("expected a parse error, got {other:?}"),
+    };
+    let notes = no_parse_notes(&error);
+    assert!(
+        notes.previous.is_none() && notes.failing.is_none(),
+        "{notes:?}"
+    );
+    assert_eq!(
+        notes.program_text,
+        Some(ProgramTextPhrase {
+            construct: ProgramTextConstruct::Failing,
+            sort: Sort::new("Name"),
+            phrase_sorts: vec![Sort::new("Tree")],
+            literals: true,
+        }),
+        "{error}"
+    );
+    let program_text = source.replace("stop (N:Name) ;", "stop 1 ;");
+    resolve_rule_bubbles(&lowered(&program_text)).expect("program text spells the Tree token");
 }
 
 #[test]

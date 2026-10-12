@@ -13,7 +13,7 @@ Err(
             value: "/",
         },
         previous: None,
-        shadowed: None,
+        notes: None,
         span: None,
         work_limit: None,
     },
