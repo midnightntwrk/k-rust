@@ -3024,6 +3024,70 @@ endmodule
 }
 
 #[test]
+fn a_shadowed_lexeme_that_is_a_label_and_a_phrase_is_advised_for_both() {
+    // `Name ::= #LowerId [token]` reads `stop` in a `Name` place as the phrase of a token
+    // production, and `#LowerId` is also the label of an application. Without the token after
+    // `stop` both places remain, so the note advises the label and the phrase; a `#LowerId`
+    // literal stands in neither, as `#LowerId` is no subsort of `Name`.
+    let module = |rule: &str| {
+        format!(
+            "module MAIN
+  syntax #LowerId ::= r\"[a-z][a-zA-Z0-9]*\" [prec(2), token]
+  syntax Name ::= #LowerId [token]
+  syntax Pgm ::= \"go\" | \"stop\" | \"run\" Name
+  rule {rule}
+endmodule
+"
+        )
+    };
+    let error = match resolve_rule_bubbles(&lowered(&module("run stop => go"))) {
+        Err(RuleError::Parse(error)) => error.error,
+        other => panic!("expected a parse error, got {other:?}"),
+    };
+    let notes = no_parse_notes(&error);
+    let failing = notes.failing.as_ref().expect("the shadowed token");
+    assert_eq!(failing.text, "stop", "{error}");
+    assert!(failing.literal_sorts.is_empty(), "{failing:?}");
+    assert_eq!(failing.label.as_deref(), Some("`stop`"), "{failing:?}");
+    assert!(failing.in_phrase, "{failing:?}");
+    let message = error.to_string();
+    assert!(
+        message.ends_with(
+            "As a label, write it `stop`. Where it stands in the phrase of a token production, \
+             which reads program text only, write the whole phrase as a #token literal of that \
+             production's sort."
+        ),
+        "{message}"
+    );
+    let body = only_rule_body(
+        &resolve_rule_bubbles(&lowered(&module("run #token(\"stop\", \"Name\") => go"))).unwrap(),
+    );
+    assert!(body.contains("#token(\"stop\",\"Name\")"), "{body}");
+}
+
+#[test]
+fn a_shadowed_backquoted_label_is_not_advised_in_its_own_spelling() {
+    // A module token that reads backquoted words outranks the backquoted label, whose spelling
+    // the rule already uses: there is no other spelling of that label to advise.
+    let error = match resolve_rule_bubbles(&lowered(
+        "module MAIN
+  syntax Name ::= r\"`[a-z]+`\" [token, prec(3)]
+  syntax Pgm ::= \"go\" | f(Name) [symbol(foo)]
+  rule `foo`(N:Name) => go
+endmodule
+",
+    )) {
+        Err(RuleError::Parse(error)) => error.error,
+        other => panic!("expected a parse error, got {other:?}"),
+    };
+    let notes = no_parse_notes(&error);
+    let previous = notes.previous.as_ref().expect("the shadowed label");
+    assert_eq!(previous.text, "`foo`", "{error}");
+    assert_eq!(previous.label, None, "{previous:?}");
+    assert!(!error.to_string().contains("write it `"), "{error}");
+}
+
+#[test]
 fn reference_invalid_prec_is_rejected_without_any_rule_bubble() {
     let source = include_str!("fixtures/reference/inner/tokens/invalidPrec.k");
     let error = resolve_rule_bubbles(&lowered(source)).unwrap_err();

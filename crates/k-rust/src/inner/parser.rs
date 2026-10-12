@@ -717,10 +717,13 @@ fn write_shadowed_token(formatter: &mut fmt::Formatter<'_>, token: &ShadowedToke
         };
         write!(formatter, "{write} {}.", literals.join(" or "))?;
     } else if *in_phrase {
-        formatter.write_str(
+        formatter.write_str(if label.is_some() {
+            " Where it stands in the phrase of a token production, which reads program text \
+             only, write the whole phrase as a #token literal of that production's sort."
+        } else {
             " It stands in the phrase of a token production, which reads program text only: \
-             write the whole phrase as a #token literal of that production's sort.",
-        )?;
+             write the whole phrase as a #token literal of that production's sort."
+        })?;
     }
     Ok(())
 }
@@ -3785,7 +3788,9 @@ impl Grammar {
                 .label
                 .then(|| backquoted_label(&input[start..end]))
                 .flatten(),
-            in_phrase: found.in_phrase && found.literal_sorts.is_empty() && !found.label,
+            // A label and a phrase are different places the token fills: the advice for one
+            // does not write the other.
+            in_phrase: found.in_phrase && found.literal_sorts.is_empty(),
         })
     }
 
@@ -3970,9 +3975,10 @@ impl Grammar {
 }
 
 /// `text` as a backquoted label, which reads any label that holds no line break: a backquote or
-/// a backslash in it is escaped with a backslash.
+/// a backslash in it is escaped with a backslash. A text that already begins with a backquote is
+/// the backquoted spelling itself, which the scanner read as something else: it has no other.
 fn backquoted_label(text: &str) -> Option<String> {
-    if text.is_empty() || text.contains(['\n', '\r']) {
+    if text.is_empty() || text.starts_with('`') || text.contains(['\n', '\r']) {
         return None;
     }
     let mut label = String::with_capacity(text.len() + 2);
