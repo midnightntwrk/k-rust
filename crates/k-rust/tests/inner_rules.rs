@@ -759,12 +759,13 @@ fn polymorphic_rhs_keeps_overload_branch_parameters_independent() {
 }
 
 /// The two well-sorted readings, `capGas … => ite{Gas}(…)` and `capInt … => ite{Int}(…)`, give
-/// every variable the same sort, so they are one maximal typing and differ only in the overload
-/// and in the instantiation of `ite`'s parameter. The typing does not choose between them and
-/// they lower to different terms, so the portable build leaves the rule to Z3 instead of
-/// reporting an ambiguity; the z3 build takes the `Int` reading.
+/// every variable the same sort, so they are one maximal typing. They differ in the overload and,
+/// since a function rule's rewrite has its left-hand side's sort, in the instantiation of `ite`'s
+/// parameter, so no ambiguity node holds the overloads alone. The text applies the overload
+/// family `cap`, and means its most specific production that is well-sorted there: both builds
+/// take the `Int` reading.
 #[test]
-fn one_maximal_typing_split_by_overload_and_parameter_is_left_to_z3() {
+fn one_maximal_typing_split_by_overload_and_parameter_reads_the_most_specific_overload() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -776,39 +777,11 @@ fn one_maximal_typing_split_by_overload_and_parameter_is_left_to_z3() {
           rule cap(GCAP:Int, GAVAIL:Int, GEXTRA, IGNORED) => ite(GEXTRA, GCAP, GAVAIL)
         endmodule
     "#};
-    let resolved = resolve_rule_bubbles(&lowered(source));
-
-    #[cfg(not(feature = "z3-inference"))]
-    {
-        let error = resolved.expect_err("the portable build does not choose within one typing");
-        let RuleError::Parse(error) = error else {
-            panic!("expected a parse error, got {error:?}")
-        };
-        assert_eq!(
-            error.error,
-            ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            }
-        );
-    }
-    #[cfg(feature = "z3-inference")]
-    {
-        let resolved = resolved.expect("the z3 build decides the rule");
-        let body = resolved
-            .main_module()
-            .unwrap()
-            .local_sentences
-            .iter()
-            .find_map(|sentence| match &**sentence {
-                Sentence::Rule { body, .. } => Some(body.to_string()),
-                _ => None,
-            })
-            .expect("the rule should be resolved");
-        assert!(body.contains("capInt"), "{body}");
-        assert!(!body.contains("capGas"), "{body}");
-        assert!(body.contains("=>ite("), "{body}");
-    }
+    let resolved = resolve_rule_bubbles(&lowered(source)).expect("both builds decide the rule");
+    let body = only_rule_body(&resolved);
+    assert!(body.contains("capInt"), "{body}");
+    assert!(!body.contains("capGas"), "{body}");
+    assert!(body.contains("=>ite("), "{body}");
 }
 
 /// The body of the one rule `resolve_rule_bubbles` resolved in `definition`'s main module.
@@ -1430,8 +1403,9 @@ fn a_body_with_no_misplaced_construct_reports_its_own_violation() {
 /// `polymorphic_rhs_keeps_overload_branch_parameters_independent` (cgascap) without the
 /// prelude, so that the portable build reaches the rule: its two well-sorted readings share one
 /// maximal typing and differ in the `cap` overload and the instantiation of `ite`'s parameter.
+/// The text means the most specific overload well-sorted there, `capInt`, in both builds.
 #[test]
-fn cgascap_is_left_to_z3_in_the_portable_build() {
+fn cgascap_reads_the_most_specific_overload_in_both_builds() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -1448,29 +1422,11 @@ fn cgascap_is_left_to_z3_in_the_portable_build() {
             [concrete]
         endmodule
     "#};
-    let resolved = resolve_rule_bubbles(&lowered(source));
-
-    #[cfg(not(feature = "z3-inference"))]
-    {
-        let error = resolved.expect_err("the portable build does not choose within one typing");
-        let RuleError::Parse(error) = error else {
-            panic!("expected a parse error, got {error:?}")
-        };
-        assert_eq!(
-            error.error,
-            ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            }
-        );
-    }
-    #[cfg(feature = "z3-inference")]
-    {
-        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert!(body.contains("capInt"), "{body}");
-        assert!(!body.contains("capGas"), "{body}");
-        assert!(body.contains("=>ite("), "{body}");
-    }
+    let resolved = resolve_rule_bubbles(&lowered(source)).expect("both builds decide the rule");
+    let body = only_rule_body(&resolved);
+    assert!(body.contains("capInt"), "{body}");
+    assert!(!body.contains("capGas"), "{body}");
+    assert!(body.contains("=>ite("), "{body}");
 }
 
 /// `lam(0 => 0)(0)` reads as `lam1` over a rewrite or as `lam2` over a pattern and a body
@@ -1524,10 +1480,11 @@ fn preferred_reading_among_parameter_instantiations_is_left_to_z3() {
 /// parametric production each `pick` instantiates and at which sort. One parameter vector
 /// (`pick2`'s argument parameter at `Int`) types all four readings, so the z3 build does not
 /// trade a reading for a parameter at `K` (which gave `pick2{Int, K}(pick1{K}(0))`), and
-/// `prefer` resolves the group to `pick1{Int}(pick1{Int}(0))`. The portable decision does not
-/// model the choice among parameter instantiations, so it leaves the rule to Z3.
+/// `prefer` resolves the group to `pick1{Int}(pick1{Int}(0))`. The four are distinct readings,
+/// so the portable decision keeps each with its own instances, and `prefer` gives the same
+/// body in both builds.
 #[test]
-fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
+fn nested_preferred_reading_among_parameter_instantiations_is_the_prefer_reading() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -1538,32 +1495,18 @@ fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
           rule trigger => pick(pick(0))
         endmodule
     "#};
-    let resolved = resolve_rule_bubbles(&lowered(source));
-
-    #[cfg(not(feature = "z3-inference"))]
-    {
-        let error = resolved.expect_err("the portable build does not choose within one typing");
-        let RuleError::Parse(error) = error else {
-            panic!("expected a parse error, got {error:?}")
-        };
-        assert_eq!(
-            error.error,
-            ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            }
-        );
-    }
-    #[cfg(feature = "z3-inference")]
-    {
-        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert_eq!(body, r#"trigger(.KList)=>pick1(pick1(#token("0","Int")))"#);
-    }
+    let resolved = resolve_rule_bubbles(&lowered(source)).expect("both builds decide the rule");
+    assert_eq!(
+        only_rule_body(&resolved),
+        r#"trigger(.KList)=>pick1(pick1(#token("0","Int")))"#
+    );
 }
 
 /// `pick(0)` over `pick1 [prefer]` and `pick2`: `pick1{Int}(0)` and `pick2{Int, S2}(0)` share
 /// the empty typing. Placing `pick2`'s free argument parameter at `K` keeps both readings, so
 /// the parameter preference chooses only `pick2`'s instantiation and `prefer` takes `pick1`.
+/// The two are distinct readings, so the portable decision keeps both as well, each with its own
+/// instances, and `prefer` takes `pick1` in both builds.
 #[test]
 fn flat_preferred_reading_among_parameter_instantiations_is_the_prefer_reading() {
     let source = indoc! {r#"
@@ -1576,27 +1519,11 @@ fn flat_preferred_reading_among_parameter_instantiations_is_the_prefer_reading()
           rule trigger => pick(0)
         endmodule
     "#};
-    let resolved = resolve_rule_bubbles(&lowered(source));
-
-    #[cfg(not(feature = "z3-inference"))]
-    {
-        let error = resolved.expect_err("the portable build does not choose within one typing");
-        let RuleError::Parse(error) = error else {
-            panic!("expected a parse error, got {error:?}")
-        };
-        assert_eq!(
-            error.error,
-            ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            }
-        );
-    }
-    #[cfg(feature = "z3-inference")]
-    {
-        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert_eq!(body, r#"trigger(.KList)=>pick1(#token("0","Int"))"#);
-    }
+    let resolved = resolve_rule_bubbles(&lowered(source)).expect("both builds decide the rule");
+    assert_eq!(
+        only_rule_body(&resolved),
+        r#"trigger(.KList)=>pick1(#token("0","Int"))"#
+    );
 }
 
 /// `pickB [prefer]` has the result sort `Bool`, which no parameter vector places under the

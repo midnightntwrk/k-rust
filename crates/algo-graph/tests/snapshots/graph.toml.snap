@@ -8034,7 +8034,7 @@ id = "parser.inference.portable"
 provenance = "declared"
 area = "parser"
 name = "portable sort inference by bound propagation"
-variable = "V = sort-bound vertices (of a forest: variables); E = bound edges; S = concrete sorts among the bounds (of a forest: sorts of the subsort order); I = instances of an ambiguous forest, a node with one context its ancestors give it; a = largest arity; W = distinct typings of the trees of one instance; M = maximal typings; P = nodes of the forest of a typing group whose trees instantiate formal parameters differently"
+variable = "V = sort-bound vertices (of a forest: variables); E = bound edges; S = concrete sorts among the bounds (of a forest: sorts of the subsort order); I = instances of an ambiguous forest, a node with one context its ancestors give it; a = largest arity; W = distinct typings of the trees of one instance; M = maximal typings; N = nodes of the forest of a typing group; P = nodes of the forest of a typing group two of whose trees are one reading and instantiate formal parameters differently"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferencePortable"
@@ -8100,7 +8100,7 @@ bound = "O(V x E)"
 
 [[node.cost]]
 mode = "ambiguous monomorphic forest"
-bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus, for a typing group whose trees instantiate formal parameters differently, the lowering of each of its trees alone computed on its forest of P nodes (parser.disambiguation.resolve_ambiguity, mode each tree), polynomial in P and independent of its number of trees; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it; the sorts' numbering, and each sort's down and up sets (S/64 words each), are built once per grammar, the first time a decision reads them (SortTable)"
+bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, O(N) per group to keep the trees whose function left-hand side is a most specific overload, plus, for a group whose trees instantiate formal parameters differently, O(N^2 x a) to tell whether two of its trees are one reading (Grammar::one_reading_twice, each pair of nodes once), and, when two are, the lowering of each of its trees alone computed on its forest of P nodes (parser.disambiguation.resolve_ambiguity, mode each tree), polynomial in P and independent of its number of trees; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it; the sorts' numbering, and each sort's down and up sets (S/64 words each), are built once per grammar, the first time a decision reads them (SortTable)"
 
 [[node.cost]]
 mode = "variable realization"

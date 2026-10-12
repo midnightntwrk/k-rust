@@ -53,7 +53,9 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 
 use crate::definition::{PartialOrder, ProductionItem};
-use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
+use crate::kast::{
+    FrontendSort, GeneratedLabel, InternalLabel, Label, ProductionIdentity, Sort, Term,
+};
 
 use super::super::{
     Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, TermMetadata,
@@ -349,6 +351,264 @@ fn enclosed(own: Outer, outer: Option<Outer>) -> Outer {
     }
 }
 
+/// Where the path to a rule's function left-hand side goes from a node
+/// (`Grammar::function_lhs_step`).
+enum FunctionLhsStep<'t> {
+    Alternatives(&'t BTreeSet<Rc<PackedTerm>>),
+    Child(usize),
+    /// The node is the top rewrite; its first child is the left-hand side.
+    Lhs,
+    None,
+}
+
+/// A production node's production, instance and children.
+#[allow(clippy::type_complexity)]
+fn node_parts(term: &Rc<PackedTerm>) -> Option<(usize, Option<&[Sort]>, &[Rc<PackedTerm>])> {
+    match &term.node {
+        PackedNode::Production {
+            production,
+            children,
+            ..
+        } => Some((*production, None, children)),
+        PackedNode::InstantiatedProduction {
+            production,
+            parameters,
+            children,
+            ..
+        } => Some((*production, Some(parameters), children)),
+        PackedNode::Term(_) | PackedNode::Ambiguity(_) => None,
+    }
+}
+
+/// The `index`-th child of a production node.
+fn child_at(term: &Rc<PackedTerm>, index: usize) -> &Rc<PackedTerm> {
+    match &term.node {
+        PackedNode::Production { children, .. }
+        | PackedNode::InstantiatedProduction { children, .. } => &children[index],
+        PackedNode::Term(_) | PackedNode::Ambiguity(_) => unreachable!("a production node"),
+    }
+}
+
+/// The production node `term` with its `index`-th child replaced by `child`.
+fn with_child(term: &Rc<PackedTerm>, index: usize, child: Rc<PackedTerm>) -> Rc<PackedTerm> {
+    if Rc::ptr_eq(child_at(term, index), &child) {
+        return Rc::clone(term);
+    }
+    match &term.node {
+        PackedNode::Production {
+            production,
+            children,
+            metadata,
+        } => {
+            let mut children = children.clone();
+            children[index] = child;
+            PackedTerm::production(*production, children, metadata.clone())
+        }
+        PackedNode::InstantiatedProduction {
+            production,
+            parameters,
+            children,
+            metadata,
+        } => {
+            let mut children = children.clone();
+            children[index] = child;
+            PackedTerm::instantiated_production(
+                *production,
+                parameters.clone(),
+                children,
+                metadata.clone(),
+            )
+        }
+        PackedNode::Term(_) | PackedNode::Ambiguity(_) => unreachable!("a production node"),
+    }
+}
+
+/// The memo of `Grammar::one_reading_twice`.
+struct ReadingOverlap<'g> {
+    grammar: &'g Grammar,
+    twice: HashMap<*const PackedTerm, bool>,
+    overlaps: HashMap<(*const PackedTerm, *const PackedTerm), bool>,
+    distinct_overlaps: HashMap<(*const PackedTerm, *const PackedTerm), bool>,
+}
+
+/// What a production node contributes to the reading of its trees: its label and arity, or,
+/// for an unlabelled production, the production itself.
+#[derive(Eq, PartialEq)]
+enum ReadingHead<'g> {
+    Label(&'g str, usize),
+    Production(usize),
+}
+
+impl<'g> ReadingOverlap<'g> {
+    /// `term` with its outer bracket nodes stripped.
+    fn content<'t>(&self, mut term: &'t Rc<PackedTerm>) -> &'t Rc<PackedTerm> {
+        while let PackedNode::Production {
+            production,
+            children,
+            ..
+        } = &term.node
+            && self.grammar.productions[*production].bracket
+            && children.len() == 1
+        {
+            term = &children[0];
+        }
+        term
+    }
+
+    fn head(&self, production: usize, arity: usize) -> ReadingHead<'g> {
+        match &self.grammar.productions[production].label {
+            Some(label) => ReadingHead::Label(&label.name, arity),
+            None => ReadingHead::Production(production),
+        }
+    }
+
+    /// Whether two distinct trees of `term` are one reading.
+    fn twice(&mut self, term: &Rc<PackedTerm>) -> bool {
+        let term = self.content(term);
+        if let Some(twice) = self.twice.get(&Rc::as_ptr(term)) {
+            return *twice;
+        }
+        let twice = crate::stack::guarded(|| match &term.node {
+            PackedNode::Term(_) => false,
+            PackedNode::Production { children, .. }
+            | PackedNode::InstantiatedProduction { children, .. } => {
+                children.iter().any(|child| self.twice(child))
+            }
+            PackedNode::Ambiguity(alternatives) => {
+                let alternatives = alternatives.iter().collect::<Vec<_>>();
+                alternatives
+                    .iter()
+                    .any(|alternative| self.twice(alternative))
+                    || alternatives.iter().enumerate().any(|(index, left)| {
+                        alternatives[index + 1..]
+                            .iter()
+                            .any(|right| self.distinct_overlap(left, right))
+                    })
+            }
+        });
+        self.twice.insert(Rc::as_ptr(term), twice);
+        twice
+    }
+
+    /// Whether some tree of `left` and some other tree of `right` are one reading: two
+    /// alternatives of an ambiguity can hold one tree, which is not two trees.
+    fn distinct_overlap(&mut self, left: &Rc<PackedTerm>, right: &Rc<PackedTerm>) -> bool {
+        if Rc::ptr_eq(left, right) {
+            return self.twice(left);
+        }
+        let key = (Rc::as_ptr(left), Rc::as_ptr(right));
+        if let Some(overlap) = self.distinct_overlaps.get(&key) {
+            return *overlap;
+        }
+        let bracket = |term: &Rc<PackedTerm>| match &term.node {
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            } if self.grammar.productions[*production].bracket && children.len() == 1 => {
+                Some(*production)
+            }
+            _ => None,
+        };
+        let overlap = crate::stack::guarded(|| match (&left.node, &right.node) {
+            (PackedNode::Ambiguity(alternatives), _) => alternatives
+                .iter()
+                .any(|alternative| self.distinct_overlap(alternative, right)),
+            (_, PackedNode::Ambiguity(alternatives)) => alternatives
+                .iter()
+                .any(|alternative| self.distinct_overlap(left, alternative)),
+            _ => match (bracket(left), bracket(right)) {
+                (Some(left_bracket), Some(right_bracket)) if left_bracket == right_bracket => {
+                    self.distinct_overlap(child_at(left, 0), child_at(right, 0))
+                }
+                // The trees differ in their brackets, so any two of one reading are distinct.
+                (Some(_), _) | (_, Some(_)) => self.overlap(left, right),
+                (None, None) => self.distinct_node_overlap(left, right),
+            },
+        });
+        self.distinct_overlaps.insert(key, overlap);
+        overlap
+    }
+
+    /// `distinct_overlap` of two nodes that are neither ambiguities nor brackets.
+    fn distinct_node_overlap(&mut self, left: &Rc<PackedTerm>, right: &Rc<PackedTerm>) -> bool {
+        let (Some(left_parts), Some(right_parts)) = (node_parts(left), node_parts(right)) else {
+            // Leaves of one reading are one tree.
+            return false;
+        };
+        let (left_production, left_parameters, left_children) = left_parts;
+        let (right_production, right_parameters, right_children) = right_parts;
+        if self.head(left_production, left_children.len())
+            != self.head(right_production, right_children.len())
+        {
+            return false;
+        }
+        let pairs = left_children.iter().zip(right_children).collect::<Vec<_>>();
+        if left_production != right_production || left_parameters != right_parameters {
+            return pairs.iter().all(|(left, right)| self.overlap(left, right));
+        }
+        // One node shape: the trees differ below, at some child, and are one reading at every
+        // other child, where they can be one tree.
+        pairs.iter().all(|(left, right)| self.overlap(left, right))
+            && pairs
+                .iter()
+                .any(|(left, right)| self.distinct_overlap(left, right))
+    }
+
+    /// Whether some tree of `left` and some tree of `right` are one reading.
+    fn overlap(&mut self, left: &Rc<PackedTerm>, right: &Rc<PackedTerm>) -> bool {
+        let (left, right) = (self.content(left), self.content(right));
+        if Rc::ptr_eq(left, right) {
+            return true;
+        }
+        let key = (Rc::as_ptr(left), Rc::as_ptr(right));
+        if let Some(overlap) = self.overlaps.get(&key) {
+            return *overlap;
+        }
+        let overlap = crate::stack::guarded(|| match (&left.node, &right.node) {
+            (PackedNode::Ambiguity(alternatives), _) => alternatives
+                .iter()
+                .any(|alternative| self.overlap(alternative, right)),
+            (_, PackedNode::Ambiguity(alternatives)) => alternatives
+                .iter()
+                .any(|alternative| self.overlap(left, alternative)),
+            (PackedNode::Term(left), PackedNode::Term(right)) => left == right,
+            (
+                PackedNode::Production {
+                    production: left_production,
+                    children: left_children,
+                    ..
+                }
+                | PackedNode::InstantiatedProduction {
+                    production: left_production,
+                    children: left_children,
+                    ..
+                },
+                PackedNode::Production {
+                    production: right_production,
+                    children: right_children,
+                    ..
+                }
+                | PackedNode::InstantiatedProduction {
+                    production: right_production,
+                    children: right_children,
+                    ..
+                },
+            ) => {
+                self.head(*left_production, left_children.len())
+                    == self.head(*right_production, right_children.len())
+                    && left_children
+                        .iter()
+                        .zip(right_children)
+                        .all(|(left, right)| self.overlap(left, right))
+            }
+            _ => false,
+        });
+        self.overlaps.insert(key, overlap);
+        overlap
+    }
+}
+
 /// The result of a node: a sort, or one of its production's parameter slots.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 enum Outer {
@@ -430,7 +690,8 @@ fn add(left: u64, right: u64) -> u64 {
 }
 
 /// The groups the forest decision keeps: one packed forest per maximal typing, with whether its
-/// trees instantiate the formal parameters of their productions in more than one way.
+/// trees instantiate the formal parameters of their productions in more than one way and two of
+/// them are one reading (`Grammar::one_reading_twice`).
 pub(super) struct DecidedGroup {
     pub(super) term: Rc<PackedTerm>,
     pub(super) parameter_split: bool,
@@ -546,12 +807,230 @@ impl Grammar {
                 let (term, instantiations) = decision
                     .apply(term, root, &typing, &mut memo)?
                     .expect("a maximal typing's trees are well-sorted under it");
+                let term = self.most_specific_function_lhs(&term);
+                let parameter_split = instantiations.len() > 1 && self.one_reading_twice(&term);
                 Ok(DecidedGroup {
                     term,
-                    parameter_split: instantiations.len() > 1,
+                    parameter_split,
                 })
             })
             .collect()
+    }
+
+    /// The trees of `term`, the kept trees of one typing, whose function or macro left-hand
+    /// side applies a most specific overload among those its trees apply.
+    ///
+    /// The productions of an overload family are one symbol at several sorts, a more specific
+    /// one a restriction of a less specific one (`docs/compatibility.md`, overload axioms), and a
+    /// text that applies the family means its most specific production that is well-sorted
+    /// there. Where the trees of one typing apply different productions of a family at the
+    /// left-hand side of a function rule, the rule's rewrite has each tree's left-hand side
+    /// sort, so the trees also instantiate the formal parameters of the rewrite and of what its
+    /// right-hand side holds differently, the readings differ beyond the left-hand side, and no
+    /// ambiguity node of the kept forest has the overloads alone as its alternatives for the
+    /// post-inference passes to choose among. The choice is therefore made here, among the
+    /// trees: a tree whose left-hand side is a less specific overload of another tree's is
+    /// dropped. When some tree has no such left-hand side, or one with no source production, the
+    /// trees are kept whole, as the passes keep an ambiguity whose alternatives are not all
+    /// productions with a source.
+    fn most_specific_function_lhs(&self, term: &Rc<PackedTerm>) -> Rc<PackedTerm> {
+        let mut applied = BTreeSet::new();
+        if !self.function_lhs_overloads(term, &mut applied) {
+            return Rc::clone(term);
+        }
+        let minimal = self.overloads.minimal(applied.iter());
+        if minimal.len() == applied.len() {
+            return Rc::clone(term);
+        }
+        self.keep_function_lhs(term, &minimal)
+            .expect("the trees of a most specific overload are kept")
+    }
+
+    /// The node of `term` on the path to a rule's function left-hand side: the top rewrite's
+    /// left-hand side, looking through brackets, ambiguities, the rule-content wrappers and a
+    /// `#withConfig` body; `None` for a node off that path.
+    fn function_lhs_step<'t>(&self, term: &'t Rc<PackedTerm>) -> FunctionLhsStep<'t> {
+        let (production, children) = match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                return FunctionLhsStep::Alternatives(alternatives);
+            }
+            PackedNode::Term(_) => return FunctionLhsStep::None,
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            }
+            | PackedNode::InstantiatedProduction {
+                production,
+                children,
+                ..
+            } => (*production, children),
+        };
+        let descriptor = &self.productions[production];
+        let through = (descriptor.bracket && children.len() == 1)
+            || descriptor.result.is_frontend(FrontendSort::RuleContent)
+            || (descriptor.result.is_frontend(FrontendSort::RuleBody)
+                && descriptor
+                    .label
+                    .as_ref()
+                    .is_some_and(|label| label.is(InternalLabel::WithConfig)));
+        if through && !children.is_empty() {
+            return FunctionLhsStep::Child(0);
+        }
+        if descriptor
+            .label
+            .as_ref()
+            .is_some_and(|label| label.is(InternalLabel::KRewrite))
+            && children.len() == 2
+        {
+            return FunctionLhsStep::Lhs;
+        }
+        FunctionLhsStep::None
+    }
+
+    /// Add to `applied` the source production of each tree's function left-hand side; `false`
+    /// when some tree has none.
+    fn function_lhs_overloads(
+        &self,
+        term: &Rc<PackedTerm>,
+        applied: &mut BTreeSet<ProductionIdentity>,
+    ) -> bool {
+        crate::stack::guarded(|| match self.function_lhs_step(term) {
+            FunctionLhsStep::Alternatives(alternatives) => alternatives
+                .iter()
+                .all(|alternative| self.function_lhs_overloads(alternative, applied)),
+            FunctionLhsStep::Child(index) => {
+                self.function_lhs_overloads(child_at(term, index), applied)
+            }
+            FunctionLhsStep::Lhs => self.lhs_overloads(child_at(term, 0), applied),
+            FunctionLhsStep::None => false,
+        })
+    }
+
+    /// `function_lhs_overloads` at a left-hand side.
+    fn lhs_overloads(
+        &self,
+        lhs: &Rc<PackedTerm>,
+        applied: &mut BTreeSet<ProductionIdentity>,
+    ) -> bool {
+        crate::stack::guarded(|| match &lhs.node {
+            PackedNode::Ambiguity(alternatives) => alternatives
+                .iter()
+                .all(|alternative| self.lhs_overloads(alternative, applied)),
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            }
+            | PackedNode::InstantiatedProduction {
+                production,
+                children,
+                ..
+            } => {
+                let descriptor = &self.productions[*production];
+                if descriptor.bracket && children.len() == 1 {
+                    return self.lhs_overloads(&children[0], applied);
+                }
+                match &descriptor.source_production {
+                    Some(source) if descriptor.function || descriptor.macro_like => {
+                        applied.insert(*source);
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            PackedNode::Term(_) => false,
+        })
+    }
+
+    /// The trees of `term` whose function left-hand side applies a production of `kept`
+    /// (`function_lhs_overloads` found one in every tree), or `None` when there is none.
+    fn keep_function_lhs(
+        &self,
+        term: &Rc<PackedTerm>,
+        kept: &BTreeSet<ProductionIdentity>,
+    ) -> Option<Rc<PackedTerm>> {
+        crate::stack::guarded(|| match self.function_lhs_step(term) {
+            FunctionLhsStep::Alternatives(alternatives) => {
+                let alternatives = alternatives
+                    .iter()
+                    .filter_map(|alternative| self.keep_function_lhs(alternative, kept))
+                    .collect::<BTreeSet<_>>();
+                (!alternatives.is_empty()).then(|| PackedTerm::ambiguity(alternatives))
+            }
+            FunctionLhsStep::Child(index) => {
+                let child = self.keep_function_lhs(child_at(term, index), kept)?;
+                Some(with_child(term, index, child))
+            }
+            FunctionLhsStep::Lhs => {
+                let lhs = self.keep_lhs(child_at(term, 0), kept)?;
+                Some(with_child(term, 0, lhs))
+            }
+            FunctionLhsStep::None => unreachable!("every tree has a function left-hand side"),
+        })
+    }
+
+    /// `keep_function_lhs` at a left-hand side.
+    fn keep_lhs(
+        &self,
+        lhs: &Rc<PackedTerm>,
+        kept: &BTreeSet<ProductionIdentity>,
+    ) -> Option<Rc<PackedTerm>> {
+        crate::stack::guarded(|| match &lhs.node {
+            PackedNode::Ambiguity(alternatives) => {
+                let alternatives = alternatives
+                    .iter()
+                    .filter_map(|alternative| self.keep_lhs(alternative, kept))
+                    .collect::<BTreeSet<_>>();
+                (!alternatives.is_empty()).then(|| PackedTerm::ambiguity(alternatives))
+            }
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            }
+            | PackedNode::InstantiatedProduction {
+                production,
+                children,
+                ..
+            } => {
+                let descriptor = &self.productions[*production];
+                if descriptor.bracket && children.len() == 1 {
+                    let child = self.keep_lhs(&children[0], kept)?;
+                    return Some(with_child(lhs, 0, child));
+                }
+                descriptor
+                    .source_production
+                    .as_ref()
+                    .is_some_and(|source| kept.contains(source))
+                    .then(|| Rc::clone(lhs))
+            }
+            PackedNode::Term(_) => unreachable!("every tree has a function left-hand side"),
+        })
+    }
+
+    /// Whether two distinct trees of `term` are one reading: equal once their bracket nodes are
+    /// replaced by their children and each production is read as its label (with its arity),
+    /// whatever its instance (`docs/compatibility.md`, "Formal parameter preference").
+    ///
+    /// Trees of one typing that are distinct readings each stand for their own text and keep
+    /// their own instances: a preference among instances chooses how a reading is instantiated
+    /// and never removes a reading, so nothing chooses among such trees but the post-inference
+    /// passes. Only trees of one reading can make that preference matter.
+    ///
+    /// A node's trees contain two of one reading when a child's do, or, at an ambiguity, when
+    /// one alternative's do or two alternatives have a reading in common
+    /// (`ReadingOverlap::distinct_overlap`; two alternatives can hold one tree, which is not
+    /// two). Each pair of nodes is compared once, so the cost is at most the square of the
+    /// forest's nodes times its arity, whatever its tree count.
+    pub(super) fn one_reading_twice(&self, term: &Rc<PackedTerm>) -> bool {
+        ReadingOverlap {
+            grammar: self,
+            twice: HashMap::new(),
+            overlaps: HashMap::new(),
+            distinct_overlaps: HashMap::new(),
+        }
+        .twice(term)
     }
 
     /// The rejection of a forest none of whose trees is well-sorted: the per-tree decision's
@@ -2122,5 +2601,92 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `one_reading_twice` compares trees with their brackets stripped and their instances
+    /// ignored, and finds a pair inside an exponential forest by comparing node pairs.
+    #[test]
+    fn one_reading_twice_finds_two_trees_of_one_reading() {
+        let (grammar, _) = grammar();
+        let find = |label: &str| {
+            (0..grammar.productions.len())
+                .find(|index| {
+                    grammar.productions[*index]
+                        .label
+                        .as_ref()
+                        .is_some_and(|candidate| candidate.name == label)
+                })
+                .unwrap()
+        };
+        let bracket = |sort: &str| {
+            (0..grammar.productions.len())
+                .find(|index| {
+                    grammar.productions[*index].bracket
+                        && grammar.productions[*index].result == Sort::new(sort)
+                })
+                .unwrap()
+        };
+        let node = |production: usize, children: Vec<Rc<PackedTerm>>| {
+            PackedTerm::production(production, children, TermMetadata::default())
+        };
+        let and = |sort: &str, children: Vec<Rc<PackedTerm>>| {
+            PackedTerm::instantiated_production(
+                find("#And"),
+                vec![Sort::new(sort)],
+                children,
+                TermMetadata::default(),
+            )
+        };
+        let x = PackedTerm::leaf(Term::Variable {
+            name: "X".into(),
+            sort: None,
+        });
+        let either = |alternatives: Vec<Rc<PackedTerm>>| {
+            PackedTerm::ambiguity(alternatives.into_iter().collect::<BTreeSet<_>>())
+        };
+        let (plus, pair) = (find("plus"), find("pair"));
+        let distinct = either(vec![
+            node(plus, vec![x.clone(), x.clone()]),
+            node(pair, vec![x.clone(), x.clone()]),
+        ]);
+        assert!(!grammar.one_reading_twice(&distinct));
+        let brackets = either(vec![
+            node(bracket("Int"), vec![x.clone()]),
+            node(bracket("Exp"), vec![x.clone()]),
+        ]);
+        assert!(grammar.one_reading_twice(&brackets));
+        let instances = either(vec![
+            and("Int", vec![x.clone(), x.clone()]),
+            and(
+                "Exp",
+                vec![node(bracket("Exp"), vec![x.clone()]), x.clone()],
+            ),
+        ]);
+        assert!(grammar.one_reading_twice(&instances));
+        assert!(grammar.one_reading_twice(&node(pair, vec![x.clone(), instances])));
+        // One tree held by two alternatives is one tree.
+        let neg = find("neg");
+        let held_twice = either(vec![
+            either(vec![
+                node(plus, vec![x.clone(), x.clone()]),
+                node(pair, vec![x.clone(), x.clone()]),
+            ]),
+            either(vec![
+                node(plus, vec![x.clone(), x.clone()]),
+                node(neg, vec![x.clone()]),
+            ]),
+        ]);
+        assert!(!grammar.one_reading_twice(&held_twice));
+        // 2^64 trees, every one its own reading, and then one pair of one reading at the bottom.
+        let chain = |bottom: Rc<PackedTerm>| {
+            (0..64).fold(bottom, |below, _| {
+                either(vec![
+                    node(plus, vec![below.clone(), x.clone()]),
+                    node(pair, vec![below, x.clone()]),
+                ])
+            })
+        };
+        assert!(!grammar.one_reading_twice(&chain(x.clone())));
+        assert!(grammar.one_reading_twice(&chain(brackets)));
     }
 }

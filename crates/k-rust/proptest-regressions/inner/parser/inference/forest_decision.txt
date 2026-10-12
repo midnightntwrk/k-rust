@@ -11,3 +11,4 @@ cc 7686b6161b8f3be8e5b1c220adf8567e72706275643fc6ecfa2362b27f2ebb87 # shrinks to
 cc 0cd278f6f5d9d736cf0196b609cc87af5df1b99003b723d9a56bb2a3e2753741 # shrinks to tree = Ambiguity([Node(131, [Ambiguity([Leaf(8), Leaf(5), Leaf(7)])]), Node(140, [Leaf(5)])]), top = 0, anywhere = false
 cc 4c812bca120a3879b879af7724807f0abd8245187e031fc1e340c6221ebcf36e # shrinks to tree = Node(18, [Bracket(7, Leaf(6)), Node(53, [Leaf(0)])]), top = 2, anywhere = false
 cc 5da5c9f956ac9dd9e1b0c63c9bff5d43c4633c42ee3a6ed15cc248f0e6dc75fe # shrinks to tree = Bracket(15, Node(224, [Leaf(0)])), top = 2, anywhere = false
+cc 06e7e2df0f63867b7c18635d033dd9880cf867660a8208d655078d6cb0de7dd2 # shrinks to tree = Ambiguity([Ambiguity([Leaf(0), Node(8, [Leaf(4)])]), Node(8, [Ambiguity([Leaf(0), Leaf(4)])]), Ambiguity([Leaf(0), Leaf(7)])]), top = 2, anywhere = false

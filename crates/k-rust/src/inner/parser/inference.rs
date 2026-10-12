@@ -2,7 +2,7 @@
 //! id = "parser.inference.portable"
 //! name = "portable sort inference by bound propagation"
 //! sites = ["Grammar::infer_sorts_portable", "Grammar::infer_packed_sorts", "Grammar::infer_sorts", "Grammar::infer_ambiguous_sorts_portable", "Grammar::infer_ambiguous_sorts_portable_first"]
-//! variable = "V = sort-bound vertices (of a forest: variables); E = bound edges; S = concrete sorts among the bounds (of a forest: sorts of the subsort order); I = instances of an ambiguous forest, a node with one context its ancestors give it; a = largest arity; W = distinct typings of the trees of one instance; M = maximal typings; P = nodes of the forest of a typing group whose trees instantiate formal parameters differently"
+//! variable = "V = sort-bound vertices (of a forest: variables); E = bound edges; S = concrete sorts among the bounds (of a forest: sorts of the subsort order); I = instances of an ambiguous forest, a node with one context its ancestors give it; a = largest arity; W = distinct typings of the trees of one instance; M = maximal typings; N = nodes of the forest of a typing group; P = nodes of the forest of a typing group two of whose trees are one reading and instantiate formal parameters differently"
 //! counters = ["ParserPortableInferences"]
 //! falls_back_to = ["parser.inference.z3"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "ambiguous monomorphic forest"
-//! bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, plus, for a typing group whose trees instantiate formal parameters differently, the lowering of each of its trees alone computed on its forest of P nodes (parser.disambiguation.resolve_ambiguity, mode each tree), polynomial in P and independent of its number of trees; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it; the sorts' numbering, and each sort's down and up sets (S/64 words each), are built once per grammar, the first time a decision reads them (SortTable)"
+//! bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V) for the maximal typings of the root, O(M x I) to build the kept trees, O(N) per group to keep the trees whose function left-hand side is a most specific overload, plus, for a group whose trees instantiate formal parameters differently, O(N^2 x a) to tell whether two of its trees are one reading (Grammar::one_reading_twice, each pair of nodes once), and, when two are, the lowering of each of its trees alone computed on its forest of P nodes (parser.disambiguation.resolve_ambiguity, mode each tree), polynomial in P and independent of its number of trees; W is at most the trees below an instance and 1 where its ambiguities choose sorts for variables that occur only below it; the sorts' numbering, and each sort's down and up sets (S/64 words each), are built once per grammar, the first time a decision reads them (SortTable)"
 //!
 //! [[cost]]
 //! mode = "variable realization"
@@ -29,7 +29,8 @@
 //! typing strictly exceeds (`Grammar::infer_ambiguous_sorts_portable`), computed on the forest
 //! from the distinct typings of each node's trees (`Grammar::decide_forest`), never by listing
 //! its trees. Parametric forests, trees without a greatest typing and trees of one typing that
-//! instantiate formal parameters differently and do not all lower to one term dispatch to Z3.
+//! are one reading, instantiate formal parameters differently and do not all lower to one term
+//! dispatch to Z3.
 //! Deciding whether a packed forest has a well-sorted tree is NP-complete (a forest of clauses
 //! over two incomparable sorts encodes satisfiability), so the decision's cost is polynomial in
 //! the forest times the number of distinct typings its nodes exhibit, which no bound on the
@@ -495,16 +496,18 @@ impl Grammar {
     /// parameters, and maximality does not order those. Trees that share one maximal typing
     /// and one set of parameter instantiations have the same solution, so nothing in their sort
     /// constraints separates them: when the post-inference passes (`lower`) leave them
-    /// ambiguous, the rule itself is ambiguous and `ParseError::Ambiguous` is the answer. When
-    /// the trees of one typing instantiate parameters differently, choosing among them needs a
-    /// preference over parameter instantiations that this decision does not model. The choice
-    /// is immaterial only when every tree of the group lowers, on its own, to one and the same
-    /// term: then any non-empty subset of the group lowers to that term. Otherwise a preference
-    /// that keeps a subset of the group can change the parse, including when the
-    /// post-inference passes would resolve the whole group (a `prefer` on a production whose
-    /// trees the preference removes), so the forest is left to Z3 with
-    /// `ParseError::Z3InferenceRequired`. An ambiguity between different maximal typings stays
-    /// `ParseError::Ambiguous`.
+    /// ambiguous, the rule itself is ambiguous and `ParseError::Ambiguous` is the answer. Trees
+    /// of one typing that instantiate parameters differently but are distinct readings are kept
+    /// alike: a preference over instantiations chooses how a reading is instantiated and never
+    /// removes a reading (`docs/compatibility.md`, "Formal parameter preference"), and each
+    /// tree's instances are those its own typing gives. When two trees of one reading
+    /// instantiate parameters differently (`Grammar::one_reading_twice`), choosing among them
+    /// needs a preference over parameter instantiations that this decision does not model. The
+    /// choice is immaterial only when every tree of the group lowers, on its own, to one and
+    /// the same term: then any non-empty subset of the group lowers to that term. Otherwise a
+    /// preference that keeps a subset of the group can change the parse, so the forest is left
+    /// to Z3 with `ParseError::Z3InferenceRequired`. An ambiguity between different maximal
+    /// typings stays `ParseError::Ambiguous`.
     ///
     /// The decision is exact only under those premises, so it also returns
     /// `ParseError::Z3InferenceRequired` instead of deciding when a tree is parametric, when a
@@ -681,6 +684,107 @@ impl Grammar {
         }
     }
 
+    /// The trees of one typing whose function left-hand side applies a most specific overload
+    /// among those the trees apply (`Grammar::most_specific_function_lhs` on the forest).
+    #[cfg(test)]
+    fn most_specific_function_lhs_trees(
+        &self,
+        trees: BTreeSet<ParsedTerm>,
+    ) -> BTreeSet<ParsedTerm> {
+        let source = |tree: &ParsedTerm| self.tree_function_lhs_source(tree, false);
+        let Some(applied) = trees.iter().map(source).collect::<Option<BTreeSet<_>>>() else {
+            return trees;
+        };
+        let minimal = self.overloads.minimal(applied.iter());
+        trees
+            .into_iter()
+            .filter(|tree| source(tree).is_some_and(|source| minimal.contains(&source)))
+            .collect()
+    }
+
+    /// The source production of an inferred tree's function left-hand side, `lhs` telling
+    /// whether `tree` stands at the left-hand side (`Grammar::function_lhs_step`).
+    #[cfg(test)]
+    fn tree_function_lhs_source(
+        &self,
+        tree: &ParsedTerm,
+        lhs: bool,
+    ) -> Option<crate::kast::ProductionIdentity> {
+        let (ParsedTerm::Production {
+            production,
+            children,
+            ..
+        }
+        | ParsedTerm::InstantiatedProduction {
+            production,
+            children,
+            ..
+        }) = tree
+        else {
+            return None;
+        };
+        let descriptor = &self.productions[*production];
+        if lhs {
+            if descriptor.bracket && children.len() == 1 {
+                return self.tree_function_lhs_source(&children[0], true);
+            }
+            return (descriptor.function || descriptor.macro_like)
+                .then_some(descriptor.source_production)
+                .flatten();
+        }
+        let through = (descriptor.bracket && children.len() == 1)
+            || descriptor.result.is_frontend(FrontendSort::RuleContent)
+            || (descriptor.result.is_frontend(FrontendSort::RuleBody)
+                && descriptor
+                    .label
+                    .as_ref()
+                    .is_some_and(|label| label.is(InternalLabel::WithConfig)));
+        if through && !children.is_empty() {
+            return self.tree_function_lhs_source(&children[0], false);
+        }
+        let rewrite = descriptor
+            .label
+            .as_ref()
+            .is_some_and(|label| label.is(InternalLabel::KRewrite))
+            && children.len() == 2;
+        rewrite
+            .then(|| self.tree_function_lhs_source(&children[0], true))
+            .flatten()
+    }
+
+    /// The reading of a tree, as `Grammar::one_reading_twice` compares trees: brackets stripped,
+    /// each production read as its label and arity, or as itself when it has no label.
+    #[cfg(test)]
+    fn reading(&self, tree: &ParsedTerm) -> Reading {
+        crate::stack::guarded(|| match tree {
+            ParsedTerm::Production {
+                production,
+                children,
+                ..
+            }
+            | ParsedTerm::InstantiatedProduction {
+                production,
+                children,
+                ..
+            } => {
+                let descriptor = &self.productions[*production];
+                if descriptor.bracket && children.len() == 1 {
+                    return self.reading(&children[0]);
+                }
+                let head = match &descriptor.label {
+                    Some(label) => Ok((label.name.clone(), children.len())),
+                    None => Err(*production),
+                };
+                Reading::Node(
+                    head,
+                    children.iter().map(|child| self.reading(child)).collect(),
+                )
+            }
+            ParsedTerm::Term(leaf) => Reading::Leaf(leaf.clone()),
+            ParsedTerm::Ambiguity(_) => unreachable!("a tree has no ambiguity"),
+        })
+    }
+
     /// `tree` with every node of a bracket replaced by its child: the trees that differ only in
     /// the instance of a bracket they read are one reading.
     #[cfg(test)]
@@ -788,6 +892,7 @@ impl Grammar {
         }
         Ok(groups
             .into_values()
+            .map(|trees| self.most_specific_function_lhs_trees(trees))
             .map(|trees| {
                 let parameters_differ = trees
                     .iter()
@@ -795,7 +900,14 @@ impl Grammar {
                     .collect::<BTreeSet<_>>()
                     .len()
                     > 1;
-                let parameter_split = parameters_differ.then(|| trees.clone());
+                let one_reading_twice = trees
+                    .iter()
+                    .map(|tree| self.reading(tree))
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    < trees.len();
+                let parameter_split =
+                    (parameters_differ && one_reading_twice).then(|| trees.clone());
                 TypingGroup {
                     term: PackedTerm::from_parsed(&factor_trees(trees)),
                     parameter_split,
@@ -2038,6 +2150,14 @@ pub(super) fn expand_packed_trees(term: &Rc<PackedTerm>) -> Vec<ParsedTerm> {
         })
     }
     expand(term, &mut HashMap::new()).as_ref().clone()
+}
+
+/// A tree's reading (`Grammar::reading`).
+#[cfg(test)]
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Reading {
+    Leaf(Term),
+    Node(Result<(String, usize), usize>, Vec<Reading>),
 }
 
 /// `tree` (with its brackets erased) with every instantiated production read as its production:
