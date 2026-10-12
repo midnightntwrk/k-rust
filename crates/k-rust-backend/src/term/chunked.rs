@@ -111,8 +111,8 @@ use std::{
     vec,
 };
 
-/// The branching factor of a [`Chunked`] that names none: that of a map's entries and of a
-/// set's elements.
+/// The branching factor of a [`Chunked`] that names none: that of a map's entries, of a set's
+/// elements and of a list's items.
 ///
 /// An edit copies one node per level, `B` handles or items each, over `log_B n` levels, so a
 /// smaller `B` copies less per level and a larger one has fewer levels and fewer summaries. Chosen
@@ -131,6 +131,13 @@ use std::{
 /// elements; the KEVM storage
 /// loop at 16,384 slots does not separate the two (size-dependent part 53.7 G at 32, 52.7 G at
 /// 64, within its run-to-run spread).
+///
+/// Lists use it too (K22 step 6a, 32 against 64): appending or prepending an item joins a
+/// one-item tree to the list's, which copies the nodes along one edge of the tree, `B` handles
+/// each, so the trade is again a node's width against the number of levels. At 64, 16,000
+/// appends and 16,000 prepends cost 45 % more instructions over a counter control (1.04 G against
+/// 0.72 G, 1.05 G against 0.73 G), and reading every item of a 16,000-item list by `LIST.get`,
+/// one descent per read, 0.3 % more.
 pub(crate) const DEFAULT_BRANCHING: usize = 32;
 
 /// The branching factor of the trees of variables: a [`Multiset`](multiset::Multiset) of
