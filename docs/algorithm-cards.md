@@ -329,6 +329,16 @@ classification = "responsibility-only"
 reason = "naming vocabulary of the shared term representation; term.rs has the primary card backend.term.macro_or_alias, and its constructor invariants are on its representation card, representation.backend.term"
 
 [[without_primary_card]]
+files = ["crates/k-rust-backend/src/term/items.rs", "crates/k-rust-backend/src/term/variables.rs"]
+classification = "responsibility-only"
+reason = "the interfaces of a collection term's items and of the variables attribute over the persistent tree, which chunked.rs carries as backend.term.chunked; what every Items value satisfies is its representation card, representation.backend.items"
+
+[[without_primary_card]]
+files = ["crates/k-rust-backend/src/term/chunked/summary.rs"]
+classification = "responsibility-only"
+reason = "the monoids a node of backend.term.chunked folds (counts, flags, a uniform value); the folding and its cost are on that card"
+
+[[without_primary_card]]
 files = ["crates/k-rust-backend/src/term/head.rs"]
 classification = "responsibility-only"
 reason = "the rigidity classifier consumed by the matching, unification and rule-index algorithms, which carry the cards"
@@ -364,7 +374,7 @@ files = [
   "crates/k-rust-backend/src/builtin/string.rs",
 ]
 classification = "responsibility-only"
-reason = "bounded namespace hook implementations dispatched by builtin.rs; they do not share one algorithm identity"
+reason = "bounded namespace hook implementations dispatched by builtin.rs; they do not share one algorithm identity. The collection hooks (list.rs, map.rs, set.rs) are each a few operations of the persistent tree that holds their arguments' items, backend.term.chunked, and each module head states its hooks' costs in the items n of the collection"
 
 [[without_primary_card]]
 files = ["crates/k-rust-backend/src/externalize.rs", "crates/k-rust-backend/src/verify.rs"]

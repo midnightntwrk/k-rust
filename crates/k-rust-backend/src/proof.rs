@@ -2901,7 +2901,7 @@ mod tests {
         assert_eq!(successor.term, term(&definition, "end{}(X:SortInt{})"));
         assert!(successor.constraints.is_empty());
         assert_eq!(
-            successor.term.attributes().variables,
+            successor.term.attributes().variables.to_btree_set(),
             BTreeSet::from([match x.kind() {
                 TermKind::Variable(variable) => variable.clone(),
                 _ => unreachable!("the test term is a variable"),

@@ -1138,7 +1138,8 @@ pub(crate) fn undetermined_variables(lhs: &Term) -> BTreeSet<Variable> {
     }
     lhs.attributes()
         .variables
-        .difference(&determined)
+        .iter()
+        .filter(|variable| !determined.contains(*variable))
         .cloned()
         .collect()
 }
@@ -1957,7 +1958,7 @@ fn check_detached(
         context.counts.several_matches += 1;
         context.counts.overlaps += 1;
         let read = match &equation.rule.rhs {
-            RuleRhs::Term(term) => Some(term.attributes().variables.clone()),
+            RuleRhs::Term(term) => Some(term.attributes().variables.to_btree_set()),
             RuleRhs::Bottom => Some(BTreeSet::new()),
             RuleRhs::Disjunction(_) | RuleRhs::Top | RuleRhs::Predicates(_)
                 if switches::active().self_pair_reads_opaque_rhs_as_nothing =>

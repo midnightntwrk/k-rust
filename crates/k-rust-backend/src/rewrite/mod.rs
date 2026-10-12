@@ -23,12 +23,12 @@ use apply::{
 use execute::execute_using;
 pub(crate) use execute::{simplify_leaf_pattern, simplify_result_pattern};
 pub use predicates::substitute_predicates;
+use predicates::{StateNames, extend_unique, pattern_variable_names};
 pub(crate) use predicates::{
     check_concreteness, conjunctively_contains_alpha_equivalent, predicate_root_truth,
     predicate_truth, predicates_truth, quantify_introduced_variables,
     violates_finite_constructor_domain,
 };
-use predicates::{extend_unique, pattern_variable_names};
 use recover::{
     GeneralUnificationRecovery, freshen_unbound_rule_variables, is_functional_pattern,
     recover_boolean_matches, recover_equality_matches, recover_function_equality_match,

@@ -564,8 +564,8 @@ impl Signature {
         }
     }
 
-    fn models(&self, items: &[Term]) -> Result<Vec<M>, String> {
-        items.iter().map(|i| self.model(i)).collect()
+    fn models<'t>(&self, items: impl IntoIterator<Item = &'t Term>) -> Result<Vec<M>, String> {
+        items.into_iter().map(|i| self.model(i)).collect()
     }
 
     /// Reads a collection term back: the sort `wrapper` takes, with an optional `\and` rest

@@ -32,7 +32,7 @@ use k_rust_backend::{
     rule::Predicate,
     search::{PatternMatch, PatternSearchResult, match_disjunction},
     substitution::Substitution,
-    term::{Sort as BackendSort, Variable, VariableKind as BackendVariableKind},
+    term::{Sort as BackendSort, Variable, VariableKind as BackendVariableKind, Variables},
 };
 
 use crate::{
@@ -172,7 +172,7 @@ pub fn map_generated_anonymous_variables(
     target: &Pattern,
     identities: &BTreeSet<KoreVariableIdentity>,
 ) -> Result<BTreeSet<Variable>, GeneratedIdentityMappingError> {
-    let mut variables = target.term.attributes().variables.clone();
+    let mut variables = target.term.attributes().variables.to_btree_set();
     for constraint in &target.constraints {
         collect_predicate_variables(constraint, &mut variables);
     }
@@ -462,7 +462,7 @@ fn variable_identities(source: External<'_>) -> BTreeSet<KoreVariableIdentity> {
     let mut work = vec![source];
     // Invariant: `identities` holds the identities of the variable nodes and binders of the expanded sources, and `work` holds the sources not yet read; each source is pushed once, by its parent.
     while let Some(source) = work.pop() {
-        if source.term_variables().is_some_and(BTreeSet::is_empty) {
+        if source.term_variables().is_some_and(Variables::is_empty) {
             continue;
         }
         let node = source.node();

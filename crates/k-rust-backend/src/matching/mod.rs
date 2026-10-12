@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "backend.matching.syntactic"
 //! name = "sort-aware one-way first-order matching by pair decomposition"
-//! sites = ["match_terms_with_context", "match_terms", "match_terms_in_definition", "match_term_pairs_in_definition", "Matcher::run", "Matcher::match_one"]
-//! variable = "p = pairs popped, bounded by |pattern| plus subject-side And duplications and one map_queue postponement per map pair; a = pair arity; s = bindings in the substitution; t = size of a bound term"
+//! sites = ["match_terms_with_context", "match_terms", "match_terms_in_definition", "match_term_pairs_in_definition", "Matcher::run", "Matcher::match_one", "Matcher::match_maps", "Matcher::match_sets", "Matcher::match_lists"]
+//! variable = "p = pairs popped, bounded by |pattern| plus subject-side And duplications and one map_queue postponement per map pair; a = pair arity; s = bindings in the substitution; t = size of a bound term; k = items a collection pattern names; n = items of the subject collection"
 //! counters = ["MatchingProblems", "MatchingPairs"]
 //! span = "per problem"
 //! consumes = [{ type = "k_rust_backend::matching::collections::CollectionSolution", role = "collection solution" }]
@@ -11,6 +11,14 @@
 //! [[cost]]
 //! mode = "one matching problem"
 //! bound = "O(p x (a + s x t))"
+//!
+//! [[cost]]
+//! mode = "a map or set pattern against a subject without rest (match_maps, match_sets): its items found and its rest bound"
+//! bound = "O(k log n): one search per pattern item and one removal per found item, the rest sharing the subject's other nodes; a ground item missing from a ground subject fails without a removal"
+//!
+//! [[cost]]
+//! mode = "a list pattern's items at either end (match_lists)"
+//! bound = "O(k + log n): k item pairs and one cut of the longer side"
 //! ```
 //!
 //! ```toml algorithm
@@ -46,8 +54,6 @@
 //! point of `crate::matching` keeps its path.
 
 mod collections;
-#[cfg(test)]
-pub(crate) use collections::SPLIT_COPIES;
 
 pub(crate) use collections::{
     CollectionMatches, CollectionSolution, Narrowing, expand_closed_map_implication_remainders,
@@ -58,8 +64,9 @@ pub(crate) use collections::{
 #[cfg(test)]
 pub(crate) use collections::cancel_common_opaque_chunks;
 use collections::{
-    CommonKeys, MapRemainder, PairRemainder, binds_each_key_once, find_common_keys,
-    is_opaque_concat, list_update_cannot_match, pair_prefix, pair_suffix, prepend,
+    CommonKeys, MapRemainder, PairRemainder, binds_each_key_once, find_common_elements,
+    find_common_keys, is_opaque_concat, list_update_cannot_match, pair_prefix, pair_suffix,
+    prepend,
 };
 
 use std::{
@@ -76,7 +83,8 @@ use crate::{
     instance_normal::InstanceNormal,
     substitution::{Substitution, substitute},
     term::{
-        HeadRole, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable,
+        HeadRole, Items, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind,
+        Variable,
         head::{
             Fixed, FixedRoot, Head, HeadClash, NormalEvidence, NormalForms, Open, PatternReading,
             RecordedPatterns, ReleasedRoots, RigidCycle, RootComparison, classify_pattern,
@@ -552,6 +560,28 @@ pub(crate) fn match_equation_in_definition(
         subject,
         true,
         unread_frames,
+        Scopes::Apart,
+    )
+}
+
+/// [`match_terms_in_definition`] in `Rewrite` mode for a rewrite rule's left-hand side `pattern`
+/// whose variables are apart from `subject`'s, as `rule::rename_apart` leaves a rule it is
+/// given with the subject's variables (renamed, or found apart already): the match does not
+/// look for shared variables again.
+pub(crate) fn match_rule_in_definition(
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+) -> MatchResult {
+    match_terms_with_context_and_frames(
+        MatchMode::Rewrite,
+        definition.sort_graph(),
+        Some(definition),
+        pattern,
+        subject,
+        false,
+        &NO_FRAMES,
+        Scopes::Apart,
     )
 }
 
@@ -569,19 +599,21 @@ pub(crate) fn match_term_pairs_in_definition(
     if pairs.is_empty() {
         return MatchResult::Success(Substitution::new());
     }
-    let pattern_variables = pairs
-        .iter()
-        .flat_map(|(pattern, _)| pattern.attributes().variables.iter().cloned())
-        .collect::<BTreeSet<_>>();
-    let subject_variables = pairs
-        .iter()
-        .flat_map(|(_, subject)| subject.attributes().variables.iter().cloned())
-        .collect::<BTreeSet<_>>();
-    let shared_variables = pattern_variables
-        .intersection(&subject_variables)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    if mode != MatchMode::Implies && !shared_variables.is_empty() {
+    // A variable is on both sides when some pattern's variable set meets some subject's: each
+    // pair of sets is tested by looking the smaller one's variables up in the larger, so a
+    // subject that holds a large configuration's variables is not copied. The pairs are few
+    // (a predicate's terms), and the shared variables themselves are gathered only to report
+    // them.
+    if mode != MatchMode::Implies
+        && pairs.iter().any(|(pattern, _)| {
+            pairs.iter().any(|(_, subject)| {
+                !pattern
+                    .attributes()
+                    .variables
+                    .is_disjoint(&subject.attributes().variables)
+            })
+        })
+    {
         return match mode {
             // Matching binds pattern variables only; a variable on both sides needs
             // unification. The pairs themselves are the remainder, so that the caller can
@@ -591,6 +623,17 @@ pub(crate) fn match_term_pairs_in_definition(
                 remainder: pairs,
             },
             MatchMode::Evaluate => {
+                let shared_variables = pairs
+                    .iter()
+                    .flat_map(|(pattern, _)| {
+                        pairs.iter().flat_map(move |(_, subject)| {
+                            pattern
+                                .attributes()
+                                .variables
+                                .intersection(&subject.attributes().variables)
+                        })
+                    })
+                    .collect::<BTreeSet<_>>();
                 MatchResult::Failed(FailReason::SharedVariables(shared_variables))
             }
             MatchMode::Implies => unreachable!(),
@@ -630,9 +673,7 @@ pub(crate) fn match_with_settled_evidence(
         let shared = pattern
             .attributes()
             .variables
-            .intersection(&subject.attributes().variables)
-            .cloned()
-            .collect();
+            .intersection(&subject.attributes().variables);
         return MatchResult::Failed(FailReason::SharedVariables(shared));
     }
     let mut matcher = Matcher::new(
@@ -664,9 +705,22 @@ fn match_terms_with_context(
         subject,
         equation_root,
         &NO_FRAMES,
+        Scopes::Unknown,
     )
 }
 
+/// What the caller knows of the variables of a pattern and its subject.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scopes {
+    /// The pattern's variables are apart from the subject's: the pattern is a rule's or an
+    /// equation's left-hand side that `rule::rename_apart` returned (or found apart) for this
+    /// subject.
+    Apart,
+    /// Nothing is known; the two sides may share a variable.
+    Unknown,
+}
+
+#[allow(clippy::too_many_arguments)]
 fn match_terms_with_context_and_frames(
     mode: MatchMode,
     sorts: &SortGraph,
@@ -675,22 +729,33 @@ fn match_terms_with_context_and_frames(
     subject: &Term,
     equation_root: bool,
     unread_frames: &BTreeSet<Variable>,
+    scopes: Scopes,
 ) -> MatchResult {
     let _span = measure::algorithm_span(Algorithm::BackendMatchingSyntactic);
     measure::bump(Counter::MatchingProblems);
     if pattern == subject {
         return MatchResult::Success(Substitution::new());
     }
-    let shared_variables = pattern
-        .attributes()
-        .variables
-        .intersection(&subject.attributes().variables)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    // Rule application renames a rule's variables apart from the subject before matching
-    // (`rule::rename_apart`), so this guard only meets callers whose two sides share one scope,
-    // where a variable on both sides is one variable and needs unification.
-    if mode != MatchMode::Implies && !shared_variables.is_empty() {
+    debug_assert!(
+        scopes == Scopes::Unknown
+            || pattern
+                .attributes()
+                .variables
+                .is_disjoint(&subject.attributes().variables),
+        "a pattern renamed apart shares a variable with its subject"
+    );
+    // A variable on both sides of a pair whose sides share one scope is one variable and needs
+    // unification, which matching does not do. Rule application renames a rule's variables
+    // apart from the subject before matching (`rule::rename_apart`) and says so (`Scopes::Apart`),
+    // so the lookups only run for callers whose two sides may share a scope. The shared
+    // variables are gathered only to report them.
+    if mode != MatchMode::Implies
+        && scopes == Scopes::Unknown
+        && !pattern
+            .attributes()
+            .variables
+            .is_disjoint(&subject.attributes().variables)
+    {
         return match mode {
             // As in `match_term_pairs_in_definition`: the pair is the remainder, not a
             // placeholder over the shared variables, which would drop the pair.
@@ -698,9 +763,12 @@ fn match_terms_with_context_and_frames(
                 substitution: Substitution::new(),
                 remainder: vec![(pattern.clone(), subject.clone())],
             },
-            MatchMode::Evaluate => {
-                MatchResult::Failed(FailReason::SharedVariables(shared_variables))
-            }
+            MatchMode::Evaluate => MatchResult::Failed(FailReason::SharedVariables(
+                pattern
+                    .attributes()
+                    .variables
+                    .intersection(&subject.attributes().variables),
+            )),
             MatchMode::Implies => unreachable!(),
         };
     }
@@ -725,6 +793,10 @@ struct Matcher<'a> {
     sorts: &'a SortGraph,
     definition: Option<&'a BackendDefinition>,
     substitution: Substitution,
+    /// Some value of `substitution` has a variable. Only [`Matcher::bind`] changes the
+    /// substitution: it sets this when it binds a value with a variable and never clears it, so
+    /// while it is false every value is ground and no value can mention a variable being bound.
+    symbolic_values: bool,
     queue: VecDeque<(Term, Term)>,
     map_queue: VecDeque<(Term, Term)>,
     indeterminate: Vec<(Term, Term)>,
@@ -853,6 +925,7 @@ impl<'a> Matcher<'a> {
             sorts,
             definition,
             substitution: Substitution::new(),
+            symbolic_values: false,
             queue,
             map_queue: VecDeque::new(),
             indeterminate: Vec::new(),
@@ -1057,9 +1130,9 @@ impl<'a> Matcher<'a> {
                 },
             ) if left == right => self.match_lists(
                 left.clone(),
-                left_heads.clone(),
+                left_heads,
                 left_rest.clone(),
-                right_heads.clone(),
+                right_heads,
                 right_rest.clone(),
             ),
             (
@@ -1075,9 +1148,9 @@ impl<'a> Matcher<'a> {
                 },
             ) if left == right => self.match_sets(
                 left.clone(),
-                left_elements.clone(),
+                left_elements,
                 left_rest.clone(),
-                right_elements.clone(),
+                right_elements,
                 right_rest.clone(),
             ),
             (
@@ -1554,17 +1627,24 @@ impl<'a> Matcher<'a> {
             })
     }
 
+    /// Match the list `pattern_heads` with `pattern_rest` against the list `subject_heads` with
+    /// `subject_rest`, items at the same position from either end paired.
+    ///
+    /// The pairs are as many as the shorter side has at that end, and what the longer side holds
+    /// beyond them is its tree cut there (`pair_prefix`, `pair_suffix`), so a pattern that names
+    /// `k` items at the ends of an `n`-item subject beside a rest variable binds the rest to a
+    /// list sharing the subject's nodes, `O(k + log n)`, whatever `n` is.
     fn match_lists(
         &mut self,
         definition: Arc<ListDefinition>,
-        pattern_heads: Vec<Term>,
-        pattern_rest: Option<(Term, Vec<Term>)>,
-        subject_heads: Vec<Term>,
-        subject_rest: Option<(Term, Vec<Term>)>,
+        pattern_heads: &Items<Term>,
+        pattern_rest: Option<(Term, Items<Term>)>,
+        subject_heads: &Items<Term>,
+        subject_rest: Option<(Term, Items<Term>)>,
     ) -> Result<(), FailReason> {
-        let (mut problems, head_remainder) = pair_prefix(&pattern_heads, &subject_heads);
-        let empty = || Term::list(definition.clone(), Vec::new(), None);
-        let list = |heads, rest| Term::list(definition.clone(), heads, rest);
+        let (mut problems, head_remainder) = pair_prefix(pattern_heads, subject_heads);
+        let empty = || Term::list_of_items(definition.clone(), Items::new(), None);
+        let list = |heads, rest| Term::list_of_items(definition.clone(), heads, rest);
 
         let mut rest_problems = match (pattern_rest, subject_rest, head_remainder) {
             (None, None, None) => Vec::new(),
@@ -1580,18 +1660,18 @@ impl<'a> Matcher<'a> {
                 if narrowable {
                     let pattern_heads = match remainder {
                         Some(PairRemainder::Left(heads)) => heads,
-                        None => Vec::new(),
+                        None => Items::new(),
                         Some(PairRemainder::Right(_)) => unreachable!("excluded above"),
                     };
-                    self.defer(list(pattern_heads, None), list(Vec::new(), Some(rest)))?;
+                    self.defer(list(pattern_heads, None), list(Items::new(), Some(rest)))?;
                     Vec::new()
                 } else {
                     let (left, right) = match remainder {
                         Some(PairRemainder::Left(heads)) => {
-                            (list(heads, None), list(Vec::new(), Some(rest)))
+                            (list(heads, None), list(Items::new(), Some(rest)))
                         }
                         Some(PairRemainder::Right(heads)) => (empty(), list(heads, Some(rest))),
-                        None => (empty(), list(Vec::new(), Some(rest))),
+                        None => (empty(), list(Items::new(), Some(rest))),
                     };
                     return Err(FailReason::DifferentValues(left, right));
                 }
@@ -1601,7 +1681,7 @@ impl<'a> Matcher<'a> {
             }
             (Some(rest), None, None) => {
                 return Err(FailReason::DifferentValues(
-                    list(Vec::new(), Some(rest)),
+                    list(Items::new(), Some(rest)),
                     empty(),
                 ));
             }
@@ -1617,7 +1697,7 @@ impl<'a> Matcher<'a> {
                     None => prepend((middle, empty()), tail_pairs),
                     Some(PairRemainder::Left(extra)) => {
                         return Err(FailReason::DifferentValues(
-                            list(Vec::new(), Some((middle, extra))),
+                            list(Items::new(), Some((middle, extra))),
                             empty(),
                         ));
                     }
@@ -1632,14 +1712,14 @@ impl<'a> Matcher<'a> {
                     Some(PairRemainder::Left(heads)) => {
                         self.defer(
                             list(heads, Some((pattern_middle, pattern_tails))),
-                            list(Vec::new(), Some((subject_middle, subject_tails))),
+                            list(Items::new(), Some((subject_middle, subject_tails))),
                         )?;
                         Vec::new()
                     }
                     remainder => {
                         let subject_heads = match remainder {
                             Some(PairRemainder::Right(heads)) => heads,
-                            _ => Vec::new(),
+                            _ => Items::new(),
                         };
                         let (tail_pairs, tail_remainder) =
                             pair_suffix(&pattern_tails, &subject_tails);
@@ -1647,14 +1727,14 @@ impl<'a> Matcher<'a> {
                             None => prepend(
                                 (
                                     pattern_middle,
-                                    list(subject_heads, Some((subject_middle, Vec::new()))),
+                                    list(subject_heads, Some((subject_middle, Items::new()))),
                                 ),
                                 tail_pairs,
                             ),
                             Some(PairRemainder::Left(extra)) => {
                                 self.defer(
-                                    list(Vec::new(), Some((pattern_middle, extra))),
-                                    list(subject_heads, Some((subject_middle, Vec::new()))),
+                                    list(Items::new(), Some((pattern_middle, extra))),
+                                    list(subject_heads, Some((subject_middle, Items::new()))),
                                 )?;
                                 Vec::new()
                             }
@@ -1679,16 +1759,19 @@ impl<'a> Matcher<'a> {
     /// rest are `subject_entries` and `subject_rest`.
     ///
     /// The pattern's keys are taken under the substitution so far, which may reorder them or
-    /// make two of them equal; the subject's entries are as `Term::map` stores them, so its keys
-    /// are found by search (`split_common_keys`), and only the entries outside the common keys
-    /// are copied.
+    /// make two of them equal; the subject's entries are as `Term::map` stores them, a tree in
+    /// key order, so its keys are found by search (`find_common_keys`), and its entries outside
+    /// the common keys are its tree with the found entries removed by path copy
+    /// (`FoundKeys::split`): a match that binds `k` keys of an `n`-entry subject builds
+    /// `O(k log n)` nodes and shares the others. Whether the subject repeats a key is read from
+    /// its tree's summary.
     fn match_maps(
         &mut self,
         definition: Arc<MapDefinition>,
-        pattern_entries: &[(Term, Term)],
+        pattern_entries: &Items<(Term, Term)>,
         pattern_rest: Option<Term>,
         subject: &Term,
-        subject_entries: &[(Term, Term)],
+        subject_entries: &Items<(Term, Term)>,
         subject_rest: Option<Term>,
     ) -> Result<(), FailReason> {
         let mut pattern_entries = pattern_entries
@@ -1697,7 +1780,7 @@ impl<'a> Matcher<'a> {
             .collect::<Vec<_>>();
         check_duplicate_keys(&definition, &pattern_entries, &pattern_rest)?;
         if !binds_each_key_once(subject) {
-            check_duplicate_keys(&definition, subject_entries, &subject_rest)?;
+            check_stored_duplicate_keys(&definition, subject_entries, &subject_rest)?;
         }
 
         if pattern_rest
@@ -1709,7 +1792,7 @@ impl<'a> Matcher<'a> {
         {
             return self.defer(
                 Term::map(definition.clone(), pattern_entries, pattern_rest),
-                Term::map(definition, subject_entries.to_vec(), subject_rest),
+                Term::map_of_items(definition, subject_entries.clone(), subject_rest),
             );
         }
 
@@ -1738,18 +1821,17 @@ impl<'a> Matcher<'a> {
         // subject has no rest (which could bind it) and every other key of the subject is
         // constructor-like too, is bound by no subject entry at all:
         // distinct constructor-like terms denote distinct values. The match fails on that key,
-        // decided from key attributes alone, before the subject's other entries are copied: the
-        // failure names the key and nothing else, since no reader of a failed match needs the
-        // subject's remainder. A constructor-like map has constructor-like keys.
+        // decided from key attributes alone, before the subject's other entries are taken apart
+        // from the found ones: the failure names the key and nothing else, since no reader of a
+        // failed match needs the subject's remainder. A constructor-like map has constructor-like
+        // keys; otherwise the subject's summary counts the keys that are not.
         if let Some((key, _)) = found
             .pattern_only
             .iter()
             .find(|(key, _)| key.attributes().constructor_like)
             && subject_rest.is_none()
             && (subject.attributes().constructor_like
-                || found
-                    .others(subject_entries)
-                    .all(|(key, _)| key.attributes().constructor_like))
+                || found.others_constructor_like(subject_entries))
         {
             return Err(FailReason::KeyNotFound(key.clone()));
         }
@@ -1759,7 +1841,8 @@ impl<'a> Matcher<'a> {
             subject_only,
         } = found.split(subject_entries);
 
-        let pattern = MapRemainder::new(pattern_only, pattern_rest);
+        // The pattern's other entries are in key order (sorted above), the stored order.
+        let pattern = MapRemainder::new(Items::from_vec(pattern_only), pattern_rest);
         let subject = MapRemainder::new(subject_only, subject_rest);
         let mut rest = self.match_map_remainders(&definition, pattern, subject)?;
         values.append(&mut rest);
@@ -1767,12 +1850,19 @@ impl<'a> Matcher<'a> {
         Ok(())
     }
 
+    /// The pattern's elements are taken under the substitution so far, which may reorder them
+    /// or make two of them equal; the subject's are as `Term::set` stores them, a tree in the
+    /// set's order, so each pattern element is sought in it (`find_common_elements`), and the
+    /// subject's elements outside the common ones are its tree with the found ones removed by
+    /// path copy: a match that finds `k` elements of an `n`-element subject builds
+    /// `O(k log n)` nodes and shares the others. Whether the subject repeats an element, and
+    /// whether its other elements are all constructor-like, is read from its tree's summary.
     fn match_sets(
         &mut self,
         definition: Arc<crate::term::SetDefinition>,
-        pattern_elements: Vec<Term>,
+        pattern_elements: &Items<Term>,
         pattern_rest: Option<Term>,
-        subject_elements: Vec<Term>,
+        subject_elements: &Items<Term>,
         subject_rest: Option<Term>,
     ) -> Result<(), FailReason> {
         if pattern_rest
@@ -1783,58 +1873,51 @@ impl<'a> Matcher<'a> {
                 .is_some_and(|rest| is_opaque_concat(rest, &definition.symbols.concat))
         {
             return self.defer(
-                Term::set(definition.clone(), pattern_elements, pattern_rest),
-                Term::set(definition, subject_elements, subject_rest),
+                Term::set_of_items(definition.clone(), pattern_elements.clone(), pattern_rest),
+                Term::set_of_items(definition, subject_elements.clone(), subject_rest),
             );
         }
-        let pattern_elements = pattern_elements
-            .into_iter()
-            .map(|element| substitute(&element, &self.substitution))
+        let mut pattern_elements = pattern_elements
+            .iter()
+            .map(|element| substitute(element, &self.substitution))
             .collect::<Vec<_>>();
         check_duplicate_elements(&definition, &pattern_elements, &pattern_rest)?;
-        check_duplicate_elements(&definition, &subject_elements, &subject_rest)?;
-        let mut pattern_elements = pattern_elements.into_iter().collect::<BTreeSet<_>>();
-        let mut subject_elements = subject_elements.into_iter().collect::<BTreeSet<_>>();
-        let common = pattern_elements
-            .intersection(&subject_elements)
-            .cloned()
-            .collect::<Vec<_>>();
-        for element in common {
-            pattern_elements.remove(&element);
-            subject_elements.remove(&element);
-        }
-
-        let pattern_symbolic = pattern_elements
-            .iter()
-            .filter(|element| !element.attributes().constructor_like)
-            .cloned()
-            .collect::<Vec<_>>();
-        let pattern_concrete = pattern_elements
-            .iter()
-            .filter(|element| element.attributes().constructor_like)
-            .cloned()
-            .collect::<Vec<_>>();
-        let subject_symbolic = subject_elements
-            .iter()
-            .filter(|element| !element.attributes().constructor_like)
-            .cloned()
-            .collect::<Vec<_>>();
+        check_stored_duplicate_elements(&definition, subject_elements, &subject_rest)?;
+        // The pattern's elements are pairwise different now, so sorting them gives the set's
+        // order, in which the subject's are stored.
+        pattern_elements.sort();
+        let found = find_common_elements(&pattern_elements, subject_elements);
         let set = |elements, rest| Term::set(definition.clone(), elements, rest);
 
-        if let Some(element) = pattern_concrete.first() {
-            if subject_symbolic.is_empty() && subject_rest.is_none() {
+        // A constructor-like pattern element that the subject does not hold syntactically,
+        // while the subject has no rest and every other element of it is constructor-like, is
+        // held by no subject element at all: distinct constructor-like terms denote distinct
+        // values. The match fails on that element (the least such), decided from the subject's
+        // summary before its other elements are taken apart from the found ones. Otherwise a
+        // symbolic subject element or the subject's rest may hold it, which the collection
+        // solver decides.
+        if let Some(element) = found
+            .pattern_only
+            .iter()
+            .find(|element| element.attributes().constructor_like)
+        {
+            if subject_rest.is_none() && found.others_constructor_like(subject_elements) {
                 return Err(FailReason::KeyNotFound(element.clone()));
             }
+            let subject_only = found.subject_only(subject_elements);
             return self.defer(
-                set(pattern_elements.into_iter().collect(), pattern_rest),
-                set(subject_elements.into_iter().collect(), subject_rest),
+                set(found.pattern_only, pattern_rest),
+                Term::set_of_items(definition.clone(), subject_only, subject_rest),
             );
         }
 
-        if pattern_symbolic.is_empty() {
-            let subject_is_empty = subject_elements.is_empty() && subject_rest.is_none();
+        let subject_only = found.subject_only(subject_elements);
+        let pattern_only = found.pattern_only;
+        let subject_set = |elements, rest| Term::set_of_items(definition.clone(), elements, rest);
+        if pattern_only.is_empty() {
+            let subject_is_empty = subject_only.is_empty() && subject_rest.is_none();
             let subject_has_rest = subject_rest.is_some();
-            let subject = set(subject_elements.into_iter().collect(), subject_rest);
+            let subject = subject_set(subject_only, subject_rest);
             if let Some(rest) = pattern_rest {
                 self.enqueue(rest, subject);
                 return Ok(());
@@ -1851,26 +1934,27 @@ impl<'a> Matcher<'a> {
             ));
         }
 
-        if pattern_symbolic.len() == 1 && subject_elements.len() == 1 && subject_rest.is_none() {
+        // Every pattern element left is symbolic (the constructor-like ones returned above).
+        if pattern_only.len() == 1 && subject_only.len() == 1 && subject_rest.is_none() {
             self.enqueue(
-                pattern_symbolic.into_iter().next().unwrap(),
-                subject_elements.into_iter().next().unwrap(),
+                pattern_only.into_iter().next().unwrap(),
+                subject_only.first().expect("one element").clone(),
             );
             if let Some(rest) = pattern_rest {
-                self.enqueue(rest, set(Vec::new(), subject_rest));
+                self.enqueue(rest, set(Vec::new(), None));
             }
             return Ok(());
         }
 
-        if subject_elements.is_empty() && subject_rest.is_none() {
+        if subject_only.is_empty() && subject_rest.is_none() {
             return Err(FailReason::DifferentContents(
-                set(pattern_elements.into_iter().collect(), pattern_rest),
+                set(pattern_only, pattern_rest),
                 set(Vec::new(), None),
             ));
         }
         self.defer(
-            set(pattern_elements.into_iter().collect(), pattern_rest),
-            set(subject_elements.into_iter().collect(), subject_rest),
+            set(pattern_only, pattern_rest),
+            subject_set(subject_only, subject_rest),
         )
     }
 
@@ -1880,17 +1964,17 @@ impl<'a> Matcher<'a> {
         pattern: MapRemainder,
         subject: MapRemainder,
     ) -> Result<Vec<(Term, Term)>, FailReason> {
-        if !pattern.concrete.is_empty() {
+        if pattern.concrete() > 0 {
             // `match_maps` refutes a pattern key that a subject without a rest and with
             // constructor-like keys only lacks.
-            debug_assert!(!subject.symbolic.is_empty() || subject.rest.is_some());
+            debug_assert!(subject.symbolic() > 0 || subject.rest.is_some());
             self.defer(
                 pattern.to_term(definition.clone()),
                 subject.to_term(definition.clone()),
             )?;
             return Ok(Vec::new());
         }
-        if pattern.symbolic.is_empty() && pattern.rest.is_none() {
+        if pattern.symbolic() == 0 && pattern.rest.is_none() {
             if subject.is_empty() {
                 return Ok(Vec::new());
             }
@@ -1906,17 +1990,12 @@ impl<'a> Matcher<'a> {
                 subject.to_term(definition.clone()),
             ));
         }
-        if pattern.symbolic.len() == 1
-            && subject.concrete.len() + subject.symbolic.len() == 1
-            && subject.rest.is_none()
-        {
-            let (pattern_key, pattern_value) = pattern.symbolic[0].clone();
-            let (subject_key, subject_value) = subject
-                .concrete
-                .first()
-                .or_else(|| subject.symbolic.first())
-                .unwrap()
+        if pattern.symbolic() == 1 && subject.entries.len() == 1 && subject.rest.is_none() {
+            let (pattern_key, pattern_value) = pattern
+                .first_symbolic()
+                .expect("one symbolic entry")
                 .clone();
+            let (subject_key, subject_value) = subject.entries.first().expect("one entry").clone();
             let mut problems = vec![(pattern_key, subject_key), (pattern_value, subject_value)];
             if let Some(rest) = pattern.rest {
                 problems.push((
@@ -1926,12 +2005,11 @@ impl<'a> Matcher<'a> {
             }
             return Ok(problems);
         }
-        if !pattern.symbolic.is_empty() {
+        if pattern.symbolic() > 0 {
             if subject.is_empty()
                 || (pattern.rest.is_none()
                     && self.mode != MatchMode::Rewrite
-                    && subject.concrete.is_empty()
-                    && subject.symbolic.is_empty()
+                    && subject.entries.is_empty()
                     && subject
                         .rest
                         .as_ref()
@@ -2015,15 +2093,21 @@ impl<'a> Matcher<'a> {
             };
         }
         // Only a value that mentions `variable` changes under the singleton substitution;
-        // every other value is kept as it is instead of being rebuilt into an equal handle.
-        let mut singleton = None;
-        for value in self.substitution.values_mut() {
-            if value.attributes().variables.contains(&variable) {
-                let singleton = singleton
-                    .get_or_insert_with(|| Substitution::from([(variable.clone(), term.clone())]));
-                *value = substitute(value, singleton);
+        // every other value is kept as it is instead of being rebuilt into an equal handle. A
+        // ground value mentions no variable, so while every value is ground (a ground subject)
+        // none is looked at.
+        if self.symbolic_values {
+            let mut singleton = None;
+            for value in self.substitution.values_mut() {
+                if value.attributes().variables.contains(&variable) {
+                    let singleton = singleton.get_or_insert_with(|| {
+                        Substitution::from([(variable.clone(), term.clone())])
+                    });
+                    *value = substitute(value, singleton);
+                }
             }
         }
+        self.symbolic_values |= !term.attributes().variables.is_empty();
         self.substitution.insert(variable, term);
         Ok(())
     }
@@ -2624,22 +2708,24 @@ fn substitute_sort_parameters(sort: &Sort, parameters: &BTreeMap<Name, Sort>) ->
     }
 }
 
-fn check_duplicate_keys(
+fn check_duplicate_keys<'a>(
     definition: &Arc<MapDefinition>,
-    entries: &[(Term, Term)],
+    entries: impl IntoIterator<Item = &'a (Term, Term), IntoIter: Clone>,
     rest: &Option<Term>,
 ) -> Result<(), FailReason> {
+    let entries = entries.into_iter();
+    let keys = entries.clone().map(|(key, _)| key);
     // The least key that occurs twice. In entries sorted by key, as `Term::map` stores them,
     // equal keys are adjacent, so one pass over neighbours finds it without copying a key;
     // entries in another order (a pattern's, after its keys were substituted) are counted.
-    let duplicate = if entries.is_sorted_by(|left, right| left.0 <= right.0) {
-        entries
-            .windows(2)
-            .find(|pair| pair[0].0 == pair[1].0)
-            .map(|pair| pair[0].0.clone())
+    let duplicate = if keys.clone().is_sorted() {
+        keys.clone()
+            .zip(keys.skip(1))
+            .find(|(left, right)| left == right)
+            .map(|(key, _)| key.clone())
     } else {
         let mut counts = BTreeMap::new();
-        for (key, _) in entries {
+        for (key, _) in entries.clone() {
             *counts.entry(key).or_insert(0usize) += 1;
         }
         counts
@@ -2650,10 +2736,33 @@ fn check_duplicate_keys(
     if let Some(key) = duplicate {
         return Err(FailReason::DuplicateKeys(
             key,
-            Term::map(definition.clone(), entries.to_vec(), rest.clone()),
+            Term::map(definition.clone(), entries.cloned().collect(), rest.clone()),
         ));
     }
     Ok(())
+}
+
+/// [`check_duplicate_keys`] for the entries of a map term, a tree in their stored order, whose
+/// repeated keys are adjacent: the summary's adjacent-key flag (`collision`) says whether there
+/// is one, so the entries are read only to name the least repeated key of a map that has one.
+fn check_stored_duplicate_keys(
+    definition: &Arc<MapDefinition>,
+    entries: &Items<(Term, Term)>,
+    rest: &Option<Term>,
+) -> Result<(), FailReason> {
+    if !entries.summary().collision {
+        return Ok(());
+    }
+    let key = entries
+        .iter()
+        .zip(entries.iter().skip(1))
+        .find(|(left, right)| left.0 == right.0)
+        .map(|(left, _)| left.0.clone())
+        .expect("a collision is a pair of adjacent entries of one key");
+    Err(FailReason::DuplicateKeys(
+        key,
+        Term::map_of_items(definition.clone(), entries.clone(), rest.clone()),
+    ))
 }
 
 /// A set that holds an element twice is `\bottom` (set concatenation is nilpotent, `Term::set`),
@@ -2678,6 +2787,29 @@ fn check_duplicate_elements(
         ));
     }
     Ok(())
+}
+
+/// [`check_duplicate_elements`] for a subject's elements, which are stored in the set's order, so
+/// a repeat is a pair of neighbours and the tree's summary says whether there is one: no element
+/// is read unless there is.
+fn check_stored_duplicate_elements(
+    definition: &Arc<crate::term::SetDefinition>,
+    elements: &Items<Term>,
+    rest: &Option<Term>,
+) -> Result<(), FailReason> {
+    if !elements.summary().collision {
+        return Ok(());
+    }
+    let element = elements
+        .iter()
+        .zip(elements.iter().skip(1))
+        .find(|(left, right)| left == right)
+        .map(|(left, _)| left.clone())
+        .expect("a collision is a pair of adjacent equal elements");
+    Err(FailReason::DuplicateKeys(
+        element,
+        Term::set_of_items(definition.clone(), elements.clone(), rest.clone()),
+    ))
 }
 
 /// Whether `term` is an application of a function-typed symbol (`SymbolType::Function`). This is

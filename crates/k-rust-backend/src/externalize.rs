@@ -16,7 +16,7 @@ use crate::{
     rule::Predicate,
     substitution::Substitution,
     term::{
-        CollectionSymbols, Sort, Term, TermKind, Variable,
+        CollectionSymbols, Sort, Term, TermKind, Variable, Variables,
         names::{FreshMarker, HookName, HookNamespace, encode_variable_name, with_fresh_marker},
     },
 };
@@ -1164,7 +1164,10 @@ fn component(term: &Term, index: usize) -> External<'_> {
                 let (middle, tails) = rest.as_ref().expect("the index is below the count");
                 match index - heads.len() {
                     0 => External::Term(middle),
-                    tail => External::Element(element, &tails[tail - 1]),
+                    tail => External::Element(
+                        element,
+                        tails.get(tail - 1).expect("the index is below the count"),
+                    ),
                 }
             }
         }
@@ -1504,7 +1507,7 @@ impl<'t> PatternSource<'t> for External<'t> {
 impl External<'_> {
     /// A superset of the backend variables whose externalized forms occur in this pattern, when
     /// it is a term, a suffix of a collection term, or a collection item; `None` otherwise.
-    pub fn term_variables(&self) -> Option<&BTreeSet<Variable>> {
+    pub fn term_variables(&self) -> Option<&Variables> {
         match self {
             Self::Term(term) | Self::Components(term, _) | Self::Element(_, term) => {
                 Some(&term.attributes().variables)

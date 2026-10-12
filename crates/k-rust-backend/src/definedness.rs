@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "one term (ceil_term)"
-//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys, O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, and same_apart_skeleton against each group of the same hash) and, per key, the later keys to check: O(m) to scan them when fewer later keys of its group are skipped than checked, otherwise O(g log m + c log c) to gather and sort the c later keys of other groups and of equal keys; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
+//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once and the items of a collection that are not ceil_free reached through its summaries, O(log m) each, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys other than one without rest whose keys share one header and repeat none (read from its summary, no key obligation), O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, and same_apart_skeleton against each group of the same hash) and, per key, the later keys to check: O(m) to scan them when fewer later keys of its group are skipped than checked, otherwise O(g log m + c log c) to gather and sort the c later keys of other groups and of equal keys; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
 //!
 //! [[cost]]
 //! mode = "one rule or equation condition (condition_definedness)"
@@ -98,7 +98,7 @@ enum AtCeilFree {
     /// Skip it: it has no obligation.
     Skip,
     /// Walk it as any other subterm.
-    #[cfg(test)]
+    #[cfg(any(test, debug_assertions))]
     Descend,
 }
 
@@ -150,12 +150,20 @@ fn ceil_term_walk(
                 continue;
             }
         };
+        #[cfg(test)]
+        WALKED_TERMS.set(WALKED_TERMS.get() + 1);
         if at_ceil_free == AtCeilFree::Skip && term.attributes().ceil_free() {
             #[cfg(debug_assertions)]
             check_ceil_free(definition, term);
             continue;
         }
-        let after = ceil_term_node(definition, term, &mut predicates, &mut children);
+        let after = ceil_term_node(
+            definition,
+            term,
+            at_ceil_free,
+            &mut predicates,
+            &mut children,
+        );
         if !after.is_empty() {
             work.push(Pending::Obligations(after));
         }
@@ -176,6 +184,11 @@ fn ceil_term_walk(
 /// the same subterm at every level (a list a recursive equation consumes) stays linear. A node is
 /// not checked again under another definition: the attribute is a function of the term, and
 /// `ceilFree_sound` holds for every definition.
+///
+/// A map whose keys share one header and which has no rest is checked through its entries' tree
+/// (`check_map_entries`), a set likewise through its elements' (`check_set_elements`), and a list
+/// through its items' trees (`check_list_items`), so that a collection edited since its last
+/// check costs the paths the edits copied, not its size.
 #[cfg(debug_assertions)]
 fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
     if term.ceil_free_checked() {
@@ -185,11 +198,36 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
     let mut children = Vec::new();
     let mut unchecked = vec![term];
     let mut passed = Vec::new();
+    let mut passed_entries = Vec::new();
+    let mut passed_elements = Vec::new();
+    let mut passed_items = Vec::new();
     while let Some(node) = unchecked.pop() {
         if node.ceil_free_checked() {
             continue;
         }
-        let after = ceil_term_node(definition, node, &mut obligations, &mut children);
+        if let Some(entries) = check_map_entries(definition, node, &mut unchecked) {
+            passed_entries.push(entries);
+            passed.push(node);
+            continue;
+        }
+        if let Some(elements) = check_set_elements(definition, node, &mut unchecked) {
+            passed_elements.push(elements);
+            passed.push(node);
+            continue;
+        }
+        if let Some(items) = check_list_items(node, &mut unchecked) {
+            passed_items.extend(items);
+            passed.push(node);
+            continue;
+        }
+        // Every child is checked, so every child is pushed.
+        let after = ceil_term_node(
+            definition,
+            node,
+            AtCeilFree::Descend,
+            &mut obligations,
+            &mut children,
+        );
         assert!(
             obligations.is_empty() && after.is_empty(),
             "a ceil_free term has definedness obligations: {term:?}"
@@ -197,20 +235,155 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
         unchecked.append(&mut children);
         passed.push(node);
     }
+    for entries in passed_entries {
+        entries.mark();
+    }
+    for elements in passed_elements.into_iter().chain(passed_items) {
+        elements.mark();
+    }
     for node in passed {
         node.mark_ceil_free_checked();
+    }
+}
+
+/// Debug builds: [`check_ceil_free`] at a map without a rest whose keys share one header (the
+/// entries' summary), which a `ceil_free` map is: asserts that the map node has no obligation
+/// of its own, pushes its keys and values onto `unchecked`, and returns the tree nodes it read,
+/// to be marked once they pass; `None` for any other node, which the walk checks as it is.
+///
+/// Without a rest, the obligations of the node are the disequalities of its pairs of keys that
+/// are not apart. The keys are domain values, or injections of domain values, all with one
+/// header (`key_header`), so two of them are apart exactly when they differ; ordered, they all
+/// differ when each differs from the next. So checking that each key is apart from the next
+/// (`elements_are_apart`, the walk's own test of a pair) checks every pair, and the pairs and
+/// keys the tree hands over are those of the nodes not checked before
+/// (`Items::check_unchecked`): a map edited since its last check costs the copied paths.
+#[cfg(debug_assertions)]
+fn check_map_entries<'t>(
+    definition: &BackendDefinition,
+    term: &'t Term,
+    unchecked: &mut Vec<&'t Term>,
+) -> Option<crate::term::chunked::Unchecked<'t, (Term, Term)>> {
+    let TermKind::Map {
+        entries,
+        rest: None,
+        ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    if !entries.summary().extra.keys_share_one_header() {
+        return None;
+    }
+    Some(entries.check_unchecked(
+        |items| unchecked.extend(items.iter().flat_map(|(key, value)| [key, value])),
+        |(left, _), (right, _)| {
+            assert!(
+                elements_are_apart(definition, left, right),
+                "a ceil_free map binds keys that are not apart, {left:?} and {right:?}: {term:?}"
+            );
+        },
+    ))
+}
+
+/// Debug builds: [`check_ceil_free`] at a set without a rest whose elements share one header,
+/// as [`check_map_entries`] at a map, with the elements as the keys: each element apart from the
+/// next checks every pair, and the elements and pairs handed over are those of the tree nodes not
+/// checked before.
+#[cfg(debug_assertions)]
+fn check_set_elements<'t>(
+    definition: &BackendDefinition,
+    term: &'t Term,
+    unchecked: &mut Vec<&'t Term>,
+) -> Option<crate::term::chunked::Unchecked<'t, Term>> {
+    let TermKind::Set {
+        elements,
+        rest: None,
+        ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    if !elements.summary().extra.keys_share_one_header() {
+        return None;
+    }
+    Some(elements.check_unchecked(
+        |items| unchecked.extend(items),
+        |left, right| {
+            assert!(
+                elements_are_apart(definition, left, right),
+                "a ceil_free set holds elements that are not apart, {left:?} and {right:?}: \
+                 {term:?}"
+            );
+        },
+    ))
+}
+
+/// Debug builds: [`check_ceil_free`] at a list, which has no obligation of its own (the walk
+/// only collects its items' and middle's, `ceil_term_node`): pushes its middle, and the items of
+/// the tree nodes of its heads and tails not checked before, onto `unchecked`, and returns those
+/// nodes, to be marked once they pass; `None` for any other node.
+///
+/// A list puts no condition on adjacent items, so a node this check marks has passed its items
+/// only, not the pair condition a set's check adds; that holds because no set is built from a
+/// list's tree nodes (`SET.list2set` sorts the items and loads a new tree).
+#[cfg(debug_assertions)]
+fn check_list_items<'t>(
+    term: &'t Term,
+    unchecked: &mut Vec<&'t Term>,
+) -> Option<[crate::term::chunked::Unchecked<'t, Term>; 2]> {
+    let TermKind::List { heads, rest, .. } = term.kind() else {
+        return None;
+    };
+    let mut check = |items: &'t crate::term::Items<Term>| {
+        items.check_unchecked(|items| unchecked.extend(items), |_, _| {})
+    };
+    let heads = check(heads);
+    let tails = match rest {
+        Some((middle, tails)) => {
+            let tails = check(tails);
+            unchecked.push(middle);
+            tails
+        }
+        None => crate::term::chunked::Unchecked::none(),
+    };
+    Some([heads, tails])
+}
+
+/// Push the items of a list segment onto `children`: those that are not `ceil_free` when
+/// `skip`, all of them otherwise.
+fn push_list_items<'a>(
+    items: &'a crate::term::Items<Term>,
+    skip: bool,
+    children: &mut Vec<&'a Term>,
+) {
+    if skip {
+        children.extend(items.lacking(crate::term::Flag::CeilFree));
+    } else {
+        children.extend(items);
     }
 }
 
 /// One node of the definedness walk: appends the node's own obligations to `before` and its
 /// children, left to right, to `children`, and returns the obligations that follow the
 /// children's.
+///
+/// When the walk skips `ceil_free` subterms (`AtCeilFree::Skip`), a collection's children that
+/// are `ceil_free` are not appended: they are reached through the trees' summaries
+/// (`Items::lacking`), so a large collection with a few items that have obligations costs those
+/// items, not all of them. Such a child would be skipped when taken, and has no obligation, so
+/// the result is the same; the debug check that the walk runs at the subterms it skips
+/// (`check_ceil_free`) does not reach them. Likewise a map or set without a rest whose keys share
+/// one header and are distinct (the summary's `collision`) has no obligation of its own, as for
+/// its `ceil_free` attribute: two distinct keys of one header are apart, so no pair is stated.
 fn ceil_term_node<'a>(
     definition: &BackendDefinition,
     term: &'a Term,
+    at_ceil_free: AtCeilFree,
     before: &mut Vec<Predicate>,
     children: &mut Vec<&'a Term>,
 ) -> Vec<Predicate> {
+    let skip = at_ceil_free == AtCeilFree::Skip;
     match term.kind() {
         TermKind::Application {
             symbol, arguments, ..
@@ -239,8 +412,19 @@ fn ceil_term_node<'a>(
             entries,
             rest,
         } => {
-            children.extend(entries.iter().flat_map(|(key, value)| [key, value]));
+            if skip {
+                children.extend(
+                    entries
+                        .lacking(crate::term::Flag::CeilFree)
+                        .flat_map(|(key, value)| [key, value]),
+                );
+            } else {
+                children.extend(entries.iter().flat_map(|(key, value)| [key, value]));
+            }
             children.extend(rest);
+            if skip && rest.is_none() && keys_apart(&entries.summary()) {
+                return Vec::new();
+            }
             let keys = entries.iter().map(|(key, _)| key).collect::<Vec<_>>();
             let groups = KeyGroups::new(&keys);
             let mut after = Vec::new();
@@ -259,10 +443,10 @@ fn ceil_term_node<'a>(
             after
         }
         TermKind::List { heads, rest, .. } => {
-            children.extend(heads);
+            push_list_items(heads, skip, children);
             if let Some((middle, tails)) = rest {
                 children.push(middle);
-                children.extend(tails);
+                push_list_items(tails, skip, children);
             }
             Vec::new()
         }
@@ -271,8 +455,15 @@ fn ceil_term_node<'a>(
             elements,
             rest,
         } => {
-            children.extend(elements);
+            if skip {
+                children.extend(elements.lacking(crate::term::Flag::CeilFree));
+            } else {
+                children.extend(elements);
+            }
             children.extend(rest);
+            if skip && rest.is_none() && keys_apart(&elements.summary()) {
+                return Vec::new();
+            }
             let keys = elements.iter().collect::<Vec<_>>();
             let groups = KeyGroups::new(&keys);
             let mut after = Vec::new();
@@ -299,6 +490,14 @@ fn ceil_term_node<'a>(
             Vec::new()
         }
     }
+}
+
+/// Whether the keys (elements) a summary covers share one header and repeat none, so that every
+/// two of them are apart.
+fn keys_apart<I: crate::term::chunked::Item<Summary = crate::term::items::ItemSummary>>(
+    summary: &crate::term::chunked::NodeSummary<I>,
+) -> bool {
+    summary.extra.keys_share_one_header() && !summary.collision
 }
 
 /// Fewest keys of one map or set for which [`KeyGroups`] computes skeletons: below it the keys
@@ -432,6 +631,13 @@ impl<'a, 't> KeyGroups<'a, 't> {
             }
         }
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test builds: the subterms this thread's definedness walks have taken from their work
+    /// lists.
+    pub(crate) static WALKED_TERMS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]

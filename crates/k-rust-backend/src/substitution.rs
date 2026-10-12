@@ -2,7 +2,7 @@
 //! id = "backend.substitution.apply"
 //! name = "simultaneous substitution with attribute-guided skipping"
 //! sites = ["substitute", "compose"]
-//! variable = "t = term size; v = variables of a visited subterm; s = bindings of the applied substitution; o = bindings of the old substitution in compose"
+//! variable = "t = term size; v = variables of a visited subterm; s = bindings of the applied substitution; o = bindings of the old substitution in compose; n = items of a collection; u = items of a collection that mention a bound variable"
 //! counters = []
 //! no_counter = "TermConstructed measures resulting term construction only and is not dedicated to substitution"
 //! span = "none"
@@ -10,6 +10,10 @@
 //! [[cost]]
 //! mode = "one term"
 //! bound = "O(t x v log s), with O(1) skipping of variable-free subterms"
+//!
+//! [[cost]]
+//! mode = "the items of a map, set or list of n items (rebuild_where, map_where)"
+//! bound = "O(u log n) nodes for the u items that mention a bound variable, plus a meet test of each entered node's variable multiset with the substitution; a subtree whose variables the substitution does not bind is not entered"
 //!
 //! [[cost]]
 //! mode = "compose"
@@ -57,12 +61,7 @@ use crate::{
 pub type Substitution = BTreeMap<Variable, Term>;
 
 pub fn substitute(term: &Term, substitution: &Substitution) -> Term {
-    if term
-        .attributes()
-        .variables
-        .iter()
-        .all(|variable| !substitution.contains_key(variable))
-    {
+    if term.attributes().variables.is_disjoint(substitution) {
         return term.clone();
     }
 
@@ -97,53 +96,75 @@ pub fn substitute(term: &Term, substitution: &Substitution) -> Term {
             target.clone(),
             substitute(term, substitution),
         ),
+        // Only the entries that mention a bound variable change: the tree is entered where the
+        // variables of a subtree (its group summary) meet the substitution, and an entry whose key
+        // changes is moved to its place (`Items::rebuild_where`), so the work is that of the
+        // entries reached, not of the map.
         TermKind::Map {
             definition,
             entries,
             rest,
-        } => Term::map(
-            definition.clone(),
-            entries
-                .iter()
-                .map(|(key, value)| {
-                    (
-                        substitute(key, substitution),
-                        substitute(value, substitution),
-                    )
-                })
-                .collect(),
-            rest.as_ref().map(|term| substitute(term, substitution)),
-        ),
+        } => {
+            Term::map_of_items(
+                definition.clone(),
+                entries.rebuild_where(
+                    |summary| !crate::term::variables::disjoint(&summary.group, substitution),
+                    // Within an admitted subtree, `substitute` itself returns a term that
+                    // mentions no bound variable at once, and such an entry is kept.
+                    |_| true,
+                    |(key, value)| {
+                        let (new_key, new_value) = (
+                            substitute(key, substitution),
+                            substitute(value, substitution),
+                        );
+                        (!new_key.ptr_eq(key) || !new_value.ptr_eq(value))
+                            .then_some((new_key, new_value))
+                    },
+                ),
+                rest.as_ref().map(|term| substitute(term, substitution)),
+            )
+        }
+        // As for a map, but by position: only the items that mention a bound variable are
+        // reached, and each is replaced where it stands (`Items::map_where`); a middle that
+        // becomes a list is joined in.
         TermKind::List {
             definition,
             heads,
             rest,
-        } => Term::list(
-            definition.clone(),
-            heads
-                .iter()
-                .map(|term| substitute(term, substitution))
-                .collect(),
-            rest.as_ref().map(|(middle, tails)| {
-                (
-                    substitute(middle, substitution),
-                    tails
-                        .iter()
-                        .map(|term| substitute(term, substitution))
-                        .collect(),
+        } => {
+            let items = |items: &crate::term::Items<Term>| {
+                items.map_where(
+                    |summary| !crate::term::variables::disjoint(&summary.group, substitution),
+                    |_| true,
+                    |item| {
+                        let new_item = substitute(item, substitution);
+                        (!new_item.ptr_eq(item)).then_some(new_item)
+                    },
                 )
-            }),
-        ),
+            };
+            Term::list_of_items(
+                definition.clone(),
+                items(heads),
+                rest.as_ref()
+                    .map(|(middle, tails)| (substitute(middle, substitution), items(tails))),
+            )
+        }
+        // As for a map: only the elements that mention a bound variable are reached, and one
+        // that changes is moved to its place.
         TermKind::Set {
             definition,
             elements,
             rest,
-        } => Term::set(
+        } => Term::set_of_items(
             definition.clone(),
-            elements
-                .iter()
-                .map(|term| substitute(term, substitution))
-                .collect(),
+            elements.rebuild_where(
+                |summary| !crate::term::variables::disjoint(&summary.group, substitution),
+                |_| true,
+                |element| {
+                    let new_element = substitute(element, substitution);
+                    (!new_element.ptr_eq(element)).then_some(new_element)
+                },
+            ),
             rest.as_ref().map(|term| substitute(term, substitution)),
         ),
     }

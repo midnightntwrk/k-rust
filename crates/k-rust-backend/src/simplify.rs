@@ -2,7 +2,7 @@
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
 //! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory", "apply_theory_noting_cuts"]
-//! variable = "r = rounds; t = term nodes; c = candidate equations per node"
+//! variable = "r = rounds; t = term nodes; c = candidate equations per node; n = items of a collection; u = items of a collection the summaries admit"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
 //! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
@@ -10,6 +10,10 @@
 //! [[cost]]
 //! mode = "one term lineage"
 //! bound = "O(r x |t| x c), with the rounds that are not determined ground function-theory steps bounded by max_iterations; determined ground steps are bounded only by the definition's own computation, the caller's interrupt, and the stack guard"
+//!
+//! [[cost]]
+//! mode = "the items of a map, set or list of n items (simplify_children)"
+//! bound = "O(u log n) nodes for the u items that are not evaluated or mention a variable the path condition binds, found by the items' summaries; every item when the path condition replaces terms, which no summary locates"
 //!
 //! [[cost]]
 //! mode = "rule condition"
@@ -588,46 +592,14 @@ fn occurs_under_total_context(term: &Term, subject: &Term) -> bool {
 /// states no term defined (`\not(t = 0)` holds where `t` is undefined), nor does a predicate
 /// under a binder, whose variable it does not fix.
 fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -> FxHashSet<Term> {
+    /// The children that are `ceil_free` are skipped as their parent is: a collection's are
+    /// passed over through its trees' summaries (`children_lacking`).
     fn collect(term: &Term, subterms: &mut FxHashSet<Term>) {
         if term.attributes().ceil_free() || !subterms.insert(term.clone()) {
             return;
         }
-        match term.kind() {
-            TermKind::Application { arguments, .. } => {
-                arguments
-                    .iter()
-                    .for_each(|argument| collect(argument, subterms));
-            }
-            TermKind::Injection { term, .. } => collect(term, subterms),
-            TermKind::And(left, right) => {
-                collect(left, subterms);
-                collect(right, subterms);
-            }
-            TermKind::Map { entries, rest, .. } => {
-                for (key, value) in entries {
-                    collect(key, subterms);
-                    collect(value, subterms);
-                }
-                if let Some(rest) = rest {
-                    collect(rest, subterms);
-                }
-            }
-            TermKind::List { heads, rest, .. } => {
-                heads.iter().for_each(|head| collect(head, subterms));
-                if let Some((middle, tails)) = rest {
-                    collect(middle, subterms);
-                    tails.iter().for_each(|tail| collect(tail, subterms));
-                }
-            }
-            TermKind::Set { elements, rest, .. } => {
-                elements
-                    .iter()
-                    .for_each(|element| collect(element, subterms));
-                if let Some(rest) = rest {
-                    collect(rest, subterms);
-                }
-            }
-            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        for child in crate::term::children_lacking(term.kind(), crate::term::Flag::CeilFree) {
+            collect(child, subterms);
         }
     }
 
@@ -2740,7 +2712,13 @@ pub(crate) fn refuse_uncomputed_applications(
                 }
                 .into());
             }
-            push_children(&term, &mut pending);
+            // An `evaluated` child is skipped as its parent is: a collection's are passed over
+            // through its trees' summaries.
+            pending.extend(
+                crate::term::children_lacking(term.kind(), crate::term::Flag::Evaluated)
+                    .into_iter()
+                    .cloned(),
+            );
         }
         Ok(())
     };
@@ -3378,11 +3356,12 @@ fn strict_variables(
         })
     };
     match lhs {
-        Predicate::Ceil(term) => term.attributes().variables.clone(),
+        Predicate::Ceil(term) => term.attributes().variables.to_btree_set(),
         Predicate::In(left, right) => left
             .attributes()
             .variables
-            .union(&right.attributes().variables)
+            .iter()
+            .chain(&right.attributes().variables)
             .cloned()
             .collect(),
         // The absence of an undefined key, or from an undefined rest, is false.
@@ -3390,7 +3369,8 @@ fn strict_variables(
             .key()
             .attributes()
             .variables
-            .union(&absence.rest().attributes().variables)
+            .iter()
+            .chain(&absence.rest().attributes().variables)
             .cloned()
             .collect(),
         Predicate::Equals(left, right) => {
@@ -3554,7 +3534,7 @@ fn match_predicate(
             if substitution.values().any(|value| {
                 binders
                     .iter()
-                    .any(|(_, bound)| value.attributes().variables.contains(*bound))
+                    .any(|(_, bound)| value.attributes().variables.contains(bound))
             }) {
                 return PredicateMatch::Failed {
                     shared_names: false,
@@ -4405,11 +4385,11 @@ impl PathConditionReplacements {
         replace_terms_bottom_up(&term, &self.replacements)
     }
 
+    /// Whether applying the path condition may change `term`: it mentions a variable the
+    /// substitution binds, which the smaller of its variables and the substitution's domain
+    /// decides by lookups in the other (`Variables::is_disjoint`), or it may hold a replaced term.
     fn can_change(&self, term: &Term) -> bool {
-        term.attributes()
-            .variables
-            .iter()
-            .any(|variable| self.substitution.contains_key(variable))
+        !term.attributes().variables.is_disjoint(&self.substitution)
             || (!self.replacements.is_empty()
                 && term_contains_replacement_original(term, &self.replacements))
     }
@@ -4714,52 +4694,143 @@ fn simplify_children(
             target,
             term,
         } => Term::injection(source.clone(), target.clone(), child(term)?),
+        // Only the entries `child` may change are visited: the tree is entered where a subtree
+        // holds an entry that is not evaluated or mentions a variable the path condition binds
+        // (its summary), or everywhere when the path condition replaces terms, which no summary
+        // locates. An unchanged entry is not copied, and an entry whose key changes is moved to
+        // its place (`Items::rebuild_where`).
         TermKind::Map {
             definition,
             entries,
             rest,
-        } => Term::map(
-            definition.clone(),
-            entries
-                .iter()
-                .map(|(key, value)| Ok((child(key)?, child(value)?)))
-                .collect::<SimplifyResult<Vec<_>>>()?,
-            rest.as_ref().map(&mut child).transpose()?,
-        ),
+        } => {
+            let path_condition = &assumptions.path_condition;
+            let mut failed = None;
+            let entries = entries.rebuild_where(
+                |summary| {
+                    !summary.extra.holds(crate::term::items::Flag::Evaluated)
+                        || !path_condition.replacements.is_empty()
+                        || !crate::term::variables::disjoint(
+                            &summary.group,
+                            &path_condition.substitution,
+                        )
+                },
+                // Within an admitted subtree, `child` itself returns an entry's terms that need no
+                // work at once.
+                |_| true,
+                |(key, value)| {
+                    if failed.is_some() {
+                        return None;
+                    }
+                    match (|| Ok::<_, Unwind<SimplificationError>>((child(key)?, child(value)?)))()
+                    {
+                        Ok((new_key, new_value)) => (!new_key.ptr_eq(key)
+                            || !new_value.ptr_eq(value))
+                        .then_some((new_key, new_value)),
+                        Err(error) => {
+                            failed = Some(error);
+                            None
+                        }
+                    }
+                },
+            );
+            if let Some(error) = failed {
+                return Err(error);
+            }
+            Term::map_of_items(
+                definition.clone(),
+                entries,
+                rest.as_ref().map(&mut child).transpose()?,
+            )
+        }
+        // As for a map, but by position: only the items `child` may change are visited, in
+        // order (heads, middle, tails), and each changed one is replaced where it stands
+        // (`Items::map_where`).
         TermKind::List {
             definition,
             heads,
             rest,
-        } => Term::list(
-            definition.clone(),
-            heads
-                .iter()
-                .map(&mut child)
-                .collect::<Result<Vec<_>, _>>()?,
-            rest.as_ref()
-                .map(|(middle, tails)| {
-                    Ok::<_, Unwind<SimplificationError>>((
-                        child(middle)?,
-                        tails
-                            .iter()
-                            .map(&mut child)
-                            .collect::<SimplifyResult<Vec<_>>>()?,
-                    ))
-                })
-                .transpose()?,
-        ),
+        } => {
+            let path_condition = &assumptions.path_condition;
+            let items =
+                |items: &crate::term::Items<Term>,
+                 child: &mut dyn FnMut(&Term) -> SimplifyResult<Term>| {
+                    let mut failed = None;
+                    let items = items.map_where(
+                        |summary| {
+                            !summary.extra.holds(crate::term::items::Flag::Evaluated)
+                                || !path_condition.replacements.is_empty()
+                                || !crate::term::variables::disjoint(
+                                    &summary.group,
+                                    &path_condition.substitution,
+                                )
+                        },
+                        |_| true,
+                        |item| {
+                            if failed.is_some() {
+                                return None;
+                            }
+                            match child(item) {
+                                Ok(new_item) => (!new_item.ptr_eq(item)).then_some(new_item),
+                                Err(error) => {
+                                    failed = Some(error);
+                                    None
+                                }
+                            }
+                        },
+                    );
+                    failed.map_or(Ok(items), Err)
+                };
+            let heads = items(heads, &mut child)?;
+            let rest = match rest {
+                Some((middle, tails)) => {
+                    let middle = child(middle)?;
+                    Some((middle, items(tails, &mut child)?))
+                }
+                None => None,
+            };
+            Term::list_of_items(definition.clone(), heads, rest)
+        }
+        // As for a map: only the elements `child` may change are visited.
         TermKind::Set {
             definition,
             elements,
             rest,
-        } => Term::set(
-            definition.clone(),
-            elements
-                .iter()
-                .map(&mut child)
-                .collect::<Result<Vec<_>, _>>()?,
-            rest.as_ref().map(&mut child).transpose()?,
-        ),
+        } => {
+            let path_condition = &assumptions.path_condition;
+            let mut failed = None;
+            let elements = elements.rebuild_where(
+                |summary| {
+                    !summary.extra.holds(crate::term::items::Flag::Evaluated)
+                        || !path_condition.replacements.is_empty()
+                        || !crate::term::variables::disjoint(
+                            &summary.group,
+                            &path_condition.substitution,
+                        )
+                },
+                |_| true,
+                |element| {
+                    if failed.is_some() {
+                        return None;
+                    }
+                    match child(element) {
+                        Ok(new_element) => (!new_element.ptr_eq(element)).then_some(new_element),
+                        Err(error) => {
+                            failed = Some(error);
+                            None
+                        }
+                    }
+                },
+            );
+            if let Some(error) = failed {
+                return Err(error);
+            }
+            Term::set_of_items(
+                definition.clone(),
+                elements,
+                rest.as_ref().map(&mut child).transpose()?,
+            )
+        }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => term.clone(),
     };
     let term = if children_unchanged.get() {

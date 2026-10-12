@@ -265,7 +265,7 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
                 Edit::Rest,
                 Term::map(
                     definition.clone(),
-                    entries.clone(),
+                    entries.to_vec(),
                     own.is_none().then(|| rest(definition.map_sort.as_ref())),
                 ),
             ));
@@ -273,7 +273,7 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
             other.key_sort = other_element_sort(&definition.key_sort);
             edits.push((
                 Edit::Definition,
-                Term::map(Arc::new(other), entries.clone(), own.clone()),
+                Term::map(Arc::new(other), entries.to_vec(), own.clone()),
             ));
         }
         TermKind::Set {
@@ -285,7 +285,7 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
                 Edit::Rest,
                 Term::set(
                     definition.clone(),
-                    elements.clone(),
+                    elements.to_vec(),
                     own.is_none().then(|| rest(definition.list_sort.as_ref())),
                 ),
             ));
@@ -293,7 +293,7 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
             other.element_sort = other_element_sort(&definition.element_sort);
             edits.push((
                 Edit::Definition,
-                Term::set(Arc::new(other), elements.clone(), own.clone()),
+                Term::set(Arc::new(other), elements.to_vec(), own.clone()),
             ));
         }
         TermKind::List {
@@ -305,7 +305,7 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
                 Edit::Rest,
                 Term::list(
                     definition.clone(),
-                    heads.clone(),
+                    heads.to_vec(),
                     own.is_none()
                         .then(|| (rest(definition.list_sort.as_ref()), Vec::new())),
                 ),
@@ -314,7 +314,11 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
             other.element_sort = other_element_sort(&definition.element_sort);
             edits.push((
                 Edit::Definition,
-                Term::list(Arc::new(other), heads.clone(), own.clone()),
+                Term::list(
+                    Arc::new(other),
+                    heads.to_vec(),
+                    own.clone().map(|(middle, tails)| (middle, tails.to_vec())),
+                ),
             ));
         }
         TermKind::DomainValue { sort, value } => {
@@ -410,7 +414,7 @@ pub(in crate::tests) fn one_edit_neighbours(term: &Term) -> Vec<(Edit, Term)> {
                 entries,
                 rest,
             } => {
-                let mut entries = entries.clone();
+                let mut entries = entries.to_vec();
                 let mut rest = rest.clone();
                 if index < 2 * entries.len() {
                     let entry = &mut entries[index / 2];
@@ -429,7 +433,7 @@ pub(in crate::tests) fn one_edit_neighbours(term: &Term) -> Vec<(Edit, Term)> {
                 elements,
                 rest,
             } => {
-                let mut elements = elements.clone();
+                let mut elements = elements.to_vec();
                 let mut rest = rest.clone();
                 if index < elements.len() {
                     elements[index] = child;
@@ -443,8 +447,8 @@ pub(in crate::tests) fn one_edit_neighbours(term: &Term) -> Vec<(Edit, Term)> {
                 heads,
                 rest,
             } => {
-                let mut heads = heads.clone();
-                let mut rest = rest.clone();
+                let mut heads = heads.to_vec();
+                let mut rest = rest.clone().map(|(middle, tails)| (middle, tails.to_vec()));
                 if index < heads.len() {
                     heads[index] = child;
                 } else if let Some((middle, tail)) = &mut rest {
@@ -474,7 +478,7 @@ pub(in crate::tests) fn one_edit_neighbours(term: &Term) -> Vec<(Edit, Term)> {
             elements.iter().cloned().chain(rest.clone()).collect()
         }
         TermKind::List { heads, rest, .. } => {
-            let mut children = heads.clone();
+            let mut children = heads.to_vec();
             if let Some((middle, tail)) = rest {
                 children.push(middle.clone());
                 children.extend(tail.iter().cloned());
@@ -556,8 +560,8 @@ impl GeneratedClasses {
                 keys(entries.iter().map(|(key, _)| key).collect());
                 self.equal_keys_different_values +=
                     usize::from(entries.iter().enumerate().any(|(index, (key, value))| {
-                        entries[index + 1..]
-                            .iter()
+                        entries
+                            .range(index + 1..)
                             .any(|(other, other_value)| other == key && other_value != value)
                     }));
             }

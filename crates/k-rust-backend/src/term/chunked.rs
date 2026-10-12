@@ -2,20 +2,73 @@
 //!
 //! [`Chunked`] holds a sequence of items in a tree whose leaves are vectors of at most `B` items
 //! and whose internal nodes hold at most `B` children. Nodes are shared behind [`Arc`], so a
-//! clone shares the whole tree and a persistent edit copies only the nodes it changes. The tree is the representation planned for the items of a map, a
-//! set and a list term, and for the variable sets of term attributes (design K22, revision 2).
+//! clone shares the whole tree and a persistent edit copies only the nodes it changes. It is the
+//! representation of the items of every map, set and list term ([`Items`](crate::term::Items))
+//! and of the variable sets of term attributes ([`Variables`](crate::term::Variables)) (design
+//! K22, revision 2):
 //!
-//! # State of this module
+//! ```toml algorithm
+//! id = "backend.term.chunked"
+//! name = "persistent B+-tree of item chunks with monoid summaries per node"
+//! sites = ["Chunked", "Chunked::from_vec", "Chunked::get", "Chunked::search", "Chunked::search_by", "Chunked::iter", "Chunked::aligned", "Chunked::eq_by", "Chunked::cmp_by", "Chunked::drop", "NodeSummary", "SequenceHash", "Dismantle"]
+//! variable = "n = items of the tree (of the larger operand of a join or union); k = items of the smaller operand of a union; s = items a seek wants; u = items a rebuild changes; D = items of two compared versions outside the nodes they share; d = distinct variables of the items an edit adds or removes; V = distinct variables of the tree's items; m = variables of a union of variable sets outside its largest operand. The branching factor B is a constant (32 for collection items, 64 for variable trees), so a node is O(1) work"
+//! counters = []
+//! no_counter = "a tree operation is part of the hook, match, substitution or simplification that calls it, which carry the counters; test builds bound the summaries an operation computes (entry and multiset-entry counts), and tests/size_weighted_growth.rs bounds the bytes a rewrite step allocates on a larger collection"
+//! span = "none"
+//! tests = ["crates/k-rust-backend/src/term/chunked/tests.rs", "crates/k-rust-backend/src/term/items.rs", "crates/k-rust-backend/tests/size_weighted_growth.rs"]
 //!
-//! The tree has nodes, the fill invariant, bulk loading, length, double-ended iteration, access
-//! by position, ordered search, equality, order, a hash independent of the tree's shape, a drop
-//! that needs only constant stack, the persistent edits of [`edit`] (inserting and removing one
-//! item by path copy, splitting at a position or a key, joining, and the union of two ordered
-//! sequences), the per-node summaries of [`summary`] and the group summaries kept by difference
-//! ([`Group`], [`multiset`]), the seeks, ranges and item-wise rebuilds of [`seek`], and the
-//! shared variable sets of [`variables`]. Nothing outside this module and its tests uses it until
-//! terms move to it, so its declaration in `term.rs` allows dead code outside test builds; test
-//! builds keep the lint, so every item here is at least tested.
+//! [[cost]]
+//! mode = "insert, remove or replace one item (a path copy)"
+//! bound = "O(log n) nodes copied, plus O(d log V) per copied node for its variable multiset (a rebalanced node amortized over the edits below it)"
+//!
+//! [[cost]]
+//! mode = "search by key, access by position, a cursor or range start"
+//! bound = "O(log n)"
+//!
+//! [[cost]]
+//! mode = "length, hash, root summary (what a collection term's attributes read)"
+//! bound = "O(1)"
+//!
+//! [[cost]]
+//! mode = "split at a position or key; join two trees"
+//! bound = "O(log n) nodes, plus at each level of a split the variables of its lighter side"
+//!
+//! [[cost]]
+//! mode = "union of two ordered trees (a map or set built on a tree rest, _Map_, _Set_)"
+//! bound = "O(k log(n/k + 1)) nodes copied, plus the added items' variables at each copied node"
+//!
+//! [[cost]]
+//! mode = "seek by summary (unevaluated, failing ceil_free, symbolic key, k cell, variables meeting a substitution)"
+//! bound = "O(s log n) nodes read, O(1) when the root summary admits nothing"
+//!
+//! [[cost]]
+//! mode = "map_where, rebuild_where (substitution and simplifier rebuilds)"
+//! bound = "O(u log n) nodes copied, plus one insertion per changed item no longer in order"
+//!
+//! [[cost]]
+//! mode = "equality or order of two versions (aligned walk)"
+//! bound = "O(D + log n) item comparisons and node visits; nodes both reach at one position are skipped"
+//!
+//! [[cost]]
+//! mode = "drop of a version"
+//! bound = "its unshared nodes (O(log n) after a one-item edit), in constant stack"
+//!
+//! [[cost]]
+//! mode = "bulk load, full iteration, to_vec"
+//! bound = "O(n)"
+//!
+//! [[cost]]
+//! mode = "variable set of a term built above its children (Variables, Union)"
+//! bound = "O(1) when one child holds them all; O(m log V) when the largest child's set is a tree; O(V) merge when every operand has at most B variables"
+//! ```
+//!
+//! Every operation is persistent: it returns new trees and leaves its operands valid, sharing
+//! with them every node it did not change. The costs above count nodes, each `O(B)` items or
+//! handles and its summary; the group summary of a copied node costs the difference the edit
+//! makes ([`Group`]), not what lies below it. A few general operations (a split or a removal by
+//! key, some methods of the persistent variable set) have no caller outside the tests, which
+//! check every operation against a `Vec`, `BTreeMap` or multiset model, so the declaration in
+//! `term.rs` allows dead code outside test builds.
 //!
 //! # Items
 //!
@@ -43,8 +96,9 @@
 //!   collection are the elements of its root's multiset). `Variable` brings the `Ord`, `Hash`
 //!   and `Debug` the entry needs; the entry's key is the variable, its hash the `FxHasher` hash
 //!   of the variable and count, and its summary and group summary are `()`. The term attribute
-//!   `variables` becomes a [`Variables`](variables::Variables), and `Substitution` implements
-//!   [`VariableLookup`](variables::VariableLookup) over its domain.
+//!   `variables` is a [`Variables`](variables::Variables) (a set of at most `B` variables is a
+//!   shared slice instead of a tree), and `Substitution` implements
+//!   [`VariableLookup`](crate::term::VariableLookup) over its domain.
 //!
 //! # Fill invariant
 //!
@@ -61,6 +115,15 @@
 //! one node. Only a root of height 1 can hold that few items over several leaves (a tree of
 //! height 2 holds at least `2a²` items, more than `B`), and the edits replace such a root by the
 //! one leaf of its items.
+//!
+//! That leaf is behind an [`Arc`] like any node, not held inline in the term. Holding it inline
+//! would save one allocation and one indirection per small collection, at the price of a second
+//! representation in every edit, seek and walk. Measured on the small workloads (K22 step 7b:
+//! IMP and KEVM execution, the KEVM one-slot control, the WASM execution gate), the whole of this
+//! module's code is about 0.1 % of a WASM program's instructions (0.2 % at most on the KEVM
+//! workloads), and the allocations of collection trees about 3 % of its allocations, so the
+//! saving is bounded by a few tenths of a percent; the small-workload costs were in the variable
+//! sets and in the walks around the trees, and were removed there.
 //!
 //! # Summaries
 //!
@@ -110,9 +173,47 @@ use std::{
     vec,
 };
 
-/// The branching factor of a [`Chunked`] that names none. Provisional: it is to be chosen by
-/// measuring the collection workloads once terms use the tree.
+/// The branching factor of a [`Chunked`] that names none: that of a map's entries, of a set's
+/// elements and of a list's items.
+///
+/// An edit copies one node per level, `B` handles or items each, over `log_B n` levels, so a
+/// smaller `B` copies less per level and a larger one has fewer levels and fewer summaries. Chosen
+/// by `instructions:u` (K22 step 3e, 16, 32 and 64 with variable trees at 64): the KEVM storage
+/// loop, which holds a map of up to 16,384 slots but spends most of its size-dependent cost in a
+/// set, does not separate the three (totals within 0.05 %, its run-to-run spread); 16 costs 5.7 %
+/// less than 32 on 16,000 `MAP.update`s and 3.9 % more on the symbolic map class test, 64 costs
+/// 10.6 % more on the updates and its root, which every edit copies, widens in proportion to the
+/// map up to `B²` entries (the map class test then fails). 32 is kept.
+///
+/// Sets use it too (K22 step 5a, 32 against 64, the variable trees' factor): a set's elements are
+/// edited by path copies as a map's entries are, so the same trade holds. At 64, a benchmark of
+/// 20,000 insertions, searches, removals and one-element unions each on sets of 256, 2,048 and
+/// 16,384 elements costs 45 % more instructions, 16,000 `S SetItem(N)` steps 12 % more (41 % more
+/// on the set's part over a counter control), and the set class test 36 % more bytes at 2,048
+/// elements; the KEVM storage
+/// loop at 16,384 slots does not separate the two (size-dependent part 53.7 G at 32, 52.7 G at
+/// 64, within its run-to-run spread).
+///
+/// Lists use it too (K22 step 6a, 32 against 64): appending or prepending an item joins a
+/// one-item tree to the list's, which copies the nodes along one edge of the tree, `B` handles
+/// each, so the trade is again a node's width against the number of levels. At 64, 16,000
+/// appends and 16,000 prepends cost 45 % more instructions over a counter control (1.04 G against
+/// 0.72 G, 1.05 G against 0.73 G), and reading every item of a 16,000-item list by `LIST.get`,
+/// one descent per read, 0.3 % more.
 pub(crate) const DEFAULT_BRANCHING: usize = 32;
+
+/// The branching factor of the trees of variables: a [`Multiset`](multiset::Multiset) of
+/// variables and a [`Variables`](variables::Variables) set, which share one tree, and the size up
+/// to which a set of variables is a flat slice.
+///
+/// A rule's or a function call's variable set often holds more than 32 variables and is built,
+/// united and searched far more often than it is edited, so a larger leaf keeps such sets flat;
+/// a symbolic collection's multiset is edited by path copies, where a larger node copies more.
+/// Chosen by `instructions:u` (K22 step 3e, 32, 64 and 128 with map entries at 32): 64 costs
+/// 0.8 % less than 32 on KEVM `gfob-min`, 0.4 % less on the KEVM storage loop and 5 % more on the
+/// symbolic map class test, whose map holds up to 2,048 variables; 128 costs within 0.05 % of 64
+/// on the KEVM workloads.
+pub(crate) const VARIABLE_BRANCHING: usize = 64;
 
 /// A monoid: an associative [`combine`](Summary::combine) with an [`identity`](Summary::identity)
 /// on either side. A node stores the fold of its items' summaries, so combining the summaries of
@@ -318,7 +419,7 @@ impl<I: Item> NodeSummary<I> {
     }
 
     /// The fold of the items' summaries, cloning only the first and the last item.
-    fn of_items(items: &[I]) -> Self {
+    pub(crate) fn of_items(items: &[I]) -> Self {
         Self::of_items_with(items, fold_groups(items.iter().map(Item::group)))
     }
 
@@ -421,44 +522,84 @@ enum Node<I: Item> {
     Leaf {
         items: Vec<I>,
         summary: NodeSummary<I>,
+        checked: Checked,
     },
     Internal {
         /// One more than the children's height; a leaf's height is 0.
         height: usize,
         children: Vec<Arc<Node<I>>>,
         summary: NodeSummary<I>,
+        checked: Checked,
     },
+}
+
+/// Debug builds: whether the one check that reads it, `definedness::check_ceil_free`, has passed
+/// the items below a node and the pairs of adjacent items there ([`Chunked::check_unchecked`]),
+/// so that a later check of a tree sharing the node skips it (a list's check has no pair
+/// condition: `definedness::check_list_items`); nothing in other builds. A node is never changed once built, so the mark stays
+/// true of it. The mark is not part of the node's value: a copy of a node is built unmarked.
+#[derive(Default)]
+struct Checked(#[cfg(debug_assertions)] std::sync::atomic::AtomicBool);
+
+#[cfg(test)]
+thread_local! {
+    /// Test builds: the internal nodes this thread has built.
+    static INTERNAL_NODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Test builds: the number of internal nodes `run` builds on this thread. An edit of one item
+/// copies the internal nodes on one path and, where a node splits or merges, a sibling at each
+/// level: at most two per internal level, whatever the number of items.
+#[cfg(test)]
+pub(crate) fn internal_nodes_during(run: impl FnOnce()) -> usize {
+    let before = INTERNAL_NODES.with(std::cell::Cell::get);
+    run();
+    INTERNAL_NODES.with(std::cell::Cell::get) - before
 }
 
 impl<I: Item> Node<I> {
     fn leaf(items: Vec<I>) -> Self {
         let summary = NodeSummary::of_items(&items);
-        Self::Leaf { items, summary }
+        Self::Leaf {
+            items,
+            summary,
+            checked: Checked::default(),
+        }
     }
 
     fn internal(height: usize, children: Vec<Arc<Self>>) -> Self {
+        #[cfg(test)]
+        INTERNAL_NODES.with(|count| count.set(count.get() + 1));
         let summary = NodeSummary::of_children(&children);
         Self::Internal {
             height,
             children,
             summary,
+            checked: Checked::default(),
         }
     }
 
     /// A leaf whose group summary the caller knows: `group` is that of `items`.
     fn leaf_with(items: Vec<I>, group: I::Group) -> Self {
         let summary = NodeSummary::of_items_with(&items, group);
-        Self::Leaf { items, summary }
+        Self::Leaf {
+            items,
+            summary,
+            checked: Checked::default(),
+        }
     }
 
     /// An internal node whose group summary the caller knows: `group` is that of the items
     /// below `children`.
     fn internal_with(height: usize, children: Vec<Arc<Self>>, group: I::Group) -> Self {
+        #[cfg(test)]
+        INTERNAL_NODES.with(|count| count.set(count.get() + 1));
         let summary = NodeSummary::of_children_with(&children, group);
         Self::Internal {
             height,
             children,
             summary,
+            checked: Checked::default(),
         }
     }
 
@@ -468,10 +609,89 @@ impl<I: Item> Node<I> {
         }
     }
 
+    #[cfg(debug_assertions)]
+    fn checked(&self) -> &std::sync::atomic::AtomicBool {
+        match self {
+            Self::Leaf { checked, .. } | Self::Internal { checked, .. } => &checked.0,
+        }
+    }
+
     fn height(&self) -> usize {
         match self {
             Self::Leaf { .. } => 0,
             Self::Internal { height, .. } => *height,
+        }
+    }
+}
+
+/// Debug builds: checks that read only what changed since the last check.
+#[cfg(debug_assertions)]
+impl<I: Item, const B: usize> Chunked<I, B> {
+    /// Hand the items of each leaf not marked checked to `items`, and to `adjacent` each pair of
+    /// adjacent items within such a leaf or straddling two children of an internal node not
+    /// marked checked; a marked node is skipped with everything below it. The nodes visited are
+    /// returned, for the caller to mark once what it checks of the items has passed.
+    ///
+    /// Every pair of adjacent items of the sequence is within one leaf or straddles two
+    /// children of the lowest node above both, as the last item of one child and the first of the
+    /// next, which the children's summaries give. So once a tree has been checked, every item and
+    /// every pair of adjacent items has been handed over, and checking a tree made from it by
+    /// edits visits only the nodes the edits built: the paths they copied.
+    pub(crate) fn check_unchecked<'t>(
+        &'t self,
+        mut items: impl FnMut(&'t [I]),
+        mut adjacent: impl FnMut(&'t I, &'t I),
+    ) -> Unchecked<'t, I> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut pending = self.root.iter().collect::<Vec<_>>();
+        let mut visited = Vec::new();
+        while let Some(node) = pending.pop() {
+            if node.checked().load(Relaxed) {
+                continue;
+            }
+            match &**node {
+                Node::Leaf { items: leaf, .. } => {
+                    items(leaf);
+                    for pair in leaf.windows(2) {
+                        adjacent(&pair[0], &pair[1]);
+                    }
+                }
+                Node::Internal { children, .. } => {
+                    for pair in children.windows(2) {
+                        let (Some(last), Some(first)) =
+                            (&pair[0].summary().last, &pair[1].summary().first)
+                        else {
+                            unreachable!("a node has items")
+                        };
+                        adjacent(last, first);
+                    }
+                    pending.extend(children);
+                }
+            }
+            visited.push(node);
+        }
+        Unchecked(visited)
+    }
+}
+
+/// Debug builds: the nodes a check visited ([`Chunked::check_unchecked`]), to be marked once
+/// the check has passed them.
+#[cfg(debug_assertions)]
+#[must_use]
+pub(crate) struct Unchecked<'t, I: Item>(Vec<&'t Arc<Node<I>>>);
+
+#[cfg(debug_assertions)]
+impl<I: Item> Unchecked<'_, I> {
+    /// No node.
+    pub(crate) fn none() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Mark the nodes checked.
+    pub(crate) fn mark(self) {
+        for node in self.0 {
+            node.checked()
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
 }
@@ -511,6 +731,10 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         (B - 1) / 2
     };
 
+    /// The width a node built from many items or children is given when nothing else decides
+    /// it: about midway between `MIN_FILL` and `B` (see [`from_vec`](Self::from_vec)).
+    const FILL_TARGET: usize = (Self::MIN_FILL + 1 + B) / 2;
+
     /// The empty sequence.
     pub(crate) const fn new() -> Self {
         Self { root: None }
@@ -525,7 +749,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
     /// split at every level up to the first node with room, each folding the group summary of
     /// half a node.
     pub(crate) fn from_vec(items: Vec<I>) -> Self {
-        let target = (Self::MIN_FILL + 1 + B) / 2;
+        let target = Self::FILL_TARGET;
         let mut items = items.into_iter();
         let mut level: Vec<Arc<Node<I>>> = even_parts(items.len(), B, Self::MIN_FILL, target)
             .map(|size| Arc::new(Node::leaf(items.by_ref().take(size).collect())))
@@ -624,8 +848,72 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         }
     }
 
+    /// In a sequence ordered as `compare` orders its items against a probe (`Less` for those
+    /// before it, `Greater` for those after it), `Ok` with the position of an item `compare`
+    /// finds equal to the probe, or `Err` with the position at which the probe would go, as
+    /// `slice::binary_search_by` answers. Each internal node on the path picks its child by a
+    /// binary search over the children's last items, and the leaf by one over its items, so
+    /// `compare` is called about `log2` of the width of each node on one path.
+    pub(crate) fn search_by(
+        &self,
+        mut compare: impl FnMut(&I) -> Ordering,
+    ) -> Result<usize, usize> {
+        let Some(mut node) = self.root.as_deref() else {
+            return Err(0);
+        };
+        let mut position = 0;
+        loop {
+            match node {
+                Node::Internal { children, .. } => {
+                    // Every child before the first whose last item is not below the probe lies
+                    // wholly below it.
+                    let index = children.partition_point(|child| {
+                        compare(child.summary().last.as_ref().expect("a node has items"))
+                            == Ordering::Less
+                    });
+                    position += children[..index]
+                        .iter()
+                        .map(|child| child.summary().count)
+                        .sum::<usize>();
+                    match children.get(index) {
+                        Some(child) => node = child,
+                        None => return Err(position),
+                    }
+                }
+                Node::Leaf { items, .. } => {
+                    return items
+                        .binary_search_by(compare)
+                        .map(|offset| position + offset)
+                        .map_err(|offset| position + offset);
+                }
+            }
+        }
+    }
+
     pub(crate) fn to_vec(&self) -> Vec<I> {
         self.iter().cloned().collect()
+    }
+
+    /// The number of nodes on a path from the root to a leaf: 0 for the empty sequence.
+    #[cfg(test)]
+    pub(crate) fn levels(&self) -> usize {
+        self.root.as_ref().map_or(0, |root| root.height() + 1)
+    }
+
+    /// Whether the sequence is a single leaf: not empty, and at most `B` items with no node
+    /// above them.
+    pub(crate) fn is_one_leaf(&self) -> bool {
+        self.root
+            .as_ref()
+            .is_some_and(|root| matches!(**root, Node::Leaf { .. }))
+    }
+
+    /// Whether this is the only handle of the root: dropping it then frees the root, and the
+    /// nodes below it that no other tree shares.
+    pub(crate) fn owns_root(&self) -> bool {
+        self.root
+            .as_ref()
+            .is_some_and(|root| Arc::strong_count(root) == 1)
     }
 
     /// Whether the two sequences are one tree: both empty, or holding the same root node.
@@ -645,36 +933,23 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         other: &Self,
         mut compare: impl FnMut(&I, &I) -> Ordering,
     ) -> Ordering {
-        let mut left = Cursor::new(self.root.as_ref());
-        let mut right = Cursor::new(other.root.as_ref());
-        loop {
-            let (step_left, step_right) = match (left.peek(), right.peek()) {
-                (None, None) => return Ordering::Equal,
-                (None, Some(_)) => return Ordering::Less,
-                (Some(_), None) => return Ordering::Greater,
-                (Some(Next::Node(l)), Some(Next::Node(r))) if Arc::ptr_eq(l, r) => {
-                    left.skip();
-                    right.skip();
-                    continue;
-                }
-                (Some(Next::Item(l)), Some(Next::Item(r))) => match compare(l, r) {
-                    Ordering::Equal => {
-                        left.skip();
-                        right.skip();
-                        continue;
-                    }
-                    unequal => return unequal,
-                },
-                // Open the taller of the two (both at an equal height), until both stand at
-                // items or at one shared node.
-                (Some(l), Some(r)) => (l.level() >= r.level(), r.level() >= l.level()),
-            };
-            if step_left {
-                left.open();
+        for (left, right) in self.aligned(other) {
+            match compare(left, right) {
+                Ordering::Equal => {}
+                unequal => return unequal,
             }
-            if step_right {
-                right.open();
-            }
+        }
+        self.len().cmp(&other.len())
+    }
+
+    /// The pairs of items the two sequences hold at the same positions, in order, up to the end
+    /// of the shorter one, but for the items of a node both hold at the same position, which are
+    /// the same items and are skipped: the walk opens a node only where the two differ, so two
+    /// versions that share all but a few paths cost those paths.
+    pub(crate) fn aligned<'a>(&'a self, other: &'a Self) -> Aligned<'a, I> {
+        Aligned {
+            left: Cursor::new(self.root.as_ref()),
+            right: Cursor::new(other.root.as_ref()),
         }
     }
 
@@ -782,6 +1057,7 @@ impl<I: Item, const B: usize> Drop for Chunked<I, B> {
 ///
 /// The front and the back each descend from the root on their own; the number of items left
 /// stops them before they cross.
+#[derive(Clone)]
 pub(crate) struct Iter<'a, I: Item> {
     front: Vec<slice::Iter<'a, Arc<Node<I>>>>,
     front_items: slice::Iter<'a, I>,
@@ -791,15 +1067,30 @@ pub(crate) struct Iter<'a, I: Item> {
 }
 
 impl<'a, I: Item> Iter<'a, I> {
+    /// The items below `root`. A leaf root is opened at once at both ends, so iterating a tree
+    /// of one leaf (a collection of at most `B` items) keeps no stack of levels and allocates
+    /// nothing; the count of items left keeps the two ends from crossing, as in a shared leaf
+    /// further down.
     fn new(root: Option<&'a Arc<Node<I>>>) -> Self {
-        let roots = root.map_or(&[][..], slice::from_ref);
-        Self {
-            front: vec![roots.iter()],
+        let mut iter = Self {
+            front: Vec::new(),
             front_items: [].iter(),
-            back: vec![roots.iter()],
+            back: Vec::new(),
             back_items: [].iter(),
             remaining: root.map_or(0, |root| root.summary().count),
+        };
+        match root.map(|root| &**root) {
+            None => {}
+            Some(Node::Leaf { items, .. }) => {
+                iter.front_items = items.iter();
+                iter.back_items = items.iter();
+            }
+            Some(Node::Internal { children, .. }) => {
+                iter.front.push(children.iter());
+                iter.back.push(children.iter());
+            }
         }
+        iter
     }
 }
 
@@ -932,9 +1223,13 @@ impl<I: Item> Next<'_, I> {
     }
 }
 
-/// The rest of a sequence being walked: a stack of slices of nodes or items, the innermost on
-/// top, whose concatenation is what is left.
+/// The rest of a sequence being walked: a stack of slices of nodes or items, whose
+/// concatenation, innermost first, is what is left. The innermost slice is held apart from the
+/// stack, and opening a node that was the last of its slice replaces that slice instead of
+/// stacking an empty one, so walking a tree of one leaf (a collection of at most `B` items)
+/// allocates nothing.
 struct Cursor<'a, I: Item> {
+    top: Rest<'a, I>,
     stack: Vec<Rest<'a, I>>,
 }
 
@@ -946,32 +1241,27 @@ enum Rest<'a, I: Item> {
 impl<'a, I: Item> Cursor<'a, I> {
     fn new(root: Option<&'a Arc<Node<I>>>) -> Self {
         Self {
-            stack: root
-                .map(|root| Rest::Nodes(slice::from_ref(root)))
-                .into_iter()
-                .collect(),
+            top: Rest::Nodes(root.map_or(&[][..], slice::from_ref)),
+            stack: Vec::new(),
         }
     }
 
     /// The node or item that comes next, if any.
     fn peek(&mut self) -> Option<Next<'a, I>> {
         loop {
-            match self.stack.last()? {
+            match self.top {
                 Rest::Nodes([node, ..]) => return Some(Next::Node(node)),
                 Rest::Items([item, ..]) => return Some(Next::Item(item)),
-                Rest::Nodes([]) | Rest::Items([]) => {
-                    self.stack.pop();
-                }
+                Rest::Nodes([]) | Rest::Items([]) => self.top = self.stack.pop()?,
             }
         }
     }
 
     /// Step past what [`peek`](Self::peek) returned.
     fn skip(&mut self) {
-        match self.stack.last_mut() {
-            Some(Rest::Nodes(nodes)) => *nodes = &nodes[1..],
-            Some(Rest::Items(items)) => *items = &items[1..],
-            None => {}
+        match &mut self.top {
+            Rest::Nodes(nodes) => *nodes = &nodes[1..],
+            Rest::Items(items) => *items = &items[1..],
         }
     }
 
@@ -981,10 +1271,50 @@ impl<'a, I: Item> Cursor<'a, I> {
             return;
         };
         self.skip();
-        self.stack.push(match &**node {
+        let contents = match &**node {
             Node::Leaf { items, .. } => Rest::Items(items),
             Node::Internal { children, .. } => Rest::Nodes(children),
-        });
+        };
+        let outer = std::mem::replace(&mut self.top, contents);
+        if !matches!(outer, Rest::Nodes([]) | Rest::Items([])) {
+            self.stack.push(outer);
+        }
+    }
+}
+
+/// The pairs of items two sequences hold at the same positions ([`Chunked::aligned`]).
+pub(crate) struct Aligned<'a, I: Item> {
+    left: Cursor<'a, I>,
+    right: Cursor<'a, I>,
+}
+
+impl<'a, I: Item> Iterator for Aligned<'a, I> {
+    type Item = (&'a I, &'a I);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (open_left, open_right) = match (self.left.peek()?, self.right.peek()?) {
+                (Next::Node(left), Next::Node(right)) if Arc::ptr_eq(left, right) => {
+                    self.left.skip();
+                    self.right.skip();
+                    continue;
+                }
+                (Next::Item(left), Next::Item(right)) => {
+                    self.left.skip();
+                    self.right.skip();
+                    return Some((left, right));
+                }
+                // Open the taller of the two (both at an equal height), until both stand at
+                // items or at one shared node.
+                (left, right) => (left.level() >= right.level(), right.level() >= left.level()),
+            };
+            if open_left {
+                self.left.open();
+            }
+            if open_right {
+                self.right.open();
+            }
+        }
     }
 }
 
@@ -1025,7 +1355,7 @@ impl<I: Item> Dismantle<I> {
             "a leaf is opened only after the previous one"
         );
         match node {
-            Node::Leaf { items, summary } => {
+            Node::Leaf { items, summary, .. } => {
                 drop(summary);
                 self.items = items.into_iter();
             }

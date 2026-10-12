@@ -291,41 +291,57 @@ fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
         result_sort,
         "{hook} evaluated to a value of another sort than its application: {value:?}"
     );
-    let element_sorts: Vec<(&Term, &Sort)> = match value.kind() {
+    match value.kind() {
+        // The items' summaries keep their sorts when they all agree, so a list is checked
+        // without reading the items the hook did not touch.
         TermKind::List {
             definition,
             heads,
             rest,
-        } => heads
-            .iter()
-            .chain(rest.iter().flat_map(|(_, tails)| tails))
-            .map(|element| (element, &definition.element_sort))
-            .collect(),
+        } => {
+            let sort = &definition.element_sort;
+            debug_assert!(
+                heads.summary().extra.all_of_sorts(sort, sort)
+                    && rest
+                        .as_ref()
+                        .is_none_or(|(_, tails)| tails.summary().extra.all_of_sorts(sort, sort)),
+                "{hook} evaluated to a list holding an element of another sort than its \
+                 collection's: {value:?}"
+            );
+        }
+        // The elements' summary keeps their sorts when they all agree, so a set is checked
+        // without reading the elements the hook did not touch.
         TermKind::Set {
             definition,
             elements,
             ..
-        } => elements
-            .iter()
-            .map(|element| (element, &definition.element_sort))
-            .collect(),
+        } => {
+            debug_assert!(
+                elements
+                    .summary()
+                    .extra
+                    .all_of_sorts(&definition.element_sort, &definition.element_sort),
+                "{hook} evaluated to a set holding an element of another sort than its \
+                 collection's: {value:?}"
+            );
+        }
+        // The entries' summary keeps their sorts when they all agree, so a map is checked
+        // without reading the entries the hook did not touch.
         TermKind::Map {
             definition,
             entries,
             ..
-        } => entries
-            .iter()
-            .flat_map(|(key, value)| [(key, &definition.key_sort), (value, &definition.value_sort)])
-            .collect(),
-        _ => Vec::new(),
-    };
-    for (element, sort) in element_sorts {
-        debug_assert_eq!(
-            element.sort(),
-            *sort,
-            "{hook} evaluated to a collection holding an element of another sort than its \
-             element sort: {element:?}"
-        );
+        } => {
+            debug_assert!(
+                entries
+                    .summary()
+                    .extra
+                    .all_of_sorts(&definition.key_sort, &definition.value_sort),
+                "{hook} evaluated to a map holding a key or value of another sort than its \
+                 collection's: {value:?}"
+            );
+        }
+        _ => {}
     }
 }
 
@@ -925,10 +941,12 @@ pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 pub(crate) const BYTES_RESULT_PEAK_FACTOR: u64 = 2;
 
 /// The most bytes one `makeList` application holds at once, per byte of its result (one term
-/// reference per element): 1, the elements' references, which become the list without a copy.
-/// Measured as [`BYTES_RESULT_PEAK_FACTOR`] is, by `make_holds_its_result_once` in
-/// `builtin/list.rs`.
-pub(crate) const LIST_RESULT_PEAK_FACTOR: u64 = 1;
+/// reference per element): 4. The hook builds the elements' references in one vector, the list
+/// term loads them into the leaves of its tree (a second copy), and each leaf and internal node
+/// adds its summary and handle, about twice the references again at the leaves' fill.
+/// Measured as [`BYTES_RESULT_PEAK_FACTOR`] is, by `make_holds_its_result_bounded` in
+/// `builtin/list.rs`: 3.95 in test builds, whose leaf summaries also keep the items' sorts.
+pub(crate) const LIST_RESULT_PEAK_FACTOR: u64 = 4;
 
 /// The largest result a hook whose result size an argument's value sets computes, in bytes: the
 /// result of `R` bytes is computed exactly when `factor * R <= L`, `L` the memory the process may
@@ -1053,8 +1071,8 @@ pub(crate) const fn target_bytes_result_len(largest_allocation: u64) -> u64 {
 ///
 /// Rust refuses an allocation above `isize::MAX` bytes by panicking, and on a 32-bit target that
 /// is half the address space (a WebAssembly instance's whole memory is at most 4 GiB), so the
-/// memory the process may use does not bound one allocation there. A `List` result is one
-/// allocation of its references ([`LIST_RESULT_PEAK_FACTOR`]); a quarter of the largest
+/// memory the process may use does not bound one allocation there. A `List` result is built
+/// from one allocation of its references ([`LIST_RESULT_PEAK_FACTOR`]); a quarter of the largest
 /// allocation keeps it far from that limit, with room for the rest of the run.
 pub(crate) const fn target_result_bytes(largest_allocation: u64) -> u64 {
     largest_allocation.saturating_add(1) / 4

@@ -43,3 +43,5 @@ mod unification;
 mod unspecified_oracle;
 #[path = "backend/value_contract.rs"]
 mod value_contract;
+#[path = "backend/variables_api.rs"]
+mod variables_api;

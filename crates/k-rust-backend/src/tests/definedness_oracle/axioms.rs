@@ -925,12 +925,12 @@ fn left_value(backend: &BackendDefinition, instance: &Term, run: &mut Run) -> (O
 /// the collection `\bottom`; a collection that repeats a key or an element after its parts are
 /// evaluated, or keeps a rest, is left undecided.
 fn collection_value(backend: &BackendDefinition, term: &Term, run: &mut Run) -> Outcome {
-    fn parts(
+    fn parts<'t>(
         backend: &BackendDefinition,
-        terms: &[Term],
+        terms: impl IntoIterator<Item = &'t Term>,
         run: &mut Run,
     ) -> Result<Vec<Term>, Outcome> {
-        let mut values = Vec::with_capacity(terms.len());
+        let mut values = Vec::new();
         for term in terms {
             match collection_value(backend, term, run) {
                 Outcome::Value(value) => values.push(value),
@@ -947,7 +947,7 @@ fn collection_value(backend: &BackendDefinition, term: &Term, run: &mut Run) -> 
             rest,
         } => {
             let (middle, tail) = match rest {
-                Some((middle, tail)) => (vec![middle.clone()], tail.clone()),
+                Some((middle, tail)) => (vec![middle.clone()], tail.to_vec()),
                 None => (Vec::new(), Vec::new()),
             };
             let (heads, middle, tail) = match (
@@ -1046,8 +1046,10 @@ fn instances(
             RuleRhs::Bottom => None,
             RuleRhs::Disjunction(_) | RuleRhs::Top | RuleRhs::Predicates(_) => continue,
         };
-        let variables = rule.lhs.attributes().variables.clone();
-        let mut free = rhs.map_or_else(BTreeSet::new, |rhs| rhs.attributes().variables.clone());
+        let variables = rule.lhs.attributes().variables.to_btree_set();
+        let mut free = rhs.map_or_else(BTreeSet::new, |rhs| {
+            rhs.attributes().variables.to_btree_set()
+        });
         for predicate in rule.requires.iter().chain(rule.ensures.iter()) {
             free.extend(predicate.free_variables());
         }
@@ -1696,7 +1698,11 @@ mod tests {
             panic!("`setItem(mv0)` evaluates to a set")
         };
         assert!(claimed_value(&single));
-        let repeated = Term::set(Arc::clone(set), vec![elements[0].clone(); 2], None);
+        let repeated = Term::set(
+            Arc::clone(set),
+            vec![elements.first().expect("one element").clone(); 2],
+            None,
+        );
         assert!(repeated.repeated_collection_key().is_some());
         assert!(!claimed_value(&repeated));
     }

@@ -22,7 +22,9 @@ use std::{borrow::Cow, sync::Arc};
 
 use crate::{
     matching::SortGraph,
-    term::{CollectionMetadata, ListDefinition, MapDefinition, Name, SetDefinition, Sort, Term},
+    term::{
+        CollectionMetadata, Items, ListDefinition, MapDefinition, Name, SetDefinition, Sort, Term,
+    },
 };
 
 /// What the applied symbol declares its result to be.
@@ -124,20 +126,18 @@ fn convert(sorts: Option<&SortGraph>, element: Term, from: &Sort, into: &Sort) -
 /// so that a hook transforming a collection of the result sort copies nothing for it.
 fn convert_all<'e>(
     sorts: Option<&SortGraph>,
-    elements: &'e [Term],
+    elements: impl IntoIterator<Item = &'e Term>,
     from: &Sort,
     into: &Sort,
-) -> Option<Cow<'e, [Term]>> {
+) -> Option<Vec<Term>> {
     if from == into {
-        return Some(Cow::Borrowed(elements));
+        return Some(elements.into_iter().cloned().collect());
     }
     below(sorts, from, into).then(|| {
-        Cow::Owned(
-            elements
-                .iter()
-                .map(|element| Term::injection(from.clone(), into.clone(), element.clone()))
-                .collect(),
-        )
+        elements
+            .into_iter()
+            .map(|element| Term::injection(from.clone(), into.clone(), element.clone()))
+            .collect()
     })
 }
 
@@ -162,7 +162,11 @@ impl Elements<'_> {
         convert(self.sorts, element, &from, &self.definition.element_sort)
     }
 
-    fn elements<'e>(&self, elements: &'e [Term], from: &Sort) -> Option<Cow<'e, [Term]>> {
+    fn elements<'e>(
+        &self,
+        elements: impl IntoIterator<Item = &'e Term>,
+        from: &Sort,
+    ) -> Option<Vec<Term>> {
         convert_all(self.sorts, elements, from, &self.definition.element_sort)
     }
 
@@ -170,7 +174,7 @@ impl Elements<'_> {
         if *from == self.definition.element_sort {
             return Some(elements);
         }
-        Some(self.elements(&elements, from)?.into_owned())
+        self.elements(&elements, from)
     }
 }
 
@@ -194,22 +198,46 @@ impl ListResult<'_> {
     /// result.
     pub(super) fn elements<'e>(
         &self,
-        elements: &'e [Term],
+        elements: impl IntoIterator<Item = &'e Term>,
         from: &Sort,
-    ) -> Option<Cow<'e, [Term]>> {
+    ) -> Option<Vec<Term>> {
         self.elements.elements(elements, from)
+    }
+
+    /// The items of a list argument whose element sort is `from`, as items of the result: the
+    /// argument's tree itself when `from` is the result's element sort, so that a hook editing a
+    /// list of the result sort shares every node it does not edit, and the converted items in a
+    /// new tree otherwise.
+    pub(super) fn items(&self, items: &Items<Term>, from: &Sort) -> Option<Items<Term>> {
+        if *from == self.elements.definition.element_sort {
+            return Some(items.clone());
+        }
+        self.elements(items, from).map(Items::from_vec)
     }
 
     /// The list of `heads`, and of an opaque middle and its `tails` when the middle is a value
     /// of the result sort; the elements are already the result's (`element`, `elements`).
     pub(super) fn build(self, heads: Vec<Term>, rest: Option<(Term, Vec<Term>)>) -> Option<Term> {
+        self.build_items(
+            Items::from_vec(heads),
+            rest.map(|(middle, tails)| (middle, Items::from_vec(tails))),
+        )
+    }
+
+    /// [`build`](Self::build) of trees of the result's items (`items`), which the list holds
+    /// as they are.
+    pub(super) fn build_items(
+        self,
+        heads: Items<Term>,
+        rest: Option<(Term, Items<Term>)>,
+    ) -> Option<Term> {
         let definition = self.elements.definition;
         if let Some((middle, _)) = &rest
             && !fits(middle, &definition.list_sort)
         {
             return None;
         }
-        Some(Term::list(definition, heads, rest))
+        Some(Term::list_of_items(definition, heads, rest))
     }
 }
 
@@ -233,9 +261,9 @@ impl SetResult<'_> {
     /// `from`, as elements of the result.
     pub(super) fn elements<'e>(
         &self,
-        elements: &'e [Term],
+        elements: impl IntoIterator<Item = &'e Term>,
         from: &Sort,
-    ) -> Option<Cow<'e, [Term]>> {
+    ) -> Option<Vec<Term>> {
         self.elements.elements(elements, from)
     }
 
@@ -250,6 +278,30 @@ impl SetResult<'_> {
             return None;
         }
         Some(Term::set(definition, elements, rest))
+    }
+
+    /// The set of `elements`, in the order a set of element sort `from` holds them (a set
+    /// argument's, or ordered edits of them), and of an opaque `rest` when it is a value of the
+    /// result sort: their tree is kept when `from` is the result's element sort, and the
+    /// elements are converted and ordered again otherwise.
+    pub(super) fn build_from(
+        self,
+        elements: Items<Term>,
+        from: &Sort,
+        rest: Option<Term>,
+    ) -> Option<Term> {
+        if *from != self.elements.definition.element_sort {
+            let elements = self.elements(&elements, from)?;
+            return self.build(elements, rest);
+        }
+        let definition = self.elements.definition;
+        if rest
+            .as_ref()
+            .is_some_and(|rest| !fits(rest, &definition.list_sort))
+        {
+            return None;
+        }
+        Some(Term::set_of_items(definition, elements, rest))
     }
 }
 
@@ -275,16 +327,27 @@ impl MapResult<'_> {
     /// The entries of a map argument of collection `from`, as entries of the result.
     pub(super) fn entries<'e>(
         &self,
-        entries: &'e [(Term, Term)],
+        entries: &'e Items<(Term, Term)>,
         from: &MapDefinition,
-    ) -> Option<Cow<'e, [(Term, Term)]>> {
-        if from.key_sort == self.definition.key_sort
-            && from.value_sort == self.definition.value_sort
-        {
+    ) -> Option<Cow<'e, Items<(Term, Term)>>> {
+        if self.same_sorts(from) {
             return Some(Cow::Borrowed(entries));
         }
+        self.converted_entries(entries, from).map(Cow::Owned)
+    }
+
+    fn same_sorts(&self, from: &MapDefinition) -> bool {
+        from.key_sort == self.definition.key_sort && from.value_sort == self.definition.value_sort
+    }
+
+    /// Entries of collection `from`, each key and value injected into the result's sort.
+    fn converted_entries<'e, C: FromIterator<(Term, Term)>>(
+        &self,
+        entries: impl IntoIterator<Item = &'e (Term, Term)>,
+        from: &MapDefinition,
+    ) -> Option<C> {
         entries
-            .iter()
+            .into_iter()
             .map(|(key, value)| {
                 Some((
                     convert(
@@ -301,8 +364,7 @@ impl MapResult<'_> {
                     )?,
                 ))
             })
-            .collect::<Option<Vec<_>>>()
-            .map(Cow::Owned)
+            .collect()
     }
 
     /// The map of `entries`, and of an opaque `rest` when it is a value of the result sort; the
@@ -315,6 +377,40 @@ impl MapResult<'_> {
             return None;
         }
         Some(Term::map(self.definition, entries, rest))
+    }
+
+    /// The map of `entries`, and of an opaque `rest` when it is a value of the result sort; the
+    /// entries are already the result's and in the order a map holds them (those of a map of
+    /// the result's sorts, as [`entries`](Self::entries) borrows them, after ordered edits), so
+    /// their tree is kept as it is.
+    pub(super) fn build_ordered(
+        self,
+        entries: Items<(Term, Term)>,
+        rest: Option<Term>,
+    ) -> Option<Term> {
+        if rest
+            .as_ref()
+            .is_some_and(|rest| !fits(rest, &self.definition.map_sort))
+        {
+            return None;
+        }
+        Some(Term::map_of_items(self.definition, entries, rest))
+    }
+
+    /// The map of `entries`, in the order a map of collection `from` holds them, as entries of
+    /// the result: their tree is kept when the sorts agree, and the entries are converted and
+    /// ordered again otherwise.
+    pub(super) fn build_from(
+        self,
+        entries: Cow<'_, Items<(Term, Term)>>,
+        from: &MapDefinition,
+        rest: Option<Term>,
+    ) -> Option<Term> {
+        if self.same_sorts(from) {
+            return self.build_ordered(entries.into_owned(), rest);
+        }
+        let entries = self.converted_entries(entries.iter(), from)?;
+        self.build(entries, rest)
     }
 
     /// A whole map argument returned as the result: itself when it is a value of the result
@@ -331,7 +427,6 @@ impl MapResult<'_> {
         if *definition == self.definition {
             return Some(map.clone());
         }
-        let entries = self.entries(entries, definition)?.into_owned();
-        self.build(entries, rest.clone())
+        self.build_from(Cow::Borrowed(entries), definition, rest.clone())
     }
 }

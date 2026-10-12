@@ -180,6 +180,8 @@ module MAIN
         [function{}(), total{}(), hook{}("LIST.element")]
     hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
         [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+    hooked-symbol listUpdate{}(SortList{}, SortInt{}, SortInt{}) : SortList{}
+        [function{}(), hook{}("LIST.update")]
     hooked-symbol setUnit{}() : SortSet{} [function{}(), total{}(), hook{}("SET.unit")]
     hooked-symbol setItem{}(SortInt{}) : SortSet{}
         [function{}(), total{}(), hook{}("SET.element")]
@@ -189,6 +191,11 @@ module MAIN
     symbol lstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
     symbol sstate{}(SortInt{}, SortSet{}) : SortState{} [constructor{}()]
     symbol rstate{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
+    symbol qstate{}(SortInt{}, SortSet{}) : SortState{} [constructor{}()]
+    symbol fstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
+    symbol bstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
+    symbol ustate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
+    symbol nstate{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
     symbol cmstate{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
     symbol clstate{}(SortInt{}, SortList{}) : SortState{} [constructor{}()]
     symbol csstate{}(SortInt{}, SortSet{}) : SortState{} [constructor{}()]
@@ -224,6 +231,50 @@ module MAIN
         )
     ) [label{}("read")]
     axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(
+            qstate{}(N:SortInt{}, setConcat{}(setItem{}(N:SortInt{}), S:SortSet{})),
+            \top{SortState{}}()
+        ),
+        qstate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            setConcat{}(setItem{}(N:SortInt{}), S:SortSet{})
+        )
+    ) [label{}("read-set")]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(
+            fstate{}(N:SortInt{}, listConcat{}(listItem{}(X:SortInt{}), L:SortList{})),
+            \top{SortState{}}()
+        ),
+        fstate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            listConcat{}(L:SortList{}, listItem{}(X:SortInt{}))
+        )
+    ) [label{}("rotate-front")]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(
+            bstate{}(N:SortInt{}, listConcat{}(L:SortList{}, listItem{}(X:SortInt{}))),
+            \top{SortState{}}()
+        ),
+        bstate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            listConcat{}(listItem{}(X:SortInt{}), L:SortList{})
+        )
+    ) [label{}("rotate-back")]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(ustate{}(N:SortInt{}, L:SortList{}), \top{SortState{}}()),
+        ustate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            listUpdate{}(L:SortList{}, \dv{SortInt{}}("0"), N:SortInt{})
+        )
+    ) [label{}("list-update")]
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(nstate{}(N:SortInt{}, M:SortMap{}), \top{SortState{}}()),
+        nstate{}(
+            plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+            mapUpdate{}(M:SortMap{}, N:SortInt{}, Y:SortInt{})
+        )
+    ) [label{}("map-new-name")]
+    axiom{} \rewrites{SortState{}}(
         \and{SortState{}}(cmstate{}(N:SortInt{}, C:SortMap{}), \top{SortState{}}()),
         cmstate{}(plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")), C:SortMap{})
     ) [label{}("carry-cmstate")]
@@ -258,6 +309,13 @@ fn map_of(n: u64) -> String {
     })
 }
 
+/// `n` bindings `index |-> V<index>`: ground keys, each bound to a variable of its own.
+fn symbolic_map_of(n: u64) -> String {
+    collection_text("mapConcat{}", "mapUnit{}", n, |index| {
+        format!(r#"mapItem{{}}(\dv{{SortInt{{}}}}("{index}"), V{index}:SortInt{{}})"#)
+    })
+}
+
 fn list_of(n: u64) -> String {
     collection_text("listConcat{}", "listUnit{}", n, |index| {
         format!(r#"listItem{{}}(\dv{{SortInt{{}}}}("{index}"))"#)
@@ -270,8 +328,8 @@ fn set_of(n: u64) -> String {
     })
 }
 
-/// How many steps each measurement counts. The collection the baseline steps start from has
-/// `2 * STEPS` elements, so that every key the read shape reads is present.
+/// How many steps each measurement counts. Every collection measured has at least `2 * STEPS`
+/// elements, so that every key the read shapes read is present.
 const STEPS: u64 = 64;
 
 /// Bytes allocated by steps `STEPS + 1 ..= 2 * STEPS` from `state(start, collection of size)`,
@@ -332,14 +390,35 @@ fn shape_steps(
 /// grow in proportion to the collection.
 ///
 /// `step_bytes(size)` is the bytes `STEPS` steps allocate on a collection of about `size`
-/// elements; the same steps on a collection of `2 * STEPS` elements are subtracted, which leaves
-/// what the steps pay for the elements they do not touch. A step that copies, re-synthesizes or
-/// rebuilds the collection pays for every element beyond the baseline's: `SCALE * size - 128`
-/// against `size - 128`, 15 times between 256 and 2048 elements. A step that touches one
-/// element and the path to it pays at most a logarithmic factor (11/8 between 256 and 2048
-/// elements, under 3 even doubled for node splits). The check asks for at most `SCALE / 2`, with
-/// an eighth of what the baseline steps allocate as a floor, so that a step that pays almost
-/// nothing for the collection at either size is not judged by the ratio of two small numbers.
+/// elements beyond what the carry's steps allocate on it ([`shape_steps`]). The same steps on a
+/// collection of `SCALE * size` elements do the same work apart from the collection, which
+/// cancels in the difference of the two measurements; what is left is what the larger
+/// collection makes the steps pay.
+///
+/// A step that copies, rebuilds or re-synthesizes the elements it does not touch holds at least one
+/// handle (`size_of::<Term>()`) for each element it copies, whatever the representation it copies
+/// them into, so on the larger collection it allocates at least `(SCALE - 1) * size` handles more
+/// per step. The bound is half of that: a step that copies at least half of the elements it does
+/// not touch fails, however much its other work costs; since both the copy and the bound grow with
+/// `size`, that holds at any size. A step that touches one element and the paths to it pays, on the
+/// larger collection, for the levels the larger tree adds to those paths and for the nodes on them
+/// being wider, up to the branching factor, a cost that does not grow with the elements; the bound
+/// does, so the sizes are chosen large enough for it to exceed that cost by a wide margin. At 1024
+/// and 8192 elements the shapes here pay at most about a tenth of the bound, in release and debug
+/// builds. At 256 and 2048 the symbolic map paid 6 KiB a step more against a bound of 7 KiB: its
+/// variable sets are trees of nodes up to 64 wide (the crate's `VARIABLE_BRANCHING`), and between
+/// those sizes they keep their height while their roots widen, on each of the several variable sets
+/// a step edits.
+///
+/// The check is a difference of two measurements, not a ratio, so it does not depend on where
+/// the trees' heights change. An earlier form compared each size's steps with those on a
+/// `2 * STEPS`-element collection, whose tree has the height of the smaller size's: a
+/// logarithmic step then paid next to nothing at the smaller size, the ratio had nothing to
+/// divide by, and the check needed a floor (the baseline steps' whole allocation) that also
+/// admitted a copying step whose work apart from the collection was large enough.
+///
+/// `step_bytes(size)` must be positive: a shape whose steps allocate no more than its carry's
+/// measures nothing beyond the carry, and the check would hold whatever the steps cost.
 ///
 /// This compares steps with steps, so the per-step costs that do not depend on the collection
 /// (matching the state, the counter, the step's own logs) cancel, unlike a total over `n` and
@@ -347,21 +426,30 @@ fn shape_steps(
 /// a release build the totals of the map and set shapes stay within 16 times while each step
 /// copies the whole collection.
 fn assert_step_independent_of_size(shape: &str, size: u64, step_bytes: impl Fn(u64) -> u64 + Sync) {
+    assert!(
+        size >= 2 * STEPS,
+        "the read shapes read keys 0 .. 2 * STEPS"
+    );
+    let handle = std::mem::size_of::<Term>() as u64;
+    let allowed = STEPS * (SCALE - 1) * size * handle / 2;
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(1 << 30)
             .spawn_scoped(scope, || {
-                let base = step_bytes(2 * STEPS);
-                let small = step_bytes(size).saturating_sub(base);
-                let large = step_bytes(SCALE * size).saturating_sub(base);
+                let small = step_bytes(size);
+                let large = step_bytes(SCALE * size);
+                let more = large.saturating_sub(small);
                 eprintln!(
-                    "{shape}: {STEPS} steps pay {small} bytes for {size} elements, {large} for {}, ratio {:.1}",
+                    "{shape}: {STEPS} steps pay {small} bytes beyond the carry on {size} elements, {large} on {}: {more} more, bound {allowed}",
                     SCALE * size,
-                    large as f64 / small.max(1) as f64
                 );
                 assert!(
-                    2 * large <= SCALE * small + base / SCALE,
-                    "{shape}: {STEPS} steps on {} elements pay {large} bytes for the elements they do not touch, against {small} on {size}: the step grows with the collection",
+                    small > 0,
+                    "{shape}: the steps allocate no more than the carry's, so the check measures nothing"
+                );
+                assert!(
+                    more <= allowed,
+                    "{shape}: {STEPS} steps on {} elements pay {more} bytes more than on {size}, at least half a handle for each element added: the step grows with the collection",
                     SCALE * size
                 );
             })
@@ -372,53 +460,150 @@ fn assert_step_independent_of_size(shape: &str, size: u64, step_bytes: impl Fn(u
 }
 
 #[test]
-#[ignore = "K22: a step still copies the whole map, which the local fixes leave; un-ignore with the persistent representation"]
 fn adding_one_map_entry_costs_the_same_on_a_larger_map() {
     let _one = ONE_AT_A_TIME
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("map, one MAP.update per step", 256, |size| {
+    assert_step_independent_of_size("map, one MAP.update per step", 1024, |size| {
         shape_steps(&definition, "mstate", "cmstate", &map_of, size, size)
     });
 }
 
 #[test]
-#[ignore = "K22: a step still copies the whole list, which the local fixes leave; un-ignore with the persistent representation"]
 fn adding_one_list_element_costs_the_same_on_a_larger_list() {
     let _one = ONE_AT_A_TIME
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("list, one element appended per step", 256, |size| {
+    assert_step_independent_of_size("list, one element appended per step", 1024, |size| {
         shape_steps(&definition, "lstate", "clstate", &list_of, size, size)
     });
 }
 
 #[test]
-#[ignore = "K22: a step still copies the whole set, which the local fixes leave; un-ignore with the persistent representation"]
 fn adding_one_set_element_costs_the_same_on_a_larger_set() {
     let _one = ONE_AT_A_TIME
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("set, one element added per step", 256, |size| {
+    assert_step_independent_of_size("set, one element added per step", 1024, |size| {
         shape_steps(&definition, "sstate", "csstate", &set_of, size, size)
+    });
+}
+
+/// Taking the item at one end of a list by matching `ListItem(X) L` (or `L ListItem(X)`) and
+/// putting it back at the other end, the K idiom of a queue: the step needs the one item, the
+/// rest of the list is bound to `L` and put back unread.
+#[test]
+fn rotating_a_list_by_matching_one_end_costs_the_same_on_a_larger_list() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(COLLECTIONS);
+    assert_step_independent_of_size("list, first item moved last per step", 1024, |size| {
+        shape_steps(&definition, "fstate", "clstate", &list_of, size, 0)
+    });
+    assert_step_independent_of_size("list, last item moved first per step", 1024, |size| {
+        shape_steps(&definition, "bstate", "clstate", &list_of, size, 0)
+    });
+}
+
+/// Overwriting one item of a list by `LIST.update`, the K idiom of an array.
+#[test]
+fn updating_one_list_item_costs_the_same_on_a_larger_list() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(COLLECTIONS);
+    assert_step_independent_of_size("list, one LIST.update per step", 1024, |size| {
+        shape_steps(&definition, "ustate", "clstate", &list_of, size, 0)
     });
 }
 
 /// Reading one binding by matching `K |-> V M` and writing the map back, the K idiom
 /// `<m> ... K |-> V ... </m>`: the step needs the binding of `K` and nothing else of the map.
 #[test]
-#[ignore = "K22: the frame still copies the map without the binding, which the local fixes leave; un-ignore with the persistent representation"]
 fn reading_one_map_binding_by_matching_costs_the_same_on_a_larger_map() {
     let _one = ONE_AT_A_TIME
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(COLLECTIONS);
-    assert_step_independent_of_size("map, one binding matched per step", 256, |size| {
+    assert_step_independent_of_size("map, one binding matched per step", 1024, |size| {
         shape_steps(&definition, "rstate", "cmstate", &map_of, size, 0)
     });
+}
+
+/// Reading one element by matching `SetItem(N) S` and writing the set back, the K idiom
+/// `<s> ... SetItem(N) ... </s>`: the step needs to know that the set holds `N`, and the rest of the
+/// set is bound to `S` and put back unread.
+#[test]
+fn reading_one_set_element_by_matching_costs_the_same_on_a_larger_set() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(COLLECTIONS);
+    assert_step_independent_of_size("set, one element matched per step", 1024, |size| {
+        shape_steps(&definition, "qstate", "csstate", &set_of, size, 0)
+    });
+}
+
+/// A map whose values are distinct variables, so that the map and every term above it carry as
+/// many variables as the map has bindings. Each step overwrites the binding of a present key,
+/// `N |-> V<N>` by `N |-> N`, so it removes one variable from the map's and the configuration's
+/// variable sets: the step changes one binding and one variable, and what it pays for the other
+/// bindings and variables must not grow with them.
+///
+/// The steps subtracted are those carrying a ground map (`cmstate` on `map_of`), not the
+/// symbolic one: a carry of the symbolic map is itself a step on a configuration of as many
+/// variables, so any per-step cost in the number of variables would cancel in the difference
+/// and the check would pass whatever that cost is.
+#[test]
+fn overwriting_one_symbolic_map_binding_costs_the_same_on_a_larger_map() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(COLLECTIONS);
+    assert_step_independent_of_size(
+        "symbolic map, one variable binding overwritten per step",
+        1024,
+        |size| {
+            steps_from(&definition, "mstate", &symbolic_map_of, size, 0).saturating_sub(steps_from(
+                &definition,
+                "cmstate",
+                &map_of,
+                size,
+                0,
+            ))
+        },
+    );
+}
+
+/// A rule that introduces a variable: each step overwrites the binding of a present key,
+/// `N |-> V<N>`, by `N |-> Y` for a `Y` the left-hand side does not bind, which the step names
+/// apart from every variable of the state. The map and every term above it carry as many
+/// variables as the map has bindings, and the new name must differ from all of them; what the
+/// step pays to find one must not grow with them. The carry subtracted is a ground map's, as for
+/// [`overwriting_one_symbolic_map_binding_costs_the_same_on_a_larger_map`].
+#[test]
+fn naming_a_new_variable_beside_a_symbolic_map_costs_the_same_on_a_larger_map() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(COLLECTIONS);
+    assert_step_independent_of_size(
+        "symbolic map, one binding overwritten by a new variable per step",
+        1024,
+        |size| {
+            steps_from(&definition, "nstate", &symbolic_map_of, size, 0).saturating_sub(steps_from(
+                &definition,
+                "cmstate",
+                &map_of,
+                size,
+                0,
+            ))
+        },
+    );
 }
 
 // ---------- chains: one level of a nested input per unit ----------

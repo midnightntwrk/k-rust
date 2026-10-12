@@ -1,5 +1,19 @@
 //! Deterministic `SET` hooks: per-call operations on the internal set representation; a
 //! responsibility, not an algorithm; no counter of its own, no worklist.
+//!
+//! Each hook is a few operations of the persistent tree that holds the set's elements (card
+//! `backend.term.chunked`), so for a set argument of `n` elements, `s` of them not
+//! constructor-like, and `m` elements in the smaller of two set arguments:
+//!
+//! - `size`: `O(1)`, the root summary's count; `element`, `unit`: `O(1)`.
+//! - `in`: one search, `O(log n)`; an element the search does not find is decided absent as a map
+//!   key is (`MAP` hooks): `O(s log n)` for a constructor-like element, `O(n)` otherwise.
+//! - `concat`: the union of the two trees, `O(m log(n/m + 1))`, a repeated element read from the
+//!   union's summary.
+//! - `union`, `difference`, `intersection`: one search (and a path copy, or one item of a
+//!   bulk-loaded result) per element of the smaller operand, `O(m log n)`; `inclusion`: one search
+//!   in the right set per element of the left, `O(m log n)` for `m` left elements.
+//! - `set2list`, `list2set`: `O(n)` and `O(n log n)`, the size of the result.
 
 use std::sync::Arc;
 
@@ -11,7 +25,7 @@ use super::{
 };
 use crate::{
     matching::SortGraph,
-    term::{SetDefinition, Term, TermKind},
+    term::{Items, SetDefinition, Term, TermKind},
 };
 
 pub(super) fn evaluate(
@@ -22,8 +36,8 @@ pub(super) fn evaluate(
 ) -> HookResult<BuiltinResult> {
     // A hooked application is strict in its arguments, and an internal set that holds an
     // element twice is `\bottom`: set concatenation is nilpotent (`Term::set`). A `ceil_free`
-    // set has pairwise distinct elements, so only other sets are scanned; the hooks below
-    // already visit every element of a set they compute on.
+    // set has pairwise distinct elements, so only other sets are asked, and their elements'
+    // summary says whether two adjacent ones are equal (`Term::repeated_set_element`).
     if arguments.iter().any(|argument| {
         !argument.attributes().ceil_free() && argument.repeated_set_element().is_some()
     }) {
@@ -81,29 +95,21 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
     let Some(into) = result.set(Some(left_definition)) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    // Both element lists are sorted (`Term::set`), so one merge pass finds a shared element.
-    let (mut left_index, mut right_index) = (0, 0);
-    while let (Some(left), Some(right)) = (
-        left_elements.get(left_index),
-        right_elements.get(right_index),
-    ) {
-        match left.cmp(right) {
-            std::cmp::Ordering::Less => left_index += 1,
-            std::cmp::Ordering::Greater => right_index += 1,
-            std::cmp::Ordering::Equal => return Ok(BuiltinResult::Bottom),
-        }
+    // An element both operands hold makes the concatenation `\bottom`. Each operand holds an
+    // element once (`evaluate`) and holds its elements ordered, so in the ordered union of the
+    // two the occurrences of an element both hold stand side by side, which the union's summary
+    // records (`collision`): the check costs the union, `O(m log(n/m + 1))` nodes for operands
+    // of `n` and `m` elements, rather than a pass over both.
+    let united = left_elements.union(right_elements);
+    if united.summary().collision {
+        return Ok(BuiltinResult::Bottom);
     }
-    let from = &left_definition.element_sort;
-    let (Some(left_elements), Some(right_elements)) = (
-        into.elements(left_elements, from),
-        into.elements(right_elements, from),
-    ) else {
-        return Ok(BuiltinResult::NotApplicable);
-    };
-    let mut elements = left_elements.into_owned();
-    elements.extend(right_elements.iter().cloned());
     Ok(into
-        .build(elements, left_rest.clone().or_else(|| right_rest.clone()))
+        .build_from(
+            united,
+            &left_definition.element_sort,
+            left_rest.clone().or_else(|| right_rest.clone()),
+        )
         .into())
 }
 
@@ -135,13 +141,7 @@ fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<
     };
     if place_of(elements, element).is_ok() {
         Ok(Some(bool_term(true)))
-    } else if absent(
-        sorts,
-        element,
-        elements,
-        set.attributes().constructor_like,
-        rest,
-    ) {
+    } else if absent(sorts, element, elements, rest) {
         Ok(Some(bool_term(false)))
     } else {
         Ok(None)
@@ -154,8 +154,8 @@ fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<
 /// `elements` are the elements of a set argument as `Term::set` stores them, in the order of
 /// `Term`, under which two terms compare equal exactly when they are the same term, so a binary
 /// search decides whether `element` is among them in `O(log n)` comparisons.
-fn place_of(elements: &[Term], element: &Term) -> Result<usize, usize> {
-    elements.binary_search_by(|existing| {
+fn place_of(elements: &Items<Term>, element: &Term) -> Result<usize, usize> {
+    elements.search_by(|existing| {
         #[cfg(test)]
         compared_with_an_element();
         existing.cmp(element)
@@ -179,44 +179,39 @@ fn compared_with_an_element() {
 ///
 /// Without a rest, the set holds its elements and nothing else. Strict operands make apartness
 /// a difference of values, so an element different from each of the set's is absent. Two
-/// constructor-like terms denote different values exactly when they differ syntactically, so
-/// when `element` and every element of the set are constructor-like (`set_constructor_like`:
-/// the set's own attribute, which holds only when each of its elements is constructor-like),
-/// `element` differs from each already; otherwise it is compared with each element.
+/// constructor-like terms denote different values exactly when they differ syntactically, so a
+/// constructor-like `element` differs from every constructor-like element of the set already,
+/// and is compared only with the elements that are not constructor-like: the elements' summary
+/// counts them and leads to them (`Items::symbolic_keyed`), `O(s log n)` nodes for `s` such
+/// elements among `n`. An element that is not constructor-like is compared with each element.
 fn absent(
     sorts: Option<&SortGraph>,
     element: &Term,
-    elements: &[Term],
-    set_constructor_like: bool,
+    elements: &Items<Term>,
     rest: &Option<Term>,
 ) -> bool {
+    let differs = |existing: &Term| {
+        #[cfg(test)]
+        compared_with_an_element();
+        values_differ(sorts, element, existing)
+    };
     rest.is_none()
-        && ((set_constructor_like && element.attributes().constructor_like)
-            || elements.iter().all(|existing| {
-                #[cfg(test)]
-                compared_with_an_element();
-                values_differ(sorts, element, existing)
-            }))
+        && if element.attributes().constructor_like {
+            elements.symbolic_keyed().all(differs)
+        } else {
+            elements.iter().all(differs)
+        }
 }
 
-/// The set of the elements of `definition`'s concrete set `left` that `keep` admits, in the
-/// result's collection.
-fn filtered(
-    result: ResultCollection<'_>,
-    definition: &Arc<SetDefinition>,
-    left: &[Term],
-    keep: impl Fn(&Term) -> bool,
-) -> Option<Term> {
-    let into = result.set(Some(definition))?;
-    let kept = left
-        .iter()
-        .filter(|element| keep(element))
-        .cloned()
-        .collect();
-    let kept = into.owned_elements(kept, &definition.element_sort)?;
-    into.build(kept, None)
-}
-
+/// `S1 -Set S2`, the elements of `S1` that are none of `S2`'s, of two closed sets of
+/// constructor-like elements (`concrete_set`), for which being none of them syntactically is
+/// being a different value.
+///
+/// Both operands are ordered trees. When `S2` is the smaller, each of its `m` elements is
+/// searched in `S1` and removed from it where found, a path copy each, so the result shares the
+/// rest of `S1`'s tree: `O(m log n)`. Otherwise the elements of `S1` are each searched in `S2`
+/// and those not found are loaded into a new tree, `O(n log m)` for the `n <= m` elements of
+/// `S1`.
 fn difference(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("SET.difference", arguments, 2)?;
     let [left, right] = arguments else {
@@ -231,9 +226,28 @@ fn difference(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Op
     if definition != right_definition {
         return Ok(None);
     }
-    Ok(filtered(result, definition, left_elements, |element| {
-        right_elements.binary_search(element).is_err()
-    }))
+    let Some(into) = result.set(Some(definition)) else {
+        return Ok(None);
+    };
+    let kept = if right_elements.len() < left_elements.len() {
+        right_elements
+            .iter()
+            .fold(left_elements.clone(), |kept, element| {
+                match kept.search(element) {
+                    Ok(index) => kept.remove_at(index).0,
+                    Err(_) => kept,
+                }
+            })
+    } else {
+        Items::from_vec(
+            left_elements
+                .iter()
+                .filter(|element| right_elements.search(element).is_err())
+                .cloned()
+                .collect(),
+        )
+    };
+    Ok(into.build_from(kept, &definition.element_sort, None))
 }
 
 fn to_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
@@ -246,7 +260,7 @@ fn to_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Optio
     };
     Ok(into
         .elements(elements, &definition.element_sort)
-        .and_then(|elements| into.build(elements.into_owned(), None)))
+        .and_then(|elements| into.build(elements, None)))
 }
 
 fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
@@ -257,6 +271,10 @@ fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
     Ok(Some(int_term(BigInt::from(elements.len()))))
 }
 
+/// `S1 /\Set S2` (`SET.intersection`), the elements both closed sets of constructor-like
+/// elements hold, for which being the same term is being the same value: each element of the
+/// smaller operand is searched in the larger, `O(m log n)` for operands of `m <= n` elements, and
+/// those found, in order, are loaded into a new tree.
 fn intersection(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("SET.intersection", arguments, 2)?;
     let [left, right] = arguments else {
@@ -271,9 +289,28 @@ fn intersection(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<
     if definition != right_definition {
         return Ok(None);
     }
-    Ok(filtered(result, definition, left_elements, |element| {
-        right_elements.binary_search(element).is_ok()
-    }))
+    let Some(into) = result.set(Some(definition)) else {
+        return Ok(None);
+    };
+    let (smaller, larger) = smaller_first(left_elements, right_elements);
+    let common = smaller
+        .iter()
+        .filter(|element| larger.search(element).is_ok())
+        .cloned()
+        .collect();
+    Ok(into.build_from(Items::from_vec(common), &definition.element_sort, None))
+}
+
+/// The two operands, the one with fewer elements first (the left one when they hold as many).
+fn smaller_first<'a>(
+    left: &'a Items<Term>,
+    right: &'a Items<Term>,
+) -> (&'a Items<Term>, &'a Items<Term>) {
+    if right.len() < left.len() {
+        (right, left)
+    } else {
+        (left, right)
+    }
 }
 
 /// `S1 |Set S2`, the set of the elements of either set.
@@ -283,8 +320,8 @@ fn intersection(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<
 /// is determined only when each element of one operand is known to be equal to, or different
 /// from, each element of the other. Constructor-like elements are both: two of them denote the
 /// same value exactly when they are the same term. So two closed sets of constructor-like
-/// elements (`concrete_set`) have a union, found by merging their sorted elements once and
-/// keeping a common element once. Any other operands give no result: an element that may or
+/// elements (`concrete_set`) have a union: the larger operand with the smaller's elements it
+/// lacks, a common element kept once. Any other operands give no result: an element that may or
 /// may not equal one of the other operand's makes the union's size undecided, and a set with
 /// a rest holds elements the hook cannot see.
 fn union(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
@@ -304,39 +341,20 @@ fn union(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<
     let Some(into) = result.set(Some(definition)) else {
         return Ok(None);
     };
-    let merged = merged_once(left_elements, right_elements);
-    Ok(into
-        .owned_elements(merged, &definition.element_sort)
-        .and_then(|elements| into.build(elements, None)))
-}
-
-/// The elements of `left` and `right`, both in the order of `Term` without a repeat, in that
-/// order and holding a term that is in both once.
-fn merged_once(left: &[Term], right: &[Term]) -> Vec<Term> {
-    let mut merged = Vec::with_capacity(left.len() + right.len());
-    let (mut left_index, mut right_index) = (0, 0);
-    while let (Some(left_element), Some(right_element)) =
-        (left.get(left_index), right.get(right_index))
-    {
-        match left_element.cmp(right_element) {
-            std::cmp::Ordering::Less => {
-                merged.push(left_element.clone());
-                left_index += 1;
-            }
-            std::cmp::Ordering::Greater => {
-                merged.push(right_element.clone());
-                right_index += 1;
-            }
-            std::cmp::Ordering::Equal => {
-                merged.push(left_element.clone());
-                left_index += 1;
-                right_index += 1;
-            }
-        }
-    }
-    merged.extend_from_slice(&left[left_index..]);
-    merged.extend_from_slice(&right[right_index..]);
-    merged
+    // The elements of the smaller operand that the larger lacks, each found missing by a search,
+    // united with the larger operand's tree: `O(m log n)` for operands of `m <= n` elements, and
+    // the result shares the larger tree's nodes that receive none of them.
+    let (smaller, larger) = smaller_first(left_elements, right_elements);
+    let missing = smaller
+        .iter()
+        .filter(|element| larger.search(element).is_err())
+        .cloned()
+        .collect();
+    Ok(into.build_from(
+        larger.union(&Items::from_vec(missing)),
+        &definition.element_sort,
+        None,
+    ))
 }
 
 fn list_to_set(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
@@ -360,10 +378,9 @@ fn list_to_set(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<O
     };
     // The set of the list's elements: a list may repeat one, and the set holds it once. This
     // is not a concatenation, so the repeat is removed here (`Term::set` keeps repeats).
-    let Some(elements) = into.elements(heads, &definition.element_sort) else {
+    let Some(mut elements) = into.elements(heads, &definition.element_sort) else {
         return Ok(None);
     };
-    let mut elements = elements.into_owned();
     elements.sort();
     elements.dedup();
     Ok(into.build(elements, None))
@@ -383,12 +400,16 @@ fn inclusion(arguments: &[Term]) -> HookResult<Option<Term>> {
     if left_definition != right_definition {
         return Ok(None);
     }
-    Ok(Some(bool_term(left_elements.iter().all(|element| {
-        right_elements.binary_search(element).is_ok()
-    }))))
+    Ok(Some(bool_term(
+        left_elements
+            .iter()
+            .all(|element| right_elements.search(element).is_ok()),
+    )))
 }
 
-fn concrete_set(term: &Term) -> Option<(&Arc<SetDefinition>, &[Term])> {
+/// The definition and the elements of `term` when it is a set without a rest whose elements are
+/// all constructor-like, which the elements' summary counts (`Items::symbolic_keys`).
+fn concrete_set(term: &Term) -> Option<(&Arc<SetDefinition>, &Items<Term>)> {
     let TermKind::Set {
         definition,
         elements,
@@ -397,10 +418,7 @@ fn concrete_set(term: &Term) -> Option<(&Arc<SetDefinition>, &[Term])> {
     else {
         return None;
     };
-    elements
-        .iter()
-        .all(|element| element.attributes().constructor_like)
-        .then_some((definition, elements))
+    (elements.symbolic_keys() == 0).then_some((definition, elements))
 }
 
 #[cfg(test)]
@@ -641,7 +659,7 @@ mod tests {
         let TermKind::Set { elements, rest, .. } = set.kind() else {
             return None;
         };
-        if elements.contains(element) {
+        if elements.iter().any(|existing| existing == element) {
             Some(true)
         } else if rest.is_none()
             && elements
@@ -760,7 +778,8 @@ mod tests {
     /// In a constructor-like set, `SET.in` compares a constructor-like element with the elements
     /// the binary search visits and with no other: a held element is found by the search, and
     /// one not held differs from every element without being compared with each (`absent`).
-    /// The search's own count bounds those comparisons by `ilog2(n) + 1`.
+    /// The search's own count bounds those comparisons by one binary search per level of the
+    /// elements' tree (`Items::search_comparison_bound`).
     #[test]
     fn membership_compares_the_element_only_with_the_elements_the_search_visits() {
         const ELEMENTS: u32 = 4096;
@@ -777,7 +796,7 @@ mod tests {
             run();
             ELEMENT_COMPARISONS.with(std::cell::Cell::get)
         };
-        let bound = ELEMENTS.ilog2() as usize + 1;
+        let bound = elements.search_comparison_bound();
         for probe in [2, ELEMENTS, 2 * ELEMENTS, 1, ELEMENTS + 1, 2 * ELEMENTS + 1] {
             let probed = item(&probe.to_string());
             let searched = compared_by(&|| {
@@ -801,6 +820,98 @@ mod tests {
                 "element {probe}: {made} elements compared, the search compares {searched}"
             );
         }
+    }
+
+    /// The absence of a constructor-like element from a set is decided by comparing it with the
+    /// elements that are not constructor-like only: with three such elements among 4,096
+    /// constructor applications, `SET.in` of an element of another constructor compares it with
+    /// the elements its search visits and the three, and answers as the comparison with each
+    /// element does.
+    #[test]
+    fn absence_of_a_constructor_like_element_compares_it_only_with_the_symbolic_elements() {
+        const ELEMENTS: u32 = 4096;
+        let int = Sort::simple("SortInt");
+        let ground = (0..ELEMENTS)
+            .map(|index| applied("c", Term::domain_value(int.clone(), index.to_string())));
+        let symbolic = (0..3).map(|index| {
+            applied(
+                "c",
+                Term::variable(Variable::new(format!("X{index}"), int.clone())),
+            )
+        });
+        let collection = Term::set(set_definition(), ground.chain(symbolic).collect(), None);
+        let TermKind::Set { elements, .. } = collection.kind() else {
+            unreachable!("a set term")
+        };
+        let probe = applied("d", Term::domain_value(int, "1"));
+        ELEMENT_COMPARISONS.with(|count| count.set(0));
+        assert_eq!(membership(&probe, &collection), Some(false));
+        let compared = ELEMENT_COMPARISONS.with(std::cell::Cell::get);
+        assert_eq!(membership_by_scan(&probe, &collection), Some(false));
+        let bound = elements.search_comparison_bound() + 3;
+        assert!(
+            compared <= bound,
+            "{compared} elements compared, bound {bound}"
+        );
+    }
+
+    /// The SET hooks that add, remove or keep a few elements of a large set edit its tree: each
+    /// computes the own summaries of at most the elements of the leaves its edits copy (a leaf
+    /// and a neighbour each), not one per element of the set, and the result holds the elements
+    /// it should.
+    #[test]
+    fn hooks_that_change_a_few_elements_summarize_only_the_leaves_they_edit() {
+        const ELEMENTS: u32 = 4096;
+        let leaf = crate::term::chunked::DEFAULT_BRANCHING;
+        let numbers = |values: &[u32]| {
+            Term::set(
+                set_definition(),
+                values
+                    .iter()
+                    .map(|value| item(&value.to_string()))
+                    .collect(),
+                None,
+            )
+        };
+        let base = numbers(&(1..=ELEMENTS).map(|index| 2 * index).collect::<Vec<_>>());
+        let n = ELEMENTS as usize;
+        for (name, arguments, size) in [
+            ("SET.concat", vec![base.clone(), numbers(&[9])], n + 1),
+            ("SET.concat", vec![numbers(&[9]), base.clone()], n + 1),
+            ("SET.union", vec![base.clone(), numbers(&[8, 9])], n + 1),
+            ("SET.union", vec![numbers(&[8, 9]), base.clone()], n + 1),
+            (
+                "SET.difference",
+                vec![base.clone(), numbers(&[8, 9])],
+                n - 1,
+            ),
+            ("SET.intersection", vec![base.clone(), numbers(&[8, 9])], 1),
+            ("SET.intersection", vec![numbers(&[8, 9]), base.clone()], 1),
+        ] {
+            let mut result = None;
+            let summaries = crate::term::items::element_summaries_during(|| {
+                result = Some(hook(name, &arguments));
+            });
+            let Some(BuiltinResult::Value(result)) = result else {
+                panic!("{name}: {result:?}");
+            };
+            let TermKind::Set { elements, .. } = result.kind() else {
+                panic!("{name}: {result:?}");
+            };
+            assert_eq!(elements.len(), size, "{name}");
+            assert!(
+                summaries <= 2 * leaf,
+                "{name}: {summaries} element summaries for one edit of leaves of at most {leaf}"
+            );
+        }
+        assert_eq!(
+            hook("SET.concat", &[base.clone(), numbers(&[8])]),
+            BuiltinResult::Bottom
+        );
+        assert_eq!(
+            hook("SET.concat", &[numbers(&[2 * ELEMENTS]), base]),
+            BuiltinResult::Bottom
+        );
     }
 
     fn hook(name: &str, arguments: &[Term]) -> BuiltinResult {

@@ -20,6 +20,7 @@ mod variables;
 
 use super::{
     Chunked, DEFAULT_BRANCHING, Dismantle, Item, Node, NodeSummary, SequenceHash, Summary,
+    VARIABLE_BRANCHING,
     multiset::Multiset,
     summary::{Any, Count, Failing, Saturating, Uniform},
 };
@@ -142,6 +143,9 @@ impl Item for Entry {
 }
 
 const DEFAULT: usize = DEFAULT_BRANCHING;
+
+/// The branching factor of the production trees of variables (multisets and sets).
+const VARIABLES: usize = VARIABLE_BRANCHING;
 
 /// Check the fill invariant, the heights, and that every node's summary is the fold of its
 /// items' summaries; return the root's fold.
@@ -818,4 +822,80 @@ fn a_bulk_load_leaves_room_in_every_node_but_the_root() {
     bulk_load_leaves_room::<6>(3_000);
     bulk_load_leaves_room::<9>(3_000);
     bulk_load_leaves_room::<DEFAULT>(3_000);
+}
+
+/// What one check of `tree` hands over: the items, the adjacent pairs, and the visited nodes.
+#[cfg(debug_assertions)]
+fn checked_once<const B: usize>(
+    tree: &Chunked<Entry, B>,
+) -> (Vec<Entry>, Vec<(Entry, Entry)>, super::Unchecked<'_, Entry>) {
+    let (mut items, mut pairs) = (Vec::new(), Vec::new());
+    let visited = tree.check_unchecked(
+        |leaf| items.extend_from_slice(leaf),
+        |left, right| pairs.push((left.clone(), right.clone())),
+    );
+    (items, pairs, visited)
+}
+
+/// Debug builds: a check hands over each item and each adjacent pair of a tree it has not
+/// marked, and nothing once the visited nodes are marked; after one edit it hands over at most
+/// the two leaves the edit rebuilds, and the two checks together cover every item and adjacent
+/// pair of the edited tree. Without marking, a check hands everything over again.
+#[cfg(debug_assertions)]
+fn check_unchecked_after_edit<const B: usize>(
+    items: &[Entry],
+    shape: Vec<u8>,
+    place: usize,
+    inserted: Option<Entry>,
+) {
+    let tree = shaped::<Entry, B>(items.to_vec(), shape);
+    let (first_items, first_pairs, visited) = checked_once(&tree);
+    assert_eq!(first_items.len(), items.len());
+    assert_eq!(first_pairs.len(), items.len().saturating_sub(1));
+    let (again, _, unmarked) = checked_once(&tree);
+    assert_eq!(
+        again.len(),
+        items.len(),
+        "an unmarked tree is handed over again"
+    );
+    unmarked.mark();
+    drop(visited);
+    let (none, no_pairs, _) = checked_once(&tree);
+    assert!(none.is_empty() && no_pairs.is_empty());
+    let edited = match inserted {
+        Some(item) => tree.insert_at(place % (items.len() + 1), item),
+        None if items.is_empty() => return,
+        None => tree.remove_at(place % items.len()).0,
+    };
+    let (second_items, second_pairs, _) = checked_once(&edited);
+    assert!(
+        second_items.len() <= 2 * B,
+        "{} items handed over after one edit",
+        second_items.len()
+    );
+    let all = edited.to_vec();
+    for item in &all {
+        assert!(first_items.contains(item) || second_items.contains(item));
+    }
+    for pair in all.windows(2) {
+        let pair = (pair[0].clone(), pair[1].clone());
+        assert!(
+            first_pairs.contains(&pair) || second_pairs.contains(&pair),
+            "the adjacent pair {pair:?} is never handed over"
+        );
+    }
+}
+
+#[cfg(debug_assertions)]
+proptest! {
+    #[test]
+    fn a_check_hands_over_what_the_edits_since_the_last_one_built(
+        items in entries(300),
+        shape in choices(),
+        place in any::<usize>(),
+        inserted in prop::option::of(edit::entry()),
+    ) {
+        check_unchecked_after_edit::<5>(&items, shape.clone(), place, inserted.clone());
+        check_unchecked_after_edit::<DEFAULT>(&items, shape, place, inserted);
+    }
 }

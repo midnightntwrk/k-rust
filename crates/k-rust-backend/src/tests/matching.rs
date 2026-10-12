@@ -141,8 +141,8 @@ fn a_collection_solution_states_an_element_equation_under_a_later_element_bindin
         panic!("the pattern should internalize as a set");
     };
     assert_eq!(
-        elements[0],
-        internal_term(&definition, "p{}(g{}(X:SortElement{}))"),
+        elements.first().expect("one element"),
+        &internal_term(&definition, "p{}(g{}(X:SortElement{}))"),
         "the kept element equation must precede the binding of X",
     );
 
@@ -323,6 +323,75 @@ fn nested_collection_remainder_is_solved_by_the_collection_solver() {
     let one_solutions = solve_with_test_frames(&definition, &[(pattern, one)])
         .expect("the one-element nested Set pair should be decidable");
     assert_eq!(one_solutions.len(), 1, "{one_solutions:#?}");
+}
+
+/// A pattern binding with a variable key, `KEY |-> VALUE REST`, against a closed `n`-entry map
+/// has one candidate per subject entry, and each candidate's frame, the binding of `REST`, is the
+/// subject's tree without that entry: a removal, which summarizes only the entries of the nodes
+/// it rebuilds on one path (at most `2B` of them, in a leaf and the sibling it may be merged
+/// with), not the `n - 1` entries of a frame built anew.
+#[test]
+fn each_candidate_frame_of_a_symbolic_key_is_one_removal_from_the_subject() {
+    const ENTRIES: usize = 1024;
+    let definition = collection_definition();
+    let one = internal_term(
+        &definition,
+        r#"mapItem{}(\dv{SortKey{}}("0"), \dv{SortValue{}}("0"))"#,
+    );
+    let TermKind::Map {
+        definition: map, ..
+    } = one.kind()
+    else {
+        panic!("a map item should internalize as a map");
+    };
+    let key =
+        |index: usize| internal_term(&definition, &format!(r#"\dv{{SortKey{{}}}}("{index:05}")"#));
+    let value =
+        |index: usize| internal_term(&definition, &format!(r#"\dv{{SortValue{{}}}}("{index}")"#));
+    let subject = Term::map(
+        map.clone(),
+        (0..ENTRIES)
+            .map(|index| (key(index), value(index)))
+            .collect(),
+        None,
+    );
+    let pattern = internal_term(
+        &definition,
+        "mapConcat{}(mapItem{}(KEY:SortKey{}, VALUE:SortValue{}), REST:SortMap{})",
+    );
+    let mut solutions = None;
+    let summarized = crate::term::items::entry_summaries_during(|| {
+        solutions = solve_with_test_frames(&definition, &[(pattern, subject.clone())]);
+    });
+    let solutions = solutions.expect("a closed subject map is decided");
+    assert_eq!(solutions.len(), ENTRIES);
+    let bound = ENTRIES * 2 * crate::term::chunked::DEFAULT_BRANCHING;
+    assert!(
+        summarized <= bound,
+        "{summarized} entry summaries for {ENTRIES} candidates, bound {bound}"
+    );
+    let TermKind::Map {
+        entries: subject_entries,
+        ..
+    } = subject.kind()
+    else {
+        unreachable!()
+    };
+    let rest = Variable::new("REST", Sort::simple("SortMap"));
+    let key_variable = Variable::new("KEY", Sort::simple("SortKey"));
+    for solution in &solutions {
+        let substitution = solution.matched.substitution();
+        let bound_key = substitution.get(&key_variable).expect("KEY is bound");
+        let index = subject_entries
+            .search(bound_key)
+            .expect("KEY is bound to a subject key");
+        let expected = Term::map_of_items(map.clone(), subject_entries.remove_at(index).0, None);
+        assert_eq!(
+            substitution.get(&rest),
+            Some(&expected),
+            "KEY = {bound_key:?}"
+        );
+    }
 }
 
 #[test]
@@ -1217,8 +1286,9 @@ fn a_conjunction_under_an_injection_matches_a_value_of_a_subsort() {
 }
 
 /// A constructor-like pattern key that a map with constructor-like keys does not bind refutes the
-/// match from the keys alone: the subject's other entries, which the refutation does not name,
-/// are not copied, so the failure costs the search and not the size of the subject.
+/// match from the keys alone: no map of the subject's other entries, which the refutation does
+/// not name, is built (no entry summarized), so the failure costs the search and not the size of
+/// the subject.
 #[test]
 fn a_ground_key_missing_from_a_ground_map_fails_without_copying_its_other_entries() {
     const ENTRIES: u32 = 4096;
@@ -1238,16 +1308,16 @@ fn a_ground_key_missing_from_a_ground_map_fails_without_copying_its_other_entrie
             rest,
         );
         for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
-            crate::matching::SPLIT_COPIES.with(|copies| copies.set(0));
+            let summarized = crate::term::items::entry_summaries_during(|| {
+                assert_eq!(
+                    match_terms(mode, &sort_graph(), &pattern, &subject),
+                    MatchResult::Failed(FailReason::KeyNotFound(key(ENTRIES + 1))),
+                    "{mode:?}"
+                );
+            });
             assert_eq!(
-                match_terms(mode, &sort_graph(), &pattern, &subject),
-                MatchResult::Failed(FailReason::KeyNotFound(key(ENTRIES + 1))),
-                "{mode:?}"
-            );
-            assert_eq!(
-                crate::matching::SPLIT_COPIES.with(std::cell::Cell::get),
-                0,
-                "{mode:?}: the subject's other entries were copied"
+                summarized, 0,
+                "{mode:?}: a map of the subject's other entries was built"
             );
         }
     }
@@ -1311,5 +1381,383 @@ fn a_ground_key_missing_beside_a_subject_frame_is_not_refuted() {
                 "{mode:?}: {result:?}"
             );
         }
+    }
+}
+
+/// `n` ground elements of `set_definition`, `0 .. n` padded so that their order is the numbers'.
+fn ground_set(n: usize) -> (Term, impl Fn(usize) -> Term) {
+    let element = |index: usize| domain_value(Sort::simple("SetElement"), &format!("{index:05}"));
+    let subject = Term::set(set_definition(), (0..n).map(element).collect(), None);
+    (subject, element)
+}
+
+/// A pattern that names one element of an `n`-element subject set beside a rest variable binds
+/// the rest to the subject's tree without that element: a removal, which summarizes only the
+/// elements of the nodes it rebuilds on one path (at most `2B`, in a leaf and the sibling it may
+/// be merged with), not the `n - 1` elements of a set built anew from a copy.
+#[test]
+fn matching_one_element_of_a_set_binds_the_rest_to_one_removal_from_the_subject() {
+    const ELEMENTS: usize = 4096;
+    let (subject, element) = ground_set(ELEMENTS);
+    let TermKind::Set {
+        elements: subject_elements,
+        ..
+    } = subject.kind()
+    else {
+        unreachable!()
+    };
+    let rest = variable("REST", Sort::simple("SetSort"));
+    let bound = 2 * crate::term::chunked::DEFAULT_BRANCHING;
+    for index in [0, ELEMENTS / 2, ELEMENTS - 1] {
+        let pattern = Term::set(
+            set_definition(),
+            vec![element(index)],
+            Some(Term::variable(rest.clone())),
+        );
+        let mut result = None;
+        let summarized = crate::term::items::element_summaries_during(|| {
+            result = Some(match_terms(
+                MatchMode::Rewrite,
+                &sort_graph(),
+                &pattern,
+                &subject,
+            ));
+        });
+        assert!(
+            summarized <= bound,
+            "element {index}: {summarized} element summaries, bound {bound}"
+        );
+        let expected =
+            Term::set_of_items(set_definition(), subject_elements.remove_at(index).0, None);
+        assert_eq!(
+            result,
+            Some(MatchResult::Success(Substitution::from([(
+                rest.clone(),
+                expected
+            )]))),
+            "element {index}"
+        );
+    }
+}
+
+fn list_definition() -> Arc<crate::term::ListDefinition> {
+    Arc::new(crate::term::ListDefinition {
+        symbols: collection_symbols("list"),
+        element_sort: Sort::simple("ListElement"),
+        list_sort: "ListSort".into(),
+    })
+}
+
+/// The heads (or tails) tree of a list term.
+fn list_parts(
+    list: &Term,
+) -> (
+    crate::term::Items<Term>,
+    Option<(Term, crate::term::Items<Term>)>,
+) {
+    let TermKind::List { heads, rest, .. } = list.kind() else {
+        panic!("a list: {list:?}");
+    };
+    (heads.clone(), rest.clone())
+}
+
+/// Patterns that name items at the ends of a long subject list beside a rest variable bind the
+/// rest to the subject's trees cut where those items end: a cut summarizes only the items of the
+/// leaves it rebuilds (a leaf and the neighbour it may be merged with, at most `2B`, per cut),
+/// not the items of a list built anew from a copy. The subject may itself be open: the rest then
+/// holds the subject's opaque middle between the cut heads and its tails.
+#[test]
+fn matching_items_at_the_ends_of_a_list_binds_the_rest_to_a_cut_of_the_subject() {
+    const ITEMS: usize = 4096;
+    let item = |index: usize| domain_value(Sort::simple("ListElement"), &index.to_string());
+    let items = |range: std::ops::Range<usize>| range.map(item).collect::<Vec<_>>();
+    let rest = variable("REST", Sort::simple("ListSort"));
+    let first = variable("FIRST", Sort::simple("ListElement"));
+    let last = variable("LAST", Sort::simple("ListElement"));
+    let middle = var("MIDDLE", Sort::simple("ListSort"));
+    let closed = Term::list(list_definition(), items(0..ITEMS), None);
+    let open = Term::list(
+        list_definition(),
+        items(0..ITEMS),
+        Some((middle.clone(), items(ITEMS..2 * ITEMS))),
+    );
+    let (heads, _) = list_parts(&closed);
+    let pattern = |heads: Vec<Term>, tails: Vec<Term>| {
+        Term::list(
+            list_definition(),
+            heads,
+            Some((Term::variable(rest.clone()), tails)),
+        )
+    };
+    let first_item = || vec![Term::variable(first.clone())];
+    let last_item = || vec![Term::variable(last.clone())];
+    let from_list = |heads, rest| Term::list_of_items(list_definition(), heads, rest);
+    let (open_heads, open_rest) = list_parts(&open);
+    let (_, open_tails) = open_rest.expect("an open list");
+    let cases = [
+        (
+            "ListItem(FIRST) REST",
+            pattern(first_item(), vec![]),
+            &closed,
+            1,
+            vec![
+                (first.clone(), item(0)),
+                (rest.clone(), from_list(heads.split_at(1).1, None)),
+            ],
+        ),
+        (
+            "REST ListItem(LAST)",
+            pattern(vec![], last_item()),
+            &closed,
+            1,
+            vec![
+                (last.clone(), item(ITEMS - 1)),
+                (rest.clone(), from_list(heads.split_at(ITEMS - 1).0, None)),
+            ],
+        ),
+        (
+            "ListItem(FIRST) REST ListItem(LAST)",
+            pattern(first_item(), last_item()),
+            &closed,
+            2,
+            vec![
+                (first.clone(), item(0)),
+                (last.clone(), item(ITEMS - 1)),
+                (
+                    rest.clone(),
+                    from_list(heads.split_at(1).1.split_at(ITEMS - 2).0, None),
+                ),
+            ],
+        ),
+        (
+            "ListItem(FIRST) REST on an open subject",
+            pattern(first_item(), vec![]),
+            &open,
+            1,
+            vec![
+                (first.clone(), item(0)),
+                (
+                    rest.clone(),
+                    from_list(
+                        open_heads.split_at(1).1,
+                        Some((middle.clone(), open_tails.clone())),
+                    ),
+                ),
+            ],
+        ),
+        (
+            "REST ListItem(LAST) on an open subject",
+            pattern(vec![], last_item()),
+            &open,
+            1,
+            vec![
+                (last.clone(), item(2 * ITEMS - 1)),
+                (
+                    rest.clone(),
+                    from_list(
+                        open_heads.clone(),
+                        Some((middle.clone(), open_tails.split_at(ITEMS - 1).0)),
+                    ),
+                ),
+            ],
+        ),
+    ];
+    let leaf = crate::term::chunked::DEFAULT_BRANCHING;
+    for (shape, pattern, subject, cuts, expected) in cases {
+        let mut result = None;
+        let summarized = crate::term::items::element_summaries_during(|| {
+            result = Some(match_terms(
+                MatchMode::Rewrite,
+                &sort_graph(),
+                &pattern,
+                subject,
+            ));
+        });
+        assert!(
+            summarized <= cuts * 2 * leaf,
+            "{shape}: {summarized} item summaries for {cuts} cuts"
+        );
+        assert_eq!(
+            result,
+            Some(MatchResult::Success(Substitution::from_iter(expected))),
+            "{shape}"
+        );
+    }
+}
+
+/// The collection solver narrows a subject frame against a long closed pattern list to the
+/// pattern's items between the subject's heads and tails, cut from the pattern's tree: at most
+/// `2B` item summaries per cut, whatever the list's length.
+#[test]
+fn narrowing_a_list_frame_against_a_long_list_cuts_the_closed_side() {
+    const ITEMS: usize = 4096;
+    let definition = collection_definition();
+    let small = internal_term(
+        &definition,
+        r#"listConcat{}(listItem{}(\dv{SortElement{}}("0")), listItem{}(\dv{SortElement{}}("1")))"#,
+    );
+    let TermKind::List {
+        definition: list, ..
+    } = small.kind()
+    else {
+        panic!("a list: {small:?}");
+    };
+    let item = |index: usize| domain_value(Sort::simple("SortElement"), &index.to_string());
+    let pattern = Term::list(list.clone(), (0..ITEMS).map(item).collect(), None);
+    let frame = variable("FRAME", Sort::simple("SortList"));
+    let subject = Term::list(
+        list.clone(),
+        vec![item(0)],
+        Some((Term::variable(frame.clone()), vec![item(ITEMS - 1)])),
+    );
+    let (heads, _) = list_parts(&pattern);
+    let expected = Term::list_of_items(
+        list.clone(),
+        heads.split_at(1).1.split_at(ITEMS - 2).0,
+        None,
+    );
+    let mut solutions = None;
+    let summarized = crate::term::items::element_summaries_during(|| {
+        solutions = Some(solve_with_test_frames(
+            &definition,
+            &[(pattern.clone(), subject.clone())],
+        ));
+    });
+    let leaf = crate::term::chunked::DEFAULT_BRANCHING;
+    assert!(
+        summarized <= 2 * 2 * leaf,
+        "{summarized} item summaries for two cuts"
+    );
+    let solutions = solutions
+        .flatten()
+        .expect("a subject frame against a closed list is narrowable");
+    assert_eq!(solutions.len(), 1, "{solutions:?}");
+    assert_eq!(
+        solutions[0].matched.substitution().get(&frame),
+        Some(&expected),
+        "{solutions:?}"
+    );
+}
+
+/// A constructor-like pattern element that a set of constructor-like elements does not hold
+/// refutes the match from the elements' summary alone: no set of the subject's other elements is
+/// built (no element summarized), so the failure costs the search and not the size of the
+/// subject.
+#[test]
+fn a_ground_element_missing_from_a_ground_set_fails_without_copying_its_other_elements() {
+    const ELEMENTS: usize = 4096;
+    let (subject, element) = ground_set(ELEMENTS);
+    for rest in [None, Some(var("REST", Sort::simple("SetSort")))] {
+        let pattern = Term::set(set_definition(), vec![element(ELEMENTS + 1)], rest);
+        for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+            let summarized = crate::term::items::element_summaries_during(|| {
+                assert_eq!(
+                    match_terms(mode, &sort_graph(), &pattern, &subject),
+                    MatchResult::Failed(FailReason::KeyNotFound(element(ELEMENTS + 1))),
+                    "{mode:?}"
+                );
+            });
+            assert_eq!(
+                summarized, 0,
+                "{mode:?}: a set of the subject's other elements was built"
+            );
+        }
+    }
+}
+
+/// A constructor-like pattern element that the subject does not hold syntactically is refuted
+/// only when every subject element is constructor-like and the subject has no rest: a symbolic
+/// subject element may denote it, and so may a subject rest.
+#[test]
+fn a_ground_element_missing_beside_a_symbolic_element_or_a_subject_rest_is_not_refuted() {
+    let element = |name: &str| domain_value(Sort::simple("SetElement"), name);
+    for (subject_elements, subject_rest) in [
+        (
+            vec![
+                element("a"),
+                var("E", Sort::simple("SetElement")),
+                element("c"),
+            ],
+            None,
+        ),
+        (
+            vec![element("a"), element("c")],
+            Some(var("FRAME", Sort::simple("SetSort"))),
+        ),
+    ] {
+        let subject = Term::set(set_definition(), subject_elements, subject_rest);
+        for rest in [None, Some(var("REST", Sort::simple("SetSort")))] {
+            let pattern = Term::set(set_definition(), vec![element("b")], rest);
+            for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+                let result = match_terms(mode, &sort_graph(), &pattern, &subject);
+                assert!(
+                    !matches!(result, MatchResult::Failed(_)),
+                    "{mode:?} on {subject:?}: {result:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Each candidate the collection solver tries for a symbolic pattern element against an
+/// `n`-element closed subject binds the pattern's rest to the subject's tree without that
+/// element: one removal per candidate, which summarizes at most `2B` elements, not a copy of
+/// the other `n - 1`.
+#[test]
+fn each_candidate_frame_of_a_symbolic_element_is_one_removal_from_the_subject() {
+    const ELEMENTS: usize = 1024;
+    let definition = collection_definition();
+    let one = internal_term(&definition, r#"setItem{}(\dv{SortElement{}}("0"))"#);
+    let TermKind::Set {
+        definition: set, ..
+    } = one.kind()
+    else {
+        panic!("a set item should internalize as a set");
+    };
+    let element = |index: usize| {
+        internal_term(
+            &definition,
+            &format!(r#"\dv{{SortElement{{}}}}("{index:05}")"#),
+        )
+    };
+    let subject = Term::set(set.clone(), (0..ELEMENTS).map(element).collect(), None);
+    let pattern = internal_term(
+        &definition,
+        "setConcat{}(setItem{}(ELEMENT:SortElement{}), REST:SortSet{})",
+    );
+    let mut solutions = None;
+    let summarized = crate::term::items::element_summaries_during(|| {
+        solutions = solve_with_test_frames(&definition, &[(pattern, subject.clone())]);
+    });
+    let solutions = solutions.expect("a closed subject set is decided");
+    assert_eq!(solutions.len(), ELEMENTS);
+    let bound = ELEMENTS * 2 * crate::term::chunked::DEFAULT_BRANCHING;
+    assert!(
+        summarized <= bound,
+        "{summarized} element summaries for {ELEMENTS} candidates, bound {bound}"
+    );
+    let TermKind::Set {
+        elements: subject_elements,
+        ..
+    } = subject.kind()
+    else {
+        unreachable!()
+    };
+    let rest = Variable::new("REST", Sort::simple("SortSet"));
+    let element_variable = Variable::new("ELEMENT", Sort::simple("SortElement"));
+    for solution in &solutions {
+        let substitution = solution.matched.substitution();
+        let bound_element = substitution
+            .get(&element_variable)
+            .expect("ELEMENT is bound");
+        let index = subject_elements
+            .search(bound_element)
+            .expect("ELEMENT is bound to a subject element");
+        let expected = Term::set_of_items(set.clone(), subject_elements.remove_at(index).0, None);
+        assert_eq!(
+            substitution.get(&rest),
+            Some(&expected),
+            "ELEMENT = {bound_element:?}"
+        );
     }
 }

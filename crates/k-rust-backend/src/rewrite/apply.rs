@@ -49,7 +49,7 @@ use crate::{
     diagnostic::{self, Occurrences, Sequenced},
     fresh::{FreshCounter, fresh_variable},
     ite::SplitSide,
-    matching::{MatchMode, MatchResult, match_terms_in_definition},
+    matching::{MatchResult, match_rule_in_definition},
     rule::{Predicate, RewriteRule, RuleRhs, rename_apart},
     simplify::{
         BudgetPolicy, ConditionIndeterminacy, ContradictedTotal, RuleCondition,
@@ -69,9 +69,9 @@ use crate::{
 
 use super::{
     AppliedRule, GeneralUnificationRecovery, IndeterminateReason, Pattern, RecoveredMatch,
-    TrivialApplication, Truth, collection_unification_definedness,
+    StateNames, TrivialApplication, Truth, collection_unification_definedness,
     conjunctively_contains_alpha_equivalent, extend_unique, freshen_unbound_rule_variables,
-    pattern_variable_names, predicates_truth, recover_boolean_matches, recover_equality_matches,
+    predicates_truth, recover_boolean_matches, recover_equality_matches,
     recover_function_equality_match, recover_functional_symbolic_match,
     recover_general_unification, recover_indeterminate_match, recover_ite_matches,
     recover_map_not_in_keys_matches, recover_overload_symbolic_match,
@@ -655,12 +655,9 @@ fn initial_match(
         (matching, matched.conditions)
     } else {
         (
-            match_terms_in_definition(
-                MatchMode::Rewrite,
-                context.definition,
-                &context.rule.lhs,
-                &context.pattern.term,
-            ),
+            // `apply_rule_with_match` renamed the rule apart from the subject's variables
+            // before reaching this match, or found it apart.
+            match_rule_in_definition(context.definition, &context.rule.lhs, &context.pattern.term),
             Vec::new(),
         )
     }
@@ -1041,7 +1038,7 @@ fn configuration_bindings(
 ) -> MatchSolution {
     let configuration_bindings = substitution
         .iter()
-        .filter(|(variable, _)| !context.rule.lhs.attributes().variables.contains(*variable))
+        .filter(|(variable, _)| !context.rule.lhs.attributes().variables.contains(variable))
         .map(|(variable, value)| {
             (
                 variable.clone(),
@@ -2007,13 +2004,9 @@ fn mint_unbound_rule_variables(
     if unbound.is_empty() {
         return Substitution::new();
     }
-    let mut names_to_avoid = pattern_variable_names(pattern);
-    names_to_avoid.extend(substitution.values().flat_map(|term| {
-        term.attributes()
-            .variables
-            .iter()
-            .map(|variable| variable.name.clone())
-    }));
+    let mut names_to_avoid = substitution
+        .values()
+        .fold(StateNames::of(pattern), StateNames::with_variables_of);
     unbound
         .into_iter()
         .map(|variable| {
@@ -2034,12 +2027,19 @@ fn mint_unbound_rule_variables(
 
 /// The rule's existentials, each renamed to a mint of the request's counter that keeps its
 /// `Ex#` marker (`Ex#Var'Ques'X!3`).
+///
+/// A rule without one returns at once, as `mint_unbound_rule_variables` does; with one, each
+/// candidate name is looked up in the state's variable sets ([`StateNames`]), so a step pays
+/// for the names it tries, not for the configuration's variables.
 fn freshen_existentials(
     rule: &RewriteRule,
     pattern: &Pattern,
     fresh_counter: &mut FreshCounter,
 ) -> Substitution {
-    let mut names_to_avoid = pattern_variable_names(pattern);
+    if rule.existentials.is_empty() {
+        return Substitution::new();
+    }
+    let mut names_to_avoid = StateNames::of(pattern);
     rule.existentials
         .iter()
         .cloned()

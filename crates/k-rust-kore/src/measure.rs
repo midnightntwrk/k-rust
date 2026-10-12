@@ -58,6 +58,8 @@ algorithms! {
     BackendRuleSelect => "backend.rule.select",
     /// Search for a macro or alias symbol that survived into an executable term.
     BackendTermMacroOrAlias => "backend.term.macro_or_alias",
+    /// Persistent B+-tree of item chunks with monoid summaries per node.
+    BackendTermChunked => "backend.term.chunked",
     /// Sort-aware one-way first-order matching by pair decomposition.
     BackendMatchingSyntactic => "backend.matching.syntactic",
     /// Associative and associative-commutative collection matching.

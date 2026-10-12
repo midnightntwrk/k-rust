@@ -703,7 +703,7 @@ impl Join<'_, '_> {
         let variables = residual.attributes().variables.clone();
         // The unifiers are applied to the whole case, so the equation's variables are named
         // apart from every variable of the case.
-        let mut scope = variables.clone();
+        let mut scope = variables.to_btree_set();
         for term in [&case.sides.0, &case.sides.1]
             .into_iter()
             .flatten()

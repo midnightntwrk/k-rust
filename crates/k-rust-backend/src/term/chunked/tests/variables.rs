@@ -10,18 +10,38 @@ use std::{
 use proptest::prelude::*;
 
 use super::edit::{height, unshared};
-use super::{DEFAULT, check_invariants, choices, fx_hash, shaped};
-use crate::term::chunked::{
-    Chunked, Item, Node,
-    multiset::{ENTRY_UPDATES, Multiset},
-    variables::{VariableLookup, Variables},
+use super::{DEFAULT, VARIABLES, check_invariants, choices, fx_hash, shaped};
+use crate::term::{
+    VariableLookup,
+    chunked::{
+        Chunked, Item, Node,
+        multiset::{ENTRY_UPDATES, Multiset},
+        variables::Variables,
+    },
 };
 
 type Set<const B: usize> = Variables<u8, B>;
 
-/// The checks every set passes: its tree's invariant and every reading against the model.
+/// Whether `set`, made from `multiset`, is its view as it must be: sharing the multiset's tree
+/// when it has more than `B` elements, holding a copy of the elements otherwise.
+pub(super) fn views<V: Ord + Clone + std::hash::Hash + std::fmt::Debug, const B: usize>(
+    set: &Variables<V, B>,
+    multiset: &Multiset<V, B>,
+) -> bool {
+    set.iter().eq(multiset.elements())
+        && set
+            .tree()
+            .is_some_and(|tree| tree.shares_root(multiset.entries()))
+            == (multiset.len() > B)
+}
+
+/// The checks every set passes: its backing (a tree exactly when it holds more than `B`
+/// variables), its tree's invariant, and every reading against the model.
 fn check_set<const B: usize>(set: &Set<B>, model: &BTreeSet<u8>) {
-    check_invariants(set.entries());
+    assert_eq!(set.tree().is_some(), model.len() > B);
+    if let Some(tree) = set.tree() {
+        check_invariants(tree);
+    }
     assert!(set.iter().eq(model.iter()));
     assert!(set.iter().rev().eq(model.iter().rev()));
     assert_eq!(set.iter().len(), model.len());
@@ -68,17 +88,14 @@ fn history<const B: usize>(steps: &[Step], pairs: &[(usize, usize)]) {
             Step::View(variables) => {
                 let multiset = Multiset::<u8, B>::of(variables.iter().copied());
                 let set = Set::of_multiset(&multiset);
-                assert!(set.entries().shares_root(multiset.entries()));
+                assert!(views(&set, &multiset));
                 (set, variables.iter().copied().collect())
             }
             Step::Insert(which, variable) => {
                 let (set, model) = pick(*which);
                 let inserted = set.insert(variable);
                 // Inserting a variable the set holds keeps its handle.
-                assert_eq!(
-                    inserted.entries().shares_root(set.entries()),
-                    model.contains(variable)
-                );
+                assert_eq!(inserted.shares_handle(set), model.contains(variable));
                 let mut model = model.clone();
                 model.insert(*variable);
                 (inserted, model)
@@ -120,9 +137,9 @@ fn history<const B: usize>(steps: &[Step], pairs: &[(usize, usize)]) {
     }
 }
 
-/// A union is the handle of its first largest operand with the others' missing variables
-/// inserted: the same root when nothing is missing, otherwise at most the nodes that many
-/// one-item insertions copy (`2 (h + 1) + 1` each, `h` the result's height).
+/// A union is the handle of its first largest operand with the others' missing variables added:
+/// the same handle when nothing is missing, otherwise, when that operand is a tree, at most the
+/// nodes that many one-item insertions copy (`2 (h + 1) + 1` each, `h` the result's height).
 fn check_union_sharing<const B: usize>(
     operands: &[&(Set<B>, BTreeSet<u8>)],
     union: &Set<B>,
@@ -138,10 +155,13 @@ fn check_union_sharing<const B: usize>(
         .expect("a largest operand");
     let missing = model.len() - kept_model.len();
     if missing == 0 {
-        assert!(union.entries().shares_root(kept.entries()));
+        assert!(union.shares_handle(kept));
     }
-    let bound = missing * (2 * (height(union.entries()) + 1) + 1);
-    assert!(unshared(union.entries(), &[kept.entries()]) <= bound);
+    // A union into a tree copies paths; one of sets of at most `B` variables is a new set.
+    if let (Some(union), Some(kept)) = (union.tree(), kept.tree()) {
+        let bound = missing * (2 * (height(union) + 1) + 1);
+        assert!(unshared(union, &[kept]) <= bound);
+    }
 }
 
 /// A lookup that counts the variables it is asked about or shows.
@@ -196,7 +216,7 @@ proptest! {
     ) {
         history::<5>(&steps, &pairs);
         history::<6>(&steps, &pairs);
-        history::<DEFAULT>(&steps, &pairs);
+        history::<VARIABLES>(&steps, &pairs);
     }
 
     #[test]
@@ -205,7 +225,7 @@ proptest! {
         right in prop::collection::vec(0u8..64, 0..40),
     ) {
         lookups_follow_the_smaller_set::<5>(&left, &right);
-        lookups_follow_the_smaller_set::<DEFAULT>(&left, &right);
+        lookups_follow_the_smaller_set::<VARIABLES>(&left, &right);
     }
 }
 
@@ -214,20 +234,27 @@ fn a_union_keeps_the_handle_of_the_first_largest_operand() {
     let small = Set::<5>::of([1, 2]);
     let large = Set::<5>::of(0..40);
     let tie = Set::<5>::of(10..50);
-    assert!(large.union(&small).entries().shares_root(large.entries()));
-    assert!(small.union(&large).entries().shares_root(large.entries()));
-    assert!(large.union(&large).entries().shares_root(large.entries()));
+    assert!(large.union(&small).shares_handle(&large));
+    assert!(small.union(&large).shares_handle(&large));
+    assert!(large.union(&large).shares_handle(&large));
     let union = Set::union_all([&small, &large, &tie]);
     // The tie's variables 40..50 are inserted into the first largest operand's tree.
-    assert!(!union.entries().shares_root(large.entries()));
-    assert!(!union.entries().shares_root(tie.entries()));
+    assert!(!union.shares_handle(&large));
+    assert!(!union.shares_handle(&tie));
     assert_eq!(union, Set::of(0..50));
-    assert!(
-        Set::union_all([&small])
-            .entries()
-            .shares_root(small.entries())
-    );
+    assert!(Set::union_all([&small]).shares_handle(&small));
     assert!(Set::<5>::union_all([]).is_empty());
+    // Sets of at most `B` variables: the larger one's handle when it holds the other's
+    // variables, a merged set otherwise, which becomes a tree past `B`.
+    let within = Set::<5>::of([1, 2, 3]);
+    assert!(within.union(&small).shares_handle(&within));
+    assert!(small.union(&within).shares_handle(&within));
+    let past = within.union(&Set::of([0, 4, 5]));
+    assert!(past.tree().is_some());
+    assert_eq!(past, Set::of(0..6));
+    let merged = small.union(&Set::of([0, 4]));
+    assert!(merged.tree().is_none());
+    assert_eq!(merged, Set::of([0, 1, 2, 4]));
 }
 
 /// An item mentioning a few variables of a large domain, so that a node's multiset is much
@@ -612,4 +639,98 @@ proptest! {
         moving_rebuild::<6>(model.clone(), shape.clone(), pick);
         moving_rebuild::<DEFAULT>(model, shape, pick);
     }
+}
+
+/// A bulk-loaded ordered tree of `n` items at `B = 5`, each mentioning two variables that no
+/// other item mentions, so the root's multiset has `2n` entries. Keys are even, so an odd key
+/// falls between two items.
+fn symbolic(n: u32) -> (Chunked<Mentions, 5>, Vec<Mentions>) {
+    let items: Vec<Mentions> = (0..n)
+        .map(|i| Mentions {
+            key: 2 * i,
+            variables: vec![2 * i, 2 * i + 1],
+        })
+        .collect();
+    (Chunked::from_vec(items.clone()), items)
+}
+
+/// The entry updates of `edit` on symbolic trees of 1,000, 4,000 and 16,000 items, with each
+/// tree's height, after checking each result against its model.
+fn tallies(
+    edit: impl Fn(&Chunked<Mentions, 5>, &[Mentions]) -> Vec<(Chunked<Mentions, 5>, Vec<Mentions>)>,
+) -> Vec<(usize, usize)> {
+    [1_000, 4_000, 16_000]
+        .into_iter()
+        .map(|n| {
+            let (tree, model) = symbolic(n);
+            let (results, updates) = entry_updates(|| edit(&tree, &model));
+            for (result, expected) in &results {
+                check_mentions(result, expected);
+            }
+            (height(&tree), updates)
+        })
+        .collect()
+}
+
+/// An edit whose group work is that of the nodes on one path, each changed by the few items
+/// the edit adds or cuts away, costs `a + b (h + 1)` entry updates on a tree of height `h`
+/// (`a` for the items' own multisets, `b` per copied node): from one size to the next, the
+/// count may grow at most as the number of nodes on a path, `h + 1`, does. Work over the
+/// multisets of whole runs of children grows with the variables below them, four times from one
+/// size to the next, against a path that grows by a level.
+fn assert_grows_with_the_depth(edit: &str, tallies: &[(usize, usize)]) {
+    eprintln!("{edit}: (height, entry updates) at n = 1k, 4k, 16k: {tallies:?}");
+    for pair in tallies.windows(2) {
+        let ((low, fewer), (high, more)) = (pair[0], pair[1]);
+        assert!(
+            more * (low + 1) <= fewer * (high + 1),
+            "{edit}: {fewer} entry updates at height {low}, {more} at height {high}"
+        );
+    }
+}
+
+#[test]
+fn a_split_cutting_one_item_away_does_the_work_of_a_path() {
+    let first = tallies(|tree, model| {
+        let (left, right) = tree.split_at(1);
+        vec![(left, model[..1].to_vec()), (right, model[1..].to_vec())]
+    });
+    assert_grows_with_the_depth("split_at(1)", &first);
+    let last = tallies(|tree, model| {
+        let (left, right) = tree.split_at(model.len() - 1);
+        let cut = model.len() - 1;
+        vec![
+            (left, model[..cut].to_vec()),
+            (right, model[cut..].to_vec()),
+        ]
+    });
+    assert_grows_with_the_depth("split_at(n - 1)", &last);
+    let key = tallies(|tree, model| {
+        let (left, right) = tree.split_at_key(&model[model.len() - 1].key);
+        let cut = model.len() - 1;
+        vec![
+            (left, model[..cut].to_vec()),
+            (right, model[cut..].to_vec()),
+        ]
+    });
+    assert_grows_with_the_depth("split_at_key(last key)", &key);
+}
+
+#[test]
+fn a_union_with_one_item_does_the_work_of_a_path() {
+    let middle = tallies(|tree, model| {
+        let at = model.len() / 2;
+        let item = Mentions {
+            key: model[at].key + 1,
+            variables: vec![u32::MAX - 1, u32::MAX],
+        };
+        let one = Chunked::from_vec(vec![item.clone()]);
+        let mut expected = model.to_vec();
+        expected.insert(at + 1, item);
+        vec![
+            (tree.union(&one), expected.clone()),
+            (one.union(tree), expected),
+        ]
+    });
+    assert_grows_with_the_depth("union with one item (both ways)", &middle);
 }

@@ -653,9 +653,12 @@ pub(super) fn recover_symbolic_map_key_matches(
                 })
                 || !matches!(pattern_rest.kind(), TermKind::Variable(variable)
                     if !protected_variables.contains(variable))
+                // A variable key is not constructor-like, so the summary's count of such keys
+                // bounds the variable keys, and only those keys are read to count them.
+                || pattern_entries.len() > subject_entries.symbolic_keys()
                 || pattern_entries.len()
                     > subject_entries
-                        .iter()
+                        .symbolic_keyed()
                         .filter(|(key, _)| matches!(key.kind(), TermKind::Variable(_)))
                         .count()
             {
@@ -695,10 +698,10 @@ pub(super) fn recover_symbolic_map_key_matches(
 fn search_symbolic_map_key_matches(
     definition: &BackendDefinition,
     map_definition: &Arc<crate::term::MapDefinition>,
-    pattern_entries: &[(Term, Term)],
+    pattern_entries: &crate::term::Items<(Term, Term)>,
     pattern_rest: &Term,
     index: usize,
-    remaining_subject: Vec<(Term, Term)>,
+    remaining_subject: crate::term::Items<(Term, Term)>,
     substitution: Substitution,
     conditions: Vec<Predicate>,
     unresolved: Vec<(Term, Term)>,
@@ -706,7 +709,7 @@ fn search_symbolic_map_key_matches(
 ) {
     if index == pattern_entries.len() {
         let rest = substitute(pattern_rest, &substitution);
-        let subject_rest = Term::map(map_definition.clone(), remaining_subject, None);
+        let subject_rest = Term::map_of_items(map_definition.clone(), remaining_subject, None);
         let (substitution, unresolved) =
             match match_terms_in_definition(MatchMode::Rewrite, definition, &rest, &subject_rest) {
                 MatchResult::Failed(_) => return,
@@ -728,11 +731,14 @@ fn search_symbolic_map_key_matches(
         return;
     }
 
-    let (pattern_key, pattern_value) = &pattern_entries[index];
+    let (pattern_key, pattern_value) = pattern_entries
+        .get(index)
+        .expect("the index is below the number of pattern entries");
     let pattern_key = substitute(pattern_key, &substitution);
     // Invariant: each level drops one `remaining_subject` entry and extends the assignment.
-    for subject_index in 0..remaining_subject.len() {
-        let (subject_key, subject_value) = &remaining_subject[subject_index];
+    // The candidates are the variable keys, among the keys that are not constructor-like, which
+    // the tree's summaries lead to; a candidate's remaining entries are one removal.
+    for (subject_index, (subject_key, subject_value)) in remaining_subject.symbolic_keyed_at() {
         if !matches!(subject_key.kind(), TermKind::Variable(_)) {
             continue;
         }
@@ -764,15 +770,13 @@ fn search_symbolic_map_key_matches(
         {
             next_conditions.push(condition);
         }
-        let mut next_subject = remaining_subject.clone();
-        next_subject.remove(subject_index);
         search_symbolic_map_key_matches(
             definition,
             map_definition,
             pattern_entries,
             pattern_rest,
             index + 1,
-            next_subject,
+            remaining_subject.remove_at(subject_index).0,
             next_substitution,
             next_conditions,
             next_unresolved,

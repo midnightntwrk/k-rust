@@ -71,7 +71,7 @@ use crate::{
     substitution::{Substitution, substitute},
     term::{
         AlgebraicAxioms, HeadRole, MapDefinition, Name, SetDefinition, Sort, Term, TermKind,
-        Variable, VariableKind,
+        Variable, VariableKind, VariableLookup,
         head::{
             CertifiedOrScanned, FixedRoot, Head, PatternReading, Shape, classify_pattern,
             classify_value,
@@ -79,6 +79,7 @@ use crate::{
         names::{
             FreshMarker, VariableProvenance, encode_variable_name, split_marker, with_fresh_marker,
         },
+        variables::disjoint,
     },
 };
 
@@ -296,7 +297,7 @@ impl Absence {
         else {
             return None;
         };
-        let [element] = elements.as_slice() else {
+        let (Some(element), 1) = (elements.first(), elements.len()) else {
             return None;
         };
         Some(Self::new(
@@ -341,15 +342,15 @@ impl Predicate {
         match self {
             Self::True | Self::False => BTreeSet::new(),
             Self::Term(term) | Self::Ceil(term) | Self::Floor(term) => {
-                term.attributes().variables.clone()
+                term.attributes().variables.to_btree_set()
             }
             Self::Equals(left, right) | Self::In(left, right) => {
-                let mut variables = left.attributes().variables.clone();
+                let mut variables = left.attributes().variables.to_btree_set();
                 variables.extend(right.attributes().variables.iter().cloned());
                 variables
             }
             Self::Absent(absence) => {
-                let mut variables = absence.key().attributes().variables.clone();
+                let mut variables = absence.key().attributes().variables.to_btree_set();
                 variables.extend(absence.rest().attributes().variables.iter().cloned());
                 variables
             }
@@ -2032,7 +2033,8 @@ pub fn subject_index(definition: &BackendDefinition, term: &Term) -> SubjectKey 
 
 /// The first `<k>` cell of `term` not nested in a `<k>` cell, in the order of `find_k_cells`, or
 /// `None` when there is none: descends only into the first child whose stored `k_cells` count is
-/// not zero (`fetchK` of lean/KRust/TermAttributes.lean).
+/// not zero (`fetchK` of lean/KRust/TermAttributes.lean), a collection's found through its trees'
+/// summaries.
 pub(crate) fn fetch_k_cell(term: &Term) -> Option<&Term> {
     match term.kind() {
         TermKind::Application {
@@ -2045,20 +2047,25 @@ pub(crate) fn fetch_k_cell(term: &Term) -> Option<&Term> {
         }
         TermKind::And(left, right) => first_with_k_cell([left, right].into_iter()),
         TermKind::Injection { term, .. } => fetch_k_cell(term),
+        // A collection's items before the first that holds a `<k>` cell hold none: the trees'
+        // summaries lead to that one.
         TermKind::Map { entries, rest, .. } => first_with_k_cell(
             entries
-                .iter()
+                .first_with_k_cells()
+                .into_iter()
                 .flat_map(|(key, value)| [key, value])
                 .chain(rest.iter()),
         ),
         TermKind::List { heads, rest, .. } => first_with_k_cell(
-            heads.iter().chain(
-                rest.iter()
-                    .flat_map(|(middle, tails)| std::iter::once(middle).chain(tails)),
-            ),
+            heads
+                .first_with_k_cells()
+                .into_iter()
+                .chain(rest.iter().flat_map(|(middle, tails)| {
+                    std::iter::once(middle).chain(tails.first_with_k_cells())
+                })),
         ),
         TermKind::Set { elements, rest, .. } => {
-            first_with_k_cell(elements.iter().chain(rest.iter()))
+            first_with_k_cell(elements.first_with_k_cells().into_iter().chain(rest.iter()))
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => None,
     }
@@ -3217,13 +3224,17 @@ fn next_apart_counter() -> u64 {
 /// role = "part"
 /// sites = ["rename_apart", "fresh_renaming"]
 /// ```
-pub(crate) fn rename_apart(
+pub(crate) fn rename_apart<S>(
     rule: &RewriteRule,
-    subject: &BTreeSet<Variable>,
+    subject: &S,
     constraints: &[Predicate],
-) -> Option<RenamedApart<RewriteRule>> {
+) -> Option<RenamedApart<RewriteRule>>
+where
+    S: VariableLookup + ?Sized,
+    for<'a> &'a S: IntoIterator<Item = &'a Variable>,
+{
     let computed = &rule.computed_attributes;
-    let term_clash = !computed.variables.is_disjoint(subject);
+    let term_clash = !disjoint(&computed.variables, subject);
     if !term_clash && computed.unbound_variables.is_empty() {
         return None;
     }
@@ -3236,7 +3247,7 @@ pub(crate) fn rename_apart(
         return None;
     }
     let mut scope = constraint_variables;
-    scope.extend(subject.iter().cloned());
+    scope.extend(subject.into_iter().cloned());
     let renaming = fresh_renaming(&computed.variables, &scope);
     let rename = |variable: &Variable| {
         renaming
@@ -4849,7 +4860,7 @@ mod tests {
         assert_eq!(base, "Eq#X");
         assert!(counter.bytes().all(|byte| byte.is_ascii_digit()));
         assert_eq!(
-            renamed.lhs.attributes().variables,
+            renamed.lhs.attributes().variables.to_btree_set(),
             BTreeSet::from([fresh.clone(), z.clone()])
         );
         assert_eq!(renamed.rhs, RuleRhs::Term(Term::variable(fresh.clone())));

@@ -815,6 +815,15 @@ impl<'a> Occurrences<'a> {
             if missing_terms.remove(term) {
                 found.terms.insert(term.clone());
             }
+            if skip_evaluated {
+                // The `evaluated` children would be skipped when popped: a collection's are
+                // passed over through its trees' summaries instead.
+                pending_terms.extend(crate::term::children_lacking(
+                    term.kind(),
+                    crate::term::Flag::Evaluated,
+                ));
+                continue;
+            }
             match term.kind() {
                 TermKind::And(left, right) => pending_terms.extend([left, right]),
                 TermKind::Application { arguments, .. } => pending_terms.extend(arguments),

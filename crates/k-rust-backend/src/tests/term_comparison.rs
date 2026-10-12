@@ -155,7 +155,7 @@ fn the_comparison_is_the_derived_comparison_on_collections_that_differ_only_in_h
                     rest: own,
                 } if !entries.is_empty() => Term::map(
                     definition.clone(),
-                    entries.clone(),
+                    entries.to_vec(),
                     own.is_none().then(|| rest("SortMap")),
                 ),
                 TermKind::Set {
@@ -164,7 +164,7 @@ fn the_comparison_is_the_derived_comparison_on_collections_that_differ_only_in_h
                     rest: own,
                 } if !elements.is_empty() => Term::set(
                     definition.clone(),
-                    elements.clone(),
+                    elements.to_vec(),
                     own.is_none().then(|| rest("SortSet")),
                 ),
                 TermKind::List {
@@ -173,7 +173,7 @@ fn the_comparison_is_the_derived_comparison_on_collections_that_differ_only_in_h
                     rest: own,
                 } if !heads.is_empty() => Term::list(
                     definition.clone(),
-                    heads.clone(),
+                    heads.to_vec(),
                     own.is_none().then(|| (rest("SortList"), Vec::new())),
                 ),
                 _ => continue,
