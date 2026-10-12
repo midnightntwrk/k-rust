@@ -23,11 +23,11 @@ use k_rust::{
     definition::ResolvedDefinition,
     kast::Sort,
     kompile::{
-        CompilationBackend, CompileOptions, ConfigurationAssembler, ProgramGrammar,
-        compile_loaded_definition, compile_search_pattern,
+        CompilationBackend, CompileOptions, CompiledKoreArtifacts, ConfigurationAssembler,
+        ProgramGrammar, compile_loaded_definition, compile_search_pattern,
     },
     kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
-    outer::{LoadOptions, ResolvedSource, load_with_options},
+    outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_with_options},
 };
 
 /// A definition compiled for the Rust backend with the prelude, and the initial configuration
@@ -733,7 +733,7 @@ fn the_run_driver_searches_the_renamings_of_one_state_once() {
 const ALIASED_INSTANCES: &str = r#"
 module TEST-SYNTAX
   imports INT-SYNTAX
-  syntax Cmd ::= mk(Int, Int) | put(Int, Int) | get(Int) | getA(Int) | anyP() | anyPA()
+  syntax Cmd ::= mk(Int, Int) | put(Int, Int) | get(Int) | getA(Int) | getK(Int) | anyP() | anyPA()
                | rd() | rdV() | drop() | dropV() | has(Int, Int) | hasA(Int, Int)
   syntax Pgm ::= Cmd | Cmd ";" Pgm
 endmodule
@@ -752,6 +752,7 @@ module TEST
 
   rule <k> get(I) => .K ... </k> <r> <rid> I </rid> <v> V </v> </r> <out> ... .List => ListItem(V) </out>
   rule <k> getA(I) => .K ... </k> (<r> <rid> I </rid> <v> V </v> </r> #as _R) <out> ... .List => ListItem(V) </out>
+  rule <k> getK(I) => .K ... </k> (<r> (<rid> I </rid> #as _K) <v> V </v> </r> #as _R) <out> ... .List => ListItem(V) </out>
   rule <k> anyP() => .K ... </k> <r> <rid> I </rid> ... </r> <out> ... .List => ListItem(I) </out>
   rule <k> anyPA() => .K ... </k> (<r> <rid> I </rid> ... </r> #as _R) <out> ... .List => ListItem(I) </out>
 
@@ -771,10 +772,8 @@ module TEST
 endmodule
 "#;
 
-/// What a program ends in on [`ALIASED_INSTANCES`] for `collection`: the leaves (or the error)
-/// of its run and the final states of its search, each with the aliased and variable commands
-/// renamed to their written-cell partners.
-fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String, Vec<String>)> {
+/// [`ALIASED_INSTANCES`] with `collection` as its instances' `type`, loaded and compiled.
+fn compile_aliased_instances(collection: &str) -> (LoadedDefinition, CompiledKoreArtifacts) {
     let source = ALIASED_INSTANCES.replace("COLLECTION", collection);
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
@@ -790,6 +789,14 @@ fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String
     )
     .unwrap();
     let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+    (loaded, artifacts)
+}
+
+/// What a program ends in on [`ALIASED_INSTANCES`] for `collection`: the leaves (or the error)
+/// of its run and the final states of its search, each with the aliased and variable commands
+/// renamed to their written-cell partners.
+fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String, Vec<String>)> {
+    let (loaded, artifacts) = compile_aliased_instances(collection);
     let frontend = loaded.into_definition();
     let grammar = ProgramGrammar::new(&frontend).unwrap();
     let rename = |text: String| {
@@ -971,4 +978,46 @@ fn a_left_side_variable_of_a_collection_cell_sort_matches_one_instance() {
             );
         }
     }
+}
+
+/// A rule that reads an instance through `P #as V` and leaves it in place has `V` on its right
+/// side, and in a cell map that item is keyed by its instance's key. `V` is the instance `P`
+/// matched, whose key is `P`'s key cell as matched, so the compiled right side holds that key
+/// and applies no key function to `V`, which would be evaluated at every application of the
+/// rule; an alias inside that key cell (`getK`'s `_K`) stands there for the key cell it matched.
+/// A right-side variable that no left-side alias binds (`putR`'s) still needs the key function.
+/// That the aliased rules' results are unchanged is
+/// `an_alias_of_a_collection_cell_instance_matches_what_the_instance_matches`.
+#[test]
+fn a_right_side_alias_of_a_map_cell_instance_is_keyed_by_the_key_its_pattern_matched() {
+    let (_, artifacts) = compile_aliased_instances("Map");
+    let kore = &artifacts.definition_kore;
+    // The right side of the one rewrite rule whose left side applies `symbol`.
+    let rewrite_of = |symbol: &str| {
+        let applied = format!("Lbl{symbol}'LPar");
+        let rules = kore
+            .split("\n  axiom")
+            .filter(|axiom| axiom.contains("\\rewrites{"))
+            .map(|axiom| {
+                axiom
+                    .split_once(",\n      \\and{SortGeneratedTopCell{}}(")
+                    .expect("a rewrite rule's right side")
+            })
+            .filter(|(left, _)| left.contains(&applied))
+            .collect::<Vec<_>>();
+        assert_eq!(rules.len(), 1, "one rewrite rule for {symbol}");
+        rules[0].1.to_owned()
+    };
+    for symbol in ["getA", "getK", "anyPA", "hasAR"] {
+        let right = rewrite_of(symbol);
+        assert!(right.contains("LblRCellMapItem{}("), "{symbol}: {right}");
+        assert!(!right.contains("LblRCellMapKey{}("), "{symbol}: {right}");
+    }
+    let right = rewrite_of("getK");
+    assert!(
+        right.contains("LblRCellMapItem{}(Var'Unds'K:SortRidCell{}, Var'Unds'R:SortRCell{})"),
+        "getK: {right}"
+    );
+    let right = rewrite_of("putR");
+    assert!(right.contains("LblRCellMapKey{}("), "putR: {right}");
 }

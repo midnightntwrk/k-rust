@@ -766,6 +766,10 @@ pub struct SortInjector<'view, 'definition> {
     /// variable injection introduces ([`Self::fresh_variable`]) is distinct from them; `None`
     /// outside an injection ([`Self::naming`]).
     variable_names: RefCell<Option<FreshNames>>,
+    /// The pattern each variable aliases (`P #as V`) on the left side of the rule whose right
+    /// side is being injected, by the variable's name; empty outside a rule body
+    /// ([`Self::inject_rule_body`]).
+    left_aliases: RefCell<BTreeMap<String, Term>>,
 }
 
 /// The natural sorts the injector inferred during one call, by node.
@@ -818,6 +822,18 @@ impl Drop for NaturalSortsScope<'_> {
     }
 }
 
+/// Forgets the left-side aliases of [`SortInjector::inject_rule_body`] when dropped, also on
+/// unwinding.
+struct LeftAliasesScope<'a> {
+    left_aliases: &'a RefCell<BTreeMap<String, Term>>,
+}
+
+impl Drop for LeftAliasesScope<'_> {
+    fn drop(&mut self) {
+        self.left_aliases.borrow_mut().clear();
+    }
+}
+
 /// Ends the reservation of [`SortInjector::naming`] when dropped, also on unwinding.
 struct VariableNamesScope<'a> {
     variable_names: &'a RefCell<Option<FreshNames>>,
@@ -847,6 +863,7 @@ impl<'definition> SortInjector<'definition, 'definition> {
             next_sort_parameter: Cell::new(0),
             natural_sorts: RefCell::default(),
             variable_names: RefCell::default(),
+            left_aliases: RefCell::default(),
         })
     }
 }
@@ -866,6 +883,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             next_sort_parameter: Cell::new(0),
             natural_sorts: RefCell::default(),
             variable_names: RefCell::default(),
+            left_aliases: RefCell::default(),
         })
     }
 
@@ -1034,6 +1052,21 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         } else {
             body.clone()
         };
+        let _aliases = LeftAliasesScope {
+            left_aliases: &self.left_aliases,
+        };
+        if let Term::Rewrite { left, .. } = &body {
+            let mut aliases = self.left_aliases.borrow_mut();
+            left.visit_preorder(&mut |term| {
+                if let Term::As { pattern, alias } = term
+                    && let Term::Variable { name, .. } = alias.unannotated()
+                {
+                    aliases
+                        .entry(name.clone())
+                        .or_insert_with(|| pattern.as_ref().clone());
+                }
+            });
+        }
         let top = self.fresh_sort_parameter();
         self.memoized(|| {
             let actual = self.term_sort(&body, Some(&top))?;
@@ -1629,7 +1662,20 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         // holding that element: on a right side the item built from its value, on a left side
         // the pattern of any one item, whose key is a fresh variable when the item has one. A
         // map's items are keyed by their elements' keys, so matching the fresh key against an
-        // item's key ties it to the element the variable matches.
+        // item's key ties it to the element the variable matches. On a right side, a variable
+        // the left side binds by `P #as V` denotes the element `P` matched, so its key is `P`'s
+        // written key as matched, with no key function to evaluate.
+        let left_alias = match term.unannotated() {
+            Term::Variable { name, .. } if !is_lhs => self.left_aliases.borrow().get(name).cloned(),
+            Term::Variable { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Apply { .. }
+            | Term::Token { .. }
+            | Term::Annotated { .. } => None,
+        };
         #[expect(
             clippy::wildcard_enum_match_arm,
             reason = "Term is not a sentence kind; only aliases, applications and variables are elements here"
@@ -1640,7 +1686,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 _ => return Ok(Err(visited)),
             },
             Term::Apply { label, arguments } => Some((label, arguments)),
-            Term::Variable { .. } => None,
+            Term::Variable { .. } => match left_alias.as_ref().map(Term::unannotated) {
+                Some(Term::Apply { label, arguments }) => Some((label, arguments)),
+                _ => None,
+            },
             _ => return Ok(Err(visited)),
         };
         // Invariant: no production before `production` in catalog order carries both `wrapElement` and `element` with a wrapped label of sort `actual`, since the first one that does returns; each candidate scans the productions of its wrapped label once.
@@ -1700,14 +1749,23 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 });
             };
             let key = match written {
-                Some((label, arguments)) if label.name == wrapped_label => arguments
-                    .first()
-                    .cloned()
-                    .ok_or_else(|| SortInjectionError::InvalidArity {
-                        label: label.name.clone(),
-                        expected: 1,
-                        actual: 0,
-                    })?,
+                Some((label, arguments)) if label.name == wrapped_label => {
+                    let key =
+                        arguments
+                            .first()
+                            .ok_or_else(|| SortInjectionError::InvalidArity {
+                                label: label.name.clone(),
+                                expected: 1,
+                                actual: 0,
+                            })?;
+                    // A key read from a left-side alias is a left-side pattern: each alias inside
+                    // it stands on the right side for its variable, bound to what it matched.
+                    if left_alias.is_some() {
+                        rewrite_projection(key, true, &self.subsorts)
+                    } else {
+                        key.clone()
+                    }
+                }
                 // An alias of some other term has no written key, and the key function applied to
                 // the alias would put a function call inside the pattern.
                 Some(_) if matches!(term.unannotated(), Term::As { .. }) => {

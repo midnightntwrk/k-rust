@@ -388,6 +388,7 @@ impl<'a> SentenceTyper<'a> {
                 next_sort_parameter: Cell::new(0),
                 natural_sorts: std::cell::RefCell::default(),
                 variable_names: std::cell::RefCell::default(),
+                left_aliases: std::cell::RefCell::default(),
             },
             declared,
         })
