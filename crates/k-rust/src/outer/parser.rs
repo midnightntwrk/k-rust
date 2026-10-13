@@ -787,19 +787,21 @@ impl<'a> Parser<'a> {
         0
     }
 
+    /// Skips the layout before the next bubble word: whitespace and every complete comment, which
+    /// the default layout reads as layout wherever a token may begin, so the text touching a
+    /// comment's end begins the word. A comment inside a word stays part of it (`run_len`), and an
+    /// unterminated `/*` begins a word.
     fn skip_bubble_trivia(&mut self) {
-        // Invariant: the text skipped before `self.offset` is whitespace and comments; each iteration that continues skips one comment longer than the run at `self.offset`, so `self.offset` increases toward `self.end`.
+        // Invariant: the text skipped before `self.offset` is whitespace and complete comments; each iteration that continues skips one comment of positive length, so `self.offset` increases toward `self.end`.
         loop {
             while self.peek_char().is_some_and(is_whitespace) {
                 self.bump();
             }
-            let run_len = self.run_len(self.offset);
             let comment_len = self.comment_len(self.offset);
-            if comment_len > run_len {
-                self.offset += comment_len;
-            } else {
+            if comment_len == 0 {
                 break;
             }
+            self.offset += comment_len;
         }
     }
 

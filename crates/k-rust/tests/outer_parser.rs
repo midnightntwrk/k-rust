@@ -227,6 +227,64 @@ fn sentence_bubbles_use_longest_whitespace_delimited_tokens() {
     assert_eq!(bubble.content, "X /* remains bubble text");
 }
 
+/// The (label, content) of each bubble of the first module of `source`.
+fn labelled_bubbles(source: &str) -> Vec<(Option<String>, String)> {
+    parse("bubbles.k", source).unwrap().modules[0]
+        .sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Bubble(bubble) => Some((bubble.label.clone(), bubble.content.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn bubble_comments_are_layout_wherever_a_word_may_begin() {
+    let label = |name: &str, content: &str| (Some(name.to_owned()), content.to_owned());
+    // A leading comment as long as the text it touches (`/*c*/` before a space), shorter than it
+    // (`/*c*/[l]:`), longer than it, a line comment, and two comments in a row: each is layout,
+    // and the label after it is the rule's label.
+    for comment in [
+        "/*c*/ ",
+        "/*c*/",
+        "/* a longer comment */ ",
+        "// c\n ",
+        "/*c*//*d*/",
+        "/*c*/ /**/",
+    ] {
+        let source = format!("module MAIN\n  rule {comment}[l]: a => b\nendmodule\n");
+        assert_eq!(
+            labelled_bubbles(&source),
+            [label("l", "a => b")],
+            "{comment:?}"
+        );
+    }
+
+    // A comment as long as its text at the end of a bubble is not part of the bubble.
+    assert_eq!(
+        labelled_bubbles("module MAIN rule [l]: a => b /*c*/\nendmodule"),
+        [label("l", "a => b")]
+    );
+
+    // A sentence keyword touching a comment's end begins the next sentence, as it does after a
+    // space.
+    for between in [" /*c*/", " /*c*/ ", " /* c */"] {
+        let source = format!("module MAIN rule [l]: a => b{between}rule [m]: b => a endmodule");
+        assert_eq!(
+            labelled_bubbles(&source),
+            [label("l", "a => b"), label("m", "b => a")],
+            "{between:?}"
+        );
+    }
+
+    // Within a word, a comment is part of the word, which ends no bubble.
+    assert_eq!(
+        labelled_bubbles("module MAIN rule [l]: a => b/*c*/rule [m]: b => a endmodule"),
+        [label("l", "a => b/*c*/rule [m]: b => a")]
+    );
+}
+
 #[test]
 fn sentence_spans_end_at_the_last_token() {
     let source = indoc! {r#"
