@@ -101,6 +101,10 @@ const LOG2_10: (u64, u64) = (3_321_928_094, 3_321_928_095);
 const LOG2_5: (u64, u64) = (2_321_928_094, 2_321_928_095);
 const LOG_SCALE: u64 = 1_000_000_000;
 
+/// How far `ceil(L * log2(10))` can exceed the bits of an `L`-digit integer: the integer is at
+/// least `10^(L-1)`, which is `log2(10)` bits fewer, plus the rounding of the bracket.
+const DIGIT_ESTIMATE_SLACK: u64 = 8;
+
 /// A Float literal split into its body and its format.
 enum Literal<'a> {
     Binary32(&'a str),
@@ -127,7 +131,20 @@ enum Magnitude {
         digits: String,
         exponent: BigInt,
     },
+    /// A nonzero value whose written decimal exponent has `exponent_digits` digits, more than
+    /// `REMOTE_EXPONENT_DIGITS` (its magnitude is at least `10^(exponent_digits - 1)`), negative
+    /// when `tiny`, beside a mantissa of `mantissa_length` characters: `|log10 v|` is at least
+    /// `10^(exponent_digits - 1) - mantissa_length`, beyond `3 * 10^19` binades.
+    Remote {
+        tiny: bool,
+        exponent_digits: usize,
+        mantissa_length: usize,
+    },
 }
+
+/// The digits of a decimal exponent beyond which the exponent is not parsed: `10^20` is far
+/// beyond every exponent a computed canonical text can have (`MAX_FLOAT_CANONICAL_BITS` bits).
+const REMOTE_EXPONENT_DIGITS: usize = 20;
 
 impl<'a> Literal<'a> {
     fn parse(token: &'a str) -> Result<Self, FloatTextRefusal> {
@@ -189,21 +206,39 @@ impl Magnitude {
             None => (unsigned, None),
         };
         let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
-        let mut exponent = exponent.map_or_else(BigInt::zero, |exponent| {
-            let (sign, magnitude) = match exponent.as_bytes().first() {
-                Some(b'-') => (Sign::Minus, &exponent[1..]),
-                Some(b'+') => (Sign::Plus, &exponent[1..]),
-                _ => (Sign::Plus, exponent),
-            };
-            BigInt::from_biguint(sign, magnitude.parse().expect("decimal digits"))
-        });
-        exponent -= fraction.len();
         let all = format!("{whole}{fraction}");
         let significant = all.trim_start_matches('0');
         let trimmed = significant.trim_end_matches('0');
         if trimmed.is_empty() {
             return (negative, Self::Zero);
         }
+        let (sign, magnitude) = match exponent {
+            Some(exponent) => match exponent.as_bytes().first() {
+                Some(b'-') => (Sign::Minus, &exponent[1..]),
+                Some(b'+') => (Sign::Plus, &exponent[1..]),
+                _ => (Sign::Plus, exponent),
+            },
+            None => (Sign::Plus, "0"),
+        };
+        let magnitude = magnitude.trim_start_matches('0');
+        // An exponent of more than `REMOTE_EXPONENT_DIGITS` digits is decided by its length and
+        // sign ([`Magnitude::Remote`]), never parsed: parsing is quadratic in its length.
+        if magnitude.len() > REMOTE_EXPONENT_DIGITS {
+            return (
+                negative,
+                Self::Remote {
+                    tiny: sign == Sign::Minus,
+                    exponent_digits: magnitude.len(),
+                    mantissa_length: mantissa.len(),
+                },
+            );
+        }
+        let mut exponent = if magnitude.is_empty() {
+            BigInt::zero()
+        } else {
+            BigInt::from_biguint(sign, magnitude.parse().expect("decimal digits"))
+        };
+        exponent -= fraction.len();
         exponent += significant.len() - trimmed.len();
         (
             negative,
@@ -268,6 +303,19 @@ impl Other<'_> {
             Magnitude::NaN => return small(Outcome::Text(format!("NaN{}", self.suffix()))),
             Magnitude::Infinity => return small(Outcome::Text(self.signed("Infinity"))),
             Magnitude::Zero => return small(Outcome::Text(self.signed("0e0"))),
+            Magnitude::Remote {
+                tiny,
+                exponent_digits,
+                mantissa_length,
+            } => {
+                return self
+                    .remote(*tiny, *exponent_digits, *mantissa_length)
+                    .map(|text| Plan {
+                        other: self,
+                        estimate_bits: 1,
+                        outcome: Outcome::Text(text),
+                    });
+            }
             Magnitude::Finite { digits, exponent } => (digits, exponent),
         };
         let precision = BigInt::from(self.precision.clone());
@@ -290,8 +338,16 @@ impl Other<'_> {
         let refuse = |estimate: &BigInt| FloatTextRefusal::BeyondBound {
             estimate_bits: estimate.to_u64().unwrap_or(u64::MAX),
         };
-        // The literal's digits, below `10^L <= 2^B`.
-        let digit_bits = scale_ceil(&BigInt::from(digits.len()), LOG2_10);
+        // The literal's digits, below `10^L`: estimated from their count first (within a few
+        // bits of their size), then measured, so that a canonical text, whose significand is
+        // its own digits, is refused exactly when its significand exceeds the bound, and every
+        // text load accepts has a canonical text load accepts too.
+        let digit_estimate = scale_ceil(&BigInt::from(digits.len()), LOG2_10);
+        if digit_estimate > &bound + DIGIT_ESTIMATE_SLACK {
+            return Err(refuse(&digit_estimate));
+        }
+        let value: BigUint = digits.parse().expect("decimal digits");
+        let digit_bits = BigInt::from(value.bits());
         if digit_bits > bound {
             return Err(refuse(&digit_bits));
         }
@@ -304,8 +360,7 @@ impl Other<'_> {
             if work > bound {
                 return Err(refuse(&work));
             }
-            let value: BigUint = digits.parse().expect("decimal digits");
-            if let Some((odd, shift)) = dyadic(value, exponent) {
+            if let Some((odd, shift)) = dyadic(value.clone(), exponent) {
                 let bits = BigInt::from(odd.bits());
                 let e2: BigInt = &shift + &bits - 1;
                 // In range, and its lowest bit at or above the least subnormal's,
@@ -365,12 +420,48 @@ impl Other<'_> {
             other: self,
             estimate_bits: estimate.to_u64().expect("within the bound"),
             outcome: Outcome::Round {
-                significand: digits.parse().expect("decimal digits"),
+                significand: value,
                 exponent: exponent.clone(),
                 precision: self.precision.to_u64().expect("within the bound"),
                 range,
             },
         })
+    }
+
+    /// The text of a value whose decimal exponent has more than `REMOTE_EXPONENT_DIGITS` digits,
+    /// decided from the exponent's length and sign. Its binary exponent `e2` is beyond
+    /// `3 * 10^19` in magnitude, so its exact decimal, or the arithmetic that would find it, has
+    /// more bits than the bound unless the value overflows or underflows. With an exponent field
+    /// `M <= 64` (`emax < 2^63`), a large value overflows; a small one underflows when `e2` is
+    /// below `emin - N`, decided with the exponent's magnitude taken as at least
+    /// `10^(min(digits - 1, digits of N + 22))`. Every other case is refused.
+    fn remote(
+        &self,
+        tiny: bool,
+        exponent_digits: usize,
+        mantissa_length: usize,
+    ) -> Result<String, FloatTextRefusal> {
+        let refused = Err(FloatTextRefusal::BeyondBound {
+            estimate_bits: u64::MAX,
+        });
+        let Some(exponent_bits) = self.exponent_bits.to_u64().filter(|bits| *bits <= 64) else {
+            return refused;
+        };
+        if !tiny {
+            return Ok(self.signed("Infinity"));
+        }
+        let emax = (BigInt::one() << (exponent_bits - 1)) - 1;
+        let emin = 1 - emax;
+        let precision = BigInt::from(self.precision.clone());
+        let power = (exponent_digits - 1).min(self.precision.bits() as usize / 3 + 22);
+        // `d10 + 1 <= mantissa_length - 10^power`, and `log2 v < (d10 + 1) * log2(10)`.
+        let d10_next = BigInt::from(mantissa_length) - BigInt::from(10_u8).pow(power as u32);
+        let e2_high = scale_ceil(&d10_next, LOG2_10);
+        if e2_high < emin - precision {
+            Ok(self.signed("0e0"))
+        } else {
+            refused
+        }
     }
 
     fn range(&self, e2_low: &BigInt, e2_high: &BigInt) -> Range {

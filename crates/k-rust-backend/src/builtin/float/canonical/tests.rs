@@ -450,3 +450,85 @@ fn scaled_logarithms_bracket_their_products() {
     assert_eq!(floor_div(&BigInt::from(-7), 2), BigInt::from(-4));
     assert!(floor_div(&BigInt::from(7), 2).is_positive());
 }
+
+/// Whatever load accepts, its canonical text is accepted too and is its own canonical text, at
+/// the bound as well: the first 94,700 digits of the exact decimal of the largest subnormal of
+/// p314223x12 round to that subnormal, whose exact decimal has a significand of 1,048,574 bits,
+/// two bits within `MAX_FLOAT_CANONICAL_BITS`; so do the neighbouring formats, whatever their
+/// outcome.
+#[test]
+fn every_accepted_literal_has_an_accepted_canonical_text_at_the_bound() {
+    for precision in [314_222_u64, 314_223, 314_224] {
+        let format = (precision, 12);
+        let emin = 1 - ((1_i64 << 11) - 1);
+        let largest_subnormal = literal(
+            false,
+            &((BigUint::one() << (precision - 1)) - 1_u8),
+            emin - precision as i64 + 1,
+            format,
+        );
+        let (body, suffix) = largest_subnormal.split_at(largest_subnormal.rfind('p').unwrap());
+        let (digits, exponent) = body.split_once('e').unwrap();
+        let kept = 94_700;
+        let shortened = format!(
+            "{}e{}{suffix}",
+            &digits[..kept],
+            exponent.parse::<i64>().unwrap() + (digits.len() - kept) as i64
+        );
+        for token in [largest_subnormal.as_str(), shortened.as_str()] {
+            let Ok(text) = canonical_float_text(token) else {
+                continue;
+            };
+            assert_eq!(
+                canonical_float_text(&text).as_ref(),
+                Ok(&text),
+                "p{precision}x12: the canonical text of a {}-character literal",
+                token.len()
+            );
+        }
+        if precision == 314_223 {
+            assert_eq!(canonical(&shortened), largest_subnormal);
+        }
+    }
+}
+
+/// An exponent of more than twenty digits is decided from its length and sign, without parsing
+/// it: a ten-million-digit exponent gives the infinity or the zero of a format whose exponent
+/// field is at most 64 bits, and is refused otherwise, as is a tiny value within the subnormal
+/// range of a huge precision.
+#[test]
+fn a_remote_exponent_is_decided_from_its_length() {
+    let nines = "9".repeat(10_000_000);
+    let started = std::time::Instant::now();
+    assert_eq!(canonical(&format!("1e{nines}p11x5")), "Infinityp11x5");
+    assert_eq!(
+        canonical(&format!("-1.5e+{nines}p53x64")),
+        "-Infinityp53x64"
+    );
+    assert_eq!(canonical(&format!("-1e-{nines}p113x15")), "-0e0p113x15");
+    assert_eq!(canonical(&format!("0e{nines}p11x5")), "0e0p11x5");
+    for token in [
+        format!("1e{nines}p53x65"),
+        format!("1e-{nines}p53x65"),
+        // 10^-(10^24) lies within the subnormal range of a precision of 10^40 - 1 bits.
+        format!("1e-0001{}p{}x8", "0".repeat(24), "9".repeat(40)),
+    ] {
+        assert!(
+            matches!(
+                canonical_float_text(&token),
+                Err(FloatTextRefusal::BeyondBound { .. })
+            ),
+            "{}",
+            &token[token.rfind('p').unwrap()..]
+        );
+    }
+    // Below the least subnormal of that format, however wide.
+    assert_eq!(
+        canonical(&format!("1e-{nines}p{}x8", "9".repeat(40))),
+        format!("0e0p{}x8", "9".repeat(40))
+    );
+    // Twenty digits are still parsed, and decided by the exponent bracket.
+    assert_eq!(canonical("1e-99999999999999999999p11x5"), "0e0p11x5");
+    // Parsing a ten-million-digit exponent takes minutes; deciding it is linear.
+    assert!(started.elapsed() < std::time::Duration::from_secs(60));
+}
