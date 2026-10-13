@@ -1604,7 +1604,7 @@ Clients must drop the member, the case or the match arm (no request produces the
 For source-driven `krun`, the syntax or configuration parser module supplies the concrete grammar and the selected main module supplies the executable production catalog and visible macro sentences.
 Parsed applications must rebase into the main catalog before macro expansion, sort injection, and KORE conversion; an absent source-catalog production index may be discarded only from a self-describing token, whose lexical hook is read from the parser module before falling back to the main module.
 Macro expansion uses the frontend's KAST-domain expander after rebasing and before conversion to executable KORE; `kast` retains its separate unparsing-module scope.
-A macro- or alias-headed term that survives expansion is invalid executable input and must be rejected before the first rewrite step rather than narrowed as an ordinary function application.
+A macro- or alias-headed term that survives expansion is invalid executable input and must be rejected before the first rewrite step rather than narrowed as an ordinary function application ([Macro applications that survive expansion](#macro-applications-that-survive-expansion)).
 The backend also rejects such a head defensively when a direct caller bypasses the CLI validation.
 The project provides its own versioned compiled-directory runtime contract rather than K's file format; it does not implement K-derived module defaults, every K flag alias, or K's pretty-output and proof-verdict framing solely for tool interchangeability; its own verdict words are defined under [Proof verdicts](#proof-verdicts).
 K tools and pyk serve as differential oracles; the conformance driver translates recipes into supported Rust operations.
@@ -1619,6 +1619,43 @@ It uses buffered `--io off` stream semantics with pre-buffered standard input, r
 Bottom, constrained or multiple leaves, incomplete execution, malformed stream state, search, surface result matching, and an explicit `--io on` are errors.
 `krun --io on --output none` is the corresponding committed live mode with pre-buffered input and byte-exact descriptor 1/2 delivery.
 Default KORE output remains unchanged.
+
+## Macro applications that survive expansion
+
+A `macro`, `macro-rec`, `alias` or `alias-rec` rule defines an abbreviation: its left side is replaced by its right side in rules and claims before compilation, and in a program, a configuration value or a search pattern before execution.
+Expansion rewrites innermost first; a `macro` or `alias` rule applies at most once on a path, neither again to the term it produced nor below it, and a `macro-rec` or `alias-rec` rule applies again until no rule applies, within the recursion bounds (`kompile/passes/expand_macros.rs`).
+The macro rule is not an axiom of the executed definition: `kcompile` writes it to `macros.kore`, not to `definition.kore`.
+Nor is the macro-like production a constructor of its sort there: `definition.kore` declares its symbol `function`, `macro` and `value-production` with no equation, its sort's no-junk axiom does not list it among the sort's alternatives, and the backend loads it as a `Residual` head, a `Function(Partial)` symbol with definedness obligations ([Anywhere rules](#anywhere-rules)).
+So an application of it left after expansion has no value the executed definition determines.
+By the declaration (`value-production`) it is a defined value of its sort, which by the no-junk axiom equals some value the sort's listed alternatives build, but the definition does not say which; the backend reads the head more weakly, as possibly undefined.
+Either way no rule whose left side has a constructor where such an application stands can be decided against it, so every route refuses it rather than executing it.
+
+The refusal is enforced at three points.
+A rule or claim that still holds a macro-like application after expansion is rejected at compile time with `InvalidMacroExpansion` ("Rule contains macro symbol that was not expanded"); a context is exempt.
+A program, a configuration value, the initial state given to any library execution or search entry point or to RPC `execute`, and an implication pattern are refused before internalization (`DefinitionError::MacroOrAliasInExecutablePattern`, and `MacroOrAliasInImplication` for an implication pattern); `krun` prints `invalid executable input: macro or alias symbol '…' survived expansion` and exits 1.
+A rewrite successor that holds one ends its path as an indeterminate entry (`IndeterminateReason::SurvivingMacroOrAlias`): the state is not a result, and a search that meets it is incomplete.
+
+Under `syntax Stmt ::= "var" Id ";" | "decl" Ids ";" [macro] | Stmt Stmt`, three situations leave such an application.
+A non-recursive rule whose right side keeps a macro-like application: with `rule decl X , Y , Rest ; => var X ; decl Y , Rest ;`, `decl x , y , z ;` expands to `var x ; decl y , z ;`, and the rule does not apply again to `decl y , z ;`.
+An application no rule's left side covers: `decl x ;` matches that rule nowhere.
+An application that another use of an already applied non-recursive rule would expand: with the base clause `rule decl X:Id ; => var X ;` added, `decl x ;` and `decl x , y ;` expand completely and run to `<k> .K </k>`, while `decl x , y , z ;` is still refused, because the first clause cannot apply again on its path.
+The refusal is the cost of the one-step strategy in the third case: read as equations, the two clauses rewrite every remaining application to `var` statements, and the refusal claims nothing about the program.
+
+A surviving application is not read as a constructor, because that would add a value to its sort that the no-junk axiom excludes, and would contradict the macro rule read as the equation it states: `decl x , y , z ; = var x ; decl y , z ;` against the no-confusion of a constructor `decl _ ;` with `_ _`.
+Executing it as it is gives no answer either.
+Its value is not determined, so a rule whose left side has a constructor where it stands neither applies nor is refuted there.
+On execution and search routes a variable-free state then halts as an incomplete outcome where such a rule leaves a left-hand-side variable unbound ([Concrete rewrite instantiation](#concrete-rewrite-instantiation)), and branches under an undecided equality with the application where such a rule binds every variable, as one with a ground left-hand side does; a rule that rebuilds the state then repeats that without end, as [Anywhere rules](#anywhere-rules) states for a withdrawn anywhere head.
+A symbolic state, or any state on a proof route, would narrow it against every rule whose left side can hold its sort.
+The refusal reports that incompleteness where it arises: before the first step for input, and at the successor for a state a step builds.
+
+This differs from the pinned reference, whose two backends also differ from each other.
+The LLVM backend keeps a surviving application as an ordinary constructor, so `decl x , y , z ;` ends there at `<k> decl y , z , .Ids ; ~> .K </k>`.
+The Haskell backend (`kore-exec` 0.1.155) fails with `DecidePredicateUnknown` while applying an equation, and `krun` reports `Backend crashed during rewriting`, so that backend returns no result for it.
+
+A definition makes its expansion complete, or does not use a macro.
+With `macro-rec` on the production and a clause for every argument shape (the two clauses above), `decl x ;` and `decl x , y , z ;` both expand completely and run to `<k> .K </k>`.
+Where the one-step unfolding should be observable during execution, it is an ordinary rewrite rule or function equation instead of a macro.
+`krun_rejects_a_macro_symbol_that_survives_expansion` in [cli.rs](../crates/k-rust/tests/cli.rs), `simplification_rules_do_not_inherit_macro_kinds_during_expansion` and `reports_a_macro_symbol_when_repeated_variable_matching_fails` in [kompile_passes.rs](../crates/k-rust/tests/kompile_passes.rs), `implication_patterns_reject_aliases_and_macros` in [definition.rs](../crates/k-rust-backend/src/definition.rs) and `a_successor_with_a_surviving_macro_is_an_indeterminate_entry` in [search_boundary.rs](../crates/k-rust-backend/src/tests/search_boundary.rs) pin the refusal.
 
 ## Proof verdicts
 
