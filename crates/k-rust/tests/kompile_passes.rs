@@ -1543,26 +1543,41 @@ fn lambda_signature(definition: &Definition) -> (Sort, Sort, bool) {
     signature.clone()
 }
 
-/// A definition of the sort `Items` with the user-list constant `.Items`, whose one rule is
-/// `#let binder = argument #in binder-body`.
-fn items_let(binder: Term, argument: Term, body: Term) -> Definition {
+/// A definition of the sorts `Item` and `Items`, with the user-list constant `.Items`, both
+/// subsorts of each sort in `supersorts`, whose one rule is `#let binder = argument #in body`.
+fn items_let(supersorts: &[&str], binder: Term, argument: Term, body: Term) -> Definition {
+    let sort = |name: &str| Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new(name),
+        attributes: Attributes::default(),
+    };
+    let subsort = |sub: &str, sup: &str| Sentence::Production {
+        label: None,
+        parameters: Vec::new(),
+        sort: Sort::new(sup),
+        items: vec![ProductionItem::NonTerminal {
+            sort: Sort::new(sub),
+            name: None,
+        }],
+        attributes: Attributes::default(),
+    };
+    let mut sentences = vec![
+        sort("Item"),
+        sort("Items"),
+        production(".Items", "Items", attributes(&[("userList", json!(""))])),
+    ];
+    for supersort in supersorts {
+        sentences.push(sort(supersort));
+        sentences.push(subsort("Item", supersort));
+        sentences.push(subsort("Items", supersort));
+    }
+    sentences.push(rule(
+        application("#let", vec![binder, argument, body]),
+        Attributes::default(),
+    ));
     Definition {
         main_module: "MAIN".into(),
-        modules: vec![module(
-            "MAIN",
-            vec![
-                Sentence::SyntaxSort {
-                    parameters: Vec::new(),
-                    sort: Sort::new("Items"),
-                    attributes: Attributes::default(),
-                },
-                production(".Items", "Items", attributes(&[("userList", json!(""))])),
-                rule(
-                    application("#let", vec![binder, argument, body]),
-                    Attributes::default(),
-                ),
-            ],
-        )],
+        modules: vec![module("MAIN", sentences)],
         attributes: Attributes::default(),
     }
 }
@@ -1570,11 +1585,12 @@ fn items_let(binder: Term, argument: Term, body: Term) -> Definition {
 /// The parameter of a generated lambda is the domain of a function applied at one site, so it
 /// must hold the argument's sort (for the call) and the pattern's sort (for the equation); the
 /// least such sort is their least upper bound. A variable that carries a sort is a pattern of
-/// that sort. `X:Item` against an `Items` argument gives the least upper bound of the two
-/// (`KItem`, as the definition does not relate them), over which the pattern accepts only the
-/// `Item` values, so the lambda is not total. A binder that matches every term, unsorted or
-/// cast to `K` (the shape source inference gives the unused `_V1` of `#fun(_V1 => 0)(.IntList)`),
-/// takes `K`, and its lambda is total, the body being defined.
+/// that sort. `X:Item` against an `Items` argument, both below `Seq`, gives `Seq`, over which
+/// the pattern accepts only the `Item` values, so the lambda is not total. When the two sorts
+/// have no least upper bound (two incomparable common supersorts), the parameter falls back to
+/// `KItem`, and the pattern does not cover it either. A binder that matches every term,
+/// unsorted or cast to `K` (the shape source inference gives the unused `_V1` of
+/// `#fun(_V1 => 0)(.IntList)`), takes `K`, and its lambda is total, the body being defined.
 #[test]
 fn a_sorted_variable_binder_takes_the_least_upper_bound_parameter() {
     let items = || Term::Token {
@@ -1585,12 +1601,25 @@ fn a_sorted_variable_binder_takes_the_least_upper_bound_parameter() {
         name: "X".into(),
         sort: Some(Sort::new("Item")),
     };
-    let (parameter, _, total) = lambda_signature(&items_let(item_binder(), items(), item_binder()));
-    assert_eq!(parameter, Sort::new("KItem"));
+    let (parameter, _, total) =
+        lambda_signature(&items_let(&["Seq"], item_binder(), items(), item_binder()));
+    assert_eq!(parameter, Sort::new("Seq"));
     assert!(
         !total,
-        "the X:Item pattern leaves the KItem parameter's non-Item arguments without a value"
+        "the X:Item pattern leaves the Seq parameter's non-Item arguments without a value"
     );
+    let (parameter, _, total) = lambda_signature(&items_let(
+        &["Seq", "Group"],
+        item_binder(),
+        items(),
+        item_binder(),
+    ));
+    assert_eq!(
+        parameter,
+        Sort::new("KItem"),
+        "Seq and Group are both minimal upper bounds, so there is no least one"
+    );
+    assert!(!total);
 
     let empty = || application(".Items", Vec::new());
     let zero = || Term::Token {
@@ -1599,12 +1628,12 @@ fn a_sorted_variable_binder_takes_the_least_upper_bound_parameter() {
     };
     let cast_to_k = application("#SemanticCastToK", vec![Term::variable("_V1")]);
     assert_eq!(
-        lambda_signature(&items_let(cast_to_k, empty(), zero())),
+        lambda_signature(&items_let(&[], cast_to_k, empty(), zero())),
         (Sort::new("K"), Sort::new("Int"), true),
         "a binder cast to K matches .Items"
     );
     assert_eq!(
-        lambda_signature(&items_let(Term::variable("V"), empty(), zero())),
+        lambda_signature(&items_let(&[], Term::variable("V"), empty(), zero())),
         (Sort::new("K"), Sort::new("Int"), true),
         "an unsorted structured binder matches every term"
     );
@@ -1735,7 +1764,8 @@ fn a_sorted_variable_binder_compiles_like_its_cast_spelling() {
 }
 
 /// `#let X:Item = items #in X` binds only an `Item`, so the generated lambda over its `KItem`
-/// parameter (the least upper bound of `Item` and `Items`) has no value on any other argument:
+/// parameter (the fallback when, as here, `Item` and `Items` have no least upper bound) has no
+/// value on any other argument:
 /// lowering gives it an `owise` equation whose right-hand side is `#Bottom` labelled with the
 /// lambda's result sort, which sort injection places beside the `#Bottom` production every
 /// module that can write a `#let` sees.
