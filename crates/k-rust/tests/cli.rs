@@ -3825,6 +3825,71 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn krun_a_refuted_let_in_requires_is_not_satisfied() {
+    // A `requires` clause holds only where it is defined and true; a refuted `#let` in it is
+    // undefined, so the rule does not apply: `r(3)` takes no step, and `g(3)` falls to the
+    // `owise` equation.
+    let (root, _) = fixture();
+    let req = compiled_for_execution(
+        &root,
+        "req",
+        r#"
+module REQ
+  imports INT
+  imports BOOL
+  syntax Exp ::= Int
+               | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+               | r(Exp)                     [symbol(r)]
+               | gg(Exp)                    [symbol(gg)]
+               | done(Int)                  [symbol(done)]
+  syntax Int ::= g(Exp) [function, symbol(g)]
+  configuration <k> $PGM:Exp </k>
+  rule r(E) => done(1) requires #let pair(X:Int, _) = E #in X >Int 0
+  rule g(E) => 1 requires #let pair(X:Int, _) = E #in X >Int 0
+  rule g(_) => 0 [owise]
+  rule gg(E) => done(g(E))
+endmodule
+"#,
+        "REQ",
+        "REQ",
+    );
+    let output = bounded_krun(&req, "Exp", "r(3)", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        r#"Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(
+    kseq{}(
+      inj{SortExp{}, SortKItem{}}(Lblr{}(inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("3")))),
+      dotk{}()
+    )
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)
+"#
+    );
+    let done = |value: &str| {
+        k_cell_output(&format!(
+            r#"inj{{SortExp{{}}, SortKItem{{}}}}(Lbldone{{}}(\dv{{SortInt{{}}}}("{value}")))"#
+        ))
+    };
+    for (program, value) in [
+        ("gg(3)", "0"),
+        ("r(pair(1, 2))", "1"),
+        ("gg(pair(1, 2))", "1"),
+    ] {
+        let output = bounded_krun(&req, "Exp", program, &[]);
+        assert!(output.status.success(), "{program}: {output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            done(value),
+            "{program}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// The equation that makes a refuted `#let` undefined applies only where its pattern is decided
 /// not to match: a symbolic argument, or an application `h(N)` no equation evaluates, keeps the
 /// lambda application, so the false claims stay unproven (each would be vacuously proven if the
@@ -3883,8 +3948,8 @@ endmodule
             .unwrap()
             .to_owned()
     };
-    assert_ne!(verdict("sym-false"), "proven", "{stdout}");
-    assert_ne!(verdict("h-false"), "proven", "{stdout}");
+    assert_eq!(verdict("sym-false"), "failed", "{stdout}");
+    assert_eq!(verdict("h-false"), "failed", "{stdout}");
     assert_eq!(verdict("h0-true"), "proven", "{stdout}");
     assert_eq!(verdict("pair-true"), "proven", "{stdout}");
     fs::remove_dir_all(root).unwrap();
