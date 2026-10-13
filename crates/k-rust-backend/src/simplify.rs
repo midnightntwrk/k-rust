@@ -2846,7 +2846,7 @@ fn apply_ceil_theory(
         })? {
             GroupScan::Applied(result) => return Ok(Some(result)),
             GroupScan::Blocked => return Ok(None),
-            GroupScan::NotCacheable | GroupScan::NotApplicable => {}
+            GroupScan::NotCacheable | GroupScan::Unused | GroupScan::NotApplicable => {}
         }
     }
     Ok(None)
@@ -2979,7 +2979,7 @@ fn apply_predicate_theory(
         })? {
             GroupScan::Applied(result) => return Ok(Some(result)),
             GroupScan::Blocked => return Ok(None),
-            GroupScan::NotCacheable | GroupScan::NotApplicable => {}
+            GroupScan::NotCacheable | GroupScan::Unused | GroupScan::NotApplicable => {}
         }
     }
     Ok(None)
@@ -6612,6 +6612,18 @@ fn apply_equation(
         EquationInstances::Matched(instances) => instances,
     };
     scan_instances(instances, |instance| {
+        if let Instance::SetAside(substitution) = instance {
+            return decide_set_aside_instance(
+                definition,
+                &rule,
+                term,
+                substitution,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            );
+        }
         instance.attempt(|substitution| {
             apply_equation_instance(
                 definition,
@@ -6625,6 +6637,54 @@ fn apply_equation(
             )
         })
     })
+}
+
+/// The outcome of an instance of `rule` at `term` that a `concrete` or `symbolic` attribute set
+/// aside ([`Instance::SetAside`]). The attribute chooses when the evaluator uses the equation,
+/// not what it means: the equation still holds of the instance, so `term` equals its right-hand
+/// side wherever its `requires` holds. The `requires` therefore decides what the instance says
+/// about the equations below it. A lower-priority function equation (an `owise` one, or one of a
+/// lower priority group) states its value only where no higher equation applies, which negates
+/// this equation's left-hand side together with its `requires`. Refuted under the path
+/// condition, the instance says nothing about `term`, and it is `ContextDependent`, as a usable
+/// instance whose `requires` is refuted. Held or undecided, the equation holds or may hold of
+/// `term`, which the lower equations' premises then exclude, and it is `Unused`, which keeps the
+/// lower function groups from applying (`scan::scan_term_theory`). An empty `requires` holds.
+#[allow(clippy::too_many_arguments)]
+fn decide_set_aside_instance<T, N>(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    substitution: Substitution,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<EquationAttempt<T, N>> {
+    if rule.requires.is_empty() {
+        return Ok(EquationAttempt::Unused);
+    }
+    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term);
+    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed);
+    Ok(
+        match evaluate_equation_condition(
+            definition,
+            &rule.attributes,
+            &rule.computed_attributes.unbound_result_variables,
+            &rule.computed_attributes.unbound_variables,
+            Some(term),
+            instance,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )? {
+            EquationCondition::Refuted => EquationAttempt::ContextDependent,
+            EquationCondition::Satisfied(_) | EquationCondition::Indeterminate(_) => {
+                EquationAttempt::Unused
+            }
+        },
+    )
 }
 
 /// The instances of an equation at a subject, one per matching of its left-hand side, or why
@@ -6645,11 +6705,16 @@ pub(crate) enum EquationInstances {
 pub(crate) enum Instance {
     /// The evaluator may use the instance under this substitution.
     Usable(Substitution),
-    /// The matching binds a variable outside the left-hand side, or a `concrete` or `symbolic`
-    /// attribute rejects its binding, or the instance of a ceil equation binds an element
-    /// variable to a pattern containing its subject ([`binds_element_variable_to_its_subject`]):
-    /// the evaluator does not use the equation on this instance.
+    /// The matching binds a variable outside the left-hand side, so it is not a matching of the
+    /// equation, or the instance of a ceil equation binds an element variable to a pattern
+    /// containing its subject ([`binds_element_variable_to_its_subject`]): the evaluator does
+    /// not use the equation on this instance.
     Unused,
+    /// A `concrete` or `symbolic` attribute rejects the binding: the evaluator does not use the
+    /// equation's result on this instance, but the equation holds of it, and function and
+    /// simplification evaluation decide its `requires` under the substitution
+    /// ([`decide_set_aside_instance`]); every other use of the equation reads it as `Unused`.
+    SetAside(Substitution),
     /// The matching binds an element variable to a pattern with a set variable
     /// ([`binds_element_variable_to_set_pattern`]), which does not justify the instance.
     NonFunctionalBinding,
@@ -6664,7 +6729,7 @@ impl Instance {
     ) -> SimplifyResult<EquationAttempt<T, N>> {
         match self {
             Instance::Usable(substitution) => attempt(substitution),
-            Instance::Unused => Ok(EquationAttempt::Unused),
+            Instance::Unused | Instance::SetAside(_) => Ok(EquationAttempt::Unused),
             Instance::NonFunctionalBinding => Ok(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::NonFunctionalBinding,
             )),
@@ -6727,11 +6792,12 @@ pub(crate) fn equation_instances<'r>(
             if substitution
                 .keys()
                 .any(|variable| !rule.lhs.attributes().variables.contains(variable))
-                || check_concreteness(&rule, &substitution).is_some()
                 || matches!(rule.rhs, RuleRhs::Predicates(_))
                     && binds_element_variable_to_its_subject(&substitution, term)
             {
                 Instance::Unused
+            } else if check_concreteness(&rule, &substitution).is_some() {
+                Instance::SetAside(substitution)
             } else if binds_element_variable_to_set_pattern(&substitution) {
                 Instance::NonFunctionalBinding
             } else {
@@ -6833,7 +6899,8 @@ fn apply_equation_instance(
         // The result is not a term the subject can be rewritten to. A `\top` lemma is used
         // where its subject is an operand of a term-level conjunction, which drops the operand
         // (`matches_top_equation`); elsewhere the evaluator does not use it, which is sound,
-        // since the subject is kept, equal to itself.
+        // since the subject is kept, equal to itself, and no lower-priority function equation
+        // applies in its place (`Unused` blocks the function scan).
         RuleRhs::Top | RuleRhs::Predicates(_) => return Ok(EquationAttempt::Unused),
     };
     let mut live = Vec::new();

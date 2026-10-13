@@ -29,6 +29,8 @@ mod rewrite;
 mod rule_index;
 #[path = "backend/search.rs"]
 mod search;
+#[path = "backend/set_aside_equations.rs"]
+mod set_aside_equations;
 #[path = "backend/simplify.rs"]
 mod simplify;
 #[path = "backend/structural_distinctness.rs"]

@@ -1276,3 +1276,158 @@ fn a_claim_condition_that_defines_a_right_hand_side_operand_keeps_it_proven() {
     );
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+/// An anywhere head with `w(X) = mk(1) [anywhere, concrete]` above an `owise` equation
+/// `w(_) = mk(0)`: the first equation says `w(N) = mk(1)` for every `N`, and the `owise`
+/// equation's premise excludes every `N` the first one matches.
+const ANYWHERE_CONCRETE_OVER_OWISE: &str = r#"
+module ANYW-SYNTAX
+  imports INT-SYNTAX
+  syntax W ::= w(Int) [symbol(w)] | mk(Int) [symbol(mk)]
+endmodule
+
+module ANYW
+  imports ANYW-SYNTAX
+  imports INT
+  configuration <k> $PGM:W </k>
+  rule w(_X) => mk(1) [anywhere, concrete]
+  rule w(_) => mk(0) [anywhere, owise]
+endmodule
+
+module ANYW-SPEC
+  imports ANYW
+  claim [w-sym-zero]: <k> w(_N:Int) => mk(0) </k>
+  claim [w-sym-one]: <k> w(_N:Int) => mk(1) </k>
+  claim [w-3-one]: <k> w(3) => mk(1) </k>
+endmodule
+"#;
+
+/// A function whose rules all carry `symbolic`: `s(X, Y) = 1` for every `X` and `Y`, and the
+/// `owise` rule's premise excludes every argument the first rule matches. On `s(N, 3)` the first
+/// rule's binding of `Y` to 3 is set aside, the `owise` rule's binding is not.
+const SYMBOLIC_FUNCTION_OVER_OWISE: &str = r#"
+module SYMF-SYNTAX
+  imports INT-SYNTAX
+  syntax Int ::= s(Int, Int) [function, symbol(s)]
+endmodule
+
+module SYMF
+  imports SYMF-SYNTAX
+  imports INT
+  configuration <k> $PGM:Int </k>
+  rule s(_X, _Y) => 1 [symbolic]
+  rule s(_X, 3) => 0 [owise, symbolic]
+endmodule
+
+module SYMF-SPEC
+  imports SYMF
+  claim [owise-zero]: <k> s(_N:Int, 3) => 0 </k>
+  claim [first-one]: <k> s(_N:Int, 3) => 1 </k>
+endmodule
+"#;
+
+/// A `concrete` anywhere equation with a `requires` above an `owise` one: the `owise` premise
+/// excludes exactly the arguments above 10.
+const ANYWHERE_CONCRETE_REQUIRES_OVER_OWISE: &str = r#"
+module ANYREQ-SYNTAX
+  imports INT-SYNTAX
+  syntax W ::= w(Int) [symbol(w)] | mk(Int) [symbol(mk)]
+endmodule
+
+module ANYREQ
+  imports ANYREQ-SYNTAX
+  imports INT
+  configuration <k> $PGM:W </k>
+  rule w(X) => mk(1) requires X >Int 10 [anywhere, concrete]
+  rule w(_) => mk(0) [anywhere, owise]
+endmodule
+
+module ANYREQ-SPEC
+  imports ANYREQ
+  claim [refuted-zero]: <k> w(N:Int) => mk(0) </k> requires N <Int 5
+  claim [open-zero]: <k> w(N:Int) => mk(0) </k> requires N <Int 50
+  claim [held-one]: <k> w(N:Int) => mk(1) </k> requires N >Int 10
+endmodule
+"#;
+
+/// The claims of `spec` whose status breaks `expected`: a claim marked `true` must end with the
+/// status given, one marked `false` with any other.
+fn statuses_breaking(
+    source: &str,
+    spec: &str,
+    definition: &str,
+    expected: &[(&str, bool, &str)],
+) -> Vec<String> {
+    let kore = compile(source, spec, definition);
+    expected
+        .iter()
+        .filter_map(|(claim, equal, status)| {
+            let found = prove(
+                &kore,
+                spec,
+                &format!("{spec}.{claim}"),
+                ProveRequest::default(),
+            )
+            .status;
+            ((found == *status) != *equal).then(|| {
+                let relation = if *equal {
+                    "expected"
+                } else {
+                    "expected anything but"
+                };
+                format!("{spec}.{claim}: {found}, {relation} {status}")
+            })
+        })
+        .collect()
+}
+
+/// An equation that matches but is set aside by a `concrete` or `symbolic` attribute still holds
+/// of the application, so no lower-priority equation applies in its place: the false claims
+/// that take the `owise` value are not proven, and the true claims that take the first
+/// equation's value are not disproved. On a ground argument the `concrete` equation applies.
+#[test]
+fn an_owise_equation_does_not_apply_below_a_set_aside_equation() {
+    let wrong = [
+        statuses_breaking(
+            ANYWHERE_CONCRETE_OVER_OWISE,
+            "ANYW-SPEC",
+            "ANYW",
+            &[
+                ("w-sym-zero", false, "proven"),
+                ("w-sym-one", false, "disproved"),
+                ("w-3-one", true, "proven"),
+            ],
+        ),
+        statuses_breaking(
+            SYMBOLIC_FUNCTION_OVER_OWISE,
+            "SYMF-SPEC",
+            "SYMF",
+            &[
+                ("owise-zero", false, "proven"),
+                ("first-one", false, "disproved"),
+            ],
+        ),
+    ]
+    .concat();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The `owise` premise negates the competitor's left-hand side together with its `requires`, so
+/// where that `requires` is refuted under the claim's condition the `owise` equation applies,
+/// although `concrete` set the competitor's binding aside (`refuted-zero` is proven); where it
+/// may hold, or holds, the application stays (`open-zero` is not proven, `held-one` is not
+/// disproved).
+#[test]
+fn an_owise_equation_applies_below_a_set_aside_equation_whose_requires_is_refuted() {
+    let wrong = statuses_breaking(
+        ANYWHERE_CONCRETE_REQUIRES_OVER_OWISE,
+        "ANYREQ-SPEC",
+        "ANYREQ",
+        &[
+            ("refuted-zero", true, "proven"),
+            ("open-zero", false, "proven"),
+            ("held-one", false, "disproved"),
+        ],
+    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

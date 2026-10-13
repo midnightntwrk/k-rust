@@ -29,16 +29,19 @@ pub(super) enum IndeterminateEquation {
 /// One of the two term theories whose scans the evaluated mark rests on, as a type, so that a
 /// statement about one theory's scan cannot stand in for the other's.
 pub(super) trait TermTheory {
-    /// What an undecided equation does to the rest of the scan.
+    /// What an equation that is not refuted and not applied does to the lower-priority groups of
+    /// the scan: one whose `requires` (or matching) is undecided, and one that matched and was
+    /// set aside ([`EquationAttempt::Unused`]).
     const INDETERMINATE_EQUATION: IndeterminateEquation;
 
     /// The equations of the theory.
     fn theory(definition: &BackendDefinition) -> &Theory;
 }
 
-/// The function equations: an undecided equation blocks the lower-priority groups, because
-/// function evaluation must keep the application rather than fall through to an `owise` or
-/// otherwise lower-priority equation.
+/// The function equations: an undecided equation, and one that matched and was set aside, block
+/// the lower-priority groups. Each holds, or may hold, of the application, while an `owise` or
+/// otherwise lower-priority equation states its value only where no higher equation applies, so
+/// function evaluation must keep the application rather than fall through to it.
 pub(crate) struct FunctionTheory;
 
 impl TermTheory for FunctionTheory {
@@ -49,8 +52,8 @@ impl TermTheory for FunctionTheory {
     }
 }
 
-/// The simplification equations: an undecided equation does not keep the lower-priority groups
-/// from applying.
+/// The simplification equations: an undecided or set-aside equation does not keep the
+/// lower-priority groups from applying, since a lemma states nothing about the lemmas after it.
 pub(crate) struct SimplificationTheory;
 
 impl TermTheory for SimplificationTheory {
@@ -71,8 +74,9 @@ pub(super) enum TheoryScan<K> {
     /// The result of the equation that applied, and that equation.
     Applied(Simplification, Arc<RewriteRule>),
     Blocked,
-    /// No equation applied, but some equation was set aside for a reason other than a failed
-    /// match (see [`GroupScan::NotCacheable`]); the term is not a fixed point to record.
+    /// No equation applied, but some equation was passed over for a reason other than a failed
+    /// match (see [`GroupScan::NotCacheable`] and [`GroupScan::Unused`]); the term is not a
+    /// fixed point to record.
     NotCacheable,
     /// Every equation offered the term failed to match it.
     NotApplicable(NoOfferedEquationMatched<K>),
@@ -123,7 +127,13 @@ pub(super) fn scan_term_theory<K: TermTheory>(
                 return Ok(TheoryScan::Blocked);
             }
             GroupScan::Blocked => blocked = true,
-            GroupScan::NotCacheable => not_cacheable = true,
+            // An equation of the group matched and holds (or may hold) of the term but was not
+            // used: the lower-priority function equations' premises exclude the term, so they
+            // must not apply in its place.
+            GroupScan::Unused if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block => {
+                return Ok(TheoryScan::Blocked);
+            }
+            GroupScan::NotCacheable | GroupScan::Unused => not_cacheable = true,
             GroupScan::NotApplicable => {}
         }
     }
@@ -150,12 +160,14 @@ pub(super) enum EquationAttempt<T, N> {
     ContextDependent,
     /// The equation's left-hand side matched, or its shape keeps the evaluator from using it as
     /// a term rewrite, and the evaluator does not use it on this term: a `concrete` or
-    /// `symbolic` attribute rejected the binding, the match bound a variable outside the
-    /// left-hand side, or the right-hand side is a predicate or `\top` (a `\top` lemma is used
-    /// only on an operand of a term-level conjunction). These are choices of when the
-    /// evaluator uses an equation, not of what the definition means: the equation still holds,
-    /// so the term may equal its right-hand side. Like `ContextDependent`, this lets
-    /// lower-priority equations of the scan fire and keeps the term out of the evaluated cache.
+    /// `symbolic` attribute rejected the binding and its `requires` is not refuted, the match
+    /// bound a variable outside the left-hand side, or the right-hand side is a predicate or
+    /// `\top` (a `\top` lemma is used only on an operand of a term-level conjunction). These
+    /// are choices of when the evaluator uses an equation, not of what the definition means:
+    /// the equation still holds, or may hold, so the term may equal its right-hand side. This
+    /// keeps the term out of the evaluated cache and lets lower-priority simplification lemmas
+    /// fire, and, as `Indeterminate` does, it keeps lower-priority function equations from
+    /// firing, since their premises exclude the term ([`FunctionTheory`]).
     Unused,
     Indeterminate(ConditionIndeterminacy),
     /// The equation applied to the subject, an `Unspecified` application, in an attempt that
@@ -199,10 +211,14 @@ impl IndeterminateAttempts {
 pub(super) enum GroupScan<T> {
     Applied(T),
     Blocked,
-    /// No equation applied, and some equation was `ContextDependent` or `Unused`: the scan's
-    /// answer may differ under another path condition, or an equation that matched was set aside,
-    /// so the term must not be recorded as a fixed point.
+    /// No equation applied, and some equation was `ContextDependent` and none `Unused`: the
+    /// scan's answer may differ under another path condition, so the term must not be recorded
+    /// as a fixed point.
     NotCacheable,
+    /// No equation applied, none was undecided, and some equation matched but was not used
+    /// ([`EquationAttempt::Unused`]): it holds or may hold of the term, so the term is not a
+    /// fixed point to record, and in the function theory no lower-priority group applies.
+    Unused,
     /// Every attempt of the group was `NotApplicable`.
     NotApplicable,
 }
@@ -211,9 +227,9 @@ pub(super) enum GroupScan<T> {
 /// the equations of one priority group ([`scan_group`]) and the instances of one equation
 /// ([`scan_instances`]). The first alternative that applies gives the result. Otherwise an
 /// undecided alternative (indeterminate or recurred) leaves the whole undecided, since it may
-/// still apply, and the first such outcome is the whole's. Otherwise the whole is context
-/// dependent if one alternative is, else unused if one is, and not applicable only when every
-/// alternative is.
+/// still apply, and the first such outcome is the whole's. Otherwise the whole is unused if one
+/// alternative is, since that alternative holds or may hold of the subject whatever the others
+/// say, else context dependent if one is, and not applicable only when every alternative is.
 pub(super) enum Combined<T, N> {
     Applied(T),
     Indeterminate(ConditionIndeterminacy),
@@ -231,8 +247,8 @@ pub(super) enum Combined<T, N> {
 /// Each attempt is speculative, so its diagnostics are buffered ([`diagnostic::buffer`]) and
 /// follow its outcome. An applied attempt's are committed: its result is the subject's. An
 /// undecided attempt's are returned, for the caller to commit where an undecided outcome is what
-/// explains the subject. An attempt that does not apply, its `requires` refuted or the equation
-/// not used, says nothing about the subject, and its diagnostics are dropped. A failed attempt's
+/// explains the subject. The diagnostics of an attempt that does not apply, its `requires`
+/// refuted or the equation not used, are dropped: they explain no result. A failed attempt's
 /// are committed, as the failure is what the scan returns.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn scan_alternatives<A, T, N>(
@@ -273,10 +289,10 @@ fn scan_alternatives<A, T, N>(
     }
     let combined = if let Some(undecided) = undecided {
         undecided
-    } else if context_dependent {
-        Combined::ContextDependent
     } else if unused {
         Combined::Unused
+    } else if context_dependent {
+        Combined::ContextDependent
     } else {
         Combined::NotApplicable(not_applicable)
     };
@@ -284,8 +300,8 @@ fn scan_alternatives<A, T, N>(
 }
 
 /// Try the equations of one priority group in order until one applies ([`scan_alternatives`]).
-/// An undecided group blocks; one whose equations were context dependent or unused is not
-/// cacheable. The diagnostics of the undecided attempts are held in `indeterminate_attempts`,
+/// An undecided group blocks; one with an unused equation is `Unused`, and one whose equations
+/// were otherwise context dependent is not cacheable. The diagnostics of the undecided attempts are held in `indeterminate_attempts`,
 /// for the caller to commit if the subject is kept.
 #[deny(clippy::wildcard_enum_match_arm)]
 pub(super) fn scan_group<R, T, N>(
@@ -298,7 +314,8 @@ pub(super) fn scan_group<R, T, N>(
     Ok(match combined {
         Combined::Applied(result) => GroupScan::Applied(result),
         Combined::Indeterminate(_) | Combined::Recurred => GroupScan::Blocked,
-        Combined::ContextDependent | Combined::Unused => GroupScan::NotCacheable,
+        Combined::ContextDependent => GroupScan::NotCacheable,
+        Combined::Unused => GroupScan::Unused,
         Combined::NotApplicable(_evidence) => GroupScan::NotApplicable,
     })
 }
@@ -314,8 +331,8 @@ pub(super) fn scan_group<R, T, N>(
 /// (when several would apply with different results, the definition equates those results, and
 /// the load-time check pairs the equation with itself unless its right-hand side and `ensures`
 /// read only variables every matching binds alike); otherwise an undecided instance leaves the
-/// equation undecided, so that a lower-priority group does not fire where this equation may
-/// apply.
+/// equation undecided, and a set-aside instance that is not refuted leaves it unused, so that a
+/// lower-priority group does not fire where this equation holds or may hold.
 ///
 /// The undecided instances' diagnostics are committed to the enclosing collector only if the
 /// equation ends undecided, as they explain that outcome. A single instance is attempted
@@ -410,6 +427,7 @@ mod tests {
             GroupScan::Applied(result) => format!("applied {result}"),
             GroupScan::Blocked => "blocked".to_owned(),
             GroupScan::NotCacheable => "not cacheable".to_owned(),
+            GroupScan::Unused => "unused".to_owned(),
             GroupScan::NotApplicable => "not applicable".to_owned(),
         };
         (
@@ -477,7 +495,7 @@ mod tests {
         );
         assert_eq!(
             scan_equations(&[NotApplicable(()), Unused]),
-            ("not cacheable".to_owned(), vec![], 0)
+            ("unused".to_owned(), vec![], 0)
         );
         assert_eq!(
             scan_equations(&[NotApplicable(()), NotApplicable(())]),
@@ -486,6 +504,36 @@ mod tests {
         assert_eq!(
             scan_equations(&[EquationAttempt::Recurred, Unused, undecided()]),
             ("blocked".to_owned(), vec![], 2)
+        );
+    }
+
+    /// An alternative that matched and was set aside holds, or may hold, of the subject; one
+    /// whose `requires` is refuted says nothing about it. The set-aside one decides the whole,
+    /// whichever comes first, among the instances of one equation and among the equations of
+    /// one group, so that a lower-priority function equation does not apply in its place.
+    #[test]
+    fn a_set_aside_alternative_outranks_a_refuted_one() {
+        use EquationAttempt::{ContextDependent, Unused};
+
+        assert_eq!(
+            scan(&[ContextDependent, Unused]),
+            ("unused".to_owned(), vec![])
+        );
+        assert_eq!(
+            scan(&[Unused, ContextDependent]),
+            ("unused".to_owned(), vec![])
+        );
+        assert_eq!(
+            scan_equations(&[ContextDependent, Unused]),
+            ("unused".to_owned(), vec![], 0)
+        );
+        assert_eq!(
+            scan_equations(&[Unused, ContextDependent]),
+            ("unused".to_owned(), vec![], 0)
+        );
+        assert_eq!(
+            scan_equations(&[ContextDependent, ContextDependent]),
+            ("not cacheable".to_owned(), vec![], 0)
         );
     }
 }

@@ -3881,6 +3881,90 @@ endmodule
 }
 
 #[test]
+fn krun_keeps_an_application_whose_higher_priority_equation_matched_but_is_not_used() {
+    // `f(pair(_, _)) = #Top` matches `f(pair(1, 2))` and is not refuted, so the application is
+    // not the `owise` equation's: its premise excludes every argument the first equation
+    // matches. The evaluator cannot rewrite the application to `#Top`, so it stays, and the run
+    // ends normally at `done(f(pair(1, 2)))` instead of `done(0)`.
+    let (root, _) = fixture();
+    let skip = compiled_for_execution(
+        &root,
+        "skip",
+        r#"
+module SKIP
+  imports INT
+  syntax Exp ::= Int
+               | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+               | "done" "(" Exp ")"         [symbol(done)]
+               | "tp" "(" Exp ")"           [symbol(tp)]
+  syntax Exp ::= f(Exp) [symbol(f), function]
+  configuration <k> $PGM:Exp </k>
+  rule tp(E) => done(f(E))
+  rule f(pair(_, _)) => #Top
+  rule f(_) => 0 [owise]
+endmodule
+"#,
+        "SKIP",
+        "SKIP",
+    );
+    let output = bounded_krun(&skip, "Exp", "tp(pair(1, 2))", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        r#"Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(
+    kseq{}(
+      inj{SortExp{}, SortKItem{}}(
+        Lbldone{}(
+          Lblf{}(
+            Lblpair{}(
+              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1")),
+              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("2"))
+            )
+          )
+        )
+      ),
+      dotk{}()
+    )
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)
+"#
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_halts_on_a_ground_application_whose_concrete_equation_is_set_aside() {
+    // `p(0)` is ground but not a constructor term, so the `concrete` equation of `w` is set
+    // aside on `w(p(0))`; its `requires` is undecided there, so the `owise` equation does not
+    // apply and `w(p(0))` stays. The rule `h(X) => w(p(X))` could then apply only by narrowing
+    // the kept application, so the variable-free run halts instead of answering `mk(0)`.
+    let (root, _) = fixture();
+    let anyreq = compiled_for_execution(
+        &root,
+        "anyreq",
+        r#"
+module ANYREQ
+  imports INT
+  syntax W ::= w(Int) [symbol(w)] | mk(Int) [symbol(mk)] | h(Int) [symbol(h)]
+  syntax Int ::= p(Int) [function, symbol(p)]
+  configuration <k> $PGM:W </k>
+  rule w(X) => mk(1) requires X >Int 10 [anywhere, concrete]
+  rule w(_) => mk(0) [anywhere, owise]
+  rule p(X) => X requires X >Int 0
+  rule h(X) => w(p(X))
+endmodule
+"#,
+        "ANYREQ",
+        "ANYREQ",
+    );
+    let output = bounded_krun(&anyreq, "W", "w(p(0))", &[]);
+    assert_halts_uninstantiated(&output, 0, Some("Rule-hVarX"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn krun_halts_instead_of_narrowing_a_variable_free_configuration_modulo_algebraic_axioms() {
     // `&` and `;` are unhooked associative productions, which the backend matches as free
     // constructors: `1 & 2 & 3` is `(1 & 2) & 3`, so `sum(I:Int & B)` meets `bagCat(1, 2)` at
