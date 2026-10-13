@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
 
 use k_rust_kore::names::{BuiltinSort, MINT_SORT};
@@ -22,8 +22,8 @@ use crate::{
 const CASES: u32 = 4000;
 
 /// The widths the model covers: those of Rust's native integers, and others it computes in
-/// 128 bits.
-const WIDTHS: [u32; 8] = [8, 16, 32, 64, 1, 7, 65, 127];
+/// 128 bits. Widths above 128 are checked against an arbitrary-precision model below.
+const WIDTHS: [u32; 9] = [8, 16, 32, 64, 1, 7, 65, 127, 128];
 
 /// The total hooks whose arguments are all machine integers (`MINT.integer` takes its width from
 /// the application's sort and is checked on applications below).
@@ -344,6 +344,167 @@ fn partial_mint_hooks_agree_with_native_fixed_width_arithmetic() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// A width above 128 bits, against arbitrary-precision integers.
+
+/// The width of the arbitrary-precision model, beyond every native integer.
+const WIDE: u32 = 200;
+
+/// `value` modulo `2^width`, in `[0, 2^width)`.
+fn floor_mod(value: &BigInt, width: u32) -> BigInt {
+    let modulus = BigInt::from(1) << width;
+    ((value % &modulus) + &modulus) % &modulus
+}
+
+/// An operand of `WIDE` bits: an edge of the carrier or a random pattern of four `u64` draws.
+fn wide_pattern(draw: &mut Draw<'_>) -> BigInt {
+    let modulus = BigInt::from(1) << WIDE;
+    let top = BigInt::from(1) << (WIDE - 1);
+    let value = match draw.below(8) {
+        0 => BigInt::from(0),
+        1 => BigInt::from(1),
+        2 => &modulus - 1,
+        3 => top,
+        4 => top - 1,
+        5 => BigInt::from(draw.pick(&[WIDE - 1, WIDE, WIDE + 1, 3])),
+        _ => (0..4).fold(BigInt::from(0), |value, _| {
+            value << 64 | BigInt::from(draw.u64())
+        }),
+    };
+    floor_mod(&value, WIDE)
+}
+
+fn wide_case(draw: &mut Draw<'_>) -> Case {
+    let hook = if draw.chance(3) {
+        draw.pick(&PARTIAL_HOOKS)
+    } else {
+        draw.pick(&TOTAL_HOOKS)
+    };
+    let mut env = Env::new();
+    let arguments = (0..arity(hook))
+        .map(|_| {
+            let value = Val::MInt(u64::from(WIDE), wide_pattern(draw));
+            draw.scalar(encode(&value), mint_sort(WIDE), &mut env)
+        })
+        .collect();
+    Case {
+        hook,
+        arguments,
+        env,
+    }
+}
+
+/// The model from the definitions, on integers: `u` read from the pattern, `s` by subtracting
+/// `2^W` above the top bit, results reduced by the floored remainder, bitwise operations bit by
+/// bit, signed division from the magnitudes and the signs, and shifts as products and floored
+/// quotients by `2^k`, with amounts of `W` or more taken separately.
+fn wide_model(hook: &str, inputs: &[Val]) -> Spec {
+    let w = WIDE;
+    let value = |input: &Val| match input {
+        Val::MInt(width, value) if *width == u64::from(w) => value.clone(),
+        other => panic!("not a {w}-bit machine integer: {other:?}"),
+    };
+    let a = value(&inputs[0]);
+    let b = inputs.get(1).map_or_else(|| BigInt::from(0), value);
+    let top = BigInt::from(1) << (w - 1);
+    let signed = |x: &BigInt| {
+        if *x >= top {
+            x - (BigInt::from(1) << w)
+        } else {
+            x.clone()
+        }
+    };
+    let (sa, sb) = (signed(&a), signed(&b));
+    let word = |x: BigInt| Val::MInt(u64::from(w), floor_mod(&x, w));
+    let bitwise = |op: fn(bool, bool) -> bool| {
+        word((0..u64::from(w)).fold(BigInt::from(0), |acc, bit| {
+            if op(a.bit(bit), b.bit(bit)) {
+                acc | (BigInt::from(1) << bit)
+            } else {
+                acc
+            }
+        }))
+    };
+    let magnitude = |x: &BigInt| {
+        if x.sign() == Sign::Minus {
+            -x
+        } else {
+            x.clone()
+        }
+    };
+    let negative = |x: &BigInt| x.sign() == Sign::Minus;
+    let beyond = b >= BigInt::from(w);
+    let power = || BigInt::from(1) << b.to_u32().expect("an amount below the width");
+    let floored = |x: &BigInt, d: &BigInt| (x - floor_mod_by(x, d)) / d;
+    Spec::partial(Some(match hook {
+        "MINT.bitwidth" => Val::int(w),
+        "MINT.svalue" => Val::Int(sa),
+        "MINT.uvalue" => Val::Int(a),
+        "MINT.add" => word(a + b),
+        "MINT.sub" => word(a - b),
+        "MINT.mul" => word(a * b),
+        "MINT.neg" => word(-a),
+        "MINT.not" => word((BigInt::from(1) << w) - 1 - a),
+        "MINT.and" => bitwise(|x, y| x && y),
+        "MINT.or" => bitwise(|x, y| x || y),
+        "MINT.xor" => bitwise(|x, y| x != y),
+        "MINT.eq" => Val::Bool(a == b),
+        "MINT.ne" => Val::Bool(a != b),
+        "MINT.ult" => Val::Bool(a < b),
+        "MINT.ule" => Val::Bool(a <= b),
+        "MINT.ugt" => Val::Bool(a > b),
+        "MINT.uge" => Val::Bool(a >= b),
+        "MINT.slt" => Val::Bool(sa < sb),
+        "MINT.sle" => Val::Bool(sa <= sb),
+        "MINT.sgt" => Val::Bool(sa > sb),
+        "MINT.sge" => Val::Bool(sa >= sb),
+        "MINT.udiv" | "MINT.urem" | "MINT.sdiv" | "MINT.srem" if b == BigInt::from(0) => {
+            return Spec::bottom();
+        }
+        "MINT.udiv" => word(floored(&a, &b)),
+        "MINT.urem" => word(floor_mod_by(&a, &b)),
+        "MINT.sdiv" => {
+            let quotient = floored(&magnitude(&sa), &magnitude(&sb));
+            word(if negative(&sa) != negative(&sb) {
+                -quotient
+            } else {
+                quotient
+            })
+        }
+        "MINT.srem" => {
+            let remainder = floor_mod_by(&magnitude(&sa), &magnitude(&sb));
+            word(if negative(&sa) { -remainder } else { remainder })
+        }
+        "MINT.shl" if beyond => word(BigInt::from(0)),
+        "MINT.shl" => word(a * power()),
+        "MINT.lshr" if beyond => word(BigInt::from(0)),
+        "MINT.lshr" => word(floored(&a, &power())),
+        "MINT.ashr" if beyond => word(if negative(&sa) {
+            BigInt::from(-1)
+        } else {
+            BigInt::from(0)
+        }),
+        "MINT.ashr" => word(floored(&sa, &power())),
+        other => panic!("no model of {other}"),
+    }))
+}
+
+/// The remainder of `x` floored by the positive `d`, in `[0, d)`.
+fn floor_mod_by(x: &BigInt, d: &BigInt) -> BigInt {
+    ((x % d) + d) % d
+}
+
+#[test]
+fn mint_hooks_agree_with_an_arbitrary_precision_model_above_128_bits() {
+    let tallies = run(CASES, &wide_case, &wide_model);
+    let hooks = TOTAL_HOOKS
+        .iter()
+        .chain(&PARTIAL_HOOKS)
+        .copied()
+        .collect::<Vec<_>>();
+    assert_reached(&tallies, &hooks, &["MINT.bitwidth"]);
+}
+
+// ---------------------------------------------------------------------------------------------
 // Applications: the width of `Int2MInt` is its result sort's.
 
 /// `Int2MInt{W}(argument)` as `domains.md` declares it, `W` the sort argument `width`.
@@ -623,5 +784,40 @@ fn a_left_shift_wider_than_the_result_bound_is_too_large() {
             width,
             &format!("8p{width}")
         )))
+    );
+}
+
+/// At a width beyond `u64` a left shift still keeps only the bits below `W - amount`: an amount of
+/// `W` or more, or one that moves every set bit out, gives 0; only a result that keeps a bit and
+/// is wider than the bound is refused.
+#[test]
+fn a_left_shift_at_a_width_beyond_u64_keeps_the_bits_below_the_width() {
+    let width = "18446744073709551616";
+    let word = |value: &str| mint_term(width, &format!("{value}p{width}"));
+    let zero = BuiltinResult::Value(word("0"));
+    assert_eq!(
+        evaluate("MINT.shl", &[word("1"), word(width)]),
+        Ok(zero.clone())
+    );
+    assert_eq!(
+        evaluate("MINT.shl", &[word("1"), word("18446744073709551617")]),
+        Ok(zero.clone())
+    );
+    // An amount of `W - 1` keeps only bit 0, which `2` does not set.
+    assert_eq!(
+        evaluate("MINT.shl", &[word("2"), word("18446744073709551615")]),
+        Ok(zero)
+    );
+    assert_eq!(
+        evaluate("MINT.shl", &[word("1"), word("3")]),
+        Ok(BuiltinResult::Value(word("8")))
+    );
+    let result = evaluate("MINT.shl", &[word("1"), word("9223372036854775808")]).unwrap();
+    assert!(
+        matches!(
+            result,
+            BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge { .. })
+        ),
+        "{result:?}"
     );
 }

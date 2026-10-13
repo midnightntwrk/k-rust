@@ -66,8 +66,8 @@ pub(super) fn evaluate(
         "MINT.sdiv" => signed_division(hook, "/sMInt", arguments, |left, right| left / right),
         "MINT.srem" => signed_division(hook, "%sMInt", arguments, |left, right| left % right),
         "MINT.shl" => shift_left(arguments),
-        "MINT.lshr" => shift_right(hook, arguments, Reading::Unsigned),
-        "MINT.ashr" => shift_right(hook, arguments, Reading::Signed),
+        "MINT.lshr" => shift_right(hook, ">>lMInt", arguments, Reading::Unsigned),
+        "MINT.ashr" => shift_right(hook, ">>aMInt", arguments, Reading::Signed),
         _ => Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
         )),
@@ -84,6 +84,18 @@ struct Word {
 }
 
 impl Word {
+    /// The width `W`, also beyond `u64`, where it is read from the sort's width digits.
+    fn width_value(&self) -> BigUint {
+        self.width.map_or_else(
+            || {
+                mint_width_digits(&self.sort)
+                    .and_then(|digits| digits.parse().ok())
+                    .expect("a literal's sort has a numeral width")
+            },
+            BigUint::from,
+        )
+    }
+
     /// The two's-complement reading: the residue, less `2^W` when its top bit (bit `W - 1`) is
     /// set. The single element of `MInt{0}` reads 0.
     fn signed(&self) -> BigInt {
@@ -328,6 +340,8 @@ fn signed_division(
     if right.residue.is_zero() {
         return Ok(BuiltinResult::Bottom);
     }
+    // A negative quotient or remainder needs a negative operand, whose residue has `W` bits, so
+    // the bound is at least `2W` and its wrap is always computed; `wrap` checks it all the same.
     let limit = limit(left.residue.bits().saturating_add(right.residue.bits()));
     let value = apply(left.signed(), right.signed());
     Ok(match wrap(&value, left.width, limit) {
@@ -350,34 +364,29 @@ fn shift_left(arguments: &[Term]) -> HookResult<BuiltinResult> {
             &BigUint::zero(),
         )))
     };
-    if value
-        .width
-        .is_some_and(|width| amount.residue >= BigUint::from(width))
-    {
+    // The bits that stay are those below `W - amount`: none for an amount of `W` or more.
+    let width = value.width_value();
+    if amount.residue >= width {
         return zero();
     }
-    let limit = limit(value.residue.bits().saturating_add(amount.residue.bits()));
-    let Some(shift) = amount.residue.to_u64() else {
-        // An amount beyond `u64` is below the width only at a width beyond `u64`, where the
-        // result of a nonzero value has more bits than any bound.
-        return if value.residue.is_zero() {
-            zero()
-        } else {
-            Ok(too_large("<<MInt", &value.sort, limit))
-        };
-    };
-    let kept = match value.width {
-        Some(width) if value.residue.bits() > width - shift => {
-            &value.residue & ((BigUint::one() << (width - shift)) - 1u8)
+    let room = width - &amount.residue;
+    let kept = match room.to_u64() {
+        Some(room) if value.residue.bits() > room => {
+            &value.residue & ((BigUint::one() << room) - 1u8)
         }
         _ => value.residue.clone(),
     };
     if kept.is_zero() {
         return zero();
     }
-    if kept.bits().saturating_add(shift) > limit {
+    let limit = limit(value.residue.bits().saturating_add(amount.residue.bits()));
+    let Some(shift) = amount
+        .residue
+        .to_u64()
+        .filter(|shift| kept.bits().saturating_add(*shift) <= limit)
+    else {
         return Ok(too_large("<<MInt", &value.sort, limit));
-    }
+    };
     Ok(BuiltinResult::Value(word_term(
         &value.sort,
         &(kept << shift),
@@ -388,7 +397,12 @@ fn shift_left(arguments: &[Term]) -> HookResult<BuiltinResult> {
 /// `2^amount` and rounded down, modulo `2^W`, the amount read unsigned. An amount at least the
 /// reading's bit length gives 0, or -1 (all sign bits) for a negative reading, without computing
 /// `2^amount`.
-fn shift_right(hook: &str, arguments: &[Term], reading: Reading) -> HookResult<BuiltinResult> {
+fn shift_right(
+    hook: &str,
+    operation: &str,
+    arguments: &[Term],
+    reading: Reading,
+) -> HookResult<BuiltinResult> {
     let Some((value, amount)) = read_pair(hook, arguments)? else {
         return Ok(BuiltinResult::NotApplicable);
     };
@@ -401,10 +415,12 @@ fn shift_right(hook: &str, arguments: &[Term], reading: Reading) -> HookResult<B
         _ if read.sign() == Sign::Minus => -BigInt::one(),
         _ => BigInt::zero(),
     };
+    // Only a negative reading wraps, and its residue has `W` bits, so the bound is at least `2W`
+    // and the wrap is always computed; `wrap` checks it all the same.
     let limit = limit(value.residue.bits().saturating_add(amount.residue.bits()));
     Ok(match wrap(&shifted, value.width, limit) {
         Some(residue) => BuiltinResult::Value(word_term(&value.sort, &residue)),
-        None => too_large(">>aMInt", &value.sort, limit),
+        None => too_large(operation, &value.sort, limit),
     })
 }
 
