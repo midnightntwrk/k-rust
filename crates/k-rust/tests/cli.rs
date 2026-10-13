@@ -5550,6 +5550,95 @@ fn the_strict_connectives_perform_the_effects_of_both_operands() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Conditionals that discard a builtin hook application over a ground collection.
+const DISCARDED_COLLECTION_HOOKS: &str = r#"
+module GROUNDHOOK
+  imports INT
+  imports BOOL
+  imports MAP
+  imports LIST
+  imports K-EQUAL
+  syntax Exp ::= Int
+               | "lookBad" "(" ")" [symbol(lookBad)]
+               | "lookOk" "(" ")" [symbol(lookOk)]
+               | "projBad" "(" ")" [symbol(projBad)]
+               | "projOk" "(" ")" [symbol(projOk)]
+               | "listed" "(" ")" [symbol(listed)]
+               | "viaFun" "(" ")" [symbol(viaFun)]
+               | lookSym(Map) [symbol(lookSym)]
+  syntax Int ::= pick(Map) [function, symbol(pick)]
+  rule pick(M) => {M[5]}:>Int
+  configuration <k> $PGM:Exp </k>
+  rule <k> lookBad() => #if true #then 7 #else (1 |-> 2)[5] #fi ...</k>
+  rule <k> lookOk() => #if true #then 7 #else (1 |-> 2)[1] #fi ...</k>
+  rule <k> projBad() => #if true #then 7 #else {(1 |-> 2)[5]}:>Int #fi ...</k>
+  rule <k> projOk() => #if true #then 7 #else {(1 |-> 2)[1]}:>Int #fi ...</k>
+  rule <k> listed() => #if true #then 7 #else size(keys_list(3 |-> 30 1 |-> 10)) #fi ...</k>
+  rule <k> viaFun() => #if true #then 7 #else pick(1 |-> 2) #fi ...</k>
+  rule <k> lookSym(M) => #if true #then 7 #else {M[1]}:>Int #fi ...</k>
+endmodule
+"#;
+
+#[test]
+fn a_discarded_hook_over_a_ground_collection_is_decided_by_the_hook() {
+    // A builtin hook on ground constructor-like arguments applies no equation of the definition,
+    // so it is one of the steps that decide a discarded operand's obligation: a lookup of a key
+    // the map binds, and a listing of its keys, are defined and the conditional is a bare `7`;
+    // a lookup of a key it does not bind is undefined, so the conditional is `\bottom`.
+    let (root, _) = fixture();
+    let hooks = compiled_for_execution(
+        &root,
+        "groundhook",
+        DISCARDED_COLLECTION_HOOKS,
+        "GROUNDHOOK",
+        "GROUNDHOOK",
+    );
+    let seven = r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("7"))"#;
+    for expression in ["lookOk()", "projOk()", "listed()"] {
+        let output = bounded_krun(&hooks, "Exp", expression, &["-w", "all"]);
+        assert!(output.status.success(), "{expression}: {output:?}");
+        assert_eq!(
+            squashed(&String::from_utf8_lossy(&output.stdout)),
+            squashed(&k_cell_output(seven)),
+            "{expression}"
+        );
+    }
+    let lookup = r#"LblMap'Coln'lookup{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("5")))"#;
+    for expression in ["lookBad()", "projBad()"] {
+        let output = bounded_krun(&hooks, "Exp", expression, &[]);
+        assert_undefined_step(&output, 1);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            squashed(&stderr).contains(&squashed(&format!(
+                "refuted obligation {}",
+                ceil_of("SortKItem", lookup)
+            ))),
+            "{expression}: {stderr}"
+        );
+    }
+
+    // A user function applied to the collection is not a hook: no equation of `pick` is applied
+    // (its argument is no literal, so it takes no one-step value either), and the obligation
+    // stays open although evaluating `pick(1 |-> 2)` would show it undefined.
+    let output = bounded_krun(&hooks, "Exp", "viaFun()", &["-w", "all"]);
+    let picked = r#"Lblpick{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))))"#;
+    assert_value_under(&output, seven, &[&ceil_of("SortInt", picked)]);
+
+    // A hook over a map that is a variable has no value to give: the obligation stays open.
+    let pattern = top_with("inj{SortExp{}, SortKItem{}}(LbllookSym{}(VarM:SortMap{}))");
+    let output = kore_exec_from(&root, &hooks, "GROUNDHOOK", &pattern, 2);
+    let symbolic =
+        r#"LblMap'Coln'lookup{}(VarM:SortMap{}, inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")))"#;
+    assert_value_under(
+        &output,
+        seven,
+        &[&format!(
+            "\\ceil{{SortInt{{}}, SortGeneratedTopCell{{}}}}(Lblproject'Coln'Int{{}}(kseq{{}}({symbolic}, dotk{{}}())))"
+        )],
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A simplification lemma that reaches a conditional below its root.
 const LEMMA_OVER_CONDITIONAL: &str = r#"
 module LEMMA
