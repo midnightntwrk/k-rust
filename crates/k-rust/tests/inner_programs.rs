@@ -1277,3 +1277,645 @@ fn parametric_nestings_of_any_depth_are_parsed_on_a_small_stack() {
         .join()
         .expect("the programs should parse");
 }
+
+// Ground K values: `ProgramParser::for_ground_values` parses a cell's content with the program
+// grammar of one module plus exactly `K ::= KItem`, `.K`, `K ~> K` and an avoided K bracket.
+
+/// A definition loaded with the embedded prelude, as `krust kcompile` loads it, together with
+/// its program grammar's resolution: what parsing, macro expansion, sort injection and KORE
+/// conversion of a ground value need.
+struct GroundFixture {
+    grammar: k_rust::kompile::ProgramGrammar,
+    main: String,
+}
+
+impl GroundFixture {
+    fn load(source: &str, main: &str) -> Self {
+        use k_rust::builtin::embedded;
+        use k_rust::kompile::{CompilationBackend, ProgramGrammar};
+        use k_rust::outer::{LoadOptions, ResolvedSource, load_with_options};
+        let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("ground.k", source),
+            main,
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![prelude],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .expect("definition should load");
+        let grammar =
+            ProgramGrammar::new(&loaded.into_definition()).expect("program grammar should build");
+        Self {
+            grammar,
+            main: main.to_owned(),
+        }
+    }
+
+    fn resolved(&self) -> &ResolvedDefinition {
+        self.grammar.resolved()
+    }
+
+    fn ground(&self, module: &str) -> ProgramParser {
+        ProgramParser::for_ground_values(self.resolved(), module)
+            .unwrap_or_else(|error| panic!("ground-value parser for {module}: {error}"))
+    }
+
+    fn plain(&self, module: &str) -> ProgramParser {
+        ProgramParser::from_resolved(self.resolved(), module)
+            .unwrap_or_else(|error| panic!("program parser for {module}: {error}"))
+    }
+
+    /// `text` parsed at `sort` by `parser`, expanded, placed at `sort` and converted to KORE.
+    fn kore(&self, parser: &ProgramParser, sort: &str, text: &str) -> String {
+        use k_rust::kompile::{
+            MacroExpansionDefinition, SortInjector, term_to_kore_from_resolved_with_token_module,
+        };
+        let sort = Sort::new(sort);
+        let parsed = parser
+            .parse(&sort, text)
+            .unwrap_or_else(|error| panic!("{text:?} at {sort} should parse: {error}"));
+        let macros = MacroExpansionDefinition::prepare(self.grammar.definition())
+            .expect("macros should prepare");
+        let expanded = macros
+            .expand_program(&self.main, parsed, &sort)
+            .expect("the value should expand");
+        let placed = SortInjector::new(self.resolved(), &self.main)
+            .expect("injector should build")
+            .inject(expanded.term(), &sort)
+            .expect("the value should be placed");
+        term_to_kore_from_resolved_with_token_module(
+            self.resolved(),
+            &self.main,
+            parser.module(),
+            &placed,
+        )
+        .expect("the value should convert")
+        .to_string()
+    }
+}
+
+/// The error of parsing `text` at `sort`, which must be an ambiguity.
+fn ambiguity(parser: &ProgramParser, sort: &str, text: &str) -> String {
+    let error = parser
+        .parse(&Sort::new(sort), text)
+        .expect_err(&format!("{text:?} at {sort} should be ambiguous"));
+    assert!(
+        matches!(*error.error, ParseError::Ambiguous { .. }),
+        "{text:?} at {sort}: expected an ambiguity, got {error}"
+    );
+    error.to_string()
+}
+
+/// A definition with user lists (`Exps`, `Operands`), a constructor list (`Instrs`), `Id` and
+/// `Int` tokens, a user `Exp` bracket, a user non-bracket `( .. )` production (`Wrapped`), an
+/// `avoid` and a `prefer` one over sorts of their own (`AWrapped` over `Op2`, `PWrapped` over
+/// `Pr`), a production ending in K (`push`), a K-sorted function (`kfun`), a user terminal
+/// containing `~>` (`<~>`) and a regex token that can spell `.K` (`Field`).
+const GROUND: &str = r#"
+module GROUND-SYNTAX
+  imports ID-SYNTAX
+  imports INT-SYNTAX
+  imports BASIC-K
+  syntax Field ::= r"\\.[A-Za-z]+" [token]
+  syntax Exp ::= Id | Int
+               | Id "(" Exps ")" [symbol(call)]
+               | "(" Exp ")" [bracket]
+               | Exp "+" Exp [symbol(plus), left]
+               | Exp "<~>" Exp [symbol(swap)]
+               | Exp Field [symbol(access)]
+  syntax Exps ::= List{Exp, ","} [symbol(exps)]
+  syntax Operand ::= "op" Int [symbol(op)]
+  syntax Operands ::= List{Operand, ""} [symbol(operands)]
+  syntax Wrapped ::= "(" Operand ")" [symbol(wrapped)]
+  syntax Op2 ::= "op2" Int [symbol(op2)]
+  syntax AWrapped ::= "(" Op2 ")" [symbol(awrapped), avoid]
+  syntax Pr ::= "pr" Int [symbol(pr)]
+  syntax PWrapped ::= "(" Pr ")" [symbol(pwrapped), prefer]
+  syntax Instr ::= "trap" [symbol(trap)]
+  syntax Instrs ::= ".Instrs" [symbol(instrsEmpty)] | Instr ";" Instrs [symbol(instrsCons)]
+  syntax KItem ::= "push" K [symbol(push)]
+  syntax K ::= kfun(Int) [function, symbol(kfun)]
+endmodule
+module GROUND
+  imports GROUND-SYNTAX
+  imports ID
+  imports INT
+  configuration <k> $PGM:K </k>
+endmodule
+module GROUND-KSEQ
+  imports GROUND
+  imports KSEQ
+endmodule
+module GROUND-K
+  imports GROUND
+  imports K
+endmodule
+module KSEQ-HELPER
+  imports KSEQ
+endmodule
+module GROUND-VIA
+  imports GROUND
+  imports KSEQ-HELPER
+endmodule
+module GROUND-SPEC
+  imports GROUND
+  syntax Decl ::= "decl" Int [symbol(decl)]
+  syntax Decls ::= List{Decl, ""} [symbol(decls)]
+  syntax Instrs0 ::= List{Instr, ""} [symbol(instrs0)]
+  syntax Spec ::= Decls Instrs0 [symbol(spec)]
+endmodule
+module GROUND-LIST-ITEM
+  imports GROUND
+  syntax KItem ::= Operands
+endmodule
+module GROUND-NESTED
+  imports GROUND
+  syntax Ty ::= "ty" Int [symbol(ty)]
+  syntax Tys ::= List{Ty, ""} [symbol(tys)]
+  syntax Tyss ::= List{Tys, ":"} [symbol(tyss)]
+  syntax KItem ::= tyss(Tyss) [symbol(tyssItem)]
+endmodule
+"#;
+
+fn ground_fixture() -> GroundFixture {
+    GroundFixture::load(GROUND, "GROUND")
+}
+
+#[test]
+fn ground_values_parse_sequences_over_user_lists() {
+    let fixture = ground_fixture();
+    let parser = fixture.ground("GROUND");
+    let id =
+        |name: &str| format!(r#"inj{{SortId{{}}, SortKItem{{}}}}(\dv{{SortId{{}}}}("{name}"))"#);
+    let id_exp =
+        |name: &str| format!(r#"inj{{SortId{{}}, SortExp{{}}}}(\dv{{SortId{{}}}}("{name}"))"#);
+    let int_exp =
+        |value: &str| format!(r#"inj{{SortInt{{}}, SortExp{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    let exp = |pattern: String| format!("inj{{SortExp{{}}, SortKItem{{}}}}({pattern})");
+    let plus = exp(format!("Lblplus{{}}({}, {})", int_exp("1"), int_exp("2")));
+    let op = |value: &str| {
+        format!(
+            r#"inj{{SortOperand{{}}, SortKItem{{}}}}(Lblop{{}}(\dv{{SortInt{{}}}}("{value}")))"#
+        )
+    };
+    let trap = "inj{SortInstr{}, SortKItem{}}(Lbltrap{}())".to_owned();
+    let seq = |items: &[String]| {
+        items
+            .iter()
+            .rev()
+            .fold("dotk{}()".to_owned(), |tail, item| {
+                format!("kseq{{}}({item}, {tail})")
+            })
+    };
+    let empty_exps = r#"Lbl'Stop'List'LBraQuot'exps'QuotRBra'{}()"#;
+    let call = |name: &str, arguments: &[&str]| {
+        let list = arguments
+            .iter()
+            .rev()
+            .fold(empty_exps.to_owned(), |tail, argument| {
+                format!("Lblexps{{}}({}, {tail})", id_exp(argument))
+            });
+        exp(format!(
+            r#"Lblcall{{}}(\dv{{SortId{{}}}}("{name}"), {list})"#
+        ))
+    };
+
+    for (text, expected) in [
+        ("x", seq(&[id("x")])),
+        ("1 + 2", seq(std::slice::from_ref(&plus))),
+        ("op 1", seq(&[op("1")])),
+        (
+            "f(x, y) ~> 1 + 2",
+            seq(&[call("f", &["x", "y"]), plus.clone()]),
+        ),
+        ("trap ~> .K", seq(std::slice::from_ref(&trap))),
+        (
+            "trap ~> .Instrs",
+            seq(&[
+                trap.clone(),
+                "inj{SortInstrs{}, SortKItem{}}(LblinstrsEmpty{}())".to_owned(),
+            ]),
+        ),
+        ("trap ~> op 1", seq(&[trap.clone(), op("1")])),
+        (".K", seq(&[])),
+        ("x ~> .K ~> y", seq(&[id("x"), id("y")])),
+        (
+            "x <~> y ~> f(a)",
+            seq(&[
+                exp(format!("Lblswap{{}}({}, {})", id_exp("x"), id_exp("y"))),
+                call("f", &["a"]),
+            ]),
+        ),
+        ("(x ~> y) ~> x", seq(&[id("x"), id("y"), id("x")])),
+        // A K-sorted function application is lowered as written, not evaluated.
+        (
+            "kfun(1) ~> x",
+            format!(
+                r#"append{{}}(Lblkfun{{}}(\dv{{SortInt{{}}}}("1")), {})"#,
+                seq(&[id("x")])
+            ),
+        ),
+    ] {
+        assert_eq!(fixture.kore(&parser, "K", text), expected, "{text:?} at K");
+    }
+
+    // The added terminal `.K` takes precedence over an equal-length `Field` token at every start
+    // sort, so `x.K` is not writable in a ground value; the longest match still reads `.Kx`.
+    for sort in ["K", "KItem"] {
+        let error = parser
+            .parse(&Sort::new(sort), "x.K")
+            .expect_err("`.K` is read as the terminal in a ground value");
+        assert!(
+            matches!(*error.error, ParseError::NoParse { .. }),
+            "x.K at {sort}: {error}"
+        );
+    }
+    assert_eq!(
+        fixture.kore(&fixture.plain("GROUND"), "KItem", "x.K"),
+        exp(format!(
+            r#"Lblaccess{{}}({}, \dv{{SortField{{}}}}(".K"))"#,
+            id_exp("x")
+        )),
+    );
+    assert_eq!(
+        fixture.kore(&parser, "K", "x.Kx ~> y"),
+        seq(&[
+            exp(format!(
+                r#"Lblaccess{{}}({}, \dv{{SortField{{}}}}(".Kx"))"#,
+                id_exp("x")
+            )),
+            id("y"),
+        ]),
+    );
+}
+
+/// A definition whose own `Exp` production reuses the terminal `~>`, with an `Exp` bracket and a
+/// production over K on both sides.
+const ARROW: &str = r#"
+module ARROW
+  imports ID-SYNTAX
+  imports INT-SYNTAX
+  imports BASIC-K
+  imports ID
+  imports INT
+  syntax Exp ::= Id | Int | Exp "~>" Exp [symbol(arrow), left] | "(" Exp ")" [bracket]
+  syntax KItem ::= K "then" K [symbol(then)]
+  configuration <k> $PGM:K </k>
+endmodule
+"#;
+
+#[test]
+fn the_k_bracket_only_groups_what_the_definition_does_not_read() {
+    let fixture = ground_fixture();
+    let parser = fixture.ground("GROUND");
+    let op = |value: &str| format!(r#"Lblop{{}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    let item_op = |value: &str| format!("inj{{SortOperand{{}}, SortKItem{{}}}}({})", op(value));
+    let wrapped = |value: &str| {
+        format!(
+            "inj{{SortWrapped{{}}, SortKItem{{}}}}(Lblwrapped{{}}({}))",
+            op(value)
+        )
+    };
+    let id =
+        |name: &str| format!(r#"inj{{SortId{{}}, SortKItem{{}}}}(\dv{{SortId{{}}}}("{name}"))"#);
+    let seq = |items: &[String]| {
+        items
+            .iter()
+            .rev()
+            .fold("dotk{}()".to_owned(), |tail, item| {
+                format!("kseq{{}}({item}, {tail})")
+            })
+    };
+    let int_exp =
+        |value: &str| format!(r#"inj{{SortInt{{}}, SortExp{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    let push = |argument: String| format!("Lblpush{{}}({argument})");
+
+    // The definition's own `( .. )` production reads the text; the K bracket groups only what
+    // nothing else reads.
+    assert_eq!(fixture.kore(&parser, "K", "(op 1)"), seq(&[wrapped("1")]));
+    assert_eq!(
+        fixture.kore(&parser, "K", "(op 1) ~> op 2"),
+        seq(&[wrapped("1"), item_op("2")])
+    );
+    assert_eq!(
+        fixture.kore(&parser, "K", "(op 1 ~> op 2)"),
+        seq(&[item_op("1"), item_op("2")])
+    );
+    assert_eq!(
+        fixture.kore(&parser, "K", "(1 + 2)"),
+        seq(&[format!(
+            "inj{{SortExp{{}}, SortKItem{{}}}}(Lblplus{{}}({}, {}))",
+            int_exp("1"),
+            int_exp("2")
+        )])
+    );
+    // A production ending in K: the structural preference reads the outer sequence.
+    assert_eq!(
+        fixture.kore(&parser, "K", "push (x ~> y)"),
+        seq(&[push(seq(&[id("x"), id("y")]))])
+    );
+    assert_eq!(
+        fixture.kore(&parser, "K", "push x ~> y"),
+        seq(&[push(seq(&[id("x")])), id("y")])
+    );
+    // Sequence syntax is read inside a K-sorted argument at any start sort.
+    assert_eq!(
+        fixture.kore(&parser, "KItem", "push (x ~> y)"),
+        push(seq(&[id("x"), id("y")]))
+    );
+    assert_eq!(fixture.kore(&parser, "KItem", "push .K"), push(seq(&[])));
+    assert!(
+        fixture
+            .plain("GROUND")
+            .parse(&Sort::new("KItem"), "push (x ~> y)")
+            .is_err()
+    );
+
+    // A definition's own `avoid` `( .. )` production competes with the avoided K bracket on
+    // equal terms: both readings are avoided, so the item is an ambiguity at K and parses only
+    // at its own sort's level.
+    ambiguity(&parser, "K", "(op2 1)");
+    ambiguity(&parser, "K", "((op2 1))");
+    ambiguity(&parser, "K", "(op2 1) ~> op2 2");
+    assert_eq!(
+        fixture.kore(&parser, "KItem", "(op2 1)"),
+        r#"inj{SortAWrapped{}, SortKItem{}}(Lblawrapped{}(Lblop2{}(\dv{SortInt{}}("1"))))"#
+    );
+    // A `prefer` one wins over the K bracket, which still groups a sequence.
+    let pr = |value: &str| format!(r#"Lblpr{{}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    assert_eq!(
+        fixture.kore(&parser, "K", "(pr 1)"),
+        seq(&[format!(
+            "inj{{SortPWrapped{{}}, SortKItem{{}}}}(Lblpwrapped{{}}({}))",
+            pr("1")
+        )])
+    );
+    assert_eq!(
+        fixture.kore(&parser, "K", "(pr 1 ~> pr 2)"),
+        seq(&[
+            format!("inj{{SortPr{{}}, SortKItem{{}}}}({})", pr("1")),
+            format!("inj{{SortPr{{}}, SortKItem{{}}}}({})", pr("2")),
+        ])
+    );
+
+    // At K a `~>` is the sequence wherever a sequence may stand; the definition's own `~>`
+    // production is read inside its own sort.
+    let arrows = GroundFixture::load(ARROW, "ARROW");
+    let parser = arrows.ground("ARROW");
+    let id_exp =
+        |name: &str| format!(r#"inj{{SortId{{}}, SortExp{{}}}}(\dv{{SortId{{}}}}("{name}"))"#);
+    let arrow =
+        |left: &str, right: &str| format!("Lblarrow{{}}({}, {})", id_exp(left), id_exp(right));
+    assert_eq!(
+        arrows.kore(&parser, "K", "a ~> b"),
+        seq(&[id("a"), id("b")])
+    );
+    assert_eq!(arrows.kore(&parser, "Exp", "a ~> b"), arrow("a", "b"));
+    assert_eq!(
+        arrows.kore(&parser, "K", "(a ~> b) ~> c"),
+        seq(&[
+            format!("inj{{SortExp{{}}, SortKItem{{}}}}({})", arrow("a", "b")),
+            id("c")
+        ])
+    );
+    ambiguity(&parser, "K", "a ~> b ~> c");
+    let then = |left: String, right: String| format!("Lblthen{{}}({left}, {right})");
+    assert_eq!(
+        arrows.kore(&parser, "K", "a ~> b then c"),
+        seq(&[id("a"), then(seq(&[id("b")]), seq(&[id("c")]))])
+    );
+    assert_eq!(
+        arrows.kore(&parser, "K", "a then b ~> c"),
+        seq(&[then(seq(&[id("a")]), seq(&[id("b")])), id("c")])
+    );
+}
+
+#[test]
+fn ground_values_refuse_a_module_that_sees_k_top_sort() {
+    let fixture = ground_fixture();
+    for (module, via) in [
+        ("GROUND-KSEQ", "KSEQ"),
+        ("GROUND-K", "K"),
+        ("GROUND-VIA", "KSEQ"),
+        ("KSEQ", "KSEQ"),
+        ("K-TOP-SORT", "K-TOP-SORT"),
+    ] {
+        let error = ProgramParser::for_ground_values(fixture.resolved(), module)
+            .expect_err("a module that sees K-TOP-SORT is refused");
+        assert_eq!(
+            error,
+            ProgramError::KSequenceModuleVisible {
+                module: module.to_owned(),
+                via: via.to_owned(),
+            }
+        );
+        let message = error.to_string();
+        for part in [
+            format!("module {module:?} sees K-TOP-SORT through {via:?}"),
+            "makes every user-list element ambiguous".to_owned(),
+            format!("pass a module that does not import {via:?}"),
+            "a module importing the syntax and main modules".to_owned(),
+            "`from_resolved`".to_owned(),
+        ] {
+            assert!(message.contains(&part), "{message}");
+        }
+    }
+    // Why: through K-TOP-SORT's `KItem ::= S`, an element of a user list reaches KItem both as
+    // itself and as its one-element list.
+    let with_kseq = fixture.plain("GROUND-KSEQ");
+    for text in ["x", "op 1"] {
+        let message = ambiguity(&with_kseq, "K", text);
+        assert!(message.contains("userList"), "{text:?}: {message}");
+    }
+}
+
+/// Modules whose program grammar sees, or does not see, `K-TOP-SORT` other than through their
+/// import closure: a private import below a direct one, a direct private import, and
+/// `-PROGRAM-PARSING` companions that add or drop a `KSEQ` import.
+const VISIBILITY: &str = r#"
+module V-SYNTAX
+  imports ID-SYNTAX
+  syntax Exp ::= Id
+  syntax Exps ::= List{Exp, ","} [symbol(exps)]
+  syntax KItem ::= f(Exps) [symbol(f)]
+endmodule
+module V-PRIVATE-HELPER
+  imports private KSEQ
+endmodule
+module V
+  imports V-SYNTAX
+  imports V-PRIVATE-HELPER
+  imports ID
+  configuration <k> $PGM:K </k>
+endmodule
+module V-DIRECT
+  imports V
+  imports private KSEQ
+endmodule
+module V-COMPANION-SYNTAX
+  syntax Foo ::= "foo" [symbol(foo)]
+endmodule
+module V-COMPANION-SYNTAX-PROGRAM-PARSING
+  imports V-COMPANION-SYNTAX
+  imports KSEQ
+endmodule
+module V-COMPANION
+  imports V-SYNTAX
+  imports V-COMPANION-SYNTAX
+  imports ID
+endmodule
+module V-LIB
+  imports KSEQ
+  syntax Bar ::= "bar" [symbol(bar)]
+endmodule
+module V-LIB-PROGRAM-PARSING
+  syntax Bar ::= "bar" [symbol(bar)]
+endmodule
+module V-LIB-USER
+  imports V-SYNTAX
+  imports V-LIB
+  imports ID
+endmodule
+"#;
+
+/// The refusal reads the modules the program grammar collects, not the import closure.
+#[test]
+fn ground_values_refuse_exactly_the_modules_whose_program_grammar_sees_k_top_sort() {
+    let fixture = GroundFixture::load(VISIBILITY, "V");
+    // KSEQ below a private import, or only in a module replaced by its program companion, is not
+    // part of the grammar: the user list's elements stay unique and sequences parse.
+    for module in ["V", "V-LIB-USER"] {
+        let _ = fixture
+            .plain(module)
+            .parse(&Sort::new("KItem"), "x")
+            .unwrap_or_else(|error| panic!("{module}: {error}"));
+        let _ = fixture
+            .ground(module)
+            .parse(&Sort::new("K"), "f(x, y) ~> x ~> .K")
+            .unwrap_or_else(|error| panic!("{module}: {error}"));
+    }
+    // A direct private import, or a program companion importing KSEQ, puts K-TOP-SORT in the
+    // grammar, where the user list's elements are ambiguous: these are refused.
+    for module in ["V-DIRECT", "V-COMPANION"] {
+        ambiguity(&fixture.plain(module), "KItem", "x");
+        assert_eq!(
+            ProgramParser::for_ground_values(fixture.resolved(), module)
+                .expect_err("the program grammar sees K-TOP-SORT"),
+            ProgramError::KSequenceModuleVisible {
+                module: module.to_owned(),
+                via: "KSEQ".to_owned(),
+            }
+        );
+    }
+}
+
+#[test]
+fn program_parsers_keep_no_sequence_syntax() {
+    let fixture = ground_fixture();
+    let parser = fixture.plain("GROUND");
+    for text in ["a ~> b", "trap ~> .K", "(a ~> b)"] {
+        let error = parser
+            .parse(&Sort::new("K"), text)
+            .expect_err("a program grammar has no sequence syntax");
+        assert!(
+            matches!(*error.error, ParseError::NoParse { .. }),
+            "{text:?}: {error}"
+        );
+    }
+    // Without the `.K` terminal, the text is the definition's own `Field` token.
+    assert_eq!(
+        fixture.kore(&parser, "K", ".K"),
+        r#"kseq{}(inj{SortField{}, SortKItem{}}(\dv{SortField{}}(".K")), dotk{}())"#
+    );
+}
+
+/// Program tokens and layout only in the syntax module, an internal production only in the main
+/// module, and neither module imports BASIC-K, so `K ::= KItem` comes from the ground grammar.
+const SPLIT: &str = r#"
+module SPLIT-COMMON
+  syntax Word
+  syntax Instr ::= "say" Word [symbol(say)]
+endmodule
+module SPLIT-SYNTAX
+  imports SPLIT-COMMON
+  syntax Word ::= r"[a-z]+" [token]
+  syntax #Layout ::= r"[\\ \\n]"
+endmodule
+module SPLIT
+  imports SPLIT-COMMON
+  syntax Instr ::= "halt" [symbol(halt)]
+  configuration <k> $PGM:K </k>
+endmodule
+module SPLIT-UNION
+  imports SPLIT-SYNTAX
+  imports SPLIT
+endmodule
+"#;
+
+#[test]
+fn ground_values_need_the_union_of_syntax_and_main_modules() {
+    let fixture = GroundFixture::load(SPLIT, "SPLIT");
+    let error = fixture
+        .ground("SPLIT")
+        .parse(&Sort::new("K"), "say hello ~> halt")
+        .expect_err("the main module has no lexical syntax for the program token");
+    // It fails at the program token: the main module scans `say` but has no lexeme for `hello`.
+    assert!(
+        matches!(*error.error, ParseError::NoParse { position: 4, .. }),
+        "{error:?}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("unexpected character sequence 'h'"),
+        "{error}"
+    );
+    let union = fixture.ground("SPLIT-UNION");
+    assert_eq!(
+        fixture.kore(&union, "K", "say hello ~> halt"),
+        r#"kseq{}(inj{SortInstr{}, SortKItem{}}(Lblsay{}(\dv{SortWord{}}("hello"))), kseq{}(inj{SortInstr{}, SortKItem{}}(Lblhalt{}()), dotk{}()))"#
+    );
+}
+
+#[test]
+fn nullable_list_productions_make_items_ambiguous() {
+    let fixture = ground_fixture();
+    // `Spec ::= Decls Instrs0` derives every instruction through two empty-or-one lists.
+    let message = ambiguity(&fixture.ground("GROUND-SPEC"), "K", "trap");
+    assert!(message.contains("syntax Spec ::="), "{message}");
+    let message = ambiguity(&fixture.plain("GROUND-SPEC"), "KItem", "trap");
+    assert!(message.contains("syntax Spec ::="), "{message}");
+    let narrower = fixture.ground("GROUND");
+    assert_eq!(
+        fixture.kore(&narrower, "K", "trap"),
+        "kseq{}(inj{SortInstr{}, SortKItem{}}(Lbltrap{}()), dotk{}())"
+    );
+    // Nested nullable lists: `tyss()` holds an empty `Tyss` or a `Tyss` of one empty `Tys`.
+    ambiguity(&fixture.ground("GROUND-NESTED"), "K", "tyss()");
+    ambiguity(&fixture.plain("GROUND-NESTED"), "KItem", "tyss()");
+
+    // A list-sorted value is not an item, so it is no sequence element; a cell of the list sort
+    // is parsed at that sort.
+    let error = narrower
+        .parse(&Sort::new("K"), "op 1 op 2 ~> trap")
+        .expect_err("a list value is not an item of K");
+    assert!(
+        matches!(*error.error, ParseError::NoParse { .. }),
+        "{error}"
+    );
+    let _ = narrower
+        .parse(&Sort::new("Operands"), "op 1 op 2")
+        .expect("a list value parses at its own sort");
+    // A definition's own `KItem ::= Operands` makes each element ambiguous with its one-element
+    // list, through either parser.
+    ambiguity(&fixture.ground("GROUND-LIST-ITEM"), "K", "op 1");
+    ambiguity(&fixture.plain("GROUND-LIST-ITEM"), "KItem", "op 1");
+}

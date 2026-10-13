@@ -64,6 +64,19 @@ pub enum ProgramError {
         error: Box<ParseError>,
     },
     Parse(ProgramParseError),
+    /// [`ProgramParser::for_ground_values`] was given a module whose program grammar sees
+    /// `K-TOP-SORT`, through `via`: the widest of the builtin modules `K`, `K-TERM`,
+    /// `KSEQ-SYMBOLIC`, `KSEQ` and `K-SORT-LATTICE` among the modules whose syntax that grammar
+    /// collects (`module` itself included), or `K-TOP-SORT` when it is the module itself or is
+    /// imported directly.
+    ///
+    /// `K-TOP-SORT`'s `syntax {Sort} KItem ::= Sort` gives every user list sort a path to
+    /// `KItem`, so each element of a user list reaches `KItem` both as itself and as its
+    /// one-element list, and every value containing one would be an ambiguity.
+    KSequenceModuleVisible {
+        module: String,
+        via: String,
+    },
 }
 
 impl fmt::Display for ProgramError {
@@ -80,6 +93,13 @@ impl fmt::Display for ProgramError {
                 )
             }
             Self::Parse(error) => error.fmt(formatter),
+            Self::KSequenceModuleVisible { module, via } => write!(
+                formatter,
+                "module {module:?} sees K-TOP-SORT through {via:?}, whose `KItem ::= S` makes \
+                 every user-list element ambiguous; pass a module that does not import {via:?} \
+                 (for a cell value, a module importing the syntax and main modules); a module \
+                 that sees no user list already parses sequences through `from_resolved`"
+            ),
         }
     }
 }
@@ -202,7 +222,56 @@ impl PresentedProgram {
     }
 }
 
+/// The builtin module whose `syntax {Sort} KItem ::= Sort` gives every sort, user lists
+/// included, a path to `KItem`.
+const K_TOP_SORT_MODULE: &str = "K-TOP-SORT";
+
+/// The builtin modules that import [`K_TOP_SORT_MODULE`], from the widest: a grammar that sees `K`
+/// also sees the others, so the first present names the import that brings it.
+const K_TOP_SORT_IMPORTERS: [&str; 5] = ["K", "K-TERM", "KSEQ-SYMBOLIC", "KSEQ", "K-SORT-LATTICE"];
+
+/// Which syntax a [`ProgramParser`]'s grammar holds beyond the program syntax of its module.
+#[derive(Clone, Copy, Debug)]
+enum ProgramSyntax {
+    /// The program syntax alone ([`ProgramParser::from_resolved`]).
+    Program,
+    /// The program syntax plus the K sequence constructors ([`ProgramParser::for_ground_values`]).
+    GroundValues,
+}
+
 /// A reusable parser for the concrete program syntax visible from one module.
+///
+/// Its constructors build one of two grammars over the module:
+/// - [`Self::new`] and [`Self::from_resolved`] build the module's program grammar: the syntax
+///   visible from the module (its own productions, those of its direct imports and of the public
+///   imports below them, with the program variants of imported modules substituted), its
+///   named-projection productions, and `KItem ::= S` for each user-defined sort `S` that is not
+///   a list (kernel sorts such as `K`, `KItem` and `KList` get none); nothing else. A list sort gets no path to `KItem`
+///   because each of its elements is also a one-element list, so the path would read every
+///   element twice. This grammar has K sequence syntax (`.K`, `~>`) only when the module
+///   declares it; it is the grammar of `$PGM` and of every K-declared `-c` value.
+/// - [`Self::for_ground_values`] builds the same grammar plus exactly `K ::= KItem`, `.K`,
+///   `K ~> K` and an avoided K bracket: the way to parse a ground K value, such as a cell's
+///   content. At any start sort, sequence syntax is also read inside every K-sorted argument.
+///   Its limits, each detailed on the constructor: the K bracket only groups text the
+///   definition's own syntax does not read, and an item written with the definition's own
+///   `avoid` `( .. )` production is an ambiguity at K; a production ending in K reads the outer
+///   sequence; at K a `~>` is the sequence, and a definition's own `~>` production is read only
+///   inside its own sort; the added terminals beat an equal-length user regex token, so a token
+///   spelled `~>` or `.K` cannot be written; an item that a production made of nullable lists
+///   also derives, and nested nullable lists, are ambiguity errors, so pass the narrowest
+///   module whose syntax covers the value, and a module importing both the syntax and the main
+///   module when program tokens and layout live only in the former; a list-sorted value is
+///   parsed only as a whole cell at its sort (unless the definition declares `KItem ::= L`
+///   itself, which makes elements ambiguous); function symbols in a ground value are not
+///   evaluated; a module whose program grammar sees `K-TOP-SORT` (`KSEQ`, `KSEQ-SYMBOLIC`, `K`,
+///   `K-TERM`, `K-SORT-LATTICE`) is refused.
+///
+/// Importing `KSEQ` into a program module is not a substitute for the second grammar: `KSEQ`
+/// imports `K-TOP-SORT`, whose `syntax {Sort} KItem ::= Sort` gives list sorts the path to
+/// `KItem` the program grammar leaves out, so every element of a user list becomes ambiguous
+/// with its one-element list, in `$PGM`, `-c` values and `kast` alike. For the same reason
+/// [`Self::for_ground_values`] refuses a module whose program grammar sees `K-TOP-SORT`.
 #[derive(Clone, Debug)]
 pub struct ProgramParser {
     module: String,
@@ -215,11 +284,21 @@ pub struct ProgramParser {
 }
 
 impl ProgramParser {
+    /// A parser for the program grammar of `module`, resolving `definition` first; see
+    /// [`Self::from_resolved`].
     pub fn new(definition: &Definition, module: &str) -> Result<Self, ProgramError> {
         let resolved = ResolvedDefinition::resolve(definition).map_err(ProgramError::Definition)?;
         Self::from_resolved(&resolved, module)
     }
 
+    /// A parser for the program grammar of `module`: the syntax visible from it (its own
+    /// productions, those of its direct imports and of the public imports below them, with the
+    /// program variants of imported modules substituted), its named-projection productions, and
+    /// `KItem ::= S` for each user-defined sort that is not a list; nothing else.
+    ///
+    /// A user list sort gets no `KItem` path, because each element is also a one-element list.
+    /// The grammar has K sequence syntax only when the module declares it; parse a ground K
+    /// value with [`Self::for_ground_values`].
     pub fn from_resolved(
         definition: &ResolvedDefinition,
         module: &str,
@@ -227,19 +306,155 @@ impl ProgramParser {
         let module_id = definition
             .module_id(module)
             .ok_or_else(|| ProgramError::MissingModule(module.to_owned()))?;
+        Self::build(definition, module, module_id, ProgramSyntax::Program)
+    }
+
+    /// A parser for ground K values (a cell's content) over the program syntax visible from
+    /// `module`.
+    ///
+    /// A K cell holds a sequence of items: `.K` and `~>` are the concrete syntax of its two
+    /// constructors and `K ::= KItem` places one item as a one-element sequence. The grammar is
+    /// therefore the one [`Self::from_resolved`] builds for `module`, plus exactly
+    /// `K ::= KItem`, `K ::= ".K"` (`#EmptyK`), the left-associative `K ::= K "~>" K`
+    /// (`#KSequence`), and a K bracket `( .. )` that is `avoid`. Parse a cell's content at the
+    /// cell's sort, expand it with
+    /// [`MacroExpansionDefinition::expand_program`](crate::kompile::MacroExpansionDefinition::expand_program),
+    /// place it with [`SortInjector::inject`](crate::kompile::SortInjector::inject) at that sort
+    /// (a lone item at `K` becomes `kseq(item, dotk)`), and convert it with
+    /// [`term_to_kore_from_resolved_with_token_module`](crate::kompile::term_to_kore_from_resolved_with_token_module).
+    /// At another start sort it parses as [`Self::from_resolved`] does, apart from the added
+    /// terminals and the sequence syntax inside any K-sorted argument: with
+    /// `syntax KItem ::= "push" K`, `push (x ~> y)` and `push .K` parse at KItem too.
+    ///
+    /// What it reads, each stated by a test in `tests/inner_programs.rs`:
+    /// - The K bracket groups only text the definition's own syntax does not read: with
+    ///   `Wrapped ::= "(" Op ")"`, `(op 1)` is `wrapped(op 1)` while `(op 1 ~> op 2)` is the
+    ///   two-item sequence.
+    /// - An item written with a definition's own `avoid` production of the form `( .. )` is an
+    ///   ambiguity error at K whenever its inside also parses at K (both readings are avoided),
+    ///   at any nesting; parse such a value at the item's sort. A `prefer` one wins.
+    /// - A production ending in K is read with the outer sequence: for
+    ///   `syntax KItem ::= "push" K`, `push x ~> y` is `push(x) ~> y`, and `push (x ~> y)`
+    ///   writes the other reading; for `then` over K, `a ~> b then c` is `a ~> then(b, c)` and
+    ///   `a then b ~> c` is `then(a, b) ~> c`.
+    /// - At K a `~>` is the sequence wherever a sequence may stand. A definition's own `~>`
+    ///   production (`Exp ::= Exp "~>" Exp`) is read only inside its own sort, for instance
+    ///   through its own bracket (`(a ~> b) ~> c` is `arrow(a, b) ~> c`), and a chain mixing
+    ///   both at K (`a ~> b ~> c`) is an ambiguity error.
+    /// - The added terminals `.K`, `~>`, `(` and `)` take precedence over an equal-length user
+    ///   regex token at every start sort, so such a token cannot be written in a ground value:
+    ///   with `Field ::= r"\\.[A-Za-z]+" [token]`, `x.K` is a parse error at K and at KItem,
+    ///   never another term, while `x.Kx ~> y` parses (longest match).
+    /// - Program syntax writes an empty user list as the empty string, so an item that a
+    ///   production made only of nullable lists also derives, and nested nullable lists, are
+    ///   ambiguity errors. Pass the narrowest module whose syntax covers the value.
+    /// - A list-sorted value is not an item: the program grammar has no `KItem ::= L` for a
+    ///   user list `L`, because an element is also a one-element list, so a list value cannot
+    ///   be a sequence element; parse a cell of a list sort at that sort. A definition that
+    ///   declares `KItem ::= L` itself makes each element ambiguous with its one-element list,
+    ///   here as through [`Self::from_resolved`].
+    /// - A ground value is lowered as written: a K-sorted function application is a sound item
+    ///   or tail but is not evaluated, so it compares structurally unequal to a cell's
+    ///   evaluated content.
+    /// - When program tokens and layout live in a syntax module and internal syntax in the main
+    ///   module, neither parses a value that mixes them: pass a module importing both.
+    ///
+    /// Over a definition with a user list (`Exps`) and a constructor list (`Instrs`), a value
+    /// mixing their items is one sequence:
+    ///
+    /// ```
+    /// # use k_rust::{definition::ResolvedDefinition, inner::ProgramParser, kast::Sort};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let source = r#"
+    ///     module MAIN
+    ///       syntax Id ::= r"[a-z][a-z0-9]*" [token]
+    ///       syntax Exp ::= Id | Id "(" Exps ")" [symbol(call)]
+    ///       syntax Exps ::= List{Exp, ","} [symbol(exps)]
+    ///       syntax Instr ::= "trap" [symbol(trap)]
+    ///       syntax Instrs ::= ".Instrs" [symbol(instrsEmpty)] | Instr ";" Instrs [symbol(instrsCons)]
+    ///     endmodule
+    /// "#;
+    /// let parsed = k_rust::outer::parse("main.k", source)?;
+    /// let definition =
+    ///     k_rust::outer::lower(&parsed, "MAIN").map_err(|errors| format!("{errors:?}"))?;
+    /// let resolved = ResolvedDefinition::resolve(&definition)?;
+    /// let parser = ProgramParser::for_ground_values(&resolved, "MAIN")?;
+    /// let value = parser.parse_for_presentation(&Sort::new("K"), "f(x, y) ~> trap ~> .Instrs")?;
+    /// assert_eq!(
+    ///     value.to_kast_text(),
+    ///     concat!(
+    ///         r#"call(#token("f","Id"),exps(#token("x","Id"),exps(#token("y","Id"),"#,
+    ///         r#"`.List{"exps"}`(.KList))))~>trap(.KList)~>instrsEmpty(.KList)"#,
+    ///     ),
+    /// );
+    /// // The program grammar alone has no sequence syntax.
+    /// assert!(ProgramParser::from_resolved(&resolved, "MAIN")?
+    ///     .parse(&Sort::new("K"), "f(x, y) ~> trap")
+    ///     .is_err());
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`ProgramError::MissingModule`] when `module` does not exist, and
+    /// [`ProgramError::KSequenceModuleVisible`] when the program grammar of `module` sees
+    /// `K-TOP-SORT` (through `KSEQ`, `KSEQ-SYMBOLIC`, `K`, `K-TERM` or `K-SORT-LATTICE`, or
+    /// directly): its `{Sort} KItem ::= Sort` would make every user-list element ambiguous with
+    /// its one-element list. What the grammar sees is what [`Self::from_resolved`] collects: the
+    /// module, its direct imports (private ones included), the public imports below them, each
+    /// import replaced by its `-PROGRAM-PARSING` companion where one exists.
+    pub fn for_ground_values(
+        definition: &ResolvedDefinition,
+        module: &str,
+    ) -> Result<Self, ProgramError> {
+        let module_id = definition
+            .module_id(module)
+            .ok_or_else(|| ProgramError::MissingModule(module.to_owned()))?;
+        let mut syntax_modules = BTreeSet::new();
+        walk_program_syntax_modules(definition, module_id, &mut |collected, _| {
+            syntax_modules.insert(definition.module(collected).name.as_str());
+        });
+        let sees = |name: &str| syntax_modules.contains(name);
+        if sees(K_TOP_SORT_MODULE) {
+            let via = K_TOP_SORT_IMPORTERS
+                .into_iter()
+                .find(|name| sees(name))
+                .unwrap_or(K_TOP_SORT_MODULE);
+            return Err(ProgramError::KSequenceModuleVisible {
+                module: module.to_owned(),
+                via: via.to_owned(),
+            });
+        }
+        Self::build(definition, module, module_id, ProgramSyntax::GroundValues)
+    }
+
+    fn build(
+        definition: &ResolvedDefinition,
+        module: &str,
+        module_id: ModuleId,
+        syntax: ProgramSyntax,
+    ) -> Result<Self, ProgramError> {
+        let grammar_error = |error| ProgramError::Grammar {
+            module: module.to_owned(),
+            error: Box::new(error),
+        };
         let sentences = prepared_program_sentences(definition, module_id);
         let source_catalog = definition.production_catalog(module_id);
-        let grammar = Grammar::from_program_sentences(
+        let mut grammar = Grammar::from_program_sentences(
             &sentences,
             &source_catalog,
             SortSynonyms::of_module(definition, module_id)
                 .denotations()
                 .clone(),
         )
-        .map_err(|error| ProgramError::Grammar {
-            module: module.to_owned(),
-            error: Box::new(error),
-        })?;
+        .map_err(grammar_error)?;
+        match syntax {
+            ProgramSyntax::Program => {}
+            ProgramSyntax::GroundValues => {
+                super::config::add_ground_k_sequence_syntax(&mut grammar).map_err(grammar_error)?;
+            }
+        }
         let parametric_productions = source_catalog
             .productions()
             .filter(|(_, production)| {
@@ -835,13 +1050,59 @@ fn program_sentences(
     module: ModuleId,
     exclude_not_lr1: bool,
 ) -> Vec<Sentence> {
+    let mut sentences = Vec::new();
+    walk_program_syntax_modules(definition, module, &mut |collected, scope| {
+        if exclude_not_lr1
+            && definition
+                .module(collected)
+                .attributes
+                .value(AttributeKey::NotLr1)
+                .is_some()
+        {
+            return;
+        }
+        match scope {
+            SyntaxScope::Public => {
+                append_unique_syntax(&mut sentences, definition.public_sentences(collected));
+            }
+            SyntaxScope::Local => append_unique_syntax(
+                &mut sentences,
+                definition
+                    .module(collected)
+                    .local_sentences
+                    .iter()
+                    .map(std::sync::Arc::as_ref),
+            ),
+        }
+    });
+    sentences
+}
+
+/// Which of a module's sentences the program grammar collects.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SyntaxScope {
+    /// Its public sentences: a module reached through an import.
+    Public,
+    /// Its local sentences: the program module itself.
+    Local,
+}
+
+/// Call `visit` with every module whose syntax the program grammar of `module` collects, in
+/// collection order: each direct import (private ones included) and, below it, only public
+/// imports, every import replaced by its `-PROGRAM-PARSING` companion where one exists (unless
+/// `module` is itself a companion), and last `module` itself. A module may be visited once with
+/// and once without substitution below it.
+fn walk_program_syntax_modules(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+    visit: &mut impl FnMut(ModuleId, SyntaxScope),
+) {
     let substitute_imports = !definition
         .module(module)
         .name
         .ends_with(PROGRAM_PARSING_POSTFIX);
 
     let mut visited = BTreeSet::new();
-    let mut sentences = Vec::new();
     for import in definition.direct_imports(module) {
         let (imported, substituted) = if substitute_imports {
             program_import(definition, import.module)
@@ -852,28 +1113,11 @@ fn program_sentences(
             definition,
             imported,
             substitute_imports && !substituted,
-            exclude_not_lr1,
             &mut visited,
-            &mut sentences,
+            visit,
         );
     }
-    if !exclude_not_lr1
-        || definition
-            .module(module)
-            .attributes
-            .value(AttributeKey::NotLr1)
-            .is_none()
-    {
-        append_unique_syntax(
-            &mut sentences,
-            definition
-                .module(module)
-                .local_sentences
-                .iter()
-                .map(std::sync::Arc::as_ref),
-        );
-    }
-    sentences
+    visit(module, SyntaxScope::Local);
 }
 
 /// `PROGRAM-LISTS` extends a program grammar with `KItem ::= S` for every
@@ -905,16 +1149,17 @@ fn with_kitem_subsorts(mut sentences: Vec<Sentence>) -> Vec<Sentence> {
     sentences
 }
 
+/// Visit, below an import of the program module, each module whose public signature the program
+/// grammar collects ([`walk_program_syntax_modules`]).
 fn collect_public_signature(
     definition: &ResolvedDefinition,
     module: ModuleId,
     substitute_imports: bool,
-    exclude_not_lr1: bool,
     visited: &mut BTreeSet<(ModuleId, bool)>,
-    sentences: &mut Vec<Sentence>,
+    visit: &mut impl FnMut(ModuleId, SyntaxScope),
 ) {
     // Invariant: `visited` contains expanded `(module, substitution)` states; recursion follows
-    // one public import and appends only first-equivalent sentences.
+    // one public import and visits each state once, after its imports.
     if !visited.insert((module, substitute_imports)) {
         return;
     }
@@ -932,20 +1177,11 @@ fn collect_public_signature(
             definition,
             imported,
             substitute_imports && !substituted,
-            exclude_not_lr1,
             visited,
-            sentences,
+            visit,
         );
     }
-    if !exclude_not_lr1
-        || definition
-            .module(module)
-            .attributes
-            .value(AttributeKey::NotLr1)
-            .is_none()
-    {
-        append_unique_syntax(sentences, definition.public_sentences(module));
-    }
+    visit(module, SyntaxScope::Public);
 }
 
 fn program_import(definition: &ResolvedDefinition, module: ModuleId) -> (ModuleId, bool) {
