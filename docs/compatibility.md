@@ -438,6 +438,9 @@ An initializer reads `project:S(#unboxKConfigValue(Map:lookup(Init,key)))`, reta
 An actual K sequence, empty K or fixed K-returning function remains the whole K payload; a KItem or a value with a licensed embedding into KItem becomes a singleton K sequence.
 The outer placement preserves the instance and macro choice made at the existing KItem preference for a K read.
 KItem-to-K placement uses `kseq(item,dotk)`, never an injection.
+So `==K` and `=/=K` compare whole `K` values: `dotk` and `kseq` are free constructors, and two constructor-like `K` terms are equal exactly when they are the same term, whether they are the empty sequence, a sequence of several items or items of sort `KItem` itself (`.K ==K .K` is `true`, `(a() ~> b()) ==K a()` is `false`).
+A function hooked `KEQUAL.eq` or `KEQUAL.ne` on a sort other than `K` compares its operands as values of that sort in the same way.
+The pinned reference's LLVM backend answers such a function over `Int` by representation: with `syntax Bool ::= Int "eqi" Int [function, total, hook(KEQUAL.eq)]`, `01 eqi 1` is `false` there and `1 eqi 1` ends without a result; `01` and `1` are one `Int` value, so the KORE gives `true` for both, which is what k-rust answers (`a_user_symbol_hooked_kequal_is_decided_on_its_own_sort` in [execution_semantics.rs](../crates/k-rust/tests/execution_semantics.rs)).
 
 For a binding declared at K, the configuration parser prefers a successful KItem reading and tries its selected module's existing K entry only when there is no item reading or no KItem start sort.
 Ambiguity, inference, validation and macro errors are retained.
