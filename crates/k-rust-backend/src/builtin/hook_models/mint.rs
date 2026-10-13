@@ -540,10 +540,12 @@ fn mint_term(width: impl std::fmt::Display, text: &str) -> Term {
     Term::domain_value(mint_sort(width), text)
 }
 
+/// An application of a `total` hook whose value the definition does not determine: it has one,
+/// so it is defined.
 fn unspecified(result: &BuiltinResult) -> bool {
     matches!(
         result,
-        BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+        BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { defined: true, .. })
     )
 }
 

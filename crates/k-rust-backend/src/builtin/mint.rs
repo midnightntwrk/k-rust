@@ -218,6 +218,9 @@ fn integer(arguments: &[Term], result_sort: Option<&Sort>) -> HookResult<Builtin
                 UnsupportedHookReason::Unspecified {
                     detail: "Int2MInt at a machine-integer sort whose argument names no width"
                         .into(),
+                    // `Int2MInt` is declared `total`: the application has a value in every model
+                    // of the definition, which only leaves open which one, so its `\ceil` holds.
+                    defined: true,
                 },
             ));
         }
@@ -245,6 +248,10 @@ fn bitwidth(arguments: &[Term]) -> HookResult<BuiltinResult> {
             BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
                 detail: "bitwidthMInt at a machine-integer sort whose argument names no width"
                     .into(),
+                // `bitwidthMInt` is declared `total`: the application has an `Int` value in
+                // every model of the definition, which only leaves open which one, so its
+                // `\ceil` holds.
+                defined: true,
             })
         }
         Some(MIntWidth::Bits(width)) => BuiltinResult::Value(int_term(BigInt::from(width))),
