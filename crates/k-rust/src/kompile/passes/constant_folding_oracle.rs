@@ -1021,10 +1021,16 @@ fn backend_expectation(
         Ok(BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })) => {
             Ok(Some(Expect::Unspecified))
         }
+        // The hooks of the table that refuse a result as too large are `^Int`, `<<Int` and
+        // `bitRangeInt`, whose bound is `result_size_limit(MAX_INT_RESULT_BITS, ..)`, never below
+        // `MAX_INT_RESULT_BITS`; that is at least the fold's `MAX_FOLDED_BITS` (asserted in
+        // `constant_folding.rs`), so a value the backend refuses is one the fold must refuse too.
+        Ok(BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge { .. })) => {
+            Ok(Some(Expect::TooLarge))
+        }
         Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented
-            | UnsupportedHookReason::ArgumentOutOfRange { .. }
-            | UnsupportedHookReason::ResultTooLarge { .. },
+            | UnsupportedHookReason::ArgumentOutOfRange { .. },
         )) => Ok(None),
         // Without a result sort the backend cannot name the token's sort.
         Ok(BuiltinResult::NotApplicable) if hook == "STRING.string2token" => Ok(None),
