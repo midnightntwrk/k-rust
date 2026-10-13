@@ -2732,6 +2732,8 @@ pub enum DomainKind {
     /// denotes its signed decimal reduced modulo `2^W`, and the canonical text is that unsigned
     /// residue, `p`, and the digits of the sort's width argument.
     MInt(MIntWidth),
+    /// The Booleans (`BOOL.Bool`): the texts `true` and `false`, each its own canonical text.
+    Bool,
     /// Every other sort with domain values (an unhooked token sort, `Id`, an unhooked
     /// `SortFloat`, ...): a text is its own value.
     Token,
@@ -2739,11 +2741,13 @@ pub enum DomainKind {
 
 impl DomainKind {
     /// The kind of `sort` resolved by its name, for a caller without a definition: `SortInt` is
-    /// `Int`, `SortMInt{A}` with a closed argument is `MInt` of its width, and every other sort
-    /// is `Token`.
+    /// `Int`, `SortBool` is `Bool`, `SortMInt{A}` with a closed argument is `MInt` of its width,
+    /// and every other sort is `Token`.
     pub(crate) fn of_builtin_name(sort: &Sort) -> Self {
         if sort.is_builtin(BuiltinSort::Int) {
             Self::Int
+        } else if sort.is_builtin(BuiltinSort::Bool) {
+            Self::Bool
         } else if let Some(width) = mint_width(sort) {
             Self::MInt(width)
         } else {
@@ -2853,7 +2857,7 @@ fn canonical_text(kind: DomainKind, sort: &Sort, value: KoreString) -> KoreStrin
     match kind {
         DomainKind::Int => canonical_int_text(value),
         DomainKind::MInt(width) => canonical_mint_text(width, sort, value),
-        DomainKind::Token => value,
+        DomainKind::Bool | DomainKind::Token => value,
     }
 }
 

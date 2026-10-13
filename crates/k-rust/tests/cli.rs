@@ -2029,6 +2029,105 @@ endmodule
     );
 }
 
+/// `krust kore-simplify` of `pattern` in `definition` (module `MAIN`): its standard output,
+/// asserting success.
+fn kore_simplify_in(root: &Path, definition: &Path, pattern: &str) -> String {
+    let path = root.join("pattern.kore");
+    fs::write(&path, pattern).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kore-simplify")
+        .arg(definition)
+        .args(["--module", "MAIN", "--pattern"])
+        .arg(&path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{pattern}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// A sort named `SortInt` declared without the hook `INT.Int` is still the integers, as the SMT
+/// translation and the INT hooks read it: its literal `07` is `7`, and `X = 07` contradicts
+/// `X =/= 7`.
+#[test]
+fn kore_simplify_reads_an_unhooked_sort_int_as_the_integers() {
+    let (root, _) = fixture();
+    let definition = root.join("unhooked-int.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortInt{} [hasDomainValues{}()]
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  sort SortK{} []
+  symbol c{}(SortInt{}) : SortK{} [constructor{}(), functional{}(), injective{}()]
+endmodule []
+"#,
+    )
+    .unwrap();
+    let compact = |text: String| text.split_whitespace().collect::<String>();
+    assert_eq!(
+        compact(kore_simplify_in(
+            &root,
+            &definition,
+            r#"c{}(\dv{SortInt{}}("07"))"#
+        )),
+        r#"c{}(\dv{SortInt{}}("7"))"#
+    );
+    assert_eq!(
+        compact(kore_simplify_in(
+            &root,
+            &definition,
+            r#"\and{SortK{}}(c{}(X:SortInt{}), \and{SortK{}}(\equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("07")), \not{SortK{}}(\equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("7")))))"#
+        )),
+        r#"\bottom{SortK{}}()"#
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A definition compiled without the prelude declares `SortBool` without its hook, and its
+/// generated sort-predicate equations hold the literals `true` and `false`; the backend loads it
+/// and evaluates its functions.
+#[test]
+fn a_definition_compiled_without_the_prelude_loads_its_unhooked_booleans() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" [function, symbol(a)] | "b" [symbol(b)]
+  rule a => b
+endmodule
+"#,
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &[
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "MAIN",
+            "--no-prelude",
+        ],
+        &compiled,
+    );
+    let kore = compiled.join("definition.kore");
+    let text = fs::read_to_string(&kore).unwrap();
+    assert!(
+        text.contains("sort SortBool{} [hasDomainValues{}()")
+            && text.contains(r#"\dv{SortBool{}}("true")"#),
+        "{text}"
+    );
+    assert_eq!(kore_simplify_in(&root, &kore, "Lbla{}()\n"), "Lblb{}()\n");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kast_omits_inferred_parametric_label_arguments() {
     let (root, definition) = fixture();

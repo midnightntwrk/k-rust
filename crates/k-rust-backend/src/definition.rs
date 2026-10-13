@@ -2745,12 +2745,21 @@ impl BackendDefinition {
     }
 
     /// How the domain values of `sort` denote its elements, read from the hook and
-    /// `hasDomainValues` attribute its head was declared with, never from its name:
-    /// - `INT.Int` gives [`DomainKind::Int`] (`syntax MyInt [hook(INT.Int)]` included);
+    /// `hasDomainValues` attribute its head was declared with:
+    /// - `INT.Int` gives [`DomainKind::Int`] (`syntax MyInt [hook(INT.Int)]` included) and
+    ///   `BOOL.Bool` gives [`DomainKind::Bool`];
     /// - `MINT.MInt` gives [`DomainKind::MInt`] of the width of `SortMInt{Sort<digits>{}}`, and
     ///   no kind for any other sort with that hook, which names no width;
     /// - any other sort with domain values gives [`DomainKind::Token`] (an unhooked `SortFloat`
     ///   included), and a sort without domain values gives none.
+    ///
+    /// The kind is never read from a sort's name, with one exception: the sorts named `SortInt`
+    /// and `SortBool` are `Int` and `Bool` whether or not they carry the hook. The frontend's
+    /// generated equations (a `requires` clause, a sort predicate), the SMT translation and the
+    /// INT and BOOL hook readers all read these two names as the integers and the Booleans, and
+    /// a definition compiled without the prelude declares them without their hooks; reading
+    /// them otherwise here would let the backend hold two values (`07` and `7`) that the solver
+    /// reads as one.
     pub fn domain_kind(&self, sort: &Sort) -> Option<DomainKind> {
         let Sort::Application { name, .. } = sort else {
             return None;
@@ -2759,8 +2768,15 @@ impl BackendDefinition {
         if !info.has_domain_values {
             return None;
         }
+        if sort.is_builtin(BuiltinSort::Int) {
+            return Some(DomainKind::Int);
+        }
+        if sort.is_builtin(BuiltinSort::Bool) {
+            return Some(DomainKind::Bool);
+        }
         Some(match info.hook.as_deref() {
             Some("INT.Int") => DomainKind::Int,
+            Some("BOOL.Bool") => DomainKind::Bool,
             Some("MINT.MInt") => match mint_width(sort)? {
                 MIntWidth::NoWidth => return None,
                 width => DomainKind::MInt(width),
@@ -2795,17 +2811,19 @@ impl BackendDefinition {
             value: text.map_or_else(|| kore_string::quote(value), str::to_owned),
             reason,
         };
-        let hook = info.hook.as_deref();
-        match hook {
-            Some("BOOL.Bool") if !matches!(text, Some("true" | "false")) => {
+        // Only a sort hooked `MINT.MInt` that names no width has domain values and no kind.
+        let kind = self
+            .domain_kind(sort)
+            .ok_or_else(|| invalid(InvalidDomainValueReason::NoWidth))?;
+        match kind {
+            DomainKind::Bool if !matches!(text, Some("true" | "false")) => {
                 return Err(invalid(InvalidDomainValueReason::NotALiteral));
             }
-            Some("INT.Int") if !text.is_some_and(is_decimal_integer) => {
+            DomainKind::Int if !text.is_some_and(is_decimal_integer) => {
                 return Err(invalid(InvalidDomainValueReason::NotALiteral));
             }
-            Some("MINT.MInt") => {
-                let (Some(width), Some(digits)) = (mint_width(sort), mint_width_digits(sort))
-                else {
+            DomainKind::MInt(width) => {
+                let Some(digits) = mint_width_digits(sort) else {
                     return Err(invalid(InvalidDomainValueReason::NoWidth));
                 };
                 let Some(literal) = text.and_then(MIntLiteral::parse) else {
@@ -2822,10 +2840,9 @@ impl BackendDefinition {
                     });
                 }
             }
-            _ => {}
+            DomainKind::Int | DomainKind::Bool | DomainKind::Token => {}
         }
-        self.domain_kind(sort)
-            .ok_or_else(|| invalid(InvalidDomainValueReason::NoWidth))
+        Ok(kind)
     }
 
     fn validate_application_shape(
@@ -4599,6 +4616,47 @@ mod tests {
             internalized_text(&definition, r#"\dv{SortFloat{}}("1.00")"#),
             "1.00"
         );
+    }
+
+    /// The sorts named `SortInt` and `SortBool` are the integers and the Booleans whether or not
+    /// they carry the hook, as a definition compiled without the prelude declares them: `07` is
+    /// `7`, and a text that is no Boolean or no decimal integer is refused.
+    #[test]
+    fn unhooked_builtin_names_keep_their_builtin_kind() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortInt{} [hasDomainValues{}()]
+                sort SortBool{} [hasDomainValues{}(), token{}()]
+            endmodule []
+        "#})
+        .expect("unhooked definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("unhooked definition should internalize");
+
+        assert_eq!(
+            definition.domain_kind(&Sort::simple("SortInt")),
+            Some(DomainKind::Int)
+        );
+        assert_eq!(
+            definition.domain_kind(&Sort::simple("SortBool")),
+            Some(DomainKind::Bool)
+        );
+        assert_eq!(
+            internalized_text(&definition, r#"\dv{SortInt{}}("07")"#),
+            "7"
+        );
+        assert_eq!(
+            internalized_text(&definition, r#"\dv{SortBool{}}("true")"#),
+            "true"
+        );
+        for pattern in [r#"\dv{SortBool{}}("maybe")"#, r#"\dv{SortInt{}}("seven")"#] {
+            let error = internalize_error(&definition, pattern);
+            assert!(
+                error.starts_with("Invalid domain value"),
+                "{pattern}: {error}"
+            );
+        }
     }
 
     #[test]
