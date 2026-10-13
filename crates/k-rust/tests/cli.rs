@@ -5154,6 +5154,92 @@ fn krun_search_matches_no_condition_on_a_result_above_the_size_bound() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `bitRangeInt` and `signExtendBitRangeInt` applied to the integers of the program, so that the
+/// frontend's constant fold cannot compute them.
+const BIT_RANGE_DEFINITION: &str = r#"
+module BITRANGE-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= br(Int, Int, Int) | sx(Int, Int, Int)
+endmodule
+
+module BITRANGE
+  imports BITRANGE-SYNTAX
+  imports INT
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(Int)
+  rule br(I, X, L) => res(bitRangeInt(I, X, L))
+  rule sx(I, X, L) => res(signExtendBitRangeInt(I, X, L))
+endmodule
+"#;
+
+/// The hook attribute alone gives `bitRangeInt` and `signExtendBitRangeInt` their meaning: a
+/// definition that imports `INT-COMMON`, which declares them, without `INT`, which states their
+/// equations, evaluates them as one that imports `INT` does. With `INT` imported, a length whose
+/// `1 <<Int LEN` is above the `Int` result bound still gives the small value of the bit range.
+#[test]
+fn krun_evaluates_bit_ranges_without_the_int_module_equations() {
+    let common = BIT_RANGE_DEFINITION.replace("  imports INT\n", "  imports INT-COMMON\n");
+    assert_ne!(common, BIT_RANGE_DEFINITION);
+    let (root, _) = fixture();
+    let compile = |name: &str, source: &str| {
+        let path = root.join(format!("{name}.k"));
+        fs::write(&path, source).unwrap();
+        let compiled = root.join(name);
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kcompile",
+                path.to_str().unwrap(),
+                "--main-module",
+                "BITRANGE",
+                "--output-directory",
+            ])
+            .arg(&compiled)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        compiled
+    };
+    let run = |compiled: &Path, expression: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                "--definition",
+                compiled.to_str().unwrap(),
+                "--sort",
+                "Op",
+                "--expression",
+                expression,
+                "--io",
+                "off",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(output.status.success(), "{expression}: {stderr}");
+        stdout
+    };
+    let result = |value: &str| {
+        format!(
+            r#"Lblres'LParUndsRParUnds'BITRANGE'Unds'KItem'Unds'Int{{}}(\dv{{SortInt{{}}}}("{value}"))"#
+        )
+    };
+    let common = compile("common", &common);
+    for (expression, value) in [("br(255, 4, 4)", "15"), ("sx(255, 0, 8)", "-1")] {
+        let stdout = run(&common, expression);
+        assert!(stdout.contains(&result(value)), "{expression}: {stdout}");
+    }
+    let int = compile("int", BIT_RANGE_DEFINITION);
+    let stdout = run(&int, "br(5, 0, 100000000)");
+    assert!(stdout.contains(&result("5")), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");

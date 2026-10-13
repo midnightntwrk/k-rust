@@ -1086,41 +1086,6 @@ fn documented_expectation(hook: &str, arguments: &[Arg]) -> Option<Expect> {
     }
 }
 
-/// `floor(value / 2^index)`, computed by division rather than by bit operations; an index of
-/// more bits than the value has leaves 0 or -1.
-fn floor_shift(value: &BigInt, index: &BigInt) -> BigInt {
-    let Some(index) = index
-        .to_u32()
-        .filter(|index| u64::from(*index) <= value.bits())
-    else {
-        return if value.is_negative() { big(-1) } else { big(0) };
-    };
-    let scale = pow2(index);
-    let mut quotient = value / &scale;
-    if value.is_negative() && !(value % &scale).is_zero() {
-        quotient -= 1;
-    }
-    quotient
-}
-
-/// `quotient mod 2^length` (`None` when that is larger than the fold's result bound), computed
-/// by division.
-fn residue(quotient: &BigInt, length: &BigInt) -> Option<BigInt> {
-    if !quotient.is_negative() && BigInt::from(quotient.bits()) <= *length {
-        return Some(quotient.clone());
-    }
-    let length = length
-        .to_u32()
-        .filter(|length| u64::from(*length) <= MAX_FOLDED_BITS)?;
-    let modulus = pow2(length);
-    let remainder = quotient % &modulus;
-    Some(if remainder.is_negative() {
-        remainder + modulus
-    } else {
-        remainder
-    })
-}
-
 /// The first position at or after `index` (`findChar`), or the last at or before it (`rfind`,
 /// `rfindChar`), holding the needle or one of the needle characters; -1 if there is none. Every
 /// integer index is one: the candidates are the positions on that side of it.
@@ -1285,31 +1250,6 @@ fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
         return value(Out::Float(libm));
     }
     match hook {
-        "INT.bitRange" | "INT.signExtendBitRange" => {
-            let (index, length) = (arguments[1].int(), arguments[2].int());
-            // `domains.md`: (I >>Int IDX) modInt (1 <<Int LEN), undefined for a negative shift.
-            if index.is_negative() || length.is_negative() {
-                return Expect::Undefined;
-            }
-            let quotient = floor_shift(arguments[0].int(), index);
-            if hook == "INT.bitRange" {
-                return residue(&quotient, length)
-                    .map_or(Expect::TooLarge, |unsigned| value(Out::Int(unsigned)));
-            }
-            // `domains.md`: (bitRangeInt(I, IDX, LEN) +Int (1 <<Int (LEN -Int 1))) modInt
-            // (1 <<Int LEN) -Int (1 <<Int (LEN -Int 1)), where a shift by -1 is undefined: the
-            // residue of I >>Int IDX in [-2^(LEN - 1), 2^(LEN - 1)).
-            if length.is_zero() {
-                return Expect::Undefined;
-            }
-            if BigInt::from(quotient.bits()) < *length {
-                return value(Out::Int(quotient));
-            }
-            let length = length.to_u32().unwrap();
-            let half = pow2(length - 1);
-            let shifted = residue(&(quotient + &half), &BigInt::from(length)).unwrap();
-            value(Out::Int(shifted - half))
-        }
         "STRING.rfind" | "STRING.findChar" | "STRING.rfindChar" => value(Out::Int(
             search(
                 hook,

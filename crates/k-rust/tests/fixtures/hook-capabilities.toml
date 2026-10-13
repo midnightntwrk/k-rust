@@ -70,6 +70,7 @@ implemented = [
   "INT.abs",
   "INT.add",
   "INT.and",
+  "INT.bitRange",
   "INT.ediv",
   "INT.emod",
   "INT.eq",
@@ -88,6 +89,7 @@ implemented = [
   "INT.powmod",
   "INT.shl",
   "INT.shr",
+  "INT.signExtendBitRange",
   "INT.sub",
   "INT.tdiv",
   "INT.tmod",
@@ -221,8 +223,8 @@ hooks = [
 ]
 
 [[unsupported]]
-reason = "randomness and bit-range operations are not implemented"
-hooks = ["INT.bitRange", "INT.rand", "INT.signExtendBitRange", "INT.srand"]
+reason = "randomness is not implemented"
+hooks = ["INT.rand", "INT.srand"]
 
 [[unsupported]]
 reason = "filesystem, process, clock, logging, and stream-management effects are not exposed by the backend"
