@@ -201,25 +201,27 @@ fn every_item_that_bumps_a_counter_is_a_named_site_of_an_algorithm_the_counter_m
         }
     }
 
-    let parsed = files
-        .iter()
-        .map(|file| {
-            let text = fs::read_to_string(root.join(file)).unwrap();
-            let syntax = syn::parse_file(&text)
-                .unwrap_or_else(|error| panic!("{file} does not parse: {error}"));
-            (file.as_str(), syntax)
-        })
-        .collect::<Vec<_>>();
     // A file only `#[cfg(test)]` declarations load is test code, as an inline test module is.
-    let test_files = cfg_test_module_files(parsed.iter().map(|(file, syntax)| (*file, syntax)));
+    // Each file's counter uses are read as the files stream past, so one syntax tree is held at a
+    // time, and the uses of the test files are discarded after.
+    let mut uses_of = Vec::new();
+    let test_files = cfg_test_module_files(files.iter().map(|file| {
+        let text = fs::read_to_string(root.join(file)).unwrap();
+        let syntax =
+            syn::parse_file(&text).unwrap_or_else(|error| panic!("{file} does not parse: {error}"));
+        if file != COUNTER_DEFINITION {
+            let mut uses = CounterUses::default();
+            uses.visit_file(&syntax);
+            uses_of.push((file.as_str(), uses));
+        }
+        (file.as_str(), syntax)
+    }));
 
     let mut violations = Vec::new();
-    for (file, syntax) in parsed
+    for (file, uses) in uses_of
         .iter()
-        .filter(|(file, _)| *file != COUNTER_DEFINITION && !test_files.contains(*file))
+        .filter(|(file, _)| !test_files.contains(*file))
     {
-        let mut uses = CounterUses::default();
-        uses.visit_file(syntax);
         for (counter, enclosing) in &uses.uses {
             let Some(algorithms) = measured_by.get(counter.as_str()) else {
                 continue;

@@ -524,31 +524,33 @@ pub(crate) fn index_sources(
     sources: Vec<(String, String)>,
     report: &mut Vec<String>,
 ) -> (Vec<Card>, SourceIndex) {
-    let parsed = sources
+    // Each syntax tree is dropped once its declarations and items are read, so the pass holds one
+    // tree at a time; the items of a file found to be test code are then discarded.
+    let mut declarations = Vec::new();
+    let visited = sources
         .into_iter()
         .map(|(relative, source)| {
-            let file = syn::parse_file(&source);
-            (relative, source, file)
+            let visitor = syn::parse_file(&source).map(|file| {
+                declarations.push((relative.clone(), module_declarations(&file)));
+                let mut visitor = ItemVisitor::default();
+                visitor.visit_file(&file);
+                visitor
+            });
+            (relative, source, visitor)
         })
         .collect::<Vec<_>>();
-    let test_files = cfg_test_module_files(
-        parsed
-            .iter()
-            .filter_map(|(relative, _, file)| Some((relative.as_str(), file.as_ref().ok()?))),
-    );
+    let test_files = cfg_test_files_of_declarations(declarations);
     let mut cards = Vec::new();
     let mut index = SourceIndex::default();
-    for (relative, source, file) in parsed {
+    for (relative, source, visitor) in visited {
         let Some(crate_name) = crate_name(&relative) else {
             continue;
         };
         if test_files.contains(&relative) {
             continue;
         }
-        match file {
-            Ok(file) => {
-                let mut visitor = ItemVisitor::default();
-                visitor.visit_file(&file);
+        match visitor {
+            Ok(visitor) => {
                 for (kind, source) in extract_fences(&visitor.docs) {
                     match toml::from_str::<CardBody>(&source) {
                         Ok(body) => cards.push(Card {
@@ -585,26 +587,77 @@ pub(crate) fn index_sources(
 /// the declaring module's directory, whichever is among `files`. That directory is the declaring
 /// file's own for a crate root or `mod.rs` file, and its directory joined with its stem for any
 /// other file (`a/b.rs` declares into `a/b/`); each enclosing inline module adds its name (or its
-/// own `#[path]`) as a further directory. A `#[path]` outside every inline module is relative to
-/// the declaring file's directory, one inside an inline module to the declaring module's directory.
-pub fn cfg_test_module_files<'a>(
-    files: impl IntoIterator<Item = (&'a str, &'a syn::File)>,
+/// own `#[path]`) as a further directory. A file a `#[path]` declaration loads is a module whose
+/// file the declaration chose rather than its name, so it declares into its own directory as a
+/// `mod.rs` file does. A `#[path]` outside every inline module is relative to the declaring
+/// file's directory, one inside an inline module to the declaring module's directory.
+///
+/// Each syntax tree is dropped once its declarations are read, so a caller that streams `files`
+/// holds one tree at a time.
+pub fn cfg_test_module_files<S: Into<String>>(
+    files: impl IntoIterator<Item = (S, syn::File)>,
 ) -> BTreeSet<String> {
-    let files = files.into_iter().collect::<Vec<_>>();
+    cfg_test_files_of_declarations(
+        files
+            .into_iter()
+            .map(|(relative, file)| (relative.into(), module_declarations(&file)))
+            .collect(),
+    )
+}
+
+/// [`cfg_test_module_files`] from each file's out-of-line module declarations.
+fn cfg_test_files_of_declarations(
+    files: Vec<(String, Vec<ModuleDeclaration>)>,
+) -> BTreeSet<String> {
     let known = files
         .iter()
-        .map(|(relative, _)| *relative)
+        .map(|(relative, _)| relative.as_str())
         .collect::<BTreeSet<_>>();
-    // (declaring file, loaded file, whether the declaration itself is test code)
+    // Whether a file declares into its own directory depends on whether a `#[path]` declaration
+    // loads it, which depends on how the files declaring it resolve their declarations: resolve
+    // all of them again until the set of files `#[path]` declarations load stops growing. It only
+    // grows and is bounded by `files`, so this ends.
+    let mut path_loaded = BTreeSet::new();
+    let loads = loop {
+        let (loads, loaded_by_path) = module_loads(&files, &known, &path_loaded);
+        if loaded_by_path.is_subset(&path_loaded) {
+            break loads;
+        }
+        path_loaded.extend(loaded_by_path);
+    };
+    // A file is compiled outside tests when a file no declaration loads reaches it through
+    // declarations that are not test code.
+    let loaded = loads
+        .iter()
+        .map(|(_, loaded, _)| loaded.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut compiled = BTreeSet::new();
+    for root in known.iter().filter(|file| !loaded.contains(*file)) {
+        mark_compiled(root, &loads, &mut compiled);
+    }
+    loaded
+        .into_iter()
+        .filter(|file| !compiled.contains(*file))
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+/// The loads of the out-of-line module declarations of `files`, as (declaring file, loaded file,
+/// whether the declaration is test code), with the set of files a `#[path]` declaration loads,
+/// when the files of `path_loaded` declare into their own directory.
+fn module_loads(
+    files: &[(String, Vec<ModuleDeclaration>)],
+    known: &BTreeSet<&str>,
+    path_loaded: &BTreeSet<String>,
+) -> (Vec<(String, String, bool)>, BTreeSet<String>) {
     let mut loads = Vec::new();
-    for (relative, file) in &files {
-        let mut declarations = Vec::new();
-        collect_module_declarations(&file.items, &mut Vec::new(), false, &mut declarations);
+    let mut loaded_by_path = BTreeSet::new();
+    for (relative, declarations) in files {
         let (directory, stem) = match relative.rsplit_once('/') {
             Some((directory, name)) => (directory, name.strip_suffix(".rs").unwrap_or(name)),
             None => ("", relative.strip_suffix(".rs").unwrap_or(relative)),
         };
-        let module_directory = if is_directory_owner(relative) {
+        let module_directory = if is_directory_owner(relative) || path_loaded.contains(relative) {
             directory.to_owned()
         } else {
             format!("{directory}/{stem}")
@@ -632,25 +685,14 @@ pub fn cfg_test_module_files<'a>(
                 .filter_map(|candidate| normalize_relative(candidate))
                 .find(|candidate| known.contains(candidate.as_str()))
             {
+                if declaration.path.is_some() {
+                    loaded_by_path.insert(loaded.clone());
+                }
                 loads.push((relative.to_string(), loaded, declaration.cfg_test));
             }
         }
     }
-    // A file is compiled outside tests when a file no declaration loads reaches it through
-    // declarations that are not test code.
-    let loaded = loads
-        .iter()
-        .map(|(_, loaded, _)| loaded.as_str())
-        .collect::<BTreeSet<_>>();
-    let mut compiled = BTreeSet::new();
-    for root in known.iter().filter(|file| !loaded.contains(*file)) {
-        mark_compiled(root, &loads, &mut compiled);
-    }
-    loaded
-        .into_iter()
-        .filter(|file| !compiled.contains(*file))
-        .map(ToOwned::to_owned)
-        .collect()
+    (loads, loaded_by_path)
 }
 
 /// Adds `file` and every file its declarations that are not test code load, transitively.
@@ -664,6 +706,13 @@ fn mark_compiled(file: &str, loads: &[(String, String, bool)], compiled: &mut BT
     {
         mark_compiled(loaded, loads, compiled);
     }
+}
+
+/// The out-of-line module declarations of `file`.
+fn module_declarations(file: &syn::File) -> Vec<ModuleDeclaration> {
+    let mut declarations = Vec::new();
+    collect_module_declarations(&file.items, &mut Vec::new(), false, &mut declarations);
+    declarations
 }
 
 /// An out-of-line module declaration `mod name;` in a file.
@@ -1872,8 +1921,7 @@ impl Engine { fn step() { let Ok(Stepped::Done) = produce(1) else { return }; } 
             .iter()
             .map(|(relative, source)| (*relative, syn::parse_file(source).unwrap()))
             .collect::<Vec<_>>();
-        let test_files =
-            cfg_test_module_files(syntax.iter().map(|(relative, file)| (*relative, file)));
+        let test_files = cfg_test_module_files(syntax);
         assert_eq!(
             test_files.iter().map(String::as_str).collect::<Vec<_>>(),
             [
@@ -1912,6 +1960,37 @@ impl Engine { fn step() { let Ok(Stepped::Done) = produce(1) else { return }; } 
             !index
                 .files
                 .contains_key("crates/k-rust/src/engine/tests.rs")
+        );
+    }
+
+    #[test]
+    fn a_file_a_path_declaration_loads_declares_into_its_own_directory() {
+        let files = [
+            (
+                "crates/k-rust/src/lib.rs",
+                "#[cfg(test)] #[path = \"sub/x.rs\"] mod x; #[path = \"prod/p.rs\"] mod p;",
+            ),
+            // Loaded through `#[path]`, so its `y` is `sub/y.rs`, not `sub/x/y.rs`.
+            ("crates/k-rust/src/sub/x.rs", "mod y;"),
+            ("crates/k-rust/src/sub/y.rs", ""),
+            // Loaded by no declaration.
+            ("crates/k-rust/src/sub/x/y.rs", ""),
+            ("crates/k-rust/src/prod/p.rs", "#[cfg(test)] mod q; mod r;"),
+            ("crates/k-rust/src/prod/q.rs", ""),
+            ("crates/k-rust/src/prod/r.rs", ""),
+        ];
+        let syntax = files
+            .iter()
+            .map(|(relative, source)| (*relative, syn::parse_file(source).unwrap()))
+            .collect::<Vec<_>>();
+        let test_files = cfg_test_module_files(syntax);
+        assert_eq!(
+            test_files.iter().map(String::as_str).collect::<Vec<_>>(),
+            [
+                "crates/k-rust/src/prod/q.rs",
+                "crates/k-rust/src/sub/x.rs",
+                "crates/k-rust/src/sub/y.rs",
+            ]
         );
     }
 }
