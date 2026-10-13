@@ -226,6 +226,10 @@ pub(crate) fn evaluate_in_definition(
 /// does not name ([`float::mixed_destination`], the same reading of the arguments the evaluator
 /// widens): every model rounds it to some format, so the application is defined, and only its
 /// value is open.
+///
+/// `signFloat` of a NaN, of any format, reads a sign bit the `NaN` literal is not given
+/// ([`float::nan_sign`]): the hook is total, so the application is defined, and only its value
+/// is open.
 pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     let TermKind::Application {
         symbol, arguments, ..
@@ -237,7 +241,11 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     let several = match hook {
         "MAP.keys_list" | "MAP.values" => map::lists_several_items(arguments),
         "SET.set2list" => set::lists_several_items(arguments),
-        _ => return float::mixed_destination(hook, arguments).map(|pair| pair.detail(hook)),
+        _ => {
+            return float::mixed_destination(hook, arguments)
+                .map(|pair| pair.detail(hook))
+                .or_else(|| float::nan_sign(hook, arguments));
+        }
     };
     several.then(|| {
         format!(

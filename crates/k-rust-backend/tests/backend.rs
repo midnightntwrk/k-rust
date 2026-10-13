@@ -17,6 +17,8 @@ mod matching;
 mod mixed_float_formats;
 #[path = "backend/names.rs"]
 mod names;
+#[path = "backend/nan_sign.rs"]
+mod nan_sign;
 #[path = "backend/overloaded_list_owise.rs"]
 mod overloaded_list_owise;
 #[path = "backend/parametric_collection_elements.rs"]

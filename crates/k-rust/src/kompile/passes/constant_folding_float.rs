@@ -260,7 +260,19 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Unf
             };
             Ok(Value::Int(exponent.into()))
         }),
-        "FLOAT.sign" => unary_float(values, |a| Ok(Value::Bool(a.value.is_sign_negative()))),
+        // The `NaN` literal is given no sign bit, so the sign of a NaN is a value only an
+        // execution chooses; the fold's output is the definition proofs load too.
+        "FLOAT.sign" => unary_float(values, |a| {
+            if a.value.is_nan() {
+                Err(Unfolded::Unspecified(
+                    "signFloat of a NaN reads a sign bit the NaN literal is not given, which only \
+                     an execution chooses"
+                        .into(),
+                ))
+            } else {
+                Ok(Value::Bool(a.value.is_sign_negative()))
+            }
+        }),
         "FLOAT.isNaN" => unary_float(values, |a| Ok(Value::Bool(a.value.is_nan()))),
         "FLOAT.neg" => unary_float(values, |a| Ok(Value::Float(a.exact(|value| -value)))),
         "FLOAT.abs" => unary_float(values, |a| Ok(Value::Float(a.exact(Float::abs)))),
@@ -1129,6 +1141,32 @@ mod tests {
             ),
             Some(Ok(Value::Bool(true)))
         ));
+    }
+
+    /// The fold's output is the definition proofs load too, and `domains.md` gives the `NaN`
+    /// literal no sign bit, so `signFloat` of a NaN, whose value only an execution chooses, is
+    /// left unfolded as unspecified in every format; every other sign is folded.
+    #[test]
+    fn leaves_the_sign_of_a_nan_unfolded_as_unspecified() {
+        for token in ["NaN", "NaNf", "NaNp11x5", "NaNp113x15"] {
+            assert!(
+                matches!(
+                    evaluate("FLOAT.sign", &[Value::Float(float(token))]),
+                    Some(Err(Unfolded::Unspecified(_)))
+                ),
+                "{token}: {:?}",
+                evaluate("FLOAT.sign", &[Value::Float(float(token))])
+            );
+        }
+        for (token, negative) in [("-0.0", true), ("-Infinityf", true), ("0.1p11x5", false)] {
+            assert!(
+                matches!(
+                    evaluate("FLOAT.sign", &[Value::Float(float(token))]),
+                    Some(Ok(Value::Bool(value))) if value == negative
+                ),
+                "{token}"
+            );
+        }
     }
 
     /// `roundFloat` to a precision or exponent width of 1 names a format the fold does not

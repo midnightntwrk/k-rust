@@ -10161,6 +10161,63 @@ endmodule
     assert_undecided(&verdicts, "format", &output);
 }
 
+/// `signFloat` of a value read from the program (`sg`) and of a NaN constant the frontend would
+/// fold (`nanc`).
+const NAN_SIGN: &str = r#"
+module NANSIGN
+  imports DOMAINS
+  imports FLOAT
+  syntax Pgm ::= sg(Float) | nanc() | r(Bool)
+  configuration <k> $PGM:Pgm </k>
+  rule sg(X) => r(signFloat(X))
+  rule nanc() => r(signFloat(NaN))
+endmodule
+"#;
+
+/// domains.md gives the `NaN` literal no sign bit, so a model of the definition may give
+/// `signFloat` of a NaN either value: no claim about it is proven or disproved, in binary64, in a
+/// format the backend does not compute, or as a constant in a rule; that it is some Bool is
+/// proven, and the sign of `-0.0` is still proven. An execution answers `false`.
+#[test]
+fn kprove_proves_no_claim_that_depends_on_the_sign_of_a_nan() {
+    let source = format!(
+        "{NAN_SIGN}
+module NANSIGN-SPEC
+  imports NANSIGN
+  claim [nan-false]: <k> sg(NaN) => r(false) </k>
+  claim [nan-true]: <k> sg(NaN) => r(true) </k>
+  claim [wide-nan-false]: <k> sg(NaNp113x15) => r(false) </k>
+  claim [constant-nan-false]: <k> nanc() => r(false) </k>
+  claim [nan-some]: <k> sg(NaN) => r(?_B:Bool) </k>
+  claim [negative-zero]: <k> sg(-0.0) => r(true) </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "NANSIGN", "NANSIGN-SPEC");
+    for claim in [
+        "nan-false",
+        "nan-true",
+        "wide-nan-false",
+        "constant-nan-false",
+    ] {
+        assert_undecided(&verdicts, claim, &output);
+    }
+    for claim in ["nan-some", "negative-zero"] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
+    for program in ["sg(NaN)", "sg(NaNp113x15)", "nanc()"] {
+        let output = krun_sorted_program(NAN_SIGN, "NANSIGN", "Pgm", program, &[]);
+        assert!(
+            output.contains(r#"\dv{SortBool{}}("false")"#) && !output.contains("LblsignFloat"),
+            "{program}: {output}"
+        );
+    }
+}
+
 /// A Float operation over a binary32 and a binary64 operand is defined whatever format its result
 /// takes, so the claim that some Float is reached is proven, with no undefined step; an operation
 /// over one format is evaluated in a proof as in an execution.

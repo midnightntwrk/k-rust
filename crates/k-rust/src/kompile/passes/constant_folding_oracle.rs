@@ -1248,6 +1248,13 @@ fn mixed_float_operation(hook: &str, arguments: &[Arg]) -> bool {
     }
 }
 
+/// Whether `hook` is `signFloat` applied to a NaN. The `NaN` literal is given no sign bit, and
+/// the backend's `false` applies only in an execution, so the fold must leave it unfolded as
+/// unspecified.
+fn sign_of_a_nan(hook: &str, arguments: &[Arg]) -> bool {
+    hook == "FLOAT.sign" && matches!(arguments, [Arg::Float(token)] if token.starts_with("NaN"))
+}
+
 /// The model for hooks the backend does not evaluate.
 fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
     let value = |out| Expect::Value(out);
@@ -1443,9 +1450,11 @@ fn check_case(
             }
             documented
         }
-        // The backend computes the binary64 reading for the six hooks it evaluates, a value
-        // the fold must not write.
-        None if mixed_float_operation(hook, arguments) => Expect::Unspecified,
+        // The backend computes k-rust's readings of a mixed-format operation (binary64) and of a
+        // NaN's sign (false), values only an execution chooses and the fold must not write.
+        None if mixed_float_operation(hook, arguments) || sign_of_a_nan(hook, arguments) => {
+            Expect::Unspecified
+        }
         None => backend.unwrap_or_else(|| model_expectation(hook, arguments)),
     };
 
