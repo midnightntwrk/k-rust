@@ -443,6 +443,7 @@ impl<'a> HookName<'a> {
             "SET" => HookNamespace::Set,
             "BYTES" => HookNamespace::Bytes,
             "FLOAT" => HookNamespace::Float,
+            "MINT" => HookNamespace::MInt,
             "STRING" => HookNamespace::String,
             "SUBSTITUTION" => HookNamespace::Substitution,
             namespace if PLUGIN_HOOK_NAMESPACES.contains(&namespace) => HookNamespace::Plugin,
@@ -470,6 +471,7 @@ pub enum HookNamespace {
     Set,
     Bytes,
     Float,
+    MInt,
     String,
     Substitution,
     /// `KRYPTO`, `HASH`, `SECP256K1`: `builtin::krypto`.
@@ -491,6 +493,7 @@ impl HookNamespace {
             Self::Set => Some("SET"),
             Self::Bytes => Some("BYTES"),
             Self::Float => Some("FLOAT"),
+            Self::MInt => Some("MINT"),
             Self::String => Some("STRING"),
             Self::Substitution => Some("SUBSTITUTION"),
             Self::Plugin | Self::Other => None,
@@ -767,6 +770,7 @@ mod tests {
             HookNamespace::Set,
             HookNamespace::Bytes,
             HookNamespace::Float,
+            HookNamespace::MInt,
             HookNamespace::String,
             HookNamespace::Substitution,
         ] {

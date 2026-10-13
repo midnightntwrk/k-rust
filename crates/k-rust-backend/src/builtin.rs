@@ -16,6 +16,7 @@ mod hook_signature;
 mod krypto;
 mod list;
 mod map;
+mod mint;
 mod result_collection;
 mod set;
 mod string;
@@ -532,6 +533,7 @@ fn evaluate_hook_with_context(
                 }
                 Some(HookNamespace::Bytes) => bytes::evaluate(hook, arguments),
                 Some(HookNamespace::Float) => float::evaluate(hook, arguments),
+                Some(HookNamespace::MInt) => mint::evaluate(hook, arguments, result_sort),
                 Some(HookNamespace::Plugin) => krypto::evaluate(hook, arguments, definition),
                 Some(HookNamespace::String) => string::evaluate(hook, arguments, result_sort),
                 Some(HookNamespace::Substitution) => {
