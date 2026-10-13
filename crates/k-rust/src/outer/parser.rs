@@ -33,7 +33,7 @@ use super::*;
 /// whitespace of the default layout (`crate::inner::DEFAULT_LAYOUT`, which a test keeps equal),
 /// the layout the bubbles are parsed with, so a character separates the tokens around a bubble
 /// exactly when it separates the tokens inside one.
-fn is_whitespace(character: char) -> bool {
+pub(super) fn is_whitespace(character: char) -> bool {
     matches!(character, ' ' | '\t') || is_line_end(character)
 }
 

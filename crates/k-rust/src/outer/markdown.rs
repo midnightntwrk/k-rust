@@ -19,6 +19,7 @@
 
 use std::{collections::BTreeSet, fmt};
 
+use super::parser::is_whitespace;
 use crate::provenance::{SourceOffsetMap, SourceOffsetSegment};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -114,7 +115,10 @@ pub fn extract_fenced_k_code_with_map(
     let mut output = String::new();
     let mut segments = Vec::<SourceOffsetSegment>::new();
     let mut ranges = selected.into_iter().peekable();
-    // Invariant: `output` holds the characters of `input` before `index` that lie in a selected range or are whitespace, `segments` maps them back to `input` with contiguous runs merged, and `ranges` has dropped every range ending at or before `index`; each iteration consumes one character and `ranges` only advances, so the pass is O(|input| + |selected|).
+    // Prose and unselected blocks are not part of the definition: they keep only the definition
+    // text's whitespace, so every later location stays on its line and no prose character reaches
+    // the outer syntax as anything but layout.
+    // Invariant: `output` holds the characters of `input` before `index` that lie in a selected range or are whitespace of the definition text, `segments` maps them back to `input` with contiguous runs merged, and `ranges` has dropped every range ending at or before `index`; each iteration consumes one character and `ranges` only advances, so the pass is O(|input| + |selected|).
     for (index, character) in input.char_indices() {
         while ranges.peek().is_some_and(|(_, end)| index >= *end) {
             ranges.next();
@@ -122,7 +126,7 @@ pub fn extract_fenced_k_code_with_map(
         let keep = ranges
             .peek()
             .is_some_and(|(start, end)| index >= *start && index < *end);
-        if keep || character.is_whitespace() {
+        if keep || is_whitespace(character) {
             let semantic_start = output.len();
             output.push(character);
             let length = character.len_utf8();

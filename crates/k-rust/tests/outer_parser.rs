@@ -1571,6 +1571,30 @@ fn outer_positions_count_every_line_terminator() {
     }
 }
 
+/// Prose is not part of a Markdown definition: it keeps only the definition text's whitespace, so
+/// a prose character that is no layout is dropped, and a prose line end still counts.
+#[test]
+fn markdown_prose_contributes_only_layout() {
+    let block = "```k\nmodule MAIN\n  syntax Foo\nendmodule\n```\n";
+    for other in ["\u{a0}", "\u{1680}", "\u{2003}", "\u{3000}", "\u{feff}"] {
+        let markdown = format!("Prose{other}before.\n{block}After{other}the block.\n");
+        let extracted = extract_fenced_k_code(&markdown, "k").unwrap();
+        assert!(!extracted.contains(other), "{other:?}");
+        let parsed = parse("prose.md", &extracted).unwrap();
+        assert_eq!(parsed.modules[0].name, "MAIN", "{other:?}");
+    }
+    // The space keeps a `\r` from meeting the `\n` after the dropped prose as one `\r\n`.
+    for terminator in LINE_TERMINATORS {
+        let markdown = format!("Prose{terminator} before.\n{block}");
+        let extracted = extract_fenced_k_code(&markdown, "k").unwrap();
+        let parsed = parse("prose.md", &extracted).unwrap();
+        let [Sentence::Syntax(syntax)] = parsed.modules[0].sentences.as_slice() else {
+            panic!("expected one syntax declaration with {terminator:?}")
+        };
+        assert_eq!(syntax.span.start.line, 5, "{terminator:?}");
+    }
+}
+
 #[test]
 fn unquoted_attribute_values_end_on_their_line() {
     for terminator in LINE_TERMINATORS {
