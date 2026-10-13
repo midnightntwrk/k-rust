@@ -349,6 +349,7 @@ pub(super) fn apply_rule(
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
+    ground_halt: bool,
 ) -> Stoppable<RuleAttempt> {
     let attempt = apply_rule_with_match(
         definition,
@@ -360,6 +361,7 @@ pub(super) fn apply_rule(
         assume_initial_defined,
         None,
         io,
+        ground_halt,
     )?;
     refuse_carried_uncomputed_applications(definition, attempt)
 }
@@ -414,12 +416,33 @@ struct RuleContext<'a> {
     solver: &'a dyn SmtSolver,
     assume_initial_defined: bool,
     io: Option<&'a ExecutionIoState>,
+    /// Whether a variable-free configuration is read as one state, so that a rule applying to
+    /// it only by narrowing ends the attempt as `Instantiation` ([`Self::one_state`]): true on
+    /// the execution and search steps, false on the proof steps and the public step functions.
+    ground_halt: bool,
     /// The emission-position ranges of this attempt level's nested units of work (re-entered
     /// sub-attempts and right-hand-side alternatives), which attribute their own diagnostics.
     nested_units: &'a RefCell<Vec<Range<u64>>>,
 }
 
 impl RuleContext<'_> {
+    /// Whether the configuration denotes at most one state, so that a left-hand-side variable
+    /// the match leaves unbound is not replaced by a minted existential.
+    ///
+    /// A term with no variable denotes at most one element. Wherever the rule applies to it,
+    /// that element fixes every left-hand-side variable, so an existential minted for one adds
+    /// no successor the configuration does not determine: it restates a part of the
+    /// configuration the match could not decide (an application no equation evaluates, an
+    /// operation whose axioms the matcher does not apply) as a fresh unknown, which the
+    /// successor carries into the next step. A term concrete after normalization is
+    /// variable-free and is one state on every route; any other variable-free term is one state
+    /// where `ground_halt` is set. A variable makes the configuration a set of states, and
+    /// narrowing it states which of them the rule applies to.
+    fn one_state(&self) -> bool {
+        self.pattern.term.concrete_after_normalization()
+            || (self.ground_halt && self.pattern.term.attributes().variables.is_empty())
+    }
+
     /// Run `work` as a nested unit of this attempt level.
     fn nested<T>(&self, work: impl FnOnce() -> T) -> T {
         let start = diagnostic::next_position();
@@ -455,7 +478,7 @@ impl From<Stop> for PhaseExit {
 /// bindings extracted from conditions) carries the accumulated `inherited_conditions`, which
 /// only grow, and either an empty or strictly shorter `remainder` or a binding of a previously
 /// unbound `lhs` variable, so the recursion depth is at most |remainder| + 1 and the
-/// constructor-like re-entry cannot repeat. Before them, an attempt without a partial match
+/// one-state re-entry ([`RuleContext::one_state`]) cannot repeat. Before them, an attempt without a partial match
 /// re-enters at most once with the rule renamed apart from the subject; the renamed rule meets
 /// no scope variable, so it is not renamed again, and that re-entry counts no attempt.
 #[allow(clippy::too_many_arguments)]
@@ -469,6 +492,7 @@ pub(super) fn apply_rule_with_match(
     assume_initial_defined: bool,
     matched: Option<PartialRuleMatch>,
     io: Option<&ExecutionIoState>,
+    ground_halt: bool,
 ) -> Stoppable<RuleAttempt> {
     // A partial match was computed against the rule this attempt already applies, which is
     // renamed apart from the subject when it had to be.
@@ -489,6 +513,7 @@ pub(super) fn apply_rule_with_match(
             assume_initial_defined,
             None,
             io,
+            ground_halt,
         );
     }
     let _span = measure::algorithm_span(Algorithm::BackendRewriteApply);
@@ -502,6 +527,7 @@ pub(super) fn apply_rule_with_match(
         solver,
         assume_initial_defined,
         io,
+        ground_halt,
         nested_units: &nested_units,
     };
     // The attempt is one retraction scope: a report raised while it was made (of a call left
@@ -628,6 +654,7 @@ fn reenter(
             context.assume_initial_defined,
             Some(matched),
             context.io,
+            context.ground_halt,
         )
     })
 }
@@ -837,6 +864,7 @@ fn recover_by_split(
         substitution.clone(),
         remainder,
         fresh_counter,
+        context.one_state(),
     ) {
         return Some(combine_rule_attempts(
             matches
@@ -851,6 +879,7 @@ fn recover_by_split(
         substitution.clone(),
         remainder,
         fresh_counter,
+        context.one_state(),
     ) {
         return Some(combine_rule_attempts(
             matches
@@ -877,8 +906,13 @@ fn recover_by_split(
         }
         return Some(combine_rule_attempts(matches.into_iter().map(|solution| {
             let (substitution, solution_conditions) = solution.matched.into_parts();
-            let (substitution, _) =
-                freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
+            let (substitution, _) = freshen_unbound_rule_variables(
+                rule,
+                pattern,
+                substitution,
+                fresh_counter,
+                context.one_state(),
+            );
             let (substitution, solution_conditions) =
                 MatchSolution::from_parts(substitution, solution_conditions).into_parts();
             let mut conditions = inherited_conditions.to_vec();
@@ -934,6 +968,7 @@ fn recover_by_unification(
         substitution.clone(),
         &remainder,
         fresh_counter,
+        context.one_state(),
     ) {
         GeneralUnificationRecovery::Unified(mut solutions) => {
             if solutions.len() == 1 {
@@ -967,6 +1002,7 @@ fn recover_by_unification(
                 substitution.clone(),
                 &remainder,
                 fresh_counter,
+                context.one_state(),
             ) {
                 return Ok(recovered);
             }
@@ -976,6 +1012,7 @@ fn recover_by_unification(
                 substitution.clone(),
                 &remainder,
                 fresh_counter,
+                context.one_state(),
             ) {
                 return Ok(recovered);
             }
@@ -1273,8 +1310,8 @@ fn narrowing_sat(context: RuleContext<'_>, match_conditions: &[Predicate]) -> Ph
 
 /// P11: `requires` under the substitution, simplified under the path plus the match
 /// conditions (the `match_knowledge` returned with it); `False` ends the attempt; for a
-/// constructor-like subject, bindings of still-unbound `lhs` variables found in the
-/// conditions re-enter the attempt once with them composed in.
+/// one-state subject ([`RuleContext::one_state`]), bindings of still-unbound `lhs` variables
+/// found in the conditions re-enter the attempt once with them composed in.
 fn requires(
     context: RuleContext<'_>,
     fresh_counter: &mut FreshCounter,
@@ -1302,7 +1339,7 @@ fn requires(
     if predicates_truth(&requires) == Truth::False {
         return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
     }
-    if context.pattern.term.concrete_after_normalization() {
+    if context.one_state() {
         // Conditions can finish an otherwise incomplete match (for example, requires E = value).
         // Re-enter application with those bindings so the remaining functional equalities and
         // requires are simplified under the covering substitution before coverage is checked.
@@ -1451,8 +1488,8 @@ fn validity_and_applicability(
     Ok((unclear_requires, applicability))
 }
 
-/// P13: a constructor-like subject with an unbound `lhs` variable is `Indeterminate`
-/// (`Instantiation`); the existentials are freshened; every right-hand-side alternative goes
+/// P13: a one-state subject ([`RuleContext::one_state`]) with an unbound `lhs` variable is
+/// `Indeterminate` (`Instantiation`); the existentials are freshened; every right-hand-side alternative goes
 /// through `apply_rhs_alternative`, and the attempt is `Unified` with the applications and
 /// trivial results collected (an `Indeterminate` alternative ends it).
 #[deny(clippy::wildcard_enum_match_arm)]
@@ -1467,7 +1504,7 @@ fn instantiate(
 ) -> Phase<RuleAttempt> {
     let rule = context.rule;
     let pattern = context.pattern;
-    if pattern.term.concrete_after_normalization() {
+    if context.one_state() {
         let missing_variables = rule
             .lhs
             .attributes()

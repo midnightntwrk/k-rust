@@ -1102,7 +1102,8 @@ pub(crate) fn rewrite_step_with_options(
 }
 
 /// [`rewrite_step_with_options`] on a subject defined where `defined_where` holds
-/// ([`SubjectDefinedness::Where`]).
+/// ([`SubjectDefinedness::Where`]), reading a variable-free subject as one state when
+/// `ground_halt` is set (search's step).
 pub(crate) fn rewrite_step_restricted(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -1110,6 +1111,7 @@ pub(crate) fn rewrite_step_restricted(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     defined_where: &[Predicate],
+    ground_halt: bool,
 ) -> Stoppable<RewriteResult> {
     rewrite_step_with_optional_execution(
         definition,
@@ -1120,6 +1122,7 @@ pub(crate) fn rewrite_step_restricted(
         ExecutionMode::All,
         SubjectDefinedness::Where(defined_where),
         None,
+        ground_halt,
     )
 }
 
@@ -1171,6 +1174,7 @@ pub(crate) fn rewrite_step_sequential_tracking_dropped(
         solver,
         &[],
         None,
+        false,
         Some(&mut determinism),
     )?;
     Ok((result, determinism.dropped))
@@ -1194,9 +1198,13 @@ pub(crate) fn rewrite_step_with_mode(
         mode,
         SubjectDefinedness::of_assumption(assume_initial_defined),
         None,
+        false,
     )
 }
 
+/// One rewrite step under `mode`. `ground_halt` reads a variable-free subject as one state
+/// (`RuleContext::one_state` in apply.rs): execution and search set it, and the proof steps and
+/// the public step functions do not.
 #[allow(clippy::too_many_arguments)]
 fn rewrite_step_with_optional_execution(
     definition: &BackendDefinition,
@@ -1207,6 +1215,7 @@ fn rewrite_step_with_optional_execution(
     mode: ExecutionMode,
     subject_definedness: SubjectDefinedness<'_>,
     io: Option<&ExecutionIoState>,
+    ground_halt: bool,
 ) -> Stoppable<RewriteResult> {
     if let Some(symbol) = pattern.macro_or_alias_symbol() {
         return Ok(RewriteResult::Indeterminate {
@@ -1226,6 +1235,7 @@ fn rewrite_step_with_optional_execution(
             solver,
             subject_definedness,
             io,
+            ground_halt,
         ),
         // The sequential step decides its rules' conditions without assuming the subject
         // defined, whatever the caller assumes.
@@ -1237,6 +1247,7 @@ fn rewrite_step_with_optional_execution(
             solver,
             subject_definedness.restriction(),
             io,
+            ground_halt,
             None,
         ),
     }

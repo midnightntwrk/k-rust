@@ -96,6 +96,7 @@ fn apply_priority_group(
     solver: &dyn SmtSolver,
     subject_definedness: SubjectDefinedness<'_>,
     io: Option<&ExecutionIoState>,
+    ground_halt: bool,
 ) -> Stoppable<PriorityGroupOutcome> {
     let mut applied = Vec::new();
     let mut trivial = Vec::new();
@@ -118,6 +119,7 @@ fn apply_priority_group(
             solver,
             subject_definedness.assumed(),
             io,
+            ground_halt,
         )? {
             RuleAttempt::NotApplicable => {}
             RuleAttempt::Unified { groups } => {
@@ -280,6 +282,7 @@ fn first_productive_group(
     solver: &dyn SmtSolver,
     subject_definedness: SubjectDefinedness<'_>,
     io: Option<&ExecutionIoState>,
+    ground_halt: bool,
 ) -> Stoppable<PriorityGroupOutcome> {
     // An unproductive group's attempts did not apply: no successor depends on their work.
     for rules in groups.by_ref() {
@@ -292,6 +295,7 @@ fn first_productive_group(
             solver,
             subject_definedness,
             io,
+            ground_halt,
         )? {
             PriorityGroupOutcome::NotProductive => {}
             outcome @ PriorityGroupOutcome::Undecided(_) => return Ok(outcome),
@@ -367,6 +371,7 @@ pub(super) fn rewrite_step_all(
     solver: &dyn SmtSolver,
     subject_definedness: SubjectDefinedness<'_>,
     io: Option<&ExecutionIoState>,
+    ground_halt: bool,
 ) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
@@ -389,6 +394,7 @@ pub(super) fn rewrite_step_all(
         solver,
         subject_definedness,
         io,
+        ground_halt,
     )?;
     Ok(match outcome {
         PriorityGroupOutcome::NotProductive => {
@@ -414,6 +420,7 @@ pub(super) fn rewrite_step_all(
                 simplification_options,
                 solver,
                 subject_definedness,
+                ground_halt,
             )?;
             classify_first_group(pattern, branches, trivial, remainder)
         }
@@ -447,6 +454,7 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
             solver,
             SubjectDefinedness::of_assumption(assume_initial_defined),
             None,
+            false,
         )? {
             PriorityGroupOutcome::NotProductive => stuck(definition, pattern)?,
             PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
@@ -507,6 +515,7 @@ fn fold_lower_priority_groups(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     subject_definedness: SubjectDefinedness<'_>,
+    ground_halt: bool,
 ) -> Stoppable<()> {
     let mut needs_simplification = true;
     // Invariant: each pass either applies and removes one group of `lower.groups` or, at most
@@ -591,6 +600,7 @@ fn fold_lower_priority_groups(
                 solver,
                 subject_definedness,
                 None,
+                ground_halt,
             )
         });
         match outcome? {
@@ -737,6 +747,7 @@ impl SequentialDeterminism {
                 solver,
                 false,
                 None,
+                false,
             )? {
                 RuleAttempt::NotApplicable => {}
                 RuleAttempt::Indeterminate(_) | RuleAttempt::Simplification(_) => {
@@ -891,6 +902,7 @@ pub(super) fn rewrite_step_any(
     solver: &dyn SmtSolver,
     restriction: &[Predicate],
     io: Option<&ExecutionIoState>,
+    ground_halt: bool,
     mut determinism: Option<&mut SequentialDeterminism>,
 ) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
@@ -973,6 +985,7 @@ pub(super) fn rewrite_step_any(
             solver,
             false,
             io,
+            ground_halt,
         )?;
         if let Some(determinism) = determinism.as_deref_mut() {
             determinism.record(

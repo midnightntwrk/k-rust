@@ -671,6 +671,8 @@ impl<'a> Execution<'a> {
                 SubjectDefinedness::Where(&state.defined_where)
             },
             state.io_enabled.then_some(&state.io),
+            // Execution reads a variable-free configuration as one state.
+            true,
         )
     }
 

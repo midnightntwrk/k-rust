@@ -236,7 +236,7 @@ impl Display for AtSort<'_, IndeterminateReason> {
                 missing_variables,
             } => write!(
                 formatter,
-                "rule {rule_id} leaves {} uninstantiated in concrete execution",
+                "rule {rule_id} leaves {} uninstantiated on a variable-free configuration",
                 missing_variables
                     .iter()
                     .map(printed_variable)

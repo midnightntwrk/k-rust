@@ -291,6 +291,7 @@ pub(super) fn recover_general_unification(
     substitution: Substitution,
     remainder: &[(Term, Term)],
     fresh_counter: &mut FreshCounter,
+    one_state: bool,
 ) -> GeneralUnificationRecovery {
     match unify_term_pairs(definition, substitution, remainder.iter().cloned()) {
         UnificationResult::Bottom(_) => GeneralUnificationRecovery::Bottom,
@@ -319,6 +320,7 @@ pub(super) fn recover_general_unification(
                 &constraints,
                 &remainder,
                 fresh_counter,
+                one_state,
             ))
         }
         UnificationResult::Unified(unified) => {
@@ -333,11 +335,13 @@ pub(super) fn recover_general_unification(
                 &unified.constraints,
                 &[],
                 fresh_counter,
+                one_state,
             ))
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finalize_general_unification(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -346,13 +350,19 @@ fn finalize_general_unification(
     constraints: &[Predicate],
     collection_pairs: &[(Term, Term)],
     fresh_counter: &mut FreshCounter,
+    one_state: bool,
 ) -> Vec<(Substitution, Vec<Predicate>)> {
     solutions
         .into_iter()
         .map(|solution| {
             let (substitution, conditions) = solution.matched.into_parts();
-            let (substitution, _) =
-                freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
+            let (substitution, _) = freshen_unbound_rule_variables(
+                rule,
+                pattern,
+                substitution,
+                fresh_counter,
+                one_state,
+            );
             let mut matched = MatchSolution::from_parts(substitution, constraints.to_vec());
             matched.conjoin(conditions);
             let (substitution, mut constraints) = matched.into_parts();
@@ -398,6 +408,7 @@ pub(super) fn recover_functional_symbolic_match(
     substitution: Substitution,
     remainder: &[(Term, Term)],
     fresh_counter: &mut FreshCounter,
+    one_state: bool,
 ) -> Option<(Substitution, Vec<Predicate>)> {
     for (rule_term, configuration_term) in remainder {
         let rule_term = substitute(rule_term, &substitution);
@@ -420,7 +431,7 @@ pub(super) fn recover_functional_symbolic_match(
     }
 
     let (substitution, fresh_variables) =
-        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
+        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter, one_state);
 
     let mut conditions = Vec::new();
     for (rule_term, configuration_term) in remainder {
@@ -465,16 +476,17 @@ pub(super) fn freshen_unbound_rule_variables(
     pattern: &Pattern,
     mut substitution: Substitution,
     fresh_counter: &mut FreshCounter,
+    one_state: bool,
 ) -> (Substitution, BTreeSet<Variable>) {
     // Narrowing turns a rule variable the match left unbound into an existential constrained by
     // the match's remaining conditions, so the successor covers every value that makes them hold
-    // for some instance of the configuration. A configuration concrete after normalization is
-    // one state: a left-hand side built from constructors fixes each of its variables there, so
-    // an unbound one only means the matcher has not computed it yet, and an existential would
-    // stand for a value the state already determines. Keep such variables free for a `requires`
-    // equality to bind; apply_rule_with_match reports the step as undetermined
+    // for some instance of the configuration. A configuration that is one state (`one_state`,
+    // `RuleContext::one_state` in apply.rs) fixes each of the rule's variables wherever the rule
+    // applies, so an unbound one only means the matcher has not computed it, and an existential
+    // would stand for a value the state already determines. Keep such variables free for a
+    // `requires` equality to bind; apply_rule_with_match reports the step as undetermined
     // (`IndeterminateReason::Instantiation`) when the substitution still leaves one unbound.
-    if pattern.term.concrete_after_normalization() {
+    if one_state {
         return (substitution, BTreeSet::new());
     }
     let mut names_to_avoid = pattern_variable_names(pattern)
@@ -522,6 +534,7 @@ pub(super) fn recover_function_equality_match(
     substitution: Substitution,
     remainder: &[(Term, Term)],
     fresh_counter: &mut FreshCounter,
+    one_state: bool,
 ) -> Option<(Substitution, Vec<Predicate>)> {
     if remainder.is_empty()
         || remainder.iter().any(|(left, right)| {
@@ -534,7 +547,7 @@ pub(super) fn recover_function_equality_match(
         return None;
     }
     let (substitution, _) =
-        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
+        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter, one_state);
     let conditions = remainder
         .iter()
         .filter_map(|(left, right)| {
@@ -898,6 +911,7 @@ pub(super) fn recover_map_not_in_keys_matches(
     substitution: Substitution,
     remainder: &[(Term, Term)],
     fresh_counter: &mut FreshCounter,
+    one_state: bool,
 ) -> Option<Vec<PartialRuleMatch>> {
     let (index, split) = remainder
         .iter()
@@ -908,7 +922,7 @@ pub(super) fn recover_map_not_in_keys_matches(
             split_map_not_in_keys_pair(&left, &right).map(|split| (index, split))
         })?;
     let substitution = if matches!(split.side, SplitSide::Pattern) {
-        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter).0
+        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter, one_state).0
     } else {
         substitution
     };
@@ -1033,6 +1047,7 @@ pub(super) fn recover_equality_matches(
     substitution: Substitution,
     remainder: &[(Term, Term)],
     fresh_counter: &mut FreshCounter,
+    one_state: bool,
 ) -> Option<Vec<PartialRuleMatch>> {
     let (index, split) = remainder
         .iter()
@@ -1079,7 +1094,7 @@ pub(super) fn recover_equality_matches(
     }
 
     let substitution = if matches!(split.side, SplitSide::Pattern) {
-        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter).0
+        freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter, one_state).0
     } else {
         substitution
     };
