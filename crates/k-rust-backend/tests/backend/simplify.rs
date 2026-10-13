@@ -6534,6 +6534,18 @@ fn reflexive_k_equality_keeps_the_operand_definedness() {
 }
 
 #[test]
+fn k_equality_of_whole_sequences_keeps_the_operand_definedness() {
+    let item = "inj{SortInt{}, SortKItem{}}($D)";
+    let pair = format!("kseq{{}}({item}, kseq{{}}({item}, dotk{{}}()))");
+    assert_hook_keeps_argument_definedness(&format!("eqK{{}}({pair}, {pair})"), TRUE);
+    assert_hook_keeps_argument_definedness(&format!("neK{{}}({pair}, {pair})"), FALSE);
+    assert_hook_keeps_argument_definedness(
+        &format!("eqK{{}}(kseq{{}}({item}, dotk{{}}()), dotk{{}}())"),
+        FALSE,
+    );
+}
+
+#[test]
 fn absorbing_boolean_operators_keep_the_absorbed_operand_definedness() {
     let operand = r#"eqInt{}($D, Y:SortInt{})"#;
     for (hook, absorbing) in [
