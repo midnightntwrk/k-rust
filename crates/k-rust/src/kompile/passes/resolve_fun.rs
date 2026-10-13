@@ -56,7 +56,7 @@ use crate::{
 pub(crate) struct DefinedBody(());
 
 /// A generated lambda's variable pattern covers its parameter sort: every semantic cast on the
-/// path to the variable, and any inferred sort recorded on it, equal the computed parameter sort.
+/// path to the variable, and any sort the variable carries, equal the computed parameter sort.
 /// A narrower sort anywhere on that path restricts the equation and cannot receive this receipt.
 /// Only local-function lowering can construct it; later stages still check equation conditions and results.
 pub(crate) struct CoveringLambda {
@@ -391,10 +391,14 @@ impl Resolver<'_, '_, '_> {
         let right = rewrite_right(&body);
         let lhs_sort = self.term_sort(&left, &attributes);
         let argument_sort = self.term_sort(&argument, &attributes);
-        // An uncast variable pattern matches any term, so the parameter takes `K`, the sort of
-        // every term, regardless of the concrete argument sort.
+        // The parameter must contain the argument's sort (for the call) and the pattern's sort
+        // (for the equation); the least such sort is their least upper bound. An unsorted
+        // variable pattern matches any term, so the parameter takes `K`, the sort of every term,
+        // regardless of the concrete argument sort. A variable that carries a sort, its own or
+        // one recorded in its metadata, is a pattern of that sort, as its cast spelling
+        // `#SemanticCastToS(X:S)` is, and goes through the least upper bound like it.
         let parameter_sort = match (lhs_sort, argument_sort) {
-            _ if matches!(left.unannotated(), Term::Variable { .. }) => {
+            _ if matches!(variable_pattern_sort(&left), Some(None)) => {
                 Sort::builtin(BuiltinSort::K)
             }
             (Some(lhs), Some(argument)) => self
@@ -410,7 +414,7 @@ impl Resolver<'_, '_, '_> {
 
         // A lambda has no value on an argument its pattern does not match.
         // A variable pattern covers every argument only when every semantic cast on the path
-        // to the variable, and any inferred sort recorded on it, equal the parameter sort.
+        // to the variable, and any sort the variable carries, equal the parameter sort.
         // A narrower sort anywhere on that path restricts the generated equation.
         // The generated equation's right-hand side must also denote a defined value.
         let covering = [InternalLabel::Fun2, InternalLabel::Fun3, InternalLabel::Let]
@@ -994,17 +998,46 @@ fn underlying_variable(term: &Term) -> Option<(String, Option<Sort>)> {
     }
 }
 
+/// The sort of the variable pattern `pattern`, looking through annotations: `None` when
+/// `pattern` is not a variable, `Some(None)` for an unsorted variable, which matches every term,
+/// and otherwise the variable's own sort, else the sort its metadata records (which sort
+/// injection gives an unsorted variable), so the variable matches only that sort's values.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
+fn variable_pattern_sort(pattern: &Term) -> Option<Option<Sort>> {
+    let mut recorded = None;
+    let mut term = pattern;
+    // Invariant: `recorded` is the outermost metadata sort among the annotations above `term`.
+    while let Term::Annotated {
+        term: inner,
+        metadata,
+    } = term
+    {
+        recorded = recorded.or(metadata.sort.as_ref());
+        term = inner;
+    }
+    match term {
+        Term::Variable { sort, .. } => Some(sort.as_ref().or(recorded).cloned()),
+        _ => None,
+    }
+}
+
 /// Whether the variable pattern `pattern` matches every value of `parameter`: every semantic
-/// cast on the path to the variable, and the sort inference recorded on the variable itself,
-/// must be exactly `parameter`. A narrower sort anywhere on that path restricts the generated
-/// equation to that sort's values, so the lambda has no value elsewhere.
+/// cast on the path to the variable, and the sort the variable carries (its own, inferred or
+/// written, else its metadata sort, [`variable_pattern_sort`]), must be exactly `parameter`. A
+/// narrower sort anywhere on that path restricts the generated equation to that sort's values,
+/// so the lambda has no value elsewhere.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Term is syntax; only the listed variants are special here"
 )]
 fn pattern_covers(pattern: &Term, parameter: &Sort) -> bool {
+    if let Some(sort) = variable_pattern_sort(pattern) {
+        return sort.is_none_or(|sort| &sort == parameter);
+    }
     match pattern.unannotated() {
-        Term::Variable { sort, .. } => sort.as_ref().is_none_or(|sort| sort == parameter),
         Term::Apply { label, arguments } if arguments.len() == 1 => {
             label
                 .semantic_cast_sort()

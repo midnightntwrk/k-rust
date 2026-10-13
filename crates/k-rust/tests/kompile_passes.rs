@@ -1510,78 +1510,235 @@ fn local_function_variable_patterns_keep_the_k_parameter_sort() {
     }
 }
 
-#[test]
-fn local_function_singleton_user_list_arguments_keep_the_k_parameter_sort() {
-    let item = Sort::new("Item");
-    let items = Sort::new("Items");
-    let local_function = application(
-        "#let",
-        vec![
-            Term::Variable {
-                name: "X".into(),
-                sort: Some(item),
-            },
-            Term::Token {
-                token: "items".into(),
-                sort: items.clone(),
-            },
-            Term::variable("X"),
-        ],
-    );
-    let definition = Definition {
+/// The parameter sort of the one generated lambda of `definition` after local-function
+/// lowering, its result sort, and whether it is declared `total`.
+fn lambda_signature(definition: &Definition) -> (Sort, Sort, bool) {
+    let transformed = resolve_fun(definition).unwrap();
+    let signatures = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Production {
+                label: Some(label),
+                sort,
+                items,
+                attributes,
+                ..
+            } if label.name.starts_with("#lambda") => Some((
+                items.iter().find_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                    _ => None,
+                })?,
+                sort.clone(),
+                attributes.get("total").is_some(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let [signature] = signatures.as_slice() else {
+        panic!("expected one generated lambda: {signatures:?}");
+    };
+    signature.clone()
+}
+
+/// A definition of the sort `Items` with the user-list constant `.Items`, whose one rule is
+/// `#let binder = argument #in binder-body`.
+fn items_let(binder: Term, argument: Term, body: Term) -> Definition {
+    Definition {
         main_module: "MAIN".into(),
         modules: vec![module(
             "MAIN",
             vec![
                 Sentence::SyntaxSort {
                     parameters: Vec::new(),
-                    sort: items.clone(),
+                    sort: Sort::new("Items"),
                     attributes: Attributes::default(),
                 },
                 production(".Items", "Items", attributes(&[("userList", json!(""))])),
-                rule(local_function, Attributes::default()),
+                rule(
+                    application("#let", vec![binder, argument, body]),
+                    Attributes::default(),
+                ),
             ],
         )],
         attributes: Attributes::default(),
-    };
-    let transformed = resolve_fun(&definition).unwrap();
-    let (argument_sort, lambda_attributes) = transformed
-        .main_module()
-        .unwrap()
-        .local_sentences
-        .iter()
-        .find_map(|sentence| match &**sentence {
-            Sentence::Production {
-                label: Some(label),
-                items,
-                attributes,
-                ..
-            } if label.name.starts_with("#lambda") => Some((
-                items.iter().find_map(|item| match item {
-                    ProductionItem::NonTerminal { sort, .. } => Some(sort),
-                    _ => None,
-                })?,
-                attributes,
-            )),
-            _ => None,
-        })
-        .unwrap();
+    }
+}
 
-    assert_eq!(
-        argument_sort,
-        &Sort::new("K"),
-        "an uncast variable pattern contributes K even for a user-list argument"
-    );
+/// The parameter of a generated lambda is the domain of a function applied at one site, so it
+/// must hold the argument's sort (for the call) and the pattern's sort (for the equation); the
+/// least such sort is their least upper bound. A variable that carries a sort is a pattern of
+/// that sort. `X:Item` against an `Items` argument gives the least upper bound of the two
+/// (`KItem`, as the definition does not relate them), over which the pattern accepts only the
+/// `Item` values, so the lambda is not total. A binder that matches every term, unsorted or
+/// cast to `K` (the shape source inference gives the unused `_V1` of `#fun(_V1 => 0)(.IntList)`),
+/// takes `K`, and its lambda is total, the body being defined.
+#[test]
+fn a_sorted_variable_binder_takes_the_least_upper_bound_parameter() {
+    let items = || Term::Token {
+        token: "items".into(),
+        sort: Sort::new("Items"),
+    };
+    let item_binder = || Term::Variable {
+        name: "X".into(),
+        sort: Some(Sort::new("Item")),
+    };
+    let (parameter, _, total) = lambda_signature(&items_let(item_binder(), items(), item_binder()));
+    assert_eq!(parameter, Sort::new("KItem"));
     assert!(
-        lambda_attributes.get("total").is_none(),
-        "the X:Item pattern leaves the K parameter's non-Item arguments without a value"
+        !total,
+        "the X:Item pattern leaves the KItem parameter's non-Item arguments without a value"
+    );
+
+    let empty = || application(".Items", Vec::new());
+    let zero = || Term::Token {
+        token: "0".into(),
+        sort: Sort::new("Int"),
+    };
+    let cast_to_k = application("#SemanticCastToK", vec![Term::variable("_V1")]);
+    assert_eq!(
+        lambda_signature(&items_let(cast_to_k, empty(), zero())),
+        (Sort::new("K"), Sort::new("Int"), true),
+        "a binder cast to K matches .Items"
+    );
+    assert_eq!(
+        lambda_signature(&items_let(Term::variable("V"), empty(), zero())),
+        (Sort::new("K"), Sort::new("Int"), true),
+        "an unsorted structured binder matches every term"
     );
 }
 
-/// `#let X:Item = items #in X` binds only an `Item`, so the generated lambda over its `K`
-/// parameter has no value on any other argument: lowering gives it an `owise` equation whose
-/// right-hand side is `#Bottom` labelled with the lambda's result sort, which sort injection
-/// places beside the `#Bottom` production every module that can write a `#let` sees.
+/// A definition with `Int < Exp` and `f(Exp) : Exp [function]` whose one rule is
+/// `f(E:Exp) => #let binder = E #in body`.
+fn exp_let(binder: Term, body: Term) -> Definition {
+    let exp = Sort::new("Exp");
+    let int = Sort::new("Int");
+    let mut function = Attributes::default();
+    function.mark(k_rust::definition::AttributeKey::Function);
+    Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: exp.clone(),
+                    attributes: Attributes::default(),
+                },
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: int.clone(),
+                    attributes: Attributes::default(),
+                },
+                Sentence::Production {
+                    label: None,
+                    parameters: Vec::new(),
+                    sort: exp.clone(),
+                    items: vec![ProductionItem::NonTerminal {
+                        sort: int,
+                        name: None,
+                    }],
+                    attributes: Attributes::default(),
+                },
+                Sentence::Production {
+                    label: Some(Label::new("f")),
+                    parameters: Vec::new(),
+                    sort: exp.clone(),
+                    items: vec![
+                        ProductionItem::Terminal("f".into()),
+                        ProductionItem::Terminal("(".into()),
+                        ProductionItem::NonTerminal {
+                            sort: exp.clone(),
+                            name: None,
+                        },
+                        ProductionItem::Terminal(")".into()),
+                    ],
+                    attributes: function,
+                },
+                rule(
+                    rewrite(
+                        application("f", vec![sorted_variable("E", "Exp")]),
+                        application("#let", vec![binder, sorted_variable("E", "Exp"), body]),
+                    ),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    }
+}
+
+fn sorted_variable(name: &str, sort: &str) -> Term {
+    Term::Variable {
+        name: name.into(),
+        sort: Some(Sort::new(sort)),
+    }
+}
+
+/// An unsorted variable whose sort is recorded only in its metadata.
+fn metadata_sorted_variable(name: &str, sort: &str) -> Term {
+    Term::variable(name).with_metadata(TermMetadata {
+        sort: Some(Sort::new(sort)),
+        ..TermMetadata::default()
+    })
+}
+
+/// Sort injection gives an unsorted variable the sort its metadata records, so the binder `M`
+/// annotated `Int` matches only `Int` values. Over an `Exp` argument the lambda's parameter is
+/// `Exp`, and a `total` claim would be false on every non-`Int` argument.
+#[test]
+fn a_metadata_sorted_binder_is_not_covering_over_k() {
+    assert_eq!(
+        lambda_signature(&exp_let(
+            metadata_sorted_variable("M", "Int"),
+            sorted_variable("E", "Exp"),
+        )),
+        (Sort::new("Exp"), Sort::new("Exp"), false),
+    );
+    assert_eq!(
+        lambda_signature(&exp_let(
+            metadata_sorted_variable("M", "Exp"),
+            sorted_variable("E", "Exp"),
+        )),
+        (Sort::new("Exp"), Sort::new("Exp"), true),
+    );
+}
+
+/// A binder's sort is the same claim whether it is written as a semantic cast, on the variable,
+/// or in the variable's metadata, so the lambda's signature and totality depend only on that sort
+/// and the argument's: `M:Exp` on an `Exp` argument covers the `Exp` parameter, `M:Int` narrows
+/// it.
+#[test]
+fn a_sorted_variable_binder_compiles_like_its_cast_spelling() {
+    for (sort, total) in [("Exp", true), ("Int", false)] {
+        let spellings = [
+            (
+                "cast",
+                application(
+                    &format!("#SemanticCastTo{sort}"),
+                    vec![sorted_variable("M", sort)],
+                ),
+            ),
+            ("variable", sorted_variable("M", sort)),
+            ("metadata", metadata_sorted_variable("M", sort)),
+        ];
+        for (spelling, binder) in spellings {
+            assert_eq!(
+                lambda_signature(&exp_let(binder, sorted_variable("M", sort))),
+                (Sort::new("Exp"), Sort::new(sort), total),
+                "binder M:{sort} written as a {spelling}"
+            );
+        }
+    }
+}
+
+/// `#let X:Item = items #in X` binds only an `Item`, so the generated lambda over its `KItem`
+/// parameter (the least upper bound of `Item` and `Items`) has no value on any other argument:
+/// lowering gives it an `owise` equation whose right-hand side is `#Bottom` labelled with the
+/// lambda's result sort, which sort injection places beside the `#Bottom` production every
+/// module that can write a `#let` sees.
 #[test]
 fn a_non_covering_local_function_is_bottom_off_its_pattern() {
     let item = Sort::new("Item");
@@ -1657,7 +1814,7 @@ fn a_non_covering_local_function_is_bottom_off_its_pattern() {
     assert!(refutation.get("owise").is_some(), "{refutation:?}");
     assert!(
         matches!(pattern.as_slice(), [cast] if matches!(cast.unannotated(),
-            Term::Apply { label, arguments } if label.name == "#SemanticCastToK"
+            Term::Apply { label, arguments } if label.name == "#SemanticCastToKItem"
                 && matches!(arguments.as_slice(), [owise]
                     if matches!(owise.unannotated(), Term::Variable { name, .. } if name == "#Owise")))),
         "{pattern:?}"
@@ -1750,6 +1907,112 @@ fn only_the_rust_target_states_the_refutation_equation_of_a_local_function() {
         llvm_equations[0].contains("Lblpair{}(") && !llvm_equations[0].contains("owise{}()"),
         "{}",
         llvm_equations[0]
+    );
+}
+
+const SORTED_LET: &str = indoc! {r#"
+    module MAIN
+      imports INT
+      syntax Exp ::= Int
+                   | f(Exp) [function, symbol(f)]
+      configuration <k> $PGM:Exp </k>
+      rule f(E) => #let M:Exp = E #in M
+    endmodule
+"#};
+
+/// The symbol declarations of the generated lambdas in `kore`, whitespace removed; a long
+/// declaration continues with its attributes on a line of its own.
+fn lambda_symbols(kore: &str) -> Vec<String> {
+    let mut sentences = Vec::new();
+    let mut current = String::new();
+    for line in kore.lines() {
+        if (line.starts_with("  ") && !line.starts_with("   ") && !line.starts_with("  ["))
+            || line == "endmodule"
+        {
+            sentences.push(std::mem::take(&mut current));
+        }
+        current.push_str(line);
+    }
+    sentences.push(current);
+    sentences
+        .into_iter()
+        .filter(|sentence| sentence.starts_with("  symbol Lbl'Hash'lambda"))
+        .map(|sentence| sentence.split_whitespace().collect())
+        .collect()
+}
+
+/// `rule f(E) => #let M:Exp = E #in M` compiles to the same lambda symbol from source text and
+/// from a structured definition whose binder is the variable `M` of sort `Exp`: a parameter of
+/// sort `Exp`, which the binder covers, so the lambda is total.
+#[test]
+fn a_sorted_let_binder_declares_the_same_lambda_from_source_and_structured_input() {
+    let options = LoadOptions {
+        implicit_sources: vec![embedded("prelude.md").unwrap()],
+        excluded_module_attributes: vec![
+            CompilationBackend::Rust.excluded_module_attribute().into(),
+        ],
+        ..LoadOptions::default()
+    };
+    let compile = |loaded: &k_rust::outer::LoadedDefinition| {
+        compile_loaded_definition(loaded, CompileOptions::default())
+            .unwrap()
+            .definition_kore
+    };
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let source = load_with_options(
+        ResolvedSource::new("sorted-let.k", SORTED_LET),
+        "MAIN",
+        &mut resolver,
+        &options,
+    )
+    .unwrap();
+
+    let parsed = k_rust::outer::parse("sorted-let.k", SORTED_LET).unwrap();
+    let mut definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+    let module = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap();
+    let bubble = module
+        .local_sentences
+        .iter_mut()
+        .find(|sentence| {
+            matches!(&***sentence, Sentence::Bubble { contents, .. } if contents.contains("#let"))
+        })
+        .unwrap();
+    *k_rust::definition::sentence_mut(bubble) = rule(
+        rewrite(
+            application("f", vec![sorted_variable("E", "Exp")]),
+            application(
+                "#let",
+                vec![
+                    sorted_variable("M", "Exp"),
+                    sorted_variable("E", "Exp"),
+                    sorted_variable("M", "Exp"),
+                ],
+            ),
+        ),
+        Attributes::default(),
+    );
+    let structured = k_rust::outer::load_structured(definition, &options).unwrap();
+
+    let from_source = lambda_symbols(&compile(&source));
+    assert_eq!(
+        from_source,
+        lambda_symbols(&compile(&structured)),
+        "source and structured lambdas differ"
+    );
+    let [symbol] = from_source.as_slice() else {
+        panic!("expected one lambda symbol: {from_source:#?}");
+    };
+    assert!(
+        symbol.contains("(SortExp{}):SortExp{}[")
+            && symbol.contains("functional{}()")
+            && symbol.contains("total{}()"),
+        "{symbol}"
     );
 }
 
