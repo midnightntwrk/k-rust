@@ -11216,6 +11216,97 @@ fn a_reassociation_whose_head_is_withdrawn_keeps_the_nested_application_open() {
     );
 }
 
+/// The unrestricted reassociation beside the unit rule, with a rewrite rule that rebuilds a
+/// nested `seq` application from the constructor `go`.
+const REASSOCIATION_GO: &str = r#"
+module REASSOC-GO
+  syntax Stmt ::= "a" [symbol(a)] | "b" [symbol(b)] | "c" [symbol(c)] | "d" [symbol(d)] | "go" [symbol(go)]
+                > Stmt ";" Stmt [symbol(seq), right]
+  syntax Stmt ::= "(" Stmt ")" [bracket]
+  configuration <k> $PGM:Stmt </k>
+  rule a ; S:Stmt => S [anywhere]
+  rule (S1:Stmt ; S2:Stmt) ; S3:Stmt => S1 ; S2 ; S3 [anywhere]
+  rule <k> go => (b ; c) ; d </k>
+endmodule
+"#;
+
+/// While `seq` is withdrawn no application of it is a normal form, so the rule for the
+/// constructor `go`, whose left-hand side is ground and binds no variable, applies to `b ; c`
+/// under the undecided equality `go = b ; c`, beside the branch under its negation; its result
+/// `(b ; c) ; d` is again an uncertified application, so the rule applies on every state it
+/// builds. The run revisits the same states: three leaves at depth 2 and the same three at depth
+/// 6, no minted existential. A rule that leaves a left-hand-side variable unbound halts on the
+/// variable-free configuration instead.
+#[test]
+fn a_withdrawn_anywhere_head_makes_a_rebuilding_rule_branch_on_equalities() {
+    let seq_bc = "Lblseq{}(Lblb{}(),Lblc{}())";
+    let seq_bcd = format!("Lblseq{{}}({seq_bc},Lbld{{}}())");
+    let leaf = |item: &str| {
+        format!(
+            r#"Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortStmt{{}},SortKItem{{}}}}({item}),dotk{{}}())),Lbl'-LT-'generatedCounter'-GT-'{{}}(\dv{{SortInt{{}}}}("0")))"#
+        )
+    };
+    let equals = |right: &str| {
+        format!(r"\equals{{SortStmt{{}},SortGeneratedTopCell{{}}}}(Lblgo{{}}(),{right})")
+    };
+    let not = |predicate: &str| format!(r"\not{{SortGeneratedTopCell{{}}}}({predicate})");
+    let ceil = format!(r"\ceil{{SortStmt{{}},SortGeneratedTopCell{{}}}}({seq_bc})");
+    let expected = format!(
+        r"\or{{SortGeneratedTopCell{{}}}}(\and{{SortGeneratedTopCell{{}}}}({},{}),\and{{SortGeneratedTopCell{{}}}}({},\and{{SortGeneratedTopCell{{}}}}({ceil},{},{})),\and{{SortGeneratedTopCell{{}}}}({},\and{{SortGeneratedTopCell{{}}}}({ceil},{},{})))",
+        leaf(seq_bc),
+        not(&equals(seq_bc)),
+        leaf(&seq_bcd),
+        equals(seq_bc),
+        not(&equals(&seq_bcd)),
+        leaf(&seq_bcd),
+        equals(seq_bc),
+        equals(&seq_bcd),
+    );
+    let (depth_two, stderr) = krun_compact(
+        REASSOCIATION_GO,
+        "REASSOC-GO",
+        "Stmt",
+        "b ; c",
+        &["--depth", "2"],
+    );
+    assert_eq!(depth_two, expected, "{stderr}");
+    assert_eq!(
+        depth_two.matches("Lbl'-LT-'generatedTop'-GT-'{}(").count(),
+        3
+    );
+    assert!(!depth_two.contains("Ex-"), "{depth_two}");
+    assert!(
+        stderr.contains("no value claims are made for seq"),
+        "{stderr}"
+    );
+    let (depth_six, stderr) = krun_compact(
+        REASSOCIATION_GO,
+        "REASSOC-GO",
+        "Stmt",
+        "b ; c",
+        &["--depth", "6"],
+    );
+    assert_eq!(depth_six, depth_two, "{stderr}");
+
+    let (root, _) = fixture();
+    let unbound = compiled_for_execution(
+        &root,
+        "unbound",
+        &REASSOCIATION_GO
+            .replace("REASSOC-GO", "REASSOC-GO2")
+            .replace(r#""go" [symbol(go)]"#, r#""go" "(" Stmt ")" [symbol(go)]"#)
+            .replace(
+                "rule <k> go => (b ; c) ; d </k>",
+                "rule <k> go(X) => (X ; c) ; d </k>",
+            ),
+        "REASSOC-GO2",
+        "REASSOC-GO2",
+    );
+    let output = bounded_krun(&unbound, "Stmt", "b ; c", &[]);
+    assert_halts_uninstantiated(&output, 0, Some("Rule-hVarX"));
+    fs::remove_dir_all(root).unwrap();
+}
+
 const SEVERAL_MATCHES: &str = r#"
 module SM
   imports DOMAINS
