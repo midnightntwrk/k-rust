@@ -2,11 +2,17 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::{
     builtin::embedded,
-    outer::{Attribute, ProductionItem, Sentence, SyntaxBody, extract_fenced_k_code, parse},
+    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+    kore::parser::parse_definition,
+    outer::{
+        Attribute, LoadOptions, ProductionItem, ResolvedSource, Sentence, SyntaxBody,
+        extract_fenced_k_code, load_with_options, parse,
+    },
 };
 use k_rust_backend::{
     builtin::{BuiltinError, BuiltinResult, evaluate_hook},
-    term::{Sort, Term},
+    definition::BackendDefinition,
+    term::{Sort, Term, TermKind},
 };
 use serde::Deserialize;
 
@@ -18,7 +24,17 @@ struct CapabilityManifest {
     execution_only: Vec<String>,
     structural: Vec<String>,
     unsupported: Vec<UnsupportedHooks>,
+    equation_defined: Vec<EquationDefinedHooks>,
     crypto: CryptoCapabilities,
+}
+
+/// Hooks without a backend evaluator that the equations of `module`, a module of the prelude,
+/// define where they apply.
+#[derive(Debug, Deserialize)]
+struct EquationDefinedHooks {
+    module: String,
+    reason: String,
+    hooks: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,7 +50,7 @@ fn crypto_namespace_hooks_have_an_enforced_classification() {
     let manifest: CapabilityManifest =
         toml::from_str(include_str!("fixtures/hook-capabilities.toml"))
             .expect("hook capability manifest must be valid TOML");
-    assert_eq!(manifest.version, 1, "unsupported manifest version");
+    assert_eq!(manifest.version, 2, "unsupported manifest version");
     assert!(
         manifest
             .crypto
@@ -143,7 +159,7 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
     let manifest: CapabilityManifest =
         toml::from_str(include_str!("fixtures/hook-capabilities.toml"))
             .expect("hook capability manifest must be valid TOML");
-    assert_eq!(manifest.version, 1, "unsupported manifest version");
+    assert_eq!(manifest.version, 2, "unsupported manifest version");
 
     let declared = declared_prelude_hooks();
     let implemented = manifest.implemented.into_iter().collect::<BTreeSet<_>>();
@@ -159,6 +175,20 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
             assert!(
                 unsupported.insert(hook.clone()),
                 "duplicate unsupported hook {hook}"
+            );
+        }
+    }
+
+    let mut equation_defined = BTreeSet::new();
+    for group in &manifest.equation_defined {
+        assert!(
+            !group.reason.trim().is_empty() && !group.module.trim().is_empty(),
+            "equation-defined hooks need a reason and the module whose equations define them"
+        );
+        for hook in &group.hooks {
+            assert!(
+                equation_defined.insert(hook.clone()),
+                "duplicate equation-defined hook {hook}"
             );
         }
     }
@@ -179,6 +209,14 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
         "unsupported",
     );
     assert_disjoint(&structural, &unsupported, "structural", "unsupported");
+    for (name, class) in [
+        ("implemented", &implemented),
+        ("execution-only", &execution_only),
+        ("structural", &structural),
+        ("unsupported", &unsupported),
+    ] {
+        assert_disjoint(&equation_defined, class, "equation-defined", name);
+    }
 
     let classified = implemented
         .union(&execution_only)
@@ -188,6 +226,9 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
         .cloned()
         .collect::<BTreeSet<_>>()
         .union(&unsupported)
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .union(&equation_defined)
         .cloned()
         .collect::<BTreeSet<_>>();
     let declared_names = declared.keys().cloned().collect::<BTreeSet<_>>();
@@ -265,6 +306,89 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
             );
         }
     }
+
+    // An equation-defined hook has no evaluator: an evaluator would make it `implemented`.
+    for hook in &equation_defined {
+        let declaration = &declared[hook];
+        assert_eq!(
+            declaration.kind,
+            DeclaredHookKind::Production,
+            "hooked sorts are structural, not equation-defined hooks: {hook}"
+        );
+        for arity in &declaration.arities {
+            let arguments = vec![dummy_term(); *arity];
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Ok(Ok(BuiltinResult::Unsupported(
+                    k_rust_backend::builtin::UnsupportedHookReason::NotImplemented
+                ))),
+                "equation-defined hook {hook} has an evaluator; classify it as implemented"
+            );
+        }
+    }
+}
+
+/// Every `equation_defined` hook has function equations where its named module is imported: a
+/// definition that imports only that module, compiled for the Rust backend and loaded by it, has
+/// an equation whose left-hand side is rooted at the hooked symbol. A ground application of each
+/// evaluating through them is `krun_evaluates_equation_defined_hooks_through_their_equations` in
+/// `cli.rs`.
+#[test]
+fn equation_defined_hooks_have_equations_in_their_named_module() {
+    let manifest: CapabilityManifest =
+        toml::from_str(include_str!("fixtures/hook-capabilities.toml"))
+            .expect("hook capability manifest must be valid TOML");
+    assert!(!manifest.equation_defined.is_empty());
+    for group in &manifest.equation_defined {
+        let source = format!("module MAIN\n  imports {}\nendmodule\n", group.module);
+        let definition = compiled_backend_definition(&source);
+        let mut equations = BTreeMap::<&str, usize>::new();
+        for rule in definition
+            .function_theory()
+            .values()
+            .flatten()
+            .flat_map(|(_, rules)| rules)
+        {
+            let TermKind::Application { symbol, .. } = rule.lhs.kind() else {
+                continue;
+            };
+            if rule.attributes.simplification {
+                continue;
+            }
+            if let Some(hook) = symbol.attributes.hook.as_deref() {
+                *equations.entry(hook).or_default() += 1;
+            }
+        }
+        for hook in &group.hooks {
+            assert!(
+                equations.get(hook.as_str()).is_some_and(|count| *count > 0),
+                "{hook} has no function equation in a definition that imports {}",
+                group.module
+            );
+        }
+    }
+}
+
+fn compiled_backend_definition(source: &str) -> BackendDefinition {
+    let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("main.k", source.to_owned()),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            ..CompilationBackend::Rust.load_options()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{source}: load: {error}"));
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("{source}: compile: {error}"));
+    let kore = parse_definition(&artifacts.definition_kore).unwrap();
+    BackendDefinition::internalize(&kore, "MAIN")
+        .unwrap_or_else(|error| panic!("{source}: backend load: {error}"))
 }
 
 #[test]
