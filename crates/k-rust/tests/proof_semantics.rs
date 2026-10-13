@@ -389,3 +389,134 @@ fn a_claim_finds_a_collection_cell_instance_between_two_parts_at_any_position() 
         assert_ne!(status(&kore, "absent"), "proven", "{collection} absent");
     }
 }
+
+/// Claims over the collection of [`COLLECTION_CELL_ITEM_ANYWHERE`] (its definition, with this
+/// spec module) whose destinations place 0, 1 or 2 items beside two or three existential parts;
+/// `mk(2) ; mk(3)` takes `<r> 1 </r>` to the instances 1, 2 and 3. The `absent-` claims name an
+/// instance 9 that is not among them.
+const AC_FRAMES_SPEC: &str = r#"
+module AC-SPEC
+  imports LCELL
+  claim [none-two]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag ?C:Bag) </rs>
+  claim [none-three]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag ?B:Bag ?C:Bag) </rs>
+  claim [one-two]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 2 </rid> </r> ?C:Bag) </rs>
+  claim [one-three]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 2 </rid> </r> ?B:Bag ?C:Bag) </rs>
+  claim [two-two]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> 3 </rid> </r> ?A:Bag <r> <rid> 1 </rid> </r> ?C:Bag) </rs>
+  claim [two-three]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 1 </rid> </r> ?B:Bag <r> <rid> 3 </rid> </r> ?C:Bag) </rs>
+  claim [absent-one-two]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 9 </rid> </r> ?C:Bag) </rs>
+  claim [absent-one-three]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 9 </rid> </r> ?B:Bag ?C:Bag) </rs>
+  claim [absent-two-two]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> 3 </rid> </r> ?A:Bag <r> <rid> 9 </rid> </r> ?C:Bag) </rs>
+  claim [absent-two-three]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 2 </rid> </r> ?B:Bag <r> <rid> 9 </rid> </r> ?C:Bag) </rs>
+endmodule
+"#;
+
+/// Set and map concatenation is associative and commutative with the empty collection as unit,
+/// so existential parts beside a set's or a map's items that occur nowhere else stand together
+/// for their union, which is one part: any collection disjoint from the items. A destination
+/// with two or three such parts and 0, 1 or 2 items therefore holds exactly when its items are
+/// instances of the final state, in any order (`two-three` writes 1 before 3), with any split of
+/// the other instances between the parts as witness. An item that is no instance (`absent-`)
+/// still leaves its claim unproven.
+#[test]
+fn existential_parts_beside_set_or_map_items_are_one_part() {
+    let definition = &COLLECTION_CELL_ITEM_ANYWHERE[..COLLECTION_CELL_ITEM_ANYWHERE
+        .find("module LCELL-SPEC")
+        .unwrap()];
+    for collection in ["Set", "Map"] {
+        let kore = compile(
+            &format!("{definition}{AC_FRAMES_SPEC}").replace("$TYPE", collection),
+            "AC-SPEC",
+            "LCELL",
+        );
+        let status = |claim: &str| {
+            prove(
+                &kore,
+                "AC-SPEC",
+                &format!("AC-SPEC.{claim}"),
+                ProveRequest::default(),
+            )
+            .status
+        };
+        for claim in [
+            "none-two",
+            "none-three",
+            "one-two",
+            "one-three",
+            "two-two",
+            "two-three",
+        ] {
+            assert_eq!(status(claim), "proven", "{collection} {claim}");
+        }
+        for claim in [
+            "absent-one-two",
+            "absent-one-three",
+            "absent-two-two",
+            "absent-two-three",
+        ] {
+            assert_ne!(status(claim), "proven", "{collection} {claim}");
+        }
+    }
+}
+
+/// A set `<s>` and a map `<m>` that `add` fills, and a set `<u>` and a map `<n>` beside them that
+/// no rule changes. The `-bound` claims name a part of `<s>` or `<m>` in `<u>` or `<n>` too, the
+/// `-constrained` claims in their `ensures`.
+const AC_FRAMES_ELSEWHERE: &str = r#"
+module PAC-SYNTAX
+  imports INT-SYNTAX
+  syntax Cmd ::= add(Int)
+  syntax Pgm ::= Cmd | Cmd ";" Pgm
+endmodule
+
+module PAC
+  imports PAC-SYNTAX
+  imports INT
+  imports SET
+  imports MAP
+  imports BOOL
+  configuration <T> <k> $PGM:Pgm </k> <s> .Set </s> <u> .Set </u> <m> .Map </m> <n> .Map </n> </T>
+  rule <k> C:Cmd ; P:Pgm => C ~> P ... </k>
+  rule <k> add(I) => .K ... </k> <s> S => S SetItem(I) </s> <m> M => M[I <- I] </m> requires notBool I in S
+endmodule
+
+module PAC-SPEC
+  imports PAC
+  claim [set-none]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?A:Set ?C:Set </s> <m> .Map => ?M:Map </m>
+  claim [set-free]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?A:Set SetItem(2) ?C:Set </s> <m> .Map => ?M:Map </m>
+  claim [set-bound]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?A:Set SetItem(2) ?C:Set </s> <m> .Map => ?M:Map </m> <u> SetItem(9) => ?C </u>
+  claim [set-constrained]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?A:Set SetItem(2) ?C:Set </s> <m> .Map => ?M:Map </m> ensures 1 in ?C
+  claim [map-none]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map ?B:Map ?C:Map </m>
+  claim [map-free]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map 2 |-> 2 ?C:Map </m>
+  claim [map-bound]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map 2 |-> 2 ?C:Map </m> <n> 9 |-> 9 => ?C </n>
+  claim [map-constrained]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map 2 |-> 2 ?C:Map </m> ensures 1 in_keys(?C)
+endmodule
+"#;
+
+/// Parts are one part only when the destination states nothing else of them. A part that the
+/// destination also names elsewhere is not free to take the whole remainder: in `-bound` it is
+/// `<u>`'s or `<n>`'s `9`, which no split of 1 and 3 holds, so the claim is not proven; in
+/// `-constrained` it must hold 1, which the split with 1 in it does, so the claim holds and is
+/// not disproved (no split is tried, so it is left unproven). The parts of a plain set or map
+/// value with no item, or beside one, are one part as in a cell collection.
+#[test]
+fn a_part_named_elsewhere_in_the_destination_is_not_merged() {
+    let kore = compile(AC_FRAMES_ELSEWHERE, "PAC-SPEC", "PAC");
+    let status = |claim: &str| {
+        prove(
+            &kore,
+            "PAC-SPEC",
+            &format!("PAC-SPEC.{claim}"),
+            ProveRequest::default(),
+        )
+        .status
+    };
+    for claim in ["set-none", "set-free", "map-none", "map-free"] {
+        assert_eq!(status(claim), "proven", "{claim}");
+    }
+    for claim in ["set-bound", "map-bound"] {
+        assert_ne!(status(claim), "proven", "{claim}");
+    }
+    for claim in ["set-constrained", "map-constrained"] {
+        assert_eq!(status(claim), "failed", "{claim}");
+    }
+}

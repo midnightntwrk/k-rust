@@ -2495,3 +2495,110 @@ fn an_alias_inside_an_aliased_set_element_is_read_as_its_pattern() {
         .map(|key| internal_term(&definition, &format!(r#"\dv{{SortKey{{}}}}("{key}")"#)));
     assert_eq!(taken, keys);
 }
+
+/// The set of `collection_definition` concatenating `parts` (each a KORE set term).
+fn concat_set(definition: &BackendDefinition, parts: &[&str]) -> Term {
+    let source = parts
+        .iter()
+        .rev()
+        .fold(None, |right: Option<String>, part| {
+            Some(match right {
+                None => (*part).to_owned(),
+                Some(right) => format!("setConcat{{}}({part}, {right})"),
+            })
+        })
+        .unwrap_or_else(|| "setUnit{}()".to_owned());
+    internal_term(definition, &source)
+}
+
+/// Set concatenation is associative and commutative with unit `.Set`, so free parts beside an
+/// item are one part: the first keeps the place of all of them and the others are empty, in a
+/// set and in a map alike.
+#[test]
+fn free_set_and_map_parts_merge_into_the_first() {
+    let definition = collection_definition();
+    let set = Sort::simple("SortSet");
+    let b = r#"setItem{}(\dv{SortElement{}}("b"))"#;
+    let pattern = concat_set(
+        &definition,
+        &["A:SortSet{}", b, "B:SortSet{}", "C:SortSet{}"],
+    );
+    let empty = concat_set(&definition, &[]);
+    assert_eq!(
+        merge_free_parts(&pattern, |_| true),
+        Some((
+            concat_set(&definition, &[b, "A:SortSet{}"]),
+            vec![
+                (variable("B", set.clone()), empty.clone()),
+                (variable("C", set.clone()), empty.clone()),
+            ],
+        )),
+    );
+    // With no item, the merged parts leave the first part alone.
+    let parts = concat_set(&definition, &["A:SortSet{}", "B:SortSet{}"]);
+    assert_eq!(
+        merge_free_parts(&parts, |_| true),
+        Some((
+            var("A", set.clone()),
+            vec![(variable("B", set.clone()), empty)],
+        )),
+    );
+
+    let map = Sort::simple("SortMap");
+    let entry = r#"mapItem{}(\dv{SortKey{}}("k"), \dv{SortValue{}}("v"))"#;
+    let pattern = internal_term(
+        &definition,
+        &format!("mapConcat{{}}(M:SortMap{{}}, mapConcat{{}}({entry}, N:SortMap{{}}))"),
+    );
+    assert_eq!(
+        merge_free_parts(&pattern, |_| true),
+        Some((
+            internal_term(
+                &definition,
+                &format!("mapConcat{{}}({entry}, M:SortMap{{}})")
+            ),
+            vec![(
+                variable("N", map),
+                internal_term(&definition, "mapUnit{}()")
+            )],
+        )),
+    );
+}
+
+/// A part that the caller does not accept, that occurs twice, or that is no variable keeps its
+/// place, and fewer than two free parts merge nothing.
+#[test]
+fn only_free_variable_parts_that_occur_once_merge() {
+    let definition = collection_definition();
+    let set = Sort::simple("SortSet");
+    let b = r#"setItem{}(\dv{SortElement{}}("b"))"#;
+    let empty = concat_set(&definition, &[]);
+    let pattern = concat_set(
+        &definition,
+        &["A:SortSet{}", b, "B:SortSet{}", "C:SortSet{}"],
+    );
+    let c = variable("C", set.clone());
+    assert_eq!(
+        merge_free_parts(&pattern, |variable| variable != &c),
+        Some((
+            concat_set(&definition, &[b, "A:SortSet{}", "C:SortSet{}"]),
+            vec![(variable("B", set.clone()), empty)],
+        )),
+    );
+    let a = variable("A", set.clone());
+    let only_a = |variable: &Variable| variable == &a;
+    assert_eq!(merge_free_parts(&pattern, only_a), None);
+
+    let repeated = concat_set(&definition, &["A:SortSet{}", "A:SortSet{}", b]);
+    assert_eq!(merge_free_parts(&repeated, |_| true), None);
+    let opaque = concat_set(
+        &definition,
+        &["A:SortSet{}", r#"opaqueSet{}(\dv{SortElement{}}("e"))"#, b],
+    );
+    assert_eq!(merge_free_parts(&opaque, |_| true), None);
+    // A closed set has no part.
+    assert_eq!(
+        merge_free_parts(&concat_set(&definition, &[b]), |_| true),
+        None
+    );
+}
