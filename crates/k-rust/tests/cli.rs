@@ -4058,10 +4058,11 @@ endmodule
 
 #[test]
 fn krun_halts_instead_of_narrowing_a_variable_free_configuration_modulo_algebraic_axioms() {
-    // `&` and `;` are unhooked associative productions, which the backend matches as free
-    // constructors: `1 & 2 & 3` is `(1 & 2) & 3`, so `sum(I:Int & B)` meets `bagCat(1, 2)` at
-    // `I:Int`. Narrowing that pair restates the configuration's own value as fresh unknowns at
-    // every step; the variable-free configuration halts instead.
+    // `&` and `;` are unhooked associative productions, which the backend matches only by
+    // identity: `1 & 2 & 3` is `(1 & 2) & 3`, which is not the term `sum(I:Int & B)` spells, so
+    // the pair is left undecided and binds neither `I` nor `B`. Narrowing that pair restates the
+    // configuration's own value as fresh unknowns at every step; the variable-free configuration
+    // halts instead.
     let (root, _) = fixture();
     let bag = compiled_for_execution(
         &root,
