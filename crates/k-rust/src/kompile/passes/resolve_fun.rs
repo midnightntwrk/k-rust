@@ -1231,19 +1231,19 @@ fn rule_heads(definition: &Definition) -> BTreeMap<String, usize> {
 
 /// The name of the variable `argument` binds when it matches every value of `sort`: a variable
 /// of that sort or of no sort, possibly under a semantic cast to exactly `sort`, whose sort check
-/// holds for every value of `sort`.
+/// holds for every value of `sort`. The variable's sort is the one the emitted equation gives it
+/// ([`variable_pattern_sort`]): its own, else the sort its metadata records, so a variable sorted
+/// only in metadata matches only that sort's values.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Term is syntax; only the listed variants are special here"
 )]
 fn covering_variable<'a>(argument: &'a Term, sort: &Sort) -> Option<&'a str> {
     match argument.unannotated() {
-        Term::Variable {
-            name,
-            sort: variable_sort,
-        } if variable_sort
-            .as_ref()
-            .is_none_or(|variable| variable == sort) =>
+        Term::Variable { name, .. }
+            if variable_pattern_sort(argument)
+                .flatten()
+                .is_none_or(|variable| &variable == sort) =>
         {
             Some(name)
         }

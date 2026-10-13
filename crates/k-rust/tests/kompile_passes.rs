@@ -1950,9 +1950,9 @@ const SORTED_LET: &str = indoc! {r#"
     endmodule
 "#};
 
-/// The symbol declarations of the generated lambdas in `kore`, whitespace removed; a long
-/// declaration continues with its attributes on a line of its own.
-fn lambda_symbols(kore: &str) -> Vec<String> {
+/// The sentences of `kore` that start with `prefix` (after the two-space sentence indent),
+/// whitespace removed; a long declaration continues with its attributes on a line of its own.
+fn kore_sentences(kore: &str, prefix: &str) -> Vec<String> {
     let mut sentences = Vec::new();
     let mut current = String::new();
     for line in kore.lines() {
@@ -1966,9 +1966,14 @@ fn lambda_symbols(kore: &str) -> Vec<String> {
     sentences.push(current);
     sentences
         .into_iter()
-        .filter(|sentence| sentence.starts_with("  symbol Lbl'Hash'lambda"))
+        .filter(|sentence| sentence.starts_with(&format!("  {prefix}")))
         .map(|sentence| sentence.split_whitespace().collect())
         .collect()
+}
+
+/// The symbol declarations of the generated lambdas in `kore`, whitespace removed.
+fn lambda_symbols(kore: &str) -> Vec<String> {
+    kore_sentences(kore, "symbol Lbl'Hash'lambda")
 }
 
 /// `rule f(E) => #let M:Exp = E #in M` compiles to the same lambda symbol from source text and
@@ -2044,6 +2049,149 @@ fn a_sorted_let_binder_declares_the_same_lambda_from_source_and_structured_input
             && symbol.contains("total{}()"),
         "{symbol}"
     );
+}
+
+const METADATA_SORTS: &str = indoc! {r#"
+    module MAIN
+      imports INT
+      syntax Exp ::= Int
+                   | g(Exp) [function, symbol(g)]
+                   | h(Exp) [function, symbol(h)]
+                   | k(Exp) [function, symbol(k)]
+      syntax Int ::= cf() [function, symbol(cf)]
+      configuration <k> $PGM:Exp </k> <c> .K </c>
+      rule g(X:Int) => 0
+      rule h(E) => #let M:Exp = E #in g(M)
+      rule [[ cf() => 0 ]] <c> _:Int </c>
+      rule k(E) => #let M:Exp = E #in cf()
+    endmodule
+"#};
+
+/// `METADATA_SORTS` through `load_structured`, with the rule of `g` replaced by
+/// `g(g_argument) => 0` and, when `cell_variable` is given, the rule of `cf` replaced by
+/// `[[ cf() => 0 ]] <c> V </c>` with `V` that variable; compiled for the Rust target.
+fn metadata_sorts_kore(g_argument: Term, cell_variable: Option<Term>) -> String {
+    let parsed = k_rust::outer::parse("metadata-sorts.k", METADATA_SORTS).unwrap();
+    let mut definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+    let module = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap();
+    let mut replace = |marker: &str, sentence: Sentence| {
+        let bubble = module
+            .local_sentences
+            .iter_mut()
+            .find(|sentence| {
+                matches!(&***sentence, Sentence::Bubble { contents, .. } if contents.contains(marker))
+            })
+            .unwrap();
+        *k_rust::definition::sentence_mut(bubble) = sentence;
+    };
+    let zero = || Term::Token {
+        token: "0".into(),
+        sort: Sort::new("Int"),
+    };
+    replace(
+        "g(X:Int)",
+        rule(
+            rewrite(application("g", vec![g_argument]), zero()),
+            Attributes::default(),
+        ),
+    );
+    if let Some(variable) = cell_variable {
+        let no_dots = || application("#noDots", Vec::new());
+        replace(
+            "[[",
+            rule(
+                application(
+                    "#withConfig",
+                    vec![
+                        rewrite(application("cf", Vec::new()), zero()),
+                        application("<c>", vec![no_dots(), variable, no_dots()]),
+                    ],
+                ),
+                Attributes::default(),
+            ),
+        );
+    }
+    let options = LoadOptions {
+        implicit_sources: vec![embedded("prelude.md").unwrap()],
+        excluded_module_attributes: vec![
+            CompilationBackend::Rust.excluded_module_attribute().into(),
+        ],
+        ..LoadOptions::default()
+    };
+    let loaded = k_rust::outer::load_structured(definition, &options).unwrap();
+    compile_loaded_definition(&loaded, CompileOptions::default())
+        .unwrap()
+        .definition_kore
+}
+
+/// The declaration of the one generated lambda of `kore` with result sort `result` (`SortExp`
+/// for `h`'s, over `g`; `SortInt` for `k`'s, over `cf`), whitespace removed.
+fn lambda_with_result(kore: &str, result: &str) -> String {
+    let lambdas = lambda_symbols(kore)
+        .into_iter()
+        .filter(|lambda| lambda.contains(&format!("):{result}{{}}[")))
+        .collect::<Vec<_>>();
+    let [lambda] = lambdas.as_slice() else {
+        panic!("expected one lambda with result {result}: {lambdas:#?}");
+    };
+    lambda.clone()
+}
+
+/// Whether `kore` declares the written symbol `symbol` (`Lblg`) `total` or `functional`.
+fn declared_total(kore: &str, symbol: &str) -> bool {
+    let declarations = kore_sentences(kore, &format!("symbol {symbol}{{}}("));
+    let [declaration] = declarations.as_slice() else {
+        panic!("expected one declaration of {symbol}: {declarations:#?}");
+    };
+    declaration.contains("total{}()") || declaration.contains("functional{}()")
+}
+
+/// A variable whose sort is recorded only in its metadata is a variable of that sort: the
+/// emitted equation of `g(X) => 0` with `X` sorted `Int` that way applies only to the `Int`
+/// values of `g`'s `Exp` parameter, so `g` is not defined on the others, and a body that applies
+/// `g` to any `Exp` (`h`'s lambda) is not defined either. The judgement of `g`'s equation reads
+/// the sort the emitter writes, however it is spelled: `X:Int` on the variable agrees, and `X`
+/// sorted `Exp` in its metadata covers the parameter, so `h`'s lambda is total. The judgement
+/// is knowledge about lambda bodies only: `g`'s own declaration states no claim in any spelling.
+#[test]
+fn a_metadata_sorted_argument_does_not_make_a_written_function_total() {
+    let judged = |argument: Term| {
+        let kore = metadata_sorts_kore(argument, None);
+        assert!(!declared_total(&kore, "Lblg"));
+        lambda_with_result(&kore, "SortExp").contains("total{}()")
+    };
+    assert!(!judged(metadata_sorted_variable("X", "Int")));
+    assert!(!judged(sorted_variable("X", "Int")));
+    assert!(judged(metadata_sorted_variable("X", "Exp")));
+}
+
+/// `h(E) => #let M:Exp = E #in g(M)` applies `g` to every `Exp`, so its lambda is total only if
+/// `g` is defined on every `Exp`; with `g`'s argument sorted `Int` in metadata it is not.
+#[test]
+fn a_lambda_over_a_metadata_partial_function_is_not_total() {
+    let kore = metadata_sorts_kore(metadata_sorted_variable("X", "Int"), None);
+    assert_eq!(
+        lambda_with_result(&kore, "SortExp"),
+        "symbolLbl'Hash'lambdaE'UndsUnds'{}(SortExp{}):SortExp{}[function{}()]"
+    );
+}
+
+/// A configuration context `[[ cf() => 0 ]] <c> V </c>` matches every configuration only when
+/// `V` matches every content of `<c>`, whose sort is `K`. `V` sorted `Int` in its metadata
+/// matches only `Int` contents, so `cf` is not defined on every configuration, and neither is
+/// `k`'s lambda, whose body is `cf()`; unsorted, `V` covers the cell and the lambda is total.
+#[test]
+fn a_metadata_sorted_cell_variable_does_not_cover_its_cell() {
+    let total = |variable: Term| {
+        let kore = metadata_sorts_kore(sorted_variable("X", "Int"), Some(variable));
+        lambda_with_result(&kore, "SortInt").contains("total{}()")
+    };
+    assert!(!total(metadata_sorted_variable("V", "Int")));
+    assert!(total(Term::variable("V")));
 }
 
 /// `total` on a generated lambda claims that every application denotes one value, and its only
