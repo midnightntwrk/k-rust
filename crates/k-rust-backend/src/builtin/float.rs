@@ -297,10 +297,11 @@ pub(crate) fn mixed_destination(hook: &str, arguments: &[Term]) -> Option<MixedP
 /// Why `signFloat` applied to `arguments` reads a value the definition leaves open, when its
 /// argument is a NaN of any format; `None` otherwise.
 ///
-/// `signFloat` is "the value of the sign bit", and the literal `NaN` names a NaN without giving
-/// it one, while every IEEE-like format has NaNs of both signs. The hook is total, so the
-/// application has a Bool value in every model, but which one the definition does not determine:
-/// the evaluator's `false` is k-rust's reading, applied only in an execution
+/// `signFloat` is "the value of the sign bit" of a `Float`, a value of an IEEE-like format, in
+/// which every value, a NaN included, has a sign bit; the literal `NaN` names a NaN without
+/// saying which of the two it has. The description therefore gives the application a Bool value
+/// in every model, whatever its declaration says, but which one the definition does not
+/// determine: the evaluator's `false` is k-rust's reading, applied only in an execution
 /// (`super::implementation_chosen`). The argument is read exactly as the evaluator reads it.
 pub(crate) fn nan_sign(hook: &str, arguments: &[Term]) -> Option<String> {
     if hook != "FLOAT.sign" {

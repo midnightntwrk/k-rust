@@ -33,14 +33,17 @@ use super::{
 };
 use crate::term::{DomainKind, MIntWidth, Sort, Term, TermKind, mint_width, mint_width_digits};
 
+/// `total`: the application's symbol is declared `total`, which the conversions read at a sort
+/// that names no width ([`no_width`]).
 pub(super) fn evaluate(
     hook: &str,
     arguments: &[Term],
     result_sort: Option<&Sort>,
+    total: bool,
 ) -> HookResult<BuiltinResult> {
     match hook {
-        "MINT.integer" => integer(arguments, result_sort),
-        "MINT.bitwidth" => bitwidth(arguments),
+        "MINT.integer" => integer(arguments, result_sort, total),
+        "MINT.bitwidth" => bitwidth(arguments, total),
         "MINT.svalue" => reading(hook, arguments, |word| word.signed()),
         "MINT.uvalue" => reading(hook, arguments, |word| BigInt::from(word.residue.clone())),
         "MINT.add" => wrapping(hook, "+MInt", arguments, |left, right| left + right),
@@ -202,28 +205,38 @@ fn limit(bits: u64) -> u64 {
     result_size_limit(MAX_INT_RESULT_BITS, bits)
 }
 
+/// The outcome of `operation` at a machine-integer sort whose argument names no width
+/// (`MInt{Foo}`): the hook's description is in terms of that width, so it gives the application
+/// no value, and the application is left unevaluated.
+///
+/// Whether it has a value all the same is the declaration's statement, not the hook's. A symbol
+/// declared `total` has a value in every model of the definition, which only leaves open which
+/// one, so its application is defined and its `\ceil` holds. A symbol declared without `total`
+/// states no value where its hook gives none, so nothing entails that its application is
+/// defined, and its `\ceil` stays an open obligation.
+fn no_width(operation: &str, total: bool) -> BuiltinResult {
+    BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+        detail: format!("{operation} at a machine-integer sort whose argument names no width"),
+        defined: total,
+    })
+}
+
 /// `Int2MInt`: its argument modulo `2^W`, `W` the width of the application's sort. Without a
 /// declared result sort there is no width, and at a sort whose width is a sort variable it is
-/// not fixed yet; a sort `MInt{Foo}` has no width at all, so the value the `total` hook has
-/// there is not determined.
-fn integer(arguments: &[Term], result_sort: Option<&Sort>) -> HookResult<BuiltinResult> {
+/// not fixed yet; a sort `MInt{Foo}` has no width at all, so the description gives no value
+/// there ([`no_width`]).
+fn integer(
+    arguments: &[Term],
+    result_sort: Option<&Sort>,
+    total: bool,
+) -> HookResult<BuiltinResult> {
     expect_arity("MINT.integer", arguments, 1)?;
     let Some(sort) = result_sort else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let width = match mint_width(sort) {
         None => return Ok(BuiltinResult::NotApplicable),
-        Some(MIntWidth::NoWidth) => {
-            return Ok(BuiltinResult::Unsupported(
-                UnsupportedHookReason::Unspecified {
-                    detail: "Int2MInt at a machine-integer sort whose argument names no width"
-                        .into(),
-                    // `Int2MInt` is declared `total`: the application has a value in every model
-                    // of the definition, which only leaves open which one, so its `\ceil` holds.
-                    defined: true,
-                },
-            ));
-        }
+        Some(MIntWidth::NoWidth) => return Ok(no_width("Int2MInt", total)),
         Some(MIntWidth::Bits(width)) => Some(width),
         Some(MIntWidth::Unrepresentable) => None,
     };
@@ -238,22 +251,14 @@ fn integer(arguments: &[Term], result_sort: Option<&Sort>) -> HookResult<Builtin
 }
 
 /// `bitwidthMInt`: the width of its argument's sort, which every element of the sort has, so
-/// any argument of a sort with a numeral width gives it.
-fn bitwidth(arguments: &[Term]) -> HookResult<BuiltinResult> {
+/// any argument of a sort with a numeral width gives it. A sort `MInt{Foo}` has no width, so the
+/// description gives no value there ([`no_width`]).
+fn bitwidth(arguments: &[Term], total: bool) -> HookResult<BuiltinResult> {
     expect_arity("MINT.bitwidth", arguments, 1)?;
     let sort = arguments[0].sort();
     Ok(match mint_width(&sort) {
         None => BuiltinResult::NotApplicable,
-        Some(MIntWidth::NoWidth) => {
-            BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
-                detail: "bitwidthMInt at a machine-integer sort whose argument names no width"
-                    .into(),
-                // `bitwidthMInt` is declared `total`: the application has an `Int` value in
-                // every model of the definition, which only leaves open which one, so its
-                // `\ceil` holds.
-                defined: true,
-            })
-        }
+        Some(MIntWidth::NoWidth) => no_width("bitwidthMInt", total),
         Some(MIntWidth::Bits(width)) => BuiltinResult::Value(int_term(BigInt::from(width))),
         Some(MIntWidth::Unrepresentable) => {
             let digits = mint_width_digits(&sort).expect("a numeral width has digits");

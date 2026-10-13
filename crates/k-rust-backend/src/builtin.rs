@@ -135,9 +135,20 @@ pub enum UnsupportedHookReason {
     /// (`crate::evaluation`).
     Unspecified {
         detail: String,
-        /// The value exists and is one of several the definition admits: the application is
-        /// defined, so its `\ceil` holds although its value is not computed. `false` where the
-        /// definition leaves open whether a value exists, or gives none.
+        /// The application is defined, so its `\ceil` holds although its value is not computed.
+        /// One of two facts entails that. The hook's description gives the application a value
+        /// and leaves open which one (a listing of a collection, an item of it, the format of
+        /// a Float result, the sign of a NaN): this holds whatever the symbol's declaration
+        /// says. Or the description gives it no value and the applied symbol is declared
+        /// `total`, which states that it has one in every model (`Int2MInt` at a sort that
+        /// names no width, `String2Token` of a text that names no element).
+        ///
+        /// `false` asserts nothing: neither fact is shown. The definition leaves open whether
+        /// a value exists, or the description gives none and the outcome does not read the
+        /// declaration. At a `total` symbol the declaration alone gives the `\ceil`
+        /// (`definedness::ceil_term`), so the field is read only for an application of a
+        /// partial symbol, and `true` there without one of the two facts would assume a
+        /// definedness the definition does not entail.
         defined: bool,
     },
 }
@@ -231,9 +242,16 @@ pub(crate) fn evaluate_in_definition(
 /// widens): every model rounds it to some format, so the application is defined, and only its
 /// value is open.
 ///
-/// `signFloat` of a NaN, of any format, reads a sign bit the `NaN` literal is not given
-/// ([`float::nan_sign`]): the hook is total, so the application is defined, and only its value
-/// is open.
+/// `signFloat` of a NaN, of any format, reads a sign bit the `NaN` literal does not state
+/// ([`float::nan_sign`]): every value of an IEEE-like format has one, so the application is
+/// defined, and only its value is open.
+///
+/// In each case the value exists by the hook's own description, read on the arguments, and the
+/// description leaves open only which value it is. So the application is defined whether or not
+/// its symbol is declared `total`, and this function does not read the declaration. An
+/// application to which the description gives no value is not named here: it is defined only
+/// where its symbol is declared `total`, which its evaluator reads (`mint::no_width`,
+/// `STRING.string2token`).
 pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     let TermKind::Application {
         symbol, arguments, ..
@@ -502,7 +520,10 @@ fn member_in_result(
 }
 
 /// `total`: the application's symbol is declared `total`, which decides the outcome of a hook
-/// whose value at some arguments depends on the declaration (`STRING.string2token`).
+/// whose value at some arguments depends on the declaration (`STRING.string2token`), and whether
+/// an application to which the hook's description gives no value is defined all the same
+/// (`MINT.integer` and `MINT.bitwidth` at a sort that names no width). An evaluation without an
+/// applied symbol has no declaration, so it is not `total`.
 #[allow(clippy::too_many_arguments)]
 fn evaluate_hook_with_context(
     hook: &str,
@@ -593,7 +614,7 @@ fn evaluate_hook_with_context(
                 ),
                 Some(HookNamespace::Bytes) => bytes::evaluate(hook, arguments),
                 Some(HookNamespace::Float) => float::evaluate(hook, arguments),
-                Some(HookNamespace::MInt) => mint::evaluate(hook, arguments, result_sort),
+                Some(HookNamespace::MInt) => mint::evaluate(hook, arguments, result_sort, total),
                 Some(HookNamespace::Plugin) => krypto::evaluate(hook, arguments, definition),
                 Some(HookNamespace::String) => string::evaluate(
                     hook,
