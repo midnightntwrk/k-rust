@@ -4549,6 +4549,7 @@ mod tests {
                 sort Sort8{} []
                 sort SortFoo{} []
                 sort Sort33554432{} []
+                sort Sort99999999999999999999{} []
             endmodule []
         "#})
         .expect("machine-integer definition should parse");
@@ -4590,6 +4591,24 @@ mod tests {
             r#"\dv{SortMInt{Sort33554432{}}}("-1p33554432")"#,
         );
         assert!(error.contains("resource bound"), "{error}");
+
+        // A width beyond `u64` (`MIntWidth::Unrepresentable`) is still a width: a nonnegative
+        // literal is below `2^W` and is its own residue, while a negative one is refused by the
+        // same resource bound.
+        let wide = "SortMInt{Sort99999999999999999999{}}";
+        assert_eq!(
+            internalized_text(
+                &definition,
+                &format!(r#"\dv{{{wide}}}("+05P099999999999999999999")"#)
+            ),
+            "5p99999999999999999999"
+        );
+        let parsed = parse_pattern(&format!(r#"\dv{{{wide}}}("-5p99999999999999999999")"#))
+            .expect("domain value should parse as KORE");
+        assert!(matches!(
+            definition.internalize_term(&parsed, &[]),
+            Err(DefinitionError::DomainValueTooLarge { .. })
+        ));
     }
 
     /// The kind of a domain value comes from its sort's hook, not its name: a sort hooked
