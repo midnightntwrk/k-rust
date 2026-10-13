@@ -7691,13 +7691,13 @@ endmodule
 "#;
 
 /// `choice` of two or more items reached through a rule `requires` (on 1), a function equation's
-/// `requires` (on 2) and a right-hand side (on 0), and a rule that rewrites to `choice` (`pick`).
+/// `requires` (on 2) and a right-hand side (on 0, and `pickr` of a map, `picks` of a set).
 /// `f` is `total`: its `owise` equation gives every map a value.
 const CHOICE_IN_CONDITIONS: &str = r#"
 module CHOICEREQ
   imports DOMAINS
   imports COLLECTIONS
-  syntax KItem ::= res(KItem) | cond(Bool) | fres(Int) | pick(Map)
+  syntax KItem ::= res(KItem) | cond(Bool) | fres(Int) | pickr(Map) | picks(Set)
   syntax Int ::= f(Map) [function, total]
   rule f(M) => 1 requires choice(M) ==K 1
   rule f(_) => 0 [owise]
@@ -7705,7 +7705,8 @@ module CHOICEREQ
   rule 0 => res(choice(1 |-> 10 2 |-> 20))
   rule 1 => cond(true) requires choice(1 |-> 10 2 |-> 20) ==K 1
   rule 2 => fres(f(1 |-> 10 2 |-> 20))
-  rule pick(M) => choice(M)
+  rule pickr(M) => res(choice(M))
+  rule picks(S) => res(choice(S))
 endmodule
 "#;
 
@@ -7746,9 +7747,9 @@ fn krun_evaluates_choice_in_rule_and_equation_conditions() {
     }
 }
 
-/// Which key `choice` gives of a map of two keys is not a consequence of the definition, so no
-/// claim that names it is proven or disproved, on a right-hand side or through a rule's or a
-/// function equation's `requires`. `choice` of a non-empty map is defined, so no claim fails
+/// Which key `choice` gives of a map of two keys, or which element of a set of two elements, is
+/// not a consequence of the definition, so no claim that names it is proven or disproved, on a
+/// right-hand side or through a rule's or a function equation's `requires`. `choice` of a non-empty map is defined, so no claim fails
 /// through an undefined step.
 #[test]
 fn kprove_proves_no_claim_that_depends_on_choice() {
@@ -7760,6 +7761,8 @@ module CHOICEREQ-SPEC
   claim [other-key]: <k> 0 => res(2) </k>
   claim [rule-requires]: <k> 1 => cond(true) </k>
   claim [equation-requires]: <k> 2 => fres(1) </k>
+  claim [set-first]: <k> picks(SetItem(1) SetItem(2)) => res(1) </k>
+  claim [set-other]: <k> picks(SetItem(1) SetItem(2)) => res(2) </k>
 endmodule
 "
     );
@@ -7769,6 +7772,8 @@ endmodule
         "other-key",
         "rule-requires",
         "equation-requires",
+        "set-first",
+        "set-other",
     ] {
         assert_undecided(&verdicts, claim, &output);
     }
@@ -7779,24 +7784,29 @@ endmodule
     );
 }
 
-/// `choice` of a map of two keys left unevaluated outside an execution is a defined value, so the
-/// step that writes it has a successor and the claim that some item is reached is proven.
+/// `choice` of a map of two keys (a set of two elements) left unevaluated outside an execution is
+/// a defined value, so the step that writes it under `res` has a successor, and the claim that
+/// `res` of some item is reached, which constrains the item in no way, is proven. The destination
+/// is reachable only through that step.
 #[test]
 fn kprove_proves_an_order_free_claim_over_choice() {
     let source = format!(
         "{CHOICE_IN_CONDITIONS}
 module CHOICE-FREE-SPEC
   imports CHOICEREQ
-  claim [some-key]: <k> pick(1 |-> 10 2 |-> 20) => ?_K:KItem </k>
+  claim [some-key]: <k> pickr(1 |-> 10 2 |-> 20) => res(?_K:KItem) </k>
+  claim [some-element]: <k> picks(SetItem(1) SetItem(2)) => res(?_K:KItem) </k>
 endmodule
 "
     );
     let (verdicts, output) = order_claim_verdicts(&source, "CHOICEREQ", "CHOICE-FREE-SPEC");
-    assert_eq!(
-        claim_verdict(&verdicts, "some-key", &output),
-        "proven",
-        "{output}"
-    );
+    for claim in ["some-key", "some-element"] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
     // Left unevaluated as a defined value, not as an unsupported hook.
     assert!(
         !output.contains("undefined step") && !output.contains("unsupported hook"),
