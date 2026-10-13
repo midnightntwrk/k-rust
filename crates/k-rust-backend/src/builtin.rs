@@ -231,8 +231,9 @@ pub(crate) fn evaluate_in_definition(
 /// are some listing of the items: domains.md fixes no order, so every order of the items is a
 /// value some model gives. With zero or one item every listing is the same. The condition is the
 /// one under which the evaluators list the items (`map::ordered_entries`, `set::concrete_set`),
-/// read on the argument, not on the result. An application this names is defined: a closed map
-/// with distinct constructor-like keys, and a set of such elements, have a listing.
+/// read on the argument, not on the result. An application this names is defined exactly when
+/// its argument is: a closed map with distinct constructor-like keys is defined when its values
+/// are, a set of such elements is defined, and each has a listing.
 pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     let TermKind::Application {
         symbol, arguments, ..

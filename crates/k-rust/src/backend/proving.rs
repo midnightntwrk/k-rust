@@ -7,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
 use k_rust_backend::{
     claim::{ReachabilityClaim, ReachabilityMode},
     definition::BackendDefinition,
@@ -370,5 +371,9 @@ pub fn run_claim(
     options: ProofOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ProofResult, ProofError> {
-    prove_claim(definition, claim, circularities, options, solver)
+    // A proof route: it evaluates only consequences of the definition, whatever scope the
+    // caller runs it in (`k_rust_backend::evaluation`).
+    with_evaluation(EvaluationMode::Proof, || {
+        prove_claim(definition, claim, circularities, options, solver)
+    })
 }

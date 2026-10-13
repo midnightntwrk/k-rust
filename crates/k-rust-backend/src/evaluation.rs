@@ -48,7 +48,7 @@ pub fn current() -> EvaluationMode {
 }
 
 /// Run `action` with the evaluation mode `mode`, restoring the previous mode afterwards (also when
-/// `action` unwinds).
+/// `action` unwinds). Only a run of a program may ask for `Execution`; see [`EvaluationScope`].
 pub fn with_evaluation<R>(mode: EvaluationMode, action: impl FnOnce() -> R) -> R {
     let _scope = EvaluationScope::enter(mode);
     action()
@@ -56,12 +56,17 @@ pub fn with_evaluation<R>(mode: EvaluationMode, action: impl FnOnce() -> R) -> R
 
 /// An open evaluation mode: evaluations on this thread run in its mode until it is dropped, or
 /// until a scope opened inside it is open, and then the previous mode is restored.
-pub(crate) struct EvaluationScope {
+///
+/// A proof, an implication check, a simplification or a model must never run inside an
+/// `Execution` scope: its verdict would read values the definition leaves open. The k-rust
+/// facade's proof routes enter a `Proof` scope themselves.
+#[must_use = "the mode holds only while the scope is alive"]
+pub struct EvaluationScope {
     previous: EvaluationMode,
 }
 
 impl EvaluationScope {
-    pub(crate) fn enter(mode: EvaluationMode) -> Self {
+    pub fn enter(mode: EvaluationMode) -> Self {
         Self {
             previous: MODE.with(|current| current.replace(mode)),
         }

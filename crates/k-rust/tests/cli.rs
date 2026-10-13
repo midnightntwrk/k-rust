@@ -7820,6 +7820,51 @@ endmodule
     assert!(!output.contains("undefined step"), "{output}");
 }
 
+/// A listing left unevaluated over a map whose keys are constructor-like but whose values are
+/// symbolic is defined exactly when the map is: the map binds distinct keys, so it is defined
+/// when its values are, and then it has a listing. A claim that some list is reached is proven
+/// over such a map (`k-free`, `v-free`), a claim about one order is not (`k-order`, `v-order`),
+/// and a map holding a value undefined at some instance (`10 /Int X` at `X = 0`) still leaves
+/// its step undefined there (`z-free`).
+#[test]
+fn kprove_takes_a_listing_of_a_map_with_symbolic_values_as_defined_as_the_map() {
+    let source = r#"
+module SYMV
+  imports DOMAINS
+  imports COLLECTIONS
+  syntax KItem ::= run(Int) | runv(Int) | runz(Int) | done(List)
+  configuration <k> $PGM:K </k>
+  rule run(X) => done(keys_list(1 |-> X 2 |-> 3))
+  rule runv(X) => done(values(1 |-> X 2 |-> 3))
+  rule runz(X) => done(keys_list(1 |-> 10 /Int X 2 |-> 3))
+endmodule
+module SYMV-SPEC
+  imports SYMV
+  claim [k-order]: <k> run(_X:Int) => done(ListItem(1) ListItem(2)) </k>
+  claim [k-free]: <k> run(_X:Int) => done(?_L:List) </k>
+  claim [v-order]: <k> runv(X:Int) => done(ListItem(X) ListItem(3)) </k>
+  claim [v-free]: <k> runv(_X:Int) => done(?_L:List) </k>
+  claim [z-free]: <k> runz(_X:Int) => done(?_L:List) </k>
+endmodule
+"#;
+    let (verdicts, output) = order_claim_verdicts(source, "SYMV", "SYMV-SPEC");
+    for claim in ["k-free", "v-free"] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
+    for claim in ["k-order", "v-order"] {
+        assert_undecided(&verdicts, claim, &output);
+    }
+    assert_ne!(
+        claim_verdict(&verdicts, "z-free", &output),
+        "proven",
+        "{output}"
+    );
+}
+
 /// The expected loss of leaving a listing unevaluated: its size is 3 in every model, but `size`
 /// of the unevaluated listing is not computed, so the claim that states it is not proven. A
 /// change that decides `LIST.size` of such a listing flips the second verdict to `proven`.

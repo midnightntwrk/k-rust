@@ -2114,3 +2114,41 @@ fn backend_execute_and_search_keep_the_order_in_conditions() {
         );
     }
 }
+
+/// The facade's proof routes evaluate only consequences of the definition, also when the caller
+/// runs them inside an `Execution` scope: `simplify` leaves `keys_list` of a map of three keys
+/// unevaluated there, while `execute` in the same definition lists them.
+#[test]
+fn backend_simplify_stays_a_proof_route_inside_an_execution_scope() {
+    use k_rust::backend::PatternRequest;
+    use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
+    let compiled = compile(
+        KEYS_LIST_ORDER_IN_CONDITIONS,
+        "ORDREQ",
+        "ORDREQ",
+        "Int",
+        "0",
+    );
+    let item = |key: i64, value: i64| {
+        format!(
+            r#"Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{key}")), inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}")))"#
+        )
+    };
+    let listing = parse_pattern(&format!(
+        "Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map{{}}(Lbl'Unds'Map'Unds'{{}}({}, Lbl'Unds'Map'Unds'{{}}({}, {})))",
+        item(10, 1),
+        item(2, 2),
+        item(-1, 3)
+    ))
+    .unwrap();
+    let mut backend = Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
+    let simplified = with_evaluation(EvaluationMode::Execution, || {
+        backend.simplify(PatternRequest::new(listing)).unwrap()
+    });
+    assert!(simplified.to_string().contains("Lblkeys"), "{simplified}");
+    let executed = text(&execute(&compiled, "ORDREQ", None));
+    assert!(
+        matches!(executed.as_slice(), [state] if !state.contains("Lblkeys")),
+        "{executed:?}"
+    );
+}

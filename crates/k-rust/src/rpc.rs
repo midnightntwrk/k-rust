@@ -51,7 +51,7 @@ use k_rust::kore::{
 use k_rust::names::WellKnownSymbol;
 use k_rust_backend::{
     definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
-    evaluation::EvaluationMode,
+    evaluation::{EvaluationMode, EvaluationScope},
     externalize,
     fresh::RequestNames,
     implication::{
@@ -723,10 +723,21 @@ impl RpcService {
             .collect::<Vec<_>>();
         let result = match method {
             "execute" => self.execute(decode_params(params)?),
-            "simplify" => self.simplify(decode_params(params)?),
-            "implies" => self.implies(decode_params(params)?).map(Into::into),
+            // The proof routes evaluate only consequences of the definition
+            // (`k_rust_backend::evaluation`); `execute` takes its mode from its request.
+            "simplify" => {
+                let _proof = EvaluationScope::enter(EvaluationMode::Proof);
+                self.simplify(decode_params(params)?)
+            }
+            "implies" => {
+                let _proof = EvaluationScope::enter(EvaluationMode::Proof);
+                self.implies(decode_params(params)?).map(Into::into)
+            }
             "add-module" => self.add_module(decode_params(params)?).map(Into::into),
-            "get-model" => self.get_model(decode_params(params)?).map(Into::into),
+            "get-model" => {
+                let _proof = EvaluationScope::enter(EvaluationMode::Proof);
+                self.get_model(decode_params(params)?).map(Into::into)
+            }
             "cancel" => Err(RpcFault::cancel_not_supported()),
             _ => Err(RpcFault {
                 code: -32601,

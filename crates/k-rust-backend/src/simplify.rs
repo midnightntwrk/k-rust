@@ -2232,7 +2232,12 @@ fn simplify_predicate_on_stack(
             // add child ceils already supplied by the surrounding conjunction.
             expanded.retain(|predicate| !assumptions.contains(predicate));
             if expanded.as_slice() == [unchanged.clone()] {
-                let defined = defined_uncomputed(definition, &simplified.term)?;
+                // A listing only an execution evaluates (`crate::evaluation`) is defined exactly
+                // when its collection is: a closed map with distinct constructor-like keys is
+                // defined when its values are, and then has a listing. The collection's own
+                // obligations are the other members of its `ceil_term`, here none or assumed.
+                let defined = defined_uncomputed(definition, &simplified.term)?
+                    || crate::builtin::implementation_chosen(&simplified.term).is_some();
                 with_simplification_constraints(
                     simplified.conditions.into_predicates(),
                     if defined { Predicate::True } else { unchanged },

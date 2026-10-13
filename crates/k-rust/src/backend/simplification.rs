@@ -1,5 +1,6 @@
 //! Shared standalone simplification and model-generation orchestration.
 
+use k_rust_backend::evaluation::{EvaluationMode, EvaluationScope, with_evaluation};
 use k_rust_backend::{
     definition::BackendDefinition,
     definition::{Admission, PatternOrPredicate},
@@ -37,7 +38,11 @@ pub fn simplify_pattern(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<Pattern, SimplificationError>> {
-    simplify_pattern_with_solver(definition, pattern, options, solver)
+    // A proof route: it evaluates only consequences of the definition, whatever scope the
+    // caller runs it in (`k_rust_backend::evaluation`).
+    with_evaluation(EvaluationMode::Proof, || {
+        simplify_pattern_with_solver(definition, pattern, options, solver)
+    })
 }
 
 /// Simplify and decide `predicate`, with the two layers of [`simplify_pattern`].
@@ -47,7 +52,11 @@ pub fn simplify_predicate(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<Predicate, SimplificationError>> {
-    simplify_and_decide_predicate_with_solver(definition, predicate, &[], options, solver)
+    // A proof route: it evaluates only consequences of the definition, whatever scope the
+    // caller runs it in (`k_rust_backend::evaluation`).
+    with_evaluation(EvaluationMode::Proof, || {
+        simplify_and_decide_predicate_with_solver(definition, predicate, &[], options, solver)
+    })
 }
 
 /// Externalize model bindings in the natural variable order shared by CLI and RPC surfaces.
@@ -93,6 +102,8 @@ impl Backend {
         admission: Admission,
         finish: impl FnOnce(KorePattern) -> Result<T, BackendError>,
     ) -> Result<T, BackendError> {
+        // A proof route (`k_rust_backend::evaluation`).
+        let _proof = EvaluationScope::enter(EvaluationMode::Proof);
         self.with_solver_over(module, &[syntax], |definition, solver| {
             let simplified = match admit(definition, syntax, &[], admission, "KORE pattern")?
                 .internalize_pattern_or_predicate()
@@ -152,6 +163,8 @@ impl Backend {
         admission: Admission,
         finish: impl FnOnce(ModelResult, Option<Sort>) -> Result<T, BackendError>,
     ) -> Result<T, BackendError> {
+        // A proof route (`k_rust_backend::evaluation`).
+        let _proof = EvaluationScope::enter(EvaluationMode::Proof);
         self.with_solver_over(module, &[syntax], |definition, solver| {
             let Some((predicate, result_sort)) =
                 admit(definition, syntax, &[], admission, "model predicate")?

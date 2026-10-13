@@ -261,3 +261,30 @@ fn an_effect_observer_evaluates_outside_the_execution() {
     );
     assert_eq!(current(), EvaluationMode::Proof);
 }
+
+/// A listing over a map whose keys are constructor-like and whose values are symbolic stays
+/// unevaluated outside an execution too, and is defined exactly when the map is: with element
+/// variables as values, the map, and so the listing, is defined.
+#[test]
+fn a_listing_of_a_map_with_symbolic_values_is_as_defined_as_the_map() {
+    let definition = definition();
+    let map = format!(
+        "Lbl'Unds'Map'Unds'{{}}(Lbl'UndsPipe'-'-GT-Unds'{{}}({}, X:SortKItem{{}}), Lbl'UndsPipe'-'-GT-Unds'{{}}({}, {}))",
+        int(1),
+        int(2),
+        int(3)
+    );
+    for source in [format!("keysList{{}}({map})"), format!("values{{}}({map})")] {
+        let (term, _) = simplified(&definition, &source);
+        assert_eq!(term, internal_term(&definition, &source), "{source}");
+        let simplified = unstopped::simplify_predicate_with_solver(
+            &definition,
+            &Predicate::Ceil(term),
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the definedness of a listing simplifies");
+        assert_eq!(simplified, Predicate::True, "{source}");
+    }
+}
