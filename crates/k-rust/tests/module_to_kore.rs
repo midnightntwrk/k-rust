@@ -3263,6 +3263,13 @@ case_tests! {
             "SET.difference",
             "argument 2 of SET.difference, of sort Map, is no set sort",
         ),
+        // `removeAll` removes the bindings whose keys are elements of its second argument, which
+        // only a set has, so an `Int` there is refused.
+        map_remove_all_second_operand: (
+            "syntax Map ::= removeAllI(Map, Int) [function, total, symbol(rai), hook(MAP.removeAll)]",
+            "MAP.removeAll",
+            "argument 2 of MAP.removeAll, of sort Int, is no set sort",
+        ),
         // `choice` of a set gives an element of it, a `KItem`, which is no `Int`.
         set_choice_result: (
             "syntax Int ::= schoice(Set) [function, symbol(schoice), hook(SET.choice)]",

@@ -18,11 +18,14 @@
 //! facts [`SortFacts`] names, so the frontend decides a declaration with it before it emits one,
 //! in the definition's own sorts, and the loader decides KORE from any producer the same way.
 //!
-//! An argument that is only read (an index, a key looked up or removed, a set whose elements are
-//! removed) is not moved into the result, so its sort decides nothing here, except that the
-//! second operand of a set or map difference or of a set intersection is a collection of the
-//! first operand's kind: the hook compares the two collections' items, which it does on no other
-//! value, so a declaration taking anything else there has no model in which the hook computes it.
+//! An argument that is only read (an index, a key looked up or removed) is not moved into the
+//! result, so its sort decides nothing here, except where the hook reads the argument's items.
+//! The second operand of a set or map difference or of a set intersection is a collection of the
+//! first operand's kind, whose items the hook compares with the first operand's, and the second
+//! operand of `MAP.removeAll` is a set, whose elements are the keys the hook removes. Only a
+//! collection of that kind has such items, so a declaration taking anything else there has no
+//! model in which the hook computes it. The sort of those items decides nothing: none of them is
+//! moved into the result.
 
 use crate::{
     matching::SortGraph,
@@ -115,7 +118,8 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
         "MAP.element" => (&[Key, Value], map),
         "MAP.concat" | "MAP.updateAll" => (&[Elements(Kind::Map), Elements(Kind::Map)], map),
         "MAP.update" => (&[Elements(Kind::Map), Key, Value], map),
-        "MAP.remove" | "MAP.removeAll" => (&[Elements(Kind::Map), Read], map),
+        "MAP.remove" => (&[Elements(Kind::Map), Read], map),
+        "MAP.removeAll" => (&[Elements(Kind::Map), ReadCollection(Kind::Set)], map),
         "MAP.difference" => (&[Elements(Kind::Map), ReadCollection(Kind::Map)], map),
         "MAP.keys" => (&[Keys], set),
         "MAP.keys_list" => (&[Keys], list),

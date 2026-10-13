@@ -498,6 +498,21 @@ fn a_collection_hook_whose_declaration_gives_no_value_of_its_result_sort_is_reje
             "argument 2 of SET.intersection, of sort SortVals, is no set sort",
         ),
         (
+            "removeAllOfInt{}(SortValMap{}, SortInt{}) : SortValMap{} \
+             [function{}(), total{}(), hook{}(\"MAP.removeAll\")]",
+            "argument 2 of MAP.removeAll, of sort SortInt, is no set sort",
+        ),
+        (
+            "removeAllOfValMap{}(SortValMap{}, SortValMap{}) : SortValMap{} \
+             [function{}(), total{}(), hook{}(\"MAP.removeAll\")]",
+            "argument 2 of MAP.removeAll, of sort SortValMap, is no set sort",
+        ),
+        (
+            "removeAllOfVals{}(SortValMap{}, SortVals{}) : SortValMap{} \
+             [function{}(), total{}(), hook{}(\"MAP.removeAll\")]",
+            "argument 2 of MAP.removeAll, of sort SortVals, is no set sort",
+        ),
+        (
             "choiceVal{}(SortSet{}) : SortVal{} [function{}(), hook{}(\"SET.choice\")]",
             "an element of argument 1 of SET.choice, of sort SortKItem, is the result, but \
              SortKItem is not SortVal",
