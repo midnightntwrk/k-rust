@@ -308,6 +308,12 @@ mod watchdog {
         run(command, scope)
     }
 
+    /// Run a backend-only `krust` invocation (a `krun --definition` of a compiled definition)
+    /// under the backend budget, so a run that does not end fails the test.
+    pub(super) fn backend(command: Command) -> Output {
+        run(command, Scope::Backend)
+    }
+
     fn run(mut command: Command, scope: Scope) -> Output {
         let (class, duration) = scope.policy();
         let mut child = command
@@ -3287,6 +3293,327 @@ endmodule
             "execution ended with no successor at depth 1: rule fail applied with an undefined result; refuted obligation"
         ),
         "{stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Compile `source` for execution, with `syntax_module` as its program grammar.
+fn compiled_for_execution(
+    root: &Path,
+    name: &str,
+    source: &str,
+    main_module: &str,
+    syntax_module: &str,
+) -> PathBuf {
+    let definition = root.join(format!("{name}.k"));
+    fs::write(&definition, source).unwrap();
+    let compiled = root.join(name);
+    let preparation = watchdog::output(watchdog::Request::Compile {
+        source: &definition,
+        main_module,
+        output: &compiled,
+        kind: watchdog::Compilation::Run { syntax_module },
+    });
+    assert!(
+        preparation.status.success(),
+        "{name}: {}",
+        String::from_utf8_lossy(&preparation.stderr)
+    );
+    compiled
+}
+
+/// `krun` of `expression` against a compiled definition, bounded by the backend watchdog.
+fn bounded_krun(compiled: &Path, sort: &str, expression: &str, extra: &[&str]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command
+        .arg("krun")
+        .arg("--definition")
+        .arg(compiled)
+        .args(["--sort", sort, "--expression", expression, "--io", "off"])
+        .args(extra);
+    watchdog::backend(command)
+}
+
+/// Assert that `output` is a run that halted at `depth` because a rule could apply only by
+/// replacing the named left-hand-side variables with minted existentials.
+fn assert_halts_uninstantiated(output: &Output, depth: u64, variables: Option<&str>) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(output.stdout, b"", "{output:?}");
+    assert!(
+        stderr.contains(&format!(
+            "error: in-process backend halted at depth {depth}: rule "
+        )),
+        "{stderr}"
+    );
+    let reason = match variables {
+        Some(variables) => {
+            format!(" leaves {variables} uninstantiated on a variable-free configuration")
+        }
+        None => " uninstantiated on a variable-free configuration".to_owned(),
+    };
+    assert!(stderr.contains(&reason), "{stderr}");
+}
+
+const WRITTEN_LAMBDAS: &str = r#"
+module WRITTEN
+  imports INT
+  syntax Exp ::= Int
+               | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+               | "swap" "(" Exp ")"         [symbol(swap)]
+  syntax Exp ::= lam(Exp) [symbol(lam), function]
+  configuration <k> $PGM:Exp </k>
+  rule lam(pair(X, Y)) => pair(Y, X)
+  rule swap(E) => lam(E)
+endmodule
+"#;
+
+const OWISE_LAMBDA: &str = r#"
+module OW
+  imports INT
+  syntax Exp ::= Int
+               | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+               | "swapB" "(" Exp ")"        [symbol(swapB)]
+  syntax Exp ::= lamB(Exp) [symbol(lamB), function]
+               | h(Int)    [symbol(h), function]
+  configuration <k> $PGM:Exp </k>
+  rule lamB(pair(X, Y)) => pair(Y, X)
+  rule lamB(_) => #Bottom [owise]
+  rule h(0) => pair(1, 2)
+  rule swapB(E) => lamB(E)
+endmodule
+"#;
+
+#[test]
+fn krun_halts_instead_of_narrowing_a_variable_free_configuration() {
+    // A variable-free configuration denotes at most one state. A rule whose left-hand side meets
+    // an application no equation evaluates (`lam(3)`, `lamB(h(1))`) could apply only by replacing
+    // its variable `E`'s match with a minted existential, which restates the application's
+    // unknown value as a fresh unknown and leaves it in the successor; the run ends as an
+    // incomplete outcome instead of narrowing again at every step.
+    let (root, _) = fixture();
+    let written = compiled_for_execution(&root, "written", WRITTEN_LAMBDAS, "WRITTEN", "WRITTEN");
+    let output = bounded_krun(&written, "Exp", "swap(3)", &[]);
+    assert_halts_uninstantiated(&output, 1, Some("Rule-hVarE"));
+
+    let owise = compiled_for_execution(&root, "owise", OWISE_LAMBDA, "OW", "OW");
+    let output = bounded_krun(&owise, "Exp", "swapB(h(1))", &[]);
+    assert_halts_uninstantiated(&output, 1, Some("Rule-hVarE"));
+
+    // Applications an equation decides are unchanged: the owise equation makes `lamB(3)`
+    // undefined, and `h(0)` evaluates to a pair.
+    let output = bounded_krun(&owise, "Exp", "swapB(3)", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "\\bottom{SortGeneratedTopCell{}}()\n"
+    );
+    let output = bounded_krun(&owise, "Exp", "swapB(h(0))", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        r#"Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(
+    kseq{}(
+      inj{SortExp{}, SortKItem{}}(
+        Lblpair{}(
+          inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("2")),
+          inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
+        )
+      ),
+      dotk{}()
+    )
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)
+"#
+    );
+
+    // Search reaches the same boundary and reports itself incomplete at the halted state.
+    let output = bounded_krun(&owise, "Exp", "swapB(h(1))", &["--search-all"]);
+    let printed = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.status.code(), Some(1), "{printed}");
+    assert!(
+        printed.contains("error: in-process backend search was incomplete: rule ")
+            && printed.contains(
+                " leaves Rule-hVarE uninstantiated on a variable-free configuration\nin the state at depth 1:"
+            ),
+        "{printed}"
+    );
+    assert!(
+        printed.contains(r#"LbllamB{}(Lblh{}(\dv{SortInt{}}("1")))"#),
+        "{printed}"
+    );
+    assert!(!printed.contains("Ex-"), "{printed}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_halts_in_a_lower_priority_group_instead_of_narrowing_a_variable_free_configuration() {
+    // The first rule applies only where the undecided `p(3)` holds, so the remainder of the
+    // configuration reaches the owise rule, which could apply only by narrowing `lam(3)`
+    // against `pair(A, _)`: the lower priority group halts as the first would.
+    let (root, _) = fixture();
+    let low = compiled_for_execution(
+        &root,
+        "low",
+        r#"
+module LOW
+  imports INT
+  imports BOOL
+  syntax Exp ::= Int
+               | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+               | go(Exp)                    [symbol(go)]
+               | done(Exp)                  [symbol(done)]
+  syntax Exp ::= lam(Exp) [symbol(lam), function]
+  syntax Bool ::= p(Int)  [symbol(p), function]
+  configuration <k> $PGM:Exp </k>
+  rule lam(pair(X, Y)) => pair(Y, X)
+  rule go(E) => done(E) requires p(3)
+  rule go(pair(A, _)) => go(A) [owise]
+endmodule
+"#,
+        "LOW",
+        "LOW",
+    );
+    let output = bounded_krun(&low, "Exp", "go(lam(3))", &[]);
+    assert_halts_uninstantiated(&output, 0, Some("Rule-hVar'Unds'Gen0, Rule-hVarA"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_halts_instead_of_narrowing_a_variable_free_configuration_modulo_algebraic_axioms() {
+    // `&` and `;` are unhooked associative productions, which the backend matches as free
+    // constructors: `1 & 2 & 3` is `(1 & 2) & 3`, so `sum(I:Int & B)` meets `bagCat(1, 2)` at
+    // `I:Int`. Narrowing that pair restates the configuration's own value as fresh unknowns at
+    // every step; the variable-free configuration halts instead.
+    let (root, _) = fixture();
+    let bag = compiled_for_execution(
+        &root,
+        "bag",
+        r#"
+module BAG-RW-SYNTAX
+  imports INT-SYNTAX
+  syntax Bag ::= "nil" [symbol(bagNil)]
+               | Int
+               | Bag "&" Bag [left, assoc, comm, unit(bagNil), symbol(bagCat)]
+  syntax Pgm ::= sum(Bag) [symbol(sum)]
+endmodule
+
+module BAG-RW
+  imports BAG-RW-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k> <acc> 0 </acc>
+  rule <k> sum(I:Int & B:Bag) => sum(B) ... </k> <acc> A => A +Int I </acc>
+  rule <k> sum(I:Int) => .K ... </k> <acc> A => A +Int I </acc>
+  rule <k> sum(nil) => .K ... </k>
+endmodule
+"#,
+        "BAG-RW",
+        "BAG-RW-SYNTAX",
+    );
+    let output = bounded_krun(&bag, "Pgm", "sum(1 & 2 & 3)", &[]);
+    assert_halts_uninstantiated(&output, 0, Some("Rule-hVarB, Rule-hVarI"));
+
+    let sequence = compiled_for_execution(
+        &root,
+        "sequence",
+        r#"
+module SEQ-ASSOC-SYNTAX
+  imports INT-SYNTAX
+  syntax Seq ::= Int
+               | Seq ";" Seq [left, assoc, symbol(seqCat)]
+  syntax Pgm ::= sum(Seq) [symbol(sum)]
+endmodule
+
+module SEQ-ASSOC
+  imports SEQ-ASSOC-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k> <acc> 0 </acc>
+  rule <k> sum(I:Int ; S:Seq) => sum(S) ... </k> <acc> A => A +Int I </acc>
+  rule <k> sum(I:Int) => .K ... </k> <acc> A => A +Int I </acc>
+endmodule
+"#,
+        "SEQ-ASSOC",
+        "SEQ-ASSOC-SYNTAX",
+    );
+    let output = bounded_krun(&sequence, "Pgm", "sum(1 ; 2 ; 3)", &[]);
+    assert_halts_uninstantiated(&output, 0, Some("Rule-hVarI, Rule-hVarS"));
+
+    let owise = compiled_for_execution(
+        &root,
+        "owise",
+        r#"
+module P3-SYNTAX
+  imports INT-SYNTAX
+  syntax Bag ::= "nil" [symbol(bagNil)]
+               | Int
+               | Bag "&" Bag [left, assoc, comm, unit(bagNil), symbol(bagCat)]
+  syntax Pgm ::= h(Bag) [symbol(h)] | "a" [symbol(a)] | "b" [symbol(b)]
+endmodule
+
+module P3
+  imports P3-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k>
+  rule <k> h(_:Int & _:Bag) => a </k>
+  rule <k> h(_) => b </k> [owise]
+endmodule
+"#,
+        "P3",
+        "P3-SYNTAX",
+    );
+    for program in ["h(1 & 2)", "h(3)"] {
+        let output = bounded_krun(&owise, "Pgm", program, &[]);
+        assert_halts_uninstantiated(&output, 0, None);
+    }
+
+    // A rule whose left-hand side is ground mints nothing: its match against the configuration
+    // is a condition of the configuration alone, kept on each branch.
+    let ground = compiled_for_execution(
+        &root,
+        "ground",
+        r#"
+module ROWISE2-SYNTAX
+  imports INT-SYNTAX
+  syntax Bag ::= "nil" [symbol(bagNil)]
+               | Int
+               | Bag "&" Bag [left, assoc, comm, unit(bagNil), symbol(bagCat)]
+  syntax Pgm ::= h(Bag) [symbol(h)] | g(Bag) [symbol(g)]
+               | "a" [symbol(a)] | "b" [symbol(b)] | "done" [symbol(done)]
+endmodule
+
+module ROWISE2
+  imports ROWISE2-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k>
+  rule <k> h(1 & 2) => a </k>
+  rule <k> h(_) => b </k> [owise]
+  rule <k> g(1 & 2) => done </k>
+endmodule
+"#,
+        "ROWISE2",
+        "ROWISE2-SYNTAX",
+    );
+    let output = bounded_krun(&ground, "Pgm", "h(2 & 1)", &[]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        stdout.starts_with("\\or{SortGeneratedTopCell{}}(")
+            && stdout.contains("Lbla{}()")
+            && stdout.contains("Lblb{}()")
+            && !stdout.contains("Ex-"),
+        "{stdout}"
+    );
+    let output = bounded_krun(&ground, "Pgm", "g(1 & 2)", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("Lbldone{}()"),
+        "{output:?}"
     );
     fs::remove_dir_all(root).unwrap();
 }

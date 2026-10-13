@@ -897,6 +897,207 @@ fn symbolic_anywhere_fragments_still_enable_narrowing() {
     assert!(fresh.next_index() > 0);
 }
 
+/// A partial function `lam` that one equation evaluates on pairs, an unhooked `bagCat` with the
+/// associativity, commutativity and unit axioms (which the backend does not match by), and two
+/// rules whose left-hand sides meet them: `first` reads a pair under `state`, `sum` the first
+/// operand of a `bagCat` under `sum`.
+fn ground_narrowing_definition() -> BackendDefinition {
+    let source = r#"[]
+        module MAIN
+            sort SortE{} []
+            sort SortS{} []
+            symbol one{}() : SortE{} [constructor{}(), total{}()]
+            symbol two{}() : SortE{} [constructor{}(), total{}()]
+            symbol three{}() : SortE{} [constructor{}(), total{}()]
+            symbol pair{}(SortE{}, SortE{}) : SortE{} [constructor{}(), total{}()]
+            symbol bagNil{}() : SortE{} [constructor{}(), total{}()]
+            symbol bagCat{}(SortE{}, SortE{}) : SortE{} [functional{}(), unit{}(bagNil{}())]
+            symbol lam{}(SortE{}) : SortE{} [function{}()]
+            symbol state{}(SortE{}) : SortS{} [constructor{}(), total{}()]
+            symbol first{}(SortE{}) : SortS{} [constructor{}(), total{}()]
+            symbol sum{}(SortE{}) : SortS{} [constructor{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortE{}, R}(P:SortE{}, pair{}(X:SortE{}, Y:SortE{})), \top{R}())
+                ),
+                \equals{SortE{}, R}(
+                    lam{}(P:SortE{}),
+                    \and{SortE{}}(pair{}(Y:SortE{}, X:SortE{}), \top{SortE{}}())
+                )
+            ) []
+            axiom{R} \equals{SortE{}, R}(
+                bagCat{}(bagCat{}(K1:SortE{}, K2:SortE{}), K3:SortE{}),
+                bagCat{}(K1:SortE{}, bagCat{}(K2:SortE{}, K3:SortE{}))
+            ) [assoc{}()]
+            axiom{R} \equals{SortE{}, R}(
+                bagCat{}(K1:SortE{}, K2:SortE{}),
+                bagCat{}(K2:SortE{}, K1:SortE{})
+            ) [comm{}()]
+            axiom{R} \equals{SortE{}, R}(bagCat{}(K:SortE{}, bagNil{}()), K:SortE{}) [unit{}()]
+            axiom{R} \equals{SortE{}, R}(bagCat{}(bagNil{}(), K:SortE{}), K:SortE{}) [unit{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(state{}(pair{}(A:SortE{}, B:SortE{})), \top{SortS{}}()),
+                first{}(A:SortE{})
+            ) [label{}("first")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(sum{}(bagCat{}(one{}(), B:SortE{})), \top{SortS{}}()),
+                sum{}(B:SortE{})
+            ) [label{}("sum")]
+        endmodule []"#;
+    let syntax = parse_definition(source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+/// Whether a pattern holds a variable a rewrite minted.
+fn holds_a_minted_variable(pattern: &Pattern) -> bool {
+    format!("{pattern:?}").contains("Ex#")
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn execution_and_search_halt_instead_of_narrowing_a_variable_free_configuration() {
+    // A variable-free configuration denotes at most one state: a rule variable the match leaves
+    // unbound is fixed by that state wherever the rule applies, so an existential minted for it
+    // only restates the configuration's unknown value. Execution and search end the path as an
+    // instantiation outcome instead.
+    let definition = ground_narrowing_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    for (subject, rule, missing) in [
+        ("state{}(lam{}(three{}()))", "first", 2),
+        (
+            "sum{}(bagCat{}(bagCat{}(one{}(), two{}()), three{}()))",
+            "sum",
+            1,
+        ),
+        ("sum{}(bagCat{}(two{}(), one{}()))", "sum", 1),
+    ] {
+        let term = internal_term(&definition, subject);
+        assert!(term.attributes().variables.is_empty(), "{subject}");
+        assert!(!term.concrete_after_normalization(), "{subject}");
+        let initial = Pattern {
+            term,
+            constraints: Vec::new(),
+        };
+        let execution = execute_with_solver(
+            &definition,
+            initial.clone(),
+            ExecutionOptions {
+                max_depth: 4,
+                ..ExecutionOptions::default()
+            },
+            &solver,
+        );
+        let [leaf] = execution.leaves.as_slice() else {
+            panic!("{subject}: expected one halted leaf: {execution:#?}");
+        };
+        assert!(
+            matches!(
+                &leaf.halt_reason,
+                HaltReason::Indeterminate(IndeterminateReason::Instantiation {
+                    rule_id,
+                    missing_variables,
+                }) if rule_id == rule && missing_variables.len() == missing
+            ),
+            "{subject}: {execution:#?}"
+        );
+        assert_eq!(leaf.depth, 0, "{subject}");
+        assert!(
+            !holds_a_minted_variable(&leaf.pattern),
+            "{subject}: {leaf:#?}"
+        );
+
+        let options = k_rust_backend::search::SearchOptions {
+            max_depth: 4,
+            ..k_rust_backend::search::SearchOptions::default()
+        };
+        let graph = k_rust_backend::search::search_graph_with_solver(
+            &definition,
+            initial.clone(),
+            options.clone(),
+            &solver,
+        );
+        let paths = k_rust_backend::search::search_paths_with_solver(
+            &definition,
+            initial,
+            options,
+            &solver,
+        );
+        for (incomplete, rendered) in [
+            (&graph.incomplete, format!("{graph:#?}")),
+            (&paths.incomplete, format!("{paths:#?}")),
+        ] {
+            assert!(
+                matches!(
+                    incomplete.as_slice(),
+                    [k_rust_backend::search::IncompleteSearch::Indeterminate {
+                        reason: IndeterminateReason::Instantiation { rule_id, .. },
+                        ..
+                    }] if rule_id == rule
+                ),
+                "{subject}: {rendered}"
+            );
+            assert!(!rendered.contains("Ex#"), "{subject}: {rendered}");
+        }
+    }
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn execution_still_narrows_a_configuration_with_variables() {
+    // A variable makes the configuration a set of states, and narrowing it states which of them
+    // the rule applies to: the boundary is variable-freeness, not the application's head.
+    let definition = ground_narrowing_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    for (subject, rule) in [
+        ("state{}(lam{}(V:SortE{}))", "first"),
+        ("sum{}(X:SortE{})", "sum"),
+    ] {
+        let execution = execute_with_solver(
+            &definition,
+            Pattern {
+                term: internal_term(&definition, subject),
+                constraints: Vec::new(),
+            },
+            ExecutionOptions {
+                max_depth: 1,
+                ..ExecutionOptions::default()
+            },
+            &solver,
+        );
+        assert!(
+            execution.leaves.iter().any(|leaf| {
+                leaf.depth == 1
+                    && holds_a_minted_variable(&leaf.pattern)
+                    && leaf
+                        .trace
+                        .iter()
+                        .any(|entry| format!("{entry:?}").contains(&format!("\"{rule}\"")))
+            }),
+            "{subject}: {execution:#?}"
+        );
+        assert!(
+            execution.leaves.iter().all(|leaf| !matches!(
+                leaf.halt_reason,
+                HaltReason::Indeterminate(IndeterminateReason::Instantiation { .. })
+            )),
+            "{subject}: {execution:#?}"
+        );
+    }
+}
+
+#[test]
+fn an_unhooked_commutative_application_is_not_structurally_distinct_from_its_swap() {
+    // The boundary reads variable-freeness without widening concrete-after-normalization, which
+    // also licenses structural apartness: `bagCat(one, two)` and `bagCat(two, one)` are equal
+    // under the commutativity axiom.
+    let definition = ground_narrowing_definition();
+    let left = internal_term(&definition, "bagCat{}(one{}(), two{}())");
+    let right = internal_term(&definition, "bagCat{}(two{}(), one{}())");
+    assert!(!left.concrete_after_normalization());
+    assert!(!left.structurally_distinct_after_normalization(&right));
+}
+
 #[test]
 fn symbolic_anywhere_matching_retains_fresh_arguments_and_complement() {
     let definition = rewrite_coverage_definition();

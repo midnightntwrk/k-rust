@@ -1324,6 +1324,8 @@ fn step_search_state(
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
             defined_where,
+            // Search reads a variable-free configuration as one state, as execution does.
+            true,
         ),
         QueuedStateKind::Remaining(None) => stuck(definition, pattern),
         QueuedStateKind::Remaining(Some(undecided)) => Ok(undecided.into_result(pattern.clone())),
@@ -2869,6 +2871,8 @@ fn state_may_expand(
         // Continuing would have reported a depth bound; the frontier is not exhausted.
         return true;
     }
+    // The public step does not read a variable-free state as one state, as search's own step
+    // does; a step that halts there instead of narrowing is neither stuck, trivial nor vacuous.
     match rewrite_step_with_options(
         definition,
         &state.pattern,
