@@ -99,6 +99,10 @@ pub enum CellProductionReading {
     /// The configuration grammar read a term of the configuration as the production, so the
     /// configuration holds the term as a value instead of declaring its cell.
     ReadAsTerm,
+    /// The configuration declares `cell`, and the production is the one an imported
+    /// configuration generated for its cell `other` of the same sort (their names differ only in
+    /// the case of their first letter): two cells of one sort.
+    BesideImportedCell { cell: String, other: String },
 }
 
 /// The configuration sentence and the label of a [`ConfigurationError::LabelParameters`].
@@ -148,6 +152,11 @@ impl fmt::Display for ConfigurationError {
                         formatter,
                         "cell production `{}` is a second cell production of cell sort {}: {configuration} declares <{name}>, which generates the one cell production of {}, `<{name}>`; remove this production",
                         cell.production, cell.sort, cell.sort
+                    ),
+                    CellProductionReading::BesideImportedCell { cell: name, other } => write!(
+                        formatter,
+                        "{configuration} declares <{name}>, whose cell sort {} is already the sort of <{other}>, declared here by an imported configuration: a cell sort is the sort of one cell; rename one of the two cells",
+                        cell.sort
                     ),
                     CellProductionReading::ReadAsTerm => write!(
                         formatter,
@@ -1176,15 +1185,21 @@ impl Generator<'_, '_> {
                     if attributes.has(AttributeKey::Cell)
                         && written.as_ref().is_none_or(|written| written.name != label))
             });
-        match other {
-            Some(other) => Err(self.cell_production_error(
-                other,
-                CellProductionReading::BesideDeclaredCell {
-                    cell: cell_name.to_owned(),
-                },
-            )),
-            None => Ok(()),
-        }
+        let Some(other) = other else {
+            return Ok(());
+        };
+        // A configuration generated `other` (its declaration gives the cell's name), so no
+        // production was written; the two declarations name one cell sort.
+        let reading = match other.attributes().string(AttributeKey::CellName) {
+            Some(other) => CellProductionReading::BesideImportedCell {
+                cell: cell_name.to_owned(),
+                other: other.to_owned(),
+            },
+            None => CellProductionReading::BesideDeclaredCell {
+                cell: cell_name.to_owned(),
+            },
+        };
+        Err(self.cell_production_error(other, reading))
     }
 
     /// Reject a configuration term the configuration grammar read as a visible `cell` production,

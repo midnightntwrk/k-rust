@@ -1532,3 +1532,40 @@ fn a_written_cell_production_of_a_declared_cells_sort_is_rejected_at_it() {
     assert!(text.starts_with("cells.k:3:"), "{text}");
     assert!(text.contains("declares <t>"), "{text}");
 }
+
+#[test]
+fn two_configurations_declaring_cells_of_one_sort_name_both_cells() {
+    // `<a>` and `<A>` are both cells of `ACell`. The production the importing configuration
+    // meets is the one the imported configuration generated, so the error names that
+    // declaration and the new one, and does not ask to remove a production nobody wrote.
+    let cells = indoc! {r#"
+        module CELLS
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <T> <a> 0 </a> </T>
+        endmodule
+    "#};
+    let main = indoc! {r#"
+        requires "cells.k"
+        module MAIN
+          imports CELLS
+          configuration <T> <A> 0 </A> </T>
+        endmodule
+    "#};
+    let (cell, text) = cell_production_error(cells, main);
+    assert_eq!(
+        cell.reading,
+        CellProductionReading::BesideImportedCell {
+            cell: "A".into(),
+            other: "a".into()
+        },
+        "{text}"
+    );
+    assert_eq!(cell.sort.to_string(), "ACell");
+    assert!(text.starts_with("cells.k:3:"), "{text}");
+    assert!(
+        text.contains(r#"the configuration of module "MAIN" at main.k:4:"#),
+        "{text}"
+    );
+    assert!(text.contains("rename one of the two cells"), "{text}");
+    assert!(!text.contains("remove this production"), "{text}");
+}
