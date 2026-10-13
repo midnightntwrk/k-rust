@@ -7506,6 +7506,118 @@ fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
     );
 }
 
+const CHOICE_DEFINITION: &str = r#"
+module CHOICE-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= mc(Int, Int) | sc(Int) | mempty() | sempty()
+endmodule
+
+module CHOICE
+  imports CHOICE-SYNTAX
+  imports INT
+  imports MAP
+  imports SET
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(KItem)
+  rule mc(K, V) => res(choice(K |-> V))
+  rule sc(E) => res(choice(SetItem(E)))
+  rule mempty() => res(choice(.Map))
+  rule sempty() => res(choice(.Set))
+endmodule
+"#;
+
+/// `choice` of a map of one binding is its key, and of a set of one element that element: every
+/// key (element) the declaration admits is that one. Of the empty map or set it is undefined, as
+/// a partial hook without a value is, so the step that builds it has an undefined result and the
+/// run ends in `\bottom`; at the base each was the unsupported-hook error.
+#[test]
+fn krun_evaluates_choice_of_one_binding() {
+    let (root, definition) = fixture();
+    fs::write(&definition, CHOICE_DEFINITION).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "CHOICE"], &compiled);
+    let run = |program: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["--sort", "Op", "--expression", program, "--io", "off"])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(output.status.success(), "{program}: {stderr}");
+        let stdout = String::from_utf8(output.stdout)
+            .unwrap()
+            .split_whitespace()
+            .collect::<String>();
+        (stdout, stderr)
+    };
+    for (program, key) in [("mc(5, 50)", "5"), ("sc(7)", "7")] {
+        let expected = format!(
+            r#"Lblres'LParUndsRParUnds'CHOICE'Unds'KItem'Unds'KItem{{}}(inj{{SortInt{{}},SortKItem{{}}}}(\dv{{SortInt{{}}}}("{key}")))"#
+        );
+        let (stdout, stderr) = run(program);
+        assert!(stdout.contains(&expected), "{program}: {stdout}");
+        assert!(!stderr.contains("unsupported hook"), "{program}: {stderr}");
+    }
+    for (program, symbol) in [
+        ("mempty()", "LblMap'Coln'choice"),
+        ("sempty()", "LblSet'Coln'choice"),
+    ] {
+        let (stdout, stderr) = run(program);
+        assert_eq!(
+            stdout, r#"\bottom{SortGeneratedTopCell{}}()"#,
+            "{program}: {stderr}"
+        );
+        assert!(
+            stderr.contains("applied with an undefined result") && stderr.contains(symbol),
+            "{program}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The one-item value of `choice` is a consequence of the definition, so a proof reads it as an
+/// execution does: `choice(K |-> V)` is `K` and `choice(SetItem(X))` is `X` for every `K`, `V`
+/// and `X`. The map's value is dropped from the result but not from its definedness: with `f`
+/// defined only at 0, `choice(K |-> f(V))` is `K` only where `f(V)` is defined, so the claim is
+/// proven under `V ==Int 0` and not without it.
+#[test]
+fn kprove_reads_choice_of_one_binding_and_keeps_the_definedness_of_its_value() {
+    let source = format!(
+        "{CHOICE_DEFINITION}
+module CHOICE-PARTIAL
+  imports CHOICE
+  syntax Int ::= f(Int) [function]
+  rule f(0) => 1
+  syntax Op ::= pc(Int, Int)
+  rule pc(K, V) => res(choice(K |-> f(V)))
+endmodule
+
+module CHOICE-SPEC
+  imports CHOICE-PARTIAL
+  claim [one-key]: <k> mc(K:Int, V:Int) => res(K) </k>
+  claim [one-element]: <k> sc(X:Int) => res(X) </k>
+  claim [partial-value]: <k> pc(K:Int, V:Int) => res(K) </k>
+  claim [defined-value]: <k> pc(K:Int, V:Int) => res(K) </k> requires V ==Int 0
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "CHOICE-PARTIAL", "CHOICE-SPEC");
+    for claim in ["one-key", "one-element", "defined-value"] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
+    assert_ne!(
+        claim_verdict(&verdicts, "partial-value", &output),
+        "proven",
+        "{output}"
+    );
+}
+
 #[test]
 fn search_without_a_pattern_binds_each_answer_to_var_result() {
     let (root, definition) = branching_search_fixture();

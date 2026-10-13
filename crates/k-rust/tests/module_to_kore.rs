@@ -3238,6 +3238,19 @@ case_tests! {
             "LIST.get",
             "an element of argument 1 of LIST.get, of sort KItem, is the result, but KItem is not Int or a subsort of it",
         ),
+        // `choice` gives a key of its map, a `KItem`, which is no `Int`; the declaration is
+        // refused although nothing applies it.
+        map_choice_result: (
+            "syntax Int ::= ichoice(Map) [function, symbol(ichoice), hook(MAP.choice)]",
+            "MAP.choice",
+            "a key of argument 1 of MAP.choice, of sort KItem, is the result, but KItem is not Int or a subsort of it",
+        ),
+        // `choice` of a set gives an element of it, a `KItem`, which is no `Int`.
+        set_choice_result: (
+            "syntax Int ::= schoice(Set) [function, symbol(schoice), hook(SET.choice)]",
+            "SET.choice",
+            "an element of argument 1 of SET.choice, of sort KItem, is the result, but KItem is not Int or a subsort of it",
+        ),
         // The default of a lookup is a possible result, and a `K` is no `KItem`.
         map_lookup_default: (
             "syntax KItem ::= Map \"<\" KItem \",\" K \">\" [function, symbol(at), hook(MAP.lookupOrDefault)]",

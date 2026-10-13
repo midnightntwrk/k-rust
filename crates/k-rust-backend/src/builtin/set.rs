@@ -55,6 +55,7 @@ pub(super) fn evaluate(
         "SET.union" => union(arguments, result),
         "SET.list2set" => list_to_set(arguments, result),
         "SET.inclusion" => inclusion(arguments),
+        "SET.choice" => return Ok(choice(arguments)),
         _ => {
             return Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::NotImplemented,
@@ -62,6 +63,37 @@ pub(super) fn evaluate(
         }
     }?;
     Ok(result.into())
+}
+
+/// `choice(S)`: some element of `S`, the same element for the same set (`domains.md`), from a
+/// `function` that is not `total`.
+///
+/// The empty set has no element, so the application is undefined. A set of one element `E` has
+/// that element, and every function the declaration admits gives it, whether or not `E` is
+/// constructor-like. A set with an opaque rest beside at most one element may be a set of one
+/// element under an instance, so the application waits for one. A set of two or more elements,
+/// with a rest or without, has two or more elements wherever it is defined (set concatenation is
+/// nilpotent), and which of them the hook gives is not a consequence of the definition: that
+/// stays the unsupported outcome, as does an application of another arity, which no declaration
+/// the load accepts has (`hook_signature`).
+fn choice(arguments: &[Term]) -> BuiltinResult {
+    let [set] = arguments else {
+        return BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented);
+    };
+    let TermKind::Set { elements, rest, .. } = set.kind() else {
+        return BuiltinResult::NotApplicable;
+    };
+    match (elements.len(), rest) {
+        (0, None) => BuiltinResult::Bottom,
+        (1, None) => BuiltinResult::Value(
+            elements
+                .get(0)
+                .expect("a one-element set's element")
+                .clone(),
+        ),
+        (0 | 1, Some(_)) => BuiltinResult::NotApplicable,
+        _ => BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented),
+    }
 }
 
 /// `S1 S2`, the disjoint union: `\bottom` when the operands share an element, because set
@@ -1043,6 +1075,53 @@ mod tests {
                     "{arguments:?}"
                 );
             }
+        }
+    }
+
+    fn choice_of(set: Term) -> BuiltinResult {
+        super::super::evaluate_hook("SET.choice", &[set])
+            .unwrap()
+            .unwrap()
+    }
+
+    /// The empty set has no element, and `choice` is partial: the application is undefined.
+    #[test]
+    fn choice_of_the_empty_collection_is_bottom() {
+        assert_eq!(choice_of(set(&[])), BuiltinResult::Bottom);
+    }
+
+    /// A set of one element has that element, which every admitted choice gives, also when it is
+    /// a variable; with a rest beside it the set may hold other elements, so the application
+    /// waits.
+    #[test]
+    fn choice_of_a_one_item_collection_is_its_item_even_symbolic() {
+        assert_eq!(choice_of(set(&["a"])), BuiltinResult::Value(item("a")));
+        let x = Term::variable(Variable::new("X", Sort::simple("SortKItem")));
+        assert_eq!(
+            choice_of(Term::set(set_definition(), vec![x.clone()], None)),
+            BuiltinResult::Value(x.clone())
+        );
+        let rest = Term::variable(Variable::new("R", Sort::simple("SortSet")));
+        assert_eq!(
+            choice_of(Term::set(set_definition(), vec![x], Some(rest.clone()))),
+            BuiltinResult::NotApplicable
+        );
+        assert_eq!(choice_of(rest), BuiltinResult::NotApplicable);
+    }
+
+    /// Which of two or more elements `choice` gives is not a consequence of the definition; this
+    /// ticket leaves it unsupported, with a rest beside the elements or not.
+    #[test]
+    fn choice_of_two_items_is_still_unsupported() {
+        let rest = Term::variable(Variable::new("R", Sort::simple("SortSet")));
+        for set in [
+            set(&["a", "b"]),
+            Term::set(set_definition(), vec![item("a"), item("b")], Some(rest)),
+        ] {
+            assert_eq!(
+                choice_of(set),
+                BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented)
+            );
         }
     }
 }

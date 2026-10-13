@@ -466,7 +466,8 @@ pub(crate) fn evaluate_hook_into(
 }
 
 /// The value of a hook that gives one element of a collection argument (`LIST.get`,
-/// `MAP.lookup`, `MAP.lookupOrDefault`) as a value of the application's sort: the element's sort
+/// `MAP.lookup`, `MAP.lookupOrDefault`, `MAP.choice`, `SET.choice`) as a value of the
+/// application's sort: the element's sort
 /// is that sort or a subsort of it, as the load checks (`hook_signature::misfit`), and a value of
 /// a strict subsort is a value of the result once injected.
 fn member_in_result(
@@ -568,9 +569,12 @@ fn evaluate_hook_with_context(
                     result_sort,
                     sort_graph,
                 ),
-                Some(HookNamespace::Set) => {
-                    set::evaluate(hook, arguments, sort_graph, result_collection)
-                }
+                Some(HookNamespace::Set) => member_in_result(
+                    hook,
+                    set::evaluate(hook, arguments, sort_graph, result_collection)?,
+                    result_sort,
+                    sort_graph,
+                ),
                 Some(HookNamespace::Bytes) => bytes::evaluate(hook, arguments),
                 Some(HookNamespace::Float) => float::evaluate(hook, arguments),
                 Some(HookNamespace::MInt) => mint::evaluate(hook, arguments, result_sort),
