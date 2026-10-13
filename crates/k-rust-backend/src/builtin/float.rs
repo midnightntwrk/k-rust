@@ -732,6 +732,11 @@ fn uncomputed_pair(hook: &str, left: &FloatFormat, right: &FloatFormat) -> Built
              {hook} on binary32 (p24x8) and binary64 (p53x11) Floats only"
         ));
     }
+    uncomputed_operands_of(hook, left, right)
+}
+
+/// [`uncomputed_operands`] naming those of `left` and `right` the backend does not compute.
+fn uncomputed_operands_of(hook: &str, left: &FloatFormat, right: &FloatFormat) -> BuiltinResult {
     let mut formats = vec![left];
     if right != left {
         formats.push(right);
@@ -759,7 +764,11 @@ fn compare(hook: &str, arguments: &[Term], comparison: Comparison) -> HookResult
         return Ok(BuiltinResult::NotApplicable);
     };
     let (Operand::Computed(left), Operand::Computed(right)) = (&left, &right) else {
-        return Ok(uncomputed_pair(hook, &left.format(), &right.format()));
+        return Ok(uncomputed_operands_of(
+            hook,
+            &left.format(),
+            &right.format(),
+        ));
     };
     Ok(BuiltinResult::Value(bool_term(
         left.compare(*right, comparison),

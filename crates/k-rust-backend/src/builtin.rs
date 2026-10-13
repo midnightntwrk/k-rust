@@ -2937,6 +2937,11 @@ mod tests {
                 &[hook, "p113x15"],
                 &format!("{hook}(1.0, 1.0p113x15)"),
             );
+            assert_uncomputed_format(
+                evaluate_hook(hook, &[float_term("1.0p113x15"), float_term("1.0p24x200")]),
+                &[hook, "p113x15", "p24x200"],
+                &format!("{hook}(1.0p113x15, 1.0p24x200)"),
+            );
         }
         // The decided mixed rule rounds to the operand format that contains the other: for
         // p113x15 and binary64 that is p113x15, which the backend does not compute; for p113x15
