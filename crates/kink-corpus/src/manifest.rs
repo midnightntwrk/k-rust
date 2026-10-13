@@ -7,8 +7,8 @@ use k_rust::kore::{
     parser::parse_pattern,
 };
 use kink_campaign::{
-    Coupled, CrashPolicy, OracleDeclaration, Projection, ScheduleMode, Sel, SelectionPolicy,
-    StateProjection,
+    BudgetMutants, Coupled, CrashPolicy, OracleDeclaration, Projection, ScheduleMode, Sel,
+    SelectionPolicy, StateProjection,
 };
 use kink_native::{
     K_RUST_REVISION,
@@ -74,6 +74,7 @@ pub struct CorpusCampaign {
     pub schedule: ScheduleMode,
     pub selection: SelectionPolicy,
     pub budget: ExecutionBudget,
+    pub budget_mutants: Option<BudgetMutants>,
     pub max_candidates_per_spec: u64,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -318,6 +319,7 @@ fn campaign(v: &Value) -> Result<CorpusCampaign, ManifestError> {
             "classifier",
             "max_candidates_per_spec",
             "budget",
+            "budget_mutants",
         ],
     )?;
     let budget = object(
@@ -356,6 +358,7 @@ fn campaign(v: &Value) -> Result<CorpusCampaign, ManifestError> {
         schedule,
         selection,
         max_candidates_per_spec: maximum,
+        budget_mutants: budget_mutants(&map["budget_mutants"])?,
         budget: ExecutionBudget {
             time: std::time::Duration::from_millis(number(&budget["time_ms"])?),
             max_simplification_iterations: usize::try_from(number(
@@ -376,6 +379,34 @@ fn campaign(v: &Value) -> Result<CorpusCampaign, ManifestError> {
             },
         },
     })
+}
+fn budget_mutants(v: &Value) -> Result<Option<BudgetMutants>, ManifestError> {
+    if v.is_null() {
+        return Ok(None);
+    }
+    let map = object(v, &["per_spec_max", "total_max", "seed"])?;
+    let per_spec_max = number(&map["per_spec_max"])?;
+    let total_max = number(&map["total_max"])?;
+    if per_spec_max == 0 || total_max == 0 {
+        return Err(schema("positive mutant budget maxima"));
+    }
+    let seed = nonempty(&map["seed"])?;
+    if !seed.len().is_multiple_of(2)
+        || !seed
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(schema("lowercase hexadecimal mutant budget seed"));
+    }
+    let seed = (0..seed.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&seed[i..i + 2], 16).expect("validated hexadecimal"))
+        .collect();
+    Ok(Some(BudgetMutants {
+        per_spec_max,
+        total_max,
+        seed,
+    }))
 }
 fn universe(v: &Value) -> Result<Universe, ManifestError> {
     let m = object(

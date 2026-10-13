@@ -65,6 +65,7 @@ fn exact_keys_canonical_bytes_and_profile() {
             "classifier",
             "max_candidates_per_spec",
             "budget",
+            "budget_mutants",
         ],
     );
     keys(
@@ -125,6 +126,60 @@ fn exact_keys_canonical_bytes_and_profile() {
     unknown = m.value();
     unknown["definitions"][0]["tests"][0]["input"]["extra"] = json!(true);
     assert!(matches!(read(&unknown), Err(ManifestError::Schema(_))));
+}
+#[test]
+fn campaign_budget_mutants() {
+    let v = clean();
+    let m = read(&v).unwrap();
+    assert_eq!(m.campaign().budget_mutants, None);
+    assert_eq!(m.text(), canonical_json(&v));
+
+    let mut v = v;
+    v["campaign"]["budget_mutants"] = json!({"per_spec_max":2,"total_max":3,"seed":"00ff"});
+    let m = read(&v).unwrap();
+    assert_eq!(
+        m.campaign().budget_mutants,
+        Some(kink_campaign::BudgetMutants {
+            per_spec_max: 2,
+            total_max: 3,
+            seed: vec![0, 255],
+        })
+    );
+    assert_eq!(m.text(), canonical_json(&v));
+    assert_eq!(read(&m.value()).unwrap().text(), m.text());
+
+    let mut invalid = v.clone();
+    invalid["campaign"]
+        .as_object_mut()
+        .unwrap()
+        .remove("budget_mutants");
+    assert!(matches!(read(&invalid), Err(ManifestError::Schema(_))));
+    invalid = v.clone();
+    invalid["campaign"]["budget_mutants"]["extra"] = json!(true);
+    assert!(matches!(read(&invalid), Err(ManifestError::Schema(_))));
+    for (key, value) in [
+        ("per_spec_max", json!(0)),
+        ("total_max", json!(0)),
+        ("seed", json!("")),
+        ("seed", json!("0F")),
+        ("seed", json!("abc")),
+        ("seed", json!(7)),
+        ("per_spec_max", json!("2")),
+        ("total_max", json!(-1)),
+        ("seed", json!("gg")),
+    ] {
+        let mut invalid = v.clone();
+        invalid["campaign"]["budget_mutants"][key] = value;
+        assert!(
+            matches!(read(&invalid), Err(ManifestError::Schema(_))),
+            "{invalid}"
+        );
+    }
+    for value in [json!(7), json!([]), json!(true), json!("00ff")] {
+        let mut invalid = v.clone();
+        invalid["campaign"]["budget_mutants"] = value;
+        assert!(matches!(read(&invalid), Err(ManifestError::Schema(_))));
+    }
 }
 #[test]
 fn mandatory_bounds_classifier_and_exclusions() {
