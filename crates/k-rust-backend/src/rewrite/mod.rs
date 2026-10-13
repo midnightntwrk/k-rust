@@ -827,6 +827,9 @@ pub(crate) enum InitialDefinedness {
     /// The configuration is defined exactly on its instances where these obligations hold; none
     /// when its constraints establish its definedness.
     Where(Vec<Predicate>),
+    /// Its definedness depends on an impure application in an operand a conditional never
+    /// evaluates (`crate::deferred`): the unsupported-hook outcome.
+    Unsupported(crate::simplify::SimplificationError),
 }
 
 /// The definedness of the initial configuration `t ∧ φ` of an execution or a search that does
@@ -849,7 +852,11 @@ pub(crate) fn initial_definedness(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<InitialDefinedness> {
-    let obligations = crate::definedness::ceil_term(definition, &pattern.term)
+    let obligations = match crate::definedness::ceil_term(definition, &pattern.term) {
+        Ok(obligations) => obligations,
+        Err(outcome) => return Ok(InitialDefinedness::Unsupported(outcome.into())),
+    };
+    let obligations = obligations
         .into_iter()
         .filter(|obligation| !pattern.constraints.contains(obligation))
         .collect::<Vec<_>>();

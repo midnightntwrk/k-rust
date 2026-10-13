@@ -212,7 +212,8 @@ fn the_preludes_hooked_equations_agree_with_their_hooks() {
                 let requires = rule
                     .requires
                     .instantiate(&valuation)
-                    .with_definedness(&definition, &[]);
+                    .with_definedness(&definition, &[])
+                    .unwrap();
                 if !requires.is_empty() {
                     let holds = simplify_predicate_with_solver(
                         &definition,

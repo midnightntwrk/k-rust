@@ -521,8 +521,7 @@ fn simplify_pattern_details(
     {
         constraints = vec![Predicate::False];
     }
-    constraints
-        .retain(|constraint| !ceil_entailed_by_term(definition, constraint, &simplified.term));
+    constraints.retain(|constraint| !ceil_entailed_by_term(constraint, &simplified.term));
     let mut constraints = discharge_valid_constraints(definition, constraints, solver)?;
     retain_substitution_predicates(
         &mut constraints,
@@ -548,20 +547,10 @@ fn simplify_pattern_details(
 /// context `C` consists of total symbols (constructors, cells, injections, `kseq`, `dotk`, and
 /// collections), whose own definedness is not an open obligation. Under a partial application
 /// the conjunct stays explicit, as the obligation `ceil_term` reports for that application.
-fn ceil_entailed_by_term(
-    definition: &BackendDefinition,
-    predicate: &Predicate,
-    term: &Term,
-) -> bool {
+fn ceil_entailed_by_term(predicate: &Predicate, term: &Term) -> bool {
     let (Predicate::Ceil(subject) | Predicate::Defined(subject)) = predicate else {
         return false;
     };
-    // The deferred atom of an impure application is an outcome to raise, not a fact.
-    if matches!(predicate, Predicate::Defined(_))
-        && crate::deferred::is_impure_application(definition, subject)
-    {
-        return false;
-    }
     occurs_under_total_context(term, subject)
 }
 
@@ -1414,10 +1403,15 @@ fn simplify_predicates_with_budget(
         if let Some(slot) = slots[index] {
             assumptions[offset + slot] = Predicate::True;
         }
+        // A deferred atom over an impure application (never stated by `deferred_obligations`)
+        // is not a fact to read off the known predicates: it goes to the atom's own arm, which
+        // raises the unsupported-hook outcome.
         let result = if let Predicate::Ceil(subject) | Predicate::Defined(subject) = predicate
             && known_defined
                 .get_or_insert_with(|| known_defined_subterms(definition, known_predicates))
                 .contains(subject)
+            && !(matches!(predicate, Predicate::Defined(_))
+                && crate::deferred::impure_outcome(definition, subject).is_some())
         {
             Ok(Predicate::True)
         } else {
@@ -1800,7 +1794,9 @@ fn evaluate_equation_condition(
             },
         )??
     } else {
-        requires.with_definedness(definition, definedness_known)
+        requires
+            .with_definedness(definition, definedness_known)
+            .map_err(SimplificationError::from)?
     };
     Ok(
         match decide_rule_condition(rule, &predicates, rule_variables, known_predicates, solver)? {
@@ -2133,6 +2129,14 @@ fn simplify_predicate_on_stack(
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
     stop::check()?;
+    // `deferred_obligations` never states an atom over an impure application; one built
+    // otherwise (a library caller's predicate) is the unsupported-hook outcome before any known
+    // fact can decide it.
+    if let Predicate::Defined(subject) = predicate
+        && let Some(outcome) = crate::deferred::impure_outcome(definition, subject)
+    {
+        return Err(SimplificationError::from(outcome).into());
+    }
     match assumptions.truth(predicate) {
         Some(true) => return Ok(Predicate::True),
         Some(false) => return Ok(Predicate::False),
@@ -2259,7 +2263,8 @@ fn simplify_predicate_on_stack(
         Predicate::Ceil(term) => {
             let simplified = simplify_term(term)?.into_parts();
             let unchanged = Predicate::Ceil(simplified.term.clone());
-            let mut expanded = ceil_term(definition, &simplified.term);
+            let mut expanded =
+                ceil_term(definition, &simplified.term).map_err(SimplificationError::from)?;
             // An opaque parent ceil remains a conjunct after expansion. Do not repeatedly
             // add child ceils already supplied by the surrounding conjunction.
             expanded.retain(|predicate| !assumptions.contains(predicate));
@@ -2368,7 +2373,7 @@ fn simplify_predicate_on_stack(
                 Predicate::Ceil(joined) => joined,
                 _ => unreachable!("an absence is an atom or the ceil of its joined set"),
             };
-            let mut expanded = ceil_term(definition, joined);
+            let mut expanded = ceil_term(definition, joined).map_err(SimplificationError::from)?;
             // As for `\ceil` above: an opaque atom remains a conjunct of its expansion.
             expanded.retain(|predicate| !assumptions.contains(predicate));
             if expanded.as_slice() == std::slice::from_ref(&simplified) {
@@ -3239,7 +3244,7 @@ impl PredicateOperands {
         let mut bound = Vec::new();
         for (variable, value) in substitution {
             if variable.kind == VariableKind::Element && !value.attributes().ceil_free() {
-                bound.extend(ceil_term(definition, value));
+                bound.extend(ceil_term(definition, value).ok()?);
             }
         }
         let mut consumed = Self {
@@ -3255,6 +3260,7 @@ impl PredicateOperands {
             // An obligation the path already states holds wherever the instance is used, so it
             // neither conditions the instance nor needs the predicate strict in its operand.
             let own = ceil_term(definition, subject)
+                .ok()?
                 .into_iter()
                 .filter(|predicate| {
                     !bound.contains(predicate) && !known_predicates.contains(predicate)
@@ -3405,9 +3411,11 @@ fn obligated_variables(
         .iter()
         .filter(|(variable, value)| {
             variable.kind == VariableKind::Element
-                && ceil_term(definition, value)
-                    .iter()
-                    .any(|obligation| definedness.contains(obligation))
+                && ceil_term(definition, value).is_ok_and(|obligations| {
+                    obligations
+                        .iter()
+                        .any(|obligation| definedness.contains(obligation))
+                })
         })
         .map(|(variable, _)| variable.clone())
         .collect()
@@ -3509,7 +3517,8 @@ pub(crate) fn term_is_provably_defined(
     term: &Term,
     known: impl Fn(&Predicate) -> bool,
 ) -> bool {
-    !contains_term_conjunction(term) && ceil_term(definition, term).iter().all(known)
+    !contains_term_conjunction(term)
+        && ceil_term(definition, term).is_ok_and(|obligations| obligations.iter().all(known))
 }
 
 /// Whether `term` contains a term-level `\and` anywhere.
@@ -3914,8 +3923,13 @@ fn normalize_hooked_boolean_predicate(
     } else {
         equality
     };
-    let mut predicates = ceil_term(definition, &left_operand);
-    predicates.extend(ceil_term(definition, &right_operand));
+    let (Ok(mut predicates), Ok(right_obligations)) = (
+        ceil_term(definition, &left_operand),
+        ceil_term(definition, &right_operand),
+    ) else {
+        return Predicate::Equals(left, right);
+    };
+    predicates.extend(right_obligations);
     predicates.push(condition);
     normalize_predicate(Predicate::And(predicates))
 }
@@ -3968,8 +3982,8 @@ fn set_membership_equations(
             Predicate::Not(Box::new(equality))
         });
     }
-    let mut predicates = ceil_term(definition, element);
-    predicates.extend(ceil_term(definition, set));
+    let mut predicates = ceil_term(definition, element).ok()?;
+    predicates.extend(ceil_term(definition, set).ok()?);
     predicates.push(if value {
         Predicate::Or(equations)
     } else {
@@ -6569,7 +6583,7 @@ pub(crate) fn hook_argument_definedness(
                 None => deferred_obligations(definition, argument)?,
             }
         } else {
-            ceil_term(definition, argument)
+            ceil_term(definition, argument)?
         };
         for obligation in stated {
             if !known_predicates.contains(&obligation) && !obligations.contains(&obligation) {

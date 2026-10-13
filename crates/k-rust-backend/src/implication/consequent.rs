@@ -20,16 +20,18 @@ use std::collections::BTreeSet;
 
 use crate::{
     condition::instantiate_constraints,
+    deferred::DeferredOutcome,
     definedness::ceil_term,
     definition::BackendDefinition,
     matching::expand_implication_remainders,
     rewrite::Pattern,
     rule::Predicate,
+    stop::Stoppable,
     substitution::{Substitution, substitute},
     term::{Term, Variable},
 };
 
-use super::{Destination, remainder_obligation};
+use super::{ConditionRefuter, Destination, remainder_obligation};
 use universal::UniversalBindings;
 
 /// The match of a consequent's term against an antecedent's term (I6): the bindings of the
@@ -73,7 +75,8 @@ impl ConsequentMatch {
         destination: &Destination,
         remainder: Vec<(Term, Term)>,
         known: &[Predicate],
-    ) -> Vec<ConsequentObligations> {
+        refuted: &mut ConditionRefuter<'_>,
+    ) -> Stoppable<Result<Vec<ConsequentObligations>, DeferredOutcome>> {
         let (universal, equations) = self.universal.with_equations();
         // The whole match, applied to the remainder and to the destination's constraints: the
         // witnesses and the universal bindings, whose equations lead every branch. The two
@@ -86,19 +89,22 @@ impl ConsequentMatch {
         );
         let branches = expand_implication_remainders(definition, &substitution, &remainder)
             .unwrap_or_else(|| vec![remainder]);
-        branches
-            .into_iter()
-            .map(|remainder| {
-                branch_obligations(
-                    definition,
-                    destination.pattern(),
-                    &substitution,
-                    &equations,
-                    remainder,
-                    known,
-                )
-            })
-            .collect()
+        let mut obligations = Vec::with_capacity(branches.len());
+        for remainder in branches {
+            match branch_obligations(
+                definition,
+                destination.pattern(),
+                &substitution,
+                &equations,
+                remainder,
+                known,
+                refuted,
+            )? {
+                Ok(branch) => obligations.push(branch),
+                Err(outcome) => return Ok(Err(outcome)),
+            }
+        }
+        Ok(Ok(obligations))
     }
 
     /// Every binding of the match, witnesses and universal bindings alike, as the check reports
@@ -119,7 +125,8 @@ fn branch_obligations(
     equations: &[Predicate],
     remainder: Vec<(Term, Term)>,
     known: &[Predicate],
-) -> ConsequentObligations {
+    refuted: &mut ConditionRefuter<'_>,
+) -> Stoppable<Result<ConsequentObligations, DeferredOutcome>> {
     let mut obligations = Vec::new();
     for equation in equations {
         if !obligations.contains(equation) {
@@ -134,12 +141,16 @@ fn branch_obligations(
     // is stated with the equation. It adds nothing the equation does not imply.
     for (left, right) in remainder {
         let left = substitute(&left, substitution);
-        for predicate in ceil_term(definition, &left) {
+        let definedness = match ceil_term(definition, &left) {
+            Ok(definedness) => definedness,
+            Err(outcome) => return Ok(Err(outcome)),
+        };
+        for predicate in definedness {
             if !obligations.contains(&predicate) {
                 obligations.push(predicate);
             }
         }
-        let predicate = remainder_obligation(&left, &substitute(&right, substitution));
+        let predicate = remainder_obligation(&left, &substitute(&right, substitution), refuted)?;
         if !obligations.contains(&predicate) {
             obligations.push(predicate);
         }
@@ -147,15 +158,19 @@ fn branch_obligations(
     // The consequent's constraints under the match are a condition on the antecedent's instances
     // (I1): an atom over a term undefined on some of them is `⊥` there, so its definedness is
     // stated before the condition is simplified or decided, except where `known` holds it.
-    for predicate in instantiate_constraints(&consequent.constraints, substitution)
+    let constraints = match instantiate_constraints(&consequent.constraints, substitution)
         .with_definedness(definition, known)
     {
+        Ok(constraints) => constraints,
+        Err(outcome) => return Ok(Err(outcome)),
+    };
+    for predicate in constraints {
         if !obligations.contains(&predicate) {
             obligations.push(predicate);
         }
     }
     obligations.retain(|predicate| !known.contains(predicate));
-    ConsequentObligations(obligations)
+    Ok(Ok(ConsequentObligations(obligations)))
 }
 
 mod universal {

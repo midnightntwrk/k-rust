@@ -61,11 +61,12 @@ impl Instance {
         }
         let mut query = pattern.constraints.clone();
         let mut queried = query.iter().cloned().collect::<FxHashSet<_>>();
-        for predicate in extra
-            .iter()
-            .cloned()
-            .chain(ceil_term(definition, &pattern.term))
-        {
+        // A term whose definedness depends on an impure application in an operand a conditional
+        // never evaluates (`crate::deferred`) shows no instance.
+        let Ok(term_definedness) = ceil_term(definition, &pattern.term) else {
+            return Ok(None);
+        };
+        for predicate in extra.iter().cloned().chain(term_definedness) {
             if queried.insert(predicate.clone()) {
                 query.push(predicate);
             }

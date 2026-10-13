@@ -60,9 +60,17 @@ fn definition() -> BackendDefinition {
             symbol g{{}}(SortNat{{}}) : SortNat{{}} [function{{}}()]
             symbol h{{}}(SortNat{{}}) : SortNat{{}} [function{{}}()]
             symbol p{{}}(SortNat{{}}) : SortNat{{}} [function{{}}()]
+            hooked-symbol ite{{}}(SortBool{{}}, SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), total{{}}(), hook{{}}("KEQUAL.ite")]
+            hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.eq"), smt-hook{{}}("=")]
+            symbol imp{{}}() : SortInt{{}} [function{{}}(), total{{}}(), impure{{}}()]
+            symbol one{{}}() : SortInt{{}} [function{{}}(), total{{}}()]
             sort SortState{{}} []
             symbol hold{{}}(SortInt{{}}) : SortState{{}} [constructor{{}}()]
             {nullary}
+            axiom{{R}} \implies{{R}}(\and{{R}}(\top{{R}}(), \top{{R}}()), \equals{{SortInt{{}}, R}}(imp{{}}(), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("1"), \top{{SortInt{{}}}}()))) [label{{}}("imp")]
+            axiom{{R}} \implies{{R}}(\and{{R}}(\top{{R}}(), \top{{R}}()), \equals{{SortInt{{}}, R}}(one{{}}(), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("1"), \top{{SortInt{{}}}}()))) [label{{}}("one")]
             {}
             {}
             {}
@@ -189,15 +197,15 @@ fn one_equation_step_whose_instance_is_defined_establishes_a_deferred_atom() {
 #[test]
 fn a_ceil_equation_decides_a_deferred_atom_only_by_folding_its_condition() {
     // `⌈tdiv(I1, I2)⌉ = (I2 =/=Int 0)`: the condition folds to `true` at `I2 = 2` and to `false`
-    // at `I2 = 0`, whatever `I1`; at `I2 = f(-1)` it needs `f`'s value, so the atom stays open
-    // although `f(-1)` is `0` (`fdivz`, `divF`).
+    // at `I2 = 0`, whatever `I1`; at `I2 = two(-1)` it needs two equation steps, so the atom stays
+    // open although `two(-1)` is `-1`.
     let definition = definition();
     let (decided, evaluated) = decide(&definition, r#"tdiv{}(X:SortInt{}, \dv{SortInt{}}("2"))"#);
     assert_eq!(decided, Predicate::True);
     assert!(!evaluated);
     let (decided, _) = decide(&definition, r#"tdiv{}(X:SortInt{}, \dv{SortInt{}}("0"))"#);
     assert_eq!(decided, Predicate::False);
-    let subject = r#"tdiv{}(\dv{SortInt{}}("1"), f{}(\dv{SortInt{}}("-1")))"#;
+    let subject = r#"tdiv{}(\dv{SortInt{}}("1"), two{}(\dv{SortInt{}}("-1")))"#;
     let (decided, evaluated) = decide(&definition, subject);
     assert_eq!(decided, defined(&definition, subject));
     assert!(!evaluated);
@@ -207,6 +215,48 @@ fn a_ceil_equation_decides_a_deferred_atom_only_by_folding_its_condition() {
         r#"tdiv{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0"))"#,
     );
     assert_eq!(decided, Predicate::False);
+}
+
+#[test]
+fn a_ceil_equation_over_hook_arithmetic_states_its_condition() {
+    // D2': over variables, literals and pure total hooks the instance of the ceil equation is
+    // stated in place of the opaque atom, so the solver reads `Y =/=Int 0` (simplified to
+    // `\\not(Y = 0)`) itself.
+    let definition = definition();
+    let (decided, evaluated) = decide(&definition, "tdiv{}(X:SortInt{}, Y:SortInt{})");
+    assert_eq!(
+        decided,
+        Predicate::Not(Box::new(Predicate::Equals(
+            internal_term(&definition, "Y:SortInt{}"),
+            internal_term(&definition, r#"\dv{SortInt{}}("0")"#),
+        )))
+    );
+    // The stated condition is an ordinary predicate, simplified by its hooks.
+    let _ = evaluated;
+    // An argument that is not hook arithmetic keeps the atom.
+    let subject = "tdiv{}(X:SortInt{}, two{}(Y:SortInt{}))";
+    let (decided, _) = decide(&definition, subject);
+    assert_eq!(decided, defined(&definition, subject));
+}
+
+#[test]
+fn one_equation_step_gives_a_ground_argument_its_value() {
+    // `f(-1) = -1 +Int 1` folds to `0` by hooks: one equation step on literal arguments, whose
+    // right-hand side is decided by hooks alone, gives `f(-1)` its value, so `1 /Int f(-1)` is
+    // `1 /Int 0`, undefined, and `1 /Int f(1)` is defined. `two(-1) = once(-1)` takes a second
+    // step and gives no value. No step evaluates anything else.
+    let definition = definition();
+    let (decided, evaluated) = decide(
+        &definition,
+        r#"tdiv{}(\dv{SortInt{}}("1"), f{}(\dv{SortInt{}}("-1")))"#,
+    );
+    assert_eq!(decided, Predicate::False);
+    assert!(!evaluated);
+    let (decided, _) = decide(
+        &definition,
+        r#"tdiv{}(\dv{SortInt{}}("1"), f{}(\dv{SortInt{}}("1")))"#,
+    );
+    assert_eq!(decided, Predicate::True);
 }
 
 #[test]
@@ -310,4 +360,45 @@ fn a_resumed_ceil_stays_open_where_an_ordinary_one_is_evaluated() {
     )
     .unwrap();
     assert_eq!(ordinary, Predicate::True);
+}
+
+/// The constraints `source` simplifies under.
+fn constraints_of(definition: &BackendDefinition, source: &str) -> Vec<Predicate> {
+    crate::support::unstopped::simplify(
+        definition,
+        &internal_term(definition, source),
+        SimplificationOptions::default(),
+    )
+    .unwrap_or_else(|error| panic!("{source}: {error:?}"))
+    .constraints()
+    .to_vec()
+}
+
+#[test]
+fn an_evaluated_operand_is_a_fact_only_when_it_holds_no_impure_application() {
+    // The deciding operand `one() ==Int two(1)` is evaluated, so the discarded `two(1)`, one of
+    // its subterms, is defined wherever the result is, and no obligation is stated. With `imp()`
+    // (declared `impure`) in the deciding operand, the operand is no such fact: the discarded
+    // `two(1)` keeps its deferred atom.
+    let definition = definition();
+    let pure = r#"ite{}(eqInt{}(one{}(), two{}(\dv{SortInt{}}("1"))), \dv{SortInt{}}("1"), two{}(\dv{SortInt{}}("1")))"#;
+    assert_eq!(constraints_of(&definition, pure), []);
+    let impure = r#"ite{}(eqInt{}(imp{}(), two{}(\dv{SortInt{}}("1"))), \dv{SortInt{}}("1"), two{}(\dv{SortInt{}}("1")))"#;
+    assert_eq!(
+        constraints_of(&definition, impure),
+        [defined(&definition, r#"two{}(\dv{SortInt{}}("1"))"#)]
+    );
+}
+
+#[test]
+fn a_nested_conditional_states_its_discarded_atoms_once() {
+    // The outer conditional's discarded `two(2)` is a subterm of its selected operand, the inner
+    // conditional, so the outer omits it; the inner conditional discards the same `two(2)` and
+    // states its atom, which the result keeps.
+    let definition = definition();
+    let nested = r#"ite{}(\dv{SortBool{}}("true"), ite{}(\dv{SortBool{}}("true"), \dv{SortInt{}}("1"), two{}(\dv{SortInt{}}("2"))), two{}(\dv{SortInt{}}("2")))"#;
+    assert_eq!(
+        constraints_of(&definition, nested),
+        [defined(&definition, r#"two{}(\dv{SortInt{}}("2"))"#)]
+    );
 }

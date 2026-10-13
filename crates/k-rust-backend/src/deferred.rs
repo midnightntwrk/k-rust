@@ -12,13 +12,16 @@
 //! Every statement of the definedness of (i) the operand a literal deciding operand discards, or
 //! (ii) an operand other than the deciding one while the deciding operand is not a literal (such
 //! operands are left unsimplified), exists only as [`Predicate::Defined`] atoms, created only by
-//! [`deferred_obligations`]. No definition equation is applied to any part of such an operand:
-//! an atom is decided only by [`decide_defined`] (folding by pure builtin hooks on literals, ceil
-//! equations whose instantiated condition that folding decides, the key condition of a
-//! collection of literal keys, one equation step selected by matching alone) and by a known fact
-//! or the solver, which reads it as the opaque atom of `\ceil(t)`. Each of these steps is bounded
-//! by the size of the atom's subject or by one selection scan, so deciding an atom terminates
-//! whatever the definition's equations do.
+//! [`deferred_obligations`]. The definition's equations are never run on any part of such an
+//! operand: an atom is decided only by [`decide_defined`] (folding by pure builtin hooks on
+//! literals, with the value of one equation step on literal arguments whose right-hand side
+//! those hooks fold to a literal; ceil equations whose instantiated condition that folding
+//! decides, or whose instance is stated in the atom's place over hook arithmetic; the key
+//! condition of a collection of literal keys; one equation step selected by matching alone) and
+//! by a known fact or the solver, which reads it as the opaque atom of `\ceil(t)`. Each of these
+//! steps is bounded by the size of the atom's subject or by one selection scan per application,
+//! and none repeats on its own result, so deciding an atom terminates whatever the definition's
+//! equations do.
 //!
 //! An operand whose definedness depends on an impure application (a console read, or a function
 //! whose equations perform an effect) cannot be decided without performing it, and a constraint
@@ -114,7 +117,7 @@ pub(crate) fn deferred_positions(term: &Term) -> Vec<usize> {
 /// the point where the operand's definedness is stated. Nothing is performed and nothing is
 /// kept as a constraint.
 #[derive(Clone, Debug)]
-pub(crate) struct DeferredOutcome {
+pub struct DeferredOutcome {
     hook: String,
     reason: UnsupportedHookReason,
     term: Term,
@@ -136,15 +139,6 @@ impl DeferredOutcome {
             },
             term: application.clone(),
         }
-    }
-}
-
-impl DeferredOutcome {
-    /// The outcome as the deferred atom of the impure application itself, for a caller that
-    /// cannot return it: the predicate simplifier turns such an atom into the unsupported-hook
-    /// stop ([`decide_defined`]) before deciding anything else.
-    pub(crate) fn marker(&self) -> Predicate {
-        Predicate::Defined(self.term.clone())
     }
 }
 
@@ -242,6 +236,15 @@ fn children(term: &Term) -> Vec<&Term> {
         TermKind::Set { elements, rest, .. } => elements.iter().chain(rest).collect(),
         TermKind::DomainValue { .. } | TermKind::Variable(_) => Vec::new(),
     }
+}
+
+/// The outcome of an atom over `subject` when `subject` holds an impure application.
+pub(crate) fn impure_outcome(
+    definition: &BackendDefinition,
+    subject: &Term,
+) -> Option<DeferredOutcome> {
+    impure_subterm(definition, subject)
+        .map(|impure| DeferredOutcome::new(&impure, IMPURE_UNDER_OBLIGATION))
 }
 
 /// The first impure application in `term`, if any.
@@ -364,6 +367,20 @@ pub(crate) enum Folded {
 /// A value only an execution chooses is not computed outside one, as in term simplification
 /// (`crate::evaluation`). A builtin failure leaves its application as it is.
 pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppable<Folded> {
+    fold(definition, term, false)
+}
+
+/// [`fold_hooks`], where a ground application of a function that no hook folds also takes the
+/// value of its one equation step ([`step_value`]): the step [`single_step`] selects, whose
+/// instantiated right-hand side `fold_hooks` folds to a domain value. One step per application,
+/// on literal arguments, with a right-hand side folded by hooks alone and never stepped again: no
+/// recursion of the definition's equations, no effect, and a bound of one selection scan per
+/// node of the term (F5 of the fix round; docs/compatibility.md).
+fn fold_with_values(definition: &BackendDefinition, term: &Term) -> Stoppable<Folded> {
+    fold(definition, term, true)
+}
+
+fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<Folded> {
     stop::with_stack_headroom(|| {
         let (symbol, sort_arguments, arguments) = match term.kind() {
             TermKind::Application {
@@ -376,7 +393,7 @@ pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppab
                 target,
                 term: inner,
             } => {
-                return Ok(match fold_hooks(definition, inner)? {
+                return Ok(match fold(definition, inner, values)? {
                     Folded::Term(folded) if folded.ptr_eq(inner) => Folded::Term(term.clone()),
                     Folded::Term(folded) => {
                         Folded::Term(Term::injection(source.clone(), target.clone(), folded))
@@ -392,7 +409,7 @@ pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppab
         let mut changed = false;
         let mut folded_arguments = Vec::with_capacity(arguments.len());
         for argument in arguments {
-            match fold_hooks(definition, argument)? {
+            match fold(definition, argument, values)? {
                 Folded::Term(folded) => {
                     changed |= !folded.ptr_eq(argument);
                     folded_arguments.push(folded);
@@ -411,17 +428,22 @@ pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppab
         else {
             return Ok(Folded::Term(node));
         };
-        let pure_hook = symbol
-            .attributes
-            .hook
-            .as_deref()
-            .is_some_and(|hook| !hook.starts_with("IO."))
-            && !definition.is_impure(&symbol.name);
-        if !pure_hook
-            || !arguments
-                .iter()
-                .all(|argument| matches!(argument.kind(), TermKind::DomainValue { .. }))
-        {
+        let literal_arguments = arguments
+            .iter()
+            .all(|argument| matches!(argument.kind(), TermKind::DomainValue { .. }));
+        let pure = !definition.is_impure(&symbol.name)
+            && !symbol
+                .attributes
+                .hook
+                .as_deref()
+                .is_some_and(|hook| hook.starts_with("IO."));
+        if !pure || !literal_arguments {
+            return Ok(Folded::Term(node));
+        }
+        if symbol.attributes.hook.is_none() {
+            if values && let Some(value) = step_value(definition, &node)? {
+                return Ok(Folded::Term(value));
+            }
             return Ok(Folded::Term(node));
         }
         Ok(match evaluate_in_definition(&node, definition)? {
@@ -433,6 +455,12 @@ pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppab
             }
             Ok(BuiltinResult::Value(value)) => Folded::Term(value),
             Ok(BuiltinResult::Bottom) => Folded::Bottom(node),
+            Ok(BuiltinResult::NotApplicable | BuiltinResult::Unsupported(_)) if values => {
+                match step_value(definition, &node)? {
+                    Some(value) => Folded::Term(value),
+                    None => Folded::Term(node),
+                }
+            }
             Ok(
                 BuiltinResult::NotApplicable
                 | BuiltinResult::Effect(_)
@@ -441,6 +469,27 @@ pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppab
             | Err(_) => Folded::Term(node),
         })
     })
+}
+
+/// The value of `application`, a ground application with literal arguments, by its one equation
+/// step: the instance [`single_step`] selects, whose instantiated right-hand side [`fold_hooks`]
+/// folds to a domain value (which is defined, so the step's instance has an obligation-free
+/// result). `None` otherwise.
+fn step_value(definition: &BackendDefinition, application: &Term) -> Stoppable<Option<Term>> {
+    let Some((rule, substitution)) = select_single_step(definition, application)? else {
+        return Ok(None);
+    };
+    let RuleRhs::Term(rhs) = &rule.rhs else {
+        return Ok(None);
+    };
+    Ok(
+        match fold_hooks(definition, &substitute(rhs, &substitution))? {
+            Folded::Term(value) if matches!(value.kind(), TermKind::DomainValue { .. }) => {
+                Some(value)
+            }
+            Folded::Term(_) | Folded::Bottom(_) => None,
+        },
+    )
 }
 
 /// [`fold_hooks`] where a stop only forgoes the fold: the term is kept as it is, which is sound,
@@ -522,14 +571,17 @@ pub(crate) enum DeferredDecision {
     Open,
 }
 
-/// Decide `Defined(t)` by the steps that apply no definition equation, in order:
-/// - D1, fold `t` by pure builtin hooks on literals ([`fold_hooks`]): an undefined hook refutes
-///   it, and a changed term replaces the atom by the [`deferred_obligations`] of the result;
+/// Decide `Defined(t)` by steps that never run the definition's equations, in order:
+/// - D1, fold `t` by pure builtin hooks on literals, a ground function application also taking
+///   the value of its one equation step when hooks fold that step's right-hand side to a literal
+///   ([`fold_with_values`]): an undefined hook refutes the atom, and a changed term replaces it
+///   by the [`deferred_obligations`] of the result;
 /// - D3, a map or set without a rest whose keys or elements fold to domain values: pairwise
 ///   distinct ones establish its own condition, a repeated one refutes it (the atoms of its
 ///   values and elements are its siblings);
-/// - D2, an unconditional ceil equation of `t`'s root, used only when D1 decides every conjunct
-///   of its instantiated condition;
+/// - D2, an unconditional ceil equation of `t`'s root, used when hooks decide every conjunct of
+///   its instantiated condition, or, when `t`'s arguments and what is left of the condition are
+///   hook arithmetic over variables and literals, stated in the atom's place (D2');
 /// - D4, one function equation step selected by matching alone ([`single_step`]).
 ///
 /// Known facts (D6) and the solver (D7) are read by the predicate simplifier and the solver
@@ -542,10 +594,10 @@ pub(crate) fn decide_defined(
         return Ok(Ok(DeferredDecision::Established));
     }
     // An atom whose subject holds an impure application is never kept: it is the outcome.
-    if let Some(impure) = impure_subterm(definition, term) {
-        return Ok(Err(DeferredOutcome::new(&impure, IMPURE_UNDER_OBLIGATION)));
+    if let Some(outcome) = impure_outcome(definition, term) {
+        return Ok(Err(outcome));
     }
-    match fold_hooks(definition, term)? {
+    match fold_with_values(definition, term)? {
         Folded::Bottom(_) => return Ok(Ok(DeferredDecision::Refuted)),
         Folded::Term(folded) if !folded.ptr_eq(term) && folded != *term => {
             return Ok(deferred_obligations(definition, &folded).map(DeferredDecision::Replaced));
@@ -631,22 +683,86 @@ fn ceil_equation(
                 let Instance::Usable(substitution) = instance else {
                     continue;
                 };
-                let mut all = Some(true);
+                let mut conjuncts = Vec::new();
                 for predicate in predicates {
-                    let instantiated = substitute_predicate(predicate, &substitution);
-                    match fold_predicate(definition, &instantiated, arguments)? {
+                    flatten_conjuncts(
+                        substitute_predicate(predicate, &substitution),
+                        &mut conjuncts,
+                    );
+                }
+                let mut residual = Vec::new();
+                for conjunct in conjuncts {
+                    match fold_predicate(definition, &conjunct, arguments)? {
                         Some(false) => return Ok(Some(DeferredDecision::Refuted)),
                         Some(true) => {}
-                        None => all = None,
+                        None => residual.push(conjunct),
                     }
                 }
-                if all == Some(true) {
+                if residual.is_empty() {
                     return Ok(Some(DeferredDecision::Established));
+                }
+                // D2': over hook arithmetic the instance of the ceil axiom is stated instead of
+                // the opaque atom (`W1 =/=Int 0` for `W0 /Int W1`). It is an equivalence, and its
+                // terms hold no part of the operand but variables and literals, so no definition
+                // equation can reach the operand through it.
+                if arguments
+                    .iter()
+                    .all(|argument| hook_arithmetic(definition, argument))
+                    && residual.iter().all(|predicate| {
+                        let mut arithmetic = true;
+                        predicate.visit_terms(&mut |term| {
+                            arithmetic &= hook_arithmetic(definition, term);
+                        });
+                        arithmetic
+                    })
+                {
+                    return Ok(Some(DeferredDecision::Replaced(residual)));
                 }
             }
         }
     }
     Ok(None)
+}
+
+/// The conjuncts of `predicate`, nested conjunctions flattened, `\top` left out.
+fn flatten_conjuncts(predicate: Predicate, into: &mut Vec<Predicate>) {
+    match predicate {
+        Predicate::And(conjuncts) => {
+            for conjunct in conjuncts {
+                flatten_conjuncts(conjunct, into);
+            }
+        }
+        Predicate::True => {}
+        predicate => into.push(predicate),
+    }
+}
+
+/// Whether `term` is built from element variables, domain values and applications of pure
+/// `total` builtin hooks only: deciding a predicate over it applies no equation of the
+/// definition to anything but hooks, and evaluates no function and performs no effect.
+fn hook_arithmetic(definition: &BackendDefinition, term: &Term) -> bool {
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        match term.kind() {
+            TermKind::DomainValue { .. } => {}
+            TermKind::Variable(variable) if variable.kind == VariableKind::Element => {}
+            TermKind::Injection { term, .. } => pending.push(term),
+            TermKind::Application {
+                symbol, arguments, ..
+            } if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+                && symbol
+                    .attributes
+                    .hook
+                    .as_deref()
+                    .is_some_and(|hook| !hook.starts_with("IO."))
+                && !definition.is_impure(&symbol.name) =>
+            {
+                pending.extend(arguments);
+            }
+            _ => return false,
+        }
+    }
+    true
 }
 
 fn substitute_predicate(predicate: &Predicate, substitution: &Substitution) -> Predicate {
@@ -703,6 +819,28 @@ fn function_below_root(term: &Term) -> bool {
 ///
 /// Otherwise it decides nothing. It is one selection scan, so it terminates.
 fn single_step(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<DeferredDecision>> {
+    let Some((rule, substitution)) = select_single_step(definition, term)? else {
+        return Ok(None);
+    };
+    Ok(match &rule.rhs {
+        RuleRhs::Bottom => Some(DeferredDecision::Refuted),
+        RuleRhs::Term(rhs) => {
+            let instantiated = substitute(rhs, &substitution);
+            match deferred_obligations(definition, &instantiated) {
+                Ok(atoms) if atoms.is_empty() => Some(DeferredDecision::Established),
+                Ok(_) | Err(_) => None,
+            }
+        }
+        _ => None,
+    })
+}
+
+/// The equation instance [`single_step`] selects for `term`, with its `requires` folded to
+/// `true` by hooks; `None` when the selection does not decide one.
+fn select_single_step(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Stoppable<Option<(RewriteRule, Substitution)>> {
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
@@ -742,21 +880,26 @@ fn single_step(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<
             }
         }
         if let Some((rule, substitution)) = candidate {
-            return single_step_instance(definition, &rule, &substitution, arguments);
+            return Ok(
+                selected_instance_applies(definition, &rule, &substitution, arguments)?
+                    .then_some((rule, substitution)),
+            );
         }
     }
     Ok(None)
 }
 
-/// The decision the selected instance of [`single_step`] gives.
-fn single_step_instance(
+/// Whether the selected instance of [`single_step`] applies: no `ensures`, no unbound result
+/// variable, and a `requires` folded to `true` by hooks (an `owise` equation's competitor
+/// antecedent discharged by the refutation of the higher groups).
+fn selected_instance_applies(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     substitution: &Substitution,
     arguments: &[Term],
-) -> Stoppable<Option<DeferredDecision>> {
+) -> Stoppable<bool> {
     if !rule.ensures.is_empty() || !rule.computed_attributes.unbound_result_variables.is_empty() {
-        return Ok(None);
+        return Ok(false);
     }
     let mut requires = rule.requires.iter().peekable();
     if rule.attributes.priority == OWISE_RULE_PRIORITY
@@ -769,20 +912,10 @@ fn single_step_instance(
     for predicate in requires {
         let instantiated = substitute_predicate(predicate, substitution);
         if fold_predicate(definition, &instantiated, arguments)? != Some(true) {
-            return Ok(None);
+            return Ok(false);
         }
     }
-    Ok(match &rule.rhs {
-        RuleRhs::Bottom => Some(DeferredDecision::Refuted),
-        RuleRhs::Term(rhs) => {
-            let instantiated = substitute(rhs, substitution);
-            match deferred_obligations(definition, &instantiated) {
-                Ok(atoms) if atoms.is_empty() => Some(DeferredDecision::Established),
-                Ok(_) | Err(_) => None,
-            }
-        }
-        _ => None,
-    })
+    Ok(true)
 }
 
 /// The constraints of a state given to an execution, with each `\ceil(t)` read as the deferred
@@ -795,15 +928,15 @@ fn single_step_instance(
 /// cannot tell an ordinary `\ceil` from a deferred one, so every one over a term that holds a
 /// function application is read this way, which can only leave open an obligation a continuous
 /// run would have decided by evaluation; one over a term without a function application is kept,
-/// since deciding it evaluates nothing. A `\ceil` over an impure application becomes the atom of
-/// that application, which the predicate simplifier turns into the unsupported-hook stop.
+/// since deciding it evaluates nothing. A `\ceil` whose deferred reading would hold an impure
+/// application is the [`DeferredOutcome`].
 pub(crate) fn resumed_constraints(
     definition: &BackendDefinition,
     constraints: Vec<Predicate>,
-) -> Vec<Predicate> {
+) -> Result<Vec<Predicate>, DeferredOutcome> {
     let mut read = Vec::with_capacity(constraints.len());
     for constraint in constraints {
-        match resumed_predicate(definition, constraint) {
+        match resumed_predicate(definition, constraint)? {
             Predicate::And(conjuncts) => {
                 for conjunct in conjuncts {
                     if !read.contains(&conjunct) {
@@ -816,7 +949,7 @@ pub(crate) fn resumed_constraints(
             _ => {}
         }
     }
-    read
+    Ok(read)
 }
 
 /// Whether `term` holds an application of a function symbol.
@@ -833,38 +966,41 @@ fn has_function_application(term: &Term) -> bool {
     false
 }
 
-fn resumed_predicate(definition: &BackendDefinition, predicate: Predicate) -> Predicate {
-    let recurse = |inner: Box<Predicate>| Box::new(resumed_predicate(definition, *inner));
-    match predicate {
+fn resumed_predicate(
+    definition: &BackendDefinition,
+    predicate: Predicate,
+) -> Result<Predicate, DeferredOutcome> {
+    let recurse = |inner: Box<Predicate>| resumed_predicate(definition, *inner).map(Box::new);
+    Ok(match predicate {
         // A subject without a function application has nothing to evaluate: its ordinary
         // `\ceil` is decided by its collections' key conditions over constructors and values
         // alone, and keeps what it states about them (the absence of a key from a rest).
         Predicate::Ceil(term) if !has_function_application(&term) => Predicate::Ceil(term),
-        Predicate::Ceil(term) => match deferred_obligations(definition, &term) {
-            Ok(mut atoms) => match atoms.len() {
+        Predicate::Ceil(term) => {
+            let mut atoms = deferred_obligations(definition, &term)?;
+            match atoms.len() {
                 0 => Predicate::True,
                 1 => atoms.pop().expect("one atom"),
                 _ => Predicate::And(atoms),
-            },
-            Err(outcome) => outcome.marker(),
-        },
-        Predicate::Not(inner) => Predicate::Not(recurse(inner)),
+            }
+        }
+        Predicate::Not(inner) => Predicate::Not(recurse(inner)?),
         Predicate::And(inner) => Predicate::And(
             inner
                 .into_iter()
                 .map(|inner| resumed_predicate(definition, inner))
-                .collect(),
+                .collect::<Result<_, _>>()?,
         ),
         Predicate::Or(inner) => Predicate::Or(
             inner
                 .into_iter()
                 .map(|inner| resumed_predicate(definition, inner))
-                .collect(),
+                .collect::<Result<_, _>>()?,
         ),
-        Predicate::Implies(left, right) => Predicate::Implies(recurse(left), recurse(right)),
-        Predicate::Iff(left, right) => Predicate::Iff(recurse(left), recurse(right)),
-        Predicate::Exists(variable, inner) => Predicate::Exists(variable, recurse(inner)),
-        Predicate::Forall(variable, inner) => Predicate::Forall(variable, recurse(inner)),
+        Predicate::Implies(left, right) => Predicate::Implies(recurse(left)?, recurse(right)?),
+        Predicate::Iff(left, right) => Predicate::Iff(recurse(left)?, recurse(right)?),
+        Predicate::Exists(variable, inner) => Predicate::Exists(variable, recurse(inner)?),
+        Predicate::Forall(variable, inner) => Predicate::Forall(variable, recurse(inner)?),
         predicate @ (Predicate::True
         | Predicate::False
         | Predicate::Term(_)
@@ -873,7 +1009,7 @@ fn resumed_predicate(definition: &BackendDefinition, predicate: Predicate) -> Pr
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_)) => predicate,
-    }
+    })
 }
 
 /// What the result of a short-circuit hook states about the operands it evaluated: the deciding

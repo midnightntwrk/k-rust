@@ -4998,14 +4998,20 @@ module GROUND
   syntax Exp ::= Int | Bool
                | "divz" "(" ")" [symbol(divz)]
                | "fdivz" "(" ")" [symbol(fdivz)]
+               | "fdivok" "(" ")" [symbol(fdivok)]
+               | "gdivz" "(" ")" [symbol(gdivz)]
                | "andDivz" "(" ")" [symbol(andDivz)]
                | "reqIte" "(" Int ")" [symbol(reqIte)]
                | "ok" [symbol(ok)]
   syntax Int ::= f(Int) [symbol(f), function]
+               | g(Int) [symbol(g), function]
   rule f(N) => N +Int 1
+  rule g(N) => f(N)
   configuration <k> $PGM:Exp </k>
   rule divz() => #if true #then 1 #else 1 /Int 0 #fi
   rule fdivz() => #if true #then 1 #else 1 /Int f(-1) #fi
+  rule fdivok() => #if true #then 1 #else 1 /Int f(1) #fi
+  rule gdivz() => #if true #then 1 #else 1 /Int g(-1) #fi
   rule andDivz() => false andThenBool (1 /Int 0 >Int 0)
   rule reqIte(N) => ok requires #if N >Int 0 #then true #else 1 /Int 0 >Int 0 #fi
 endmodule
@@ -5030,28 +5036,175 @@ fn a_discarded_operand_hooks_show_undefined_is_bottom() {
 }
 
 #[test]
-fn a_discarded_operand_whose_undefinedness_needs_evaluation_stays_an_open_obligation() {
-    // `1 /Int f(-1)` is undefined, but showing it needs `f`'s equation, which a discarded
-    // operand never gets: the value is `1` under the open `\ceil(1 /Int f(-1))`. The definedness
-    // of `f(-1)` itself is established by one step of `f`'s equation, whose instance needs no
-    // evaluation (`-1 +Int 1` is defined), so it is not listed.
+fn a_discarded_operand_takes_the_value_of_one_ground_equation_step() {
+    // `f(-1) = -1 +Int 1` is one equation step on a literal argument whose right-hand side
+    // builtin hooks fold to `0`, so the discarded `1 /Int f(-1)` is `1 /Int 0`, undefined, and
+    // `fdivz()` is `\bottom`; with `f(1)` the operand is defined and `fdivok()` is a bare `1`.
+    // `g(-1) = f(-1)` would need a second step, which a discarded operand never gets: `gdivz()` is
+    // `1` under the open `\ceil(1 /Int g(-1))`.
     let (root, _) = fixture();
     let ground = compiled_for_execution(&root, "ground", DISCARDED_GROUND, "GROUND", "GROUND");
-    let output = bounded_krun(&ground, "Exp", "fdivz()", &["-w", "all"]);
-    let quotient = r#"Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"), Lblf{}(\dv{SortInt{}}("-1")))"#;
+    let output = bounded_krun(&ground, "Exp", "fdivz()", &[]);
+    assert_undefined_step(&output, 1);
+    let output = bounded_krun(&ground, "Exp", "fdivok()", &["-w", "all"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        squashed(&String::from_utf8_lossy(&output.stdout)),
+        squashed(&k_cell_output(
+            r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#
+        ))
+    );
+    let output = bounded_krun(&ground, "Exp", "gdivz()", &["-w", "all"]);
+    let quotient = r#"Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"), Lblg{}(\dv{SortInt{}}("-1")))"#;
     assert_value_under(
         &output,
         r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#,
         &[&ceil_of("SortInt", quotient)],
     );
-    let stdout = squashed(&String::from_utf8_lossy(&output.stdout));
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A simplification lemma that reaches a conditional below its root.
+const LEMMA_OVER_CONDITIONAL: &str = r#"
+module LEMMA
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= start(Int) [symbol(start)] | done(Int) [symbol(done)]
+  syntax Int ::= loopi() [function, symbol(loopi)]
+  rule loopi() => loopi() +Int 1
+  rule #if B #then X #else Y #fi +Int Z => #if B #then X +Int Z #else Y +Int Z #fi [simplification]
+  configuration <k> $PGM:Exp </k>
+  rule <k> start(N) => done(#if N >Int 0 #then 1 #else loopi() #fi +Int 1) ...</k>
+endmodule
+"#;
+
+#[test]
+fn a_lemma_binding_an_operand_below_its_root_does_not_evaluate_it() {
+    // The lemma's match binds `Y` to `loopi()`, an operand the conditional never evaluates while
+    // `N >Int 0` is undecided; the binding's definedness is a deferred obligation, so the run ends
+    // at the rewritten conditional instead of evaluating `loopi()`.
+    let (root, _) = fixture();
+    let lemma = compiled_for_execution(&root, "lemma", LEMMA_OVER_CONDITIONAL, "LEMMA", "LEMMA");
+    let pattern = top_with("inj{SortExp{}, SortKItem{}}(Lblstart{}(VarN:SortInt{}))");
+    let output = kore_exec_from(&root, &lemma, "LEMMA", &pattern, 2);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(!stderr.contains("stack"), "{stderr}");
     assert!(
-        !stdout.contains(&squashed(&ceil_of(
-            "SortInt",
-            r#"Lblf{}(\dv{SortInt{}}("-1"))"#
-        ))),
+        squashed(&stdout).contains(&squashed(
+            r#"Lbl'UndsPlus'Int'Unds'{}(Lblloopi{}(), \dv{SortInt{}}("1"))"#
+        )),
         "{stdout}"
     );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A conditional whose discarded operand's definedness depends on a console read.
+const IMPURE_OPERAND: &str = r#"
+requires "domains.md"
+module MARKER
+  imports K-IO
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= a(Int) [symbol(a)] | b(Int) [symbol(b)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> a(N) => b(N) </k>
+endmodule
+"#;
+
+/// The antecedent `b(1) /\ \ceil({#getc(0)}:>Int)` and the consequent
+/// `b(#if true #then 1 #else 1 /Int ({#getc(0)}:>Int -Int 81) #fi)`, false in a model where the
+/// read is 81.
+fn impure_implication() -> (String, String) {
+    let getc = "Lblproject'Coln'Int{}(kseq{}(inj{SortIOInt{}, SortKItem{}}(Lbl'Hash'getc'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int{}(\\dv{SortInt{}}(\"0\"))), dotk{}()))";
+    let antecedent = format!(
+        "\\and{{SortGeneratedTopCell{{}}}}({}, \\ceil{{SortInt{{}}, SortGeneratedTopCell{{}}}}({getc}))",
+        top_with("inj{SortExp{}, SortKItem{}}(Lblb{}(\\dv{SortInt{}}(\"1\")))")
+    );
+    let consequent = top_with(&format!(
+        "inj{{SortExp{{}}, SortKItem{{}}}}(Lblb{{}}(Lblite{{SortInt{{}}}}(\\dv{{SortBool{{}}}}(\"true\"), \\dv{{SortInt{{}}}}(\"1\"), Lbl'UndsSlsh'Int'Unds'{{}}(\\dv{{SortInt{{}}}}(\"1\"), Lbl'Unds'-Int'Unds'{{}}({getc}, \\dv{{SortInt{{}}}}(\"81\"))))))"
+    ));
+    (antecedent, consequent)
+}
+
+#[test]
+fn an_implication_through_an_impure_discarded_operand_is_never_valid() {
+    // The consequent's discarded operand `1 /Int ({#getc(0)}:>Int -Int 81)` is defined only where
+    // the read is not 81, and its definedness depends on the read, which is never performed: the
+    // implication is not decided, by `kore-implies` or by RPC `implies`, whatever the antecedent
+    // states about the read.
+    let (root, _) = fixture();
+    let compiled = compiled_for_execution(&root, "marker", IMPURE_OPERAND, "MARKER", "MARKER");
+    let definition = compiled.join("definition.kore");
+    let (antecedent, consequent) = impure_implication();
+    let antecedent_path = root.join("antecedent.kore");
+    let consequent_path = root.join("consequent.kore");
+    fs::write(&antecedent_path, &antecedent).unwrap();
+    fs::write(&consequent_path, &consequent).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-implies",
+            definition.to_str().unwrap(),
+            "--module",
+            "MARKER",
+            "--antecedent",
+            antecedent_path.to_str().unwrap(),
+            "--consequent",
+            consequent_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let verdict: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(verdict["status"], "unknown", "{verdict:#}");
+
+    use std::{
+        io::{BufRead, BufReader},
+        net::TcpStream,
+        time::Duration,
+    };
+    let mut server = KoreRpcServer(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kore-rpc")
+            .arg(&definition)
+            .args(["--module", "MARKER", "--server-port", "0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let mut announcement = String::new();
+    BufReader::new(server.0.stderr.take().unwrap())
+        .read_line(&mut announcement)
+        .unwrap();
+    let address = announcement
+        .strip_prefix("KORE JSON-RPC listening on ")
+        .unwrap_or_else(|| panic!("no listening address in {announcement:?}"))
+        .trim();
+    let stream = TcpStream::connect(address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    let encode = |text: &str| k_rust::kore::json::to_value(&parse_pattern(text).unwrap()).unwrap();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "implies",
+        "params": { "antecedent": encode(&antecedent), "consequent": encode(&consequent) },
+    });
+    writeln!(writer, "{request}").unwrap();
+    let mut response = String::new();
+    reader.read_line(&mut response).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+    assert_ne!(response["result"]["status"], "valid", "{response:#}");
+    assert_ne!(response["result"]["valid"], true, "{response:#}");
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -5328,7 +5481,7 @@ requires "domains.md"
 module IO-ITE-SYNTAX
   imports INT-SYNTAX
   syntax Stmt ::= "ite" | "itefalse" | "rd" | "rdDiv" | "rdNest" | "fp" | "fpReq" | "echo"
-                | "andg" | "andgt" | "after" | "out" "(" Int ")" [symbol(out)]
+                | "andg" | "andgt" | "after" | "rq" | "out" "(" Int ")" [symbol(out)]
   syntax KResult
 endmodule
 
@@ -5362,6 +5515,7 @@ module IO-ITE
   rule <k> andg => #putc(1, #if false andThenBool g() #then 49 #else 48 #fi) ~> after ...</k>
   rule <k> andgt => #putc(1, #if false andThenBool gt() #then 49 #else 48 #fi) ~> after ...</k>
   rule <k> after => #write(1, "!") ...</k>
+  rule <k> rq => after ...</k> requires #if 1 <Int 2 #then true #else 1 /Int {#getc(0)}:>Int >Int 0 #fi
 endmodule
 "#;
 
@@ -5413,6 +5567,7 @@ fn a_discarded_conditional_operand_performs_no_console_effect() {
         ("rdDiv", "IO.getc", 0),
         ("rdNest", "IO.getc", 0),
         ("andg", "Lblg", 0),
+        ("rq", "IO.getc", 0),
         ("fp", "IO.write", 1),
     ] {
         let output = run(expression, b"QR");

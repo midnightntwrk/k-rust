@@ -1262,14 +1262,19 @@ impl<'d> Context<'d> {
     /// every instance satisfying it has. Each simplification step is an axiom instance that
     /// carries its bindings' definedness, so a `\bottom` holds in every model.
     fn conditions(&mut self, rules: &[&RewriteRule], substitution: &Substitution) -> Conditions {
-        let predicates = rules
-            .iter()
-            .flat_map(|rule| {
-                rule.requires
-                    .instantiate(substitution)
-                    .with_definedness(self.definition, &[])
-            })
-            .collect::<Vec<_>>();
+        let mut predicates = Vec::new();
+        for rule in rules {
+            // A condition whose definedness depends on an impure application in an operand a
+            // conditional never evaluates says nothing this analysis can use.
+            let Ok(instance) = rule
+                .requires
+                .instantiate(substitution)
+                .with_definedness(self.definition, &[])
+            else {
+                return Conditions::Open(Substitution::new());
+            };
+            predicates.extend(instance);
+        }
         if predicates.is_empty() {
             return Conditions::Open(Substitution::new());
         }

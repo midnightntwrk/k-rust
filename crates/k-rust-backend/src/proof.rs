@@ -278,7 +278,10 @@ pub fn prove_claim(
     }
 
     let mut initial = claim.lhs.clone();
-    let initial_definedness = ceil_term(definition, &initial.term);
+    // The claim's left-hand side states its own definedness. One that depends on an impure
+    // application in an operand a conditional never evaluates is not restated; simplifying the
+    // state, which reaches the same operand, is the unsupported-hook outcome.
+    let initial_definedness = ceil_term(definition, &initial.term).unwrap_or_default();
     extend_unique(&mut initial.constraints, initial_definedness);
     let mut pending = VecDeque::from([ProofState {
         pattern: initial,
@@ -1364,11 +1367,20 @@ fn apply_claim(
                                     );
                                     matched
                                         .conjoin(collection.matched.conditions().iter().cloned());
-                                    matched.conjoin(collection_unification_definedness(
+                                    match collection_unification_definedness(
                                         definition,
                                         &remainder,
                                         matched.substitution(),
-                                    ));
+                                    ) {
+                                        Ok(definedness) => matched.conjoin(definedness),
+                                        Err(outcome) => {
+                                            return Ok(ClaimApplication::Indeterminate(
+                                                ClaimIndeterminateReason::Simplification(
+                                                    outcome.into(),
+                                                ),
+                                            ));
+                                        }
+                                    }
                                     matched
                                 }
                                 _ => {
@@ -1387,7 +1399,14 @@ fn apply_claim(
         }
     };
     let (mut substitution, match_conditions) =
-        bind_subject_variables(definition, &claim, matched).into_parts();
+        match bind_subject_variables(definition, &claim, matched) {
+            Ok(matched) => matched.into_parts(),
+            Err(outcome) => {
+                return Ok(ClaimApplication::Indeterminate(
+                    ClaimIndeterminateReason::Simplification(outcome.into()),
+                ));
+            }
+        };
     let simplification = SimplificationOptions {
         max_iterations: options.max_simplification_iterations,
         ..SimplificationOptions::default()
@@ -1419,8 +1438,16 @@ fn apply_claim(
     // simplified or decided, since a solver reads a partial function as a total operation.
     let mut match_knowledge = subject_knowledge.to_vec();
     extend_unique(&mut match_knowledge, match_conditions.clone());
-    let requires = instantiate_constraints(&claim.lhs.constraints, &substitution)
-        .with_definedness(definition, &match_knowledge);
+    let requires = match instantiate_constraints(&claim.lhs.constraints, &substitution)
+        .with_definedness(definition, &match_knowledge)
+    {
+        Ok(requires) => requires,
+        Err(outcome) => {
+            return Ok(ClaimApplication::Indeterminate(
+                ClaimIndeterminateReason::Simplification(outcome.into()),
+            ));
+        }
+    };
     let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
@@ -1449,7 +1476,14 @@ fn apply_claim(
     // A claim variable bound by an equation of the requires denotes a defined element, so its
     // value's definedness stays among the conditions the claim applies under (I2).
     match_conditions =
-        eliminate_bindings(definition, &match_conditions, &defined, &subject_knowledge);
+        match eliminate_bindings(definition, &match_conditions, &defined, &subject_knowledge) {
+            Ok(conditions) => conditions,
+            Err(outcome) => {
+                return Ok(ClaimApplication::Indeterminate(
+                    ClaimIndeterminateReason::Simplification(outcome.into()),
+                ));
+            }
+        };
     match_conditions = match simplify_predicates_with_solver(
         definition,
         &match_conditions,
@@ -1469,7 +1503,14 @@ fn apply_claim(
     }
     let mut match_knowledge = subject_knowledge.to_vec();
     extend_unique(&mut match_knowledge, match_conditions.clone());
-    let requires = eliminate_bindings(definition, &requires, &defined, &match_knowledge);
+    let requires = match eliminate_bindings(definition, &requires, &defined, &match_knowledge) {
+        Ok(requires) => requires,
+        Err(outcome) => {
+            return Ok(ClaimApplication::Indeterminate(
+                ClaimIndeterminateReason::Simplification(outcome.into()),
+            ));
+        }
+    };
     let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
@@ -1573,23 +1614,29 @@ fn apply_claim(
             observations: Vec::new(),
         }
     });
+    let mut patterns = Vec::with_capacity(claim.rhs.len());
+    for rhs in &claim.rhs {
+        let mut constraints = covered_knowledge.clone();
+        // An equivalence (I1): the successor states the definedness its constraints imply, so
+        // later decisions on it do not read a partial term as total.
+        let rhs_constraints = match instantiate_constraints(&rhs.constraints, &substitution)
+            .with_definedness(definition, &constraints)
+        {
+            Ok(rhs_constraints) => rhs_constraints,
+            Err(outcome) => {
+                return Ok(ClaimApplication::Indeterminate(
+                    ClaimIndeterminateReason::Simplification(outcome.into()),
+                ));
+            }
+        };
+        extend_unique(&mut constraints, rhs_constraints);
+        patterns.push(Pattern {
+            term: substitute(&rhs.term, &substitution),
+            constraints,
+        });
+    }
     Ok(ClaimApplication::Applied {
-        patterns: claim
-            .rhs
-            .iter()
-            .map(|rhs| {
-                let mut constraints = covered_knowledge.clone();
-                // An equivalence (I1): the successor states the definedness its constraints
-                // imply, so later decisions on it do not read a partial term as total.
-                let rhs_constraints = instantiate_constraints(&rhs.constraints, &substitution)
-                    .with_definedness(definition, &constraints);
-                extend_unique(&mut constraints, rhs_constraints);
-                Pattern {
-                    term: substitute(&rhs.term, &substitution),
-                    constraints,
-                }
-            })
-            .collect(),
+        patterns,
         remainder,
     })
 }
@@ -1642,7 +1689,7 @@ fn bind_subject_variables(
     definition: &BackendDefinition,
     claim: &ReachabilityClaim,
     matched: MatchSolution,
-) -> MatchSolution {
+) -> Result<MatchSolution, crate::deferred::DeferredOutcome> {
     let (mut substitution, mut conditions) = matched.into_parts();
     let claim_variables = variables_of_claim(claim);
     let bound = substitution
@@ -1660,10 +1707,10 @@ fn bind_subject_variables(
             )],
         );
         if !matches!(value.kind(), TermKind::Variable(_)) {
-            extend_unique(&mut conditions, ceil_term(definition, &value));
+            extend_unique(&mut conditions, ceil_term(definition, &value)?);
         }
     }
-    MatchSolution::from_parts(substitution, conditions)
+    Ok(MatchSolution::from_parts(substitution, conditions))
 }
 
 fn variables_of_claim(claim: &ReachabilityClaim) -> BTreeSet<crate::term::Variable> {

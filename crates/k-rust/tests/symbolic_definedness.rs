@@ -192,36 +192,12 @@ fn op(name: &str, argument: &str) -> String {
     seq(&format!("Lbl{name}{{}}({argument})"))
 }
 
-/// The operations whose `10 /Int A` is an operand `orElseBool`, `andThenBool` or `#if` discards: its
-/// definedness is the deferred obligation `\ceil(10 /Int A)`, which the `/Int` ceil equation does
-/// not turn into `A =/=Int 0`, since a deferred obligation uses a ceil equation only where builtin
-/// hooks decide its condition (docs/compatibility.md, "Conditionals evaluate only the operand they
-/// select").
-const DISCARDED: [&str; 3] = ["orelse", "andthen", "ifte"];
-
-/// `\ceil(10 /Int X)` as a constraint of a leaf.
-fn x_defined() -> String {
-    format!(
-        "\\ceil{{SortInt{{}}, SortGeneratedTopCell{{}}}}({})",
-        div(X)
-    )
-}
-
 /// Why `leaves` fail the contract, if they do: every leaf past the rule's step implies
-/// `X =/=Int 0` (for a discarded operand, its deferred `\ceil(10 /Int X)`), and the rule either
-/// steps or halts Indeterminate.
+/// `X =/=Int 0`, and the rule either steps or halts Indeterminate.
 fn nonzero_violation(case: &str, leaves: &[Leaf]) -> Option<String> {
-    let discarded = DISCARDED
-        .iter()
-        .any(|name| case.starts_with(&format!("{name}(")));
-    let defined = if discarded {
-        x_defined()
-    } else {
-        X_NONZERO.to_owned()
-    };
     let dropped = leaves
         .iter()
-        .any(|leaf| leaf.depth > 0 && !leaf.text.contains(&defined));
+        .any(|leaf| leaf.depth > 0 && !leaf.text.contains(X_NONZERO));
     let stepped_or_indeterminate = leaves.iter().any(|leaf| leaf.depth > 0)
         || leaves
             .iter()
@@ -296,24 +272,15 @@ fn a_solver_splits_a_requires_hook_shortcut_like_the_ground_run() {
     let mut violations = Vec::new();
     for name in REQUIRES {
         let leaves = execute(&mut backend, &op(name, X), false);
-        // A discarded operand's split is on its deferred obligation instead of `X = 0`.
-        let (undefined, defined) = if DISCARDED.contains(&name) {
-            (
-                format!("\\not{{SortGeneratedTopCell{{}}}}({})", x_defined()),
-                x_defined(),
-            )
-        } else {
-            (X_ZERO.to_owned(), X_NONZERO.to_owned())
-        };
         let stuck_at_zero = leaves.iter().any(|leaf| {
             leaf.depth == 0
                 && leaf.reason == HaltReasonOutput::Stuck
-                && leaf.text.contains(&undefined)
-                && (DISCARDED.contains(&name) || !leaf.text.contains(&defined))
+                && leaf.text.contains(X_ZERO)
+                && !leaf.text.contains(X_NONZERO)
         });
         let stepped = leaves
             .iter()
-            .any(|leaf| leaf.depth == 1 && leaf.text.contains(&defined));
+            .any(|leaf| leaf.depth == 1 && leaf.text.contains(X_NONZERO));
         if !stuck_at_zero || !stepped {
             violations.push(format!(
                 "{name}(X): expected a Stuck leaf under X = 0 and a step under X =/=Int 0: \

@@ -175,7 +175,7 @@ impl InstantiatedCondition {
         self,
         definition: &BackendDefinition,
         known: &[Predicate],
-    ) -> Vec<Predicate> {
+    ) -> Result<Vec<Predicate>, DeferredOutcome> {
         condition_definedness(definition, self.0, known)
     }
 
@@ -252,17 +252,15 @@ impl InstantiatedCondition {
                 }
             }
             let _restore = Restore(GENERAL_CONDITION_PATH.with(|flag| flag.replace(true)));
-            return simplify(
-                condition_definedness(definition, conditions, definedness_known),
-                known,
-                false,
-            );
+            return match condition_definedness(definition, conditions, definedness_known) {
+                Ok(conditions) => simplify(conditions, known, false),
+                Err(outcome) => Ok(Err(outcome.into())),
+            };
         }
-        simplify(
-            condition_definedness(definition, conditions, definedness_known),
-            known,
-            false,
-        )
+        match condition_definedness(definition, conditions, definedness_known) {
+            Ok(conditions) => simplify(conditions, known, false),
+            Err(outcome) => Ok(Err(outcome.into())),
+        }
     }
 }
 
@@ -284,7 +282,7 @@ pub(crate) fn eliminate_bindings(
     predicates: &[Predicate],
     bindings: &Substitution,
     known: &[Predicate],
-) -> Vec<Predicate> {
+) -> Result<Vec<Predicate>, DeferredOutcome> {
     #[expect(
         clippy::disallowed_methods,
         reason = "the instantiation entry point: callers state definedness through InstantiatedCondition, EquationInstance or eliminate_bindings"
@@ -294,13 +292,13 @@ pub(crate) fn eliminate_bindings(
         if variable.kind != VariableKind::Element || value.attributes().ceil_free() {
             continue;
         }
-        for predicate in ceil_term(definition, value) {
+        for predicate in ceil_term(definition, value)? {
             if !known.contains(&predicate) && !result.contains(&predicate) {
                 result.push(predicate);
             }
         }
     }
-    result
+    Ok(result)
 }
 
 /// A substitution and the conditions a match or a unification found with it, each condition
@@ -469,7 +467,7 @@ impl EquationInstance {
                 let stated = if consumed.binds_deferred(value) {
                     deferred_obligations(definition, value)?
                 } else {
-                    ceil_term(definition, value)
+                    ceil_term(definition, value)?
                 };
                 for predicate in stated {
                     add(predicate);
@@ -523,8 +521,8 @@ impl EquationInstance {
 #[must_use]
 pub(crate) struct ConsumedDefinedness {
     obligations: Vec<Predicate>,
-    /// The operands of `subject`, a `KEQUAL.ite`, `BOOL.andThen` or `BOOL.orElse` application,
-    /// that are never evaluated (`crate::deferred::deferred_positions`): a term the match binds
+    /// The operands of the `KEQUAL.ite`, `BOOL.andThen` and `BOOL.orElse` applications of
+    /// `subject` that are never evaluated (`short_circuit_operands`): a term the match binds
     /// inside one of them states its definedness as deferred atoms ([`EquationInstance::new`]).
     deferred_operands: Vec<Term>,
 }
@@ -555,7 +553,7 @@ impl ConsumedDefinedness {
                 Some(position) if positions.contains(&position) => {
                     deferred_obligations(definition, argument)?
                 }
-                _ => ceil_term(definition, argument),
+                _ => ceil_term(definition, argument)?,
             };
             for predicate in stated {
                 if !obligations.contains(&predicate) {
@@ -590,13 +588,7 @@ impl ConsumedDefinedness {
                 }
             }
         }
-        let deferred_operands = match subject.kind() {
-            TermKind::Application { arguments, .. } => positions
-                .iter()
-                .map(|&position| arguments[position].clone())
-                .collect(),
-            _ => Vec::new(),
-        };
+        let deferred_operands = short_circuit_operands(subject);
         Ok(Self {
             obligations,
             deferred_operands,
@@ -617,6 +609,54 @@ impl ConsumedDefinedness {
             .iter()
             .any(|operand| contains_subterm(operand, value))
     }
+}
+
+/// The operands of every `KEQUAL.ite`, `BOOL.andThen` and `BOOL.orElse` application in `term`
+/// that are never evaluated (`crate::deferred::deferred_positions`), at the root or below it: an
+/// equation whose left-hand side reaches a conditional below its root (a lemma
+/// `#if B #then X #else Y #fi +Int Z => ..`) binds them as well. The walk does not enter those
+/// operands themselves, whose own conditionals are inside them already.
+fn short_circuit_operands(term: &Term) -> Vec<Term> {
+    let mut operands = Vec::new();
+    let mut pending = vec![term.clone()];
+    while let Some(term) = pending.pop() {
+        if term.attributes().ceil_free() {
+            continue;
+        }
+        let positions = deferred_positions(&term);
+        match term.kind() {
+            TermKind::Application { arguments, .. } => {
+                for (position, argument) in arguments.iter().enumerate() {
+                    if positions.contains(&position) {
+                        operands.push(argument.clone());
+                    } else {
+                        pending.push(argument.clone());
+                    }
+                }
+            }
+            TermKind::And(left, right) => pending.extend([left.clone(), right.clone()]),
+            TermKind::Injection { term, .. } => pending.push(term.clone()),
+            TermKind::Map { entries, rest, .. } => {
+                for (key, value) in entries {
+                    pending.extend([key.clone(), value.clone()]);
+                }
+                pending.extend(rest.iter().cloned());
+            }
+            TermKind::List { heads, rest, .. } => {
+                pending.extend(heads.iter().cloned());
+                if let Some((middle, tails)) = rest {
+                    pending.push(middle.clone());
+                    pending.extend(tails.iter().cloned());
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                pending.extend(elements.iter().cloned());
+                pending.extend(rest.iter().cloned());
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+    operands
 }
 
 /// Whether `needle` occurs in `haystack`.
@@ -813,8 +853,8 @@ pub(crate) struct RhsDefinedness(Vec<Predicate>);
 
 impl RhsDefinedness {
     /// `ceil_term(definition, rhs)`.
-    pub(crate) fn of(definition: &BackendDefinition, rhs: &Term) -> Self {
-        Self(ceil_term(definition, rhs))
+    pub(crate) fn of(definition: &BackendDefinition, rhs: &Term) -> Result<Self, DeferredOutcome> {
+        Ok(Self(ceil_term(definition, rhs)?))
     }
 
     /// The obligations, as stated or as simplified, for their decision and for the report of a

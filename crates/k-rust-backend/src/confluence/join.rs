@@ -547,7 +547,8 @@ impl Join<'_, '_> {
             let predicates = rule
                 .requires
                 .instantiate(&substitution)
-                .with_definedness(self.context.definition, &[]);
+                .with_definedness(self.context.definition, &[])
+                .ok()?;
             if !matches!(
                 self.context
                     .simplify(crate::rule::Predicate::And(predicates)),

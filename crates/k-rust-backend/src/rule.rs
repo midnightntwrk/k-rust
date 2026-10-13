@@ -108,8 +108,9 @@ pub enum Predicate {
     /// It means exactly what `Ceil(t)` means, and is printed as `\ceil(t)`. It differs in how it
     /// is decided: it is created only by the backend's `deferred_obligations`, never passed to
     /// `ceil_term` or to the term simplifier, and no definition equation is applied to any part
-    /// of `t`; only the predicate simplifier decides it, by these steps (folding by pure builtin
-    /// hooks on literals, ceil equations whose instantiated condition those hooks decide, the key
+    /// of `t` beyond one bounded step; only the predicate simplifier decides it, by these steps
+    /// (folding by pure builtin hooks on literals, ceil equations whose instantiated condition
+    /// those hooks decide or whose instance over hook arithmetic is stated in its place, the key
     /// condition of a collection of literal keys, one equation step selected by matching alone,
     /// a known fact, and the solver, which reads it as the same opaque atom as `\ceil(t)`).
     Defined(Term),

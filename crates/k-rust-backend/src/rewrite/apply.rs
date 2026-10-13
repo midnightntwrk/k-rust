@@ -474,6 +474,14 @@ impl From<Stop> for PhaseExit {
     }
 }
 
+/// A definedness whose decision would need an impure application in an operand a conditional
+/// never evaluates ends the attempt with the unsupported-hook failure (`crate::deferred`).
+impl From<crate::deferred::DeferredOutcome> for PhaseExit {
+    fn from(outcome: crate::deferred::DeferredOutcome) -> Self {
+        Self::Attempt(RuleAttempt::Simplification(outcome.into()))
+    }
+}
+
 /// Invariant: every re-entry (the six recovery splits, the unification solutions, and the
 /// bindings extracted from conditions) carries the accumulated `inherited_conditions`, which
 /// only grow, and either an empty or strictly shorter `remainder` or a binding of a previously
@@ -607,7 +615,7 @@ fn apply_rule_phases(
         substitution,
         inherited_conditions,
         match_conditions,
-    )
+    )?
     .into_parts();
     let mut match_conditions = simplify_conditions(context, conditions, &path_knowledge)?;
     definedness(
@@ -698,9 +706,11 @@ fn knowledge(
 ) -> (Vec<Predicate>, Vec<Predicate>) {
     let mut path_knowledge = context.pattern.constraints.clone();
     if context.assume_initial_defined {
+        // Assumed facts: a definedness that depends on an impure application in an operand a
+        // conditional never evaluates is left out, which only weakens them.
         extend_unique(
             &mut path_knowledge,
-            ceil_term(context.definition, &context.pattern.term),
+            ceil_term(context.definition, &context.pattern.term).unwrap_or_default(),
         );
     }
     let mut inherited_knowledge = path_knowledge.clone();
@@ -947,10 +957,10 @@ fn recover_by_split(
                 MatchSolution::from_parts(substitution, solution_conditions).into_parts();
             let mut conditions = inherited_conditions.to_vec();
             extend_unique(&mut conditions, solution_conditions);
-            extend_unique(
-                &mut conditions,
-                collection_unification_definedness(definition, remainder, &substitution),
-            );
+            match collection_unification_definedness(definition, remainder, &substitution) {
+                Ok(definedness) => extend_unique(&mut conditions, definedness),
+                Err(outcome) => return Ok(RuleAttempt::Simplification(outcome.into())),
+            }
             reenter(
                 context,
                 fresh_counter,
@@ -1024,6 +1034,7 @@ fn recover_by_unification(
             }
         }
         GeneralUnificationRecovery::Bottom => Err(PhaseExit::Attempt(RuleAttempt::NotApplicable)),
+        GeneralUnificationRecovery::Outcome(outcome) => Err(outcome.into()),
         GeneralUnificationRecovery::Unsupported => {
             if let Some(recovered) = recover_functional_symbolic_match(
                 definition,
@@ -1102,7 +1113,7 @@ fn configuration_bindings(
     mut substitution: Substitution,
     mut inherited_conditions: Vec<Predicate>,
     mut match_conditions: Vec<Predicate>,
-) -> MatchSolution {
+) -> Phase<MatchSolution> {
     let configuration_bindings = substitution
         .iter()
         .filter(|(variable, _)| !context.rule.lhs.attributes().variables.contains(variable))
@@ -1119,10 +1130,16 @@ fn configuration_bindings(
         if !match_conditions.contains(&condition) {
             match_conditions.push(condition);
         }
-        extend_unique(&mut match_conditions, ceil_term(context.definition, &value));
+        extend_unique(
+            &mut match_conditions,
+            ceil_term(context.definition, &value)?,
+        );
     }
     inherited_conditions.append(&mut match_conditions);
-    MatchSolution::from_parts(substitution, inherited_conditions)
+    Ok(MatchSolution::from_parts(
+        substitution,
+        inherited_conditions,
+    ))
 }
 
 /// P8: the conditions of P7 simplified under the path; `False` ends the attempt; what remains
@@ -1193,14 +1210,14 @@ fn definedness(
         &context.rule.lhs,
         &subject,
         &mut definedness_conditions,
-    );
+    )?;
     for value in substitution
         .values()
         .filter(|value| !matches!(value.kind(), TermKind::Variable(_)))
     {
         extend_unique(
             &mut definedness_conditions,
-            ceil_term(context.definition, value),
+            ceil_term(context.definition, value)?,
         );
     }
     let mut definedness_knowledge = path_knowledge.to_vec();
@@ -1265,15 +1282,15 @@ fn consumed_collections(
     lhs: &Term,
     subject: &Term,
     conditions: &mut Vec<Predicate>,
-) {
+) -> Result<(), crate::deferred::DeferredOutcome> {
     match (lhs.kind(), subject.kind()) {
         (TermKind::And(left, right), _) => {
-            consumed_collections(definition, left, subject, conditions);
-            consumed_collections(definition, right, subject, conditions);
+            consumed_collections(definition, left, subject, conditions)?;
+            consumed_collections(definition, right, subject, conditions)?;
         }
         (TermKind::Map { .. } | TermKind::Set { .. } | TermKind::List { .. }, _) => {
             if !subject.attributes().ceil_free() {
-                extend_unique(conditions, ceil_term(definition, subject));
+                extend_unique(conditions, ceil_term(definition, subject)?);
             }
         }
         (
@@ -1289,7 +1306,7 @@ fn consumed_collections(
             },
         ) if symbol == subject_symbol && patterns.len() == arguments.len() => {
             for (pattern, argument) in patterns.iter().zip(arguments) {
-                consumed_collections(definition, pattern, argument, conditions);
+                consumed_collections(definition, pattern, argument, conditions)?;
             }
         }
         (
@@ -1304,10 +1321,11 @@ fn consumed_collections(
                 term: subject_term,
             },
         ) if source == subject_source && target == subject_target => {
-            consumed_collections(definition, term, subject_term, conditions);
+            consumed_collections(definition, term, subject_term, conditions)?;
         }
         _ => {}
     }
+    Ok(())
 }
 
 /// P10: with match conditions present, the path plus the conditions must be satisfiable;
@@ -1830,7 +1848,10 @@ fn apply_rhs_alternative(
     // repeats are not restated).
     let mut rhs_definedness = None;
     if !rule.computed_attributes.undefined_symbols.is_empty() {
-        let obligations = RhsDefinedness::of(definition, &rhs);
+        let obligations = match RhsDefinedness::of(definition, &rhs) {
+            Ok(obligations) => obligations,
+            Err(outcome) => return Ok(RhsAlternativeAttempt::Simplification(outcome.into())),
+        };
         let reported_obligation = undefined_term
             .map(Predicate::Ceil)
             .unwrap_or_else(|| conjunction(obligations.as_slice()));
