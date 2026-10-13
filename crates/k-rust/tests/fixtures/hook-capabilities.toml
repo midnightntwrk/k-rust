@@ -1,6 +1,6 @@
 # Runtime hook capabilities for the K 7.1.337 prelude embedded by k-rust.
 # Every hook in prelude.md and its transitive requires must occur exactly once.
-version = 1
+version = 2
 backend_namespaces = [
   "BOOL",
   "BYTES",
@@ -71,6 +71,7 @@ implemented = [
   "INT.abs",
   "INT.add",
   "INT.and",
+  "INT.bitRange",
   "INT.ediv",
   "INT.emod",
   "INT.eq",
@@ -89,6 +90,7 @@ implemented = [
   "INT.powmod",
   "INT.shl",
   "INT.shr",
+  "INT.signExtendBitRange",
   "INT.sub",
   "INT.tdiv",
   "INT.tmod",
@@ -253,8 +255,8 @@ hooks = [
 ]
 
 [[unsupported]]
-reason = "randomness and bit-range operations are not implemented"
-hooks = ["INT.bitRange", "INT.rand", "INT.signExtendBitRange", "INT.srand"]
+reason = "randomness is not implemented"
+hooks = ["INT.rand", "INT.srand"]
 
 [[unsupported]]
 reason = "filesystem, process, clock, logging, and stream-management effects are not exposed by the backend"
@@ -290,11 +292,10 @@ hooks = [
 ]
 
 [[unsupported]]
-reason = "MInt-specialized and deque-like list operations are not implemented"
+reason = "MInt-specialized list operations and fillList are not implemented"
 hooks = [
   "LIST.fill",
   "LIST.getMInt",
-  "LIST.push",
   "LIST.sizeMInt",
   "LIST.updateMInt",
 ]
@@ -345,18 +346,34 @@ reason = "nondeterministic choice is not implemented"
 hooks = ["SET.choice"]
 
 [[unsupported]]
-reason = "Unicode properties, replacement utilities, floating conversion, and UUID generation are not implemented"
+reason = "Unicode properties, floating conversion, and UUID generation are not implemented"
 hooks = [
   "STRING.category",
   "STRING.directionality",
-  "STRING.findChar",
   "STRING.float2string",
   "STRING.floatFormat",
+  "STRING.string2float",
+  "STRING.uuid",
+]
+
+# Hooks without a backend evaluator that the equations of the named module of
+# the prelude define where they apply: where the module is imported, a ground
+# application evaluates through those equations; where it is not, the
+# application is the unsupported-hook error; and where no equation applies, it
+# stays unevaluated (replace(S, T, R, N) with N < 0 has none).
+[[equation_defined]]
+module = "LIST"
+reason = "no backend evaluator; defined by the module's equations where they apply"
+hooks = ["LIST.push"]
+
+[[equation_defined]]
+module = "STRING-COMMON"
+reason = "no backend evaluator; defined by the module's equations where they apply"
+hooks = [
+  "STRING.findChar",
   "STRING.replace",
   "STRING.replaceFirst",
   "STRING.rfindChar",
-  "STRING.string2float",
-  "STRING.uuid",
 ]
 
 # Crypto evaluators in the K v7.1.337 reference stack come from its pinned

@@ -6389,6 +6389,222 @@ fn krun_search_matches_no_condition_on_a_result_above_the_size_bound() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `bitRangeInt` and `signExtendBitRangeInt` applied to the integers of the program, so that the
+/// frontend's constant fold cannot compute them.
+const BIT_RANGE_DEFINITION: &str = r#"
+module BITRANGE-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= br(Int, Int, Int) | sx(Int, Int, Int)
+endmodule
+
+module BITRANGE
+  imports BITRANGE-SYNTAX
+  imports INT
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(Int)
+  rule br(I, X, L) => res(bitRangeInt(I, X, L))
+  rule sx(I, X, L) => res(signExtendBitRangeInt(I, X, L))
+endmodule
+"#;
+
+/// The hook attribute alone gives `bitRangeInt` and `signExtendBitRangeInt` their meaning: a
+/// definition that imports `INT-COMMON`, which declares them, without `INT`, which states their
+/// equations, evaluates them as one that imports `INT` does. With `INT` imported, a length whose
+/// `1 <<Int LEN` is above the `Int` result bound still gives the small value of the bit range.
+#[test]
+fn krun_evaluates_bit_ranges_without_the_int_module_equations() {
+    let common = BIT_RANGE_DEFINITION.replace("  imports INT\n", "  imports INT-COMMON\n");
+    assert_ne!(common, BIT_RANGE_DEFINITION);
+    let (root, _) = fixture();
+    let compile = |name: &str, source: &str| {
+        let path = root.join(format!("{name}.k"));
+        fs::write(&path, source).unwrap();
+        let compiled = root.join(name);
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kcompile",
+                path.to_str().unwrap(),
+                "--main-module",
+                "BITRANGE",
+                "--output-directory",
+            ])
+            .arg(&compiled)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        compiled
+    };
+    let run = |compiled: &Path, expression: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                "--definition",
+                compiled.to_str().unwrap(),
+                "--sort",
+                "Op",
+                "--expression",
+                expression,
+                "--io",
+                "off",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(output.status.success(), "{expression}: {stderr}");
+        stdout
+    };
+    let result = |value: &str| {
+        format!(
+            r#"Lblres'LParUndsRParUnds'BITRANGE'Unds'KItem'Unds'Int{{}}(\dv{{SortInt{{}}}}("{value}"))"#
+        )
+    };
+    let common = compile("common", &common);
+    for (expression, value) in [("br(255, 4, 4)", "15"), ("sx(255, 0, 8)", "-1")] {
+        let stdout = run(&common, expression);
+        assert!(stdout.contains(&result(value)), "{expression}: {stdout}");
+    }
+    let int = compile("int", BIT_RANGE_DEFINITION);
+    let stdout = run(&int, "br(5, 0, 100000000)");
+    assert!(stdout.contains(&result("5")), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// One ground application of every `equation_defined` hook of the capability inventory, its
+/// arguments taken from the program so that the frontend's constant fold cannot compute it.
+const EQUATION_DEFINED_DEFINITION: &str = r#"
+module EQUATION-DEFINED-SYNTAX
+  imports INT-SYNTAX
+  imports STRING-SYNTAX
+  syntax Op ::= push(Int, Int) | rf(String, String, String) | fc(String, String, Int)
+              | rfc(String, String, Int) | rep(String, String, String, Int)
+endmodule
+
+module EQUATION-DEFINED
+  imports EQUATION-DEFINED-SYNTAX
+  imports DOMAINS
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K)
+  rule push(A, B) => res(pushList(A, ListItem(B)))
+  rule rf(S, N, R) => res(replaceFirst(S, N, R))
+  rule fc(S, N, I) => res(findChar(S, N, I))
+  rule rfc(S, N, I) => res(rfindChar(S, N, I))
+  rule rep(S, N, R, C) => res(replace(S, N, R, C))
+endmodule
+"#;
+
+/// A hook the capability inventory classifies `equation_defined` has no backend evaluator, and a
+/// ground application of it evaluates to a value through the equations of its module, imported
+/// here through `DOMAINS`. The applications below are exactly one per member of the class, so a
+/// hook moved into or out of the class without its application fails here. That each member's
+/// equations come from the module the inventory names is
+/// `equation_defined_hooks_have_equations_in_their_named_module` in `hook_capabilities.rs`.
+#[test]
+fn krun_evaluates_equation_defined_hooks_through_their_equations() {
+    let manifest: toml::Value =
+        toml::from_str(include_str!("fixtures/hook-capabilities.toml")).unwrap();
+    let members = manifest["equation_defined"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|group| group["hooks"].as_array().unwrap())
+        .map(|hook| hook.as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    // (hook, program, the result's KItem with whitespace removed)
+    let cases = [
+        (
+            "LIST.push",
+            "push(1, 2)",
+            r#"inj{SortList{},SortKItem{}}(Lbl'Unds'List'Unds'{}(LblListItem{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("1"))),LblListItem{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("2")))))"#,
+        ),
+        (
+            "STRING.replaceFirst",
+            r#"rf("abcabc", "b", "X")"#,
+            r#"inj{SortString{},SortKItem{}}(\dv{SortString{}}("aXcabc"))"#,
+        ),
+        (
+            "STRING.findChar",
+            r#"fc("hello", "lo", 0)"#,
+            r#"inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("2"))"#,
+        ),
+        (
+            "STRING.rfindChar",
+            r#"rfc("hello", "lo", 4)"#,
+            r#"inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("4"))"#,
+        ),
+        (
+            "STRING.replace",
+            r#"rep("aaaa", "a", "b", 2)"#,
+            r#"inj{SortString{},SortKItem{}}(\dv{SortString{}}("bbaa"))"#,
+        ),
+    ];
+    let exercised = cases
+        .iter()
+        .map(|(hook, _, _)| *hook)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        exercised, members,
+        "every equation-defined hook, and only those, has a ground application here"
+    );
+
+    let (root, _) = fixture();
+    let path = root.join("equation-defined.k");
+    fs::write(&path, EQUATION_DEFINED_DEFINITION).unwrap();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            path.to_str().unwrap(),
+            "--main-module",
+            "EQUATION-DEFINED",
+            "--output-directory",
+        ])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    for (hook, program, value) in cases {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                "--definition",
+                compiled.to_str().unwrap(),
+                "--sort",
+                "Op",
+                "--expression",
+                program,
+                "--io",
+                "off",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{hook}: {program}: {stderr}");
+        let stdout = String::from_utf8(output.stdout)
+            .unwrap()
+            .split_whitespace()
+            .collect::<String>();
+        let expected = format!(
+            "Lblres'LParUndsRParUnds'EQUATION-DEFINED'Unds'KItem'Unds'K{{}}(kseq{{}}({value},dotk{{}}()))"
+        );
+        assert!(
+            stdout.contains(&expected),
+            "{hook}: {program}: expected {expected} in {stdout}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");

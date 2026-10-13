@@ -492,6 +492,8 @@ fn evaluate_hook_with_context(
         "INT.log2" => return int_log2(arguments),
         "INT.shl" => return int_shift(hook, arguments, false),
         "INT.shr" => return int_shift(hook, arguments, true),
+        "INT.bitRange" => return int_bit_range(arguments),
+        "INT.signExtendBitRange" => return int_sign_extend_bit_range(arguments),
         _ => {}
     }
     let result = match hook {
@@ -1397,6 +1399,117 @@ fn int_shift_within(
         return Ok(BuiltinResult::Value(int_term(BigInt::zero())));
     }
     too_large()
+}
+
+/// The arguments of a bit-range hook (`INT.bitRange`, `INT.signExtendBitRange`): the integer,
+/// the index and the length, or `None` when one of them is not an `Int` domain value.
+fn bit_range_arguments(
+    hook: &str,
+    arguments: &[Term],
+) -> HookResult<Option<(BigInt, BigInt, BigInt)>> {
+    expect_arity(hook, arguments, 3)?;
+    let [value, index, length] = arguments else {
+        unreachable!()
+    };
+    Ok(read_int(value)
+        .zip(read_int(index))
+        .zip(read_int(length))
+        .map(|((value, index), length)| (value, index, length)))
+}
+
+/// `value >>Int amount` for a natural `amount`: the floor of `value / 2^amount`, which is 0 or
+/// -1 by the sign of `value` once the amount exceeds a machine word.
+fn floor_shift(value: &BigInt, amount: &BigInt) -> BigInt {
+    match amount.to_usize() {
+        Some(amount) => value >> amount,
+        None if value.sign() == Sign::Minus => -BigInt::one(),
+        None => BigInt::zero(),
+    }
+}
+
+/// `bitRangeInt(I, IDX, LEN)`, the `LEN` bits of `I`'s two's complement from bit `IDX` read as
+/// an unsigned number: the value of its `domains.md` equation `(I >>Int IDX) modInt (1 <<Int
+/// LEN)` (module `INT`). That right-hand side shifts by `IDX` and by `LEN`, and a shift by a
+/// negative amount is `#False`, so the hook is undefined for a negative index or length.
+///
+/// A nonnegative `I >>Int IDX` is at most its own size whatever `LEN`. A negative one leaves
+/// `LEN` bits, a run of ones up to the top of the range, so the result, not the equation's
+/// `1 <<Int LEN`, is bounded as a `<<Int` result is (`result_size_limit` of the arguments'
+/// total size): above it, `|I >>Int IDX| < 2^(LEN - 1)` and the result has exactly `LEN` bits.
+fn int_bit_range(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    let hook = "INT.bitRange";
+    let Some((value, index, length)) = bit_range_arguments(hook, arguments)? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if index.sign() == Sign::Minus || length.sign() == Sign::Minus {
+        return Ok(BuiltinResult::Bottom);
+    }
+    let shifted = floor_shift(&value, &index);
+    let range = length.to_u64().unwrap_or(u64::MAX);
+    if shifted.sign() != Sign::Minus && shifted.bits() <= range {
+        return Ok(BuiltinResult::Value(int_term(shifted)));
+    }
+    // A nonnegative value longer than the range is masked to LEN bits, fewer than it has; a
+    // negative one leaves a result of LEN bits, computed only within the result bound.
+    let limit = result_size_limit(
+        MAX_INT_RESULT_BITS,
+        value
+            .bits()
+            .saturating_add(index.bits())
+            .saturating_add(length.bits()),
+    );
+    let Some(range) = usize::try_from(range)
+        .ok()
+        .filter(|_| shifted.sign() != Sign::Minus || range <= limit)
+    else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ResultTooLarge {
+                detail: format!(
+                    "bitRangeInt({}, {}, {}) needs more than {limit} bits",
+                    describe_int(&value),
+                    describe_int(&index),
+                    describe_int(&length)
+                ),
+            },
+        ));
+    };
+    Ok(BuiltinResult::Value(int_term(
+        shifted & ((BigInt::one() << range) - 1u8),
+    )))
+}
+
+/// `signExtendBitRangeInt(I, IDX, LEN)`, the `LEN` bits of `I`'s two's complement from bit
+/// `IDX` read as a `LEN`-bit two's-complement number: the value of its `domains.md` equation
+/// `(bitRangeInt(I, IDX, LEN) +Int H) modInt (1 <<Int LEN) -Int H`, `H = 1 <<Int (LEN -Int 1)`
+/// (module `INT`), the residue of `I >>Int IDX` modulo `2^LEN` in `[-2^(LEN - 1), 2^(LEN - 1))`.
+/// That right-hand side shifts by `IDX`, `LEN` and `LEN - 1`, and a shift by a negative amount
+/// is `#False`, so the hook is undefined for a negative index and for a length below 1. The
+/// result is never larger than `I >>Int IDX`, so it is computed whatever the length.
+fn int_sign_extend_bit_range(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    let hook = "INT.signExtendBitRange";
+    let Some((value, index, length)) = bit_range_arguments(hook, arguments)? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if index.sign() == Sign::Minus || length.sign() != Sign::Plus {
+        return Ok(BuiltinResult::Bottom);
+    }
+    let shifted = floor_shift(&value, &index);
+    let range = length.to_u64().unwrap_or(u64::MAX);
+    // A magnitude of fewer than LEN bits lies in the signed range.
+    if shifted.bits() < range {
+        return Ok(BuiltinResult::Value(int_term(shifted)));
+    }
+    // Otherwise LEN is at most the shifted value's size, so the masks are no larger than it.
+    let range = usize::try_from(range).expect("a length within an integer's size fits usize");
+    let modulus = BigInt::one() << range;
+    let low = shifted & (&modulus - 1u8);
+    Ok(BuiltinResult::Value(int_term(
+        if low.bit(range as u64 - 1) {
+            low - modulus
+        } else {
+            low
+        },
+    )))
 }
 
 fn kequal_ite(arguments: &[Term]) -> HookResult<Option<Term>> {
@@ -2424,6 +2537,145 @@ mod tests {
                 UnsupportedHookReason::ResultTooLarge { .. }
             )))
         ));
+    }
+
+    /// `bitRangeInt` and `signExtendBitRangeInt` are the functions their `domains.md` equations
+    /// in module `INT` state:
+    ///
+    /// - `bitRangeInt(I, IDX, LEN) = (I >>Int IDX) modInt (1 <<Int LEN)`;
+    /// - `signExtendBitRangeInt(I, IDX, LEN) = (bitRangeInt(I, IDX, LEN) +Int H) modInt
+    ///   (1 <<Int LEN) -Int H`, `H = 1 <<Int (LEN -Int 1)`.
+    ///
+    /// Each right-hand side is composed here from the backend's own `>>Int`, `<<Int`, `modInt`,
+    /// `+Int` and `-Int`, and is undefined wherever one of its steps is (a shift by a negative
+    /// amount); the hooks must give exactly that, on negative and multi-word integers and on
+    /// indices beyond any machine word.
+    #[test]
+    fn bit_ranges_are_the_value_of_their_domains_equations() {
+        // One step of a right-hand side; `None` is undefined, in an operand or in the step.
+        let step = |hook: &str, operands: &[&Option<BigInt>]| -> Option<BigInt> {
+            let operands = operands
+                .iter()
+                .map(|operand| (*operand).clone().map(int_term))
+                .collect::<Option<Vec<_>>>()?;
+            match evaluate_hook(hook, &operands) {
+                Ok(Ok(BuiltinResult::Value(value))) => Some(read_int(&value).unwrap()),
+                Ok(Ok(BuiltinResult::Bottom)) => None,
+                other => panic!("{hook} on {operands:?}: {other:?}"),
+            }
+        };
+        let hook = |hook: &str, arguments: [&BigInt; 3]| -> Option<BigInt> {
+            let arguments = arguments.map(|argument| int_term(argument.clone()));
+            match evaluate_hook(hook, &arguments) {
+                Ok(Ok(BuiltinResult::Value(value))) => Some(read_int(&value).unwrap()),
+                Ok(Ok(BuiltinResult::Bottom)) => None,
+                other => panic!("{hook} on {arguments:?}: {other:?}"),
+            }
+        };
+        let one = Some(BigInt::one());
+        let large = BigInt::one() << 70u32;
+        let values = (-300..300)
+            .map(BigInt::from)
+            .chain([
+                &large - 1u8,
+                large.clone(),
+                &large + 1u8,
+                -&large - 1u8,
+                -large.clone(),
+                -&large + 1u8,
+            ])
+            .collect::<Vec<_>>();
+        let indices = [-2, -1, 0, 1, 3, 64]
+            .map(BigInt::from)
+            .into_iter()
+            .chain([BigInt::one() << 64u32])
+            .collect::<Vec<_>>();
+        let lengths = [-2, -1, 0, 1, 3, 8, 65].map(BigInt::from);
+        let (mut defined, mut undefined) = (0, 0);
+        for value in &values {
+            for index in &indices {
+                for length in &lengths {
+                    let (i, idx, len) = (
+                        Some(value.clone()),
+                        Some(index.clone()),
+                        Some(length.clone()),
+                    );
+                    let modulus = step("INT.shl", &[&one, &len]);
+                    let bit_range = step("INT.emod", &[&step("INT.shr", &[&i, &idx]), &modulus]);
+                    let half = step("INT.shl", &[&one, &step("INT.sub", &[&len, &one])]);
+                    let sign_extended = step(
+                        "INT.sub",
+                        &[
+                            &step(
+                                "INT.emod",
+                                &[&step("INT.add", &[&bit_range, &half]), &modulus],
+                            ),
+                            &half,
+                        ],
+                    );
+                    let arguments = [value, index, length];
+                    assert_eq!(
+                        hook("INT.bitRange", arguments),
+                        bit_range,
+                        "bitRangeInt({value}, {index}, {length})"
+                    );
+                    assert_eq!(
+                        hook("INT.signExtendBitRange", arguments),
+                        sign_extended,
+                        "signExtendBitRangeInt({value}, {index}, {length})"
+                    );
+                    for result in [&bit_range, &sign_extended] {
+                        if result.is_some() {
+                            defined += 1;
+                        } else {
+                            undefined += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(defined > 0 && undefined > 0, "{defined} {undefined}");
+    }
+
+    /// The bit-range hooks are bounded by the size of their result, not by the `1 <<Int LEN` of
+    /// their equations: a value of a few bits is computed whatever the length, and only a result
+    /// above the `Int` result bound (`result_size_limit`), the run of ones a negative value
+    /// leaves in a long unsigned range, is refused. Undefinedness is decided before size.
+    #[test]
+    fn bit_ranges_are_bounded_by_their_result_not_by_two_to_the_length() {
+        let length = BigInt::one() << 30u32;
+        let evaluate = |hook: &str, value: i64, index: i64| {
+            evaluate_hook(
+                hook,
+                &[
+                    int_term(BigInt::from(value)),
+                    int_term(BigInt::from(index)),
+                    int_term(length.clone()),
+                ],
+            )
+        };
+        assert_eq!(
+            evaluate("INT.bitRange", 5, 0),
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(5)))))
+        );
+        assert_eq!(
+            evaluate("INT.signExtendBitRange", -1, 0),
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(-1)))))
+        );
+        let refused = evaluate("INT.bitRange", -1, 0);
+        assert!(
+            matches!(
+                refused,
+                Ok(Ok(BuiltinResult::Unsupported(
+                    UnsupportedHookReason::ResultTooLarge { .. }
+                )))
+            ),
+            "{refused:?}"
+        );
+        assert_eq!(
+            evaluate("INT.bitRange", -1, -1),
+            Ok(Ok(BuiltinResult::Bottom))
+        );
     }
 
     #[test]
