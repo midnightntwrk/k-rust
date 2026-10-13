@@ -257,7 +257,7 @@ impl<'view, 'definition> Folder<'view, 'definition> {
             )));
         }
         let is_float = matches!(value, Value::Float(_));
-        let token = self.wrap(value, &result_sort);
+        let token = self.wrap(value, &result_sort)?;
         if is_float {
             loadable_float(hook, &token)?;
         }
@@ -384,22 +384,24 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         }
     }
 
-    fn wrap(&self, value: Value, sort: &Sort) -> String {
+    /// The token of `value` at `sort`; `Err` when the fold cannot write it (a Float token
+    /// beyond `MAX_FOLDED_BITS`), so the application stays as written.
+    fn wrap(&self, value: Value, sort: &Sort) -> Result<String, Unfolded> {
         let string_sort = self
             .sorts
             .attributes_for(&SortHead::from(sort))
             .and_then(|attributes| attributes.string(AttributeKey::Hook))
             .is_some_and(|hook| matches!(hook, "STRING.String" | "BYTES.Bytes"));
-        match value {
+        Ok(match value {
             Value::Bool(value) => value.to_string(),
             Value::Int(value) => value.to_string(),
             Value::String(value) if string_sort => crate::kast::string::quote(&value),
             Value::String(value) => value,
             #[cfg(feature = "mpfr-folding")]
-            Value::Float(value) => value.token(),
+            Value::Float(value) => value.try_token()?,
             #[cfg(not(feature = "mpfr-folding"))]
             Value::Float(value) => value,
-        }
+        })
     }
 }
 

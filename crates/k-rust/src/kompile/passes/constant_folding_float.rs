@@ -66,7 +66,19 @@ impl KFloat {
         u64::from(self.value.prec())
     }
 
+    /// [`Self::try_token`] for a value the test knows to be writable.
+    #[cfg(test)]
     pub(super) fn token(&self) -> String {
+        self.try_token()
+            .expect("the test's Float value has a token within the bound")
+    }
+
+    /// The token of the value: its decimal at the precision's round-trip length, with the
+    /// precision and exponent-width suffix. A token whose text would exceed `MAX_FOLDED_BITS`
+    /// (a finite value of precision above about 435,000 bits) is `TooLarge`, so the fold leaves
+    /// the application as written; the length is decided from the precision before MPFR formats
+    /// anything.
+    pub(super) fn try_token(&self) -> Result<String, Unfolded> {
         let value = if self.value.is_nan() {
             "NaN".into()
         } else if self.value.is_infinite() {
@@ -84,10 +96,19 @@ impl KFloat {
             }
             .into()
         } else {
-            self.format("%Re")
-                .expect("the fixed MPFR token format must be valid")
+            // `%Re` writes at least `ceil(p * log10(2))` significant digits at precision `p`,
+            // the length that reads back as the same value.
+            let digits = u64::from(self.value.prec()) * 30_103 / 100_000;
+            if digits.saturating_mul(8) > MAX_FOLDED_BITS {
+                return Err(too_large("FLOAT", digits * 8));
+            }
+            self.format("%Re")?
         };
-        format!("{value}p{}x{}", self.value.prec(), self.exponent_bits)
+        Ok(format!(
+            "{value}p{}x{}",
+            self.value.prec(),
+            self.exponent_bits
+        ))
     }
 
     fn format(&self, format: &str) -> Result<String, Unfolded> {
@@ -200,7 +221,7 @@ impl KFloat {
 
 pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Unfolded>> {
     match hook {
-        "STRING.float2string" => unary_float(values, |a| Ok(Value::String(a.token()))),
+        "STRING.float2string" => unary_float(values, |a| a.try_token().map(Value::String)),
         "STRING.floatFormat" => float_format(values),
         "STRING.string2float" => match values {
             [value] => Some(
@@ -1365,5 +1386,20 @@ mod tests {
             super::super::loadable_float("FLOAT.div", &quotient(400_000)),
             Err(Unfolded::TooLarge(_))
         ));
+    }
+
+    /// A finite value whose token would exceed `MAX_FOLDED_BITS` has no token the fold writes:
+    /// `try_token` and `Float2String` are `TooLarge`, decided from the precision, and a value of
+    /// 400,000 bits still has one.
+    #[test]
+    fn a_token_beyond_the_written_bound_is_too_large() {
+        let wide = float("1.0p500000x20");
+        assert!(matches!(wide.try_token(), Err(Unfolded::TooLarge(_))));
+        assert!(matches!(
+            evaluate("STRING.float2string", &[Value::Float(wide)]),
+            Some(Err(Unfolded::TooLarge(_)))
+        ));
+        assert!(float("1.0p400000x20").try_token().is_ok());
+        assert!(float("Infinityp500000x20").try_token().is_ok());
     }
 }
