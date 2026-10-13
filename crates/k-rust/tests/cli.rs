@@ -5064,6 +5064,124 @@ fn a_discarded_operand_takes_the_value_of_one_ground_equation_step() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A conditional and each Boolean connective with a decided deciding operand, whose unused
+/// operand applies a partial function without equations.
+const UNTAKEN_OPERANDS: &str = r#"
+module SHORTCIRCUIT
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "ite" "(" ")" [symbol(goIte)]
+               | "iteFalse" "(" ")" [symbol(goIteFalse)]
+               | "andThen" "(" ")" [symbol(goAndThen)]
+               | "andB" "(" ")" [symbol(goAnd)]
+               | "orElse" "(" ")" [symbol(goOrElse)]
+               | "orB" "(" ")" [symbol(goOr)]
+               | "implies" "(" ")" [symbol(goImplies)]
+  syntax Int ::= "undef" "(" ")" [symbol(undef), function]
+  syntax Bool ::= "undefb" "(" ")" [symbol(undefb), function]
+  configuration <k> $PGM:Exp </k>
+  rule ite() => #if true #then 1 #else undef() #fi
+  rule iteFalse() => #if false #then undef() #else 2 #fi
+  rule andThen() => false andThenBool undefb()
+  rule andB() => false andBool undefb()
+  rule orElse() => true orElseBool undefb()
+  rule orB() => true orBool undefb()
+  rule implies() => false impliesBool undefb()
+endmodule
+"#;
+
+#[test]
+fn krun_keeps_the_definedness_of_an_untaken_conditional_branch() {
+    // `#if` and the Boolean connectives are applications of hooked symbols, undefined wherever
+    // an operand is: each run prints the value its deciding operand gives under the `\ceil` of
+    // the operand the value does not depend on, and nothing else.
+    let (root, _) = fixture();
+    let operands = compiled_for_execution(
+        &root,
+        "operands",
+        UNTAKEN_OPERANDS,
+        "SHORTCIRCUIT",
+        "SHORTCIRCUIT",
+    );
+    let under = |item: &str, sort: &str, subject: &str| {
+        format!(
+            "\\and{{SortGeneratedTopCell{{}}}}({}, {})",
+            k_cell_output(item).trim_end(),
+            ceil_of(sort, subject)
+        )
+    };
+    let int = |value: &str| {
+        format!(r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#)
+    };
+    let bool = |value: &str| {
+        format!(r#"inj{{SortBool{{}}, SortKItem{{}}}}(\dv{{SortBool{{}}}}("{value}"))"#)
+    };
+    for (expression, expected) in [
+        ("ite()", under(&int("1"), "SortInt", "Lblundef{}()")),
+        ("iteFalse()", under(&int("2"), "SortInt", "Lblundef{}()")),
+        (
+            "andThen()",
+            under(&bool("false"), "SortBool", "Lblundefb{}()"),
+        ),
+        ("andB()", under(&bool("false"), "SortBool", "Lblundefb{}()")),
+        (
+            "orElse()",
+            under(&bool("true"), "SortBool", "Lblundefb{}()"),
+        ),
+        ("orB()", under(&bool("true"), "SortBool", "Lblundefb{}()")),
+        (
+            "implies()",
+            under(&bool("true"), "SortBool", "Lblundefb{}()"),
+        ),
+    ] {
+        let output = bounded_krun(&operands, "Exp", expression, &["-w", "all"]);
+        assert!(output.status.success(), "{expression}: {output:?}");
+        assert_eq!(
+            squashed(&String::from_utf8_lossy(&output.stdout)),
+            squashed(&expected),
+            "{expression}"
+        );
+    }
+
+    // An unused operand that builtin hooks show undefined makes the value `\bottom`, and in a
+    // `requires` the rule does not apply.
+    let ground = compiled_for_execution(&root, "ground", DISCARDED_GROUND, "GROUND", "GROUND");
+    let output = bounded_krun(&ground, "Exp", "divz()", &[]);
+    assert_undefined_step(&output, 1);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(r#"refuted obligation \ceil{SortInt{}, SortGeneratedTopCell{}}(Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#),
+        "{stderr}"
+    );
+    let output = bounded_krun(&ground, "Exp", "reqIte(1)", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        squashed(&String::from_utf8_lossy(&output.stdout)),
+        squashed(&k_cell_output(
+            r#"inj{SortExp{}, SortKItem{}}(LblreqIte{}(\dv{SortInt{}}("1")))"#
+        )),
+    );
+
+    // Control: the obligation is the operand's own. With an equation that defines `undef()`, the
+    // same conditional is a bare `1`.
+    let defined = UNTAKEN_OPERANDS.replace(
+        "  configuration <k> $PGM:Exp </k>",
+        "  rule undef() => 0\n  configuration <k> $PGM:Exp </k>",
+    );
+    assert_ne!(defined, UNTAKEN_OPERANDS);
+    let defined =
+        compiled_for_execution(&root, "defined", &defined, "SHORTCIRCUIT", "SHORTCIRCUIT");
+    let output = bounded_krun(&defined, "Exp", "ite()", &["-w", "all"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        squashed(&String::from_utf8_lossy(&output.stdout)),
+        squashed(&k_cell_output(&int("1"))),
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A simplification lemma that reaches a conditional below its root.
 const LEMMA_OVER_CONDITIONAL: &str = r#"
 module LEMMA

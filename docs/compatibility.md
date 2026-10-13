@@ -1121,7 +1121,7 @@ That response is the case's `rpc.oracle-exception` row in the [differential mani
 
 ## Conditionals evaluate only the operand they select
 
-`#if C #then T #else E #fi`, `B1 andThenBool B2` and `B1 orElseBool B2` are applications of hooked function symbols (`KEQUAL.ite`, `BOOL.andThen`, `BOOL.orElse`), and an application is undefined wherever one of its arguments is, so the value of a conditional whose condition selects `T` is `T` under the definedness of `E`: `#if true #then 1 #else u #fi` denotes `1 /\ \ceil(u)`.
+`#if C #then T #else E #fi`, `B1 andThenBool B2` and `B1 orElseBool B2` are applications of hooked function symbols (`KEQUAL.ite`, `BOOL.andThen`, `BOOL.orElse`), and an application is undefined wherever one of its arguments is, so the value of a conditional whose condition selects `T` is `T` under the definedness of `E`: `#if true #then 1 #else u #fi` denotes `1 /\ \ceil(u)`. [Conditionals and Boolean connectives are strict](#conditionals-and-boolean-connectives-are-strict) states that value, for these three and for `andBool`, `orBool` and `impliesBool`.
 The value keeps that obligation; what the three hooks change is the order of evaluation, which is the exception to "arguments are simplified before the hook" ([Backend scope](#backend-scope), [Resource bounds](#resource-bounds)).
 The deciding operand (`C`, `B1`) is simplified first, and then only the operand it selects.
 The operand it discards is folded by builtin hooks on literal arguments and not evaluated beyond the bounded steps below: its definedness is a deferred obligation, printed as `\ceil(t)`, and the only equation instances taken on a part of it are the ones that decide that obligation (at most one per application, selected by matching, never a second one on its result).
@@ -1299,6 +1299,44 @@ The hook contract is K's [`k-distribution/include/kframework/builtin/domains.md`
 Rust retains the specified behavior for all three operations.
 The [hook fixtures](../crates/k-rust/tests/fixtures/reference/hooks) and `execution.oracle-exception` entries in the differential manifest preserve separate Rust and Kore expectations for the two Kore deviations.
 Normalization N18 checks both expectations independently; when a pin fixes the deviation, refresh the reference evidence and remove that exception.
+
+## Conditionals and Boolean connectives are strict
+
+`#if C #then T #else E #fi` is an application of the hooked symbol `ite{S}`, declared `function, functional, total` with the hook `KEQUAL.ite`.
+Its meaning at a sort `S` is the hook and the symbol's `functional` axiom: the `domains.md` equations for `#if` are emitted for `ite{SortK{}}` only, and are not its definition at any other sort.
+An application in matching logic is undefined wherever one of its arguments is, and `total` promises a value on defined arguments only, so with a decided condition the value is the operand the condition selects under the `\ceil` of the other one: `#if true #then 1 #else undef() #fi` denotes `1 /\ \ceil(undef())` in every model of the definition, and `1` alone is false in each model where `undef()` is undefined.
+The same holds while the condition is symbolic: the application stays as written, and where a rule's left-hand side meets it execution splits on the condition, each branch carrying the `\ceil` of the operand it does not select (`mid(#if N >Int 0 #then 1 #else undef() #fi)` under the rule `mid(1) => one()` gives `one()` under `N >Int 0` and `\ceil(undef())`).
+A proof checks a destination that holds such an application together with its definedness, as it does for every partial application the destination adds ([Definedness of an implication's destination](#definedness-of-an-implications-destination)).
+
+`andBool`, `orBool`, `andThenBool`, `orElseBool` and `impliesBool` are hooked symbols too, and as strict, also in the operand a decided one makes irrelevant to the value: `false andBool undefb()` and `false andThenBool undefb()` are `false`, and `true orBool undefb()`, `true orElseBool undefb()` and `false impliesBool undefb()` are `true`, each under `\ceil(undefb())`.
+
+What differs between them is the order of evaluation, stated in full in [Conditionals evaluate only the operand they select](#conditionals-evaluate-only-the-operand-they-select):
+- `#if`, `andThenBool` and `orElseBool` simplify the deciding operand first and then only the operand it selects. The operand it discards is not evaluated beyond the bounded steps that decide its definedness, which is kept as a deferred obligation: builtin hooks on literals, a ceil equation whose condition those hooks decide or whose instance over hook arithmetic is stated in the obligation's place, the distinctness of literal collection keys, one equation step per application selected by matching alone (with its value on literal arguments when hooks fold it to a literal), a known fact, and the solver, which reads the obligation as an opaque atom. No other equation of the definition is run on the operand, and none on the result of such a step.
+- A discarded console operation is not performed: an application of a symbol declared `total` is defined by the declaration, a console hook on literal arguments in the console's domain is defined, and a discarded operand whose definedness still depends on an impure application, such as the value of a console read that is not performed (`1 /Int {#getc(0)}:>Int`), is the unsupported-hook outcome, with nothing read or written.
+- `andBool`, `orBool` and `impliesBool` simplify both operands, innermost, and perform their effects.
+- This reverses `domains.md`'s note that `#if` "does not short-circuit on symbolic backends", and agrees with its note that `andThenBool` and `orElseBool` are short-circuiting.
+- Recursion guarded by one of the three terminates: with `fact(N) => #if N <=Int 0 #then 1 #else N *Int fact(N -Int 1) #fi`, `fact(3)` is `6` under `\ceil(fact(-1))`, its exact denotation, since the axioms also admit a `fact` that is `\bottom` everywhere.
+
+What a run shows:
+- `krun` prints the selected value with the obligation as a conjunct; `Backend::execute` and RPC `execute` give a leaf under the obligation and, where it fails, a trivial leaf ([Trivial rule results](#trivial-rule-results)).
+- A discarded operand that builtin hooks alone show undefined makes the result `\bottom`: `#if true #then 1 #else 1 /Int 0 #fi` ends with "applied with an undefined result; refuted obligation \ceil(1 /Int 0)". So does one that a single equation step shows undefined: with `f(N) => N +Int 1`, the discarded `1 /Int f(-1)` is `1 /Int 0`. One whose undefinedness needs more evaluation (`1 /Int g(-1)` with `g(N) => f(N)`) leaves the selected value under the open `\ceil(1 /Int g(-1))`.
+- An open obligation makes the state constrained, so the console is unavailable for the rest of the path: a later `#write` is the unsupported-hook halt.
+- A claim through recursion guarded by `#if` (`go(3) => 6`) reaches its trivial leaf and is proven only with `--allow-vacuous`.
+- In a `requires`, a conditional whose unused operand is undefined has the value `\bottom`, so the rule does not apply: `requires #if N >Int 0 #then true #else 1 /Int 0 >Int 0 #fi` at `N = 1`.
+
+Both pinned reference backends differ.
+The LLVM backend returns the selected operand alone, which is false wherever the unused operand is undefined, and it also short-circuits `andBool` for effects.
+The Haskell backend evaluates the unused operand in execution, and its prover reads `#if` lazily ([Definedness of an implication's destination](#definedness-of-an-implications-destination) lists claims it proves and k-rust does not).
+k-rust keeps `andBool`, `orBool` and `impliesBool` innermost because they are strict hooked symbols and `domains.md` describes no short-circuit for them, where it does for `andThenBool` and `orElseBool`.
+
+To get a bare value, write the alternatives as rules with complementary `requires`, which never build the operand that is not taken:
+
+```k
+rule fact(N) => 1                     requires N <=Int 0
+rule fact(N) => N *Int fact(N -Int 1) requires N >Int 0
+```
+
+(`krun_keeps_the_definedness_of_an_untaken_conditional_branch` in [cli.rs](../crates/k-rust/tests/cli.rs), `an_untaken_partial_branch_splits_execution_into_a_guarded_leaf_and_a_trivial_one` in [rewrite.rs](../crates/k-rust-backend/tests/backend/rewrite.rs); the order's tests are listed in [Conditionals evaluate only the operand they select](#conditionals-evaluate-only-the-operand-they-select).)
 
 ## Hook values at the edges of their domains
 
