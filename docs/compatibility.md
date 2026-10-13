@@ -714,6 +714,12 @@ This diverges from the pinned K, which keeps a prose character it reads as white
 krust before this change kept every Unicode `White_Space` character of the prose; with the outer syntax reading only the default layout's whitespace (above), U+00A0 or U+2003 in prose was an outer-syntax error.
 (`markdown_prose_contributes_only_layout` in [outer_parser.rs](../crates/k-rust/tests/outer_parser.rs).)
 
+A Markdown definition's lines are the lines of the definition text: they end at every line terminator, so a fence opens and closes on a line that `\r`, a vertical tab, form feed, U+0085, U+2028 or U+2029 ends as it does on one that `\n` ends, and `\r\n` is one line end.
+So a Markdown definition whose lines end in `\r` alone compiles, and its locations count those lines, as the pinned K's do: a rule failure on line 11 is reported on line 11 whichever of `\n`, `\r\n` and `\r` ends the lines.
+This diverges from the pinned K for the other terminators, where it rejects the definition: with U+2028, U+2029, a vertical tab or a form feed as the line end, an outer lexical error at the first one it keeps, and with U+0085 no module is found; krust reads their fences and compiles it.
+krust before this change split a Markdown file at `\n` only, so in a file whose lines end in `\r` alone no fence opened and no module was found.
+(`markdown_lines_end_at_every_line_terminator` in [outer_markdown.rs](../crates/k-rust/tests/outer_markdown.rs).)
+
 A string of the definition text (a terminal, a token regex `r"…"`, a user-list separator, a `requires` path, a quoted attribute value) is a K `String` literal as `domains.md` defines it: any character but `"`, `\`, newline and carriage return stands for itself, and `\"`, `\\`, `\n`, `\r`, `\t`, `\f`, `\xHH`, `\uHHHH` and `\UHHHHHHHH` each name one code point.
 So a definition's terminal `"\u2028"` is the one-character string a program's `"\u2028"` is, and a regex's string is decoded before it is read as a regex: `r"[\u2028]"` is the class of U+2028.
 A string holds text, so an escape that names no Unicode scalar value (a surrogate, or a number above U+10FFFF) is an error.
