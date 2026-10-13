@@ -759,6 +759,10 @@ fn emitted_kore_matches_the_reference_frontend() {
     println!("field-projection totality derived from the reference's axioms (N43): {projections}");
     let lambdas = normalize_unsupported_lambda_totality(&mut reference);
     println!("lambda totality the reference's equations do not support withdrawn (N44): {lambdas}");
+    let refutations = normalize_lambda_refutations(&mut actual);
+    println!(
+        "lambda refutation equations the reference does not state dropped (N49): {refutations}"
+    );
     let lifted = lifted_cells_from_environment();
     let lifted_cells = normalize_lifted_cells(&reference, &mut actual, &lifted)
         .unwrap_or_else(|error| panic!("{error}"));
@@ -1948,6 +1952,31 @@ fn normalize_unsupported_lambda_totality(reference: &mut Definition) -> usize {
     withdrawn.len()
 }
 
+/// N49: drop from the port's definition the equation that states a generated `#lambda` symbol
+/// `\bottom` off its pattern: an `owise` equation headed by a name with the prefix
+/// `Lbl'Hash'lambda` whose right-hand side is `\bottom`. A lambda is the function of one
+/// `#fun`/`#let` rule; the port states that it has no value on an argument that rule does not
+/// match, where the reference states nothing, so the reference has no axiom to compare it with.
+/// A user cannot write an equation on a generated label, so the shape identifies the equation.
+/// Every other equation of the lambda, including the `owise` `false` of a match predicate, stays
+/// compared. Returns the number of equations dropped.
+fn normalize_lambda_refutations(actual: &mut Definition) -> usize {
+    let mut dropped = 0;
+    for module in &mut actual.modules {
+        module.sentences.retain(|sentence| {
+            let refutation = matches!(sentence, Sentence::Axiom { attributes, .. }
+                if has_kore_attribute(attributes, "owise"))
+                && emitted_equation(sentence).is_some_and(|equation| {
+                    equation.head.starts_with("Lbl'Hash'lambda")
+                        && matches!(equation.right, Pattern::Bottom { .. })
+                });
+            dropped += usize::from(refutation);
+            !refutation
+        });
+    }
+    dropped
+}
+
 /// N45: one entry of a compile case's `lifted-cells` manifest key. The rule whose KORE axiom
 /// carries the label `rule` writes the cell `<cell>` inside a cell that the configuration does not
 /// place it under; the port compiles it into the instance of its configured parent that holds the
@@ -2472,6 +2501,67 @@ fn unsupported_lambda_totality_normalizer_withdraws_only_uncovered_claims() {
     assert!(covered.modules[0].sentences.iter().any(|sentence| matches!(sentence,
         Sentence::SymbolDeclaration { symbol, attributes, .. }
             if symbol.name == "Lbl'Hash'lambdaG'UndsUnds'" && has_kore_attribute(attributes, "total"))));
+}
+
+/// N49 drops the port's `owise` `\bottom` equation of `#lambdaF__` and keeps the lambda's own
+/// equation, a match predicate's `owise` `false` equation and an `owise` `\bottom` equation of a
+/// written function.
+#[test]
+fn lambda_refutation_normalizer_drops_only_the_owise_bottom_equation_of_a_lambda() {
+    let owise_equation = |head: &str, result: &str, sort: &str, id: &str| {
+        format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \and{{R}}(
+                    \not{{R}}(\or{{R}}(\exists{{R}}(VarB:SortInt{{}}, \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortExp{{}}, R}}(X0:SortExp{{}}, inj{{SortInt{{}}, SortExp{{}}}}(VarB:SortInt{{}})), \top{{R}}()))), \bottom{{R}}())),
+                    \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortExp{{}}, R}}(X0:SortExp{{}}, Var'Hash'Owise:SortExp{{}}), \top{{R}}()))),
+                \equals{{{sort}, R}}({head}{{}}(X0:SortExp{{}}), \and{{{sort}}}({result}, \top{{{sort}}}())))
+                [UNIQUE'Unds'ID{{}}("{id}"), owise{{}}()]"#
+        )
+    };
+    let definition = |refutation: bool| {
+        parse_definition(&format!(
+            r#"[] module TEST
+            sort SortInt{{}} []
+            sort SortExp{{}} []
+            sort SortBool{{}} []
+            symbol inj{{From, To}}(From) : To [sortInjection{{}}()]
+            symbol Lbl'Hash'lambdaF'UndsUnds'{{}}(SortExp{{}}) : SortExp{{}} [function{{}}()]
+            symbol Lbl'Hash'lambdaP'UndsUnds'{{}}(SortExp{{}}) : SortBool{{}} [function{{}}()]
+            symbol Lblf{{}}(SortExp{{}}) : SortExp{{}} [function{{}}()]
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortExp{{}}, R}}(X0:SortExp{{}}, inj{{SortInt{{}}, SortExp{{}}}}(VarB:SortInt{{}})), \top{{R}}())),
+                \equals{{SortExp{{}}, R}}(Lbl'Hash'lambdaF'UndsUnds'{{}}(X0:SortExp{{}}), \and{{SortExp{{}}}}(inj{{SortInt{{}}, SortExp{{}}}}(VarB:SortInt{{}}), \top{{SortExp{{}}}}())))
+                [UNIQUE'Unds'ID{{}}("f")]
+            {refutation}
+            {predicate}
+            {written}
+            endmodule []"#,
+            refutation = if refutation {
+                owise_equation(
+                    "Lbl'Hash'lambdaF'UndsUnds'",
+                    r"\bottom{SortExp{}}()",
+                    "SortExp{}",
+                    "f-owise",
+                )
+            } else {
+                String::new()
+            },
+            predicate = owise_equation(
+                "Lbl'Hash'lambdaP'UndsUnds'",
+                r#"\dv{SortBool{}}("false")"#,
+                "SortBool{}",
+                "p-owise",
+            ),
+            written = owise_equation("Lblf", r"\bottom{SortExp{}}()", "SortExp{}", "w-owise"),
+        ))
+        .unwrap()
+    };
+    let mut actual = definition(true);
+    assert_eq!(normalize_lambda_refutations(&mut actual), 1);
+    assert_eq!(actual, definition(false));
+    let mut unchanged = definition(false);
+    assert_eq!(normalize_lambda_refutations(&mut unchanged), 0);
+    assert_eq!(unchanged, definition(false));
 }
 
 /// N45 fixtures: the configuration `<generatedTop> <k/> <frame/> <stack/> </generatedTop>` and
