@@ -2632,9 +2632,13 @@ impl BackendDefinition {
         match pattern {
             kore::Pattern::String(value) => {
                 // A string pattern is a value of `SortString`, of the kind the definition gives
-                // that sort; where the definition gives it none, the code points of a string.
+                // that sort and validated for it, as a `\dv` is; where the definition gives it
+                // none, the code points of a string.
                 let sort = Sort::builtin(BuiltinSort::String);
-                let kind = self.domain_kind(&sort).unwrap_or(DomainKind::String);
+                let kind = match self.domain_kind(&sort) {
+                    Some(_) => self.validate_domain_value(&sort, value)?,
+                    None => DomainKind::String,
+                };
                 Ok(Term::domain_value_of(kind, sort, value.clone()))
             }
             kore::Pattern::Variable(variable) => {

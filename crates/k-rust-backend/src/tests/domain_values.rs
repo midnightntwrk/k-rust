@@ -327,3 +327,100 @@ fn a_renamed_kvar_token_is_a_token_of_its_own_sort() {
         BuiltinResult::Value(term(&definition, &expected))
     );
 }
+
+/// At a sort named `SortBytes` whose payload is one byte per code point, a code point above
+/// U+00FF names no byte of the `Bytes` kind, so a partial `String2Token` there is undefined; at
+/// such a sort declared without the hook, a token sort, the text names a token that the payload
+/// encoding cannot hold, and the application is not decided, never undefined.
+#[test]
+fn a_code_point_beyond_a_byte_at_sort_bytes_is_undefined_only_for_the_bytes_kind() {
+    let source = |declaration: &str| {
+        format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                {declaration}
+                hooked-symbol LblString2Bytes{{}}(SortString{{}}) : SortBytes{{}}
+                    [function{{}}(), hook{{}}("STRING.string2token")]
+            endmodule []"#
+        )
+    };
+    let application = string_to("LblString2Bytes", "\\u0101");
+    assert_eq!(
+        evaluated(
+            &load(&source(
+                r#"hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]"#
+            )),
+            &application
+        ),
+        BuiltinResult::Bottom
+    );
+    assert_eq!(
+        evaluated(
+            &load(&source("sort SortBytes{} [hasDomainValues{}()]")),
+            &application
+        ),
+        BuiltinResult::NotApplicable
+    );
+}
+
+/// A machine-integer result sort whose width argument is a sort variable has a width that is
+/// not known yet, so `String2Token` there is not decided; a closed sort hooked `MINT.MInt` that
+/// names no width has no literal, so a partial declaration there is undefined.
+#[test]
+fn string_to_token_at_a_machine_integer_sort_of_unknown_width_is_not_decided() {
+    let definition = load(indoc! {r#"
+        []
+        module MAIN
+            hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
+            sort SortFoo{} []
+            hooked-symbol LblString2W{S}(SortString{}) : SortMInt{S}
+                [function{}(), hook{}("STRING.string2token")]
+        endmodule []
+    "#});
+    let application = |width: Sort| {
+        Term::application(
+            definition.symbols()["LblString2W"].clone(),
+            vec![width],
+            vec![Term::string("1p8")],
+        )
+    };
+    let outcome = |term: &Term| {
+        evaluate_in_definition(term, &definition)
+            .expect("evaluation should not stop")
+            .expect("evaluation should not fail")
+    };
+    assert_eq!(
+        outcome(&application(Sort::Variable("S".into()))),
+        BuiltinResult::NotApplicable
+    );
+    assert_eq!(
+        outcome(&application(Sort::simple("SortFoo"))),
+        BuiltinResult::Bottom
+    );
+}
+
+/// A KORE string pattern is a value of `SortString`, validated for the kind the definition
+/// gives that sort as a `\dv` of it is: at a `SortString` hooked `INT.Int`, `"07"` is `7` and
+/// `"abc"` is refused.
+#[test]
+fn a_string_pattern_is_validated_for_the_kind_of_sort_string() {
+    let definition = load(indoc! {r#"
+        []
+        module MAIN
+            hooked-sort SortString{} [hook{}("INT.Int"), hasDomainValues{}()]
+        endmodule []
+    "#});
+    assert_eq!(
+        value_text(&BuiltinResult::Value(term(&definition, r#""07""#))),
+        "7"
+    );
+    let refused = definition
+        .internalize_term(&parse_pattern(r#""abc""#).unwrap(), &[])
+        .expect_err("abc is no integer");
+    assert!(
+        refused.to_string().starts_with("Invalid domain value"),
+        "{refused}"
+    );
+}

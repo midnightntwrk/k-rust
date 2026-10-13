@@ -425,11 +425,13 @@ fn string_to_token(arguments: &[Term], declaration: Declaration<'_>) -> HookResu
         })
     };
     let Some(kind) = definition.domain_kind(result_sort) else {
-        // Only a sort hooked `MINT.MInt` that names no width has domain values and no kind; no
-        // text is a literal of it.
+        // A closed sort with domain values and no kind is a sort hooked `MINT.MInt` that names no
+        // width, so no text is a literal of it. A sort whose argument is still a sort variable
+        // has a width not yet known, and a sort without domain values has no token: neither is
+        // decided.
         let admits_domain_values = matches!(result_sort, Sort::Application { name, .. }
             if definition.sorts().get(name).is_some_and(|info| info.has_domain_values));
-        return if admits_domain_values {
+        return if admits_domain_values && !result_sort.has_variable() {
             names_no_element()
         } else {
             Ok(BuiltinResult::NotApplicable)
@@ -440,9 +442,15 @@ fn string_to_token(arguments: &[Term], declaration: Declaration<'_>) -> HookResu
     } else {
         LiteralEncoding::Utf8
     };
-    // A code point above U+00FF has no byte of `SortBytes`'s payload, as in a literal.
+    // A code point above U+00FF has no byte of `SortBytes`'s payload. For the `Bytes` kind it
+    // names no byte, as in a literal; for any other kind the text names an element that this
+    // payload encoding cannot hold, so the application is not decided.
     let Some(value) = encoding.store(text) else {
-        return names_no_element();
+        return if kind == DomainKind::Bytes {
+            names_no_element()
+        } else {
+            Ok(BuiltinResult::NotApplicable)
+        };
     };
     match validate_text(kind, result_sort, &value) {
         Ok(()) => Ok(BuiltinResult::Value(Term::domain_value_of(

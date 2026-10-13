@@ -1215,7 +1215,7 @@ impl Term {
         value: impl Into<KoreString>,
     ) -> Self {
         let value = canonical_text(kind, &sort, value.into());
-        let term = Self::new(TermKind::DomainValue { sort, value });
+        let term = Self::new_domain_value(sort, value);
         domain::note_construction(&term, kind);
         term
     }
@@ -1271,18 +1271,12 @@ impl Term {
     /// ([`Term::int`], [`Term::bool`], [`Term::string`], [`Term::bytes`]).
     #[cfg(any(test, feature = "raw-domain-values"))]
     pub fn raw_domain_value(sort: Sort, value: impl Into<KoreString>) -> Self {
-        Self::new(TermKind::DomainValue {
-            sort,
-            value: value.into(),
-        })
+        Self::new_domain_value(sort, value.into())
     }
 
     /// The leaf a dropped handle is left on ([`DETACHED`]): no value of any sort.
     fn sentinel() -> Self {
-        Self::new(TermKind::DomainValue {
-            sort: Sort::Variable(Name::from("")),
-            value: KoreString::from(""),
-        })
+        Self::new_domain_value(Sort::Variable(Name::from("")), KoreString::from(""))
     }
 
     pub fn variable(variable: Variable) -> Self {
@@ -1938,8 +1932,23 @@ impl Term {
         }
     }
 
+    /// A node of any kind but a domain value, which only [`Self::new_domain_value`] builds.
     fn new(kind: TermKind) -> Self {
+        debug_assert!(
+            !matches!(kind, TermKind::DomainValue { .. }),
+            "a domain value is built only by Term::new_domain_value (term::domain)"
+        );
         Self::allocate(TermAllocation::Structural(kind))
+    }
+
+    /// The node of a domain value, for its three builders only: [`Self::domain_value_of`] (every
+    /// value, with its kind), `raw_domain_value` (test builds) and the drop sentinel. The source
+    /// scan of `term::domain` counts its callers.
+    fn new_domain_value(sort: Sort, value: KoreString) -> Self {
+        Self::allocate(TermAllocation::Structural(TermKind::DomainValue {
+            sort,
+            value,
+        }))
     }
 
     #[deny(clippy::wildcard_enum_match_arm)]
@@ -4066,6 +4075,9 @@ impl Term {
     #[cfg(test)]
     pub(crate) fn unshared_copy(&self) -> Self {
         let copy = |term: &Self| term.unshared_copy();
+        if let TermKind::DomainValue { sort, value } = self.kind() {
+            return Self::new_domain_value(sort.clone(), value.clone());
+        }
         Self::new(match self.kind() {
             TermKind::And(left, right) => TermKind::And(copy(left), copy(right)),
             TermKind::Application {
@@ -4077,7 +4089,8 @@ impl Term {
                 sort_arguments: sort_arguments.clone(),
                 arguments: arguments.iter().map(copy).collect(),
             },
-            TermKind::DomainValue { .. } | TermKind::Variable(_) => self.kind().clone(),
+            TermKind::Variable(_) => self.kind().clone(),
+            TermKind::DomainValue { .. } => unreachable!("copied above"),
             TermKind::Injection {
                 source,
                 target,

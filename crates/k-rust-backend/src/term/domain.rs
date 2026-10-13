@@ -223,15 +223,16 @@ mod tests {
     use super::*;
 
     /// Every construction route of a domain value, as `(file, calls of domain_value_of(,
-    /// value uses of TermKind::DomainValue {)` outside test code, with the source of each
-    /// route's kind. A new route fails `every_domain_value_is_built_by_a_listed_route` until it
-    /// is listed here with its kind source.
+    /// calls of new_domain_value()` outside inline test modules, with the source of each route's
+    /// kind. A new route fails `every_domain_value_is_built_by_a_listed_route` until it is listed
+    /// here with its kind source.
     const ROUTES: &[(&str, usize, usize)] = &[
         // `Term::int`, `Term::bool`, `Term::string`, `Term::bytes`: the constant kind of their
         // builtin-named sort (`SortInt` and `SortBool` by name, `SortString` and `SortBytes` the
-        // builtin hook's own sort). `domain_value_of` itself builds the node; the raw test
-        // constructor and the drop sentinel (no value of any sort) build one without a kind.
-        ("term.rs", 4, 3),
+        // builtin hook's own sort). `domain_value_of` itself allocates the node; the raw test
+        // constructor, the test-only `unshared_copy` (a copy of a node already built) and the
+        // drop sentinel (no value of any sort) allocate one without a kind.
+        ("term.rs", 4, 4),
         // Internalization of `\dv` and of a KORE string literal, and
         // `BackendDefinition::domain_value`: `domain_kind` of the sort.
         ("definition.rs", 3, 0),
@@ -251,10 +252,69 @@ mod tests {
         ("smt/z3.rs", 2, 0),
     ];
 
-    /// The non-test source of `text`: everything before its test module.
+    /// The non-test source of `text`: everything before its inline test module (a line
+    /// `mod tests {`). An out-of-line declaration `mod tests;` is no test code of this file, so
+    /// the code after it is scanned.
     fn non_test_source(text: &str) -> &str {
-        text.find("#[cfg(test)]\nmod tests")
-            .map_or(text, |end| &text[..end])
+        let mut start = 0;
+        for line in text.split_inclusive('\n') {
+            if line.trim_end() == "mod tests {" {
+                return &text[..start];
+            }
+            start += line.len();
+        }
+        text
+    }
+
+    /// The routes of the non-test source of `text`, outside comment lines: the calls of
+    /// `domain_value_of(` and of `new_domain_value(`, the one function that allocates a
+    /// domain-value node (`Term::new` refuses one in debug builds).
+    fn route_counts(text: &str) -> (usize, usize) {
+        let code = non_test_source(text)
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let calls = |name: &str| {
+            code.matches(&format!("{name}(")).count() - code.matches(&format!("fn {name}(")).count()
+        };
+        (calls("domain_value_of"), calls("new_domain_value"))
+    }
+
+    /// The scan reads past an out-of-line test module declaration and stops at an inline test
+    /// module: a construction planted after `mod tests;` is found, one inside `mod tests {` is
+    /// not; and the files that declare their tests out of line are scanned in full.
+    #[test]
+    fn the_scan_reads_the_code_after_an_out_of_line_test_module() {
+        let planted = "#[cfg(test)]\nmod tests;\n\nfn route() {\n    \
+                       let _ = Term::domain_value_of(DomainKind::Token, sort, text);\n    \
+                       // Term::domain_value_of(DomainKind::Token, sort, text);\n}\n\n\
+                       #[cfg(test)]\nmod tests {\n    fn test() { Term::domain_value_of(kind, \
+                       sort, text); }\n}\n";
+        assert_eq!(route_counts(planted), (1, 0));
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        for (file, item) in [
+            ("confluence.rs", "fn check_detached("),
+            ("confluence/conditions.rs", "mod tests;"),
+            ("term/chunked.rs", "mod tests;"),
+            ("lib.rs", "pub mod unification;"),
+            ("term.rs", "fn new_domain_value("),
+        ] {
+            let text = fs::read_to_string(source.join(file)).unwrap();
+            let scanned = non_test_source(&text);
+            assert!(
+                scanned.contains(item),
+                "{file}: the scan stops before {item}"
+            );
+            if file != "term.rs" && file != "lib.rs" {
+                assert!(
+                    scanned.len() > text.len() / 2,
+                    "{file}: the scan reads {} of {} bytes",
+                    scanned.len(),
+                    text.len()
+                );
+            }
+        }
     }
 
     fn rust_files(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
@@ -289,15 +349,7 @@ mod tests {
             if relative.starts_with("builtin/hook_models") || relative == "term/domain.rs" {
                 continue;
             }
-            let text = fs::read_to_string(&path).unwrap();
-            let code = non_test_source(&text)
-                .lines()
-                .filter(|line| !line.trim_start().starts_with("//"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            let calls = code.matches("domain_value_of(").count()
-                - code.matches("fn domain_value_of(").count();
-            let values = code.matches("new(TermKind::DomainValue {").count();
+            let (calls, values) = route_counts(&fs::read_to_string(&path).unwrap());
             if calls + values > 0 {
                 found.insert(relative, (calls, values));
             }
