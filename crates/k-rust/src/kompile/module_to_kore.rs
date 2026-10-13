@@ -859,6 +859,15 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
             .then_some(ReachabilityMode::AllPath));
     let mut module_rules = Vec::with_capacity(rules.rules().len());
     for (_, rule) in rules.rules() {
+        // A generated lambda is `\bottom` off its pattern; the Rust target states it with an
+        // `owise` `\bottom` equation. The LLVM target leaves that equation out: its interpreter
+        // already ends a run at an application no equation matches, which realises the same
+        // `\bottom`, and the pinned `llvm-kompile` does not accept an `owise` `\bottom` equation.
+        if options.backend == CompilationBackend::Llvm
+            && rule.attributes().has(AttributeKey::LambdaRefutation)
+        {
+            continue;
+        }
         let owner = sentence_owner(definition, rule).unwrap_or(module_id);
         let propagated = propagate_macro_attribute(rule, &productions);
         if owner == module_id {

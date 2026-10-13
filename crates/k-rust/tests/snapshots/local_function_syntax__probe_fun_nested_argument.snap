@@ -64,6 +64,38 @@ expression: "rule op(A) => val(#fun(X => X)(#fun(Z => Z)(A)))"
     [UNIQUE'Unds'ID{}("81c683c11b43969b6b95b63fcdb4bff7bc3a1bceddafe12d8bd4fbcc5861aa37")]
   axiom{R}
     \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen0:SortInt{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortK{}, R}(
+                    X0:SortK{},
+                    kseq{}(inj{SortInt{}, SortKItem{}}(Var'Unds'Gen0:SortInt{}), dotk{}())
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, Var'Hash'Owise:SortK{}), \top{R}()))
+      ),
+      \equals{SortInt{}, R}(
+        Lbl'Hash'lambda'UndsUnds'{}(X0:SortK{}),
+        \and{SortInt{}}(\bottom{SortInt{}}(), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("97a086adb26857fe01685ec695449c91c0d8d7ebe0742320a06880f63bf0f5aa"),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarZ:SortK{}), \top{R}())),
       \equals{SortK{}, R}(
         Lbl'Hash'lambdaA'UndsUnds'{}(X0:SortK{}),

@@ -1430,9 +1430,11 @@ fn matching_patterns_bind_their_anonymous_variables_instead_of_closing_over_them
             rhs.difference(&lhs).collect::<Vec<_>>()
         );
     }
+    // The outer pattern `baz(B)` does not cover its `KItem` parameter, so its lambda also has
+    // the `owise` equation that makes it `\bottom` on every other argument.
     assert_eq!(
-        generated_rules, 3,
-        "outer lambda rule, matching rule, owise rule"
+        generated_rules, 4,
+        "outer lambda rule, its refutation, matching rule, owise rule"
     );
 }
 
@@ -1573,6 +1575,181 @@ fn local_function_singleton_user_list_arguments_keep_the_k_parameter_sort() {
     assert!(
         lambda_attributes.get("total").is_none(),
         "the X:Item pattern leaves the K parameter's non-Item arguments without a value"
+    );
+}
+
+/// `#let X:Item = items #in X` binds only an `Item`, so the generated lambda over its `K`
+/// parameter has no value on any other argument: lowering gives it an `owise` equation whose
+/// right-hand side is `#Bottom` labelled with the lambda's result sort, which sort injection
+/// places beside the `#Bottom` production every module that can write a `#let` sees.
+#[test]
+fn a_non_covering_local_function_is_bottom_off_its_pattern() {
+    let item = Sort::new("Item");
+    let items = Sort::new("Items");
+    let local_function = application(
+        "#let",
+        vec![
+            Term::Variable {
+                name: "X".into(),
+                sort: Some(item),
+            },
+            Term::Token {
+                token: "items".into(),
+                sort: items.clone(),
+            },
+            Term::variable("X"),
+        ],
+    );
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: items.clone(),
+                    attributes: Attributes::default(),
+                },
+                production(".Items", "Items", attributes(&[("userList", json!(""))])),
+                // `ML-SYNTAX`'s `syntax {Sort} Sort ::= "#Bottom"`, imported by `K`, which
+                // declares `#let`.
+                Sentence::Production {
+                    label: Some(Label::with_parameters("#Bottom", vec![Sort::new("S")])),
+                    parameters: vec![Sort::new("S")],
+                    sort: Sort::new("S"),
+                    items: vec![ProductionItem::Terminal("#Bottom".into())],
+                    attributes: Attributes::default(),
+                },
+                rule(local_function, Attributes::default()),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let transformed = resolve_fun(&definition).unwrap();
+    let lambda_rules = |definition: &Definition| {
+        definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| {
+                let Sentence::Rule {
+                    body, attributes, ..
+                } = &**sentence
+                else {
+                    return None;
+                };
+                let Term::Rewrite { left, right } = body.unannotated() else {
+                    return None;
+                };
+                match left.unannotated() {
+                    Term::Apply { label, arguments } if label.name.starts_with("#lambda") => {
+                        Some((arguments.clone(), (**right).clone(), attributes.clone()))
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+    let rules = lambda_rules(&transformed);
+    assert_eq!(rules.len(), 2, "{rules:#?}");
+    let (pattern, right, refutation) = &rules[1];
+    assert!(refutation.get("owise").is_some(), "{refutation:?}");
+    assert!(
+        matches!(pattern.as_slice(), [cast] if matches!(cast.unannotated(),
+            Term::Apply { label, arguments } if label.name == "#SemanticCastToK"
+                && matches!(arguments.as_slice(), [owise]
+                    if matches!(owise.unannotated(), Term::Variable { name, .. } if name == "#Owise")))),
+        "{pattern:?}"
+    );
+    assert!(
+        matches!(right.unannotated(), Term::Apply { label, arguments }
+            if label.name == "#Bottom" && label.parameters.len() == 1 && arguments.is_empty()),
+        "{right:?}"
+    );
+    assert!(rules[0].2.get("owise").is_none());
+
+    let injected = add_sort_injections_to_definition(&transformed).unwrap();
+    assert_eq!(lambda_rules(&injected).len(), 2);
+}
+
+/// The definition of `swap` through a constructor-pattern `#let`, compiled for `backend`.
+fn refuted_let_kore(backend: CompilationBackend) -> String {
+    let source = indoc! {r#"
+        module MAIN
+          imports INT
+          syntax Exp ::= Int
+                       | pair(Exp, Exp) [symbol(pair)]
+                       | swap(Exp)      [symbol(swap)]
+          configuration <k> $PGM:Exp </k>
+          rule swap(E) => #let pair(X, Y) = E #in pair(Y, X)
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("refuted-let.k", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            excluded_module_attributes: vec![backend.excluded_module_attribute().into()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend,
+            ..CompileOptions::default()
+        },
+    )
+    .unwrap()
+    .definition_kore
+}
+
+/// The sentences of `kore` (indented two spaces) that state an equation of a generated lambda,
+/// split into those with the right-hand side `\bottom` and the others.
+fn lambda_equations(kore: &str) -> (Vec<String>, Vec<String>) {
+    let mut sentences = Vec::new();
+    let mut current = String::new();
+    for line in kore.lines() {
+        if (line.starts_with("  ") && !line.starts_with("   ")) || line == "endmodule" {
+            sentences.push(std::mem::take(&mut current));
+        }
+        current.push_str(line);
+        current.push('\n');
+    }
+    sentences.push(current);
+    sentences
+        .into_iter()
+        .filter(|sentence| {
+            sentence.starts_with("  axiom")
+                && sentence.contains("\\equals{")
+                && sentence.contains("Lbl'Hash'lambda")
+        })
+        .partition(|sentence| sentence.contains("\\bottom{SortExp{}}()"))
+}
+
+/// The Rust target states that the lambda of a refutable `#let` is `\bottom` off its pattern as
+/// an `owise` equation; the LLVM target leaves that equation out and keeps the lambda's own.
+#[test]
+fn only_the_rust_target_states_the_refutation_equation_of_a_local_function() {
+    let (refutations, equations) = lambda_equations(&refuted_let_kore(CompilationBackend::Rust));
+    assert_eq!(refutations.len(), 1, "{refutations:#?}");
+    assert!(refutations[0].contains("owise{}()"), "{}", refutations[0]);
+    assert_eq!(equations.len(), 1, "{equations:#?}");
+
+    let (refutations, llvm_equations) =
+        lambda_equations(&refuted_let_kore(CompilationBackend::Llvm));
+    assert!(refutations.is_empty(), "{refutations:#?}");
+    assert_eq!(llvm_equations.len(), 1, "{llvm_equations:#?}");
+    assert!(
+        llvm_equations[0].contains("Lblpair{}(") && !llvm_equations[0].contains("owise{}()"),
+        "{}",
+        llvm_equations[0]
     );
 }
 

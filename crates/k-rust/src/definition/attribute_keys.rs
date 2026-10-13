@@ -278,6 +278,9 @@ attribute_keys! {
     InputAddresses = "org.krust.provenance.InputAddresses" (Krust, false),
     GeneratedRuleSyntax = "generatedRuleSyntax" (Krust, false),
     BisonParsingOnlySubsort = "#bisonParsingOnlySubsort" (Krust, false),
+    // The `owise` equation local-function lowering adds to make a lambda `\bottom` off its
+    // pattern; the LLVM target leaves it out.
+    LambdaRefutation = "org.krust.LambdaRefutation" (Krust, false),
 }
 
 impl AttributeKey {

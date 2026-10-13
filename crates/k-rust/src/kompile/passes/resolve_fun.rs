@@ -430,7 +430,7 @@ impl Resolver<'_, '_, '_> {
             &lambda,
             &closure,
             parameter_sort.clone(),
-            result_sort,
+            result_sort.clone(),
         ));
 
         if predicate {
@@ -461,7 +461,7 @@ impl Resolver<'_, '_, '_> {
                 &lambda,
                 &body,
                 &body,
-                attributes,
+                attributes.clone(),
                 LambdaResult::PatternRight,
             );
             if covering {
@@ -476,6 +476,44 @@ impl Resolver<'_, '_, '_> {
                 self.total_lambdas.insert(lambda.name.clone());
             }
             self.rules.push(rule);
+            if !covering {
+                // `#let P = E #in B` and `#fun(P => B)(E)` denote `\exists vars(P). (E = P) /\ B`:
+                // B under the match of E against P, and nothing when E is no instance of P. The
+                // equation above gives the value on P's instances; without an axiom for the
+                // other arguments of the parameter sort the definition would leave the lambda's
+                // value there unconstrained, an unknown that rewriting can narrow, rather than
+                // undefined. This `owise` equation states that it is `\bottom` there. As an
+                // `owise` axiom it holds only where the equation above does not apply, so a
+                // symbolic or unevaluated argument keeps the application; a covering pattern
+                // leaves no such argument. (A known backend defect, ticket
+                // owise-after-skipped-equation, lets an `owise` equation fire after a matching
+                // equation whose right side is `\top` or an ML predicate was skipped, so a
+                // lambda whose body is such a predicate can be refuted on a matching argument.)
+                let owise_pattern = Term::Apply {
+                    label: Label::semantic_cast(&parameter_sort),
+                    arguments: vec![Term::variable("#Owise")],
+                };
+                let mut refutation = attributes;
+                refutation.mark(AttributeKey::Owise);
+                refutation.mark(AttributeKey::LambdaRefutation);
+                // `#Bottom` is parametric in its sort: the label states the instance, so sort
+                // injection places it without a visible `#Bottom` production.
+                let bottom = Term::Apply {
+                    label: Label::with_parameters(
+                        InternalLabel::Bottom.as_str(),
+                        vec![result_sort],
+                    ),
+                    arguments: Vec::new(),
+                };
+                let refuted = self.lambda_rule(
+                    &lambda,
+                    &owise_pattern,
+                    &body,
+                    refutation,
+                    LambdaResult::Constant(bottom),
+                );
+                self.rules.push(refuted);
+            }
         }
 
         let mut call_arguments = vec![self.transform(argument)];

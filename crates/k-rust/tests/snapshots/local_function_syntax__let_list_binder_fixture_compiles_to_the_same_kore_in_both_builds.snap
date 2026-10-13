@@ -230,6 +230,59 @@ expression: "lambda_kore(&load(\"LET-LIST-BINDER\", source))"
   axiom{R}
     \implies{R}(
       \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen0:SortChunk{},
+              \exists{R}(
+                Var'Unds'Gen1:SortChunks{},
+                \exists{R}(
+                  Var'Unds'Gen2:SortInt{},
+                  \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                      \in{SortChunks{}, R}(
+                        X0:SortChunks{},
+                        Lbl'UndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks{}(
+                          Var'Unds'Gen0:SortChunk{},
+                          Lbl'Stop'List'LBraQuotUndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks'QuotRBraUnds'Chunks{}()
+                        )
+                      ),
+                      \and{R}(
+                        \in{SortChunks{}, R}(X1:SortChunks{}, Var'Unds'Gen1:SortChunks{}),
+                        \and{R}(\in{SortInt{}, R}(X2:SortInt{}, Var'Unds'Gen2:SortInt{}), \top{R}())
+                      )
+                    )
+                  )
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(
+            \in{SortChunks{}, R}(X0:SortChunks{}, Var'Hash'Owise:SortChunks{}),
+            \and{R}(
+              \in{SortChunks{}, R}(X1:SortChunks{}, VarREST:SortChunks{}),
+              \and{R}(\in{SortInt{}, R}(X2:SortInt{}, VarN:SortInt{}), \top{R}())
+            )
+          )
+        )
+      ),
+      \equals{SortChunks{}, R}(
+        Lbl'Hash'lambda'UndsUnds'{}(X0:SortChunks{}, X1:SortChunks{}, X2:SortInt{}),
+        \and{SortChunks{}}(\bottom{SortChunks{}}(), \top{SortChunks{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("2b3e7a5e5b2abf3234cfffc02162f9fcd18eca98aeebe27fe3cecd4306620928"),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
         \top{R}(),
         \and{R}(
           \in{SortChunks{}, R}(X0:SortChunks{}, VarSUB:SortChunks{}),

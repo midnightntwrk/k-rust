@@ -3629,7 +3629,7 @@ endmodule
         );
         assert!(
             String::from_utf8_lossy(&output.stderr).contains(
-                "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
+                "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables and the functions it applies"
             ),
             "{mode:?}: {}",
             String::from_utf8_lossy(&output.stderr)
@@ -4010,6 +4010,343 @@ endmodule
         String::from_utf8_lossy(&output.stdout).contains("Lbldone{}()"),
         "{output:?}"
     );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `#let P = E #in B` denotes B under the match of E against P, and nothing when E is no
+/// instance of P. `swap` and `shift` bind a constructor pattern (`shift`'s body also reads the
+/// enclosing rule's `N`), `scale` and `dup` a variable narrower than the bound expression's sort.
+const REFUTED_LETS: &str = r#"
+module LET
+  imports INT
+  syntax Exp ::= Int
+               | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+               | "swap" "(" Exp ")"         [symbol(swap)]
+               | "dup" "(" Exp ")"          [symbol(dup)]
+               | "shift" "(" Exp "," Int ")" [symbol(shift)]
+  syntax Int ::= "scale" "(" Exp ")" [symbol(scale), function]
+  configuration <k> $PGM:Exp </k>
+  rule scale(E) => ( #let M:Int = E #in M *Int 2 )
+  rule swap(E)  => ( #let pair(X, Y) = E #in pair(Y, X) )
+  rule dup(E)   => ( #let M:Int = E #in pair(M, M) )
+  rule shift(E, N) => ( #let pair(X, _) = E #in pair(X, N) )
+endmodule
+"#;
+
+/// The `<k>` cell holding exactly `item` (KORE of a `KItem`), as `krun` prints it.
+fn k_cell_output(item: &str) -> String {
+    format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(\n  Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({item}, dotk{{}}())),\n  \
+         Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\"))\n)\n"
+    )
+}
+
+/// Assert that `output` is a run that ended at `\bottom` because a rewrite step at `depth`
+/// produced an undefined result.
+fn assert_undefined_step(output: &Output, depth: u64) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "\\bottom{SortGeneratedTopCell{}}()\n",
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(&format!(
+            "warning: execution ended with no successor at depth {depth}: rule "
+        )) && stderr.contains(" applied with an undefined result"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn krun_a_refuted_constructor_let_ends_undefined() {
+    // `3` is no instance of `pair(X, Y)`, so `#let pair(X, Y) = 3 #in pair(Y, X)` denotes
+    // nothing and the step that produces it has no successor; it is not an unknown value that
+    // could still equal `swap(V)` for some `V` and be rewritten again.
+    let (root, _) = fixture();
+    let lets = compiled_for_execution(&root, "lets", REFUTED_LETS, "LET", "LET");
+    let output = bounded_krun(&lets, "Exp", "swap(3)", &[]);
+    assert_undefined_step(&output, 1);
+    // Within two steps the refutation is decided, not narrowed or halted.
+    let output = bounded_krun(&lets, "Exp", "swap(3)", &["--depth", "2"]);
+    assert_undefined_step(&output, 1);
+    // A body that reads the enclosing rule's variable is refuted the same way.
+    let output = bounded_krun(&lets, "Exp", "shift(3, 5)", &[]);
+    assert_undefined_step(&output, 1);
+
+    // An instance of the pattern is unchanged.
+    let output = bounded_krun(&lets, "Exp", "swap(pair(1, 2))", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        r#"Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(
+    kseq{}(
+      inj{SortExp{}, SortKItem{}}(
+        Lblpair{}(
+          inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("2")),
+          inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
+        )
+      ),
+      dotk{}()
+    )
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)
+"#
+    );
+    let output = bounded_krun(&lets, "Exp", "shift(pair(1, 2), 5)", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        r#"Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(
+    kseq{}(
+      inj{SortExp{}, SortKItem{}}(
+        Lblpair{}(
+          inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1")),
+          inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("5"))
+        )
+      ),
+      dotk{}()
+    )
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)
+"#
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_a_refuted_variable_let_ends_undefined() {
+    // `M:Int` matches only an `Int`, so binding it to `pair(1, 2)` denotes nothing, whether a
+    // rewrite step (`dup`) or a function in the initial configuration (`scale`) applies it.
+    let (root, _) = fixture();
+    let lets = compiled_for_execution(&root, "lets", REFUTED_LETS, "LET", "LET");
+    let output = bounded_krun(&lets, "Exp", "dup(pair(1, 2))", &[]);
+    assert_undefined_step(&output, 1);
+
+    let output = bounded_krun(&lets, "Exp", "scale(pair(1, 2))", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "\\bottom{SortGeneratedTopCell{}}()\n"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(
+            "warning: the initial configuration simplified to \\bottom before any rewrite step; \
+             check the configuration variables and the functions it applies"
+        ),
+        "{output:?}"
+    );
+
+    let output = bounded_krun(&lets, "Exp", "dup(3)", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        r#"Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(
+    kseq{}(
+      inj{SortExp{}, SortKItem{}}(
+        Lblpair{}(
+          inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("3")),
+          inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("3"))
+        )
+      ),
+      dotk{}()
+    )
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)
+"#
+    );
+    let output = bounded_krun(&lets, "Exp", "scale(3)", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        k_cell_output(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("6"))"#)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_a_refuted_let_in_an_untaken_if_operand_is_undefined() {
+    // `#if` is a function of all three operands, so an undefined operand makes the conditional
+    // undefined whichever branch the condition selects: `fst(3)` is undefined, although the
+    // condition selects `0`. A `requires` guard (`fstR`) does not apply the refuted equation.
+    let (root, _) = fixture();
+    let guard = compiled_for_execution(
+        &root,
+        "guard",
+        r#"
+module GUARD
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int
+               | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+               | "fst" "(" Exp ")"          [symbol(fst)]
+               | "fstR" "(" Exp ")"         [symbol(fstR)]
+  syntax Bool ::= isPair(Exp) [function, total, symbol(isPair)]
+  rule isPair(pair(_, _)) => true
+  rule isPair(_) => false [owise]
+  syntax Exp ::= g(Exp) [function, symbol(g)]
+  rule g(E) => #let pair(X, _) = E #in X requires isPair(E)
+  rule g(_) => 0 [owise]
+  configuration <k> $PGM:Exp </k>
+  rule fst(E) => #if isPair(E) #then (#let pair(X, _) = E #in X) #else 0 #fi
+  rule fstR(E) => g(E)
+endmodule
+"#,
+        "GUARD",
+        "GUARD",
+    );
+    let output = bounded_krun(&guard, "Exp", "fst(3)", &[]);
+    assert_undefined_step(&output, 1);
+    let output = bounded_krun(&guard, "Exp", "fst(pair(1, 2))", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        k_cell_output(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#)
+    );
+    let output = bounded_krun(&guard, "Exp", "fstR(3)", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        k_cell_output(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))"#)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_a_refuted_let_in_requires_is_not_satisfied() {
+    // A `requires` clause holds only where it is defined and true; a refuted `#let` in it is
+    // undefined, so the rule does not apply: `r(3)` takes no step, and `g(3)` falls to the
+    // `owise` equation.
+    let (root, _) = fixture();
+    let req = compiled_for_execution(
+        &root,
+        "req",
+        r#"
+module REQ
+  imports INT
+  imports BOOL
+  syntax Exp ::= Int
+               | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+               | r(Exp)                     [symbol(r)]
+               | gg(Exp)                    [symbol(gg)]
+               | done(Int)                  [symbol(done)]
+  syntax Int ::= g(Exp) [function, symbol(g)]
+  configuration <k> $PGM:Exp </k>
+  rule r(E) => done(1) requires #let pair(X:Int, _) = E #in X >Int 0
+  rule g(E) => 1 requires #let pair(X:Int, _) = E #in X >Int 0
+  rule g(_) => 0 [owise]
+  rule gg(E) => done(g(E))
+endmodule
+"#,
+        "REQ",
+        "REQ",
+    );
+    let output = bounded_krun(&req, "Exp", "r(3)", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        r#"Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'k'-GT-'{}(
+    kseq{}(
+      inj{SortExp{}, SortKItem{}}(Lblr{}(inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("3")))),
+      dotk{}()
+    )
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)
+"#
+    );
+    let done = |value: &str| {
+        k_cell_output(&format!(
+            r#"inj{{SortExp{{}}, SortKItem{{}}}}(Lbldone{{}}(\dv{{SortInt{{}}}}("{value}")))"#
+        ))
+    };
+    for (program, value) in [
+        ("gg(3)", "0"),
+        ("r(pair(1, 2))", "1"),
+        ("gg(pair(1, 2))", "1"),
+    ] {
+        let output = bounded_krun(&req, "Exp", program, &[]);
+        assert!(output.status.success(), "{program}: {output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            done(value),
+            "{program}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The equation that makes a refuted `#let` undefined applies only where its pattern is decided
+/// not to match: a symbolic argument, or an application `h(N)` no equation evaluates, keeps the
+/// lambda application, so the false claims stay unproven (each would be vacuously proven if the
+/// refutation fired there), while the instances of the pattern are proven.
+#[test]
+fn kprove_does_not_refute_a_let_whose_bound_value_is_undecided() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module LETH
+  imports INT
+  syntax Exp ::= Int
+               | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+               | "swap" "(" Exp ")"         [symbol(swap)]
+  syntax Exp ::= h(Int) [symbol(h), function]
+  configuration <k> $PGM:Exp </k>
+  rule h(0) => pair(1, 2)
+  rule swap(E) => ( #let pair(X, Y) = E #in pair(Y, X) )
+endmodule
+
+module LETH-SPEC
+  imports LETH
+  claim [sym-false]: <k> swap(_E:Exp) => 42 </k>
+  claim [h-false]: <k> swap(h(_N:Int)) => 42 </k>
+  claim [h0-true]: <k> swap(h(0)) => pair(2, 1) </k>
+  claim [pair-true]: <k> swap(pair(A:Exp, B:Exp)) => pair(B, A) </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "LETH-SPEC",
+            "--definition-module",
+            "LETH",
+            "--depth",
+            "20",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.status.success(), "{stdout}");
+    let verdict = |claim: &str| {
+        let prefix = format!("claim LETH-SPEC.{claim}: ");
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}"))
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(verdict("sym-false"), "failed", "{stdout}");
+    assert_eq!(verdict("h-false"), "failed", "{stdout}");
+    assert_eq!(verdict("h0-true"), "proven", "{stdout}");
+    assert_eq!(verdict("pair-true"), "proven", "{stdout}");
     fs::remove_dir_all(root).unwrap();
 }
 

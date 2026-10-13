@@ -1150,8 +1150,9 @@ impl Backend {
 }
 
 /// What a run states when every initial state had no instance before any step, so its empty
-/// result is not one the rules produced.
-const INITIAL_BOTTOM_WARNING: &str = "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables";
+/// result is not one the rules produced: the constraints of its variables, or a function it
+/// applies (a refuted `#let` in a function's equation among them), left it no instance.
+const INITIAL_BOTTOM_WARNING: &str = "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables and the functions it applies";
 
 /// Run a program: `krun` and `kore-exec`, search included. The whole run is an execution
 /// (`EvaluationMode::Execution`): the engine's execution or search, and the facade's work on its
