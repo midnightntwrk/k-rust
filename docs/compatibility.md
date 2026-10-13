@@ -810,6 +810,7 @@ A step rewrites an application only when its arguments are normal forms: an equa
 Among the equations offered at the application, the highest priority group with an applicable equation is used (an `owise` equation applies only where no higher one does); an equation applies where its left-hand side matches modulo injection composition, the overload axioms and the collection axioms with some substitution and its `requires` normalizes to `true` under it, and where its `ensures` normalizes to `false` the application is `\bottom`.
 Matching modulo the map and set axioms is not unitary: `pick(K |-> V M)` matches `{1 |-> b, 2 |-> b}` with `K = 1` and with `K = 2`, and any matching may be taken, so the one equation applied under two matchings is a pair of steps from one term like two equations are.
 A hooked symbol is evaluated by its hook, a declared partial function that no equation rewrites is `\bottom`, and an application of any other symbol that no equation rewrites (an equation head, a symbol declared `total` or `functional`, a partial symbol that is not a declared function) is a normal form.
+`M_NF` is the model in which the backend's value claims below hold, not a reading the backend applies to partial functions: the backend does not decide an application of a declared partial function that no equation rewrites `\bottom`; its definedness stays an open obligation (its `\ceil` is neither discharged nor refuted), and a rewrite rule that meets it applies, narrows or halts as [Concrete rewrite instantiation](#concrete-rewrite-instantiation) states.
 `M_NF` is a model of the definition when evaluation terminates, which every evaluation assumes, and the critical pairs of the executable equations join, which the backend checks.
 
 The backend makes two claims about the applications of an equation head (an `anywhere` production that is not a declared function) and about collections: *free*, every instance is a normal form distinct from every other normal form (an instance-normal token, the simplifier's certificate, and the apartness decisions and rigid-head readings made from them), and *defined*, an irreducible application of a `value-production` head is defined wherever its arguments are, so its `\ceil` is that of its arguments.
@@ -908,7 +909,7 @@ The differential manifest includes anywhere inference fixtures; compiling the re
 An LLVM execution result may still differ because LLVM matches a normalized anywhere symbol syntactically while Kore can match it through a simplified function equality; the corresponding conformance case records that separate limitation.
 
 After equation normalization reaches a fixed point, the backend treats a term as concrete when every application head is either a constructor or an anywhere-attributed production without the `function` attribute.
-This concrete-after-normalization classification is shared by rewrite instantiation, equation matching, overload lowering, and structural predicate simplification.
+This concrete-after-normalization classification is shared by equation matching, overload lowering, structural predicate simplification, and rewrite instantiation; on execution and search routes rewrite instantiation also reads a variable-free configuration as one state ([Concrete rewrite instantiation](#concrete-rewrite-instantiation)).
 The simplifier may cache a closed normalized anywhere or overloaded application as evaluated only after a fresh scan has found every compatible equation inapplicable independently of the current path condition.
 A symbolic application, a scan with an indeterminate equation, or an equation refuted under the current path condition must remain unevaluated.
 An equality from the path condition that can replace any part of a cached term must be applied before the cache can short-circuit simplification.
@@ -980,19 +981,36 @@ K's reference toolchain admits a function application at a map key, a set elemen
 
 ## Concrete rewrite instantiation
 
-When the entire initial term is constructor-like, applying a rewrite rule requires a substitution covering every free variable on its left-hand side.
+A configuration that denotes one state is read as one state: a rewrite step must not invent states for it.
+The backend reads a configuration so on every route when its whole normalized term is concrete (below), and on execution and search routes (`krun`, `kore-exec`, `Backend::execute`, RPC `execute`, search, and the library, napi and wasm entries that reach them) also when its term has no variable.
+On such a configuration, applying a rewrite rule requires a substitution covering every free variable on its left-hand side.
 Unification and `requires` simplification may supply those bindings; an unresolved variable must produce an explicit instantiation failure before applying the right-hand side or `ensures`.
 An impossible match or false `requires` remains non-applicable.
-The reference is `kore/src/Kore/Log/ErrorRewritesInstantiation.hs::checkSubstitutionCoverage`, called after initial-condition filtering in `kore/src/Kore/Rewrite/RewriteStep.hs::finalizeRule`.
-Rust reports this unsupported instantiation as typed indeterminacy, so execution and search retain an incomplete outcome instead of inventing existential successors or treating the rule as non-applicable.
+Rust reports this unsupported instantiation as typed indeterminacy (`IndeterminateReason::Instantiation`, printed `rule … leaves … uninstantiated on a variable-free configuration`, and `Unable to instantiate semantic rule` over RPC), so execution and search retain an incomplete outcome instead of inventing existential successors or treating the rule as non-applicable: `krun` prints no configuration and exits 1, an execution or RPC `execute` reports an indeterminate leaf, and a search reports itself incomplete and keeps the states it reached.
 
-The boundary is concreteness of the whole normalized term.
-This includes Kore constructor-like terms and extends them for the supported anywhere superset, so a variable-free normalized anywhere or overloaded application does not make a ground configuration symbolic.
+A term with no variable denotes at most one element, so wherever a rule applies to it, that element fixes each of the rule's left-hand-side variables.
+The match can still leave one unbound: the configuration may hold an application no equation evaluates (`swap(E) => lam(E)` on `swap(3)`, where `lam`'s only equation reads a pair), or an operation whose `assoc`, `comm` or `unit` axioms the matcher does not apply (`sum(I:Int & B)` on `sum(1 & 2 & 3)`, which parses as `(1 & 2) & 3`).
+An existential minted for that variable adds no successor the configuration does not determine; it restates the undecided part of the configuration as a fresh unknown, and the successor carries it, so the next step meets the same application over a new existential and the run never ends.
+The halt claims nothing: it asserts neither that the rule applies nor that it does not, so no result, final state or verdict is reported that the step did not justify.
+
+The boundary is concreteness of the whole normalized term on every route, and variable-freeness of the term on execution and search routes.
+Concreteness includes Kore constructor-like terms and extends them for the supported anywhere superset, so a variable-free normalized anywhere or overloaded application does not make a ground configuration symbolic.
 Such an application is a constructor value, as [Anywhere rules](#anywhere-rules) explains.
 A variable below such an application keeps the configuration symbolic.
-A ground function-headed term can still narrow, and symbolic configurations retain fresh rule arguments and their existentially quantified complementary conditions.
+A ground function-headed term narrows only in a configuration with variables, and in proofs: a symbolic configuration holding a ground unevaluated application can still narrow without end (bound it with `--depth`), and symbolic configurations retain fresh rule arguments and their existentially quantified complementary conditions.
+Proof routes (`kprove` and the proof library entries) keep the concreteness boundary alone: a claim that writes every cell is a variable-free configuration, and its steps narrow it.
+Variable-freeness is not folded into the concreteness classification, which also licenses structural apartness: `bagCat(1, 2)` and `bagCat(2, 1)` are both variable-free and equal under `comm`.
+A rule whose left-hand side is ground mints nothing and keeps its match as a branch condition (`h(1 & 2) => a` on `h(2 & 1)` gives two conditional branches).
+
+The halt belongs to the step, not to one rule: a rule that would need an existential leaves its priority group undecided, so the halt also discards a sibling successor of the same step, as for a concrete configuration.
+With `go(E) => done(E)` and `go(pair(A, _)) => fst(A)`, `go(lam(3))` under `--strategy all` halts at depth 0 rather than report `done(lam(3))`; the default `--strategy any` takes `done(lam(3))` from the earlier rule.
+The halt applies in every priority group the step reaches, so an `owise` rule after a rule whose `requires` is undecided halts the step too.
+RPC `execute` follows the execution boundary whatever its client uses it for: an RPC-driven prover's variable-free state receives `Unable to instantiate semantic rule`.
+A variable that occurs in a rule but not on its left-hand side, and a right-hand-side `?X` existential, is the rule's own existential and is still minted on every configuration.
+
+This boundary differs from both pinned reference backends: kore-exec 0.1.155 narrows such a configuration (`swap(3)` and `sum(1 & 2 & 3)` do not finish), and the LLVM backend aborts at the first application no equation matches (exit 113).
 Anywhere equation evaluation, overload lowering, and covered function-equality matching remain supported before this boundary is applied.
-The [rewrite coverage fixture](../crates/k-rust-backend/tests/fixtures/rewrite-coverage.kore) and [rewrite tests](../crates/k-rust-backend/tests/backend/rewrite.rs) exercise this boundary, false and binding requirements, equation normalization, and symbolic complements.
+The [rewrite coverage fixture](../crates/k-rust-backend/tests/fixtures/rewrite-coverage.kore) and [rewrite tests](../crates/k-rust-backend/tests/backend/rewrite.rs) exercise this boundary, false and binding requirements, equation normalization, and symbolic complements; `execution_and_search_halt_instead_of_narrowing_a_variable_free_configuration` and `execution_still_narrows_a_configuration_with_variables` there, and the `krun_halts_*` tests in [cli.rs](../crates/k-rust/tests/cli.rs), exercise the variable-free boundary.
 
 ## Trivial rule results
 
