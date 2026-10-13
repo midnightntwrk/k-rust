@@ -61,7 +61,8 @@ pub enum ConfigurationError {
     /// would drop the parameter or attach it to a sentence the caller did not write.
     LabelParameters(Box<ConfigurationLabelParameters>),
     /// A visible `cell` production that is not the one a configuration declaration generates
-    /// for its cell sort, reported at that production.
+    /// for its cell sort, or that writes a declared cell's tags under another sort, reported at
+    /// that production.
     CellProduction(Box<ConfigurationCellProduction>),
 }
 
@@ -105,6 +106,11 @@ pub enum CellProductionReading {
     /// configuration generated for its cell `other` of the same sort (their names differ only in
     /// the case of their first letter): two cells of one sort.
     BesideImportedCell { cell: String, other: String },
+    /// The configuration declares `cell`, of cell sort `cell_sort`, and the production, written
+    /// under another sort, has the cell's tags `<cell>` and `</cell>`: tags are the syntax of a
+    /// cell, so the production is a second syntax of the declared cell, which no rule or
+    /// configuration writing the cell could tell from the cell's own production.
+    TagsOfDeclaredCell { cell: String, cell_sort: Sort },
 }
 
 /// The configuration sentence and the label of a [`ConfigurationError::LabelParameters`].
@@ -159,6 +165,14 @@ impl fmt::Display for ConfigurationError {
                         formatter,
                         "{configuration} declares <{name}>, whose cell sort {} is already the sort of <{other}>, declared here by an imported configuration: a cell sort is the sort of one cell; rename one of the two cells",
                         cell.sort
+                    ),
+                    CellProductionReading::TagsOfDeclaredCell {
+                        cell: name,
+                        cell_sort,
+                    } => write!(
+                        formatter,
+                        "cell production `{}` writes the tags of cell <{name}> under sort {}: {configuration} declares <{name}>, whose tags are the syntax of the one cell production of its cell sort {cell_sort}, `<{name}>`; remove this production",
+                        cell.production, cell.sort
                     ),
                     CellProductionReading::ReadAsTerm => write!(
                         formatter,
@@ -1227,7 +1241,7 @@ impl Generator<'_, '_> {
                             && (reserved || self.generated_cell_labels.contains(label))))
             });
         let Some(other) = other else {
-            return Ok(());
+            return self.reject_cell_production_with_tags(cell_name, sort, label);
         };
         // When an imported configuration generated `other` (its declaration gives the cell's
         // name), no production was written: the two declarations name one cell sort.
@@ -1247,6 +1261,36 @@ impl Generator<'_, '_> {
             },
         };
         Err(self.cell_production_error(other, reading))
+    }
+
+    /// Reject a visible `cell` production of another sort than `sort` whose tags are this cell's,
+    /// `label` and its closing tag, at that production. Tags are the syntax of a cell: such a
+    /// production would be a second syntax of the declared cell, and no declaration generates a
+    /// production of another sort with them, so it was written.
+    fn reject_cell_production_with_tags(
+        &self,
+        cell_name: &str,
+        sort: &Sort,
+        label: &str,
+    ) -> Result<(), ConfigurationError> {
+        let closing = format!("</{cell_name}>");
+        let written = self.catalog.productions().find(|(_, production)| {
+            matches!(production, Sentence::Production { sort: written, items, .. }
+                if is_cell_production(production)
+                    && written != sort
+                    && matches!(items.first(), Some(ProductionItem::Terminal(open)) if open == label)
+                    && matches!(items.last(), Some(ProductionItem::Terminal(close)) if *close == closing))
+        });
+        match written {
+            Some((_, written)) => Err(self.cell_production_error(
+                written,
+                CellProductionReading::TagsOfDeclaredCell {
+                    cell: cell_name.to_owned(),
+                    cell_sort: sort.clone(),
+                },
+            )),
+            None => Ok(()),
+        }
     }
 
     /// Reject a configuration term that is an application of a visible `cell` production, at that

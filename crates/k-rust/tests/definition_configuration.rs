@@ -1550,6 +1550,36 @@ fn a_written_cell_production_with_the_tags_of_a_cell_beside_others_is_rejected_a
 }
 
 #[test]
+fn a_written_cell_production_of_another_sort_with_a_declared_cells_tags_is_rejected_at_it() {
+    // The tags `<t>` and `</t>` are the syntax of the declared cell `<t>`, whatever sort the
+    // written production names: a rule writing `<t> 0 </t>` could not tell the two apart.
+    let main = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax FooCell ::= "<t>" Int "</t>" [cell]
+          configuration <k> $PGM:K </k> <t> 0 </t>
+        endmodule
+    "#};
+    let (cell, text) = cell_production_error("", main);
+    assert_eq!(
+        cell.reading,
+        CellProductionReading::TagsOfDeclaredCell {
+            cell: "t".into(),
+            cell_sort: k_rust::kast::Sort::new("TCell"),
+        },
+        "{text}"
+    );
+    assert_eq!(cell.sort.to_string(), "FooCell", "{text}");
+    assert_eq!(cell.production, r#"syntax FooCell ::= "<t>" Int "</t>""#);
+    assert!(text.starts_with("main.k:3:"), "{text}");
+    assert!(
+        text.contains(r#"the configuration of module "MAIN" at main.k:4:"#),
+        "{text}"
+    );
+    assert!(text.contains("cell sort TCell"), "{text}");
+}
+
+#[test]
 fn a_written_cell_production_under_its_cells_label_is_rejected_at_it() {
     // The declaration is the one source of its cell's production: a written production under
     // the generated production's label, whatever attributes it writes, would stand in for it
