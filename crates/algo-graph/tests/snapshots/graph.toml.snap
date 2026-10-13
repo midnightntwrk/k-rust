@@ -2470,7 +2470,7 @@ bound = "O(states), with states at most b^d when both bounds are set and unbound
 
 [[node.cost]]
 mode = "final leaf merge (merge_equal_final_leaves)"
-bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key per such leaf (backend.fresh.variables) and O(L^2) key comparisons"
+bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key (backend.fresh.variables) and one console observation (linear in the leaf's transcript) per such leaf, and O(L^2) key comparisons"
 
 [[node.cost]]
 mode = "trace storage with retain_trace false"
