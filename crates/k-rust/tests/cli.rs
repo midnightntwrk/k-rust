@@ -14667,6 +14667,210 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A definition that loads and passes every transformation stage, and whose compile fails late,
+/// at the hook namespace check, once its unadmitted hook namespace is promoted to an error.
+const LATE_FAILURE: &str = r#"
+module LATE-SYNTAX
+endmodule
+module LATE
+  imports INT
+  syntax Int ::= nope(Int) [function, hook(NOPE.nope)]
+  rule nope(_) => 0
+endmodule
+"#;
+
+/// The compile phases of a timings file, in order: every phase from the compile's first phase on.
+/// Panics when the file records no compile phase.
+fn compile_phase_names(timings: &serde_json::Value) -> Vec<&str> {
+    let names = timings["phases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|phase| phase["depth"] == 0)
+        .map(|phase| phase["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    let first_compile_phase = k_rust::kompile::pipeline::prologue_descriptions()[0].name;
+    let start = names
+        .iter()
+        .position(|name| *name == first_compile_phase)
+        .unwrap_or_else(|| panic!("no compile phase was recorded: {names:?}"));
+    assert_eq!(names[0], "resolve entry source", "{names:?}");
+    names[start..].to_vec()
+}
+
+/// The compile phases a successful compile records, in order, through the first phase named
+/// `last`: the prologue, the transformation stages and the emission phases before the Bison and
+/// artifact-write phases.
+fn expected_compile_phases_through(last: &str) -> Vec<&'static str> {
+    use k_rust::kompile::pipeline::{EMISSION_PHASES, prologue_descriptions, stage_descriptions};
+    let expected = prologue_descriptions()
+        .into_iter()
+        .chain(stage_descriptions())
+        .map(|description| description.name)
+        .chain(EMISSION_PHASES[..EMISSION_PHASES.len() - 2].iter().copied())
+        .collect::<Vec<_>>();
+    let end = expected
+        .iter()
+        .position(|name| *name == last)
+        .unwrap_or_else(|| panic!("{last:?} should be a compile phase: {expected:?}"));
+    expected[..=end].to_vec()
+}
+
+/// A kcompile timings file that records no artifact-write phase, and whose total is the sum of
+/// its three groups' wall spans.
+fn assert_no_write_phases(timings: &serde_json::Value) {
+    assert_eq!(timings["version"], k_rust::timings::TIMINGS_SCHEMA_VERSION);
+    assert_eq!(timings["write_seconds"], 0.0, "{timings}");
+    let names = timings["phases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|phase| phase["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    for write_phase in ["generate bison parser", "write artifacts"] {
+        assert!(!names.contains(&write_phase), "{names:?}");
+    }
+    let wall = |key: &str| timings[key].as_f64().unwrap();
+    let groups =
+        wall("load_wall_seconds") + wall("compile_wall_seconds") + wall("write_wall_seconds");
+    assert!(
+        (wall("total_wall_seconds") - groups).abs() < 1e-9,
+        "{groups}: {timings}"
+    );
+}
+
+/// A compile that fails at its hook namespace check still writes the load phases and every
+/// compile phase that ran, through the failed one, and exits with the compile's own error.
+#[test]
+fn kcompile_timings_are_written_when_compilation_fails() {
+    let (root, definition) = fixture();
+    fs::write(&definition, LATE_FAILURE).unwrap();
+    let timings_path = root.join("kcompile-timings.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&definition)
+        .args(["--main-module", "LATE", "--warnings-to-errors"])
+        .arg("--output-directory")
+        .arg(root.join("compiled"))
+        .arg("--timings")
+        .arg(&timings_path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains(
+            "error: kcompile stage \"hook namespace checks\" failed: hook namespace checks failed"
+        ),
+        "{stderr}"
+    );
+    let timings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&timings_path).unwrap()).unwrap();
+    assert!(timings["load_seconds"].as_f64().unwrap() > 0.0, "{timings}");
+    assert_eq!(
+        compile_phase_names(&timings),
+        expected_compile_phases_through("hook namespace checks")
+    );
+    assert_no_write_phases(&timings);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A compile that succeeds and then fails the critical-pair check promoted by
+/// `--warnings-to-errors` writes every compile phase and no write phase.
+#[test]
+fn kcompile_timings_are_written_when_a_post_compile_check_fails() {
+    let (root, definition) = fixture();
+    fs::write(&definition, NON_JOINING_ANYWHERE).unwrap();
+    let timings_path = root.join("kcompile-timings.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&definition)
+        .args([
+            "--main-module",
+            "NJ",
+            "--syntax-module",
+            "NJ",
+            "--warnings-to-errors",
+        ])
+        .arg("--output-directory")
+        .arg(root.join("compiled"))
+        .arg("--timings")
+        .arg(&timings_path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains(
+            "error: the load-time critical-pair check of the compiled definition reported \
+             warnings promoted to errors"
+        ),
+        "{stderr}"
+    );
+    let timings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&timings_path).unwrap()).unwrap();
+    assert_eq!(
+        compile_phase_names(&timings),
+        expected_compile_phases_through("print macros.kore")
+    );
+    assert_no_write_phases(&timings);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A krun whose compile fails writes its timings document with the compile phases that ran and
+/// zero execution fields.
+#[test]
+fn krun_timings_are_written_when_compilation_fails() {
+    let (root, definition) = fixture();
+    fs::write(&definition, LATE_FAILURE).unwrap();
+    let timings_path = root.join("krun-timings.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("krun")
+        .args([
+            "-m",
+            "LATE",
+            "--warnings-to-errors",
+            "-s",
+            "Int",
+            "-e",
+            "1",
+            "--io",
+            "off",
+        ])
+        .arg("--timings")
+        .arg(&timings_path)
+        .arg(&definition)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("error: kcompile stage \"hook namespace checks\" failed"),
+        "{stderr}"
+    );
+    let timings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&timings_path).unwrap()).unwrap();
+    for key in [
+        "program_parse_seconds",
+        "config_vars_parse_seconds",
+        "internalize_seconds",
+        "execute_seconds",
+        "output_seconds",
+    ] {
+        assert_eq!(timings[key], 0.0, "{key}: {timings}");
+    }
+    let compile = &timings["compile"];
+    assert_eq!(
+        compile_phase_names(compile),
+        expected_compile_phases_through("hook namespace checks")
+    );
+    assert_no_write_phases(compile);
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn rewrite_example() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/rewrite.k")
 }
