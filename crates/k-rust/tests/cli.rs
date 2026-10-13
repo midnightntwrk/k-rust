@@ -6628,8 +6628,9 @@ endmodule
 /// `String` and a `[concrete]` module that hooks it to a mutable buffer. The Rust backend leaves
 /// out `[concrete]` modules, so it compiles the first: an ordinary sort with `String` as a
 /// subsort and three unhooked functions, which `krun` evaluates by their equations. Importing the
-/// hooked module directly leaves `StringBuffer` undeclared, and the hooks of that module, which
-/// LLVM KORE keeps, have no evaluator in `kore-simplify`.
+/// hooked module directly leaves `StringBuffer` undeclared, a user production hooked to
+/// `BUFFER.concat` compiles but has no evaluator, and the hooks of the hooked module, which LLVM
+/// KORE keeps, have no evaluator in `kore-simplify`.
 #[test]
 fn krun_runs_string_buffers_through_the_in_k_module() {
     use k_rust::kore::ast::{Attributes, Sentence, Sort};
@@ -6766,6 +6767,44 @@ fn krun_runs_string_buffers_through_the_in_k_module() {
     assert!(!refused.status.success(), "{stderr}");
     assert!(
         stderr.contains("Error[UndefinedSort]: Could not find sorts: [StringBuffer]"),
+        "{stderr}"
+    );
+
+    // A user production that declares a BUFFER hook compiles, and has no evaluator.
+    let user_hook = root.join("user-hook.k");
+    fs::write(
+        &user_hook,
+        r#"
+module USER-HOOK
+  imports STRING
+  syntax Prog ::= go(String, String)
+  syntax String ::= myconcat(String, String) [function, total, hook(BUFFER.concat)]
+  syntax KItem ::= out(String)
+  configuration <k> $PGM:Prog </k>
+  rule go(A, B) => out(myconcat(A, B))
+endmodule
+"#,
+    )
+    .unwrap();
+    let user_compiled = root.join("user");
+    kcompile_for_krun(&user_hook, &["--main-module", "USER-HOOK"], &user_compiled);
+    let user_run = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&user_compiled)
+        .args([
+            "--sort",
+            "Prog",
+            "--expression",
+            r#"go("a", "b")"#,
+            "--io",
+            "off",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&user_run.stderr);
+    assert!(
+        stderr.contains("unsupported hook 'BUFFER.concat' on constructor-like arguments"),
         "{stderr}"
     );
 

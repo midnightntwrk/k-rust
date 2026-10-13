@@ -219,7 +219,7 @@ structural = [
 # StringBuffer on the Rust backend: docs/compatibility.md, "Backend scope", the
 # STRING-BUFFER paragraph.
 [[unsupported]]
-reason = "declared only in STRING-BUFFER-HOOKED, a [concrete] module that --backend rust excludes; STRING-BUFFER resolves to STRING-BUFFER-IN-K, whose equations define StringBuffer over String; no evaluator exists for KORE from another producer that keeps the hooked module"
+reason = "declared only in STRING-BUFFER-HOOKED, a [concrete] module that --backend rust excludes; STRING-BUFFER resolves to STRING-BUFFER-IN-K, whose equations define StringBuffer over String; no evaluator exists for KORE that keeps the hooked module (kcompile --backend llvm output) or for a user production that declares one of these hooks"
 hooks = ["BUFFER.concat", "BUFFER.empty", "BUFFER.toString"]
 
 [[unsupported]]
