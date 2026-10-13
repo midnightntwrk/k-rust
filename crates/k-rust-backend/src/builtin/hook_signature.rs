@@ -19,7 +19,8 @@
 //! in the definition's own sorts, and the loader decides KORE from any producer the same way.
 //!
 //! An argument that is only read (an index, a key looked up or removed, a set whose elements are
-//! removed) is not moved into the result, so its sort decides nothing here.
+//! removed, a map whose bindings are removed) is not moved into the result, so its sort decides
+//! nothing here.
 
 use crate::{
     matching::SortGraph,
@@ -107,7 +108,7 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
         "MAP.element" => (&[Key, Value], map),
         "MAP.concat" | "MAP.updateAll" => (&[Elements(Kind::Map), Elements(Kind::Map)], map),
         "MAP.update" => (&[Elements(Kind::Map), Key, Value], map),
-        "MAP.remove" | "MAP.removeAll" => (&[Elements(Kind::Map), Read], map),
+        "MAP.remove" | "MAP.removeAll" | "MAP.difference" => (&[Elements(Kind::Map), Read], map),
         "MAP.keys" => (&[Keys], set),
         "MAP.keys_list" => (&[Keys], list),
         "MAP.values" => (&[Values], list),

@@ -284,7 +284,9 @@ fn result_collection(hook: &str) -> Option<CollectionMetadata> {
             Some(CollectionMetadata::Set(set_definition()))
         }
         "MAP.element" | "MAP.unit" | "MAP.update" | "MAP.updateAll" | "MAP.remove"
-        | "MAP.removeAll" | "MAP.concat" => Some(CollectionMetadata::Map(map_definition())),
+        | "MAP.removeAll" | "MAP.concat" | "MAP.difference" => {
+            Some(CollectionMetadata::Map(map_definition()))
+        }
         _ => None,
     }
 }

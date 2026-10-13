@@ -110,6 +110,7 @@ implemented = [
   "LIST.update",
   "LIST.updateAll",
   "MAP.concat",
+  "MAP.difference",
   "MAP.element",
   "MAP.in_keys",
   "MAP.inclusion",
@@ -301,10 +302,6 @@ hooks = [
   "LIST.sizeMInt",
   "LIST.updateMInt",
 ]
-
-[[unsupported]]
-reason = "map difference is not implemented"
-hooks = ["MAP.difference"]
 
 [[unsupported]]
 reason = "machine-integer power, min/max, width conversion and Bytes conversion hooks are not implemented"

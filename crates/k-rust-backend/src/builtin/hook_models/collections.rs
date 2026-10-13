@@ -320,7 +320,7 @@ fn list_hooks_agree_with_a_vec_model() {
 // ---------------------------------------------------------------------------------------------
 // MAP
 
-const MAP_HOOKS: [&str; 15] = [
+const MAP_HOOKS: [&str; 16] = [
     "MAP.element",
     "MAP.unit",
     "MAP.update",
@@ -336,6 +336,7 @@ const MAP_HOOKS: [&str; 15] = [
     "MAP.inclusion",
     "MAP.concat",
     "MAP.lookup",
+    "MAP.difference",
 ];
 
 fn map_case(draw: &mut Draw<'_>) -> Case {
@@ -364,7 +365,7 @@ fn map_case(draw: &mut Draw<'_>) -> Case {
         "MAP.size" | "MAP.keys" | "MAP.keys_list" | "MAP.values" => {
             vec![map_shape(draw, env).term()]
         }
-        "MAP.updateAll" | "MAP.inclusion" | "MAP.concat" => {
+        "MAP.updateAll" | "MAP.inclusion" | "MAP.concat" | "MAP.difference" => {
             let first = map_shape(draw, env);
             let second = related_map(draw, env, &first);
             if draw.chance(4) {
@@ -432,6 +433,12 @@ fn map_model(hook: &str, arguments: &[Val]) -> Spec {
             }))
         }
         ("MAP.lookup", [Map(map), key]) => Spec::partial(map.get(key).cloned()),
+        // Only the bindings the right map holds with the same value are removed.
+        ("MAP.difference", [Map(left), Map(right)]) => Spec::value(Map(left
+            .iter()
+            .filter(|(key, value)| right.get(key) != Some(value))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect())),
         _ => panic!("no MAP model for {hook} on {arguments:?}"),
     }
 }
@@ -454,6 +461,7 @@ fn map_hooks_agree_with_a_btreemap_model() {
                     "MAP.inclusion",
                     "MAP.concat",
                     "MAP.lookup",
+                    "MAP.difference",
                 ],
             );
         });

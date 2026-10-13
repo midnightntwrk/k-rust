@@ -7618,6 +7618,60 @@ endmodule
     );
 }
 
+/// `M1 -Map M2` keeps the bindings of `M1` that `M2` does not hold with the same value: of
+/// `1 |-> 10 2 |-> 20 3 |-> 30` without `1 |-> 10 2 |-> 99`, the binding of 1 is removed, that
+/// of 2 is kept because `M2` binds 2 to another value, and that of 3 because `M2` does not bind
+/// 3. At the base the run halted with the unsupported-hook error on `MAP.difference`.
+#[test]
+fn krun_evaluates_map_difference_by_binding() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MDIFF-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= "mdiff"
+endmodule
+
+module MDIFF
+  imports MDIFF-SYNTAX
+  imports DOMAINS
+  imports COLLECTIONS
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K)
+  rule mdiff => res((1 |-> 10 2 |-> 20 3 |-> 30) -Map (1 |-> 10 2 |-> 99))
+endmodule
+"#,
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "MDIFF"], &compiled);
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
+        .args(["--sort", "Op", "--expression", "mdiff", "--io", "off"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("unsupported hook"), "{stderr}");
+    let stdout = String::from_utf8(output.stdout)
+        .unwrap()
+        .split_whitespace()
+        .collect::<String>();
+    let int =
+        |value: u32| format!(r#"inj{{SortInt{{}},SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    let binding = |key, value| format!("Lbl'UndsPipe'-'-GT-Unds'{{}}({},{})", int(key), int(value));
+    let expected = format!(
+        "Lblres'LParUndsRParUnds'MDIFF'Unds'KItem'Unds'K{{}}(kseq{{}}(inj{{SortMap{{}},SortKItem{{}}}}(Lbl'Unds'Map'Unds'{{}}({},{})),dotk{{}}()))",
+        binding(2, 20),
+        binding(3, 30)
+    );
+    assert!(stdout.contains(&expected), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn search_without_a_pattern_binds_each_answer_to_var_result() {
     let (root, definition) = branching_search_fixture();

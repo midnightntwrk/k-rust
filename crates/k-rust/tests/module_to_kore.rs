@@ -3245,6 +3245,12 @@ case_tests! {
             "MAP.choice",
             "a key of argument 1 of MAP.choice, of sort KItem, is the result, but KItem is not Int or a subsort of it",
         ),
+        // `-Map` gives a map, here declared at a sort that is no map sort.
+        map_difference_result: (
+            "syntax Int ::= Map \"-I\" Map [function, total, symbol(mdi), hook(MAP.difference)]",
+            "MAP.difference",
+            "MAP.difference gives a map, but the result sort Int is no map sort",
+        ),
         // `choice` of a set gives an element of it, a `KItem`, which is no `Int`.
         set_choice_result: (
             "syntax Int ::= schoice(Set) [function, symbol(schoice), hook(SET.choice)]",
