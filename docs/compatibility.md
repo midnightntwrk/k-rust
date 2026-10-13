@@ -1634,6 +1634,21 @@ The path condition discharges it in one more way: every application is strict, s
 A claim that requires `half(X) <=Int 0 andBool half(X) >=Int 0` thus has `half(X)` defined, and a rule conditioned on `half(X) ==Int 0` applies; a negated or disjunctive known predicate states no term defined, since `\not(t = 0)` holds where `t` is undefined (`a_ceil_conjunct_is_not_discharged_through_a_sibling_equality` and `a_ceil_conjunct_is_discharged_by_a_known_predicate_that_states_its_term_defined` in the [backend tests](../crates/k-rust-backend/tests/backend), `kprove_decides_a_partial_smt_hook_only_under_its_definedness` in [cli.rs](../crates/k-rust/tests/cli.rs)).
 A definition is not checked for `smt-hook`s whose out-of-domain values are determined: whether a template leaves them open cannot be read from the template, and `domains.md`'s own `MInt` division hooks have SMT-LIB values at zero.
 
+## Definedness of an implication's destination
+
+A destination `t /\ φ` denotes `\ceil(t) /\ t /\ φ`: a term is `\bottom` where it is undefined, so the destination holds of a state only where its term is defined there.
+The implication check matches `t` against the state's term, and each part `l` of `t` that the match leaves equal to a part `r` of the state becomes the equation `l = r`, which is checked together with `\ceil(l)` ([`branch_obligations`](../crates/k-rust-backend/src/implication/consequent.rs)).
+`r` is defined wherever the state's term is, so `\ceil(l)` is a consequence of the equation and stating it adds nothing the equation does not imply; it is stated because the solver reads a partial application as total, and because an `#if` equation is checked through its condition and branches, and both would otherwise drop it.
+A claim whose right-hand side applies a partial function that its left-hand side does not already contain is therefore proven only where its condition makes that application defined.
+With `undef`, `undefb` and `undefi` functions without equations, `<k> a(B) => #if B #then 1 #else undef() #fi </k> requires B`, `B andThenBool undefb()` and `B andBool undefb()` under `notBool B`, and `0 *Int undefi()` are not proven; `0 *Int (1 /Int Y)` is proven under `Y =/=Int 0` and not without it (`a_claim_is_proven_only_where_its_right_hand_side_is_defined` and `a_claim_condition_that_defines_a_right_hand_side_operand_keeps_it_proven` in [proof_semantics.rs](../crates/k-rust/tests/proof_semantics.rs)).
+A destination existential that occurs only under such an application needs a witness at which the application is defined, as one in an `ensures` does: `<k> z(X) => 0 *Int w(?W) </k>` with only `rule w(5) => 5` is not proven, because the witness search does not find `W = 5`.
+The same check decides RPC `implies`, `krust kore-implies` and `Backend::implies`: antecedent `0` and consequent `0 *Int undefi()` is `indeterminate` (`unknown`) with `\ceil(undefi())` in its condition (`a_remainder_equation_is_checked_under_the_definedness_of_its_destination_side` in [implication.rs](../crates/k-rust-backend/src/implication.rs)).
+`implies` ignores the request's `assume-defined` ([rpc.rs](../crates/k-rust/src/rpc.rs)), so a client that sets it to skip definedness gets `unknown`, not `valid`, where definedness is not shown.
+Before `\ceil(l)` was stated, k-rust reported such claims `proven` and such implications `valid`.
+
+This diverges from the pinned Haskell prover on some of these claims.
+It proves `<k> a(B) => #if B #then undef() #else 1 #fi </k> requires notBool B`, and a claim whose state reaches `#if B #then 1 #else undef() #fi` under `B`, both of which k-rust reports `failed`; it refuses the `#if` destinations whose condition is partial and `0 *Int undefi()`, as k-rust does; and it stops with an internal error on the `andThenBool`, `orElseBool` and `andBool` destinations.
+
 ## Undefined steps in proofs
 
 A step is undefined on a configuration when a rule applies to it but has an empty result there, and no rule of the same priority gives it a defined result.
