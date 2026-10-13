@@ -1,7 +1,7 @@
 use indoc::indoc;
 use k_rust::definition::{
-    Attributes, ConfigurationError, ProductionItem, Sentence, expand_configurations,
-    expand_configurations_with_diagnostics,
+    Attributes, CellProductionReading, ConfigurationError, ProductionItem, Sentence,
+    expand_configurations, expand_configurations_with_diagnostics,
 };
 use k_rust::diagnostic::DiagnosticCode;
 use k_rust::inner::resolve_configuration_bubbles;
@@ -1411,4 +1411,161 @@ fn nullary_initializers_do_not_generate_configuration_value_transport() {
             .iter()
             .any(|module| module.name == "K-RUST-CONFIGURATION-VALUES")
     );
+}
+
+/// The load error of `main.k` (requiring `cells.k`), which must be a configuration's cell
+/// production error.
+fn cell_production_error(
+    cells_source: &str,
+    main_source: &str,
+) -> (k_rust::definition::ConfigurationCellProduction, String) {
+    let mut resolver = |_: &str, required: &str| match required {
+        "cells.k" => Ok(ResolvedSource::new("cells.k", cells_source)),
+        _ => Err(format!("unexpected require {required}")),
+    };
+    let error = load(
+        ResolvedSource::new("main.k", main_source),
+        "MAIN",
+        &mut resolver,
+    )
+    .expect_err("a second cell production of a configuration cell's sort is rejected");
+    let text = error.to_string();
+    let k_rust::outer::LoadError::ConfigurationExpansion(ConfigurationError::CellProduction(cell)) =
+        error
+    else {
+        panic!("expected a cell production error, got {text}: {error:?}");
+    };
+    (*cell, text)
+}
+
+#[test]
+fn a_written_cell_production_that_the_configuration_reads_its_cell_as_is_rejected_at_it() {
+    // The written production's terminals are the cell's tags, so the configuration grammar reads
+    // `<k> 0 </k>` as that production: the configuration then declares no cell, and the
+    // error names the written production where it is written.
+    let cells = indoc! {r#"
+        module CELLS
+          syntax Int ::= r"[0-9]+" [token]
+          syntax KCell ::= "<k>" Int "</k>" [cell]
+        endmodule
+    "#};
+    let main = indoc! {r#"
+        requires "cells.k"
+        module MAIN
+          imports CELLS
+          configuration <k> 0 </k>
+        endmodule
+    "#};
+    let (cell, text) = cell_production_error(cells, main);
+    assert_eq!(cell.reading, CellProductionReading::ReadAsTerm, "{text}");
+    assert_eq!(cell.sort.to_string(), "KCell");
+    assert_eq!(cell.production, r#"syntax KCell ::= "<k>" Int "</k>""#);
+    assert_eq!(cell.source.as_deref(), Some("cells.k"));
+    assert_eq!(cell.location.map(|location| location.start_line), Some(3));
+    assert_eq!(cell.module, "MAIN");
+    assert_eq!(cell.configuration_source.as_deref(), Some("main.k"));
+    assert_eq!(
+        cell.configuration_location
+            .map(|location| location.start_line),
+        Some(4)
+    );
+    assert!(text.starts_with("cells.k:3:"), "{text}");
+    assert!(
+        text.contains(r#"the configuration of module "MAIN" at main.k:4:"#),
+        "{text}"
+    );
+
+    // In the configuration's own module the production is named the same way.
+    let main = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax KCell ::= "<k>" Int "</k>" [cell]
+          configuration <k> 0 </k>
+        endmodule
+    "#};
+    let (cell, text) = cell_production_error("", main);
+    assert_eq!(cell.reading, CellProductionReading::ReadAsTerm, "{text}");
+    assert_eq!(cell.production, r#"syntax KCell ::= "<k>" Int "</k>""#);
+    assert_eq!(
+        (
+            cell.source.as_deref(),
+            cell.location.map(|location| location.start_line)
+        ),
+        (Some("main.k"), Some(3)),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_written_cell_production_of_a_declared_cells_sort_is_rejected_at_it() {
+    // The configuration declares `<t>`, whose generated production `<t>` is `TCell`'s cell
+    // production; a written `cell` production of `TCell` under other tags is a second one.
+    let cells = indoc! {r#"
+        module CELLS
+          syntax Int ::= r"[0-9]+" [token]
+          syntax TCell ::= "<tt>" Int "</tt>" [cell]
+        endmodule
+    "#};
+    let main = indoc! {r#"
+        requires "cells.k"
+        module MAIN
+          imports CELLS
+          configuration <t> 0 </t>
+        endmodule
+    "#};
+    let (cell, text) = cell_production_error(cells, main);
+    assert_eq!(
+        cell.reading,
+        CellProductionReading::BesideDeclaredCell { cell: "t".into() },
+        "{text}"
+    );
+    assert_eq!(cell.sort.to_string(), "TCell");
+    assert_eq!(cell.production, r#"syntax TCell ::= "<tt>" Int "</tt>""#);
+    assert_eq!(
+        (
+            cell.source.as_deref(),
+            cell.location.map(|location| location.start_line)
+        ),
+        (Some("cells.k"), Some(3)),
+        "{text}"
+    );
+    assert!(text.starts_with("cells.k:3:"), "{text}");
+    assert!(text.contains("declares <t>"), "{text}");
+}
+
+#[test]
+fn two_configurations_declaring_cells_of_one_sort_name_both_cells() {
+    // `<a>` and `<A>` are both cells of `ACell`. The production the importing configuration
+    // meets is the one the imported configuration generated, so the error names that
+    // declaration and the new one, and does not ask to remove a production nobody wrote.
+    let cells = indoc! {r#"
+        module CELLS
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <T> <a> 0 </a> </T>
+        endmodule
+    "#};
+    let main = indoc! {r#"
+        requires "cells.k"
+        module MAIN
+          imports CELLS
+          configuration <T> <A> 0 </A> </T>
+        endmodule
+    "#};
+    let (cell, text) = cell_production_error(cells, main);
+    assert_eq!(
+        cell.reading,
+        CellProductionReading::BesideImportedCell {
+            cell: "A".into(),
+            other: "a".into()
+        },
+        "{text}"
+    );
+    assert_eq!(cell.sort.to_string(), "ACell");
+    assert!(text.starts_with("cells.k:3:"), "{text}");
+    assert!(
+        text.contains(r#"the configuration of module "MAIN" at main.k:4:"#),
+        "{text}"
+    );
+    assert!(text.contains("rename one of the two cells"), "{text}");
+    assert!(!text.contains("remove this production"), "{text}");
 }

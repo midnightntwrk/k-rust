@@ -77,6 +77,87 @@ fn leaf_text(result: &ProofResultOutput) -> Vec<String> {
         .collect()
 }
 
+/// Collection cells whose claims write a bare `Bag` variable as a side of a rewrite in the
+/// collection's parent cell.
+const BARE_BAG_SIDE: &str = r#"
+module BARE-SYNTAX
+  imports INT-SYNTAX
+  syntax Cmd ::= mk(Int) | clr()
+  syntax Pgm ::= Cmd | Cmd ";" Pgm
+endmodule
+
+module BARE
+  imports BARE-SYNTAX
+  imports INT
+  configuration
+    <T>
+      <k> $PGM:Pgm </k>
+      <rs> <r multiplicity="*" type="$TYPE"> <rid> 0 </rid> </r> </rs>
+    </T>
+
+  rule <k> C:Cmd ; P:Pgm => C ~> P ... </k>
+  rule <k> mk(I) => .K ... </k> <rs> (.Bag => <r> <rid> I </rid> </r>) ... </rs>
+  rule <k> clr() => .K ... </k> <rs> (_:Bag => .Bag) </rs>
+endmodule
+
+module BARE-SPEC
+  imports BARE
+  claim [any]: <k> mk(1) => .K ... </k> <rs> (L:Bag => ?A:Bag) </rs>
+  claim [any-bare]: <k> mk(1) => .K ... </k> <rs> L:Bag => ?A:Bag </rs>
+  claim [cleared]: <k> mk(1) ; clr() => .K ... </k> <rs> L:Bag => .Bag </rs>
+  claim [item-first]: <k> mk(1) => .K ... </k> <rs> (L:Bag => <r> <rid> 1 </rid> </r> ?C:Bag) </rs>
+  claim [item-between]: <k> mk(1) => .K ... </k> <rs> (L:Bag => ?A:Bag <r> <rid> 1 </rid> </r> ?C:Bag) </rs>
+  claim [item-last]: <k> mk(1) => .K ... </k> <rs> (L:Bag => ?A:Bag <r> <rid> 1 </rid> </r>) </rs>
+endmodule
+"#;
+
+/// A rewrite at the body of a collection's parent cell, whose sides are cells, `Bag` variables
+/// or both, is a rewrite of `Bag`, the sort of a cell body: a side that is only a `Bag`
+/// variable is no exception, in a rule (`clr`) and in a claim, parenthesized or as the whole
+/// body. The claims are then decided by what they state. `mk` puts its item first in the list,
+/// so the state is `<r> 1 </r> L` and the destinations that place the item first (`any`, the
+/// existential being that state; `item-first`; `item-between` with `?A` empty) hold of every
+/// `L`, while `item-last` holds of none but the empty `L` and is not proven. In a set or a map
+/// the item is found without positions, so `item-last` holds as well; there `mk` has no
+/// successor where `L` already holds its item, a branch these claims accept as vacuous.
+#[test]
+fn a_bare_bag_variable_is_a_side_of_a_cell_body_rewrite() {
+    let status = |kore: &str, claim: &str| {
+        prove(
+            kore,
+            "BARE-SPEC",
+            &format!("BARE-SPEC.{claim}"),
+            ProveRequest::default(),
+        )
+        .status
+    };
+    let list = compile(&BARE_BAG_SIDE.replace("$TYPE", "List"), "BARE-SPEC", "BARE");
+    for claim in ["any", "any-bare", "cleared", "item-first", "item-between"] {
+        assert_eq!(status(&list, claim), "proven", "List {claim}");
+    }
+    assert_ne!(status(&list, "item-last"), "proven", "List item-last");
+    for collection in ["Set", "Map"] {
+        let kore = compile(
+            &BARE_BAG_SIDE.replace("$TYPE", collection),
+            "BARE-SPEC",
+            "BARE",
+        );
+        let vacuous = ProveRequest {
+            allow_vacuous: true,
+            ..ProveRequest::default()
+        };
+        for claim in ["any", "any-bare", "cleared", "item-first", "item-last"] {
+            let result = prove(
+                &kore,
+                "BARE-SPEC",
+                &format!("BARE-SPEC.{claim}"),
+                vacuous.clone(),
+            );
+            assert_eq!(result.status, "proven", "{collection} {claim}");
+        }
+    }
+}
+
 /// A lower-priority rule applies to the remainder of a step as the remainder simplifies, not to
 /// the step's subject: the priority-10 rule covers `N <= 0`, and on the remainder `N > 0` the
 /// anywhere equation turns `app(N, 0)` into `c(N)`, which the `c` rule rewrites. So the claim

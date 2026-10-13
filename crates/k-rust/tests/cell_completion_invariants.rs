@@ -857,9 +857,8 @@ fn a_written_variable_leaves_both_sides_together_and_data_variables_stay() {
             "(<a> <y> Y </y> B:Bag </a> => <a> <y> 1 </y> B:Bag </a>)",
         ),
         (PLAIN, "<a> (<y> 1 </y> B:Bag => <y> 2 </y> B:Bag) </a>"),
-        // Unannotated: the z3 build's sort inference rejects `(B:Bag => C:Bag)` here, which the
-        // portable build parses (a parser issue, not a completion one).
         (PLAIN, "<a> <y> Y </y> (B => C) </a>"),
+        (PLAIN, "<a> <y> Y </y> (B:Bag => C:Bag) </a>"),
         (
             PLAIN,
             "<a> <y> Y </y> (<z> Z </z> => <z> Z </z>) ... </a> <b> V => V </b>",

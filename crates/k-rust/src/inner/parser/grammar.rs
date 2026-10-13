@@ -599,6 +599,27 @@ impl Grammar {
         })
     }
 
+    /// The first two productions, in grammar order, with the same result, items, label and token
+    /// kind, and so the same texts and the same terms: their indices and what they share.
+    #[cfg(test)]
+    pub(crate) fn first_repeated_production(&self) -> Option<(usize, usize, String)> {
+        let mut seen = BTreeMap::new();
+        self.productions
+            .iter()
+            .enumerate()
+            .find_map(|(index, production)| {
+                let key = format!(
+                    "{:?} {:?} {:?} {}",
+                    production.result,
+                    production.label,
+                    production.declared_items,
+                    production.token
+                );
+                seen.insert(key.clone(), index)
+                    .map(|first| (first, index, key))
+            })
+    }
+
     #[cfg(test)]
     pub(crate) fn equivalent_production_count(
         &self,

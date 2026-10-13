@@ -902,6 +902,71 @@ endmodule
     }
 }
 
+/// The body of a cell that holds a collection of cells is a `Bag`, so a rewrite there is a
+/// rewrite of `Bag` whatever its sides are: cells, `Bag` variables, or a lone `Bag` variable,
+/// written with a sort or without, in a rule and in a claim, parenthesized or as the whole body.
+#[test]
+fn a_bare_bag_variable_is_a_side_of_a_rewrite_at_a_cell_body() {
+    for collection in ["List", "Set", "Map", "Bag"] {
+        let source = format!(
+            r#"module MAIN
+  syntax Int ::= r"[0-9]+" [token]
+  syntax K
+  configuration <k> 0 </k> <rs> <r multiplicity="*" type="{collection}"> <rid> 0 </rid> </r> </rs>
+  rule <rs> (L:Bag => .Bag) </rs>
+  rule <rs> (L => .Bag) </rs>
+  claim <rs> (L:Bag => ?A:Bag) </rs>
+  claim <rs> L:Bag => ?A:Bag </rs>
+  claim <rs> (L:Bag => <r> <rid> 1 </rid> </r> ?C:Bag) </rs>
+  claim <rs> (L:Bag => ?A:Bag <r> <rid> 1 </rid> </r> ?C:Bag) </rs>
+  claim <rs> (L:Bag => ?A:Bag <r> <rid> 1 </rid> </r>) </rs>
+endmodule
+"#
+        );
+        let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+        let loaded = load(
+            ResolvedSource::new("cells.k", &source),
+            "MAIN",
+            &mut resolver,
+        )
+        .unwrap_or_else(|error| panic!("{collection}: {error}"));
+        let bodies = loaded
+            .definition()
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| match &**sentence {
+                Sentence::Rule { body, .. } | Sentence::Claim { body, .. } => body
+                    .to_string()
+                    .strip_prefix("`<rs>`(#noDots(.KList),")
+                    .and_then(|body| body.strip_suffix(",#noDots(.KList))"))
+                    .map(str::to_owned),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let (l, a, c) = (
+            "#SemanticCastToBag(L)",
+            "#SemanticCastToBag(?A)",
+            "#SemanticCastToBag(?C)",
+        );
+        let r = "`<r>`(#noDots(.KList),`<rid>`(#noDots(.KList),#token(\"1\",\"Int\"),#noDots(.KList)),#noDots(.KList))";
+        assert_eq!(
+            bodies,
+            [
+                format!("{l}=>#cells(.KList)"),
+                format!("{l}=>#cells(.KList)"),
+                format!("{l}=>{a}"),
+                format!("{l}=>{a}"),
+                format!("{l}=>#cells({r},{c})"),
+                format!("{l}=>#cells(#cells({a},{r}),{c})"),
+                format!("{l}=>#cells({a},{r})"),
+            ],
+            "{collection}"
+        );
+    }
+}
+
 /// A module whose user syntax reuses `=>` and `~>` (`arrow`, `seqish`), with wrappers that put a
 /// `K` (`j`) or a `KItem` (`h`) inside an `A`, and one rule over it.
 fn arrow_sequence_module(rule: &str) -> String {
