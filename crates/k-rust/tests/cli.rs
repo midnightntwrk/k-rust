@@ -5639,6 +5639,59 @@ fn a_discarded_hook_over_a_ground_collection_is_decided_by_the_hook() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Conditionals that discard a `choice` over a ground map.
+const DISCARDED_CHOICE: &str = r#"
+module CHOICEHOOK
+  imports INT
+  imports BOOL
+  imports MAP
+  imports K-EQUAL
+  syntax Exp ::= Int
+               | "pickTwo" "(" ")" [symbol(pickTwo)]
+               | "pickOne" "(" ")" [symbol(pickOne)]
+               | "pickNone" "(" ")" [symbol(pickNone)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> pickTwo() => #if true #then 7 #else {choice(3 |-> 30 1 |-> 10)}:>Int #fi ...</k>
+  rule <k> pickOne() => #if true #then 7 #else {choice(3 |-> 30)}:>Int #fi ...</k>
+  rule <k> pickNone() => #if true #then 7 #else {choice(.Map)}:>Int #fi ...</k>
+endmodule
+"#;
+
+#[test]
+fn a_discarded_choice_over_a_ground_map_is_decided_by_the_hook() {
+    // `choice` of a closed map of literal keys is one of its keys, which an execution chooses
+    // without an equation: the discarded operand is defined and the conditional is a bare `7`.
+    // The empty map has no key, so `choice(.Map)` is undefined and the conditional is `\bottom`.
+    let (root, _) = fixture();
+    let choice = compiled_for_execution(
+        &root,
+        "choice",
+        DISCARDED_CHOICE,
+        "CHOICEHOOK",
+        "CHOICEHOOK",
+    );
+    for expression in ["pickTwo()", "pickOne()"] {
+        let output = bounded_krun(&choice, "Exp", expression, &["-w", "all"]);
+        assert!(output.status.success(), "{expression}: {output:?}");
+        assert_eq!(
+            squashed(&String::from_utf8_lossy(&output.stdout)),
+            squashed(&k_cell_output(
+                r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("7"))"#
+            )),
+            "{expression}"
+        );
+    }
+    let output = bounded_krun(&choice, "Exp", "pickNone()", &[]);
+    assert_undefined_step(&output, 1);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("refuted obligation"), "{stderr}");
+    assert!(
+        stderr.contains("LblMap'Coln'choice{}(Lbl'Stop'Map{}())"),
+        "{stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A simplification lemma that reaches a conditional below its root.
 const LEMMA_OVER_CONDITIONAL: &str = r#"
 module LEMMA

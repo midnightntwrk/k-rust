@@ -1468,6 +1468,50 @@ fn a_claim_through_a_discarded_hook_over_a_ground_collection_chooses_no_value() 
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
+/// Claims whose conditional discards a `choice` over a ground map of two bindings, a value only
+/// an execution chooses.
+const DISCARDED_CHOICE: &str = r#"
+module CH
+  imports INT
+  imports BOOL
+  imports MAP
+  imports K-EQUAL
+  syntax Exp ::= Int | c(Bool) [symbol(c)] | k(Bool) [symbol(k)] | e(Bool) [symbol(e)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> c(B) => #if B #then 7 #else {choice(1 |-> 10 3 |-> 30)}:>Int #fi </k>
+  rule <k> k(B) => #if B #then 7 #else choice(1 |-> 10 3 |-> 30) #fi </k>
+  rule <k> e(B) => #if B #then 7 #else {choice(.Map)}:>Int #fi </k>
+endmodule
+
+module CH-SPEC
+  imports CH
+  claim [projected]: <k> c(B) => 7 </k> requires B
+  claim [chosen]: <k> k(B) => 7 </k> requires B
+  claim [empty]: <k> e(B) => 7 </k> requires B
+endmodule
+"#;
+
+/// `choice` of two bindings is defined whichever key it gives, so on a proof route its own
+/// obligation holds without a key being chosen and `chosen` is proven. `projected` discards
+/// `{choice(..)}:>Int`, whose projection is defined exactly where the key chosen is an `Int`:
+/// both keys are, so the claim is valid, but no key is chosen on a proof route and the
+/// projection's obligation stays open, so the claim is not proven (and not disproved).
+/// `choice(.Map)` is undefined, so the conditional of `empty` is `\bottom`.
+#[test]
+fn a_claim_through_a_discarded_choice_chooses_no_item() {
+    let wrong = unexpected_statuses(
+        DISCARDED_CHOICE,
+        "CH-SPEC",
+        "CH",
+        &[
+            ("projected", "failed"),
+            ("chosen", "proven"),
+            ("empty", "failed"),
+        ],
+    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
 /// A claim whose conditional discards a definedness that depends on a console read is never
 /// proven: its left-hand side or its destination meets the impure application, which is not
 /// performed (`a_discarded_conditional_operand_performs_no_console_effect` in cli.rs).
