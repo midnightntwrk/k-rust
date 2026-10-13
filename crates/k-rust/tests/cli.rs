@@ -2928,6 +2928,116 @@ fn reference_krun_io_off_surface_pattern_reads_closed_stdin() {
     );
 }
 
+/// Wait up to `watchdog` for `child` to exit while the caller holds its standard input open;
+/// returns whether it exited.
+fn exit_with_open_stdin(child: &mut std::process::Child, watchdog: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + watchdog;
+    while std::time::Instant::now() < deadline {
+        if child.try_wait().unwrap().is_some() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
+}
+
+#[test]
+fn krun_io_on_does_not_wait_for_standard_input_when_the_definition_cannot_read_the_console() {
+    // The watchdog only bounds a failure: a run that waits for standard input to end never
+    // exits while the pipe is open, however long the test waits.
+    let watchdog = std::time::Duration::from_secs(300);
+    let (root, _) = fixture();
+    let output_only = root.join("output-only.k");
+    fs::write(
+        &output_only,
+        r#"requires "domains.md"
+module OUTPUT-ONLY
+  imports K-IO
+  imports INT
+  imports STRING
+  syntax State ::= "a" | "b"
+  configuration <k> $PGM:State </k>
+  rule <k> a => #write(1, "hi\n") ~> b ...</k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let rewrite = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/rewrite.k");
+    // No console hook at all, and a console write without a console read: neither run's result
+    // depends on standard input, so each finishes while its input is still open.
+    for (definition, module, stdout) in [
+        (rewrite.as_path(), "REWRITE", None),
+        (output_only.as_path(), "OUTPUT-ONLY", Some(&b"hi\n"[..])),
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.arg("krun").arg(definition).args([
+            "--main-module",
+            module,
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+        ]);
+        if stdout.is_some() {
+            command.args(["--output", "none"]);
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let input = child.stdin.take().unwrap();
+        let exited = exit_with_open_stdin(&mut child, watchdog);
+        if !exited {
+            child.kill().unwrap();
+        }
+        drop(input);
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            exited,
+            "{module}: krun waited for standard input to end: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.status.success(),
+            "{module}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if let Some(stdout) = stdout {
+            assert_eq!(output.stdout, stdout, "{module}");
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_io_on_reads_standard_input_to_end_of_file_when_the_definition_can_read_the_console() {
+    let (root, compiled) = compiled_live_io_fixture();
+    let mut child = live_io_command(&compiled, "input")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    input.write_all(b"A").unwrap();
+    input.flush().unwrap();
+    // The run's input is all of standard input, so it cannot finish before the input ends,
+    // even though the byte its read takes has arrived.
+    let exited = exit_with_open_stdin(&mut child, std::time::Duration::from_secs(2));
+    drop(input);
+    let output = child.wait_with_output().unwrap();
+    assert!(!exited, "krun finished before its standard input ended");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"accepted");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_accepts_explicit_stdin_and_io_overrides() {
     let fixtures =

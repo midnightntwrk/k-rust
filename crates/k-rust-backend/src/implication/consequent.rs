@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 use crate::{
     condition::instantiate_constraints,
     definition::BackendDefinition,
-    matching::expand_closed_map_implication_remainders,
+    matching::expand_implication_remainders,
     rewrite::Pattern,
     rule::Predicate,
     substitution::{Substitution, substitute},
@@ -51,10 +51,16 @@ impl ConsequentMatch {
         }
     }
 
-    /// One obligation list per closed-map expansion of `remainder`: the equations of the
+    /// One obligation list per branch of `remainder`'s expansion: the equations of the
     /// universal bindings, the remainder's equations under the match, and the destination's
     /// constraints under the match with their definedness stated (I1), each listed once and
     /// none that `known` already holds.
+    ///
+    /// A branch is one entry assignment of a closed destination map, or one placement of a
+    /// destination list's items between its parts at positions of the current list's items;
+    /// when the current list has a part of its own, the list's equation itself is one more
+    /// branch, so the branches together are equivalent to the remainder (`matching`'s
+    /// `expand_implication_remainders`). An empty set of branches is a false remainder.
     ///
     /// `known` holds facts of the antecedent's instances (I7), on which every obligation is
     /// decided.
@@ -75,7 +81,7 @@ impl ConsequentMatch {
                 .iter()
                 .map(|(variable, value)| (variable.clone(), value.clone())),
         );
-        let branches = expand_closed_map_implication_remainders(&substitution, &remainder)
+        let branches = expand_implication_remainders(definition, &substitution, &remainder)
             .unwrap_or_else(|| vec![remainder]);
         branches
             .into_iter()
