@@ -24,8 +24,27 @@ use crate::definition::AttributeKey;
 use crate::definition::attribute_keys::{KeyParameter, builtin_key};
 use crate::kast::Sort;
 use crate::kast::sort_role::{NumeralSpelling, is_numeral_spelling, numeral_spelling};
+use crate::kast::string::{HEX_ESCAPES, NAMED_ESCAPES};
+use crate::lines;
 
 use super::*;
+
+/// Whether `character` is whitespace of a definition's text: space, tab or a line end. This is the
+/// whitespace of the default layout (`crate::inner::DEFAULT_LAYOUT`, which a test keeps equal),
+/// the layout the bubbles are parsed with, so a character separates the tokens around a bubble
+/// exactly when it separates the tokens inside one.
+pub(super) fn is_whitespace(character: char) -> bool {
+    matches!(character, ' ' | '\t') || is_line_end(character)
+}
+
+/// Whether `character` begins a line terminator of `crate::lines`, the line ends every location
+/// counts.
+fn is_line_end(character: char) -> bool {
+    lines::starts_terminator(character)
+}
+
+/// [`is_whitespace`] as the body of a `regex` character class.
+const WHITESPACE_CLASS: &str = r" \t\n-\r\x{85}\x{2028}\x{2029}";
 
 const BUBBLE_TERMINATORS: [&str; 6] = [
     "syntax",
@@ -87,6 +106,25 @@ pub fn parse(source: impl Into<String>, input: &str) -> Result<SourceFile, Parse
     })
 }
 
+/// The byte offsets at which the lines of `input` start: 0 and the end of each line terminator.
+fn line_starts(input: &str) -> Vec<usize> {
+    let mut starts = vec![0];
+    let mut index = 0;
+    // Invariant: `starts` holds 0 and the end of every line terminator that ends at or before `index`, which is a character boundary; each iteration moves past one terminator, or to the next byte that may begin one (a character boundary, as no terminator begins with a continuation byte).
+    while index < input.len() {
+        if let Some(terminator) = lines::terminator_at(input, index) {
+            index += terminator.len();
+            starts.push(index);
+        } else {
+            index += input.as_bytes()[index + 1..]
+                .iter()
+                .position(|byte| lines::may_start_terminator(*byte))
+                .map_or(input.len() - index, |offset| offset + 1);
+        }
+    }
+    starts
+}
+
 struct Parser<'a> {
     input: &'a str,
     line_starts: Rc<Vec<usize>>,
@@ -97,16 +135,9 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(input: &'a str, offset: usize, end: usize) -> Self {
-        let line_starts = std::iter::once(0)
-            .chain(
-                input
-                    .match_indices('\n')
-                    .map(|(offset, _)| offset + '\n'.len_utf8()),
-            )
-            .collect();
         Self {
             input,
-            line_starts: Rc::new(line_starts),
+            line_starts: Rc::new(line_starts(input)),
             offset,
             end,
             last_start: offset,
@@ -500,7 +531,7 @@ impl<'a> Parser<'a> {
                     parser.skip_trivia()?;
                     if parser.done() {
                         return Ok((
-                            raw[..index].trim_end().to_owned(),
+                            raw[..index].trim_end_matches(is_whitespace).to_owned(),
                             attributes,
                             raw_start + index,
                         ));
@@ -567,37 +598,7 @@ impl<'a> Parser<'a> {
     fn attribute_value(&mut self) -> Result<String, ParseError> {
         if self.peek_char() == Some('"') {
             self.bump();
-            let mut value = String::new();
-            loop {
-                let ch = self
-                    .bump()
-                    .ok_or_else(|| self.error("unterminated attribute string"))?;
-                match ch {
-                    '"' => break,
-                    '\n' | '\r' => return Err(self.error("newline in attribute string")),
-                    '\\' => {
-                        let escaped = self
-                            .bump()
-                            .ok_or_else(|| self.error("unterminated attribute string"))?;
-                        value.push(match escaped {
-                            '"' => '"',
-                            'n' => '\n',
-                            'r' => '\r',
-                            't' => '\t',
-                            '\\' => '\\',
-                            '\n' | '\r' => {
-                                return Err(self.error("newline in attribute string"));
-                            }
-                            other => {
-                                return Err(self.error(format!(
-                                    "invalid escape `\\{other}` in attribute string"
-                                )));
-                            }
-                        });
-                    }
-                    other => value.push(other),
-                }
-            }
+            let value = self.string_literal("attribute string")?;
             self.skip_trivia()?;
             self.expect_raw(')')?;
             return Ok(value);
@@ -611,7 +612,9 @@ impl<'a> Parser<'a> {
                 .ok_or_else(|| self.error("unterminated attribute value"))?;
             match ch {
                 '"' => return Err(self.error("quote in unquoted attribute value")),
-                '\n' | '\r' => return Err(self.error("newline in unquoted attribute value")),
+                ch if is_line_end(ch) => {
+                    return Err(self.error("newline in unquoted attribute value"));
+                }
                 '(' => depth += 1,
                 ')' => {
                     depth -= 1;
@@ -757,19 +760,23 @@ impl<'a> Parser<'a> {
     }
 
     fn run_len(&self, offset: usize) -> usize {
-        self.input.as_bytes()[offset..self.end]
-            .iter()
-            .position(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
-            .unwrap_or(self.end - offset)
+        let remaining = &self.input[offset..self.end];
+        remaining.find(is_whitespace).unwrap_or(remaining.len())
     }
 
+    /// The length of the comment at `offset`, 0 when none starts there: a `//` comment runs
+    /// through the first line terminator, or to the end of the text on the last line; a `/*`
+    /// comment through the first `*/`, and an unterminated one is none.
     fn comment_len(&self, offset: usize) -> usize {
-        let remaining = &self.input.as_bytes()[offset..self.end];
+        let text = &self.input[offset..self.end];
+        let remaining = text.as_bytes();
         if remaining.starts_with(b"//") {
-            return remaining
-                .iter()
-                .position(|byte| matches!(byte, b'\r' | b'\n'))
-                .map_or(0, |end| end + 1);
+            return text
+                .char_indices()
+                .find_map(|(index, _)| {
+                    lines::terminator_at(text, index).map(|terminator| index + terminator.len())
+                })
+                .unwrap_or(text.len());
         }
         if remaining.starts_with(b"/*") {
             return remaining[2..]
@@ -780,24 +787,21 @@ impl<'a> Parser<'a> {
         0
     }
 
+    /// Skips the layout before the next bubble word: whitespace and every complete comment, which
+    /// the default layout reads as layout wherever a token may begin, so the text touching a
+    /// comment's end begins the word. A comment inside a word stays part of it (`run_len`), and an
+    /// unterminated `/*` begins a word.
     fn skip_bubble_trivia(&mut self) {
-        // Invariant: the text skipped before `self.offset` is whitespace and comments; each iteration that continues skips one comment longer than the run at `self.offset`, so `self.offset` increases toward `self.end`.
+        // Invariant: the text skipped before `self.offset` is whitespace and complete comments; each iteration that continues skips one comment of positive length, so `self.offset` increases toward `self.end`.
         loop {
-            while self.offset < self.end
-                && matches!(
-                    self.input.as_bytes()[self.offset],
-                    b' ' | b'\t' | b'\r' | b'\n'
-                )
-            {
-                self.offset += 1;
+            while self.peek_char().is_some_and(is_whitespace) {
+                self.bump();
             }
-            let run_len = self.run_len(self.offset);
             let comment_len = self.comment_len(self.offset);
-            if comment_len > run_len {
-                self.offset += comment_len;
-            } else {
+            if comment_len == 0 {
                 break;
             }
+            self.offset += comment_len;
         }
     }
 
@@ -839,35 +843,67 @@ impl<'a> Parser<'a> {
     fn quoted(&mut self) -> Result<String, ParseError> {
         self.skip_trivia()?;
         self.expect_raw('"')?;
+        self.string_literal("string")
+    }
+
+    /// The characters of the K `String` literal whose opening quote precedes `self.offset`,
+    /// consuming it through its closing quote: any character but `"`, `\`, newline and carriage
+    /// return stands for itself, and each escape `domains.md` defines for `String` names one code
+    /// point (`crate::kast::string`'s tables). `what` names the literal in errors.
+    fn string_literal(&mut self, what: &str) -> Result<String, ParseError> {
         let mut result = String::new();
         loop {
             let start = self.offset;
             let ch = self
                 .bump()
-                .ok_or_else(|| self.error("unterminated string"))?;
+                .ok_or_else(|| self.error(format!("unterminated {what}")))?;
             match ch {
                 '"' => return Ok(result),
-                '\n' => return Err(self.error_at(start, "newline in string")),
-                '\\' => {
-                    let escaped = self
-                        .bump()
-                        .ok_or_else(|| self.error("unterminated escape"))?;
-                    let decoded = match escaped {
-                        'n' => '\n',
-                        'r' => '\r',
-                        't' => '\t',
-                        '\\' => '\\',
-                        '"' => '"',
-                        other => {
-                            return Err(self
-                                .error_at(start, format!("invalid escape `\\{other}` in string")));
-                        }
-                    };
-                    result.push(decoded);
-                }
+                '\n' | '\r' => return Err(self.error_at(start, format!("newline in {what}"))),
+                '\\' => result.push(self.string_escape(start, what)?),
                 other => result.push(other),
             }
         }
+    }
+
+    /// The code point the escape whose backslash is at `start` names, consuming the rest of it.
+    fn string_escape(&mut self, start: usize, what: &str) -> Result<char, ParseError> {
+        let letter = self
+            .peek_char()
+            .ok_or_else(|| self.error(format!("unterminated {what}")))?;
+        if matches!(letter, '\n' | '\r') {
+            return Err(self.error(format!("newline in {what}")));
+        }
+        self.bump();
+        if let Some((_, character)) = NAMED_ESCAPES.iter().find(|(name, _)| *name == letter) {
+            return Ok(*character);
+        }
+        let Some((_, digits)) = HEX_ESCAPES.iter().find(|(name, _)| *name == letter) else {
+            return Err(self.error_at(start, format!("invalid escape `\\{letter}` in {what}")));
+        };
+        let mut value = 0u32;
+        for _ in 0..*digits {
+            let Some(digit) = self.peek_char().and_then(|ch| ch.to_digit(16)) else {
+                return Err(self.error_at(
+                    start,
+                    format!(
+                        "invalid escape `{}` in {what}: `\\{letter}` takes {digits} hexadecimal digits",
+                        &self.input[start..self.offset]
+                    ),
+                ));
+            };
+            self.bump();
+            value = value * 16 + digit;
+        }
+        char::from_u32(value).ok_or_else(|| {
+            self.error_at(
+                start,
+                format!(
+                    "escape `{}` in {what} names no Unicode scalar value",
+                    &self.input[start..self.offset]
+                ),
+            )
+        })
     }
 
     fn regex(&mut self) -> Result<String, ParseError> {
@@ -956,7 +992,7 @@ impl<'a> Parser<'a> {
             || remaining
                 .chars()
                 .next()
-                .is_some_and(|ch| ch.is_whitespace() || "{}()[],|>=:\"".contains(ch))
+                .is_some_and(|ch| is_whitespace(ch) || "{}()[],|>=:\"".contains(ch))
     }
 
     fn expect_char(&mut self, ch: char) -> Result<(), ParseError> {
@@ -990,7 +1026,7 @@ impl<'a> Parser<'a> {
     fn skip_trivia(&mut self) -> Result<(), ParseError> {
         // Invariant: the text skipped before `self.offset` is whitespace and complete comments; each iteration that continues skips one comment of positive length, so `self.offset` increases toward `self.end`.
         loop {
-            while self.peek_char().is_some_and(char::is_whitespace) {
+            while self.peek_char().is_some_and(is_whitespace) {
                 self.bump();
             }
             let comment_len = self.comment_len(self.offset);
@@ -1170,11 +1206,14 @@ fn attribute_starts(raw: &str) -> Vec<usize> {
                 index += 1;
             }
             State::String => index += 1,
-            State::LineComment if bytes[index] == b'\n' => {
-                state = State::Code;
-                index += 1;
+            State::LineComment => {
+                if let Some(terminator) = lines::terminator_at(raw, index) {
+                    state = State::Code;
+                    index += terminator.len();
+                } else {
+                    index += 1;
+                }
             }
-            State::LineComment => index += 1,
             State::BlockComment if bytes[index..].starts_with(b"*/") => {
                 state = State::Code;
                 index += 2;
@@ -1212,9 +1251,10 @@ fn is_attribute_key(key: &str) -> bool {
 
 fn split_label(raw: &str) -> (Option<String>, &str) {
     static LABEL: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r"(?s)\A[ \t\n\x0B\x0C\r]*\[[ \t\n\x0B\x0C\r]*([^\[\]_ \n\r\t]+)[ \t\n\x0B\x0C\r]*\][ \t\n\x0B\x0C\r]*:[ \t\n\x0B\x0C\r]*(.*)\z",
-        )
+        let space = format!("[{WHITESPACE_CLASS}]*");
+        Regex::new(&format!(
+            r"(?s)\A{space}\[{space}([^\[\]_{WHITESPACE_CLASS}]+){space}\]{space}:{space}(.*)\z"
+        ))
         .expect("the bubble label pattern is valid")
     });
     if let Some(captures) = LABEL.captures(raw) {
@@ -1223,4 +1263,59 @@ fn split_label(raw: &str) -> (Option<String>, &str) {
         return (Some(label.as_str().to_owned()), content.as_str());
     }
     (None, raw)
+}
+
+// The default layout is reachable here only in the `cli` build, whose suite runs these tests.
+#[cfg(all(test, feature = "cli"))]
+mod tests {
+    use super::*;
+
+    /// Regex `index` of `crate::inner::DEFAULT_LAYOUT`, anchored to match a whole text.
+    fn default_layout_regex(index: usize) -> Regex {
+        let regex = k_rust_regex::parse(crate::inner::DEFAULT_LAYOUT[index])
+            .expect("the default layout regexes are valid");
+        Regex::new(&format!(
+            r"\A(?:{})\z",
+            regex
+                .body
+                .to_rust_string()
+                .expect("the default layout names no lexical")
+        ))
+        .expect("the default layout prints as a valid regex")
+    }
+
+    /// A character separates outer tokens and bubble words exactly when the default layout, with
+    /// which the bubbles are parsed, reads it as whitespace, and the class the label pattern uses
+    /// holds the same characters.
+    #[test]
+    fn outer_whitespace_is_the_default_layouts_whitespace() {
+        let layout = default_layout_regex(2);
+        let class = Regex::new(&format!(r"\A[{WHITESPACE_CLASS}]\z")).unwrap();
+        for character in (0..=0x10FFFF).filter_map(char::from_u32) {
+            let text = character.to_string();
+            assert_eq!(
+                is_whitespace(character),
+                layout.is_match(&text),
+                "{character:?}"
+            );
+            assert_eq!(
+                is_whitespace(character),
+                class.is_match(&text),
+                "{character:?}"
+            );
+        }
+    }
+
+    /// An outer `//` comment runs over a character exactly when the default layout's comment
+    /// does, and a comment that meets no line end ends with the text.
+    #[test]
+    fn outer_line_comments_end_where_the_default_layouts_do() {
+        let comment = default_layout_regex(1);
+        for character in (0..=0x10FFFF).filter_map(char::from_u32) {
+            let text = format!("// a{character}b");
+            let parser = Parser::new(&text, 0, text.len());
+            let runs_over = parser.comment_len(0) == text.len();
+            assert_eq!(runs_over, comment.is_match(&text), "{character:?}");
+        }
+    }
 }

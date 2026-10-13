@@ -296,6 +296,10 @@ The pinned K's generated parsers number columns from 0 on the first line and fro
 A numbering that changes after the first line puts every rule that prints or compares columns off by one on that line only, and one convention for every location krust produces lets a program's locations be compared with a rule's `Location` attribute.
 The conformance driver therefore compares the four generated-parser cases whose definitions declare a `[locations]` sort, `bison-parser-library`, `locations`, `locations2` and `locations3`, with the line and column arguments of every `#location` removed on both sides (normalisation N46, `comparison = "locations"` in `scripts/conformance/bison-parsers.toml`); the located terms, their file names and the rest of the output are still compared, and krust's numbers are checked by its own CLI location test.
 
+A generated parser's scanner rejects text that no token and no layout matches with `L:C:L:C:syntax error: unexpected X`, located at one column, the column of the first byte it cannot match; `X` is the whole character in that column, that byte and the UTF-8 continuation bytes after it (the bytes the location counts in the same column), written byte for byte, a NUL byte included.
+The pinned K's generated parsers write that first byte as a C string: an unmatched U+0000 as nothing and a multi-byte character as its lead byte alone (`ab;é;.Pgm` gives `unexpected \xC3`), which names no character to a UTF-8 reader of the message.
+A message located at one column names the character in it, so krust writes all of its bytes (`kast_gen_parser_scanner_errors_name_the_whole_unexpected_character` in `crates/k-rust/tests/cli.rs`).
+
 ## In-process program locations
 
 krust's in-process program parser (`kast` without `--gen-parser`, the program, `--expression` and `-c` values of `krun`, and the library's program parsing) wraps the terms of `[locations]` sorts in `#location` as its generated parsers do; the pinned K's in-process parser builds the same program without any wrapper (its `kast --output kore` prints `plus(x, ...)` for a definition whose `Exp` declares `[locations]`, where its generated parser prints `#location{Exp}(plus(...), ...)`).
@@ -685,6 +689,49 @@ So `a // c` U+2028 `b` is the tokens `a` and `b`, as `a // c` `\n` `b` is, and `
 The comment's class excludes `\n` through `\r` (line feed, vertical tab, form feed and carriage return) and U+0085, U+2028 and U+2029, and the whitespace class holds the same characters with space and tab; `crates/k-rust/src/inner/parser/scanner.rs` holds the layout both scanners use, which a test keeps equal to the module.
 This diverges from the pinned K's default layout, `//[^\n\r]*` and `[\ \n\r\t]`: there the comment in `a // c` U+2028 `b` runs on to the next `\n` or `\r` and takes `b` with it, and a vertical tab, form feed, U+0085, U+2028 or U+2029 outside a comment is a scanner error.
 (`the_default_line_comment_ends_at_every_line_end_a_location_counts` in [cli.rs](../crates/k-rust/tests/cli.rs), which runs both scanners; `the_default_layout_is_the_default_layout_module_of_the_prelude`, `the_default_line_comment_ends_at_every_line_terminator` and `every_line_terminator_is_default_layout` in [scanner.rs](../crates/k-rust/src/inner/parser/scanner.rs).)
+
+## Definition text layout
+
+A definition is one text: its module, import, syntax and `requires` sentences and attribute lists surround the bubbles of its rules, claims, contexts and configurations, which are parsed with the default layout (see "Default layout line ends").
+krust reads the text around the bubbles with that same layout, so a character is layout everywhere in a definition or nowhere: whitespace is space, tab and every line terminator, a `//` comment ends at the first line end, and a `/* */` comment at the first `*/`.
+A bubble ends before a sentence keyword that this whitespace separates from it, so U+2028 between the end of a rule and the next `rule` ends the first rule as a newline does, and a character that is no layout, such as U+00A0, separates no outer tokens, as it separates no tokens in a rule.
+A `//` comment on the last line of the text ends with the text, as the default layout's comment `//[^…]*` does.
+The positions of the outer syntax (sentence and bubble locations, the outer parser's errors) count lines as every other location does, so a location in a file whose lines end in `\r` is on its line.
+An unquoted attribute value, such as `a b` in `[foo(a b)]`, ends on its line: any line end in it is an error, as a `\n` is.
+
+This diverges from the pinned K's outer lexer, which ends `//` only at `\n` or `\r`, rejects a final `//` comment without a line end, and rejects a vertical tab, form feed, U+0085, U+2028 or U+2029 between outer tokens; in a bubble, a vertical tab or form feed before the next sentence ends its compilation with an internal `NegativeArraySizeException`, and the other three are a scanner error of the rule.
+krust before this change read the text around bubbles with every Unicode `White_Space` character as whitespace (U+00A0 and U+2003 between `module` and its name were accepted) while splitting bubbles at ASCII space, tab, `\r` and `\n` only, and counted outer lines at `\n` only: in a file whose lines end in `\r`, an undefined sort on line 3 was reported at `1:51` where the pinned K reports `3:18`, which krust now reports too.
+(`outer_whitespace_is_the_default_layouts_whitespace` and `outer_line_comments_end_where_the_default_layouts_do` in [parser.rs](../crates/k-rust/src/outer/parser.rs); `line_comments_end_at_every_line_end`, `outer_tokens_and_bubbles_split_at_the_same_whitespace`, `outer_positions_count_every_line_terminator` and `unquoted_attribute_values_end_on_their_line` in [outer_parser.rs](../crates/k-rust/tests/outer_parser.rs).)
+
+A comment is layout wherever a bubble word may begin: at the start of a bubble, or after whitespace or another comment in it, a complete comment is skipped as whitespace is, whatever text touches its end, and that text begins the next word.
+So `rule /*c*/ [l]: a => b`, `rule /*c*/[l]: a => b` and `rule /* a longer comment */ [l]: a => b` each label the rule `l`, and in `rule [l]: a => b /*c*/rule [m]: b => a` the second `rule` begins a sentence, as it does after `/*c*/` and a space.
+Within a word a comment is part of the word: the outer syntax reads a bubble as words its whitespace separates, since it does not read the tokens of the grammar the bubble is parsed with, so `b//syntax` and `b/*c*/rule` are one word each and end no bubble.
+The tags of `syntax priority` and of `syntax left`, `right` and `non-assoc` are words read the same way, so `syntax priority times /*c*/ > plus`, `syntax priority times /*c*/> plus` and `syntax priority /*c*/times > plus` each put `times` above `plus`, and `syntax left /*c*/plus` declares `plus` left-associative.
+This diverges from the pinned K's outer lexer, which reads a comment at the start of a bubble word only when it is at least as long as the word's whitespace-free text: it reads `/*c*/[l]:` as one bubble word and rejects `rule /*c*/[l]: a => b` at the `:` (the label stays in the rule's text), and reads `/*c*/rule` as one word, so the two rules above are one sentence there, rejected at the `:` after `[m]`.
+krust before this change read a comment as trivia only when it was longer than that text, so it also rejected `rule /*c*/ [l]: a => b`, whose comment is exactly as long as its word, which the pinned K accepts with the label `l`.
+In tag lists likewise: the pinned K accepts `syntax priority times /*c*/ > plus` and rejects the other three declarations above, naming `/*c*/>`, `/*c*/times` and `/*c*/plus` as tags no production has; krust before this change rejected all four, reading the comment as a tag or part of one (`/*c*/` alone before a space).
+(`bubble_comments_are_layout_wherever_a_word_may_begin` and `tag_list_comments_are_layout_wherever_a_tag_may_begin` in [outer_parser.rs](../crates/k-rust/tests/outer_parser.rs).)
+
+The text of a Markdown definition is its selected `k` blocks: prose and unselected blocks are not part of the definition, and they contribute only their whitespace, which keeps every later location on its line.
+That whitespace is the whitespace above, so a character kept from prose is layout wherever it falls, and a prose character the default layout does not read as layout, such as U+00A0 or U+2003, is dropped with the rest of the prose: prose never makes an outer-syntax error.
+This diverges from the pinned K, which keeps a prose character it reads as whitespace (U+2003, U+2028) and then rejects it as an outer lexical error, so a Markdown definition with such a character in its prose compiles with krust and not with the pinned K; U+00A0 in prose both accept.
+krust before this change kept every Unicode `White_Space` character of the prose; with the outer syntax reading only the default layout's whitespace (above), U+00A0 or U+2003 in prose was an outer-syntax error.
+(`markdown_prose_contributes_only_layout` in [outer_parser.rs](../crates/k-rust/tests/outer_parser.rs).)
+
+A Markdown definition's lines are the lines of the definition text: they end at every line terminator, so a fence opens and closes on a line that `\r`, a vertical tab, form feed, U+0085, U+2028 or U+2029 ends as it does on one that `\n` ends, and `\r\n` is one line end.
+So a Markdown definition whose lines end in `\r` alone compiles, and its locations count those lines, as the pinned K's do: a rule failure on line 11 is reported on line 11 whichever of `\n`, `\r\n` and `\r` ends the lines.
+This diverges from the pinned K for the other terminators, where it rejects the definition: with U+2028, U+2029, a vertical tab or a form feed as the line end, an outer lexical error at the first one it keeps, and with U+0085 no module is found; krust reads their fences and compiles it.
+krust before this change split a Markdown file at `\n` only, so in a file whose lines end in `\r` alone no fence opened and no module was found.
+(`markdown_lines_end_at_every_line_terminator` in [outer_markdown.rs](../crates/k-rust/tests/outer_markdown.rs).)
+
+A string of the definition text (a terminal, a token regex `r"…"`, a user-list separator, a `requires` path, a quoted attribute value) is a K `String` literal as `domains.md` defines it: any character but `"`, `\`, newline and carriage return stands for itself, and `\"`, `\\`, `\n`, `\r`, `\t`, `\f`, `\xHH`, `\uHHHH` and `\UHHHHHHHH` each name one code point.
+So a definition's terminal `"\u2028"` is the one-character string a program's `"\u2028"` is, and a regex's string is decoded before it is read as a regex: `r"[\u2028]"` is the class of U+2028.
+A string holds text, so an escape that names no Unicode scalar value (a surrogate, or a number above U+10FFFF) is an error.
+This diverges from the pinned K, which rejects `\f`, `\x`, `\u` and `\U` in each of these strings, so krust accepts definitions the pinned K rejects; and the pinned K accepts a carriage return written verbatim in each of them, which krust accepts in none.
+krust before this change rejected the four escapes too, and the verbatim carriage return in attribute strings only.
+A line terminator other than `\n` and `\r` may stand for itself in a string, and is then a line end of the definition's text, which locations after it count. The pinned K counts no line at such a character: `syntax Foo ::= "a` U+2028 `b"` on line 2 is located at `Location(2,18,2,23)` there and at `Location(2,18,3,3)` by krust, and everything after it one line lower.
+So [kast.md](../crates/k-rust/builtin/kast.md) writes U+0085, U+2028 and U+2029 in the `DEFAULT-LAYOUT` regexes as `\u0085`, `\u2028` and `\u2029`: the regexes are the same, and the module's lines are its lines as written.
+(`outer_strings_are_k_string_literals` in [outer_parser.rs](../crates/k-rust/tests/outer_parser.rs).)
 
 ## Compiler-resolved fresh constants
 

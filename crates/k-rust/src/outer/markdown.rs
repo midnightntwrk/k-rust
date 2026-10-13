@@ -19,6 +19,8 @@
 
 use std::{collections::BTreeSet, fmt};
 
+use super::parser::is_whitespace;
+use crate::lines;
 use crate::provenance::{SourceOffsetMap, SourceOffsetSegment};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -87,7 +89,7 @@ pub fn extract_fenced_k_code_with_map(
     let mut open: Option<(char, usize, usize, bool)> = None;
 
     // Invariant: `offset` is the byte offset of `line` in `input`, `open` holds the fence opened by an earlier line and not yet closed, and `selected` holds the content range of every closed fence before `offset` whose tags satisfy `selector`; each iteration consumes one line of `input`.
-    for line in input.split_inclusive('\n') {
+    for line in lines::split_inclusive(input) {
         let line_end = offset + line.len();
         if let Some((marker, width, content_start, keep)) = open {
             if closing_fence(line, marker, width) {
@@ -114,7 +116,10 @@ pub fn extract_fenced_k_code_with_map(
     let mut output = String::new();
     let mut segments = Vec::<SourceOffsetSegment>::new();
     let mut ranges = selected.into_iter().peekable();
-    // Invariant: `output` holds the characters of `input` before `index` that lie in a selected range or are whitespace, `segments` maps them back to `input` with contiguous runs merged, and `ranges` has dropped every range ending at or before `index`; each iteration consumes one character and `ranges` only advances, so the pass is O(|input| + |selected|).
+    // Prose and unselected blocks are not part of the definition: they keep only the definition
+    // text's whitespace, so every later location stays on its line and no prose character reaches
+    // the outer syntax as anything but layout.
+    // Invariant: `output` holds the characters of `input` before `index` that lie in a selected range or are whitespace of the definition text, `segments` maps them back to `input` with contiguous runs merged, and `ranges` has dropped every range ending at or before `index`; each iteration consumes one character and `ranges` only advances, so the pass is O(|input| + |selected|).
     for (index, character) in input.char_indices() {
         while ranges.peek().is_some_and(|(_, end)| index >= *end) {
             ranges.next();
@@ -122,7 +127,7 @@ pub fn extract_fenced_k_code_with_map(
         let keep = ranges
             .peek()
             .is_some_and(|(start, end)| index >= *start && index < *end);
-        if keep || character.is_whitespace() {
+        if keep || is_whitespace(character) {
             let semantic_start = output.len();
             output.push(character);
             let length = character.len_utf8();
@@ -150,18 +155,15 @@ pub fn extract_fenced_k_code_with_map(
 }
 
 fn opening_fence(line: &str) -> Option<(char, usize, usize, &str)> {
-    let without_newline = line.strip_suffix('\n').unwrap_or(line);
-    let without_newline = without_newline
-        .strip_suffix('\r')
-        .unwrap_or(without_newline);
-    let indent = without_newline
+    let without_line_end = lines::strip_terminator(line);
+    let indent = without_line_end
         .bytes()
         .take_while(|byte| *byte == b' ')
         .count();
     if indent > 3 {
         return None;
     }
-    let rest = &without_newline[indent..];
+    let rest = &without_line_end[indent..];
     let marker = rest.chars().next()?;
     if !matches!(marker, '`' | '~') {
         return None;
@@ -182,18 +184,15 @@ fn opening_fence(line: &str) -> Option<(char, usize, usize, &str)> {
 }
 
 fn closing_fence(line: &str, marker: char, opening_width: usize) -> bool {
-    let without_newline = line.strip_suffix('\n').unwrap_or(line);
-    let without_newline = without_newline
-        .strip_suffix('\r')
-        .unwrap_or(without_newline);
-    let indent = without_newline
+    let without_line_end = lines::strip_terminator(line);
+    let indent = without_line_end
         .bytes()
         .take_while(|byte| *byte == b' ')
         .count();
     if indent > 3 {
         return false;
     }
-    let rest = &without_newline[indent..];
+    let rest = &without_line_end[indent..];
     let width = rest
         .chars()
         .take_while(|candidate| *candidate == marker)

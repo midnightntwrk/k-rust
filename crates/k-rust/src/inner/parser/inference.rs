@@ -626,7 +626,7 @@ impl Grammar {
         let readings = |trees: &BTreeSet<ParsedTerm>| {
             trees
                 .iter()
-                .map(|tree| erase_instances(tree.clone()))
+                .map(|tree| self.reading(tree))
                 .collect::<BTreeSet<_>>()
         };
         match (decided, per_tree) {
@@ -659,7 +659,11 @@ impl Grammar {
                     );
                     // Every reading the per-tree group keeps is kept, at some instance of its
                     // brackets and parameters: shadowing a bracket instance drops an instance,
-                    // never a reading.
+                    // never a reading. A reading is a tree as `Grammar::one_reading_twice` reads
+                    // it, each production as its label and arity, which is what lowering reads
+                    // of it; so the rule grammar's rewrite productions at two sorts are one
+                    // reading, as they are one parametric rewrite at two instances and lower to
+                    // one rewrite.
                     assert_eq!(
                         readings(&kept),
                         readings(&per_tree[owner].0),
@@ -2160,33 +2164,6 @@ enum Reading {
     Node(Result<(String, usize), usize>, Vec<Reading>),
 }
 
-/// `tree` (with its brackets erased) with every instantiated production read as its production:
-/// the reading a tree is, whatever sorts its parameters were instantiated at.
-#[cfg(test)]
-fn erase_instances(tree: ParsedTerm) -> ParsedTerm {
-    crate::stack::guarded(|| match tree.into_parts() {
-        ParsedParts::Production {
-            production,
-            children,
-            metadata,
-        }
-        | ParsedParts::InstantiatedProduction {
-            production,
-            children,
-            metadata,
-            ..
-        } => ParsedTerm::Production {
-            production,
-            children: children.into_iter().map(erase_instances).collect(),
-            metadata,
-        },
-        ParsedParts::Term(leaf) => ParsedTerm::Term(leaf),
-        ParsedParts::Ambiguity(alternatives) => {
-            ParsedTerm::Ambiguity(alternatives.into_iter().map(erase_instances).collect())
-        }
-    })
-}
-
 #[cfg(test)]
 /// The formal-parameter instantiations of one inferred tree: each parametric production it
 /// uses with the sorts its parameters were instantiated at, in a canonical order.
@@ -3083,7 +3060,7 @@ mod tests {
                 let readings = |trees: &BTreeSet<ParsedTerm>| {
                     trees
                         .iter()
-                        .map(|tree| super::erase_instances(tree.clone()))
+                        .map(|tree| grammar.reading(tree))
                         .collect::<BTreeSet<_>>()
                 };
                 assert_eq!(
@@ -3276,6 +3253,153 @@ mod tests {
             lowerings[3] - lowerings[2],
             2 * (lowerings[2] - lowerings[1])
         );
+    }
+
+    /// `g((a => a))` with `g(D)`, the brackets `B ::= "(" B ")"` and `C ::= "(" C ")"`, a bracket
+    /// family `(_)` with instances at `A` and `D`, and the rule grammar's rewrite at each of `A`,
+    /// `B`, `C` and `D` (`S ::= S "=>" S` labelled `#KRewrite`): the text inside the brackets is
+    /// one rewrite of two `a`s, read through four bracket instances, each with the rewrite at its
+    /// own sort.
+    fn rewrite_in_brackets_at_four_sorts() -> (Grammar, Rc<PackedTerm>, usize) {
+        let mut grammar = Grammar::default();
+        let add = |grammar: &mut Grammar, result: &str, items, label: Option<&str>| {
+            let index = grammar.productions.len();
+            grammar
+                .add(
+                    Sort::new(result),
+                    items,
+                    label.map(Label::new),
+                    false,
+                    false,
+                )
+                .unwrap();
+            index
+        };
+        let terminal = |text: &str| ProductionItem::Terminal(text.into());
+        let parenthesized = |sort: &str| vec![terminal("("), nonterminal(sort), terminal(")")];
+        let a = add(&mut grammar, "A", vec![terminal("a")], Some("a"));
+        let mut readings = Vec::new();
+        for sort in ["B", "C"] {
+            let bracket = grammar.productions.len();
+            grammar
+                .add_bracket(Sort::new(sort), parenthesized(sort), None)
+                .unwrap();
+            readings.push((bracket, sort));
+        }
+        for sort in ["A", "D"] {
+            let bracket = add(&mut grammar, sort, parenthesized(sort), None);
+            grammar.productions[bracket].bracket = true;
+            grammar.productions[bracket].transparent = true;
+            grammar.productions[bracket].parse_label = Some("(_)".into());
+            readings.push((bracket, sort));
+        }
+        let mut rewrite_at_a = None;
+        let alternatives = readings
+            .into_iter()
+            .map(|(bracket, sort)| {
+                let rewrite = add(
+                    &mut grammar,
+                    sort,
+                    vec![nonterminal(sort), terminal("=>"), nonterminal(sort)],
+                    Some("#KRewrite"),
+                );
+                if sort == "A" {
+                    rewrite_at_a = Some(rewrite);
+                }
+                let leaf = packed_production(a, Vec::new());
+                packed_production(
+                    bracket,
+                    vec![packed_production(rewrite, vec![Rc::clone(&leaf), leaf])],
+                )
+            })
+            .collect();
+        let g = add(
+            &mut grammar,
+            "Item",
+            vec![
+                terminal("g"),
+                terminal("("),
+                nonterminal("D"),
+                terminal(")"),
+            ],
+            Some("g"),
+        );
+        grammar.subsort_relations.extend([
+            (Sort::new("A"), Sort::new("B")),
+            (Sort::new("A"), Sort::new("C")),
+            (Sort::new("B"), Sort::new("D")),
+            (Sort::new("C"), Sort::new("D")),
+            (Sort::new("D"), Sort::new("K")),
+            (Sort::new("Item"), Sort::new("K")),
+        ]);
+        let forest = packed_production(g, vec![PackedTerm::ambiguity(alternatives)]);
+        (grammar, forest, rewrite_at_a.unwrap())
+    }
+
+    /// The forest decision drops the tree through the bracket family's instance at `A`, which
+    /// bounds the rewrite inside it at `A`, and keeps the one at `D`, the sort `g` gives its
+    /// argument; the per-tree decision keeps both. The two trees are one reading: they differ
+    /// only in the bracket instance and in the sort of the rule grammar's rewrite production,
+    /// one label at two sorts, and every tree of the forest lowers alone to the one rewrite the
+    /// decision returns. So the decisions keep the same readings, and the test build's
+    /// comparison of the two (`Grammar::check_forest_decision`, `assert_forest_decision_agrees`)
+    /// passes.
+    #[test]
+    fn a_rewrite_read_at_the_sort_of_a_shadowed_bracket_instance_is_a_kept_reading() {
+        let (grammar, forest, rewrite_at_a) = rewrite_in_brackets_at_four_sorts();
+        let top = Sort::new("Item");
+        let required = || ParseError::Z3InferenceRequired {
+            ambiguity: true,
+            parametric_sorts: false,
+        };
+        let through_rewrite_at_a = |trees: &[ParsedTerm]| {
+            trees.iter().any(|tree| {
+                let ParsedTerm::Production { children, .. } = tree else {
+                    return false;
+                };
+                matches!(
+                    &children[0],
+                    ParsedTerm::Production { children, .. }
+                        if matches!(
+                            &children[0],
+                            ParsedTerm::Production { production, .. }
+                                if *production == rewrite_at_a
+                        )
+                )
+            })
+        };
+        let per_tree = grammar
+            .maximal_typing_groups(&forest, &top, false, required)
+            .expect("the per-tree decision decides the forest");
+        let [per_tree] = per_tree.as_slice() else {
+            panic!("the forest has one typing");
+        };
+        let per_tree = expand_packed_trees(&per_tree.term);
+        assert_eq!(per_tree.len(), 4);
+        assert!(through_rewrite_at_a(&per_tree));
+        let decided = grammar
+            .decide_forest(&forest, &top, false, &required)
+            .expect("the forest decision decides the forest");
+        let [decided] = decided.as_slice() else {
+            panic!("the forest has one typing");
+        };
+        let decided = expand_packed_trees(&decided.term);
+        assert_eq!(decided.len(), 3);
+        assert!(!through_rewrite_at_a(&decided));
+
+        let lower = super::super::InferredLowering {
+            grammar: &grammar,
+            start: &top,
+        };
+        let parse = grammar
+            .infer_ambiguous_sorts_portable(&forest, &top, false, &lower)
+            .expect("the forest decision decides the forest");
+        assert_eq!(parse.to_string(), "g(a(.KList)=>a(.KList))");
+        for tree in per_tree {
+            let alone = lower.lower(tree).expect("each tree lowers alone");
+            assert!(alone.identical(&parse), "{alone} against {parse}");
+        }
+        assert_forest_decision_agrees(&grammar, &forest, &top, false);
     }
 
     #[test]

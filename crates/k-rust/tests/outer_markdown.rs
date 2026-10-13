@@ -163,6 +163,83 @@ fn markdown_rule_failures_report_the_exact_unexpected_token_location() {
     );
 }
 
+/// The location of the rule failure in `source`, a Markdown definition of the module `MAIN`.
+fn rule_failure_location(source: &str) -> Option<Location> {
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let error = load_with_options(
+        ResolvedSource::new("fixture.md", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions::default(),
+    )
+    .unwrap_err();
+    let k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error)) = error else {
+        panic!("expected an inner rule parse error: {error:?}")
+    };
+    error.location
+}
+
+/// A Markdown definition's lines end where the definition text's do: a fence opens and closes on
+/// a line that any line terminator ends, and every location after it counts the lines before it.
+#[test]
+fn markdown_lines_end_at_every_line_terminator() {
+    let lines = [
+        "Prose before.",
+        "",
+        "```k",
+        "module MAIN",
+        r#"  syntax Start ::= "ok" "done" [symbol(start)]"#,
+        "```",
+        "",
+        "Prose between.",
+        "",
+        "```{k}",
+        r#"  syntax Other ::= "bad" [symbol(bad)]"#,
+        "  rule ok bad",
+        "endmodule",
+        "```",
+        "Prose after.",
+        "",
+    ];
+    let rule = Some(Location {
+        start_line: 12,
+        start_column: 11,
+        end_line: 12,
+        end_column: 14,
+    });
+    let with_newlines = lines.join("\n");
+    let extracted_with_newlines = extract_fenced_k_code(&with_newlines, "k").unwrap();
+    assert!(extracted_with_newlines.contains("module MAIN"));
+    assert!(extracted_with_newlines.contains("rule ok bad"));
+    assert_eq!(rule_failure_location(&with_newlines), rule);
+
+    for terminator in [
+        "\r\n", "\r", "\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}",
+    ] {
+        let source = lines.join(terminator);
+        assert_eq!(
+            extract_fenced_k_code(&source, "k").unwrap(),
+            extracted_with_newlines.replace('\n', terminator),
+            "{terminator:?}"
+        );
+        assert_eq!(rule_failure_location(&source), rule, "{terminator:?}");
+    }
+
+    // One file, three line ends: prose and the fences between the two blocks end in U+2028, the
+    // first block in `\r`, the second in `\r\n`.
+    let mixed = [
+        lines[..2].join("\n"),
+        lines[2..5].join("\r"),
+        lines[5..10].join("\u{2028}"),
+        lines[10..].join("\r\n"),
+    ]
+    .join("\u{2028}");
+    let extracted = extract_fenced_k_code(&mixed, "k").unwrap();
+    assert!(extracted.contains("module MAIN\r"));
+    assert!(extracted.contains("rule ok bad\r\n"));
+    assert_eq!(rule_failure_location(&mixed), rule);
+}
+
 #[test]
 fn selector_supports_boolean_operators_grouping_and_both_tag_spellings() {
     let source = indoc! {r#"

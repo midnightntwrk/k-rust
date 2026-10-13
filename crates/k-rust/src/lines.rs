@@ -21,6 +21,17 @@ pub(crate) const LINE_TERMINATORS: [&str; 8] = [
     "\r\n", "\n", "\r", "\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}",
 ];
 
+/// Whether `character` is the first character of a line terminator.
+pub(crate) fn starts_terminator(character: char) -> bool {
+    matches!(character, '\n'..='\r' | '\u{85}' | '\u{2028}' | '\u{2029}')
+}
+
+/// Whether `byte` may be the first byte of a line terminator: the first byte of the UTF-8
+/// encoding of a character [`starts_terminator`] holds of.
+pub(crate) fn may_start_terminator(byte: u8) -> bool {
+    matches!(byte, b'\n'..=b'\r' | 0xC2 | 0xE2)
+}
+
 /// The longest line terminator `text` has at byte `index`, if any. It does not ask whether
 /// `index` is itself inside a terminator (see [`ends_line`]).
 pub(crate) fn terminator_at(text: &str, index: usize) -> Option<&'static str> {
@@ -28,6 +39,43 @@ pub(crate) fn terminator_at(text: &str, index: usize) -> Option<&'static str> {
     LINE_TERMINATORS
         .into_iter()
         .find(|terminator| rest.starts_with(terminator.as_bytes()))
+}
+
+/// The lines of `text` in order, each with the line terminator that ends it, as
+/// `str::split_inclusive` gives them for one separator: concatenated they are `text`, and the
+/// text after the last terminator is the last line when it is not empty.
+pub(crate) fn split_inclusive(text: &str) -> impl Iterator<Item = &str> {
+    let mut start = 0;
+    std::iter::from_fn(move || {
+        if start == text.len() {
+            return None;
+        }
+        let mut index = start;
+        // Invariant: `index` is a character boundary and no line terminator starts in `text[start..index]`; each iteration returns the line a terminator at `index` ends, or moves to the next byte that may begin one (a character boundary, as no terminator begins with a continuation byte).
+        while index < text.len() {
+            if let Some(terminator) = terminator_at(text, index) {
+                let line = &text[start..index + terminator.len()];
+                start = index + terminator.len();
+                return Some(line);
+            }
+            index += text.as_bytes()[index + 1..]
+                .iter()
+                .position(|byte| may_start_terminator(*byte))
+                .map_or(text.len() - index, |offset| offset + 1);
+        }
+        let line = &text[start..];
+        start = text.len();
+        Some(line)
+    })
+}
+
+/// `line` without the line terminator it ends with, if any: the longest one, so `\r\n` is
+/// removed whole.
+pub(crate) fn strip_terminator(line: &str) -> &str {
+    LINE_TERMINATORS
+        .into_iter()
+        .find_map(|terminator| line.strip_suffix(terminator))
+        .unwrap_or(line)
 }
 
 /// Whether byte `index` lies strictly inside a line terminator of `text`: one starts before it and
@@ -97,6 +145,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_first_characters_and_bytes_of_the_terminators_are_the_tables() {
+        for character in (0..=0x10FFFF).filter_map(char::from_u32) {
+            assert_eq!(
+                starts_terminator(character),
+                LINE_TERMINATORS
+                    .into_iter()
+                    .any(|terminator| terminator.starts_with(character)),
+                "{character:?}"
+            );
+        }
+        for byte in 0..=u8::MAX {
+            if LINE_TERMINATORS
+                .into_iter()
+                .any(|terminator| terminator.as_bytes()[0] == byte)
+            {
+                assert!(may_start_terminator(byte), "{byte:#x}");
+            }
+        }
+    }
+
+    #[test]
     fn a_terminator_precedes_every_terminator_that_is_a_prefix_or_suffix_of_it() {
         for (index, terminator) in LINE_TERMINATORS.iter().enumerate() {
             for later in &LINE_TERMINATORS[index + 1..] {
@@ -144,6 +213,40 @@ mod tests {
         assert!(starts_line("", 0) && !ends_line("a", 1));
         // `\r\r\n`: the first `\r` ends a line, and the next line is empty.
         assert!(starts_line("\r\r\n", 1) && ends_line("\r\r\n", 1));
+    }
+
+    #[test]
+    fn split_inclusive_cuts_the_text_at_its_line_starts() {
+        let pieces = LINE_TERMINATORS
+            .into_iter()
+            .chain(["a", "\u{e9}", "\u{2027}"])
+            .collect::<Vec<_>>();
+        for first in &pieces {
+            for second in &pieces {
+                for third in &pieces {
+                    let text = format!("{first}{second}{third}");
+                    let lines = split_inclusive(&text).collect::<Vec<_>>();
+                    assert_eq!(lines.concat(), text, "{text:?}");
+                    let cuts = lines
+                        .iter()
+                        .scan(0, |end, line| {
+                            *end += line.len();
+                            Some(*end)
+                        })
+                        .collect::<Vec<_>>();
+                    let starts = (1..text.len())
+                        .filter(|index| text.is_char_boundary(*index) && starts_line(&text, *index))
+                        .collect::<Vec<_>>();
+                    assert_eq!(cuts[..cuts.len() - 1], starts, "{text:?}");
+                    for (index, line) in lines.iter().enumerate() {
+                        let content = strip_terminator(line);
+                        assert!(!content.chars().any(starts_terminator), "{text:?}");
+                        assert!(index + 1 == lines.len() || content != *line, "{text:?}");
+                    }
+                }
+            }
+        }
+        assert_eq!(split_inclusive("").count(), 0);
     }
 
     #[test]

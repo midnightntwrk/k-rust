@@ -227,6 +227,84 @@ fn sentence_bubbles_use_longest_whitespace_delimited_tokens() {
     assert_eq!(bubble.content, "X /* remains bubble text");
 }
 
+/// The (label, content) of each bubble of the first module of `source`.
+fn labelled_bubbles(source: &str) -> Vec<(Option<String>, String)> {
+    parse("bubbles.k", source).unwrap().modules[0]
+        .sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Bubble(bubble) => Some((bubble.label.clone(), bubble.content.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn bubble_comments_are_layout_wherever_a_word_may_begin() {
+    let label = |name: &str, content: &str| (Some(name.to_owned()), content.to_owned());
+    // A leading comment as long as the text it touches (`/*c*/` before a space), shorter than it
+    // (`/*c*/[l]:`), longer than it, a line comment, and two comments in a row: each is layout,
+    // and the label after it is the rule's label.
+    for comment in [
+        "/*c*/ ",
+        "/*c*/",
+        "/* a longer comment */ ",
+        "// c\n ",
+        "/*c*//*d*/",
+        "/*c*/ /**/",
+    ] {
+        let source = format!("module MAIN\n  rule {comment}[l]: a => b\nendmodule\n");
+        assert_eq!(
+            labelled_bubbles(&source),
+            [label("l", "a => b")],
+            "{comment:?}"
+        );
+    }
+
+    // A comment as long as its text at the end of a bubble is not part of the bubble.
+    assert_eq!(
+        labelled_bubbles("module MAIN rule [l]: a => b /*c*/\nendmodule"),
+        [label("l", "a => b")]
+    );
+
+    // A sentence keyword touching a comment's end begins the next sentence, as it does after a
+    // space.
+    for between in [" /*c*/", " /*c*/ ", " /* c */"] {
+        let source = format!("module MAIN rule [l]: a => b{between}rule [m]: b => a endmodule");
+        assert_eq!(
+            labelled_bubbles(&source),
+            [label("l", "a => b"), label("m", "b => a")],
+            "{between:?}"
+        );
+    }
+
+    // Within a word, a comment is part of the word, which ends no bubble.
+    assert_eq!(
+        labelled_bubbles("module MAIN rule [l]: a => b/*c*/rule [m]: b => a endmodule"),
+        [label("l", "a => b/*c*/rule [m]: b => a")]
+    );
+}
+
+/// The tags of `syntax priority` and of an associativity declaration are read as bubble words
+/// are: a comment where a tag or a `>` may begin is layout, whatever text touches its end.
+#[test]
+fn tag_list_comments_are_layout_wherever_a_tag_may_begin() {
+    let parsed = parse(
+        "tags.k",
+        "module MAIN\n  syntax priority /*c*/times /*c*/> plus /*c*/ > minus\n  syntax left /*c*/plus /*c*/ minus\nendmodule\n",
+    )
+    .unwrap();
+    let [
+        Sentence::Priority(priority),
+        Sentence::Associativity(associativity),
+    ] = parsed.modules[0].sentences.as_slice()
+    else {
+        panic!("expected a priority and an associativity sentence");
+    };
+    assert_eq!(priority.groups, [["times"], ["plus"], ["minus"]]);
+    assert_eq!(associativity.tags, ["plus", "minus"]);
+}
+
 #[test]
 fn sentence_spans_end_at_the_last_token() {
     let source = indoc! {r#"
@@ -556,21 +634,24 @@ fn strict_outer_rejects_invalid_terminal_regex_list_and_require_strings() {
 #[test]
 fn strict_outer_decodes_legal_strings_once_in_every_context() {
     let source = concat!(
-        "requires \"raw\rpath.k\"\n",
+        "requires \"raw\u{b}path.k\"\n",
         "requires \"escaped\\npath.k\"\n",
-        "requires \"Q\\\"N\\nR\\rT\\tB\\\\C\rZ\"\n",
+        "requires \"Q\\\"N\\nR\\rT\\tB\\\\C\\fF\\x41\\u00e9\\U0001f600\u{2028}Z\"\n",
         "module MAIN\n",
         "  syntax S\n",
-        "  syntax Term ::= \"Q\\\"N\\nR\\rT\\tB\\\\C\rZ\"\n",
-        "  syntax Token ::= r\"a\\\\+Q\\\"N\\nR\\rT\\tB\\\\C\rZ\" [token]\n",
-        "  syntax Ss ::= List{S, \"Q\\\"N\\nR\\rT\\tB\\\\C\rZ\"}\n",
+        "  syntax Term ::= \"Q\\\"N\\nR\\rT\\tB\\\\C\\fF\\x41\\u00e9\\U0001f600\u{2028}Z\"\n",
+        "  syntax Token ::= r\"a\\\\+Q\\\"N\\nR\\rT\\tB\\\\C\\fF\\x41\\u00e9\\U0001f600\u{2028}Z\" [token]\n",
+        "  syntax Ss ::= List{S, \"Q\\\"N\\nR\\rT\\tB\\\\C\\fF\\x41\\u00e9\\U0001f600\u{2028}Z\"}\n",
         "endmodule\n",
     );
     let parsed = parse("valid-strings.k", source).unwrap();
 
-    assert_eq!(parsed.requires[0].path, "raw\rpath.k");
+    assert_eq!(parsed.requires[0].path, "raw\u{b}path.k");
     assert_eq!(parsed.requires[1].path, "escaped\npath.k");
-    assert_eq!(parsed.requires[2].path, "Q\"N\nR\rT\tB\\C\rZ");
+    assert_eq!(
+        parsed.requires[2].path,
+        "Q\"N\nR\rT\tB\\C\u{c}FA\u{e9}\u{1f600}\u{2028}Z"
+    );
     let [
         Sentence::Syntax(_),
         Sentence::Syntax(terminal),
@@ -586,7 +667,7 @@ fn strict_outer_decodes_legal_strings_once_in_every_context() {
     assert_eq!(
         terminal_blocks[0].productions[0].items,
         [k_rust::outer::ProductionItem::Terminal(
-            "Q\"N\nR\rT\tB\\C\rZ".into()
+            "Q\"N\nR\rT\tB\\C\u{c}FA\u{e9}\u{1f600}\u{2028}Z".into()
         )]
     );
     let k_rust::outer::SyntaxBody::Productions(regex_blocks) = &regex.body else {
@@ -595,7 +676,7 @@ fn strict_outer_decodes_legal_strings_once_in_every_context() {
     assert_eq!(
         regex_blocks[0].productions[0].items,
         [k_rust::outer::ProductionItem::Regex(
-            "a\\+Q\"N\nR\rT\tB\\C\rZ".into()
+            "a\\+Q\"N\nR\rT\tB\\C\u{c}FA\u{e9}\u{1f600}\u{2028}Z".into()
         )]
     );
     let k_rust::outer::SyntaxBody::Productions(list_blocks) = &list.body else {
@@ -606,7 +687,101 @@ fn strict_outer_decodes_legal_strings_once_in_every_context() {
     else {
         panic!("expected one user-list item")
     };
-    assert_eq!(separator, "Q\"N\nR\rT\tB\\C\rZ");
+    assert_eq!(separator, "Q\"N\nR\rT\tB\\C\u{c}FA\u{e9}\u{1f600}\u{2028}Z");
+}
+
+/// Every string of the definition text is a K `String` literal: the escapes `domains.md` defines
+/// each name one code point, and every character but `"`, `\`, newline and carriage return
+/// stands for itself.
+#[test]
+fn outer_strings_are_k_string_literals() {
+    type Context = (&'static str, fn(&str) -> String);
+    let contexts: [Context; 5] = [
+        ("string", |text| {
+            format!("module MAIN\n  syntax Foo ::= \"{text}\"\nendmodule\n")
+        }),
+        ("string", |text| {
+            format!("module MAIN\n  syntax Foo ::= r\"{text}\" [token]\nendmodule\n")
+        }),
+        ("string", |text| {
+            format!("module MAIN\n  syntax S\n  syntax Ss ::= List{{S, \"{text}\"}}\nendmodule\n")
+        }),
+        ("string", |text| {
+            format!("requires \"{text}\"\nmodule MAIN endmodule\n")
+        }),
+        ("attribute string", |text| {
+            format!("module MAIN\n  syntax Foo ::= \"a\" [foo(\"{text}\")]\nendmodule\n")
+        }),
+    ];
+
+    // The escapes, decoded once, with hexadecimal digits of either case.
+    let source = (contexts[4].1)(r"\f\x41\xe9 �\U0001F600\U0010ffff\u000b");
+    let parsed = parse("attribute-escapes.k", &source).unwrap();
+    let Sentence::Syntax(syntax) = &parsed.modules[0].sentences[0] else {
+        panic!("expected a syntax declaration")
+    };
+    let k_rust::outer::SyntaxBody::Productions(blocks) = &syntax.body else {
+        panic!("expected productions")
+    };
+    assert_eq!(
+        blocks[0].productions[0].attributes[0].value.as_deref(),
+        Some("\u{c}A\u{e9}\u{2028}\u{fffd}\u{1f600}\u{10ffff}\u{b}")
+    );
+
+    for (what, source_of) in contexts {
+        // A verbatim carriage return or newline is no string character; another line end is.
+        for line_end in ["\r", "\n"] {
+            let source = source_of(&format!("a{line_end}b"));
+            let error = parse("raw-line-end.k", &source).unwrap_err();
+            assert_eq!(error.message, format!("newline in {what}"), "{source:?}");
+            assert_eq!(
+                error.position.offset,
+                source.find(&format!("a{line_end}b")).unwrap() + 1
+            );
+            let source = source_of(&format!("a\\{line_end}b"));
+            let error = parse("escaped-line-end.k", &source).unwrap_err();
+            assert_eq!(error.message, format!("newline in {what}"), "{source:?}");
+        }
+        for verbatim in ["\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}", "\t"] {
+            let source = source_of(&format!("a{verbatim}b"));
+            assert!(parse("verbatim.k", &source).is_ok(), "{source:?}");
+        }
+
+        // Malformed escapes name the escape as written.
+        for (text, message) in [
+            (r"\q", format!(r"invalid escape `\q` in {what}")),
+            (r"\0", format!(r"invalid escape `\0` in {what}")),
+            (
+                r"\x4g",
+                format!(r"invalid escape `\x4` in {what}: `\x` takes 2 hexadecimal digits"),
+            ),
+            (
+                r"\u202",
+                format!(r"invalid escape `\u202` in {what}: `\u` takes 4 hexadecimal digits"),
+            ),
+            (
+                r"\U+0000041",
+                format!(r"invalid escape `\U` in {what}: `\U` takes 8 hexadecimal digits"),
+            ),
+            (
+                r"\uD800",
+                format!(r"escape `\uD800` in {what} names no Unicode scalar value"),
+            ),
+            (
+                r"\U00110000",
+                format!(r"escape `\U00110000` in {what} names no Unicode scalar value"),
+            ),
+        ] {
+            let source = source_of(&format!("a{text}"));
+            let error = parse("bad-escape.k", &source).unwrap_err();
+            assert_eq!(error.message, message, "{source:?}");
+            assert_eq!(
+                error.position.offset,
+                source.find('\\').unwrap(),
+                "{source:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -1326,26 +1501,191 @@ fn comments_can_touch_default_and_module_name_tokens() {
     );
 }
 
+/// The line terminators every location counts (the library's `lines` table): `\r\n`, `\n`, `\r`, vertical
+/// tab, form feed, U+0085, U+2028 and U+2029.
+const LINE_TERMINATORS: [&str; 8] = [
+    "\r\n", "\n", "\r", "\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}",
+];
+
+/// The bubbles of the first module of `source`, as (content, attribute keys).
+fn bubble_contents(source: &str) -> Vec<(String, Vec<String>)> {
+    parse("bubbles.k", source).unwrap().modules[0]
+        .sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Bubble(bubble) => Some((
+                bubble.content.clone(),
+                bubble
+                    .attributes
+                    .iter()
+                    .map(|attribute| attribute.key.clone())
+                    .collect(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
-fn line_comments_follow_outer_jj_terminators() {
-    for terminator in ["\r", "\r\n", "\n"] {
+fn line_comments_end_at_every_line_end() {
+    for terminator in LINE_TERMINATORS {
         let source =
             format!("module MAIN imports LIB// import comment{terminator} syntax Foo endmodule");
         let parsed = parse("line-comment.k", &source).unwrap();
-        assert_eq!(parsed.modules[0].imports[0].module, "LIB");
+        assert_eq!(parsed.modules[0].imports[0].module, "LIB", "{terminator:?}");
         let [Sentence::Syntax(syntax)] = parsed.modules[0].sentences.as_slice() else {
-            panic!("expected one syntax declaration")
+            panic!("expected one syntax declaration after {terminator:?}")
         };
         assert_eq!(syntax.sort.name, "Foo");
+
+        // Between bubbles, and before a bubble's attributes, which a comment that ran on to the
+        // next `\n` would swallow.
+        let source = format!(
+            "module MAIN\nrule a => b // c{terminator}rule b => c // [d]{terminator}[owise]\nendmodule\n"
+        );
+        assert_eq!(
+            bubble_contents(&source),
+            [
+                ("a => b".to_owned(), Vec::new()),
+                ("b => c // [d]".to_owned(), vec!["owise".to_owned()]),
+            ],
+            "{terminator:?}"
+        );
     }
 
-    assert!(
-        parse(
-            "unterminated-line-comment.k",
-            "module MAIN endmodule// unterminated"
+    // The last line of the text needs no terminator for its comment to end.
+    let parsed = parse("final-line-comment.k", "module MAIN endmodule// final").unwrap();
+    assert_eq!(parsed.modules[0].name, "MAIN");
+    let parsed = parse("final-line-comment.k", "module MAIN endmodule//").unwrap();
+    assert_eq!(parsed.modules[0].name, "MAIN");
+}
+
+#[test]
+fn outer_tokens_and_bubbles_split_at_the_same_whitespace() {
+    let whitespace = [" ", "\t"].into_iter().chain(LINE_TERMINATORS);
+    for space in whitespace {
+        let source = format!(
+            "module{space}MAIN{space}syntax{space}Foo{space}::={space}\"a\"{space}\
+             rule{space}a{space}=>{space}b{space}[owise]{space}rule{space}[l]{space}:{space}b{space}=>{space}a{space}\
+             endmodule{space}"
+        );
+        let parsed = parse("whitespace.k", &source).unwrap();
+        let module = &parsed.modules[0];
+        assert_eq!(module.name, "MAIN", "{space:?}");
+        let [
+            Sentence::Syntax(_),
+            Sentence::Bubble(first),
+            Sentence::Bubble(second),
+        ] = module.sentences.as_slice()
+        else {
+            panic!("expected a syntax declaration and two rules with {space:?}")
+        };
+        assert_eq!(first.content, format!("a{space}=>{space}b"));
+        assert_eq!(first.attributes[0].key, "owise");
+        assert_eq!(second.label.as_deref(), Some("l"));
+        assert_eq!(second.content, format!("b{space}=>{space}a"));
+    }
+
+    // Space characters that the default layout does not read as layout separate nothing: not
+    // two outer tokens, not a bubble from the next sentence, not a bubble's content from its
+    // attributes.
+    for other in ["\u{a0}", "\u{1680}", "\u{2003}", "\u{3000}", "\u{feff}"] {
+        assert!(
+            parse(
+                "not-whitespace.k",
+                &format!("module{other}MAIN endmodule\n")
+            )
+            .is_err(),
+            "{other:?}"
+        );
+        assert_eq!(
+            bubble_contents(&format!(
+                "module MAIN\nrule a => b{other}rule b => a [owise]\nendmodule\n"
+            )),
+            [(
+                format!("a => b{other}rule b => a"),
+                vec!["owise".to_owned()]
+            )],
+            "{other:?}"
+        );
+        assert_eq!(
+            bubble_contents(&format!(
+                "module MAIN\nrule a => b{other}[owise]\nendmodule\n"
+            )),
+            [(format!("a => b{other}"), vec!["owise".to_owned()])],
+            "{other:?}"
+        );
+    }
+}
+
+#[test]
+fn outer_positions_count_every_line_terminator() {
+    for terminator in LINE_TERMINATORS {
+        let source = format!(
+            "module MAIN{terminator}  syntax Foo{terminator}  rule λ => b{terminator}endmodule{terminator}"
+        );
+        let parsed = parse("positions.k", &source).unwrap();
+        let [Sentence::Syntax(syntax), Sentence::Bubble(rule)] =
+            parsed.modules[0].sentences.as_slice()
+        else {
+            panic!("expected a syntax declaration and a rule with {terminator:?}")
+        };
+        let at = |span: &k_rust::outer::Span| (span.start.line, span.start.column, span.end.line);
+        assert_eq!(at(&syntax.span), (2, 3, 2), "{terminator:?}");
+        assert_eq!(at(&rule.span), (3, 3, 3), "{terminator:?}");
+        assert_eq!(at(&rule.content_span), (3, 8, 3), "{terminator:?}");
+        assert_eq!(rule.content_span.end.column, 14, "{terminator:?}");
+
+        let error = parse(
+            "position-error.k",
+            &format!("module MAIN{terminator}{terminator}  syntax Foo ::= \"a\\q\"{terminator}"),
         )
-        .is_err()
-    );
+        .unwrap_err();
+        assert_eq!(
+            (error.position.line, error.position.column),
+            (3, 20),
+            "{terminator:?}"
+        );
+    }
+}
+
+/// Prose is not part of a Markdown definition: it keeps only the definition text's whitespace, so
+/// a prose character that is no layout is dropped, and a prose line end still counts.
+#[test]
+fn markdown_prose_contributes_only_layout() {
+    let block = "```k\nmodule MAIN\n  syntax Foo\nendmodule\n```\n";
+    for other in ["\u{a0}", "\u{1680}", "\u{2003}", "\u{3000}", "\u{feff}"] {
+        let markdown = format!("Prose{other}before.\n{block}After{other}the block.\n");
+        let extracted = extract_fenced_k_code(&markdown, "k").unwrap();
+        assert!(!extracted.contains(other), "{other:?}");
+        let parsed = parse("prose.md", &extracted).unwrap();
+        assert_eq!(parsed.modules[0].name, "MAIN", "{other:?}");
+    }
+    // The space keeps a `\r` from meeting the `\n` after the dropped prose as one `\r\n`.
+    for terminator in LINE_TERMINATORS {
+        let markdown = format!("Prose{terminator} before.\n{block}");
+        let extracted = extract_fenced_k_code(&markdown, "k").unwrap();
+        let parsed = parse("prose.md", &extracted).unwrap();
+        let [Sentence::Syntax(syntax)] = parsed.modules[0].sentences.as_slice() else {
+            panic!("expected one syntax declaration with {terminator:?}")
+        };
+        assert_eq!(syntax.span.start.line, 5, "{terminator:?}");
+    }
+}
+
+#[test]
+fn unquoted_attribute_values_end_on_their_line() {
+    for terminator in LINE_TERMINATORS {
+        let error = parse(
+            "unquoted-attribute.k",
+            &format!("module MAIN\nsyntax Foo ::= \"a\" [foo(a{terminator}b)]\nendmodule\n"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.message, "newline in unquoted attribute value",
+            "{terminator:?}"
+        );
+    }
 }
 
 #[test]
