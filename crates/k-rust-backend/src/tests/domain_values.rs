@@ -442,6 +442,8 @@ const FLOAT_DEFINITION: &str = indoc! {r#"
             [function{}(), total{}(), hook{}("STRING.string2token")]
         hooked-symbol Lbl'Unds'plusFloat'Unds'{}(SortFloat{}, SortFloat{}) : SortFloat{}
             [function{}(), total{}(), hook{}("FLOAT.add")]
+        hooked-symbol Lbl'UndsEqlsEqls'Float'Unds'{}(SortFloat{}, SortFloat{}) : SortBool{}
+            [function{}(), total{}(), hook{}("FLOAT.eq")]
     endmodule []
 "#};
 
@@ -450,11 +452,14 @@ const UNHOOKED_FLOAT_DEFINITION: &str = indoc! {r#"
     []
     module MAIN
         hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+        hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
         sort SortFloat{} [hasDomainValues{}()]
         hooked-symbol LblString2Float{}(SortString{}) : SortFloat{}
             [function{}(), total{}(), hook{}("STRING.string2token")]
         hooked-symbol Lbl'Unds'plusFloat'Unds'{}(SortFloat{}, SortFloat{}) : SortFloat{}
             [function{}(), total{}(), hook{}("FLOAT.add")]
+        hooked-symbol Lbl'UndsEqlsEqls'Float'Unds'{}(SortFloat{}, SortFloat{}) : SortBool{}
+            [function{}(), total{}(), hook{}("FLOAT.eq")]
     endmodule []
 "#};
 
@@ -618,6 +623,24 @@ fn a_float_hook_result_is_checked_against_the_kind_of_its_sort() {
     );
     assert_eq!(
         evaluated(&load(UNHOOKED_FLOAT_DEFINITION), sum),
+        BuiltinResult::NotApplicable
+    );
+}
+
+/// The Float hooks read only Float values: at a `SortFloat` hooked `FLOAT.Float`, `1.0 ==Float
+/// 1.00` is `true`; at an unhooked `SortFloat`, whose tokens `1.0` and `1.00` are two values of a
+/// token sort, the comparison is not evaluated, although its result is a Boolean.
+#[test]
+fn float_hooks_read_no_token_of_an_unhooked_sort_float() {
+    let equal =
+        r#"Lbl'UndsEqlsEqls'Float'Unds'{}(\dv{SortFloat{}}("1.0"), \dv{SortFloat{}}("1.00"))"#;
+    let definition = load(FLOAT_DEFINITION);
+    assert_eq!(
+        evaluated(&definition, equal),
+        BuiltinResult::Value(term(&definition, r#"\dv{SortBool{}}("true")"#))
+    );
+    assert_eq!(
+        evaluated(&load(UNHOOKED_FLOAT_DEFINITION), equal),
         BuiltinResult::NotApplicable
     );
 }
