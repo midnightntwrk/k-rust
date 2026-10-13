@@ -272,6 +272,13 @@ fn a_least_upper_bound_needs_order_queries_quadratic_in_a_sort_hierarchy() {
     let [at_32, at_64, at_128] = [32, 64, 128].map(dense_order_queries);
     println!("order queries: {at_32}, {at_64} and {at_128} at 32, 64 and 128 sorts");
     let increments = at_64.checked_sub(at_32).zip(at_128.checked_sub(at_64));
+    // The generated equations of each added sort need order queries in the sorts above it, about
+    // 109,000 between 32 and 64 sorts; an increment under 32,768 means the work is no longer
+    // counted (it moved off `less_than` or onto another thread), not that it is gone.
+    assert!(
+        increments.is_some_and(|(first, _)| first >= 32_768),
+        "{at_32}, {at_64} and {at_128} order queries at 32, 64 and 128 sorts: too few counted"
+    );
     assert!(
         increments.is_some_and(|(first, second)| second <= first * 9 / 2 + 4_096),
         "{at_32}, {at_64} and {at_128} order queries at 32, 64 and 128 sorts"

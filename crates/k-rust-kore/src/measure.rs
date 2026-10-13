@@ -373,7 +373,9 @@ pub enum Counter {
     /// Finite partial orders constructed.
     KompilePartialOrdersBuilt,
     /// Strict-order queries (`PartialOrder::less_than`) on a finite partial order, through which
-    /// every other comparison, bound and minimum of the order is answered. Its family is
+    /// `less_than_eq` (on distinct operands), `greater_than`, `in_some_relation`, the bound
+    /// filters and `minimal`/`maximal` answer; direct closure reads (`relations_from`,
+    /// `directly_less_than`, `contains`, the seed set of a bound) are not counted. Its family is
     /// `kompile.` because `PartialOrder` lives in the compiler's definition layer, as for
     /// `kompile.partial_orders_built`; the inner parser's sort queries count too.
     KompileOrderQueries,
