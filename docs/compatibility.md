@@ -1185,7 +1185,7 @@ A partial function over an unevaluated listing (`keys_list(M)[0]`, an `owise` eq
 
 A Float operation over a binary32 and a binary64 operand (`+Float`, `-Float`, `*Float`, `/Float`, `minFloat`, `maxFloat`) is the exact result rounded to a destination format `domains.md` does not name, so its value is one of several the definition admits too.
 An execution rounds it to binary64 ([Backend scope](#backend-scope)); every other evaluation leaves the ground application unevaluated as a defined value (`Unspecified` with `defined: true`, no warning): every model rounds the exact result to some format, so it exists and only its value is open.
-So `kprove` proves `<k> div(0.1f, 2.0) => ?F:Float </k>` over `rule div(X, Y) => X /Float Y`, and neither proves nor disproves `<k> div(0.1f, 2.0) => 5.0000000745058060e-02p53x11 </k>` or a claim that `precisionFloat(0.1f +Float 0.2)` is 53; a claim true in every model that needs the value, such as `isNaN(0.1f +Float 0.2) ==Bool false`, is no longer proven either.
+So `kprove` proves `<k> div(0.1f, 2.0) => ?F:Float </k>` over `rule div(X, Y) => X /Float Y`, and neither proves nor disproves `<k> div(0.1f, 2.0) => 5.0000000745058060e-02p53x11 </k>` or a claim that `precisionFloat(0.1f +Float 0.2)` is 53; a claim true in every model that needs the value, such as `isNaN(0.1f +Float 0.2) ==Bool false`, is not proven either.
 The operands are read as the evaluator reads them (`float::mixed_destination`), so every spelling of either format (`0.1f`, `0.1p24x8`, `0.1p024x008`; `2.0`, `2.0d`, `2.0p53x11`) is withheld alike, and an operation over one format, or a comparison over two, is evaluated in every mode.
 
 The mode belongs to the request (`ExecutionOptions::evaluation` and `SearchOptions::evaluation`, `Proof` by default), and every evaluation the request runs sees it, its rule and equation conditions and its `\ceil` obligations included ([`evaluation`](../crates/k-rust-backend/src/evaluation.rs)).
@@ -1519,6 +1519,8 @@ The event fields are camelCase (`ruleLabel`, `introducedPredicates`), as the Typ
 Builtin failure fields now use the camelCase names in the napi and wasm declarations (`thenSort`, `elseSort`, `exponentBits`, `leftPrecision`, `leftExponentBits`, `rightPrecision`, `rightExponentBits`); search instantiation failures use `missingVariables`.
 These backend schema version 1 JSON fields previously used snake_case; clients reading serialized failures must accept the camelCase names.
 The builtin failure kind `mismatched-float-formats` (with `leftPrecision`, `leftExponentBits`, `rightPrecision` and `rightExponentBits`) is removed at backend schema version 1, without a version change: a Float operation over a binary32 and a binary64 operand is no failure ([Backend scope](#backend-scope)).
+This is a breaking change for a client that names the kind: a TypeScript `case` or type guard on `'mismatched-float-formats'` no longer compiles against the napi and wasm `BuiltinFailure` unions, stored JSON holding the kind no longer deserializes as a `BuiltinFailureOutput` (whose kinds are closed), and the public Rust variants `k_rust_backend::builtin::BuiltinError::MismatchedFloatFormats` and `k_rust::backend::wire::BuiltinFailureOutput::MismatchedFloatFormats` are removed, so code that names them no longer compiles.
+Clients must drop the member, the case or the match arm (no request produces the failure any more) and discard or rewrite stored failures of that kind.
 
 ## CLI scope
 

@@ -284,10 +284,14 @@ impl KFloat {
             (Self::Binary64(left), Self::Binary64(right)) => {
                 Self::Binary64(operation.binary64(left, right))
             }
-            (left, right) => {
-                let (left, right) = MixedPair::of(left, right)
-                    .expect("operands of two formats are a binary32 and a binary64 one")
-                    .widened();
+            // The pairs `MixedPair::of` names, spelled out so that a further format is a build
+            // error here rather than a pair this arm would read as binary32 and binary64.
+            (Self::Binary32(_), Self::Binary64(_)) | (Self::Binary64(_), Self::Binary32(_)) => {
+                let (left, right) = MixedPair {
+                    left: self,
+                    right: other,
+                }
+                .widened();
                 Self::Binary64(operation.binary64(left, right))
             }
         }
