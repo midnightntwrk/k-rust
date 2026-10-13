@@ -240,6 +240,36 @@ enum ProgramSyntax {
 }
 
 /// A reusable parser for the concrete program syntax visible from one module.
+///
+/// Its constructors build one of two grammars over the module:
+/// - [`Self::new`] and [`Self::from_resolved`] build the module's program grammar: the syntax
+///   visible from the module (its own and its imported productions, with the program variants
+///   of imported modules substituted), its named-projection productions, and `KItem ::= S` for
+///   each sort `S` that is not a user list; nothing else. A list sort gets no path to `KItem`
+///   because each of its elements is also a one-element list, so the path would read every
+///   element twice. This grammar has K sequence syntax (`.K`, `~>`) only when the module
+///   declares it; it is the grammar of `$PGM` and of every K-declared `-c` value.
+/// - [`Self::for_ground_values`] builds the same grammar plus exactly `K ::= KItem`, `.K`,
+///   `K ~> K` and an avoided K bracket: the way to parse a ground K value, such as a cell's
+///   content. Its limits, each detailed on the constructor: the K bracket only groups text the
+///   definition's own syntax does not read, and an item written with the definition's own
+///   `avoid` `( .. )` production is an ambiguity at K; a production ending in K reads the outer
+///   sequence; at K a `~>` is the sequence, and a definition's own `~>` production is read only
+///   inside its own sort; the added terminals beat an equal-length user regex token, so a token
+///   spelled `~>` or `.K` cannot be written; an item that a production made of nullable lists
+///   also derives, and nested nullable lists, are ambiguity errors, so pass the narrowest
+///   module whose syntax covers the value, and a module importing both the syntax and the main
+///   module when program tokens and layout live only in the former; a list-sorted value is
+///   parsed only as a whole cell at its sort (unless the definition declares `KItem ::= L`
+///   itself, which makes elements ambiguous); function symbols in a ground value are not
+///   evaluated; a module that sees `K-TOP-SORT` (`KSEQ`, `KSEQ-SYMBOLIC`, `K`, `K-TERM`,
+///   `K-SORT-LATTICE`) is refused.
+///
+/// Importing `KSEQ` into a program module is not a substitute for the second grammar: `KSEQ`
+/// imports `K-TOP-SORT`, whose `syntax {Sort} KItem ::= Sort` gives list sorts the path to
+/// `KItem` the program grammar leaves out, so every element of a user list becomes ambiguous
+/// with its one-element list, in `$PGM`, `-c` values and `kast` alike. For the same reason
+/// [`Self::for_ground_values`] refuses a module that sees `K-TOP-SORT`.
 #[derive(Clone, Debug)]
 pub struct ProgramParser {
     module: String,
@@ -252,11 +282,21 @@ pub struct ProgramParser {
 }
 
 impl ProgramParser {
+    /// A parser for the program grammar of `module`, resolving `definition` first; see
+    /// [`Self::from_resolved`].
     pub fn new(definition: &Definition, module: &str) -> Result<Self, ProgramError> {
         let resolved = ResolvedDefinition::resolve(definition).map_err(ProgramError::Definition)?;
         Self::from_resolved(&resolved, module)
     }
 
+    /// A parser for the program grammar of `module`: the syntax visible from it (own and
+    /// imported productions, with the program variants of imported modules substituted), its
+    /// named-projection productions, and `KItem ::= S` for each sort that is not a user list;
+    /// nothing else.
+    ///
+    /// A user list sort gets no `KItem` path, because each element is also a one-element list.
+    /// The grammar has K sequence syntax only when the module declares it; parse a ground K
+    /// value with [`Self::for_ground_values`].
     pub fn from_resolved(
         definition: &ResolvedDefinition,
         module: &str,
@@ -316,6 +356,42 @@ impl ProgramParser {
     ///   evaluated content.
     /// - When program tokens and layout live in a syntax module and internal syntax in the main
     ///   module, neither parses a value that mixes them: pass a module importing both.
+    ///
+    /// Over a definition with a user list (`Exps`) and a constructor list (`Instrs`), a value
+    /// mixing their items is one sequence:
+    ///
+    /// ```
+    /// # use k_rust::{definition::ResolvedDefinition, inner::ProgramParser, kast::Sort};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let source = r#"
+    ///     module MAIN
+    ///       syntax Id ::= r"[a-z][a-z0-9]*" [token]
+    ///       syntax Exp ::= Id | Id "(" Exps ")" [symbol(call)]
+    ///       syntax Exps ::= List{Exp, ","} [symbol(exps)]
+    ///       syntax Instr ::= "trap" [symbol(trap)]
+    ///       syntax Instrs ::= ".Instrs" [symbol(instrsEmpty)] | Instr ";" Instrs [symbol(instrsCons)]
+    ///     endmodule
+    /// "#;
+    /// let parsed = k_rust::outer::parse("main.k", source)?;
+    /// let definition =
+    ///     k_rust::outer::lower(&parsed, "MAIN").map_err(|errors| format!("{errors:?}"))?;
+    /// let resolved = ResolvedDefinition::resolve(&definition)?;
+    /// let parser = ProgramParser::for_ground_values(&resolved, "MAIN")?;
+    /// let value = parser.parse_for_presentation(&Sort::new("K"), "f(x, y) ~> trap ~> .Instrs")?;
+    /// assert_eq!(
+    ///     value.to_kast_text(),
+    ///     concat!(
+    ///         r#"call(#token("f","Id"),exps(#token("x","Id"),exps(#token("y","Id"),"#,
+    ///         r#"`.List{"exps"}`(.KList))))~>trap(.KList)~>instrsEmpty(.KList)"#,
+    ///     ),
+    /// );
+    /// // The program grammar alone has no sequence syntax.
+    /// assert!(ProgramParser::from_resolved(&resolved, "MAIN")?
+    ///     .parse(&Sort::new("K"), "f(x, y) ~> trap")
+    ///     .is_err());
+    /// # Ok(())
+    /// # }
+    /// ```
     ///
     /// # Errors
     ///

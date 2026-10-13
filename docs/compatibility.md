@@ -440,6 +440,7 @@ The outer placement preserves the instance and macro choice made at the existing
 KItem-to-K placement uses `kseq(item,dotk)`, never an injection.
 
 For a binding declared at K, the configuration parser prefers a successful KItem reading and tries its selected module's existing K entry only when there is no item reading or no KItem start sort.
+The selected module's K entry has sequence syntax only when the module's own grammar declares it; importing `KSEQ` provides it but also `K-TOP-SORT`'s `KItem` path for list sorts, which makes every element of a user list ambiguous with its one-element list; cell contents (ground K values) are parsed with `ProgramParser::for_ground_values`, the module's program grammar plus exactly the K sequence constructors.
 Ambiguity, inference, validation and macro errors are retained.
 Explicit program start-sort parsing and grammar visibility remain unchanged.
 Compiled metadata now records a K-declared variable as K, while a generated `$PGM` parser still starts at KItem for a K declaration.
