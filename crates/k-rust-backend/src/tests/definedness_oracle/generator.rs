@@ -1641,9 +1641,12 @@ pub(super) fn axiom_templates() -> Vec<(String, Definition)> {
 
 /// A random definition of [`random_definition`], with some of the classes of [`axiom_templates`]
 /// added at random: two maximal common subsorts, maps and sets with self pairs, hooked
-/// equations, an overload family read through its lesser productions, an inner pair across
+/// equations, an overload family read through its lesser productions, an equation whose argument
+/// pattern holds an overload-greater production ([`injected_inner`]), an inner pair across
 /// priority groups, and an equation at a bare-variable index. The templates that must stand
-/// alone, with no other pair that fails to join, are not added.
+/// alone, with no other pair that fails to join, are not added. The random equations' argument
+/// patterns already hold applications of the equation heads, their own head included
+/// (`Generator::left`).
 pub(super) fn axiom_definition(rng: &mut Rng) -> Definition {
     let (mut definition, _) = random_definition(rng);
     let has_head = definition.symbols.iter().any(Symbol::is_head);
@@ -1659,6 +1662,12 @@ pub(super) fn axiom_definition(rng: &mut Rng) -> Definition {
     }
     if has_head && rng.percent(10) && !definition.sorts.iter().any(|sort| sort == "Es") {
         definition = lowered_family(definition).0;
+    }
+    if rng.percent(10)
+        && !definition.sorts.iter().any(|sort| sort == "Gr")
+        && !definition.symbols.iter().any(|symbol| symbol.name == "use")
+    {
+        definition = injected_inner(definition, rng.percent(50)).0;
     }
     if rng.percent(10) {
         definition = chain_across_priorities(definition).0;

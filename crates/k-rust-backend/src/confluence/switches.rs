@@ -1,7 +1,7 @@
 //! Mutation switches for the verification of the check (the design's V7): each turns one rule of
-//! the check, the closure or the gate off, so that a test can show the oracle test meant to catch
-//! that class fails without it. Outside test builds every switch is off and [`active`] is a
-//! constant, so the checks that read it compile away.
+//! the check, the closure, the gate or the instance-normal scan off, so that a test can show the
+//! oracle test meant to catch that class fails without it. Outside test builds every switch is
+//! off and [`active`] is a constant, so the checks that read it compile away.
 
 /// The switches; all off by default.
 #[derive(Clone, Copy, Debug, Default)]
@@ -53,10 +53,14 @@ pub(crate) struct Switches {
     pub(crate) drop_tobs: bool,
     /// Closure: T0 taints the pairs' root symbols only, not their equations.
     pub(crate) seed_heads_only: bool,
-    /// Gate: admit every index at the scan's equation-head arm.
+    /// Gate: admit every index at the scan's equation-head site (the scanned application, and an
+    /// equation head read by its root in a scanned left-hand side).
     pub(crate) admit_equation_heads: bool,
     /// Gate: admit every index at the certificate.
     pub(crate) admit_certificates: bool,
+    /// Scan: read an overloaded production written in an equation's left-hand side by its root
+    /// where the gate admits it, as an equation head that is not overloaded is read.
+    pub(crate) root_read_overloaded_patterns: bool,
     /// Normal-form sorts: no supersort closure (an overlap whose variable's sort gets its
     /// elements only from a subsort is called vacuous).
     pub(crate) drop_supersort_inhabitation: bool,
@@ -115,6 +119,7 @@ thread_local! {
             seed_heads_only: false,
             admit_equation_heads: false,
             admit_certificates: false,
+            root_read_overloaded_patterns: false,
             drop_supersort_inhabitation: false,
             stuck_total_is_bottom: false,
             collapse_every_total: false,

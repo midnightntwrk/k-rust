@@ -702,13 +702,13 @@ fn a_reducible_left_hand_side_argument_equates_more_instances_than_its_match() {
 /// same term. The decision must end, and does: the argument is normal (the equation needs an
 /// `f` application inside `f`, and an instance of the argument has an injection there).
 ///
-/// `\ceil(f(inj{K,F}(k(c))))` is `\top` by the axioms (an instance of the equation's argument is
-/// an `f` application, never the injection `inj{K,F}(k(c))`, so no equation reaches the value
-/// production's application), but the obligation is kept: the syntactic unification test reads
-/// the equation's `f(…)` argument up to equations, which leaves its root open. That is a sound
-/// loss of precision; this test pins that the decision ends with a sound answer.
+/// `\ceil(f(inj{K,F}(k(c))))` is `\top`: the equation's own pair at its inner `f` joins, so `f`
+/// keeps its claims, and the scan reads the equation's `f(…)` argument by its root, as a step of
+/// the normal-form model matches it. An instance of that argument is an `f` application, never
+/// the injection `inj{K,F}(k(c))`, so no equation reaches the value production's application,
+/// which is defined where its argument is.
 #[test]
-fn a_self_nested_left_hand_side_is_decided_without_unbounded_recursion() {
+fn a_self_nested_left_hand_side_is_decided_and_reads_the_nested_head_by_its_root() {
     let source = format!(
         r#"[]
     module MAIN
@@ -731,8 +731,13 @@ fn a_self_nested_left_hand_side_is_decided_without_unbounded_recursion() {
         ),
     );
     let definition = internalize(&source).expect("the self-nested definition should internalize");
-    let term = "f{}(inj{SortK{}, SortF{}}(k{}(c{}())))";
-    assert_ceil_kept(&definition, term, "SortF{}", term);
+    assert_eq!(
+        simplified_predicate(
+            &definition,
+            r"\ceil{SortF{}, SortF{}}(f{}(inj{SortK{}, SortF{}}(k{}(c{}()))))"
+        ),
+        Predicate::True
+    );
 }
 
 /// The anywhere equation `{head}(X0, X1) = {right}` with `X0 \in {first}` and `X1 \in {second}`,

@@ -37,6 +37,16 @@
 //! - **Decisions about terms with variables.** A token, a `\ceil` discharge or a simplification
 //!   of an instance with one of its first two arguments replaced by a variable holds for every
 //!   value of the variable, so it holds at each value the harness has.
+//! - **Tokens on instances over values.** An instance rooted at an equation head, with each
+//!   argument replaced by its value, is the term innermost evaluation tries the equations on. A
+//!   token on it says that no equation reaches it, so it evaluates to itself. A failure is a
+//!   token on a term the backend's own evaluation rewrites or makes `\bottom`, so it never
+//!   raises a false alarm, but it sees only the scan defects the evaluator decides on its own:
+//!   a pattern the evaluator matches modulo the overload or injection axioms, such as an
+//!   overload-greater application in an argument pattern, whose instance's argument the
+//!   evaluator meets as the value it reduces to (`go(2)` as `inj(lo(2))`). Where the evaluator
+//!   leaves the term undecided (an equation-head pattern it reads up to equations) it sees
+//!   nothing, so it does not guard the scan's gate in general.
 //!
 //! An instance whose `requires`, `ensures`, priority or sides the backend leaves undecided is
 //! skipped and counted. The contract states and does not check that evaluation ends (P0), that
@@ -116,6 +126,8 @@ pub(super) struct AxiomTally {
     pub(super) reordered: usize,
     /// Generalizations with a decision checked at some value.
     pub(super) generalizations: usize,
+    /// Instances over values asked for a token.
+    pub(super) valued_instances: usize,
     pub(super) failures: Vec<String>,
     /// The index of the equation whose instance showed this one definition to have no model
     /// (`language::equation_index`), when it has one.
@@ -139,12 +151,13 @@ impl AxiomTally {
         self.withheld_decided += other.withheld_decided;
         self.reordered += other.reordered;
         self.generalizations += other.generalizations;
+        self.valued_instances += other.valued_instances;
         self.failures.extend(other.failures);
     }
 
     pub(super) fn summary(&self, name: &str) -> String {
         format!(
-            "{name}: {} definitions ({} rejected, {} shown to have no model and {} of them judged without the equations that show it, {} outside P2, {} outside P0), {} equations ({} valuations that repeat a key), {} instances ({} undecided, {} compared, {} at a hooked root), {} results decided without claims, {} terms evaluated in two axiom orders, {} generalizations; {} failures",
+            "{name}: {} definitions ({} rejected, {} shown to have no model and {} of them judged without the equations that show it, {} outside P2, {} outside P0), {} equations ({} valuations that repeat a key), {} instances ({} undecided, {} compared, {} at a hooked root), {} results decided without claims, {} terms evaluated in two axiom orders, {} generalizations, {} instances over values asked for a token; {} failures",
             self.definitions,
             self.rejected,
             self.without_model,
@@ -160,6 +173,7 @@ impl AxiomTally {
             self.withheld_decided,
             self.reordered,
             self.generalizations,
+            self.valued_instances,
             self.failures.len()
         )
     }
@@ -1384,6 +1398,63 @@ fn generalizations(
     }
 }
 
+/// Tokens on instances over values: each judged instance rooted at an equation head, with each
+/// argument replaced by its value, evaluates to itself where it gets an instance-normal token.
+/// The judged instance's own equation usually reaches that term, so a token on it is rare; where
+/// the scan mints one, the term must be a normal form. An undecided evaluation judges nothing.
+fn valued_instance_tokens(
+    label: &str,
+    backend: &BackendDefinition,
+    run: &Run,
+    tally: &mut AxiomTally,
+) {
+    let mut seen = BTreeSet::new();
+    for instance in &run.judged {
+        let TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } = instance.kind()
+        else {
+            continue;
+        };
+        if symbol.attributes.head_role() != HeadRole::EquationHead {
+            continue;
+        }
+        let Some(values) = arguments
+            .iter()
+            .map(|argument| match evaluate(backend, argument) {
+                Outcome::Value(value) => Some(value),
+                Outcome::Bottom | Outcome::Open => None,
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        let valued = Term::application(symbol.clone(), sort_arguments.clone(), values);
+        if !seen.insert(valued.clone()) {
+            continue;
+        }
+        tally.valued_instances += 1;
+        if !guarded(|| Some(backend.instance_normal(&valued).is_some())).unwrap_or(false) {
+            continue;
+        }
+        let evaluated = evaluate(backend, &valued);
+        let reached = match &evaluated {
+            Outcome::Value(result) => *result != valued,
+            Outcome::Bottom => true,
+            Outcome::Open => false,
+        };
+        if reached {
+            tally.failures.push(format!(
+                "{label}: {} is instance-normal, but it evaluates to {}",
+                show(&valued),
+                evaluated.show()
+            ));
+        }
+    }
+}
+
 /// Runs the harness on one loaded definition.
 pub(super) fn check_axioms(
     label: &str,
@@ -1612,6 +1683,7 @@ fn check_claims(
     let without = backend.with_claims_withheld();
     withheld(label, backend, &without, &run, tally);
     generalizations(label, backend, &values, &run, tally);
+    valued_instance_tokens(label, backend, &run, tally);
 }
 
 /// Loads `definition` and runs the harness on it, comparing evaluations with the definition

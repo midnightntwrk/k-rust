@@ -1907,14 +1907,14 @@ fn a_predicate_lemma_term_that_is_a_ground_normal_form_is_read_as_its_value() {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
-/// FOLLOWUPS 2.2 "Value-claim precision limits", third bullet (K12 bullet 3, a root range per
-/// equation head): `f(f(inj{K,F}(k(X)))) = c` with `K < F`. Up to equations, an `f` application
-/// denotes a normal form rooted at `f` or the value of one of `f`'s right-hand sides, here `c`;
-/// neither is the injection `inj{K,F}(k(c))`, so no equation reaches `f(inj{K,F}(k(c)))` and the
-/// value production's application is defined. The left-hand side's argument is not ground, so
-/// K12's reading (a ground normal form) does not apply to it.
+/// FOLLOWUPS 2.2 "Value-claim precision limits", third bullet (K12 bullet 3):
+/// `f(f(inj{K,F}(k(X)))) = c` with `K < F`. The equation's pair at its inner `f` joins, so `f`
+/// keeps its claims, and the instance-normal scan reads the inner `f(…)` by its root, as a step
+/// of the normal-form model matches it: an instance of it is an `f` application, never the
+/// injection `inj{K,F}(k(c))`, so no equation reaches `f(inj{K,F}(k(c)))` and the value
+/// production's application is defined. The left-hand side's argument is not ground, so the
+/// ground-pattern reading (a recorded normal form) does not apply to it.
 #[test]
-#[ignore = "acceptance test of K12 bullet 3 (a root range per equation head), a new precision rule parked under the precision freeze (TQ27)"]
 fn a_self_nested_left_hand_side_does_not_reach_an_injection() {
     let declarations = r"
         sort SortK{} []

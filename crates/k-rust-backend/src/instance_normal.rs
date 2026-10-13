@@ -53,11 +53,18 @@
 //! The syntactic unifiability test asks whether some instance of the subject could match the
 //! equation's pattern, not whether two values are equal, so it decomposes every equal-name
 //! application purely syntactically and does not recurse into instance normality. It reads the
-//! roots through the rigidity classifier (`term::head`): the equation's left-hand side up to
-//! equations, the subject as the values it denotes. It treats a pair as possibly unifiable
-//! whenever its shape does not settle the question (a function or collection head, differing
-//! injection sources, a sort mismatch it cannot interpret), so an answer of "does not unify" is
-//! always a proof that no instance matches.
+//! roots through the rigidity classifier (`term::head`): the subject as the values it denotes,
+//! and the equation's left-hand side as a step of the normal-form model `M_NF` matches it
+//! (`term::head::ScannedPatterns`). A step matches modulo injection composition, the overload
+//! axioms and the collection axioms, not modulo the equations, so an equation-head application
+//! written in the left-hand side is read by its root where the load-time check admits its head
+//! and it is not overloaded: there every equation that mentions the head joined at its
+//! positions, so `M_NF` satisfies the equation also at the values that only reduce to an
+//! instance of the pattern. Elsewhere it is read up to equations, which leaves its root open.
+//! The test treats a pair as possibly unifiable whenever its shape does not settle the question
+//! (a function or collection head, an open equation-head root, differing injection sources, a
+//! sort mismatch it cannot interpret), so an answer of "does not unify" is always a proof that
+//! no instance matches in `M_NF`.
 
 mod token;
 
@@ -69,13 +76,13 @@ pub(crate) use token::{InstanceNormal, NormalArguments};
 
 use crate::{
     definition::BackendDefinition,
-    matching::{MatchMode, MatchResult, SortGraph, match_terms_in_definition},
+    matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::RewriteRule,
     term::{
         Sort, Term, TermKind, Variable,
         head::{
-            Fixed, FixedRoot, Head, InheritedFromArguments, PatternReading, RootComparison,
-            classify_pattern, classify_value, compare_roots,
+            Fixed, FixedRoot, Head, InheritedFromArguments, RootComparison, ScannedPatterns,
+            classify_value, compare_roots,
         },
     },
 };
@@ -120,7 +127,7 @@ impl BackendDefinition {
     /// test knows what the first does not: the sorts of injections and the productions of an
     /// overload family.
     fn excluded(&self, rule: &RewriteRule, arguments: NormalArguments<'_>) -> bool {
-        !may_unify(self.sort_graph(), &rule.lhs, arguments)
+        !may_unify(self, &rule.lhs, arguments)
             || self.matching_refutes(&rule.lhs, arguments.subject())
     }
 
@@ -199,7 +206,11 @@ type Sided<'a> = (Side, &'a Term);
 /// subject's immediate subterms are instance-normal: a subject subterm headed by an `anywhere`
 /// production denotes a value with that head, and the subject's own root is the root the
 /// equation is tried on (`InheritedFromArguments`).
-fn may_unify<'a>(sorts: &'a SortGraph, pattern: &'a Term, arguments: NormalArguments<'a>) -> bool {
+fn may_unify<'a>(
+    definition: &'a BackendDefinition,
+    pattern: &'a Term,
+    arguments: NormalArguments<'a>,
+) -> bool {
     let subject = arguments.subject();
     if let TermKind::Variable(variable) = pattern.kind()
         && sorts_differ(&variable.sort, &subject.sort())
@@ -207,7 +218,7 @@ fn may_unify<'a>(sorts: &'a SortGraph, pattern: &'a Term, arguments: NormalArgum
         return false;
     }
     SyntacticUnifier {
-        sorts,
+        definition,
         subject_values: InheritedFromArguments(arguments),
         bindings: HashMap::new(),
         pending: Vec::new(),
@@ -216,7 +227,8 @@ fn may_unify<'a>(sorts: &'a SortGraph, pattern: &'a Term, arguments: NormalArgum
 }
 
 struct SyntacticUnifier<'a> {
-    sorts: &'a SortGraph,
+    /// The definition whose sorts and value claims the test reads.
+    definition: &'a BackendDefinition,
     /// The oracle that fixes the subject side's equation-head roots.
     subject_values: InheritedFromArguments<'a>,
     bindings: HashMap<(Side, &'a Variable), Sided<'a>>,
@@ -357,7 +369,11 @@ impl<'a> SyntacticUnifier<'a> {
                 },
             ) => {
                 left_target != right_target
-                    || self.sorts.known_overlap(left_source, right_source) != Some(false)
+                    || self
+                        .definition
+                        .sort_graph()
+                        .known_overlap(left_source, right_source)
+                        != Some(false)
             }
             // An injection denotes a value of its source sort, which no application with a
             // fixed root denotes: a free-constructor application is not an injection, and
@@ -383,12 +399,14 @@ impl<'a> SyntacticUnifier<'a> {
         }
     }
 
-    /// The root of one side, when fixed: the equation's left-hand side is read up to equations,
-    /// so its equation-head roots are open; the subject is read as the values it denotes.
+    /// The root of one side, when fixed: the equation's left-hand side is read as a step of the
+    /// normal-form model matches it, so an equation-head root is fixed where the check admits
+    /// its head and open elsewhere ([`ScannedPatterns`]); the subject is read as the values it
+    /// denotes.
     #[deny(clippy::wildcard_enum_match_arm)]
     fn fixed(&mut self, (side, term): Sided<'a>) -> Option<Fixed<'a>> {
         let head = match side {
-            Side::Pattern => classify_pattern(PatternReading::UpToEquations, term),
+            Side::Pattern => classify_value(term, &mut ScannedPatterns(self.definition)),
             Side::Subject => classify_value(term, &mut self.subject_values),
         };
         match head {
@@ -458,7 +476,7 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::term::HeadRole;
+    use crate::{rule::TermIndex, term::HeadRole};
 
     /// `wrap` has the equation `wrap(s(z)) = wrap(z)`; `twin` the non-linear `twin(X, X) =
     /// wrap(z)`; `any` the unconditional `any(X) = wrap(z)`; `f` is a declared function.
@@ -796,19 +814,26 @@ mod tests {
     }
 
     /// The classifier arms of the syntactic test separate two roots exactly where the rigidity
-    /// predicate the test had before them did (`rigid` below is that predicate, transcribed): a
-    /// domain value, a free-constructor application and, on the subject side only, an
-    /// equation-head application; an injection only from such an application; a collection from
+    /// predicate `rigid` below does: a domain value, a free-constructor application, an
+    /// equation-head application on the subject side, and one on the pattern side exactly when
+    /// the check admits its head; an injection only from such an application; a collection from
     /// nothing. Checked for every pair of root kinds those arms decide, on every combination of
-    /// sides a resolved pair can have.
+    /// sides a resolved pair can have, in a definition where every head is admitted and in one
+    /// where the pair `wrap(z) = m1`, `wrap(X) = m2` withdraws `wrap`.
     #[test]
     fn the_classifier_arms_separate_the_roots_the_rigidity_predicate_did() {
-        fn rigid((side, term): Sided<'_>) -> bool {
+        fn rigid(definition: &BackendDefinition, (side, term): Sided<'_>) -> bool {
             match term.kind() {
                 TermKind::DomainValue { .. } => true,
                 TermKind::Application { symbol, .. } => match symbol.attributes.head_role() {
                     HeadRole::FreeConstructor => true,
-                    HeadRole::EquationHead => side == Side::Subject,
+                    HeadRole::EquationHead => {
+                        side == Side::Subject
+                            || definition
+                                .value_claims()
+                                .admit(&TermIndex::Symbol(symbol.name.clone()))
+                                .is_some()
+                    }
                     HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => {
                         false
                     }
@@ -821,29 +846,73 @@ mod tests {
                 | TermKind::Set { .. } => false,
             }
         }
-        let syntax = parse_definition(
+        let wrap_equation = |argument: &str, result: &str| {
+            format!(
+                r"axiom{{R}} \implies{{R}}(
+                    \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortNat{{}}, R}}(X0:SortNat{{}}, {argument}), \top{{R}}())),
+                    \equals{{SortAddress{{}}, R}}(
+                        wrap{{}}(X0:SortNat{{}}),
+                        \and{{SortAddress{{}}}}({result}, \top{{SortAddress{{}}}}())
+                    )
+                ) [anywhere{{}}()]"
+            )
+        };
+        let withdrawing = [
+            wrap_equation("z{}()", "m1{}()"),
+            wrap_equation("X:SortNat{}", "m2{}()"),
+        ]
+        .join("\n");
+        let mut checked = 0;
+        for (equations, wrap_admitted) in [("", true), (withdrawing.as_str(), false)] {
+            checked += classifier_arms_agree_with(rigid, equations, wrap_admitted);
+        }
+        // Nine roots on each side, less the two same-kind pairs and the six same-name pairs, in
+        // each of the two definitions.
+        assert_eq!(checked, 2 * 4 * (9 * 9 - 2 - 6));
+    }
+
+    /// The pairs of `the_classifier_arms_separate_the_roots_the_rigidity_predicate_did` checked
+    /// in the definition with the extra axioms `equations`, whose head `wrap` is admitted exactly
+    /// when `wrap_admitted`.
+    fn classifier_arms_agree_with(
+        rigid: fn(&BackendDefinition, Sided<'_>) -> bool,
+        equations: &str,
+        wrap_admitted: bool,
+    ) -> usize {
+        let syntax = parse_definition(&format!(
             r#"[]
             module MAIN
-                sort SortNat{} []
-                sort SortAddress{} []
-                hooked-sort SortMap{}
-                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
-                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
-                symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
-                symbol f{}(SortNat{}) : SortNat{} [function{}(), total{}(), no-evaluators{}()]
-                symbol wrap{}(SortNat{}) : SortAddress{} [anywhere{}(), functional{}()]
-                symbol tag{}(SortNat{}) : SortAddress{} [anywhere{}(), functional{}()]
-                symbol label{}(SortNat{}) : SortAddress{} [constructor{}(), functional{}(), macro{}()]
-                hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
-                hooked-symbol mapItem{}(SortNat{}, SortNat{}) : SortMap{}
-                    [function{}(), total{}(), hook{}("MAP.element")]
-                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
-                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
-            endmodule []"#,
-        )
+                sort SortNat{{}} []
+                sort SortAddress{{}} []
+                hooked-sort SortMap{{}}
+                    [hook{{}}("MAP.Map"), unit{{}}(mapUnit{{}}()), element{{}}(mapItem{{}}()), concat{{}}(mapConcat{{}}())]
+                symbol z{{}}() : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol s{{}}(SortNat{{}}) : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol m1{{}}() : SortAddress{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol m2{{}}() : SortAddress{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol f{{}}(SortNat{{}}) : SortNat{{}} [function{{}}(), total{{}}(), no-evaluators{{}}()]
+                symbol wrap{{}}(SortNat{{}}) : SortAddress{{}} [anywhere{{}}(), functional{{}}()]
+                symbol tag{{}}(SortNat{{}}) : SortAddress{{}} [anywhere{{}}(), functional{{}}()]
+                symbol label{{}}(SortNat{{}}) : SortAddress{{}} [constructor{{}}(), functional{{}}(), macro{{}}()]
+                hooked-symbol mapUnit{{}}() : SortMap{{}} [function{{}}(), total{{}}(), hook{{}}("MAP.unit")]
+                hooked-symbol mapItem{{}}(SortNat{{}}, SortNat{{}}) : SortMap{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("MAP.element")]
+                hooked-symbol mapConcat{{}}(SortMap{{}}, SortMap{{}}) : SortMap{{}}
+                    [function{{}}(), hook{{}}("MAP.concat"), assoc{{}}(), comm{{}}()]
+                {equations}
+            endmodule []"#
+        ))
         .expect("definition should parse");
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let admitted = |name: &str| {
+            definition
+                .value_claims()
+                .admit(&TermIndex::Symbol(name.into()))
+                .is_some()
+        };
+        assert_eq!(admitted("wrap"), wrap_admitted);
+        assert!(admitted("tag"));
         let term = |source: &str| {
             definition
                 .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
@@ -888,15 +957,15 @@ mod tests {
                         let (left, right) = ((left_side, left), (right_side, right));
                         let expected = match (left.1.kind(), right.1.kind()) {
                             (TermKind::Injection { .. }, TermKind::Application { .. }) => {
-                                !rigid(right)
+                                !rigid(&definition, right)
                             }
                             (TermKind::Application { .. }, TermKind::Injection { .. }) => {
-                                !rigid(left)
+                                !rigid(&definition, left)
                             }
-                            _ => !(rigid(left) && rigid(right)),
+                            _ => !(rigid(&definition, left) && rigid(&definition, right)),
                         };
                         let mut unifier = SyntacticUnifier {
-                            sorts: definition.sort_graph(),
+                            definition: &definition,
                             subject_values: InheritedFromArguments(arguments),
                             bindings: HashMap::new(),
                             pending: Vec::new(),
@@ -911,7 +980,136 @@ mod tests {
                 }
             }
         }
-        // Nine roots on each side, less the two same-kind pairs and the six same-name pairs.
-        assert_eq!(checked, 4 * (9 * 9 - 2 - 6));
+        checked
+    }
+
+    /// `seq` is an anywhere head over the constructors `a`, `b`, `c` of `SortS`; `h` and `wk` are
+    /// anywhere heads from `SortS` to `SortH`, whose constructor is `z`. With `withdrawn`, `seq`
+    /// has the unit equation `a ; S = S` and the reassociation `(S1 ; S2) ; S3 = S1 ; (S2 ; S3)`,
+    /// whose pair with itself the check does not show to join, so `seq` is withdrawn; without,
+    /// `seq` has no equation. `h` has the executable equation `h(c) = z`, which mentions no `seq`,
+    /// and the simplification lemma `h(seq(X, Y)) = z`, which the check's closure does not read,
+    /// so `h` is admitted in both. `wk` has the equation `wk(seq(X, a)) = z`.
+    fn nested_heads(withdrawn: bool) -> BackendDefinition {
+        let anywhere = |head: &str, result: &str, arguments: &[&str], right: &str| {
+            let variables = (0..arguments.len())
+                .map(|index| format!("X{index}:SortS{{}}"))
+                .collect::<Vec<_>>();
+            let memberships = arguments.iter().zip(&variables).rev().fold(
+                r"\top{R}()".to_owned(),
+                |rest, (pattern, variable)| {
+                    format!(r"\and{{R}}(\in{{SortS{{}}, R}}({variable}, {pattern}), {rest})")
+                },
+            );
+            format!(
+                r"axiom{{R}} \implies{{R}}(
+                    \and{{R}}(\top{{R}}(), {memberships}),
+                    \equals{{{result}{{}}, R}}(
+                        {head}{{}}({}),
+                        \and{{{result}{{}}}}({right}, \top{{{result}{{}}}}())
+                    )
+                ) [anywhere{{}}()]",
+                variables.join(", "),
+            )
+        };
+        let reassociation = if withdrawn {
+            [
+                anywhere("seq", "SortS", &["a{}()", "S:SortS{}"], "S:SortS{}"),
+                anywhere(
+                    "seq",
+                    "SortS",
+                    &["seq{}(S1:SortS{}, S2:SortS{})", "S3:SortS{}"],
+                    "seq{}(S1:SortS{}, seq{}(S2:SortS{}, S3:SortS{}))",
+                ),
+            ]
+            .join("\n")
+        } else {
+            String::new()
+        };
+        let source = format!(
+            r#"[]
+            module MAIN
+                sort SortS{{}} []
+                sort SortH{{}} []
+                symbol z{{}}() : SortH{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol a{{}}() : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol b{{}}() : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol c{{}}() : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol seq{{}}(SortS{{}}, SortS{{}}) : SortS{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+                symbol h{{}}(SortS{{}}) : SortH{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+                symbol wk{{}}(SortS{{}}) : SortH{{}} [anywhere{{}}(), function{{}}(), value-production{{}}()]
+                {reassociation}
+                {h}
+                {wk}
+                axiom{{R}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{SortH{{}}, R}}(
+                        h{{}}(seq{{}}(X:SortS{{}}, Y:SortS{{}})),
+                        \and{{SortH{{}}}}(z{{}}(), \top{{SortH{{}}}}())
+                    )
+                ) [simplification{{}}()]
+            endmodule []"#,
+            h = anywhere("h", "SortH", &["c{}()"], "z{}()"),
+            wk = anywhere("wk", "SortH", &["seq{}(X:SortS{}, a{}())"], "z{}()"),
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// An equation-head application written in a scanned left-hand side is read by its root
+    /// where the check admits its head: a step of the normal-form model matches `seq(X, a)` only
+    /// against a sequence, so `wk(b)` and `wk(seq(b, c))` are normal forms, and the lemma's
+    /// `h(seq(X, Y))` does not reach `h(b)`. Where `seq` is withdrawn, `seq(b, c)` gets no token,
+    /// and neither does `wk(b)`: `wk`'s pair with `seq`'s unit equation at `wk(seq(a, a))` (`z`
+    /// against `wk(a)`) does not join, so the gate at `wk` itself refuses it. The pattern-side
+    /// gate at a head that keeps its claims is pinned by
+    /// `a_lemma_that_nests_a_withdrawn_head_reads_it_up_to_equations`.
+    #[test]
+    fn a_pattern_side_equation_head_is_read_by_its_root_where_it_is_admitted() {
+        let admitted = nested_heads(false);
+        assert!(admitted.value_claims().tainted_symbols().is_empty());
+        assert!(normal(&admitted, "wk{}(b{}())"));
+        assert!(normal(&admitted, "wk{}(seq{}(b{}(), c{}()))"));
+        assert!(!normal(&admitted, "wk{}(seq{}(b{}(), a{}()))"));
+        assert!(!normal(&admitted, "wk{}(seq{}(b{}(), X:SortS{}))"));
+        assert!(normal(&admitted, "h{}(b{}())"));
+        assert!(!normal(&admitted, "h{}(c{}())"));
+        let withdrawn = nested_heads(true);
+        let tainted = withdrawn.value_claims().tainted_symbols();
+        assert!(
+            tainted.iter().any(|symbol| symbol.as_ref() == "seq"),
+            "{tainted:?}"
+        );
+        assert!(
+            tainted.iter().any(|symbol| symbol.as_ref() == "wk"),
+            "{tainted:?}"
+        );
+        assert!(!normal(&withdrawn, "seq{}(b{}(), c{}())"));
+        assert!(!normal(&withdrawn, "wk{}(b{}())"));
+    }
+
+    /// The gate is asked at the head written in the pattern, not only through the scanned head:
+    /// `h` keeps its claims, since its executable equation mentions no `seq` and the closure
+    /// does not read the lemma `h(seq(X, Y)) = z`, but `seq` is withdrawn, so the lemma's
+    /// `seq(X, Y)` is read up to equations and `h(b)` gets no token. With the gate forced open
+    /// at every equation head (`admit_equation_heads`), the lemma's `seq` is read by its root and
+    /// `h(b)` gets one.
+    #[test]
+    fn a_lemma_that_nests_a_withdrawn_head_reads_it_up_to_equations() {
+        let withdrawn = nested_heads(true);
+        let tainted = withdrawn.value_claims().tainted_symbols();
+        assert!(
+            !tainted.iter().any(|symbol| symbol.as_ref() == "h"),
+            "{tainted:?}"
+        );
+        assert!(!normal(&withdrawn, "h{}(b{}())"));
+        let forced = crate::confluence::switches::with(
+            crate::confluence::switches::Switches {
+                admit_equation_heads: true,
+                ..crate::confluence::switches::Switches::default()
+            },
+            || normal(&withdrawn, "h{}(b{}())"),
+        );
+        assert!(forced);
     }
 }

@@ -147,7 +147,9 @@ struct Checked {
 /// The constructions of a value claim that ask the gate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GateSite {
-    /// The instance-normal scan of an equation-head application.
+    /// The instance-normal scan of an equation-head application, and the equation heads it reads
+    /// by their root in the left-hand sides of the equations it scans
+    /// (`term::head::ScannedPatterns`).
     EquationHead,
     /// The instance-normal scan of a collection.
     Collection,

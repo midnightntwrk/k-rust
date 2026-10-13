@@ -9345,6 +9345,230 @@ fn kcompile_names_an_equation_whose_argument_an_anywhere_rule_rewrites() {
     );
 }
 
+/// The sequences of `ABSORB`: `seq` is an anywhere head whose one rule nests its own head on its
+/// left-hand side, `(S1 ; a) ; S3 => S1 ; S3`. The rule's pair with itself and its in-argument
+/// pairs join, so `seq` keeps its value claims.
+const ABSORB: &str = r#"
+module ABSORB
+  syntax Stmt ::= "a" [symbol(a)] | "b" [symbol(b)] | "c" [symbol(c)] | "d" [symbol(d)]
+                | "wrap" "(" Stmt ")" [symbol(wrap)]
+                > Stmt ";" Stmt [symbol(seq), right]
+  syntax Stmt ::= "(" Stmt ")" [bracket]
+  configuration <k> $PGM:Stmt </k>
+  rule (S1:Stmt ; a) ; S3:Stmt => S1 ; S3 [anywhere]
+endmodule
+"#;
+
+/// `ABSORB` with a rewrite rule that builds `(b ; a) ; d` from `go`.
+const ABSORB_GO: &str = r#"
+module ABSORB-GO
+  syntax Stmt ::= "a" [symbol(a)] | "b" [symbol(b)] | "c" [symbol(c)] | "d" [symbol(d)] | "go" [symbol(go)]
+                > Stmt ";" Stmt [symbol(seq), right]
+  syntax Stmt ::= "(" Stmt ")" [bracket]
+  configuration <k> $PGM:Stmt </k>
+  rule (S1:Stmt ; a) ; S3:Stmt => S1 ; S3 [anywhere]
+  rule <k> go => (b ; a) ; d </k>
+endmodule
+"#;
+
+/// `ABSORB` with a function whose first equation's argument is the ground `b ; a` and whose
+/// second is `owise`.
+const ABSORB_OWISE: &str = r#"
+module ABSORB-OWISE
+  imports INT
+  syntax Stmt ::= "a" [symbol(a)] | "b" [symbol(b)] | "c" [symbol(c)] | "d" [symbol(d)]
+                > Stmt ";" Stmt [symbol(seq), right]
+  syntax Stmt ::= "(" Stmt ")" [bracket]
+  syntax Exp ::= Int | "run" "(" Stmt ")" [symbol(run)]
+  syntax Int ::= f(Stmt) [symbol(f), function]
+  configuration <k> $PGM:Exp </k>
+  rule (S1:Stmt ; a) ; S3:Stmt => S1 ; S3 [anywhere]
+  rule f(b ; a) => 1
+  rule f(_) => 2 [owise]
+  rule run(S) => f(S)
+endmodule
+"#;
+
+/// A reassociation whose first leaf is an `Atom`, beside the unit rule `a ; S => S`.
+const ATOM_REASSOCIATION: &str = r#"
+module ATOM
+  syntax Atom ::= "a" [symbol(a)] | "b" [symbol(b)] | "c" [symbol(c)] | "d" [symbol(d)] | "e" [symbol(e)]
+  syntax Stmt ::= Atom
+                | "wrap" "(" Stmt ")" [symbol(wrap)]
+                > Stmt ";" Stmt [symbol(seq), right]
+  syntax Stmt ::= "(" Stmt ")" [bracket]
+  configuration <k> $PGM:Stmt </k>
+  rule a ; S:Stmt => S [anywhere]
+  rule (A:Atom ; S2:Stmt) ; S3:Stmt => A ; S2 ; S3 [anywhere]
+endmodule
+"#;
+
+/// The unrestricted reassociation beside the unit rule `a ; S => S`.
+const REASSOCIATION: &str = r#"
+module ANYWHERE
+  syntax Stmt ::= "a" [symbol(a)] | "b" [symbol(b)] | "c" [symbol(c)] | "d" [symbol(d)]
+                | "wrap" "(" Stmt ")" [symbol(wrap)]
+                > Stmt ";" Stmt [symbol(seq), right]
+  syntax Stmt ::= "(" Stmt ")" [bracket]
+  configuration <k> $PGM:Stmt </k>
+  rule a ; S:Stmt => S [anywhere]
+  rule (S1:Stmt ; S2:Stmt) ; S3:Stmt => S1 ; S2 ; S3 [anywhere]
+endmodule
+"#;
+
+/// `krust krun` of `source`, whose main and syntax module is `module`, on the program
+/// `expression` of sort `sort`, with `extra` arguments: the standard output with every space and
+/// line end removed, and the standard error.
+fn krun_compact(
+    source: &str,
+    module: &str,
+    sort: &str,
+    expression: &str,
+    extra: &[&str],
+) -> (String, String) {
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("krun")
+        .arg(&definition)
+        .args(["--main-module", module, "--syntax-module", module])
+        .args(["--sort", sort, "-e", expression])
+        .args(extra)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(output.status.success(), "{expression}: {stderr}");
+    fs::remove_dir_all(root).unwrap();
+    (
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .split_whitespace()
+            .collect(),
+        stderr,
+    )
+}
+
+/// The compact final configuration of a run with no constraint whose `<k>` cell holds the one
+/// item `item`.
+fn unconstrained_final(item: &str) -> String {
+    format!(
+        r#"Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({item},dotk{{}}())),Lbl'-LT-'generatedCounter'-GT-'{{}}(\dv{{SortInt{{}}}}("0")))"#
+    )
+}
+
+/// `(S1 ; a) ; S3 => S1 ; S3` nests `seq` on its own left-hand side, and every pair it makes
+/// joins, so `seq` keeps its claims. In the normal-form model a step matches the inner `S1 ; a`
+/// by its root, so `seq(b, a)` is a normal form there and `(b ; a) ; d` rewrites to `b ; d`,
+/// also under `wrap`, with no definedness condition left and nothing warned.
+#[test]
+fn an_anywhere_rule_that_nests_its_own_head_rewrites_where_its_pairs_join() {
+    for (expression, item) in [
+        ("(b ; a) ; d", "Lblseq{}(Lblb{}(),Lbld{}())"),
+        (
+            "wrap((b ; a) ; d)",
+            "Lblwrap{}(Lblseq{}(Lblb{}(),Lbld{}()))",
+        ),
+    ] {
+        let (stdout, stderr) = krun_compact(ABSORB, "ABSORB", "Stmt", expression, &[]);
+        assert_eq!(
+            stdout,
+            unconstrained_final(&format!("inj{{SortStmt{{}},SortKItem{{}}}}({item})")),
+            "{expression}: {stderr}"
+        );
+        assert!(!stderr.contains("warning"), "{expression}: {stderr}");
+    }
+}
+
+/// `(A:Atom ; S2) ; S3 => A ; S2 ; S3` has no overlap with itself (an `Atom` is never a
+/// sequence) and joins with `a ; S => S`, so `seq` keeps its claims. Innermost evaluation
+/// right-nests an inner sequence before the outer one is tried, so every nesting of `Atom`
+/// leaves reaches the right-nested sequence, with no definedness condition left.
+#[test]
+fn a_reassociation_restricted_to_an_atom_first_leaf_reaches_the_right_nested_sequence() {
+    let atom = |name: &str| format!("inj{{SortAtom{{}},SortStmt{{}}}}(Lbl{name}{{}}())");
+    let right_nested = format!(
+        "Lblseq{{}}({},Lblseq{{}}({},Lblseq{{}}({},{})))",
+        atom("b"),
+        atom("c"),
+        atom("d"),
+        atom("e")
+    );
+    for expression in ["((b ; c) ; d) ; e", "((a ; b) ; (c ; d)) ; e"] {
+        let (stdout, stderr) = krun_compact(ATOM_REASSOCIATION, "ATOM", "Stmt", expression, &[]);
+        assert_eq!(
+            stdout,
+            unconstrained_final(&format!(
+                "inj{{SortStmt{{}},SortKItem{{}}}}({right_nested})"
+            )),
+            "{expression}: {stderr}"
+        );
+        assert!(!stderr.contains("warning"), "{expression}: {stderr}");
+    }
+}
+
+/// Under `ABSORB`'s rule, `b ; a` is a normal form and `(b ; a) ; d` is `b ; d`, so `go`
+/// rewrites once and ends at `b ; d`, and `b ; a`, which is not `go`, is final as it stands. A
+/// rewrite rule is not applied under an equality between `go` and a sequence: each run has one
+/// final leaf with no constraint, well within the depth bound.
+#[test]
+fn a_rewrite_rule_is_not_applied_under_an_equality_with_a_scanned_normal_form() {
+    for (expression, item) in [
+        ("go", "Lblseq{}(Lblb{}(),Lbld{}())"),
+        ("b ; a", "Lblseq{}(Lblb{}(),Lbla{}())"),
+    ] {
+        let (stdout, stderr) = krun_compact(
+            ABSORB_GO,
+            "ABSORB-GO",
+            "Stmt",
+            expression,
+            &["--depth", "5"],
+        );
+        assert_eq!(
+            stdout,
+            unconstrained_final(&format!("inj{{SortStmt{{}},SortKItem{{}}}}({item})")),
+            "{expression}: {stderr}"
+        );
+    }
+}
+
+/// `b ; a` written in `f(b ; a) => 1` is a normal form of `ABSORB`'s rule, so it denotes one
+/// value, distinct from `c` (another root) and from the normal form `b ; c`: `f` of those takes
+/// the `owise` equation, and `f(b ; a)` the first, each with no definedness condition left.
+#[test]
+fn an_owise_equation_applies_past_a_ground_nested_anywhere_pattern() {
+    for (expression, value) in [("run(c)", "2"), ("run(b ; c)", "2"), ("run(b ; a)", "1")] {
+        let (stdout, stderr) = krun_compact(ABSORB_OWISE, "ABSORB-OWISE", "Exp", expression, &[]);
+        assert_eq!(
+            stdout,
+            unconstrained_final(&format!(
+                r#"inj{{SortInt{{}},SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#
+            )),
+            "{expression}: {stderr}"
+        );
+    }
+}
+
+/// The negative control of the root reading: the load does not show that the unrestricted
+/// reassociation's pair with itself joins, so `seq` loses its claims, its applications keep
+/// their open reading, and `(b ; c) ; d` stays as written under `\ceil(seq(b, c))`.
+#[test]
+fn a_reassociation_whose_head_is_withdrawn_keeps_the_nested_application_open() {
+    let (stdout, stderr) = krun_compact(REASSOCIATION, "ANYWHERE", "Stmt", "(b ; c) ; d", &[]);
+    assert!(
+        stdout.contains(
+            r"kseq{}(inj{SortStmt{},SortKItem{}}(Lblseq{}(Lblseq{}(Lblb{}(),Lblc{}()),Lbld{}())),dotk{}())"
+        ) && stdout
+            .contains(r"\ceil{SortStmt{},SortGeneratedTopCell{}}(Lblseq{}(Lblb{}(),Lblc{}()))"),
+        "{stdout}"
+    );
+    assert!(
+        stderr.contains("is not shown consistent with the equation")
+            && stderr.contains("no value claims are made for seq"),
+        "{stderr}"
+    );
+}
+
 const SEVERAL_MATCHES: &str = r#"
 module SM
   imports DOMAINS
