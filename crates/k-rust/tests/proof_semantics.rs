@@ -988,3 +988,251 @@ fn a_destination_item_written_by_a_final_update_or_union_is_found_beside_the_res
         }
     }
 }
+
+/// The status of each of `claims` of `spec`, proven against `definition` in `source`.
+fn claim_statuses(
+    source: &str,
+    spec: &str,
+    definition: &str,
+    claims: &[&str],
+) -> Vec<(String, String)> {
+    let kore = compile(source, spec, definition);
+    claims
+        .iter()
+        .map(|claim| {
+            let result = prove(
+                &kore,
+                spec,
+                &format!("{spec}.{claim}"),
+                ProveRequest::default(),
+            );
+            ((*claim).to_owned(), result.status)
+        })
+        .collect()
+}
+
+/// Each claim of `expected` whose status differs from the one it lists, described.
+fn unexpected_statuses(
+    source: &str,
+    spec: &str,
+    definition: &str,
+    expected: &[(&str, &str)],
+) -> Vec<String> {
+    let claims = expected.iter().map(|(claim, _)| *claim).collect::<Vec<_>>();
+    claim_statuses(source, spec, definition, &claims)
+        .into_iter()
+        .zip(expected)
+        .filter(|((_, status), (_, expected))| status != expected)
+        .map(|((claim, status), (_, expected))| {
+            format!("{spec}.{claim}: {status}, expected {expected}")
+        })
+        .collect()
+}
+
+/// Destinations whose `#if` holds a partial operand: `undef()` has no equation, so it is
+/// undefined in every model the definition admits.
+const ITE_PARTIAL_BRANCH: &str = r#"
+module PROVE
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "a" "(" Bool ")" [symbol(a)]
+  syntax Int ::= undef() [function, symbol(undef)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> a(_) => 1 </k>
+endmodule
+
+module PROVE-SPEC
+  imports PROVE
+  claim [ground]: <k> a(true) => #if true #then 1 #else undef() #fi </k>
+  claim [sym]: <k> a(B) => #if B #then 1 #else undef() #fi </k> requires B
+  claim [plain]: <k> a(true) => 1 </k>
+  claim [undefrhs]: <k> a(true) => 1 #And #Ceil(undef()) </k>
+endmodule
+"#;
+
+/// The same claims where `undef()` has an equation, so it is defined.
+const ITE_DEFINED_BRANCH: &str = r#"
+module PROVE4
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "a" "(" Bool ")" [symbol(a)]
+  syntax Int ::= undef() [function, symbol(undef)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> a(_) => 1 </k>
+  rule undef() => 0
+endmodule
+
+module PROVE4-SPEC
+  imports PROVE4
+  claim [ground]: <k> a(true) => #if true #then 1 #else undef() #fi </k>
+  claim [sym]: <k> a(B) => #if B #then 1 #else undef() #fi </k> requires B
+endmodule
+"#;
+
+/// `#if` destinations with a partial condition or a partial branch, and a state that reaches an
+/// `#if` itself (`c`). `p(false)` and `undefb()` have no equation.
+const ITE_PARTIAL_CONDITION: &str = r#"
+module PROVE3
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "a" "(" Bool ")" [symbol(a)]
+               | "c" "(" Bool ")" [symbol(c)]
+  syntax Int ::= undef() [function, symbol(undef)]
+  syntax Bool ::= undefb() [function, symbol(undefb)]
+                | p(Bool)  [function, symbol(p)]
+  rule p(true) => true
+  configuration <k> $PGM:Exp </k>
+  rule <k> a(_) => 1 </k>
+  rule <k> c(B) => #if B #then 1 #else undef() #fi </k>
+endmodule
+
+module PROVE3-SPEC
+  imports PROVE3
+  claim [condundef]: <k> a(true) => #if undefb() #then 1 #else 1 #fi </k>
+  claim [condpartial]: <k> a(B) => #if p(B) #then 1 #else 1 #fi </k>
+  claim [symelse]: <k> a(B) => #if B #then undef() #else 1 #fi </k> requires notBool B
+  claim [subj]: <k> c(B) => 1 </k> requires B
+  claim [ctl]: <k> a(B) => #if B #then 1 #else 2 #fi </k> requires B
+endmodule
+"#;
+
+/// Destinations whose Boolean connective or Int product has a partial operand, which the
+/// connective or the product discards or absorbs on the claim's instances.
+const CONNECTIVE_PARTIAL_OPERAND: &str = r#"
+module PROVE5
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "d" "(" Bool ")" [symbol(d)]
+               | "z" "(" Bool ")" [symbol(z)]
+  syntax Bool ::= undefb() [function, symbol(undefb)]
+  syntax Int ::= undefi() [function, symbol(undefi)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> d(_) => false </k>
+  rule <k> z(_) => 0 </k>
+endmodule
+
+module PROVE5-SPEC
+  imports PROVE5
+  claim [andth]: <k> d(B) => B andThenBool undefb() </k> requires notBool B
+  claim [andthg]: <k> d(false) => false andThenBool undefb() </k>
+  claim [orel]: <k> d(B) => notBool (B orElseBool undefb()) </k> requires B
+  claim [andb]: <k> d(B) => B andBool undefb() </k> requires notBool B
+  claim [mul]: <k> z(B) => 0 *Int undefi() </k> requires B
+endmodule
+"#;
+
+/// Destinations with a partial operand that the claim's condition makes defined or leaves
+/// undefined on some instance: a division, and an existential the match binds to the state's
+/// argument under a function defined only at `5`.
+const PARTIAL_OPERAND_CONDITION: &str = r#"
+module IMP
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | z(Int) [symbol(z)]
+               | pr(Int, Int) [symbol(pr)]
+               | mk(Int) [symbol(mk)]
+  syntax Int ::= w(Int) [function, symbol(w)]
+  rule w(5) => 5
+  configuration <k> $PGM:Exp </k>
+  rule <k> z(_) => 0 </k>
+  rule <k> mk(X) => pr(X, 0) </k>
+endmodule
+
+module IMP-SPEC
+  imports IMP
+  claim [divok]: <k> z(Y) => 0 *Int (1 /Int Y) </k> requires Y =/=Int 0
+  claim [divbad]: <k> z(Y) => 0 *Int (1 /Int Y) </k>
+  claim [exbound]: <k> mk(X) => pr(?W, 0 *Int w(?W)) </k> requires X ==Int 5
+  claim [exboundbad]: <k> mk(X) => pr(?W, 0 *Int w(?W)) </k>
+endmodule
+"#;
+
+/// A destination term `t` denotes `⌈t⌉ ∧ t`, so a claim holds of an instance only where its
+/// right-hand side is defined there. Each claim below reaches a value equal to its right-hand
+/// side wherever that side is defined, but the side applies an operand that is undefined on the
+/// claim's instances: the untaken branch of an `#if` (`sym`, `symelse`), its condition
+/// (`condundef`, `condpartial`), the discarded operand of `andThenBool` or `orElseBool` (`andth`,
+/// `orel`), an operand `andBool` or `*Int` absorbs (`andb`, `mul`). The right-hand side is
+/// `\bottom` there, so none of them is proven, whether the operand is discarded by a split of
+/// the destination or absorbed by a hook the solver reads as total. Where the operand is
+/// defined (`PROVE4`'s `undef() => 0`, the `ctl` branch `2`), or the destination has none
+/// (`plain`), the claim is proven; the ground forms (`ground`, `andthg`, `undefrhs`) and a state
+/// that reaches the `#if` itself (`subj`) are not.
+#[test]
+fn a_claim_is_proven_only_where_its_right_hand_side_is_defined() {
+    let wrong = [
+        unexpected_statuses(
+            ITE_PARTIAL_BRANCH,
+            "PROVE-SPEC",
+            "PROVE",
+            &[
+                ("sym", "failed"),
+                ("ground", "failed"),
+                ("undefrhs", "failed"),
+                ("plain", "proven"),
+            ],
+        ),
+        unexpected_statuses(
+            ITE_PARTIAL_CONDITION,
+            "PROVE3-SPEC",
+            "PROVE3",
+            &[
+                ("symelse", "failed"),
+                ("condundef", "failed"),
+                ("condpartial", "failed"),
+                ("subj", "failed"),
+                ("ctl", "proven"),
+            ],
+        ),
+        unexpected_statuses(
+            ITE_DEFINED_BRANCH,
+            "PROVE4-SPEC",
+            "PROVE4",
+            &[("sym", "proven"), ("ground", "proven")],
+        ),
+        unexpected_statuses(
+            CONNECTIVE_PARTIAL_OPERAND,
+            "PROVE5-SPEC",
+            "PROVE5",
+            &[
+                ("andth", "failed"),
+                ("orel", "failed"),
+                ("andb", "failed"),
+                ("mul", "failed"),
+                ("andthg", "failed"),
+            ],
+        ),
+    ]
+    .concat();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A partial operand of the right-hand side that the claim's condition makes defined keeps the
+/// claim proven: `1 /Int Y` under `Y =/=Int 0`, and `w(?W)` where the match binds `?W` to `X`
+/// and the condition makes `X` the one argument `w` is defined at. Without the condition the
+/// operand is undefined on some instance (`Y = 0`, `X = 0`), and the claim is not proven.
+#[test]
+fn a_claim_condition_that_defines_a_right_hand_side_operand_keeps_it_proven() {
+    let wrong = unexpected_statuses(
+        PARTIAL_OPERAND_CONDITION,
+        "IMP-SPEC",
+        "IMP",
+        &[
+            ("divok", "proven"),
+            ("exbound", "proven"),
+            ("divbad", "failed"),
+            ("exboundbad", "failed"),
+        ],
+    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

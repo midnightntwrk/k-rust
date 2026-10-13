@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     condition::instantiate_constraints,
+    definedness::ceil_term,
     definition::BackendDefinition,
     matching::expand_implication_remainders,
     rewrite::Pattern,
@@ -52,9 +53,9 @@ impl ConsequentMatch {
     }
 
     /// One obligation list per branch of `remainder`'s expansion: the equations of the
-    /// universal bindings, the remainder's equations under the match, and the destination's
-    /// constraints under the match with their definedness stated (I1), each listed once and
-    /// none that `known` already holds.
+    /// universal bindings, the remainder's equations under the match with the definedness of
+    /// their destination sides, and the destination's constraints under the match with their
+    /// definedness stated (I1), each listed once and none that `known` already holds.
     ///
     /// A branch is one entry assignment of a closed destination map, one placement of a
     /// destination list's items between its parts at positions of the current list's items
@@ -125,11 +126,20 @@ fn branch_obligations(
             obligations.push(equation.clone());
         }
     }
+    // A destination term `t` denotes `⌈t⌉ ∧ t`, so each part `l` of it that the match leaves
+    // equal to a part `r` of the antecedent's term is `⌈l⌉ ∧ l = r`. `r` is defined wherever the
+    // antecedent's term is, which `known` states, so the equation alone already implies `⌈l⌉` in
+    // every model; but the solver reads a partial application in `l` as total, and
+    // `remainder_obligation` states an `ite` equation by its condition and branches, so `⌈l⌉`
+    // is stated with the equation. It adds nothing the equation does not imply.
     for (left, right) in remainder {
-        let predicate = remainder_obligation(
-            &substitute(&left, substitution),
-            &substitute(&right, substitution),
-        );
+        let left = substitute(&left, substitution);
+        for predicate in ceil_term(definition, &left) {
+            if !obligations.contains(&predicate) {
+                obligations.push(predicate);
+            }
+        }
+        let predicate = remainder_obligation(&left, &substitute(&right, substitution));
         if !obligations.contains(&predicate) {
             obligations.push(predicate);
         }
