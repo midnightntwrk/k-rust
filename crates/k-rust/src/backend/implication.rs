@@ -23,6 +23,7 @@ use k_rust_kore::kore::{
 };
 
 use super::{Backend, BackendError, admit, error, simplification::stopped_operation};
+use k_rust_backend::evaluation::{EvaluationMode, EvaluationScope};
 
 pub fn check(
     definition: &k_rust_backend::definition::BackendDefinition,
@@ -32,6 +33,8 @@ pub fn check(
     consequent_existentials: &BTreeSet<k_rust_backend::term::Variable>,
     solver: &dyn k_rust_backend::smt::SmtSolver,
 ) -> Stoppable<Result<ImplicationVerdict, ImplicationError>> {
+    // A proof route (`k_rust_backend::evaluation`).
+    let _proof = EvaluationScope::enter(EvaluationMode::Proof);
     check_implication_with_existentials_complete(
         definition,
         antecedent,
@@ -78,6 +81,8 @@ impl Backend {
         admission: Admission,
         finish: impl FnOnce(ImplicationVerdict, Sort) -> Result<T, BackendError>,
     ) -> Result<T, BackendError> {
+        // A proof route (`k_rust_backend::evaluation`).
+        let _proof = EvaluationScope::enter(EvaluationMode::Proof);
         self.with_solver_over(module, &[antecedent, consequent], |definition, solver| {
             let (verdict, sort) =
                 check_kore(definition, solver, antecedent, consequent, admission)?;

@@ -16,6 +16,7 @@ pub mod definedness;
 pub mod definition;
 pub mod describe;
 pub mod diagnostic;
+pub mod evaluation;
 pub mod externalize;
 pub mod fresh;
 pub mod implication;

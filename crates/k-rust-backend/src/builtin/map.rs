@@ -555,6 +555,12 @@ fn ordered_entries(map: &Term) -> Option<(&MapDefinition, &Items<(Term, Term)>)>
     (entries.symbolic_keys() == 0).then_some((definition, entries))
 }
 
+/// Whether `keys_list` and `values` of `arguments` list two or more bindings, in an order the
+/// definition leaves open (`super::implementation_chosen`).
+pub(super) fn lists_several_items(arguments: &[Term]) -> bool {
+    matches!(arguments, [map] if ordered_entries(map).is_some_and(|(_, entries)| entries.len() >= 2))
+}
+
 fn keys_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("MAP.keys_list", arguments, 1)?;
     let Some((definition, entries)) = ordered_entries(&arguments[0]) else {

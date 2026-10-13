@@ -2044,3 +2044,179 @@ fn constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_t
         );
     }
 }
+
+/// The order `keys_list` lists a map's keys in, reached through a rule `requires` (on 1) and a
+/// function equation's `requires` (on 2).
+const KEYS_LIST_ORDER_IN_CONDITIONS: &str = r#"
+module ORDREQ
+  imports DOMAINS
+  imports COLLECTIONS
+  syntax KItem ::= res(List) | cond(Bool) | fres(Int)
+  syntax Int ::= f(Map) [function]
+  rule f(M) => 1 requires keys_list(M) ==K ListItem(-1) ListItem(10) ListItem(2)
+  rule f(_) => 0 [owise]
+  configuration <k> $PGM:Int </k>
+  rule 0 => res(keys_list(10 |-> 1 2 |-> 2 -1 |-> 3))
+  rule 1 => cond(true) requires keys_list(10 |-> 1 2 |-> 2 -1 |-> 3) ==K ListItem(-1) ListItem(10) ListItem(2)
+  rule 2 => fres(f(10 |-> 1 2 |-> 2 -1 |-> 3))
+endmodule
+"#;
+
+/// The facade's `execute` and `search_pattern` are executions: they evaluate every listing in
+/// k-rust's documented order (decimal text order for Int keys, -1 10 2), also in the conditions
+/// they decide, so a rule `requires` (on 1) and a function equation's `requires` (on 2) that hold
+/// in that order are taken.
+#[test]
+fn backend_execute_and_search_keep_the_order_in_conditions() {
+    for (program, expected) in [
+        (
+            "1",
+            r#"Lblcond'LParUndsRParUnds'ORDREQ'Unds'KItem'Unds'Bool{}(\dv{SortBool{}}("true"))"#,
+        ),
+        (
+            "2",
+            r#"Lblfres'LParUndsRParUnds'ORDREQ'Unds'KItem'Unds'Int{}(\dv{SortInt{}}("1"))"#,
+        ),
+    ] {
+        let compiled = compile(
+            KEYS_LIST_ORDER_IN_CONDITIONS,
+            "ORDREQ",
+            "ORDREQ",
+            "Int",
+            program,
+        );
+        let executed = text(&execute(&compiled, "ORDREQ", None));
+        assert!(
+            matches!(executed.as_slice(), [state]
+                if state.contains(expected) && !state.contains("Lblkeys")),
+            "execute {program}: {executed:?}"
+        );
+        let mut backend =
+            Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
+        let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+        let response = backend
+            .search_pattern(SearchPatternRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchPatternRequest::new(compiled.initial.clone(), target)
+            })
+            .unwrap();
+        let found = response
+            .matches
+            .iter()
+            .map(|found| {
+                Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(found.as_slice(), [state]
+                if state.contains(expected) && !state.contains("Lblkeys")),
+            "search_pattern {program}: {found:?}"
+        );
+    }
+}
+
+/// The facade's proof routes evaluate only consequences of the definition, also when the caller
+/// runs them inside an `Execution` scope: `simplify` leaves `keys_list` of a map of three keys
+/// unevaluated there, while `execute` in the same definition lists them.
+#[test]
+fn backend_simplify_stays_a_proof_route_inside_an_execution_scope() {
+    use k_rust::backend::PatternRequest;
+    use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
+    let compiled = compile(
+        KEYS_LIST_ORDER_IN_CONDITIONS,
+        "ORDREQ",
+        "ORDREQ",
+        "Int",
+        "0",
+    );
+    let item = |key: i64, value: i64| {
+        format!(
+            r#"Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{key}")), inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}")))"#
+        )
+    };
+    let listing = parse_pattern(&format!(
+        "Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map{{}}(Lbl'Unds'Map'Unds'{{}}({}, Lbl'Unds'Map'Unds'{{}}({}, {})))",
+        item(10, 1),
+        item(2, 2),
+        item(-1, 3)
+    ))
+    .unwrap();
+    let mut backend = Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
+    let simplified = with_evaluation(EvaluationMode::Execution, || {
+        backend.simplify(PatternRequest::new(listing)).unwrap()
+    });
+    assert!(simplified.to_string().contains("Lblkeys"), "{simplified}");
+    let executed = text(&execute(&compiled, "ORDREQ", None));
+    assert!(
+        matches!(executed.as_slice(), [state] if !state.contains("Lblkeys")),
+        "{executed:?}"
+    );
+}
+
+/// `kore-match-disjunction`'s `Backend::match_patterns` is a proof route: a target whose condition
+/// states that `keys_list` of a map lists `-1 10 2` is not decided by k-rust's order, also inside
+/// a caller's `Execution` scope, so matching it against `0` keeps that condition as a constraint.
+#[test]
+fn backend_match_patterns_stays_a_proof_route_inside_an_execution_scope() {
+    use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
+    let compiled = compile(
+        KEYS_LIST_ORDER_IN_CONDITIONS,
+        "ORDREQ",
+        "ORDREQ",
+        "Int",
+        "0",
+    );
+    let int =
+        |value: i64| format!(r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    let item = |key: i64, value: i64| {
+        format!("Lbl'UndsPipe'-'-GT-Unds'{{}}({}, {})", int(key), int(value))
+    };
+    let listing = parse_pattern(&format!(
+        "Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map{{}}(Lbl'Unds'Map'Unds'{{}}({}, Lbl'Unds'Map'Unds'{{}}({}, {})))",
+        item(10, 1),
+        item(2, 2),
+        item(-1, 3)
+    ))
+    .unwrap();
+    let list = parse_pattern(&format!(
+        "Lbl'Unds'List'Unds'{{}}(LblListItem{{}}({}), Lbl'Unds'List'Unds'{{}}(LblListItem{{}}({}), LblListItem{{}}({})))",
+        int(-1),
+        int(10),
+        int(2)
+    ))
+    .unwrap();
+    let mut backend = Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
+    let internalize = |backend: &mut Backend, pattern: &Pattern| {
+        backend
+            .with_solver(None, |definition, _| {
+                definition
+                    .verify_standalone_pattern(pattern, &[])
+                    .and_then(|admitted| admitted.internalize_pattern())
+                    .map_err(|error| k_rust::backend::BackendError(error.to_string()))
+            })
+            .unwrap()
+    };
+    // `X` where `keys_list` of the map lists `-1 10 2`: the condition the match decides.
+    let condition = parse_pattern(&format!(
+        r#"\and{{SortInt{{}}}}(X:SortInt{{}}, \equals{{SortList{{}}, SortInt{{}}}}({}, {}))"#,
+        Printer::compact().print_pattern(&listing),
+        Printer::compact().print_pattern(&list)
+    ))
+    .unwrap();
+    let target = internalize(&mut backend, &condition);
+    let subject = internalize(
+        &mut backend,
+        &parse_pattern(r#"\dv{SortInt{}}("0")"#).unwrap(),
+    );
+    let matched = with_evaluation(EvaluationMode::Execution, || {
+        backend.match_patterns(None, &target, std::slice::from_ref(&subject))
+    });
+    let proof = backend.match_patterns(None, &target, std::slice::from_ref(&subject));
+    // The condition stays a constraint of the match: its order is not read.
+    let matched = matched.unwrap();
+    assert!(
+        matches!(matched.as_slice(), [found] if !found.constraints.is_empty()),
+        "{matched:?}"
+    );
+    assert_eq!(matched, proof.unwrap());
+}

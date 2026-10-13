@@ -28,6 +28,7 @@ use k_rust_backend::{
     confluence::{UnjoinedReason, UnresolvedShape},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
+    evaluation::{EvaluationMode, with_evaluation},
     externalize::{self, External},
     fresh::RequestNames,
     rewrite::{
@@ -1152,7 +1153,21 @@ impl Backend {
 /// result is not one the rules produced.
 const INITIAL_BOTTOM_WARNING: &str = "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables";
 
+/// Run a program: `krun` and `kore-exec`, search included. The whole run is an execution
+/// (`EvaluationMode::Execution`): the engine's execution or search, and the facade's work on its
+/// result after the engine returned (the exit code, matching the target).
 fn run_backend_with_solver(
+    backend: &BackendDefinition,
+    solver: &dyn SmtSolver,
+    initial: Vec<Pattern>,
+    options: BackendRunOptions,
+) -> Result<BackendRunOutput, Box<dyn Error>> {
+    with_evaluation(EvaluationMode::Execution, || {
+        run_backend_in_execution(backend, solver, initial, options)
+    })
+}
+
+fn run_backend_in_execution(
     backend: &BackendDefinition,
     solver: &dyn SmtSolver,
     initial: Vec<Pattern>,
@@ -1190,6 +1205,7 @@ fn run_backend_with_solver(
                 max_results: search.bound,
                 max_simplification_iterations: options.max_simplification_iterations,
                 request_names: target.request_names.clone(),
+                evaluation: EvaluationMode::Execution,
             },
             solver,
         );
@@ -1267,6 +1283,8 @@ fn run_backend_with_solver(
                 names
             })
             .unwrap_or_default(),
+        // A run of a program: `Default` is a request whose states a proof may read.
+        evaluation: EvaluationMode::Execution,
         ..ExecutionOptions::default()
     };
     let live_io = options.execution_input.is_some();

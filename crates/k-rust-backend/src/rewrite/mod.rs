@@ -50,6 +50,7 @@ use crate::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
     diagnostic::BackendDiagnostic,
+    evaluation::EvaluationMode,
     fresh::{FreshCounter, RequestNames},
     matching::SortGraph,
     rule::Predicate,
@@ -524,6 +525,14 @@ pub struct ExecutionOptions {
     /// the caller matches the results against. The execution mints no name spelled like one of
     /// them, nor like a variable of the initial patterns (`fresh::FreshCounter`).
     pub request_names: RequestNames,
+    /// Whether the run is an execution of a program (`Execution`), which lists the items of
+    /// `keys_list`, `values` and `Set2List` in k-rust's documented order, or a request whose
+    /// results may decide a proof (`Proof`, the default), which leaves such a listing of two or
+    /// more items unevaluated, as a defined value the definition does not determine
+    /// ([`crate::evaluation`]). Every evaluation of the run sees it, the conditions of rules and
+    /// equations included. A caller that runs a program sets `Execution`; the states of a
+    /// `Proof` run are the ones a prover may read.
+    pub evaluation: EvaluationMode,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -554,6 +563,7 @@ impl Default for ExecutionOptions {
             result_modality: ResultModality::StateSet,
             retain_trace: true,
             request_names: RequestNames::default(),
+            evaluation: EvaluationMode::Proof,
         }
     }
 }

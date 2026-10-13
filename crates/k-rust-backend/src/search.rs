@@ -99,6 +99,7 @@ use crate::{
     definedness::{FactsVerdict, UndecidedFacts, knowledge_facts, pattern_knowledge},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
+    evaluation::{EvaluationMode, EvaluationScope, with_evaluation},
     fresh::{FreshCounter, RequestNames},
     matching::{
         CollectionMatches, MatchMode, MatchResult, match_collection_remainders_all_in_definition,
@@ -169,6 +170,13 @@ pub struct SearchOptions {
     /// internalized patterns. The search mints no name spelled like one of them, nor like a
     /// variable of its initial patterns or target (`fresh::FreshCounter`).
     pub request_names: RequestNames,
+    /// Whether the search explores the runs of a program (`Execution`), which list the items of
+    /// `keys_list`, `values` and `Set2List` in k-rust's documented order, or states a proof may
+    /// read (`Proof`, the default), where such a listing of two or more items stays unevaluated,
+    /// as a defined value the definition does not determine ([`crate::evaluation`]). Every
+    /// evaluation of the search sees it, the conditions of rules and equations and the matching
+    /// of the target included.
+    pub evaluation: EvaluationMode,
 }
 
 impl Default for SearchOptions {
@@ -180,6 +188,7 @@ impl Default for SearchOptions {
             max_results: None,
             max_simplification_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
             request_names: RequestNames::default(),
+            evaluation: EvaluationMode::Proof,
         }
     }
 }
@@ -705,6 +714,7 @@ fn search_graph_collecting(
     mut observe: impl FnMut(&BuiltinEffect),
     mut pattern_bound_reached: impl FnMut(&SearchState) -> bool,
 ) -> SearchResult {
+    let _evaluation = EvaluationScope::enter(options.evaluation);
     let _span = measure::algorithm_span(Algorithm::BackendSearchConfigurations);
     let mut observation_log = ObservationLog::default();
     let request_diagnostics = PathDiagnostics::new_request();
@@ -1530,6 +1540,7 @@ fn search_paths_using(
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
 ) -> PathSearchResult {
+    let _evaluation = EvaluationScope::enter(options.evaluation);
     search_paths_collecting(
         definition,
         initial,
@@ -2123,6 +2134,7 @@ fn search_pattern_using(
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
 ) -> PatternSearchResult {
+    let _evaluation = EvaluationScope::enter(options.evaluation);
     let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let requested_bound = options.max_results;
     // A zero result bound stops before the first initial state, leaving every one unexplored.
@@ -2283,6 +2295,7 @@ fn search_pattern_paths_using(
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
 ) -> PatternPathSearchResult {
+    let _evaluation = EvaluationScope::enter(options.evaluation);
     let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let requested_bound = options.max_results;
     // A zero result bound stops before the initial state, leaving it unexplored: the frontier
@@ -2900,7 +2913,9 @@ fn record_effects(
     observe: &mut impl FnMut(&BuiltinEffect),
 ) {
     for effect in effects {
-        observe(&effect);
+        // An observer is the caller's code, not part of the search: whatever it evaluates is
+        // outside the execution, in `Proof` mode.
+        with_evaluation(EvaluationMode::Proof, || observe(&effect));
         recorded.push(effect);
     }
 }

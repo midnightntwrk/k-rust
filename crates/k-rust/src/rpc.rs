@@ -51,6 +51,7 @@ use k_rust::kore::{
 use k_rust::names::WellKnownSymbol;
 use k_rust_backend::{
     definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
+    evaluation::{EvaluationMode, EvaluationScope},
     externalize,
     fresh::RequestNames,
     implication::{
@@ -369,6 +370,31 @@ struct ExecuteParams {
     booster_only: bool,
     #[serde(default)]
     haskell_logging: Vec<String>,
+    /// k-rust extension: `"proof"` (the default) or `"execution"`. `execute` is the step
+    /// primitive of external provers, which decide a claim with `implies` on the states it
+    /// returns, so by default it computes only consequences of the definition: `keys_list`,
+    /// `values` and `Set2List` of two or more items stay unevaluated. `"execution"` runs a
+    /// program, listing them in k-rust's documented order; its states must not feed a proof.
+    #[serde(default)]
+    evaluation_mode: EvaluationModeParam,
+}
+
+/// The `evaluation-mode` of an `execute` request (`k_rust_backend::evaluation::EvaluationMode`).
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum EvaluationModeParam {
+    #[default]
+    Proof,
+    Execution,
+}
+
+impl From<EvaluationModeParam> for EvaluationMode {
+    fn from(mode: EvaluationModeParam) -> Self {
+        match mode {
+            EvaluationModeParam::Proof => Self::Proof,
+            EvaluationModeParam::Execution => Self::Execution,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -697,10 +723,21 @@ impl RpcService {
             .collect::<Vec<_>>();
         let result = match method {
             "execute" => self.execute(decode_params(params)?),
-            "simplify" => self.simplify(decode_params(params)?),
-            "implies" => self.implies(decode_params(params)?).map(Into::into),
+            // The proof routes evaluate only consequences of the definition
+            // (`k_rust_backend::evaluation`); `execute` takes its mode from its request.
+            "simplify" => {
+                let _proof = EvaluationScope::enter(EvaluationMode::Proof);
+                self.simplify(decode_params(params)?)
+            }
+            "implies" => {
+                let _proof = EvaluationScope::enter(EvaluationMode::Proof);
+                self.implies(decode_params(params)?).map(Into::into)
+            }
             "add-module" => self.add_module(decode_params(params)?).map(Into::into),
-            "get-model" => self.get_model(decode_params(params)?).map(Into::into),
+            "get-model" => {
+                let _proof = EvaluationScope::enter(EvaluationMode::Proof);
+                self.get_model(decode_params(params)?).map(Into::into)
+            }
             "cancel" => Err(RpcFault::cancel_not_supported()),
             _ => Err(RpcFault {
                 code: -32601,
@@ -729,6 +766,7 @@ impl RpcService {
             log_failed_rewrites,
             booster_only,
             haskell_logging,
+            evaluation_mode,
         } = params;
         let _booster_only = booster_only;
         self.ensure_module(module.as_deref())?;
@@ -762,6 +800,7 @@ impl RpcService {
                         // The state as received: an executable state applies no alias, but every
                         // path names its request the same way.
                         request_names: RequestNames::of_received(&[&syntax]),
+                        evaluation: evaluation_mode.into(),
                         ..ExecutionOptions::default()
                     },
                     solver,
@@ -3283,6 +3322,90 @@ endmodule
         let response = request(&mut service, 1, "execute", json!({ "state": state }));
         assert_eq!(response["result"]["reason"], "vacuous", "{response}");
         assert!(response["result"].get("rule").is_none(), "{response}");
+    }
+
+    /// A rule `1 => cond(true)` whose `requires` holds only in k-rust's order of `keys_list`
+    /// (decimal text order for Int keys, -1 10 2), compiled from K source.
+    fn keys_list_order_service() -> RpcService {
+        use k_rust::{
+            backend::Backend,
+            builtin::embedded,
+            kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+            outer::{LoadOptions, ResolvedSource, load_with_options},
+        };
+        const SOURCE: &str = r#"module ORDREQ
+  imports DOMAINS
+  imports COLLECTIONS
+  syntax KItem ::= cond(Bool) [symbol(cond)]
+  configuration <k> $PGM:Int </k>
+  rule 1 => cond(true) requires keys_list(10 |-> 1 2 |-> 2 -1 |-> 3) ==K ListItem(-1) ListItem(10) ListItem(2)
+endmodule
+"#;
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("ordreq.k", SOURCE),
+            "ORDREQ",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap();
+        let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+        RpcService::with_backend(
+            Backend::new(
+                &compiled.definition_kore,
+                "ORDREQ",
+                BackendOptions::default(),
+            )
+            .unwrap(),
+        )
+    }
+
+    /// `execute` is the step primitive of provers, so by default it evaluates no listing whose
+    /// order the definition leaves open: the rule whose `requires` holds only in k-rust's order
+    /// is not taken as one that applies, and the state branches on its condition. With
+    /// `"evaluation-mode": "execution"` the request is an execution, which lists keys in k-rust's
+    /// order and takes the rule.
+    #[test]
+    fn execute_evaluates_an_order_the_definition_leaves_open_only_on_request() {
+        let mut service = keys_list_order_service();
+        let state = encode_kore(
+            &parse_pattern(
+                "Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"0\")))",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let taken = |response: &Value| {
+            response["result"]["reason"] == "stuck"
+                && response["result"]["depth"] == 1
+                && response["result"]["state"].to_string().contains("Lblcond")
+        };
+        // By default the condition is undecided, so the state branches on it.
+        let response = request(&mut service, 1, "execute", json!({ "state": state }));
+        assert_eq!(response["result"]["reason"], "branching", "{response}");
+        assert!(!taken(&response), "{response}");
+        let response = request(
+            &mut service,
+            2,
+            "execute",
+            json!({ "state": state, "evaluation-mode": "execution" }),
+        );
+        assert!(taken(&response), "{response}");
+        let response = request(
+            &mut service,
+            3,
+            "execute",
+            json!({ "state": state, "evaluation-mode": "proof" }),
+        );
+        assert_eq!(response["result"]["reason"], "branching", "{response}");
     }
 
     fn symbolic_branch_service() -> RpcService {

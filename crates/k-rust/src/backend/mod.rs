@@ -23,6 +23,7 @@ use k_rust_backend::stop;
 use k_rust_backend::substitution::Substitution;
 use k_rust_backend::{
     definition::{Admission, Admitted, BackendDefinition},
+    evaluation::{EvaluationMode, EvaluationScope},
     externalize,
     fresh::RequestNames,
     implication::{ImplicationFailure, ImplicationStatus},
@@ -803,6 +804,11 @@ impl Backend {
     /// A step's `trivial` leaves precede the leaves of its successors.
     /// Strategy `any` makes no coverage claim.
     ///
+    /// The execution runs a program ([`EvaluationMode::Execution`]): it lists the items of `keys_list`,
+    /// `values` and `Set2List` in k-rust's order, which the definition does not fix, so its
+    /// states must not decide a claim; prove through [`Self::prove`]
+    /// (docs/compatibility.md, "Implementation-chosen hook values").
+    ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
         self.execute_using(request, None)
@@ -867,6 +873,8 @@ impl Backend {
                 // The state as received, before its aliases are unfolded: none here, since an
                 // executable state has none, but every path names its request the same way.
                 request_names: RequestNames::of_received(&[&syntax]),
+                // `execute` runs a program, so it lists collections in k-rust's order.
+                evaluation: EvaluationMode::Execution,
             };
             let result = match observation_rules {
                 Some(rules) => {
@@ -879,6 +887,11 @@ impl Backend {
         })
     }
 
+    /// The search runs a program ([`EvaluationMode::Execution`]): it lists the items of `keys_list`,
+    /// `values` and `Set2List` in k-rust's order, which the definition does not fix, so its
+    /// states must not decide a claim; prove through [`Self::prove`]
+    /// (docs/compatibility.md, "Implementation-chosen hook values").
+    ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search(&mut self, request: SearchRequest) -> Result<SearchResponse, BackendError> {
         self.search_using(request, None)
@@ -928,6 +941,11 @@ impl Backend {
         })
     }
 
+    /// The search runs a program ([`EvaluationMode::Execution`]): it lists the items of `keys_list`,
+    /// `values` and `Set2List` in k-rust's order, which the definition does not fix, so its
+    /// states must not decide a claim; prove through [`Self::prove`]
+    /// (docs/compatibility.md, "Implementation-chosen hook values").
+    ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_paths(
         &mut self,
@@ -980,6 +998,11 @@ impl Backend {
         })
     }
 
+    /// The search runs a program ([`EvaluationMode::Execution`]): it lists the items of `keys_list`,
+    /// `values` and `Set2List` in k-rust's order, which the definition does not fix, so its
+    /// states must not decide a claim; prove through [`Self::prove`]
+    /// (docs/compatibility.md, "Implementation-chosen hook values").
+    ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_pattern(
         &mut self,
@@ -1345,6 +1368,9 @@ impl Backend {
                     .into(),
             ));
         }
+        // A proof route, including the definition's first load, whose analyses the proof reads
+        // (`k_rust_backend::evaluation`).
+        let _proof = EvaluationScope::enter(EvaluationMode::Proof);
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
             let (claim_index, claim) = proving::select_claim(definition, request.claim.as_deref())?;
             let mut seen = BTreeSet::new();
@@ -1553,6 +1579,9 @@ fn bounded_search_options(
         max_results,
         max_simplification_iterations,
         request_names: RequestNames::default(),
+        // `search`, `search_paths` and `search_pattern*` explore the runs of a program, so they
+        // list collections in k-rust's order.
+        evaluation: EvaluationMode::Execution,
     }
 }
 

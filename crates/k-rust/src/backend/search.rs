@@ -117,6 +117,11 @@ impl Backend {
         target: &Pattern,
         alternatives: &[Pattern],
     ) -> Result<Vec<PatternMatch>, BackendError> {
+        // A proof route (`kore-match-disjunction`): the match decides its conditions from
+        // consequences of the definition only (`k_rust_backend::evaluation`).
+        let _proof = k_rust_backend::evaluation::EvaluationScope::enter(
+            k_rust_backend::evaluation::EvaluationMode::Proof,
+        );
         self.with_solver(module, |definition, _| {
             match_disjunction(definition, target, alternatives)
                 .map_err(super::simplification::stopped_operation)?

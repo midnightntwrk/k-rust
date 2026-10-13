@@ -250,6 +250,12 @@ fn difference(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Op
     Ok(into.build_from(kept, &definition.element_sort, None))
 }
 
+/// Whether `Set2List` of `arguments` lists two or more elements, in an order the definition
+/// leaves open (`super::implementation_chosen`).
+pub(super) fn lists_several_items(arguments: &[Term]) -> bool {
+    matches!(arguments, [set] if concrete_set(set).is_some_and(|(_, elements)| elements.len() >= 2))
+}
+
 fn to_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("SET.set2list", arguments, 1)?;
     let Some((definition, elements)) = concrete_set(&arguments[0]) else {

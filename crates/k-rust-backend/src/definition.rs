@@ -1828,6 +1828,12 @@ impl BackendDefinition {
         aliases: BTreeMap<String, AliasDefinition>,
         deepest: usize,
     ) -> Result<Self, DefinitionError> {
+        // Every analysis of the load (the critical-pair check behind the value claims, the
+        // rewrite rules' definedness) computes facts that proofs read later, so it evaluates only
+        // consequences of the definition, whatever scope the caller loads it in
+        // (`crate::evaluation`).
+        let _proof =
+            crate::evaluation::EvaluationScope::enter(crate::evaluation::EvaluationMode::Proof);
         let mut axioms = Vec::new();
         let mut claims = Vec::new();
         let mut subsorts = Vec::new();
@@ -2103,6 +2109,8 @@ impl BackendDefinition {
         scope: crate::confluence::CheckScope,
         memo: crate::confluence::ConditionMemo,
     ) -> crate::confluence::ValueClaims {
+        let _proof =
+            crate::evaluation::EvaluationScope::enter(crate::evaluation::EvaluationMode::Proof);
         let mut copy = self.clone();
         copy.value_claims = crate::confluence::ValueClaims::withheld();
         crate::confluence::check(&copy, scope, memo)
