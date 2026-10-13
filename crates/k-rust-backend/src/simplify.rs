@@ -136,8 +136,8 @@ pub use log::{Iter as LogIter, Log};
 use result::{Accumulated, AccumulatedMark, HookOutcome};
 pub use result::{Simplification, SimplificationParts};
 use scan::{
-    EquationAttempt, FunctionTheory, GroupScan, IndeterminateAttempts, SimplificationTheory,
-    TermTheory, TheoryScan, scan_group, scan_instances, scan_term_theory,
+    EquationAttempt, FunctionTheory, GroupScan, IndeterminateAttempts, SetAsideRequires,
+    SimplificationTheory, TermTheory, TheoryScan, scan_group, scan_instances, scan_term_theory,
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -5133,8 +5133,11 @@ fn simplify_root(
         };
         let diagnostics = diagnostic::mark();
         let mut opened = None;
-        let scan =
-            scan_term_theory::<FunctionTheory>(definition, term, &mut indeterminate, |rule| {
+        let scan = scan_term_theory::<FunctionTheory>(
+            definition,
+            term,
+            &mut indeterminate,
+            |rule, set_aside| {
                 // An equation whose attempt failed on this application is not tried again; it was
                 // not refuted, so it keeps lower-priority equations from applying in its place.
                 if history
@@ -5153,6 +5156,7 @@ fn simplify_root(
                     options,
                     active_conditions,
                     solver,
+                    set_aside,
                 )?;
                 match attempt {
                     // The `requires` holds, with whatever it reached left as it is, so it holds for
@@ -5192,7 +5196,8 @@ fn simplify_root(
                         Ok(attempt)
                     }
                 }
-            })?;
+            },
+        )?;
         if let TheoryScan::Applied(result, rule) = scan {
             let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
                 RootStep::DeterminedFunctionStep
@@ -6429,7 +6434,7 @@ fn apply_theory<K: TermTheory>(
     solver: &dyn SmtSolver,
     indeterminate: &mut IndeterminateAttempts,
 ) -> SimplifyResult<TheoryScan<K>> {
-    scan_term_theory::<K>(definition, term, indeterminate, |rule| {
+    scan_term_theory::<K>(definition, term, indeterminate, |rule, set_aside| {
         apply_equation(
             definition,
             rule,
@@ -6438,6 +6443,7 @@ fn apply_theory<K: TermTheory>(
             options,
             active_conditions,
             solver,
+            set_aside,
         )
     })
 }
@@ -6472,7 +6478,7 @@ fn apply_theory_noting_cuts<K: TermTheory>(
             indeterminate,
         );
     }
-    scan_term_theory::<K>(definition, term, indeterminate, |rule| {
+    scan_term_theory::<K>(definition, term, indeterminate, |rule, set_aside| {
         let watch = CutWatch::start();
         let attempt = apply_equation(
             definition,
@@ -6482,6 +6488,7 @@ fn apply_theory_noting_cuts<K: TermTheory>(
             options,
             active_conditions,
             solver,
+            set_aside,
         )?;
         if let EquationAttempt::Indeterminate(_) = attempt {
             *contingent = min_depth(*contingent, watch.lowest());
@@ -6591,6 +6598,7 @@ pub(crate) fn binds_element_variable_to_its_subject(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_equation(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -6599,6 +6607,7 @@ fn apply_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
+    set_aside: SetAsideRequires,
 ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
     measure::bump(Counter::SimplifyEquationAttempts);
     let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
@@ -6613,6 +6622,11 @@ fn apply_equation(
     };
     scan_instances(instances, |instance| {
         if let Instance::SetAside(substitution) = instance {
+            // Only where a lower function group follows can the decision change the outcome
+            // (`SetAsideRequires`); elsewhere the instance is read as `Unused` undecided.
+            if set_aside == SetAsideRequires::Unused {
+                return Ok(EquationAttempt::Unused);
+            }
             return decide_set_aside_instance(
                 definition,
                 &rule,
@@ -6650,6 +6664,8 @@ fn apply_equation(
 /// instance whose `requires` is refuted. Held or undecided, the equation holds or may hold of
 /// `term`, which the lower equations' premises then exclude, and it is `Unused`, which keeps the
 /// lower function groups from applying (`scan::scan_term_theory`). An empty `requires` holds.
+/// Called only where a lower function group follows (`scan::SetAsideRequires`), the one place
+/// where the two outcomes differ.
 #[allow(clippy::too_many_arguments)]
 fn decide_set_aside_instance<T, N>(
     definition: &BackendDefinition,
@@ -6711,9 +6727,10 @@ pub(crate) enum Instance {
     /// not use the equation on this instance.
     Unused,
     /// A `concrete` or `symbolic` attribute rejects the binding: the evaluator does not use the
-    /// equation's result on this instance, but the equation holds of it, and function and
-    /// simplification evaluation decide its `requires` under the substitution
-    /// ([`decide_set_aside_instance`]); every other use of the equation reads it as `Unused`.
+    /// equation's result on this instance, but the equation holds of it. The function scan
+    /// decides its `requires` under the substitution where a lower function group follows
+    /// ([`decide_set_aside_instance`], `scan::SetAsideRequires`); every other use of the
+    /// equation reads it as `Unused`.
     SetAside(Substitution),
     /// The matching binds an element variable to a pattern with a set variable
     /// ([`binds_element_variable_to_set_pattern`]), which does not justify the instance.
@@ -6796,10 +6813,13 @@ pub(crate) fn equation_instances<'r>(
                     && binds_element_variable_to_its_subject(&substitution, term)
             {
                 Instance::Unused
+            } else if binds_element_variable_to_set_pattern(&substitution) {
+                // Before the attributes: the binding does not justify the instance, so its
+                // `requires` decides nothing about the subject, whether or not an attribute would
+                // set it aside.
+                Instance::NonFunctionalBinding
             } else if check_concreteness(&rule, &substitution).is_some() {
                 Instance::SetAside(substitution)
-            } else if binds_element_variable_to_set_pattern(&substitution) {
-                Instance::NonFunctionalBinding
             } else {
                 Instance::Usable(substitution)
             }

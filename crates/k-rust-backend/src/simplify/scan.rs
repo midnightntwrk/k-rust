@@ -26,6 +26,32 @@ pub(super) enum IndeterminateEquation {
     Continue,
 }
 
+/// Whether an equation attempt decides the `requires` of an instance a `concrete` or `symbolic`
+/// attribute set aside, or reads the instance as [`EquationAttempt::Unused`] without deciding it.
+///
+/// Decided, such a `requires` gives `ContextDependent` when refuted and `Unused` otherwise, and
+/// the two differ in one place only: in the function theory, whether the groups after the
+/// equation's group are tried ([`scan_term_theory`]). Everywhere else they lead to the same
+/// outcome, so [`scan_term_theory`] asks for the decision only there:
+/// - in the simplification theory both make the group, and the scan, `NotCacheable`: a lemma
+///   states nothing about the lemmas after it, which are tried either way;
+/// - in the function theory's last offered group, `Unused` makes the scan `Blocked` and
+///   `ContextDependent` makes it `NotCacheable`, and no group follows that either would let
+///   apply. The two are read alike after the scan: neither gives a result, neither records the
+///   term as evaluated or certifies it (only `NotApplicable` does), and neither commits the
+///   attempt's diagnostics, which an attempt that does not apply drops ([`scan_alternatives`]);
+/// - within one group or one equation's instances, the precedence of [`Combined`] makes the
+///   whole `Unused` when an undecided set-aside instance is read as `Unused`, which the two
+///   points above make equivalent to what the decision would give.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SetAsideRequires {
+    /// Decide the `requires`: a lower function group follows, which applies only if every
+    /// equation of this group is refuted.
+    Decide,
+    /// Read the instance as `Unused` without deciding the `requires`.
+    Unused,
+}
+
 /// One of the two term theories whose scans the evaluated mark rests on, as a type, so that a
 /// statement about one theory's scan cannot stand in for the other's.
 pub(super) trait TermTheory {
@@ -84,7 +110,8 @@ pub(super) enum TheoryScan<K> {
 
 /// The priority loop of term theory `K`: scan the groups equation selection offers `term` in
 /// priority order, trying each equation with `attempt`, until one applies or a group blocks the
-/// scan. The diagnostics of each indeterminate attempt are held in `indeterminate` (see
+/// scan. `attempt` is told whether to decide the `requires` of a set-aside instance
+/// ([`SetAsideRequires`]): only in the function theory, and only in a group another group follows. The diagnostics of each indeterminate attempt are held in `indeterminate` (see
 /// [`scan_group`]). The only mint of [`NoOfferedEquationMatched`]: it is
 /// returned when every attempt of every offered group ended `NotApplicable`, which for a term
 /// theory carries a [`MatchFailed`].
@@ -101,14 +128,22 @@ pub(super) fn scan_term_theory<K: TermTheory>(
     indeterminate: &mut IndeterminateAttempts,
     mut attempt: impl FnMut(
         &Arc<RewriteRule>,
+        SetAsideRequires,
     ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>>,
 ) -> SimplifyResult<TheoryScan<K>> {
     let groups = applicable_groups(K::theory(definition), &term_index(term));
     let mut blocked = false;
     let mut not_cacheable = false;
-    for rules in groups.values() {
+    let last = groups.len().saturating_sub(1);
+    for (position, rules) in groups.values().enumerate() {
+        let set_aside =
+            if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block && position < last {
+                SetAsideRequires::Decide
+            } else {
+                SetAsideRequires::Unused
+            };
         match scan_group(rules, indeterminate, |rule| {
-            Ok(match attempt(rule)? {
+            Ok(match attempt(rule, set_aside)? {
                 EquationAttempt::Applied(result) => {
                     EquationAttempt::Applied((result, Arc::clone(rule)))
                 }
