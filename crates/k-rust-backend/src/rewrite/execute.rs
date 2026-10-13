@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
-//! bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key per such leaf (backend.fresh.variables) and O(L^2) key comparisons"
+//! bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key (backend.fresh.variables) and one console observation (linear in the leaf's transcript) per such leaf, and O(L^2) key comparisons"
 //!
 //! [[cost]]
 //! mode = "trace storage with retain_trace false"
@@ -1324,9 +1324,12 @@ fn final_leaves(
 /// `RequestNames::state_key`s, which compare the constraints as a set, are equal): such a
 /// variable is quantified over its own disjunct (docs/compatibility.md#result-variables), so
 /// the two disjuncts denote the same configurations. Branch-local observable state must agree
-/// too: committed effects and console state, which hold no variable. Bottom leaves carry no
-/// configuration, so whole-state trivial and vacuous outcomes remain distinct. The retained
-/// leaf keeps its own trace, branch, and diagnostics: they describe the one path the leaf
+/// too: committed effects and the console, which hold no variable. The console is compared as a
+/// process observes it, by the input consumed and the bytes written in order
+/// ([`ExecutionIoState::observable`]), not by the hooks or calls that wrote them: paths that
+/// wrote the same bytes differently end in one state. Bottom leaves carry no configuration, so
+/// whole-state trivial and vacuous outcomes remain distinct. The retained leaf keeps its own
+/// trace, branch, diagnostics, and console transcript: they describe the one path the leaf
 /// reports, and the merged paths ended in the same configuration, so whether that
 /// configuration is normalized is the same for each.
 ///
@@ -1362,7 +1365,7 @@ fn merge_equal_final_leaves(
             let key = (
                 request.state_key(&leaf.pattern),
                 leaf.effects.clone(),
-                leaf.io.clone(),
+                leaf.io.observable(),
             );
             if seen.contains(&key) {
                 false
