@@ -170,6 +170,20 @@ symbol = "Counter::KompileMacroSubjectWalks"
 
 [[node]]
 kind = "observation"
+id = "KompileOrderQueries"
+provenance = "table"
+area = "kompile"
+name = "KompileOrderQueries"
+table = "Counter::ALL"
+registry_name = "kompile.order_queries"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileOrderQueries"
+
+[[node]]
+kind = "observation"
 id = "KompileOwiseCompetitorScans"
 provenance = "table"
 area = "kompile"
@@ -4386,6 +4400,11 @@ symbol = "PartialOrder::new"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/definition/partial_order.rs"
+symbol = "PartialOrder::less_than"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/partial_order.rs"
 symbol = "find_cycle"
 
 [[node.sites]]
@@ -4400,6 +4419,10 @@ bound = "O((V + E) log V + C log V)"
 [[node.cost]]
 mode = "first_cycle of a relation"
 bound = "O((V + E) log V); no closure is computed and no partial order is counted"
+
+[[node.cost]]
+mode = "less_than query"
+bound = "O(log V)"
 
 [[node.cost]]
 mode = "upper_bounds or lower_bounds of a nonempty set S"
@@ -10261,6 +10284,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "definition.json.encode"
 to = "crates/k-rust/tests/provenance_routes.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.order.partial"
+to = "KompileOrderQueries"
 provenance = "declared"
 
 [[edge]]
