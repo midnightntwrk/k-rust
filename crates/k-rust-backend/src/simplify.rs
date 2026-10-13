@@ -8503,11 +8503,6 @@ mod tests {
         assert_eq!(normalize_hereditary(double_negation), atom);
     }
 
-    /// `Set:in(e, S) = b` over a set `S` whose elements are all written is decided by the
-    /// equations of `e` with them: `true` is some equation, `false` none, each beside the
-    /// definedness of `S` (its elements pairwise different). A constructor-like `e` has no
-    /// equation with a different constructor-like element, and a set with a part of its own is
-    /// left as the membership.
     /// `predicate` with each equation's sides in the order of `Term`, an equation and its
     /// converse being one atom.
     fn oriented(predicate: Predicate) -> Predicate {
@@ -8520,6 +8515,11 @@ mod tests {
         }
     }
 
+    /// `Set:in(e, S) = b` over a set `S` whose elements are all written is decided by the
+    /// equations of `e` with them: `true` is some equation, `false` none, each beside the
+    /// definedness of `S` (its elements pairwise different). A constructor-like `e` has no
+    /// equation with a different constructor-like element, and a set with a part of its own is
+    /// left as the membership.
     #[test]
     fn membership_in_a_set_of_written_elements_is_equality_with_one_of_them() {
         let source = r#"[]
