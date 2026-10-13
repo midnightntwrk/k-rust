@@ -732,3 +732,60 @@ fn a_plain_set_or_map_item_with_a_symbolic_value_is_found_by_its_equations() {
         }
     }
 }
+
+/// Claims over the plain set `<s>` and map `<m>` of [`AC_FRAMES_ELSEWHERE`] (its definition, with
+/// this spec module) that end in a disjunction of two destinations for `<s>` or `<m>`; the
+/// `-sym-` claims add a symbolic `N` in (4, 7), which is 5 or 6.
+const PAC_DISJUNCTIVE_SPEC: &str = r#"
+module PACD-SPEC
+  imports PAC
+  claim [set-or-two]: <k> add(1) ; add(2) ; add(3) => .K </k> <s> .Set => (?A:Set SetItem(2) ?C:Set) #Or (SetItem(9) ?D:Set) </s> <m> .Map => ?M:Map </m>
+  claim [map-or-two]: <k> add(1) ; add(2) ; add(3) => .K </k> <s> .Set => ?S:Set </s> <m> .Map => (?A:Map 2 |-> 2 ?C:Map) #Or (9 |-> 9 ?D:Map) </m>
+  claim [set-or-sym-one]: <k> add(N:Int) => .K </k> <s> .Set => (SetItem(5) ?C:Set) #Or (SetItem(6) ?D:Set) </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 7
+  claim [set-or-sym-two]: <k> add(N:Int) => .K </k> <s> .Set => (?A:Set SetItem(5) ?C:Set) #Or (?B:Set SetItem(6) ?D:Set) </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 7
+  claim [map-or-sym-two]: <k> add(N:Int) => .K </k> <s> .Set => ?S:Set </s> <m> .Map => (?A:Map 5 |-> 5 ?C:Map) #Or (?B:Map 6 |-> 6 ?D:Map) </m> requires N >Int 4 andBool N <Int 7
+  claim [set-or-absent]: <k> add(1) ; add(2) ; add(3) => .K </k> <s> .Set => (?A:Set SetItem(9) ?C:Set) #Or (?B:Set SetItem(8) ?D:Set) </s> <m> .Map => ?M:Map </m>
+  claim [map-or-absent]: <k> add(1) ; add(2) ; add(3) => .K </k> <s> .Set => ?S:Set </s> <m> .Map => (?A:Map 9 |-> 9 ?C:Map) #Or (?B:Map 2 |-> 3 ?D:Map) </m>
+  claim [set-or-sym-wide]: <k> add(N:Int) => .K </k> <s> .Set => (?A:Set SetItem(5) ?C:Set) #Or (?B:Set SetItem(6) ?D:Set) </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 8
+  claim [set-or-bound]: <k> add(1) ; add(2) ; add(3) => .K </k> <s> .Set => (?A:Set SetItem(2) ?C:Set) #Or (SetItem(9) ?D:Set) </s> <m> .Map => ?M:Map </m> <u> SetItem(9) => ?C </u>
+endmodule
+"#;
+
+/// A disjunctive destination holds where on each instance one of its disjuncts does, each
+/// disjunct decided as a destination alone: its parts beside items read as one part
+/// (`-or-two`, as `set-free` and `map-free` in [`AC_FRAMES_ELSEWHERE`]) and its symbolic items
+/// split by their equations, so `-or-sym-` holds by its first disjunct where `N` is 5 and by its
+/// second where `N` is 6, neither of which holds alone. Neither disjunct holds in `-or-absent`,
+/// the instance 7 of `set-or-sym-wide` is in neither, and in `set-or-bound` the part `<u>` names
+/// must be 9, which no split of the final set has, so those are not proven.
+#[test]
+fn a_disjunctive_set_or_map_destination_is_decided_disjunct_by_disjunct() {
+    let proven = [
+        "set-or-two",
+        "map-or-two",
+        "set-or-sym-one",
+        "set-or-sym-two",
+        "map-or-sym-two",
+    ];
+    let unproven = [
+        "set-or-absent",
+        "map-or-absent",
+        "set-or-sym-wide",
+        "set-or-bound",
+    ];
+    let statuses = pac_statuses(
+        PAC_DISJUNCTIVE_SPEC,
+        "PACD-SPEC",
+        &[proven.as_slice(), unproven.as_slice()].concat(),
+    );
+    for (claim, status) in statuses {
+        if proven.contains(&claim.as_str()) {
+            assert_eq!(status, "proven", "{claim}");
+        } else {
+            assert!(
+                matches!(status.as_str(), "failed" | "disproved"),
+                "{claim}: {status}"
+            );
+        }
+    }
+}

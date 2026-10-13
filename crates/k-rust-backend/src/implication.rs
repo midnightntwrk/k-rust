@@ -1102,8 +1102,13 @@ fn establish_disjunction(
                 MatchResult::Success(substitution) => (substitution, Vec::new()),
             };
             matched = true;
-            let obligations = ConsequentMatch::new(substitution, destination.existentials())
-                .obligation_branches(definition, destination, remainder, &knowledge);
+            let (_, obligations, _) = consequent_obligations(
+                definition,
+                destination,
+                substitution,
+                remainder,
+                &knowledge,
+            );
             // A stop propagates before either fallback below sees the result: an obligation that
             // could not be prepared leaves the round open, but a stop is no answer to leave open.
             let obligations = match eliminate_and_quantify_obligation_branches(
@@ -1912,24 +1917,8 @@ fn discharge_consequent(
     // Every obligation is decided on the antecedent's instances, where its term is defined and its
     // constraints hold with their definedness stated (I7).
     let knowledge = pattern_knowledge(definition, antecedent);
-    let (substitution, remainder, solved_constraints) = solve_collection_remainder_pairs(
-        definition,
-        substitution,
-        remainder,
-        destination.existentials(),
-        &destination.pattern().constraints,
-    );
-    let origin = if remainder.is_empty() {
-        Origin::ConsequentCondition
-    } else {
-        Origin::MatchRemainder
-    };
-    let consequent_match = ConsequentMatch::new(substitution, destination.existentials());
-    let mut obligations =
-        consequent_match.obligation_branches(definition, destination, remainder, &knowledge);
-    for branch in &mut obligations {
-        branch.add_solved(&solved_constraints, &knowledge);
-    }
+    let (consequent_match, obligations, origin) =
+        consequent_obligations(definition, destination, substitution, remainder, &knowledge);
     // A stop propagates before either fallback below sees the result: obligations that could
     // not be prepared establish nothing, but a stop is no answer to establish nothing from.
     let obligations = match eliminate_and_quantify_obligation_branches(
@@ -2026,6 +2015,41 @@ fn discharge_consequent(
             obligations,
         },
     })
+}
+
+/// The obligation branches of `destination`'s match against an antecedent whose instances
+/// `knowledge` describes, the match `substitution` and `remainder` given: the remainder's
+/// collection pairs solved or merged (`solve_collection_remainder_pairs`), the rest expanded
+/// into branches (`ConsequentMatch::obligation_branches`), and the constraints the solve states
+/// added to each branch. The origin names what the obligations come from: the destination's
+/// condition alone when no remainder is left, the match remainder otherwise. A single
+/// destination and each disjunct of a disjunctive one are decided through this one prologue.
+fn consequent_obligations(
+    definition: &BackendDefinition,
+    destination: &Destination,
+    substitution: Substitution,
+    remainder: Vec<(crate::term::Term, crate::term::Term)>,
+    knowledge: &[Predicate],
+) -> (ConsequentMatch, Vec<ConsequentObligations>, Origin) {
+    let (substitution, remainder, solved_constraints) = solve_collection_remainder_pairs(
+        definition,
+        substitution,
+        remainder,
+        destination.existentials(),
+        &destination.pattern().constraints,
+    );
+    let origin = if remainder.is_empty() {
+        Origin::ConsequentCondition
+    } else {
+        Origin::MatchRemainder
+    };
+    let consequent_match = ConsequentMatch::new(substitution, destination.existentials());
+    let mut obligations =
+        consequent_match.obligation_branches(definition, destination, remainder, knowledge);
+    for branch in &mut obligations {
+        branch.add_solved(&solved_constraints, knowledge);
+    }
+    (consequent_match, obligations, origin)
 }
 
 /// Whether the antecedent's instances, described by `knowledge`, admit no counterexample to
