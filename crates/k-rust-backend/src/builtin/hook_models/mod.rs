@@ -20,7 +20,7 @@
 //! skipped.
 
 mod collections;
-mod float;
+pub(in crate::builtin) mod float;
 mod mint;
 mod scalars;
 

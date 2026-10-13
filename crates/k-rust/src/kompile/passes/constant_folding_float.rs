@@ -1112,4 +1112,258 @@ mod tests {
         );
         assert_eq!(context_error(24, 32), "Float exponent bits are too large");
     }
+
+    /// The exact decimal literal of `±mantissa * 2^exponent` in the format `pNxM`.
+    fn exact_literal(
+        negative: bool,
+        mantissa: &BigInt,
+        exponent: i64,
+        format: (u32, u32),
+    ) -> String {
+        let sign = if negative { "-" } else { "" };
+        let digits = if exponent < 0 {
+            format!(
+                "{}e{exponent}",
+                mantissa * BigInt::from(5).pow(exponent.unsigned_abs() as u32)
+            )
+        } else {
+            format!("{}e0", mantissa << exponent as u64)
+        };
+        format!("{sign}{digits}p{}x{}", format.0, format.1)
+    }
+
+    /// `literal` with `k` more digits, plus or minus one unit of the last.
+    fn nudged(literal: &str, k: u32, up: bool) -> String {
+        let (body, suffix) = literal.split_at(literal.rfind('p').unwrap());
+        let (digits, exponent) = body.split_once('e').unwrap();
+        let digits = digits.parse::<BigInt>().unwrap() * BigInt::from(10).pow(k);
+        let digits = if up { digits + 1 } else { digits - 1 };
+        let exponent = exponent.parse::<i64>().unwrap() - i64::from(k);
+        format!("{digits}e{exponent}{suffix}")
+    }
+
+    /// Deterministic literals where rounding bugs live, for the format `(N, M)`: `max + 1/2 ulp`
+    /// (ties to infinity), half the least subnormal (ties to zero), the largest subnormal plus
+    /// half an ulp (the least normal), an all-ones significand plus half an ulp (carries into the
+    /// next binade), exact midpoints between neighbours, each moved by `±10^-k`, and negated.
+    fn boundary_literals(format: (u32, u32)) -> Vec<String> {
+        let (n, m) = (i64::from(format.0), i64::from(format.1));
+        let emax = (1_i64 << (m - 1)) - 1;
+        let emin = 1 - emax;
+        let ones = |bits: i64| (BigInt::from(1) << bits as u64) - 1;
+        let one = BigInt::from(1);
+        let mut positive = vec![
+            exact_literal(false, &ones(n + 1), emax - n, format),
+            exact_literal(false, &one, emin - n, format),
+            exact_literal(false, &ones(n), emin - n, format),
+            exact_literal(false, &one, emin - n + 1, format),
+            exact_literal(false, &ones(n), emax - n + 1, format),
+        ];
+        for binade in [emin, emin + 1, -1, 0, 1, emax - 1, emax] {
+            positive.push(exact_literal(false, &ones(n + 1), binade - n, format));
+            for significand in [
+                one.clone() << (n - 1) as u64,
+                (one.clone() << (n - 1) as u64) + 1,
+                (one.clone() << (n - 1) as u64) + 2,
+                ones(n) - 1,
+            ] {
+                positive.push(exact_literal(
+                    false,
+                    &((significand << 1) + 1),
+                    binade - n,
+                    format,
+                ));
+            }
+        }
+        for midpoint in [3, 5, 7] {
+            positive.push(exact_literal(
+                false,
+                &BigInt::from(midpoint),
+                emin - n,
+                format,
+            ));
+        }
+        let mut literals = Vec::new();
+        for literal in positive {
+            for k in [1, 3] {
+                literals.push(nudged(&literal, k, true));
+                literals.push(nudged(&literal, k, false));
+            }
+            literals.push(format!("-{literal}"));
+            literals.push(literal);
+        }
+        literals
+    }
+
+    /// Deterministic decimal literals of 1 to 25 digits with exponents across the format's range.
+    fn random_literals(format: (u32, u32), count: usize) -> Vec<String> {
+        let mut state =
+            0x2545_f491_4f6c_dd1d_u64 ^ (u64::from(format.0) << 32) ^ u64::from(format.1);
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let emax = (1_i64 << (format.1 - 1)) - 1;
+        let reach = (emax as f64 * std::f64::consts::LOG10_2) as i64 + i64::from(format.0) / 3 + 3;
+        (0..count)
+            .map(|_| {
+                let length = 1 + next() % 25;
+                let digits: String = (0..length)
+                    .map(|_| char::from(b'0' + (next() % 10) as u8))
+                    .collect();
+                let exponent = (next() % (2 * reach as u64 + 1)) as i64 - reach;
+                let sign = if next() % 2 == 0 { "" } else { "-" };
+                format!("{sign}{digits}e{exponent}p{}x{}", format.0, format.1)
+            })
+            .collect()
+    }
+
+    /// `(negative, num, den)` of a finite canonical text `[-]DeQpNxM`.
+    fn decoded(text: &str) -> Option<(bool, BigInt, BigInt)> {
+        let body = &text[..text.rfind('p').unwrap()];
+        let (negative, body) = match body.strip_prefix('-') {
+            Some(rest) => (true, rest),
+            None => (false, body),
+        };
+        let (digits, exponent) = body.split_once(['e', 'E'])?;
+        let digits: BigInt = digits.replace('.', "").parse().ok()?;
+        let fraction = body.split_once('.').map_or(0, |(_, rest)| {
+            rest.split_once(['e', 'E'])
+                .map_or(rest.len(), |(fraction, _)| fraction.len())
+        });
+        let exponent = exponent.parse::<i64>().ok()? - fraction as i64;
+        let power = BigInt::from(10).pow(exponent.unsigned_abs() as u32);
+        Some(if exponent < 0 {
+            (negative, digits, power)
+        } else {
+            (negative, digits * power, BigInt::from(1))
+        })
+    }
+
+    /// The backend's canonical text of a Float literal, built at load and by `String2Float`
+    /// for every format, agrees with MPFR: it is the canonical text of the token the fold
+    /// writes for the literal (`KFloat::parse`, whose exponent range follows IEEE through the
+    /// fold's own conversion), and it denotes exactly the MPFR value. Literals the backend
+    /// refuses for its size bound are excluded, and the refusal agrees with its estimate.
+    #[test]
+    fn the_backend_canonical_float_text_agrees_with_mpfr() {
+        use k_rust_backend::builtin::{
+            FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, canonical_float_text,
+            float_canonical_bits_estimate,
+        };
+        let mut checked = 0;
+        for (format, random) in [
+            ((2, 2), 200),
+            ((3, 3), 200),
+            ((5, 4), 200),
+            ((11, 5), 600),
+            ((24, 8), 600),
+            ((53, 11), 600),
+            ((64, 15), 300),
+            ((113, 15), 300),
+            ((237, 17), 60),
+        ] {
+            let mut literals = boundary_literals(format);
+            literals.extend(random_literals(format, random));
+            for literal in literals {
+                let text = match canonical_float_text(&literal) {
+                    Ok(text) => text,
+                    Err(refusal @ FloatTextRefusal::BeyondBound { estimate_bits }) => {
+                        assert!(estimate_bits > MAX_FLOAT_CANONICAL_BITS, "{literal}");
+                        assert_eq!(float_canonical_bits_estimate(&literal), Err(refusal));
+                        continue;
+                    }
+                    Err(refusal) => panic!("{literal}: {refusal:?}"),
+                };
+                let mpfr = KFloat::parse(&literal).unwrap();
+                assert_eq!(
+                    canonical_float_text(&mpfr.token()).as_ref(),
+                    Ok(&text),
+                    "{literal}: MPFR wrote {}",
+                    mpfr.token()
+                );
+                let value = &mpfr.value;
+                if value.is_nan() {
+                    assert!(text.starts_with("NaN"), "{literal}: {text}");
+                } else if value.is_infinite() {
+                    assert_eq!(
+                        text,
+                        format!(
+                            "{}Infinityp{}x{}",
+                            if value.is_sign_negative() { "-" } else { "" },
+                            format.0,
+                            format.1
+                        ),
+                        "{literal}"
+                    );
+                } else {
+                    // binary32 and binary64 texts are the hooks' round-trip decimals, read by
+                    // the hooks' correctly rounded parse; other formats are exact decimals.
+                    let (negative, num, den) = if matches!(format, (24, 8) | (53, 11)) {
+                        let body = &text[..text.rfind('p').unwrap()];
+                        let native = if format.0 == 24 {
+                            f64::from(body.parse::<f32>().unwrap())
+                        } else {
+                            body.parse::<f64>().unwrap()
+                        };
+                        let (mantissa, exponent) = Float::with_val(64, native.abs())
+                            .to_integer_exp()
+                            .map(|(mantissa, exponent)| {
+                                (BigInt::from_str(&mantissa.to_string()).unwrap(), exponent)
+                            })
+                            .unwrap_or((BigInt::from(0), 0));
+                        let power = BigInt::from(1) << u64::from(exponent.unsigned_abs());
+                        if exponent < 0 {
+                            (native.is_sign_negative(), mantissa, power)
+                        } else {
+                            (native.is_sign_negative(), mantissa * power, BigInt::from(1))
+                        }
+                    } else {
+                        decoded(&text).unwrap()
+                    };
+                    assert_eq!(negative, value.is_sign_negative(), "{literal}: {text}");
+                    let (mantissa, exponent) = value
+                        .to_integer_exp()
+                        .map(|(mantissa, exponent)| {
+                            (BigInt::from_str(&mantissa.to_string()).unwrap(), exponent)
+                        })
+                        .unwrap_or((BigInt::from(0), 0));
+                    let mantissa = if negative { -mantissa } else { mantissa };
+                    // num/den = mantissa * 2^exponent
+                    let (left, right) = if exponent < 0 {
+                        (num << exponent.unsigned_abs() as u64, mantissa * den)
+                    } else {
+                        (num, (mantissa << exponent as u64) * den)
+                    };
+                    assert_eq!(left, right, "{literal}: {text} against MPFR");
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 3000, "only {checked} literals were checked");
+    }
+
+    /// A folded Float result is written only where the backend loads it: one whose canonical
+    /// text, the exact decimal of a 400000-bit quotient, is beyond `MAX_FLOAT_CANONICAL_BITS` is
+    /// left for execution; a short one is written.
+    #[test]
+    fn leaves_unfolded_a_float_result_whose_canonical_text_is_beyond_the_backend_bound() {
+        let quotient = |precision: u32| {
+            folded_float(
+                "FLOAT.div",
+                vec![
+                    Value::Float(float(&format!("1.0p{precision}x11"))),
+                    Value::Float(float(&format!("3.0p{precision}x11"))),
+                ],
+            )
+            .token()
+        };
+        assert!(super::super::loadable_float("FLOAT.div", &quotient(113)).is_ok());
+        assert!(matches!(
+            super::super::loadable_float("FLOAT.div", &quotient(400_000)),
+            Err(Unfolded::TooLarge(_))
+        ));
+    }
 }

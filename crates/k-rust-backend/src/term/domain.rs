@@ -26,7 +26,8 @@ use super::{
     DomainKind, MIntLiteral, MIntWidth, Sort, Term, TermKind, mint_width_beyond_bound,
     mint_width_digits,
 };
-use crate::definition::{BackendDefinition, InvalidDomainValueReason};
+use crate::builtin::{FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, float_canonical_bits_estimate};
+use crate::definition::{BackendDefinition, DomainValueBound, InvalidDomainValueReason};
 #[cfg(debug_assertions)]
 use crate::{definition::SortInfo, term::Name};
 
@@ -38,8 +39,10 @@ pub(crate) enum TextRejection {
     /// point is above U+00FF.
     NamesNoElement(InvalidDomainValueReason),
     /// The text names an element whose canonical text k-rust declines to compute: a negative
-    /// machine-integer literal of a width beyond `MAX_INT_RESULT_BITS`.
-    BeyondBound,
+    /// machine-integer literal of a width beyond `MAX_INT_RESULT_BITS`, a Float literal of a
+    /// format with a field of 1, or one whose canonical text is beyond
+    /// `MAX_FLOAT_CANONICAL_BITS`.
+    BeyondBound(DomainValueBound),
 }
 
 /// Whether `value` is a domain value of `kind` at `sort`: the validator every construction route
@@ -52,6 +55,9 @@ pub(crate) enum TextRejection {
 ///   that names no width has no literal.
 /// - `Bytes`: any payload at `SortBytes`, whose payload is one byte per code point; elsewhere the
 ///   UTF-8 of code points each at most U+00FF, since a larger code point names no byte.
+/// - `Float`: a text in FLOAT-SYNTAX whose suffix names a format (no field of 0). A format with a
+///   field of 1, which k-rust does not compute, and a literal whose canonical text is estimated
+///   beyond `MAX_FLOAT_CANONICAL_BITS` name values k-rust declines to build.
 /// - `String` and `Token`: every text.
 pub(crate) fn validate_text(
     kind: DomainKind,
@@ -79,10 +85,30 @@ pub(crate) fn validate_text(
                 return no_element(InvalidDomainValueReason::OtherWidth);
             }
             if literal.is_negative() && mint_width_beyond_bound(width) {
-                return Err(TextRejection::BeyondBound);
+                return Err(TextRejection::BeyondBound(DomainValueBound::MIntResidue {
+                    limit_bits: crate::builtin::MAX_INT_RESULT_BITS,
+                }));
             }
             Ok(())
         }
+        DomainKind::Float => match text.map(float_canonical_bits_estimate) {
+            Some(Ok(_)) => Ok(()),
+            None | Some(Err(FloatTextRefusal::NotALiteral)) => {
+                no_element(InvalidDomainValueReason::NotALiteral)
+            }
+            Some(Err(FloatTextRefusal::ZeroFormatField)) => {
+                no_element(InvalidDomainValueReason::NoFloatFormat)
+            }
+            Some(Err(FloatTextRefusal::UncomputedFormat)) => {
+                Err(TextRejection::BeyondBound(DomainValueBound::FloatFormat))
+            }
+            Some(Err(FloatTextRefusal::BeyondBound { estimate_bits })) => Err(
+                TextRejection::BeyondBound(DomainValueBound::FloatCanonicalText {
+                    limit_bits: MAX_FLOAT_CANONICAL_BITS,
+                    estimate_bits,
+                }),
+            ),
+        },
         DomainKind::Bytes
             if !sort.is_builtin(BuiltinSort::Bytes)
                 && !text
@@ -229,18 +255,21 @@ mod tests {
     const ROUTES: &[(&str, usize, usize)] = &[
         // `Term::int`, `Term::bool`, `Term::string`, `Term::bytes`: the constant kind of their
         // builtin-named sort (`SortInt` and `SortBool` by name, `SortString` and `SortBytes` the
-        // builtin hook's own sort). `domain_value_of` itself allocates the node; the raw test
+        // builtin hook's own sort). `domain_value_of` and `domain_value_of_canonical` (for a text
+        // already canonical, with the same kind) allocate the node; the raw test
         // constructor, the test-only `unshared_copy` (a copy of a node already built) and the
         // drop sentinel (no value of any sort) allocate one without a kind.
-        ("term.rs", 4, 4),
+        ("term.rs", 4, 5),
         // Internalization of `\dv` and of a KORE string literal, and
         // `BackendDefinition::domain_value`: `domain_kind` of the sort.
         ("definition.rs", 3, 0),
         // `STRING.string2token`: `domain_kind` of the result sort; `STRING.token2string`: the
         // constant `String` kind of its result.
         ("builtin/string.rs", 2, 0),
-        // `float_term`: the constant kind of `SortFloat` (`Token` until Float values have a kind
-        // of their own).
+        // `float_term`: the constant `Float` kind of the `FLOAT` hooks' builtin, through
+        // `domain_value_of_canonical` (its text is canonical by construction); the evaluation
+        // entry's record leaves the application unevaluated where the definition gives
+        // `SortFloat` another kind.
         ("builtin/float.rs", 1, 0),
         // The `MINT` hooks' results (`word_term`): the `MInt` kind of the width their
         // machine-integer sort names, the kind `domain_kind` gives a sort hooked `MINT.MInt`. The
@@ -272,8 +301,9 @@ mod tests {
     }
 
     /// The routes of the non-test source of `text`, outside comment lines: the calls of
-    /// `domain_value_of(` and of `new_domain_value(`, the one function that allocates a
-    /// domain-value node (`Term::new` refuses one in debug builds).
+    /// `domain_value_of(` and `domain_value_of_canonical(` (the kinded constructors), and of
+    /// `new_domain_value(`, the one function that allocates a domain-value node (`Term::new`
+    /// refuses one in debug builds).
     fn route_counts(text: &str) -> (usize, usize) {
         let code = non_test_source(text)
             .lines()
@@ -283,7 +313,10 @@ mod tests {
         let calls = |name: &str| {
             code.matches(&format!("{name}(")).count() - code.matches(&format!("fn {name}(")).count()
         };
-        (calls("domain_value_of"), calls("new_domain_value"))
+        (
+            calls("domain_value_of") + calls("domain_value_of_canonical"),
+            calls("new_domain_value"),
+        )
     }
 
     /// The scan reads past an out-of-line test module declaration and stops at an inline test
@@ -454,6 +487,7 @@ mod tests {
         };
         let renamed_bytes = Sort::simple("SortMyBytes");
         let bytes = Sort::builtin(BuiltinSort::Bytes);
+        let float = Sort::builtin(BuiltinSort::Float);
         let no_element = |reason| Err::<(), _>(TextRejection::NamesNoElement(reason));
         let cases = [
             (DomainKind::Int, &int, KoreString::from("-07"), Ok(())),
@@ -497,7 +531,9 @@ mod tests {
                 DomainKind::MInt(MIntWidth::Bits(33_554_432)),
                 &wide,
                 KoreString::from("-1p33554432"),
-                Err(TextRejection::BeyondBound),
+                Err(TextRejection::BeyondBound(DomainValueBound::MIntResidue {
+                    limit_bits: crate::builtin::MAX_INT_RESULT_BITS,
+                })),
             ),
             (
                 DomainKind::MInt(MIntWidth::Bits(33_554_432)),
@@ -534,6 +570,31 @@ mod tests {
                 &int,
                 KoreString::from("anything"),
                 Ok(()),
+            ),
+            (DomainKind::Float, &float, KoreString::from("0.2e1"), Ok(())),
+            (
+                DomainKind::Float,
+                &float,
+                KoreString::from("1.0001p11x5"),
+                Ok(()),
+            ),
+            (
+                DomainKind::Float,
+                &float,
+                KoreString::from("inf"),
+                no_element(InvalidDomainValueReason::NotALiteral),
+            ),
+            (
+                DomainKind::Float,
+                &float,
+                KoreString::from("1.0p0x11"),
+                no_element(InvalidDomainValueReason::NoFloatFormat),
+            ),
+            (
+                DomainKind::Float,
+                &float,
+                KoreString::from("1.0p1x8"),
+                Err(TextRejection::BeyondBound(DomainValueBound::FloatFormat)),
             ),
         ];
         for (kind, sort, value, expected) in cases {

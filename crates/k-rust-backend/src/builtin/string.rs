@@ -11,7 +11,7 @@ use super::{
     BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, int_term, read_int,
 };
 use crate::{
-    definition::BackendDefinition,
+    definition::{BackendDefinition, DomainValueBound},
     externalize,
     term::{
         DomainKind, Sort, Term, TermKind,
@@ -466,13 +466,24 @@ fn string_to_token(arguments: &[Term], declaration: Declaration<'_>) -> HookResu
             value,
         ))),
         Err(TextRejection::NamesNoElement(_)) => names_no_element(),
-        Err(TextRejection::BeyondBound) => Ok(BuiltinResult::Unsupported(
+        Err(TextRejection::BeyondBound(bound)) => Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::ResultTooLarge {
                 detail: format!(
-                    "String2Token of {}: the canonical text of the value it names at {} is \
-                     beyond the bound on the integers the backend computes",
+                    "String2Token of {}: the value it names at {} is beyond a bound of the \
+                     backend: {}",
                     described_text(text),
-                    externalize::sort(result_sort)
+                    externalize::sort(result_sort),
+                    match bound {
+                        DomainValueBound::MIntResidue { .. } =>
+                            "its canonical text is beyond the bound on the integers the backend \
+                             computes",
+                        DomainValueBound::FloatCanonicalText { .. } =>
+                            "its canonical text, the exact decimal of the Float value it rounds \
+                             to, is beyond MAX_FLOAT_CANONICAL_BITS",
+                        DomainValueBound::FloatFormat =>
+                            "the backend does not compute a Float format whose precision or \
+                             exponent-bits field is 1",
+                    }
                 ),
             },
         )),

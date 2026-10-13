@@ -112,6 +112,24 @@ pub enum InvalidDomainValueReason {
     /// A sort hooked `MINT.MInt` that is not `SortMInt` applied to a numeral sort, so that it
     /// has no width and no text is a literal of it.
     NoWidth,
+    /// A Float literal whose precision or exponent-bits field is 0, which names no format.
+    NoFloatFormat,
+}
+
+/// The bound of k-rust that a domain value is beyond: its text names an element of its sort
+/// whose canonical text k-rust declines to build.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DomainValueBound {
+    /// A negative literal of a machine-integer sort wider than `limit_bits`
+    /// (`MAX_INT_RESULT_BITS`), whose residue modulo `2^W` would be a decimal of about `W` bits.
+    MIntResidue { limit_bits: u64 },
+    /// A Float literal whose canonical text (the exact decimal of the value it rounds to), or
+    /// the exact arithmetic that finds it, is estimated at `estimate_bits`, more than
+    /// `limit_bits` (`MAX_FLOAT_CANONICAL_BITS`).
+    FloatCanonicalText { limit_bits: u64, estimate_bits: u64 },
+    /// A Float literal of a format whose precision or exponent-bits field is 1, which has no
+    /// IEEE-like parameters and which k-rust does not compute.
+    FloatFormat,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -899,14 +917,12 @@ pub enum DefinitionError {
         value: String,
         reason: InvalidDomainValueReason,
     },
-    /// A domain value whose canonical text the backend declines to compute: a negative literal
-    /// of a machine-integer sort wider than `limit_bits` (`MAX_INT_RESULT_BITS`), whose residue
-    /// modulo `2^W` would be a decimal of about `W` bits. The literal names an element of its
-    /// sort; the refusal is a resource bound of k-rust.
+    /// A domain value whose canonical text the backend declines to compute (`bound`). The
+    /// literal names an element of its sort; the refusal is a resource bound of k-rust.
     DomainValueTooLarge {
         sort: Box<kore::Sort>,
         value: String,
-        limit_bits: u64,
+        bound: DomainValueBound,
     },
     ExpectedTerm(&'static str),
     EmptyAssociativeApplication(String),
@@ -1108,18 +1124,39 @@ impl fmt::Display for DefinitionError {
                         ": a sort hooked MINT.MInt has domain values only as SortMInt applied to \
                          a numeral width"
                     ),
+                    InvalidDomainValueReason::NoFloatFormat => write!(
+                        formatter,
+                        ": a Float precision or exponent-bits field of 0 names no format"
+                    ),
                 }
             }
-            Self::DomainValueTooLarge {
-                sort,
-                value,
-                limit_bits,
-            } => write!(
-                formatter,
-                "Domain value {value:?} of sort {sort} is beyond a resource bound: its canonical \
-                 text, the residue modulo 2^W, would need more than {limit_bits} bits \
-                 (MAX_INT_RESULT_BITS)"
-            ),
+            Self::DomainValueTooLarge { sort, value, bound } => {
+                write!(
+                    formatter,
+                    "Domain value {value:?} of sort {sort} is beyond a resource bound: "
+                )?;
+                match bound {
+                    DomainValueBound::MIntResidue { limit_bits } => write!(
+                        formatter,
+                        "its canonical text, the residue modulo 2^W, would need more than \
+                         {limit_bits} bits (MAX_INT_RESULT_BITS)"
+                    ),
+                    DomainValueBound::FloatCanonicalText {
+                        limit_bits,
+                        estimate_bits,
+                    } => write!(
+                        formatter,
+                        "its canonical text, the exact decimal of the value it rounds to, is \
+                         estimated at {estimate_bits} bits, more than {limit_bits} \
+                         (MAX_FLOAT_CANONICAL_BITS)"
+                    ),
+                    DomainValueBound::FloatFormat => write!(
+                        formatter,
+                        "k-rust does not compute a Float format whose precision or exponent-bits \
+                         field is 1"
+                    ),
+                }
+            }
             Self::ExpectedTerm(pattern) => {
                 write!(
                     formatter,
@@ -2771,8 +2808,9 @@ impl BackendDefinition {
     /// How the domain values of `sort` denote its elements, read from the hook and
     /// `hasDomainValues` attribute its head was declared with:
     /// - `INT.Int` gives [`DomainKind::Int`] (`syntax MyInt [hook(INT.Int)]` included),
-    ///   `BOOL.Bool` gives [`DomainKind::Bool`], `STRING.String` gives [`DomainKind::String`] and
-    ///   `BYTES.Bytes` gives [`DomainKind::Bytes`];
+    ///   `BOOL.Bool` gives [`DomainKind::Bool`], `FLOAT.Float` gives [`DomainKind::Float`],
+    ///   `STRING.String` gives [`DomainKind::String`] and `BYTES.Bytes` gives
+    ///   [`DomainKind::Bytes`];
     /// - `MINT.MInt` gives [`DomainKind::MInt`] of the width of `SortMInt{Sort<digits>{}}`, and
     ///   no kind for any other sort with that hook, which names no width;
     /// - any other sort with domain values gives [`DomainKind::Token`] (an unhooked `SortFloat`
@@ -2840,10 +2878,10 @@ impl BackendDefinition {
         match validate_text(kind, sort, value) {
             Ok(()) => Ok(kind),
             Err(TextRejection::NamesNoElement(reason)) => Err(invalid(reason)),
-            Err(TextRejection::BeyondBound) => Err(DefinitionError::DomainValueTooLarge {
+            Err(TextRejection::BeyondBound(bound)) => Err(DefinitionError::DomainValueTooLarge {
                 sort: Box::new(externalize::sort(sort)),
                 value: text.unwrap_or_default().to_owned(),
-                limit_bits: crate::builtin::MAX_INT_RESULT_BITS,
+                bound,
             }),
         }
     }
@@ -3026,6 +3064,7 @@ pub(crate) fn domain_kind_in(sorts: &BTreeMap<Name, SortInfo>, sort: &Sort) -> O
         Some("BOOL.Bool") => DomainKind::Bool,
         Some("STRING.String") => DomainKind::String,
         Some("BYTES.Bytes") => DomainKind::Bytes,
+        Some("FLOAT.Float") => DomainKind::Float,
         Some("MINT.MInt") => match mint_width(sort)? {
             MIntWidth::NoWidth => return None,
             width => DomainKind::MInt(width),

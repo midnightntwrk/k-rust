@@ -1220,6 +1220,24 @@ impl Term {
         term
     }
 
+    /// [`Self::domain_value_of`] for a text that is already the canonical text of `kind`, as a
+    /// hook writes its own builtin's values (the Float hooks' `canonical_f32`/`canonical_f64`):
+    /// the canonicalizer is not run again. A debug build asserts that the text is its fixed point.
+    pub(crate) fn domain_value_of_canonical(
+        kind: DomainKind,
+        sort: Sort,
+        value: impl Into<KoreString>,
+    ) -> Self {
+        let value = value.into();
+        debug_assert!(
+            canonical_text(kind, &sort, value.clone()) == value,
+            "{value:?} is not in the canonical text of {kind:?}"
+        );
+        let term = Self::new_domain_value(sort, value);
+        domain::note_construction(&term, kind);
+        term
+    }
+
     /// The `Int` domain value of `value`, at the sort `SortInt`, which has the `Int` kind by its
     /// name whether or not a definition hooks it (`shared_domain_value_contract` C2).
     pub fn int(value: impl Into<BigInt>) -> Self {
@@ -2836,6 +2854,11 @@ pub enum DomainKind {
     /// the UTF-8 of code points at any other sort (`LiteralEncoding::of_domain_value`, read by
     /// the sort's KORE name on every route). A code point above U+00FF names no byte.
     Bytes,
+    /// The floating-point numbers of every format (`FLOAT.Float`): a literal denotes its decimal
+    /// rounded to nearest, ties to even, in the format its suffix names, and the canonical text
+    /// is the one text of that value ([`crate::builtin::canonical_float_text`]): the hooks' text
+    /// for binary32 and binary64, the exact decimal for every other format.
+    Float,
     /// Every other sort with domain values (an unhooked token sort, `Id`, an unhooked
     /// `SortFloat`, ...): a text is its own value.
     Token,
@@ -2942,7 +2965,21 @@ fn canonical_text(kind: DomainKind, sort: &Sort, value: KoreString) -> KoreStrin
     match kind {
         DomainKind::Int => canonical_int_text(value),
         DomainKind::MInt(width) => canonical_mint_text(width, sort, value),
+        DomainKind::Float => canonical_float_value(value),
         DomainKind::Bool | DomainKind::String | DomainKind::Bytes | DomainKind::Token => value,
+    }
+}
+
+/// `value` in the canonical text of the Float value it names, keeping its allocation when it
+/// already is, and kept as written when it names no value the backend builds (load refuses it:
+/// outside FLOAT-SYNTAX, a format field of 0 or 1, beyond the size bound).
+fn canonical_float_value(value: KoreString) -> KoreString {
+    let Ok(text) = value.as_utf8() else {
+        return value;
+    };
+    match crate::builtin::canonical_float_text(text) {
+        Ok(canonical) if canonical != text => canonical.into(),
+        Ok(_) | Err(_) => value,
     }
 }
 
@@ -4899,6 +4936,45 @@ mod tests {
         assert_eq!(
             calculate_hash(signed.kind()),
             calculate_hash(unsigned.kind())
+        );
+    }
+
+    /// A Float literal denotes the value its decimal rounds to in its format, so every spelling
+    /// of one value constructs that value's canonical text; an already canonical text keeps its
+    /// allocation; the NaN of a format is one term, and the zeros of the two signs are two.
+    #[test]
+    fn float_domain_values_are_canonical_at_construction() {
+        let float_sort = Sort::builtin(BuiltinSort::Float);
+        let built =
+            |source: &str| Term::domain_value_of(DomainKind::Float, float_sort.clone(), source);
+        let text = |term: &Term| match term.kind() {
+            TermKind::DomainValue { value, .. } => value.as_utf8().unwrap().to_owned(),
+            _ => unreachable!(),
+        };
+        for (source, expected) in [
+            ("0.2e1", "2.0000000000000000e+00p53x11"),
+            ("2.0p053x011", "2.0000000000000000e+00p53x11"),
+            ("2.0f", "2.00000000e+00p24x8"),
+            ("1.0001p11x5", "1e0p11x5"),
+            ("NaNd", "NaNp53x11"),
+        ] {
+            assert_eq!(text(&built(source)), expected, "{source}");
+        }
+        assert_eq!(built("NaN"), built("NaNd"));
+        assert_eq!(built("1.0p11x5"), built("1.0001p11x5"));
+        assert_ne!(built("0.0"), built("-0.0"));
+        assert_ne!(built("0.5"), built("0.5f"));
+
+        let canonical = KoreString::from("1e0p11x5");
+        let canonical_term =
+            Term::domain_value_of(DomainKind::Float, float_sort.clone(), canonical.clone());
+        let TermKind::DomainValue { value, .. } = canonical_term.kind() else {
+            unreachable!()
+        };
+        assert!(std::ptr::eq(value.as_bytes(), canonical.as_bytes()));
+        assert_eq!(
+            Term::domain_value_of_canonical(DomainKind::Float, float_sort, "1e0p11x5"),
+            canonical_term
         );
     }
 

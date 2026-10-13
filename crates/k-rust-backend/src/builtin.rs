@@ -406,7 +406,10 @@ fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
 }
 
 pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
-pub use float::is_float_syntax;
+pub use float::{
+    FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, canonical_float_text,
+    float_canonical_bits_estimate, is_float_syntax,
+};
 
 /// Evaluate `hook` on `arguments` without an applied symbol, so without a declared result sort:
 /// a collection hook that transforms a collection argument builds its result in that argument's
