@@ -6708,6 +6708,47 @@ fn krun_evaluates_choice_of_one_binding() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The one-item value of `choice` is a consequence of the definition, so a proof reads it as an
+/// execution does: `choice(K |-> V)` is `K` and `choice(SetItem(X))` is `X` for every `K`, `V`
+/// and `X`. The map's value is dropped from the result but not from its definedness: with `f`
+/// defined only at 0, `choice(K |-> f(V))` is `K` only where `f(V)` is defined, so the claim is
+/// proven under `V ==Int 0` and not without it.
+#[test]
+fn kprove_reads_choice_of_one_binding_and_keeps_the_definedness_of_its_value() {
+    let source = format!(
+        "{CHOICE_DEFINITION}
+module CHOICE-PARTIAL
+  imports CHOICE
+  syntax Int ::= f(Int) [function]
+  rule f(0) => 1
+  syntax Op ::= pc(Int, Int)
+  rule pc(K, V) => res(choice(K |-> f(V)))
+endmodule
+
+module CHOICE-SPEC
+  imports CHOICE-PARTIAL
+  claim [one-key]: <k> mc(K:Int, V:Int) => res(K) </k>
+  claim [one-element]: <k> sc(X:Int) => res(X) </k>
+  claim [partial-value]: <k> pc(K:Int, V:Int) => res(K) </k>
+  claim [defined-value]: <k> pc(K:Int, V:Int) => res(K) </k> requires V ==Int 0
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "CHOICE-PARTIAL", "CHOICE-SPEC");
+    for claim in ["one-key", "one-element", "defined-value"] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
+    assert_ne!(
+        claim_verdict(&verdicts, "partial-value", &output),
+        "proven",
+        "{output}"
+    );
+}
+
 #[test]
 fn search_without_a_pattern_binds_each_answer_to_var_result() {
     let (root, definition) = branching_search_fixture();
