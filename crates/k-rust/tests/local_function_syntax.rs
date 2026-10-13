@@ -499,3 +499,102 @@ endmodule
         declarations[0]
     );
 }
+
+/// The `owise` equations of the compiled definition that state a generated lambda `\bottom`,
+/// each as its lambda's name and the sorts of its arguments (the parameter, then the closure).
+fn lambda_refutations(loaded: &LoadedDefinition) -> Vec<(String, Vec<String>)> {
+    use k_rust::kore::ast::{Pattern, Sentence as KoreSentence};
+    let compiled = compile_loaded_definition(loaded, CompileOptions::default()).unwrap();
+    let definition = k_rust::kore::parser::parse_definition(&compiled.definition_kore).unwrap();
+    definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| {
+            let KoreSentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } = sentence
+            else {
+                return None;
+            };
+            let Pattern::Implies { right, .. } = pattern.as_ref() else {
+                return None;
+            };
+            let Pattern::Equals { left, right, .. } = right.as_ref() else {
+                return None;
+            };
+            let Pattern::Application { symbol, arguments } = left.as_ref() else {
+                return None;
+            };
+            let Pattern::And {
+                arguments: result, ..
+            } = right.as_ref()
+            else {
+                return None;
+            };
+            let refuted = symbol.name.starts_with("Lbl'Hash'lambda")
+                && matches!(result.as_slice(), [Pattern::Bottom { .. }, Pattern::Top { .. }])
+                && attributes.0.iter().any(|attribute| {
+                    matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == "owise")
+                });
+            refuted.then(|| {
+                let sorts = arguments
+                    .iter()
+                    .map(|argument| match argument {
+                        Pattern::Variable(variable) => variable.sort.to_string(),
+                        other => panic!("a refutation argument is a variable: {other:?}"),
+                    })
+                    .collect();
+                (symbol.name.clone(), sorts)
+            })
+        })
+        .collect()
+}
+
+/// `#let P = E #in B` and `#fun(P => B)(E)` denote nothing when `E` is no instance of `P`: a
+/// lambda whose pattern does not cover its parameter sort gets an `owise` equation stating it
+/// `\bottom` on every other argument, carrying the closure variables as the lambda's own equation
+/// does. Each non-covering lambda gets its own (nested, in a `requires`, in a function equation);
+/// a covering pattern and a match predicate (which is `false` off its pattern) get none.
+#[test]
+fn a_lambda_whose_pattern_does_not_cover_its_parameter_is_bottom_off_it() {
+    let refutations = |rule: &str| lambda_refutations(&load("P", &probe(rule)));
+    let names = |refutations: &[(String, Vec<String>)]| {
+        refutations
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    };
+
+    let constructor = refutations("rule op(A) => val(#let op(X) = op(A) #in X)");
+    assert_eq!(constructor.len(), 1, "{constructor:?}");
+    assert_eq!(constructor[0].1, ["SortOp{}"]);
+
+    let closure = refutations("rule op(A) => val(#let op(X) = op(A) #in X +Int A)");
+    assert_eq!(closure.len(), 1, "{closure:?}");
+    assert_eq!(closure[0].1, ["SortOp{}", "SortInt{}"]);
+
+    let nested = refutations(
+        "rule op(A) => val(#let op(X) = op(A) #in #let val(Z) = val(X) #in Z) \
+         requires #let op(B) = op(A) #in B >Int 0",
+    );
+    assert_eq!(nested.len(), 3, "{nested:?}");
+    assert_eq!(names(&nested), 3, "{nested:?}");
+
+    let function = refutations(
+        "syntax Int ::= fn(Op) [function, symbol(fn)]\n  rule fn(O) => #let op(X) = O #in X",
+    );
+    assert_eq!(function.len(), 1, "{function:?}");
+
+    for covering in [
+        "rule op(A) => val(#let Y = A #in Y)",
+        "rule op(A) => val(#fun(Y => Y +Int 1)(A))",
+        "rule op(A) => val(0) requires A :=K 1",
+        "rule op(A) => val(0) requires A :/=K 1",
+    ] {
+        assert_eq!(refutations(covering), [], "{covering}");
+    }
+}

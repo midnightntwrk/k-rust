@@ -48,3 +48,32 @@ expression: "rule op(A) => val(#fun(op(X) => X)(op(A)))"
       )
     )
     [UNIQUE'Unds'ID{}("db6f51e000d82ccb2b6e9b60c6fc2dd9c94d881a1b66a5c9e8dcf989f6ca6e84")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen0:SortInt{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(\in{SortOp{}, R}(X0:SortOp{}, Lblop{}(Var'Unds'Gen0:SortInt{})), \top{R}())
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(\in{SortOp{}, R}(X0:SortOp{}, Var'Hash'Owise:SortOp{}), \top{R}())
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lbl'Hash'lambda'UndsUnds'{}(X0:SortOp{}),
+        \and{SortInt{}}(\bottom{SortInt{}}(), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("ebd19d6db22e184a4426021f86851f54d08ac44bfdccdfb8fe4832c08a6b135a"),
+      owise{}()
+    ]

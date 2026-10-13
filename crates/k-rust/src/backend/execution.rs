@@ -1149,8 +1149,9 @@ impl Backend {
 }
 
 /// What a run states when every initial state had no instance before any step, so its empty
-/// result is not one the rules produced.
-const INITIAL_BOTTOM_WARNING: &str = "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables";
+/// result is not one the rules produced: the constraints of its variables, or a function it
+/// applies (a refuted `#let` in a function's equation among them), left it no instance.
+const INITIAL_BOTTOM_WARNING: &str = "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables and the functions it applies";
 
 fn run_backend_with_solver(
     backend: &BackendDefinition,
