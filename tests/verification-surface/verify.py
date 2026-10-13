@@ -636,12 +636,12 @@ def native_claim(harness: FixtureGate, fixture: Fixture, module: str, label: str
     process = harness._krs(fixture, "prove", "--spec-module", module, "--claim", label, check=False)
     text = process.stdout
     status = re.search(rf"^{re.escape(module)}\.{re.escape(label)}: (\w+)$", text, re.MULTILINE)
-    leaf = re.search(r"leaf 1 \((\w+), depth (\d+)\):\s*<k>\s*(.*?)\s*</k>", text, re.DOTALL)
+    leaf = re.search(r"leaf 1 \(([\w-]+), depth (\d+)\):\s*<k>\s*(.*?)\s*</k>", text, re.DOTALL)
     if status is None or (status.group(1) != "proven" and leaf is None):
         raise GateError(f"{fixture.package}: krs prove printed no claim status and leaf:\n{text}\n{process.stderr}")
     return {
         "proven": status.group(1) == "proven",
-        "stuck": leaf is not None and leaf.group(1) == "Stuck",
+        "stuck": leaf is not None and leaf.group(1) == "stuck",
         "depth": int(leaf.group(2)) if leaf else None,
         "k": normalize_k_text(leaf.group(3)) if leaf else None,
     }
