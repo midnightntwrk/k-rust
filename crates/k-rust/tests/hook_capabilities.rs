@@ -294,7 +294,7 @@ fn substitution_hooks_have_an_enforced_external_capability_classification() {
 }
 
 fn dummy_term() -> Term {
-    Term::domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy")
+    Term::raw_domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy")
 }
 
 fn assert_disjoint(

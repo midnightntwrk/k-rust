@@ -514,7 +514,7 @@ mod tests {
     }
 
     fn item(value: &str) -> Term {
-        Term::domain_value(Sort::simple("SortItem"), value)
+        Term::raw_domain_value(Sort::simple("SortItem"), value)
     }
 
     fn integer(value: i64) -> Term {

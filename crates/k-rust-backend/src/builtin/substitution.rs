@@ -49,8 +49,12 @@ use super::{BuiltinResult, HookResult, UnsupportedHookReason, expect_arity};
 use crate::{
     definition::BackendDefinition,
     matching::SortGraph,
-    term::{HeadRole, Name, Sort, SymbolType, Term, TermKind},
+    term::{DomainKind, HeadRole, Name, Sort, SymbolType, Term, TermKind},
 };
+
+/// The sorts hooked `KVAR.KVar`, each with the kind the definition gives it (none for a sort
+/// without domain values), with which a renamed token is built.
+type KVarTokens = BTreeMap<Name, Option<DomainKind>>;
 
 pub(super) fn evaluate(
     hook: &str,
@@ -90,8 +94,8 @@ pub(super) fn evaluate(
 /// sort is `kvar_free`.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct KVarSorts {
-    /// Sorts hooked `KVAR.KVar`, whose domain values are the `KVar` tokens.
-    tokens: BTreeSet<Name>,
+    /// Sorts hooked `KVAR.KVar`, whose domain values are the `KVar` tokens, with their kinds.
+    tokens: KVarTokens,
     /// Declared sorts none of whose constructor terms contains a `KVar` token.
     kvar_free: BTreeSet<Name>,
 }
@@ -107,11 +111,16 @@ impl KVarSorts {
             .sorts()
             .iter()
             .filter(|(_, info)| info.hook.as_deref() == Some("KVAR.KVar"))
-            .map(|(name, _)| name.clone())
-            .collect::<BTreeSet<_>>();
+            .map(|(name, _)| {
+                (
+                    name.clone(),
+                    definition.domain_kind(&Sort::simple(name.clone())),
+                )
+            })
+            .collect::<KVarTokens>();
         // `dependents[a]` holds the sorts that contain a `KVar` whenever `a` does.
         let mut dependents = BTreeMap::<Name, BTreeSet<Name>>::new();
-        let mut seeds = tokens.iter().cloned().collect::<Vec<_>>();
+        let mut seeds = tokens.keys().cloned().collect::<Vec<_>>();
         for symbol in definition.symbols().values() {
             // Every symbol declared constructor, whatever its role: an equation head or a macro
             // declared constructor may keep its application, arguments included, in a value, so
@@ -345,7 +354,7 @@ fn substitute(
     target: &Name,
     replacement: &Term,
     replacement_free: &BTreeSet<Name>,
-    kvar_sorts: &BTreeSet<Name>,
+    kvar_sorts: &KVarTokens,
     sort_graph: &SortGraph,
     fresh: &mut FreshNames,
 ) -> HookResult<SubstituteOutcome> {
@@ -672,7 +681,7 @@ fn substitute(
 fn freshen_bound_kvar_identities(
     term: &Term,
     conflict: &Name,
-    kvar_sorts: &BTreeSet<Name>,
+    kvar_sorts: &KVarTokens,
     fresh: &mut FreshNames,
 ) -> HookResult<Option<Term>> {
     freshen_bound_kvar_identities_inner(term, conflict, kvar_sorts, fresh, &mut Vec::new())
@@ -681,7 +690,7 @@ fn freshen_bound_kvar_identities(
 fn freshen_bound_kvar_identities_inner(
     term: &Term,
     conflict: &Name,
-    kvar_sorts: &BTreeSet<Name>,
+    kvar_sorts: &KVarTokens,
     fresh: &mut FreshNames,
     bound_renamings: &mut Vec<Name>,
 ) -> HookResult<Option<Term>> {
@@ -981,7 +990,7 @@ fn freshen_bound_kvar_identities_inner(
     }))
 }
 
-fn free_kvars(term: &Term, kvar_sorts: &BTreeSet<Name>) -> HookResult<Option<BTreeSet<Name>>> {
+fn free_kvars(term: &Term, kvar_sorts: &KVarTokens) -> HookResult<Option<BTreeSet<Name>>> {
     let mut free = BTreeSet::new();
     let mut bound = BTreeMap::new();
     if collect_free_kvars(term, kvar_sorts, &mut bound, &mut free)? {
@@ -994,14 +1003,14 @@ fn free_kvars(term: &Term, kvar_sorts: &BTreeSet<Name>) -> HookResult<Option<BTr
 fn contains_free_kvar(
     term: &Term,
     target: &Name,
-    kvar_sorts: &BTreeSet<Name>,
+    kvar_sorts: &KVarTokens,
 ) -> HookResult<Option<bool>> {
     Ok(free_kvars(term, kvar_sorts)?.map(|free| free.contains(target)))
 }
 
 fn collect_free_kvars(
     term: &Term,
-    kvar_sorts: &BTreeSet<Name>,
+    kvar_sorts: &KVarTokens,
     bound: &mut BTreeMap<Name, usize>,
     free: &mut BTreeSet<Name>,
 ) -> HookResult<bool> {
@@ -1107,7 +1116,7 @@ fn collect_free_kvars(
 
 fn collect_kvars(
     term: &Term,
-    kvar_sorts: &BTreeSet<Name>,
+    kvar_sorts: &KVarTokens,
     names: &mut BTreeSet<Name>,
 ) -> HookResult<()> {
     crate::stop::check()?;
@@ -1162,12 +1171,12 @@ fn collect_kvars(
     Ok(())
 }
 
-fn read_kvar(term: &Term, kvar_sorts: &BTreeSet<Name>) -> Option<Name> {
+fn read_kvar(term: &Term, kvar_sorts: &KVarTokens) -> Option<Name> {
     match term.kind() {
         TermKind::DomainValue {
             sort: Sort::Application { name, arguments },
             value,
-        } if arguments.is_empty() && kvar_sorts.contains(name) => {
+        } if arguments.is_empty() && kvar_sorts.contains_key(name) => {
             value.as_utf8().ok().map(Arc::<str>::from)
         }
         TermKind::Injection { term, .. } => read_kvar(term, kvar_sorts),
@@ -1175,13 +1184,16 @@ fn read_kvar(term: &Term, kvar_sorts: &BTreeSet<Name>) -> Option<Name> {
     }
 }
 
-fn rename_kvar_token(term: &Term, new: &Name, kvar_sorts: &BTreeSet<Name>) -> Option<Term> {
+/// `term`, a `KVar` token (possibly injected), re-spelled `new` at its own sort, with the kind
+/// the definition gives that sort.
+fn rename_kvar_token(term: &Term, new: &Name, kvar_sorts: &KVarTokens) -> Option<Term> {
     match term.kind() {
         TermKind::DomainValue {
-            sort: Sort::Application { name, arguments },
+            sort: sort @ Sort::Application { name, arguments },
             ..
-        } if arguments.is_empty() && kvar_sorts.contains(name) => {
-            Some(Term::domain_value(term.sort(), new.clone()))
+        } if arguments.is_empty() => {
+            let kind = (*kvar_sorts.get(name)?)?;
+            Some(Term::domain_value_of(kind, sort.clone(), new.clone()))
         }
         TermKind::Injection {
             source,
@@ -1243,8 +1255,8 @@ mod tests {
         Sort::simple("SortVal")
     }
 
-    fn kvar_sorts() -> BTreeSet<Name> {
-        BTreeSet::from(["SortKVar".into()])
+    fn kvar_sorts() -> KVarTokens {
+        KVarTokens::from([("SortKVar".into(), Some(DomainKind::Token))])
     }
 
     fn sort_graph() -> SortGraph {
@@ -1268,7 +1280,7 @@ mod tests {
     }
 
     fn kvar(name: &str) -> Term {
-        Term::domain_value(kvar_sort(), name)
+        Term::raw_domain_value(kvar_sort(), name)
     }
 
     fn exp_var(name: &str) -> Term {
@@ -1761,7 +1773,10 @@ mod tests {
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
         let facts = definition.kvar_sorts();
-        assert_eq!(facts.tokens, BTreeSet::from(["SortKVar".into()]));
+        assert_eq!(
+            facts.tokens,
+            KVarTokens::from([("SortKVar".into(), Some(DomainKind::Token))])
+        );
         assert_eq!(
             facts.kvar_free,
             BTreeSet::from(["SortInt".into(), "SortIntBox".into()])

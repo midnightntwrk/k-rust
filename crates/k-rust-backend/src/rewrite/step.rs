@@ -369,6 +369,7 @@ pub(super) fn rewrite_step_all(
     io: Option<&ExecutionIoState>,
 ) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
+    let _domain = crate::term::domain::DomainScope::enter(definition);
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(definition, &subject);
@@ -894,6 +895,7 @@ pub(super) fn rewrite_step_any(
     mut determinism: Option<&mut SequentialDeterminism>,
 ) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
+    let _domain = crate::term::domain::DomainScope::enter(definition);
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(definition, &subject);

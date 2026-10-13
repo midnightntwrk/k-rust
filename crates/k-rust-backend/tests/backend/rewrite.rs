@@ -2755,7 +2755,7 @@ fn z3_proves_or_refutes_symbolic_requires_before_priority_fallback() {
         .admit_unverified(&parse_pattern("wrap{}(Y:SortInt{})").unwrap(), &[])
         .internalize_term()
         .unwrap();
-    let integer = |value: &str| Term::domain_value(Sort::simple("SortInt"), value);
+    let integer = |value: &str| Term::raw_domain_value(Sort::simple("SortInt"), value);
     let run = |value: &str| {
         let pattern = Pattern {
             term: subject.clone(),
@@ -4955,7 +4955,7 @@ fn concrete_chain(definition: &BackendDefinition, depth: usize) -> Term {
     Term::list(
         definition,
         (0..depth)
-            .map(|index| Term::domain_value(Sort::simple("SortElement"), index.to_string()))
+            .map(|index| Term::raw_domain_value(Sort::simple("SortElement"), index.to_string()))
             .collect(),
         None,
     )
@@ -6000,7 +6000,7 @@ fn simplify_size_of_chain(
     .expect("the request-level override should complete finite concrete recursion");
     assert_eq!(
         simplified.term,
-        Term::domain_value(Sort::simple("SortInt"), depth.to_string())
+        Term::raw_domain_value(Sort::simple("SortInt"), depth.to_string())
     );
     simplified
 }
@@ -6171,7 +6171,7 @@ fn int_application(definition: &BackendDefinition, symbol: &str, value: i64) -> 
     Term::application(
         definition.symbols()[symbol].clone(),
         Vec::new(),
-        vec![Term::domain_value(
+        vec![Term::raw_domain_value(
             Sort::simple("SortInt"),
             value.to_string(),
         )],
@@ -6482,7 +6482,7 @@ fn equation_requires_budget_subject(
             definition.symbols()["cons"].clone(),
             Vec::new(),
             vec![
-                Term::domain_value(Sort::simple("SortInt"), index.to_string()),
+                Term::raw_domain_value(Sort::simple("SortInt"), index.to_string()),
                 stack,
             ],
         );
@@ -10506,8 +10506,8 @@ fn console_write_reproduces_bytes_returned_by_read() {
             definition.symbols()["write"].clone(),
             Vec::new(),
             vec![
-                Term::domain_value(Sort::builtin(BuiltinSort::Int), "1"),
-                Term::domain_value(Sort::builtin(BuiltinSort::String), value.clone()),
+                Term::raw_domain_value(Sort::builtin(BuiltinSort::Int), "1"),
+                Term::raw_domain_value(Sort::builtin(BuiltinSort::String), value.clone()),
             ],
         ),
         constraints: Vec::new(),
@@ -11647,9 +11647,9 @@ fn sequential_remainders_retain_the_initial_antecedent() {
     let initial_antecedent = Predicate::Or(vec![
         Predicate::Equals(
             variable.clone(),
-            Term::domain_value(Sort::simple("SortS"), "0"),
+            Term::raw_domain_value(Sort::simple("SortS"), "0"),
         ),
-        Predicate::Equals(variable, Term::domain_value(Sort::simple("SortS"), "1")),
+        Predicate::Equals(variable, Term::raw_domain_value(Sort::simple("SortS"), "1")),
     ]);
     let initial = Pattern {
         term: internal_term(&definition, "wrap{}(Y:SortS{})"),
@@ -11867,7 +11867,7 @@ fn unifies_both_conjunction_operands_when_matching_true() {
     assert_eq!(applied.substitution.len(), 2);
     assert!(applied.substitution.iter().all(|(variable, value)| {
         (variable.name.ends_with("LEFT") || variable.name.ends_with("RIGHT"))
-            && value == &Term::domain_value(Sort::simple("SortBool"), "true")
+            && value == &Term::raw_domain_value(Sort::simple("SortBool"), "true")
     }));
 }
 
@@ -11886,7 +11886,7 @@ fn unifies_both_disjunction_operands_when_matching_false() {
     assert_eq!(applied.substitution.len(), 2);
     assert!(applied.substitution.iter().all(|(variable, value)| {
         (variable.name.ends_with("LEFT") || variable.name.ends_with("RIGHT"))
-            && value == &Term::domain_value(Sort::simple("SortBool"), "false")
+            && value == &Term::raw_domain_value(Sort::simple("SortBool"), "false")
     }));
 }
 
@@ -11904,7 +11904,7 @@ fn unifies_negation_operand_with_the_opposite_boolean() {
     };
     assert!(applied.substitution.iter().any(|(variable, value)| {
         variable.name.ends_with("VALUE")
-            && value == &Term::domain_value(Sort::simple("SortBool"), "false")
+            && value == &Term::raw_domain_value(Sort::simple("SortBool"), "false")
     }));
 }
 
@@ -12086,7 +12086,7 @@ fn splits_symbolic_if_then_else_on_the_rule_side() {
     assert!(applied.pattern.constraints.is_empty());
     assert!(applied.substitution.iter().any(|(variable, value)| {
         variable.name.ends_with("CONDITION")
-            && value == &Term::domain_value(Sort::simple("SortBool"), "true")
+            && value == &Term::raw_domain_value(Sort::simple("SortBool"), "true")
     }));
 }
 

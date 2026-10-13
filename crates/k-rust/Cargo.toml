@@ -57,9 +57,10 @@ stacker.workspace = true
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true
-# Test builds count work through `k_rust_kore::measure`; `cargo build` stays feature-off.
+# Test builds count work through `k_rust_kore::measure` and build backend domain values without a
+# definition (`raw-domain-values`); `cargo build` stays feature-off.
 k-rust = { path = ".", default-features = false, features = ["measure"] }
-k-rust-backend = { workspace = true, features = ["measure"] }
+k-rust-backend = { workspace = true, features = ["measure", "raw-domain-values"] }
 k-rust-kore = { workspace = true, features = ["measure"] }
 lean-conformance.workspace = true
 proptest.workspace = true

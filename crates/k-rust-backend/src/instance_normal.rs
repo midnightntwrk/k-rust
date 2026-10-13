@@ -851,7 +851,7 @@ mod tests {
         };
         let zero = term("z{}()");
         let terms = [
-            Term::domain_value(Sort::simple("SortNat"), "1"),
+            Term::raw_domain_value(Sort::simple("SortNat"), "1"),
             Term::injection(
                 Sort::simple("SortNat"),
                 Sort::simple("SortAddress"),

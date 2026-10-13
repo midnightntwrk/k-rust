@@ -94,9 +94,10 @@ use crate::{
     smt::{SExpr, SmtType},
     term::{
         AlgebraicAxioms, CollectionMetadata, CollectionSymbols, DomainKind, FunctionType, HeadRole,
-        ListDefinition, MIntLiteral, MIntWidth, MapDefinition, Name, Sort, Symbol,
-        SymbolAttributes, SymbolDeclaration, SymbolType, Term, TermKind, Variable, mint_width,
-        mint_width_beyond_bound, mint_width_digits,
+        ListDefinition, MIntWidth, MapDefinition, Name, Sort, Symbol, SymbolAttributes,
+        SymbolDeclaration, SymbolType, Term, TermKind, Variable,
+        domain::{TextRejection, validate_text},
+        mint_width,
         names::{HookName, variable_name_problems},
     },
 };
@@ -592,7 +593,9 @@ pub struct PendingAxiom {
 pub struct BackendDefinition {
     main_module: Name,
     modules: BTreeSet<Name>,
-    sorts: BTreeMap<Name, SortInfo>,
+    /// Shared, so that a debug build's construction checks (`term::domain::DomainScope`) can
+    /// hold the table of sorts without the definition.
+    sorts: Arc<BTreeMap<Name, SortInfo>>,
     symbols: BTreeMap<Name, Arc<Symbol>>,
     aliases: BTreeMap<String, AliasDefinition>,
     sort_graph: SortGraph,
@@ -1480,6 +1483,12 @@ impl BackendDefinition {
         &self.sorts
     }
 
+    /// The shared table of [`Self::sorts`].
+    #[cfg(debug_assertions)]
+    pub(crate) fn sort_table(&self) -> &Arc<BTreeMap<Name, SortInfo>> {
+        &self.sorts
+    }
+
     /// The stored symbols of this semantic snapshot.
     #[inline]
     pub fn symbols(&self) -> &BTreeMap<Name, Arc<Symbol>> {
@@ -2012,7 +2021,7 @@ impl BackendDefinition {
                 .iter()
                 .map(|module| Name::from(module.name.as_str()))
                 .collect(),
-            sorts,
+            sorts: Arc::new(sorts),
             symbols,
             aliases,
             sort_graph,
@@ -2621,10 +2630,13 @@ impl BackendDefinition {
         mut deferred_predicates: Option<&mut Vec<kore::Pattern>>,
     ) -> Result<Term, DefinitionError> {
         match pattern {
-            kore::Pattern::String(value) => Ok(Term::domain_value(
-                Sort::builtin(BuiltinSort::String),
-                value.clone(),
-            )),
+            kore::Pattern::String(value) => {
+                // A string pattern is a value of `SortString`, of the kind the definition gives
+                // that sort; where the definition gives it none, the code points of a string.
+                let sort = Sort::builtin(BuiltinSort::String);
+                let kind = self.domain_kind(&sort).unwrap_or(DomainKind::String);
+                Ok(Term::domain_value_of(kind, sort, value.clone()))
+            }
             kore::Pattern::Variable(variable) => {
                 let sort = internalize_sort(&variable.sort, &self.sorts, sort_variables)?;
                 Ok(Term::variable(read_variable(variable, sort)?))
@@ -2746,8 +2758,9 @@ impl BackendDefinition {
 
     /// How the domain values of `sort` denote its elements, read from the hook and
     /// `hasDomainValues` attribute its head was declared with:
-    /// - `INT.Int` gives [`DomainKind::Int`] (`syntax MyInt [hook(INT.Int)]` included) and
-    ///   `BOOL.Bool` gives [`DomainKind::Bool`];
+    /// - `INT.Int` gives [`DomainKind::Int`] (`syntax MyInt [hook(INT.Int)]` included),
+    ///   `BOOL.Bool` gives [`DomainKind::Bool`], `STRING.String` gives [`DomainKind::String`] and
+    ///   `BYTES.Bytes` gives [`DomainKind::Bytes`];
     /// - `MINT.MInt` gives [`DomainKind::MInt`] of the width of `SortMInt{Sort<digits>{}}`, and
     ///   no kind for any other sort with that hook, which names no width;
     /// - any other sort with domain values gives [`DomainKind::Token`] (an unhooked `SortFloat`
@@ -2761,28 +2774,25 @@ impl BackendDefinition {
     /// them otherwise here would let the backend hold two values (`07` and `7`) that the solver
     /// reads as one.
     pub fn domain_kind(&self, sort: &Sort) -> Option<DomainKind> {
-        let Sort::Application { name, .. } = sort else {
-            return None;
-        };
-        let info = self.sorts.get(name)?;
-        if !info.has_domain_values {
-            return None;
-        }
-        if sort.is_builtin(BuiltinSort::Int) {
-            return Some(DomainKind::Int);
-        }
-        if sort.is_builtin(BuiltinSort::Bool) {
-            return Some(DomainKind::Bool);
-        }
-        Some(match info.hook.as_deref() {
-            Some("INT.Int") => DomainKind::Int,
-            Some("BOOL.Bool") => DomainKind::Bool,
-            Some("MINT.MInt") => match mint_width(sort)? {
-                MIntWidth::NoWidth => return None,
-                width => DomainKind::MInt(width),
-            },
-            _ => DomainKind::Token,
-        })
+        domain_kind_in(&self.sorts, sort)
+    }
+
+    /// The domain value of `sort` that `value` names in this definition, built with the kind
+    /// [`Self::domain_kind`] gives the sort and stored in that kind's canonical text: `07` at a
+    /// sort hooked `INT.Int` is `7`, and `-1p8` at `MInt{8}` is `255p8`. A text that names no
+    /// element of the sort is refused with [`DefinitionError::InvalidDomainValue`], as at load.
+    ///
+    /// This is how a library caller builds a domain value of a definition's sort; a value of a
+    /// builtin-named sort can also be built without a definition by [`Term::int`],
+    /// [`Term::bool`], [`Term::string`] and [`Term::bytes`].
+    pub fn domain_value(
+        &self,
+        sort: Sort,
+        value: impl Into<kore::KoreString>,
+    ) -> Result<Term, DefinitionError> {
+        let value = value.into();
+        let kind = self.validate_domain_value(&sort, &value)?;
+        Ok(Term::domain_value_of(kind, sort, value))
     }
 
     /// The kind of the domain value `value` of `sort` when it names an element of the sort;
@@ -2815,34 +2825,15 @@ impl BackendDefinition {
         let kind = self
             .domain_kind(sort)
             .ok_or_else(|| invalid(InvalidDomainValueReason::NoWidth))?;
-        match kind {
-            DomainKind::Bool if !matches!(text, Some("true" | "false")) => {
-                return Err(invalid(InvalidDomainValueReason::NotALiteral));
-            }
-            DomainKind::Int if !text.is_some_and(is_decimal_integer) => {
-                return Err(invalid(InvalidDomainValueReason::NotALiteral));
-            }
-            DomainKind::MInt(width) => {
-                let Some(digits) = mint_width_digits(sort) else {
-                    return Err(invalid(InvalidDomainValueReason::NoWidth));
-                };
-                let Some(literal) = text.and_then(MIntLiteral::parse) else {
-                    return Err(invalid(InvalidDomainValueReason::NotALiteral));
-                };
-                if !literal.names_width(digits) {
-                    return Err(invalid(InvalidDomainValueReason::OtherWidth));
-                }
-                if literal.is_negative() && mint_width_beyond_bound(width) {
-                    return Err(DefinitionError::DomainValueTooLarge {
-                        sort: Box::new(externalize::sort(sort)),
-                        value: text.unwrap_or_default().to_owned(),
-                        limit_bits: crate::builtin::MAX_INT_RESULT_BITS,
-                    });
-                }
-            }
-            DomainKind::Int | DomainKind::Bool | DomainKind::Token => {}
+        match validate_text(kind, sort, value) {
+            Ok(()) => Ok(kind),
+            Err(TextRejection::NamesNoElement(reason)) => Err(invalid(reason)),
+            Err(TextRejection::BeyondBound) => Err(DefinitionError::DomainValueTooLarge {
+                sort: Box::new(externalize::sort(sort)),
+                value: text.unwrap_or_default().to_owned(),
+                limit_bits: crate::builtin::MAX_INT_RESULT_BITS,
+            }),
         }
-        Ok(kind)
     }
 
     fn validate_application_shape(
@@ -3003,9 +2994,32 @@ impl BackendDefinition {
     }
 }
 
-fn is_decimal_integer(value: &str) -> bool {
-    let digits = value.strip_prefix(['+', '-']).unwrap_or(value).as_bytes();
-    !digits.is_empty() && digits.iter().all(u8::is_ascii_digit)
+/// [`BackendDefinition::domain_kind`] in the table of sorts `sorts`.
+pub(crate) fn domain_kind_in(sorts: &BTreeMap<Name, SortInfo>, sort: &Sort) -> Option<DomainKind> {
+    let Sort::Application { name, .. } = sort else {
+        return None;
+    };
+    let info = sorts.get(name)?;
+    if !info.has_domain_values {
+        return None;
+    }
+    if sort.is_builtin(BuiltinSort::Int) {
+        return Some(DomainKind::Int);
+    }
+    if sort.is_builtin(BuiltinSort::Bool) {
+        return Some(DomainKind::Bool);
+    }
+    Some(match info.hook.as_deref() {
+        Some("INT.Int") => DomainKind::Int,
+        Some("BOOL.Bool") => DomainKind::Bool,
+        Some("STRING.String") => DomainKind::String,
+        Some("BYTES.Bytes") => DomainKind::Bytes,
+        Some("MINT.MInt") => match mint_width(sort)? {
+            MIntWidth::NoWidth => return None,
+            width => DomainKind::MInt(width),
+        },
+        _ => DomainKind::Token,
+    })
 }
 
 /// The least fixed point described at [`BackendDefinition::sort_is_inhabited`]; each round

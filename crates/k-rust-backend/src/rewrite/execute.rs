@@ -87,6 +87,7 @@ pub(super) fn execute_using(
 ) -> (ExecutionResult, InitialSimplificationStatus) {
     let _span = measure::algorithm_span(Algorithm::BackendRewriteExecute);
     let _apart = crate::rule::ApartScope::enter();
+    let _domain = crate::term::domain::DomainScope::enter(definition);
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,

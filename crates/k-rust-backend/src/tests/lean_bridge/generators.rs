@@ -111,7 +111,7 @@ fn leaf() -> impl Strategy<Value = Term> {
                 Just(vec![0xff, 0x00]),
             ]
         )
-            .prop_map(|(sort, value)| Term::domain_value(sort, value)),
+            .prop_map(|(sort, value)| Term::raw_domain_value(sort, value)),
         (prop_oneof![Just("X"), Just("Y")], any::<bool>(), sort()).prop_map(
             |(name, element, sort)| Term::variable(if element {
                 Variable::new(name, sort)
@@ -144,7 +144,7 @@ fn domain_value() -> impl Strategy<Value = Term> {
         ],
         prop_oneof![Just("0"), Just("007"), Just("1")],
     )
-        .prop_map(|(sort, value)| Term::domain_value(sort, value))
+        .prop_map(|(sort, value)| Term::raw_domain_value(sort, value))
 }
 
 /// A domain value, or an injection of one with two sources and two targets.
@@ -338,11 +338,11 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
         TermKind::DomainValue { sort, value } => {
             edits.push((
                 Edit::Sort,
-                Term::domain_value(other_sort(sort), value.as_bytes().to_vec()),
+                Term::raw_domain_value(other_sort(sort), value.as_bytes().to_vec()),
             ));
             let mut changed = value.as_bytes().to_vec();
             changed.push(b'1');
-            edits.push((Edit::Value, Term::domain_value(sort.clone(), changed)));
+            edits.push((Edit::Value, Term::raw_domain_value(sort.clone(), changed)));
         }
         TermKind::Variable(variable) => {
             let mut changed = variable.clone();

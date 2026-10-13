@@ -1263,7 +1263,7 @@ mod tests {
                 .map(|(key, value)| {
                     (
                         Term::variable(variable(key)),
-                        Term::domain_value(Sort::simple("SortInt"), *value),
+                        Term::raw_domain_value(Sort::simple("SortInt"), *value),
                     )
                 })
                 .collect(),
@@ -1489,7 +1489,7 @@ mod tests {
             let mut constraints = vec![
                 Predicate::Equals(
                     Term::variable(variable(first)),
-                    Term::domain_value(Sort::simple("SortInt"), "1"),
+                    Term::raw_domain_value(Sort::simple("SortInt"), "1"),
                 ),
                 Predicate::Ceil(Term::variable(variable(second))),
             ];

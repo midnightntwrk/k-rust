@@ -22,7 +22,7 @@ fn var(name: &str, sort: Sort) -> Term {
 }
 
 fn domain_value(sort: Sort, value: &str) -> Term {
-    Term::domain_value(sort, value)
+    Term::raw_domain_value(sort, value)
 }
 
 fn collection_symbols(prefix: &str) -> CollectionSymbols {

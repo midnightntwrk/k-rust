@@ -34,7 +34,8 @@ use crate::{
     matching::{InjectionEquality, SortGraph, match_injection_equality},
     stop::{Layered, Stoppable, Unwind},
     term::{
-        Sort, Term, TermKind,
+        FunctionType, Sort, SymbolType, Term, TermKind,
+        domain::BuiltDomainValues,
         head::{Fixed, FixedRoot, Head, NoEvidence, RootComparison, classify_value, compare_roots},
         names::{HookName, HookNamespace},
     },
@@ -265,6 +266,9 @@ fn evaluate_with_context(
         return Ok(BuiltinResult::NotApplicable);
     };
     let result_sort = term.sort();
+    // With a definition, every domain value the hook builds is recorded with the kind it is
+    // built with, for the checks below.
+    let built = definition.map(|_| BuiltDomainValues::record());
     let result = evaluate_hook_with_context(
         hook,
         arguments,
@@ -273,9 +277,19 @@ fn evaluate_with_context(
         sort_graph,
         definition,
         execution,
+        symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total),
     )?;
-    #[cfg(debug_assertions)]
     if let BuiltinResult::Value(value) = &result {
+        if let (Some(definition), Some(built)) = (definition, &built)
+            && !(value.sort() == result_sort && built.of_their_sorts_kinds(definition))
+        {
+            // A builtin hook declared at a sort that is not its builtin's (a sort hooked
+            // `FLOAT.Float` under another name, a token sort for a `STRING` result) gives a value
+            // of another sort, or of another kind than the definition gives its sort: no value of
+            // the application's sort.
+            return Ok(BuiltinResult::NotApplicable);
+        }
+        #[cfg(debug_assertions)]
         debug_assert_value_of_sort(hook, value, &result_sort);
     }
     Ok(result)
@@ -283,7 +297,9 @@ fn evaluate_with_context(
 
 /// Evaluation does not change the sort of the term it evaluates: the value of an application
 /// of `f : ... -> S` is a value of exactly `S` (KORE has no implicit subsorting), and a
-/// collection value holds elements of exactly its collection's element sorts.
+/// collection value holds elements of exactly its collection's element sorts. With a definition,
+/// the evaluation entry checks the sort itself in every build, and the domain values the hook
+/// built against the kinds the definition gives their sorts (`term::domain`).
 #[cfg(debug_assertions)]
 fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
     debug_assert_eq!(
@@ -363,6 +379,7 @@ pub fn evaluate_hook(
         None,
         None,
         None,
+        false,
     )
     .layered()
 }
@@ -383,6 +400,7 @@ pub(crate) fn evaluate_hook_into(
         None,
         None,
         None,
+        false,
     )
     .layered()
 }
@@ -406,6 +424,9 @@ fn member_in_result(
     }
 }
 
+/// `total`: the application's symbol is declared `total`, which decides the outcome of a hook
+/// whose value at some arguments depends on the declaration (`STRING.string2token`).
+#[allow(clippy::too_many_arguments)]
 fn evaluate_hook_with_context(
     hook: &str,
     arguments: &[Term],
@@ -414,6 +435,7 @@ fn evaluate_hook_with_context(
     sort_graph: Option<&SortGraph>,
     definition: Option<&BackendDefinition>,
     execution: Option<&mut ExecutionEvaluationContext>,
+    total: bool,
 ) -> HookResult<BuiltinResult> {
     crate::stop::check()?;
     match hook {
@@ -490,7 +512,15 @@ fn evaluate_hook_with_context(
                 Some(HookNamespace::Bytes) => bytes::evaluate(hook, arguments),
                 Some(HookNamespace::Float) => float::evaluate(hook, arguments),
                 Some(HookNamespace::Plugin) => krypto::evaluate(hook, arguments, definition),
-                Some(HookNamespace::String) => string::evaluate(hook, arguments, result_sort),
+                Some(HookNamespace::String) => string::evaluate(
+                    hook,
+                    arguments,
+                    string::Declaration {
+                        result_sort,
+                        definition,
+                        total,
+                    },
+                ),
                 Some(HookNamespace::Substitution) => {
                     substitution::evaluate(hook, arguments, definition)
                 }
@@ -590,7 +620,7 @@ fn io_read(
     // Each byte read is one character, the code point of its value, as for `IO.getc`.
     let bytes = execution.read(maximum);
     Ok(BuiltinResult::Value(inject_result(
-        Term::domain_value(Sort::builtin(BuiltinSort::String), console_text(bytes)),
+        Term::string(console_text(bytes)),
         result_sort,
     )))
 }
@@ -1534,14 +1564,11 @@ pub(super) fn read_int(term: &Term) -> Option<BigInt> {
 }
 
 pub(super) fn bool_term(value: bool) -> Term {
-    Term::domain_value(
-        Sort::builtin(BuiltinSort::Bool),
-        if value { "true" } else { "false" },
-    )
+    Term::bool(value)
 }
 
 pub(super) fn int_term(value: BigInt) -> Term {
-    Term::domain_value(Sort::builtin(BuiltinSort::Int), value.to_string())
+    Term::int(value)
 }
 
 /// An integer operand as a refusal or diagnostic message shows it: in decimal when it has at most
@@ -1786,11 +1813,11 @@ mod tests {
 
     #[test]
     fn kequal_treats_signed_and_unsigned_int_literals_as_equal() {
-        let int_sort = Sort::simple("SortInt");
-        let arguments = [
-            k_sequence(Term::domain_value(int_sort.clone(), "3")),
-            k_sequence(Term::domain_value(int_sort, "+3")),
-        ];
+        // `+3` and `3` are one integer, so the `Int` kind builds them as one term.
+        let int = |text| {
+            Term::domain_value_of(crate::term::DomainKind::Int, Sort::simple("SortInt"), text)
+        };
+        let arguments = [k_sequence(int("3")), k_sequence(int("+3"))];
 
         assert_eq!(
             evaluate_hook("KEQUAL.eq", &arguments),
@@ -2273,21 +2300,18 @@ mod tests {
         assert_eq!(evaluate_equality(&left_map, &left_map, None), Some(true));
     }
 
+    /// The kind of `String2Token`'s value is the one the definition gives the application's
+    /// result sort, so without a definition no token is built (with one, `tests::domain_values`
+    /// of the crate).
     #[test]
-    fn string_to_token_uses_the_application_result_sort() {
-        let token_sort = Sort::simple("SortIdentifier");
+    fn string_to_token_without_a_definition_builds_nothing() {
         let application = hooked(
             "STRING.string2token",
-            token_sort.clone(),
-            vec![Term::domain_value(Sort::simple("SortString"), "alpha")],
+            Sort::simple("SortIdentifier"),
+            vec![Term::string("alpha")],
         );
 
-        assert_eq!(
-            evaluate(&application),
-            Ok(Ok(BuiltinResult::Value(Term::domain_value(
-                token_sort, "alpha"
-            ))))
-        );
+        assert_eq!(evaluate(&application), Ok(Ok(BuiltinResult::NotApplicable)));
     }
 
     fn evaluate_int(
@@ -2306,7 +2330,7 @@ mod tests {
     }
 
     fn float_term(value: &str) -> Term {
-        Term::domain_value(Sort::simple("SortFloat"), value)
+        Term::raw_domain_value(Sort::simple("SortFloat"), value)
     }
 
     #[test]
@@ -2843,7 +2867,7 @@ mod tests {
 
     #[test]
     fn krypto_wrong_arity_is_an_error_not_a_fallthrough() {
-        let dummy = Term::domain_value(Sort::simple("SortBytes"), "");
+        let dummy = Term::raw_domain_value(Sort::simple("SortBytes"), "");
         let cases = [
             ("KRYPTO.keccak256", 1),
             ("HASH.keccak256", 1),
@@ -2891,7 +2915,7 @@ mod tests {
 
     #[test]
     fn bn128_validity_hooks_are_registered_with_the_public_evaluator() {
-        let dummy = Term::domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy");
+        let dummy = Term::raw_domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy");
 
         for hook in ["KRYPTO.bn128valid", "KRYPTO.bn128g2valid"] {
             assert_eq!(
@@ -2908,7 +2932,7 @@ mod tests {
 
     #[test]
     fn bn128_arithmetic_hooks_are_registered_with_the_public_evaluator() {
-        let dummy = Term::domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy");
+        let dummy = Term::raw_domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy");
 
         for hook in ["KRYPTO.bn128add", "KRYPTO.bn128mul"] {
             let arguments = vec![dummy.clone(); 3];
@@ -2926,7 +2950,7 @@ mod tests {
 
     #[test]
     fn bn128_pairing_hook_is_registered_with_the_public_evaluator() {
-        let dummy = Term::domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy");
+        let dummy = Term::raw_domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy");
         let arguments = vec![dummy; 3];
 
         assert_eq!(
@@ -3069,8 +3093,8 @@ mod tests {
             attributes.symbol_type = SymbolType::Function(FunctionType::Total);
         });
         let residual = symbol("m", 1, &|attributes| attributes.macro_or_alias = true);
-        let one = Term::domain_value(sort.clone(), "1");
-        let two = Term::domain_value(sort.clone(), "2");
+        let one = Term::raw_domain_value(sort.clone(), "1");
+        let two = Term::raw_domain_value(sort.clone(), "2");
         let f_one = apply(&function, vec![one.clone()]);
         let f_two = apply(&function, vec![two.clone()]);
         let sub = Sort::simple("SortSub");

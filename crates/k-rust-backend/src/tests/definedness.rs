@@ -282,7 +282,7 @@ fn forced_collection_collisions_have_negative_shape_flags() {
         element_sort: Sort::simple("SortInt"),
         list_sort: "SortSet".into(),
     });
-    let int = |value: &str| Term::domain_value(Sort::simple("SortInt"), value);
+    let int = |value: &str| Term::raw_domain_value(Sort::simple("SortInt"), value);
     let set = |elements| Term::set(set_definition.clone(), elements, None);
     let map = |entries| Term::map(map_definition.clone(), entries, None);
     let wrap = |term: Term| {
@@ -366,7 +366,7 @@ fn grouping_key() -> impl Strategy<Value = Term> {
     };
     let leaf = prop_oneof![
         4 => (sorts(), prop_oneof![Just("0"), Just("1"), Just("2")])
-            .prop_map(|(sort, value)| Term::domain_value(sort, value)),
+            .prop_map(|(sort, value)| Term::raw_domain_value(sort, value)),
         1 => (prop_oneof![Just("X"), Just("Y")], sorts())
             .prop_map(|(name, sort)| Term::variable(crate::term::Variable::new(name, sort))),
     ];
@@ -398,7 +398,7 @@ fn grouping_key() -> impl Strategy<Value = Term> {
         let (loc, pair, norm) = (loc.clone(), pair.clone(), norm.clone());
         (0..6usize, value(), value(), any::<bool>()).prop_map(
             move |(template, first, second, marked)| {
-                let dv = |sort: &Sort, value: &str| Term::domain_value(sort.clone(), value);
+                let dv = |sort: &Sort, value: &str| Term::raw_domain_value(sort.clone(), value);
                 match template {
                     0 => dv(&int, first),
                     1 => Term::injection(int.clone(), kitem.clone(), dv(&int, first)),
@@ -683,7 +683,7 @@ fn keys_of_one_skeleton_need_no_apartness_check() {
         Term::injection(
             int.clone(),
             kitem.clone(),
-            Term::domain_value(int.clone(), value.to_string()),
+            Term::raw_domain_value(int.clone(), value.to_string()),
         )
     };
     let mut partial = Symbol::constructor("partial", vec![s.clone()], kitem.clone());
@@ -692,9 +692,9 @@ fn keys_of_one_skeleton_need_no_apartness_check() {
     let undefined = Term::application(
         Arc::new(partial),
         vec![],
-        vec![Term::domain_value(s.clone(), "a")],
+        vec![Term::raw_domain_value(s.clone(), "a")],
     );
-    let value = Term::domain_value(int.clone(), "0");
+    let value = Term::raw_domain_value(int.clone(), "0");
     let checks = |entries: Vec<(Term, Term)>| {
         let map = Term::map(map_definition.clone(), entries, None);
         crate::definedness::APARTNESS_CHECKS.set(0);
@@ -726,7 +726,7 @@ fn keys_of_one_skeleton_need_no_apartness_check() {
             Term::injection(
                 s.clone(),
                 kitem.clone(),
-                Term::domain_value(s.clone(), index.to_string()),
+                Term::raw_domain_value(s.clone(), index.to_string()),
             ),
             value.clone(),
         )
@@ -755,7 +755,7 @@ fn one_undefined_item_of_a_large_collection_is_reached_without_the_others() {
         Term::injection(
             int.clone(),
             kitem.clone(),
-            Term::domain_value(int.clone(), value.to_string()),
+            Term::raw_domain_value(int.clone(), value.to_string()),
         )
     };
     let mut partial = Symbol::constructor("partial", vec![s.clone()], kitem.clone());
@@ -764,7 +764,7 @@ fn one_undefined_item_of_a_large_collection_is_reached_without_the_others() {
     let undefined = Term::application(
         Arc::new(partial),
         vec![],
-        vec![Term::domain_value(s.clone(), "a")],
+        vec![Term::raw_domain_value(s.clone(), "a")],
     );
     let map = Term::map(
         map_definition,
@@ -825,7 +825,7 @@ fn collection_key(index: usize) -> Term {
     Term::injection(
         int.clone(),
         kitem,
-        Term::domain_value(int, index.to_string()),
+        Term::raw_domain_value(int, index.to_string()),
     )
 }
 
@@ -836,7 +836,11 @@ fn undefined_item(name: &str) -> Term {
     let mut partial = Symbol::constructor("partial", vec![s.clone()], kitem);
     partial.attributes.symbol_type =
         crate::term::SymbolType::Function(crate::term::FunctionType::Partial);
-    Term::application(Arc::new(partial), vec![], vec![Term::domain_value(s, name)])
+    Term::application(
+        Arc::new(partial),
+        vec![],
+        vec![Term::raw_domain_value(s, name)],
+    )
 }
 
 /// Debug builds: a collection that is not `ceil_free`, since it holds an undefined item the walk

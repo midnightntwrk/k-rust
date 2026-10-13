@@ -596,7 +596,7 @@ mod tests {
             .map(|index| {
                 Predicate::Equals(
                     Term::variable(Variable::new(format!("X{index}"), sort.clone())),
-                    Term::domain_value(sort.clone(), index.to_string()),
+                    Term::raw_domain_value(sort.clone(), index.to_string()),
                 )
             })
             .collect::<Vec<_>>();

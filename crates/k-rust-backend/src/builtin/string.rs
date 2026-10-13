@@ -4,17 +4,34 @@ use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
 
 use k_rust_kore::kore::ast::KoreString;
+use k_rust_kore::kore::string::LiteralEncoding;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
     BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, int_term, read_int,
 };
-use crate::term::{Sort, Term, TermKind};
+use crate::{
+    definition::BackendDefinition,
+    externalize,
+    term::{
+        DomainKind, Sort, Term, TermKind,
+        domain::{TextRejection, validate_text},
+    },
+};
+
+/// The application a `STRING` hook evaluates, beyond its arguments: its declared result sort,
+/// the definition it belongs to, and whether its symbol is declared `total`.
+#[derive(Clone, Copy)]
+pub(super) struct Declaration<'a> {
+    pub(super) result_sort: Option<&'a Sort>,
+    pub(super) definition: Option<&'a BackendDefinition>,
+    pub(super) total: bool,
+}
 
 pub(super) fn evaluate(
     hook: &str,
     arguments: &[Term],
-    result_sort: Option<&Sort>,
+    declaration: Declaration<'_>,
 ) -> HookResult<BuiltinResult> {
     match hook {
         "STRING.eq" => compare(hook, arguments, |left, right| left == right),
@@ -37,7 +54,7 @@ pub(super) fn evaluate(
         "STRING.chr" => chr(arguments),
         "STRING.ord" => ord(arguments),
         "STRING.token2string" => token_to_string(arguments),
-        "STRING.string2token" => string_to_token(arguments, result_sort),
+        "STRING.string2token" => string_to_token(arguments, declaration),
         _ => Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
         )),
@@ -365,36 +382,95 @@ fn token_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     } else {
         value.clone()
     };
-    Ok(BuiltinResult::Value(Term::domain_value(
+    Ok(BuiltinResult::Value(Term::domain_value_of(
+        DomainKind::String,
         Sort::builtin(BuiltinSort::String),
         value,
     )))
 }
 
-fn string_to_token(arguments: &[Term], result_sort: Option<&Sort>) -> HookResult<BuiltinResult> {
+/// `String2Token(S)` (`STRING.string2token`, declared at the result sort of its application) is
+/// the domain value of that sort whose text is the code points of `S`, read as the definition
+/// reads a literal of the sort: with the kind the sort's hook gives
+/// ([`BackendDefinition::domain_kind`]), validated and stored in the kind's canonical text, so
+/// that `"07"` at a sort hooked `INT.Int` is the integer 7. The payload is stored in the encoding
+/// of the sort's KORE name, as every KORE reader stores it (`LiteralEncoding::of_domain_value`).
+///
+/// A text that names no element of the sort has no value the definition gives: the application
+/// of a `total` declaration has a value the definition does not determine (`Unspecified`), and
+/// that of a partial one is undefined (`\bottom`). A text that names an element whose canonical
+/// text is beyond a bound of k-rust is the resource refusal whatever the declaration's
+/// totality, never `\bottom`. Without a definition, or at a sort without domain values, the
+/// result sort has no kind, and the application is not evaluated.
+fn string_to_token(arguments: &[Term], declaration: Declaration<'_>) -> HookResult<BuiltinResult> {
     expect_arity("STRING.string2token", arguments, 1)?;
-    let Some(value) = read_string(&arguments[0]) else {
+    let Some(text) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(result_sort) = result_sort else {
+    let (Some(result_sort), Some(definition)) = (declaration.result_sort, declaration.definition)
+    else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let value = if result_sort.is_builtin(BuiltinSort::Bytes) {
-        let Some(bytes) = value
-            .chars()
-            .map(|character| u8::try_from(u32::from(character)).ok())
-            .collect::<Option<Vec<_>>>()
-        else {
-            return Ok(BuiltinResult::NotApplicable);
+    let names_no_element = || {
+        Ok(if declaration.total {
+            BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                detail: format!(
+                    "String2Token of {}: the text names no element of {}",
+                    described_text(text),
+                    externalize::sort(result_sort)
+                ),
+            })
+        } else {
+            BuiltinResult::Bottom
+        })
+    };
+    let Some(kind) = definition.domain_kind(result_sort) else {
+        // Only a sort hooked `MINT.MInt` that names no width has domain values and no kind; no
+        // text is a literal of it.
+        let admits_domain_values = matches!(result_sort, Sort::Application { name, .. }
+            if definition.sorts().get(name).is_some_and(|info| info.has_domain_values));
+        return if admits_domain_values {
+            names_no_element()
+        } else {
+            Ok(BuiltinResult::NotApplicable)
         };
-        KoreString::from(bytes)
-    } else {
-        KoreString::from(value)
     };
-    Ok(BuiltinResult::Value(Term::domain_value(
-        result_sort.clone(),
-        value,
-    )))
+    let encoding = if result_sort.is_builtin(BuiltinSort::Bytes) {
+        LiteralEncoding::Bytes
+    } else {
+        LiteralEncoding::Utf8
+    };
+    // A code point above U+00FF has no byte of `SortBytes`'s payload, as in a literal.
+    let Some(value) = encoding.store(text) else {
+        return names_no_element();
+    };
+    match validate_text(kind, result_sort, &value) {
+        Ok(()) => Ok(BuiltinResult::Value(Term::domain_value_of(
+            kind,
+            result_sort.clone(),
+            value,
+        ))),
+        Err(TextRejection::NamesNoElement(_)) => names_no_element(),
+        Err(TextRejection::BeyondBound) => Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ResultTooLarge {
+                detail: format!(
+                    "String2Token of {}: the canonical text of the value it names at {} is \
+                     beyond the bound on the integers the backend computes",
+                    described_text(text),
+                    externalize::sort(result_sort)
+                ),
+            },
+        )),
+    }
+}
+
+/// A string operand as a message shows it: quoted when it is short, otherwise by its length.
+fn described_text(text: &str) -> String {
+    if text.len() <= 64 {
+        format!("{text:?}")
+    } else {
+        format!("a string of {} bytes", text.len())
+    }
 }
 
 /// The radix of `String2Base` and `Base2String`. `domains.md` says it "can be anywhere between 2
@@ -426,8 +502,8 @@ pub(super) fn read_string(term: &Term) -> Option<&str> {
         .flatten()
 }
 
-fn string_term(value: impl Into<KoreString>) -> Term {
-    Term::domain_value(Sort::builtin(BuiltinSort::String), value.into())
+fn string_term(value: impl AsRef<str>) -> Term {
+    Term::string(value)
 }
 
 #[cfg(test)]
@@ -435,7 +511,21 @@ mod tests {
     use super::*;
 
     fn evaluate(hook: &str, arguments: Vec<Term>) -> BuiltinResult {
-        super::evaluate(hook, &arguments, None).unwrap()
+        super::evaluate(hook, &arguments, declared(None)).unwrap()
+    }
+
+    /// An application declared at `result_sort`, outside any definition, not `total`.
+    fn declared(result_sort: Option<&Sort>) -> Declaration<'_> {
+        Declaration {
+            result_sort,
+            definition: None,
+            total: false,
+        }
+    }
+
+    /// A `SortString` domain value holding `payload` as given, UTF-8 or not.
+    fn string_payload(payload: Vec<u8>) -> Term {
+        Term::raw_domain_value(Sort::builtin(BuiltinSort::String), payload)
     }
 
     #[test]
@@ -619,10 +709,10 @@ mod tests {
     /// not evaluate it.
     #[test]
     fn a_payload_that_is_not_utf8_is_no_string_value() {
-        let stray = || string_term(vec![0xff, 0x80, 0x00, b'A']);
+        let stray = || string_payload(vec![0xff, 0x80, 0x00, b'A']);
         for (hook, arguments) in [
             ("STRING.length", vec![stray()]),
-            ("STRING.ord", vec![string_term(vec![0xe9])]),
+            ("STRING.ord", vec![string_payload(vec![0xe9])]),
             ("STRING.eq", vec![stray(), stray()]),
             ("STRING.concat", vec![stray(), string_term("a")]),
         ] {
@@ -769,7 +859,7 @@ mod tests {
         for (literal, expected) in [(r#""\xe9""#, 233), (r#""\x80""#, 128), (r#""\xff""#, 255)] {
             let value = k_rust_kore::kore::string::unquote(literal).unwrap();
             assert_eq!(
-                evaluate("STRING.ord", vec![string_term(value)]),
+                evaluate("STRING.ord", vec![string_term(value.as_utf8().unwrap())]),
                 BuiltinResult::Value(int_term(BigInt::from(expected))),
                 "ordChar({literal})"
             );
@@ -787,27 +877,31 @@ mod tests {
         }
     }
 
-    /// `String2Id` (`STRING.string2token`) is the token of the application's sort whose text is
-    /// the string, and `Id2String` (`STRING.token2string`) reads a token's text back; without the
-    /// result sort, or on a string the hook cannot read, the application is not decided.
+    /// `Id2String` (`STRING.token2string`) reads a token's text back as a `String`. Without a
+    /// definition the result sort of `String2Id` (`STRING.string2token`) has no kind, so the
+    /// application is not decided, nor on a string the hook cannot read; with one, the token is
+    /// built by the kind of its sort (`tests::domain_values` of the crate).
     #[test]
-    fn string2token_builds_a_token_of_the_result_sort() {
+    fn token2string_reads_a_token_and_string2token_needs_a_definition() {
         let id = Sort::simple("SortId");
         for text in ["x", "_42"] {
-            let token =
-                super::evaluate("STRING.string2token", &[string_term(text)], Some(&id)).unwrap();
             assert_eq!(
-                token,
-                BuiltinResult::Value(Term::domain_value(id.clone(), text)),
-                "String2Id({text:?})"
-            );
-            let BuiltinResult::Value(token) = token else {
-                unreachable!()
-            };
-            assert_eq!(
-                evaluate("STRING.token2string", vec![token]),
+                evaluate(
+                    "STRING.token2string",
+                    vec![Term::raw_domain_value(id.clone(), text)]
+                ),
                 BuiltinResult::Value(string_term(text)),
-                "Id2String(String2Id({text:?}))"
+                "Id2String({text:?})"
+            );
+            assert_eq!(
+                super::evaluate(
+                    "STRING.string2token",
+                    &[string_term(text)],
+                    declared(Some(&id))
+                )
+                .unwrap(),
+                BuiltinResult::NotApplicable,
+                "String2Id({text:?}) without a definition"
             );
         }
         assert_eq!(
@@ -819,7 +913,7 @@ mod tests {
             Sort::builtin(BuiltinSort::String),
         ));
         assert_eq!(
-            super::evaluate("STRING.string2token", &[symbolic], Some(&id)).unwrap(),
+            super::evaluate("STRING.string2token", &[symbolic], declared(Some(&id))).unwrap(),
             BuiltinResult::NotApplicable
         );
     }

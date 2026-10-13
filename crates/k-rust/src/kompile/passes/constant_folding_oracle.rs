@@ -185,21 +185,17 @@ impl Arg {
 
     fn domain_value(&self) -> BackendTerm {
         match self {
-            Self::Bool(value) => BackendTerm::domain_value(
-                BackendSort::builtin(BuiltinSort::Bool),
-                value.to_string(),
+            Self::Bool(value) => BackendTerm::bool(*value),
+            Self::Int(value) => BackendTerm::int(value.clone()),
+            Self::Str(value) => BackendTerm::string(value),
+            // A `Float` value has no constructor of its own kind yet; the oracle's texts are
+            // the canonical ones the hooks write.
+            Self::Float(value) => BackendTerm::raw_domain_value(
+                BackendSort::builtin(BuiltinSort::Float),
+                value.clone(),
             ),
-            Self::Int(value) => {
-                BackendTerm::domain_value(BackendSort::builtin(BuiltinSort::Int), value.to_string())
-            }
-            Self::Str(value) => {
-                BackendTerm::domain_value(BackendSort::builtin(BuiltinSort::String), value.clone())
-            }
-            Self::Float(value) => {
-                BackendTerm::domain_value(BackendSort::builtin(BuiltinSort::Float), value.clone())
-            }
             Self::Id(value) => {
-                BackendTerm::domain_value(BackendSort::simple("SortId"), value.clone())
+                BackendTerm::raw_domain_value(BackendSort::simple("SortId"), value.clone())
             }
         }
     }

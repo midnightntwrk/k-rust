@@ -4170,7 +4170,7 @@ endmodule
         let sort = BackendSort::simple("SortK");
         let configuration = Term::variable(Variable::new("CONFIG", sort.clone()));
         let x = Term::variable(Variable::new("X", sort.clone()));
-        let stale = Predicate::Equals(Term::domain_value(sort.clone(), "3"), x);
+        let stale = Predicate::Equals(Term::raw_domain_value(sort.clone(), "3"), x);
         let original = KorePattern::And {
             sort: externalize::sort(&sort),
             arguments: vec![
@@ -4194,7 +4194,7 @@ endmodule
     fn implication_keeps_nested_consequent_existentials_on_the_left() {
         let sort = BackendSort::simple("SortK");
         let variable = Variable::new("X!exists0", sort.clone());
-        let value = Term::domain_value(sort.clone(), "value");
+        let value = Term::raw_domain_value(sort.clone(), "value");
         let substitution = Substitution::from([(variable, value)]);
 
         let sides = backend_implication::ImplicationSides::new(
@@ -4217,8 +4217,8 @@ endmodule
         let configuration = Term::variable(Variable::new("CONFIG", sort.clone()));
         let x = Term::variable(Variable::new("X", sort.clone()));
         let constraints = vec![
-            Predicate::Equals(Term::domain_value(sort.clone(), "3"), x.clone()),
-            Predicate::Equals(Term::domain_value(sort.clone(), "0"), x),
+            Predicate::Equals(Term::raw_domain_value(sort.clone(), "3"), x.clone()),
+            Predicate::Equals(Term::raw_domain_value(sort.clone(), "0"), x),
         ];
         let mut canonical = constraints
             .iter()
@@ -4269,7 +4269,7 @@ endmodule
         let sort = BackendSort::simple("SortK");
         let configuration = Term::variable(Variable::new("CONFIG", sort.clone()));
         let x = Term::variable(Variable::new("X", sort.clone()));
-        let value = |value| Term::domain_value(sort.clone(), value);
+        let value = |value| Term::raw_domain_value(sort.clone(), value);
         let constraints = vec![
             Predicate::Equals(x.clone(), value("5")),
             Predicate::Equals(value("2"), x.clone()),
@@ -5583,7 +5583,7 @@ endmodule
         let fault = simplify_fault(
             SimplificationError::IterationLimit {
                 limit: 0,
-                term: Term::domain_value(sort.clone(), "value"),
+                term: Term::raw_domain_value(sort.clone(), "value"),
             },
             &sort,
         )
@@ -6097,7 +6097,7 @@ endmodule
             BackendDefinition::internalize(&parse_definition(DEFINITION).unwrap(), "TEST").unwrap();
         let sort = BackendSort::simple("SortState");
         let variable = Variable::new("X", sort.clone());
-        let value = Term::domain_value(sort.clone(), "resolved");
+        let value = Term::raw_domain_value(sort.clone(), "resolved");
         let pattern = Pattern {
             term: Term::variable(variable.clone()),
             constraints: vec![Predicate::Equals(
@@ -6124,7 +6124,7 @@ endmodule
         let sort = BackendSort::simple("SortState");
         let x = Variable::new("X", sort.clone());
         let y = Variable::new("Y", sort.clone());
-        let value = Term::domain_value(sort.clone(), "resolved");
+        let value = Term::raw_domain_value(sort.clone(), "resolved");
         let pattern = Pattern {
             term: Term::variable(y.clone()),
             constraints: vec![
@@ -6297,8 +6297,10 @@ endmodule
         let state_variable = Variable::new("X", sort.clone());
         let rule_substitution =
             Substitution::from([(rule_variable, Term::variable(state_variable.clone()))]);
-        let state_substitution =
-            Substitution::from([(state_variable, Term::domain_value(sort.clone(), "resolved"))]);
+        let state_substitution = Substitution::from([(
+            state_variable,
+            Term::raw_domain_value(sort.clone(), "resolved"),
+        )]);
 
         let substitution =
             project_rule_substitution(&rule_substitution, &state_substitution, &BTreeSet::new());
@@ -6370,15 +6372,15 @@ endmodule
         let substitution = Substitution::from([
             (
                 Variable::new("Rule#A", sort.clone()),
-                Term::domain_value(sort.clone(), "a"),
+                Term::raw_domain_value(sort.clone(), "a"),
             ),
             (
                 Variable::new("Rule#B", sort.clone()),
-                Term::domain_value(sort.clone(), "b"),
+                Term::raw_domain_value(sort.clone(), "b"),
             ),
             (
                 Variable::new("Rule#C", sort.clone()),
-                Term::domain_value(sort.clone(), "c"),
+                Term::raw_domain_value(sort.clone(), "c"),
             ),
         ]);
 

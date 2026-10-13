@@ -137,7 +137,7 @@ impl Spec {
     /// Build the term through the public constructors, with fresh allocations.
     fn build(&self) -> Term {
         match self {
-            Self::Dv { sort: s, value: v } => Term::domain_value(sort(*s), value(*v)),
+            Self::Dv { sort: s, value: v } => Term::raw_domain_value(sort(*s), value(*v)),
             Self::Var { set, sort: s, name } => {
                 let name = format!("X{name}");
                 Term::variable(if *set {
@@ -534,8 +534,22 @@ proptest! {
 /// one field, sets that receive duplicates, and the integer spellings `1` and `01`.
 #[test]
 fn fixed_near_misses_agree_with_equality() {
-    let one = Term::domain_value(Sort::builtin(BuiltinSort::Int), "1");
-    let one_again = Term::domain_value(Sort::builtin(BuiltinSort::Int), "01");
+    // The definition reads both spellings by the kind of `SortInt`, so they are one term.
+    let syntax = k_rust_kore::kore::parser::parse_definition(
+        r#"[]
+        module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        endmodule []"#,
+    )
+    .unwrap();
+    let integers =
+        k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+    let one = integers
+        .domain_value(Sort::builtin(BuiltinSort::Int), "1")
+        .unwrap();
+    let one_again = integers
+        .domain_value(Sort::builtin(BuiltinSort::Int), "01")
+        .unwrap();
     assert_eq!(one, one_again);
     assert_eq!(one.cmp(&one_again), Ordering::Equal);
 

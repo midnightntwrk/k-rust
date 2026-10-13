@@ -1865,6 +1865,71 @@ fn kprove_proves_nothing_through_two_spellings_of_one_hooked_int_value() {
     );
 }
 
+/// A sort hooked `INT.Int` under its own name, and a function hooked `STRING.string2token` that
+/// builds its values at run time from a `String`.
+const STRING_TO_HOOKED_INT_DEFINITION: &str = r#"
+requires "domains.md"
+module S2T-SYNTAX
+  imports INT-SYNTAX
+  imports STRING-SYNTAX
+  syntax MyInt [hook(INT.Int)]
+  syntax MyInt ::= r"[0-9]+" [token, prec(2)]
+  syntax MyInt ::= String2MyInt(String) [function, total, hook(STRING.string2token)]
+  syntax Pgm ::= go(String) | run(String) | stepm(MyInt) | done() | bad()
+endmodule
+module S2T
+  imports S2T-SYNTAX
+  imports INT
+  imports STRING
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= Bool | lit(MyInt)
+  rule <k> go(S) => lit(String2MyInt(S)) ~> (String2MyInt(S) ==K #token("7", "MyInt")) ... </k>
+  rule <k> run(S) => stepm(String2MyInt(S)) ... </k>
+  rule <k> stepm(#token("7", "MyInt")) => bad() ... </k>
+  rule <k> stepm(_) => done() ... </k> [owise]
+endmodule
+"#;
+
+const STRING_TO_HOOKED_INT_SPEC: &str = r#"
+module S2T-SPEC
+  imports S2T
+  claim <k> run("07") => done() ... </k>
+endmodule
+"#;
+
+/// A value that `STRING.string2token` builds at run time at a sort hooked `INT.Int` is read by
+/// that hook: `String2MyInt("07")` is the integer 7, the `bad()` rule on `7` applies, and the
+/// ground claim that `run("07")` reaches `done()` is disproved at that leaf.
+#[test]
+fn kprove_proves_nothing_through_a_hooked_int_token_built_from_a_string() {
+    let source = format!("{STRING_TO_HOOKED_INT_DEFINITION}{STRING_TO_HOOKED_INT_SPEC}");
+    let (verdict, stdout) = kprove_single_claim(&source, "S2T-SPEC", "S2T");
+    assert_eq!(verdict, "disproved", "{stdout}");
+    assert!(
+        stdout.contains(r"Lblbad'LParRParUnds'S2T-SYNTAX'Unds'Pgm{}()"),
+        "no bad() leaf in {stdout}"
+    );
+}
+
+/// `String2MyInt("07")` is stored as the canonical text of the integer it names, so it prints
+/// as `7` and `==K` finds it equal to the literal `7` of the same sort.
+#[test]
+fn krun_reads_a_string_to_token_value_by_the_hook_of_its_sort() {
+    let go = compact_success(&krun_mint_program(
+        STRING_TO_HOOKED_INT_DEFINITION,
+        "S2T",
+        r#"go("07")"#,
+    ));
+    assert!(
+        go.contains(
+            r#"kseq{}(Lbllit'LParUndsRParUnds'S2T'Unds'KItem'Unds'MyInt{}(\dv{SortMyInt{}}("7")),kseq{}(inj{SortBool{},SortKItem{}}(\dv{SortBool{}}("true")),dotk{}()))"#
+        ),
+        "{go}"
+    );
+}
+
 /// `krun` of `program` (a `Pgm`) in the definition `source` with main module `module`.
 fn krun_mint_program(source: &str, module: &str, program: &str) -> Output {
     let (root, definition) = fixture();

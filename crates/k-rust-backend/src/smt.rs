@@ -1413,7 +1413,7 @@ mod tests {
     }
 
     fn integer(value: &str) -> Term {
-        Term::domain_value(Sort::simple("SortInt"), value)
+        Term::raw_domain_value(Sort::simple("SortInt"), value)
     }
 
     #[test]

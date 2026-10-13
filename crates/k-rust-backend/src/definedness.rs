@@ -2209,7 +2209,7 @@ mod tests {
         };
         assert_eq!(
             applied.pattern.term,
-            Term::domain_value(Sort::simple("SortS"), "value")
+            Term::raw_domain_value(Sort::simple("SortS"), "value")
         );
     }
 

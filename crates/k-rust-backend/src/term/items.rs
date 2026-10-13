@@ -957,11 +957,11 @@ mod tests {
     }
 
     fn key(index: usize) -> Term {
-        Term::domain_value(Sort::simple("SortKey"), format!("{index:06}").as_str())
+        Term::raw_domain_value(Sort::simple("SortKey"), format!("{index:06}").as_str())
     }
 
     fn value(index: usize) -> Term {
-        Term::domain_value(Sort::simple("SortValue"), index.to_string().as_str())
+        Term::raw_domain_value(Sort::simple("SortValue"), index.to_string().as_str())
     }
 
     fn variable(name: &str, sort: &str) -> Term {

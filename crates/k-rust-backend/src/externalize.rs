@@ -464,8 +464,15 @@ fn predicate_as_boolean_term(
     predicate: &Predicate,
 ) -> Option<Term> {
     let boolean_sort = declared_boolean_sort(definition)?;
-    let boolean =
-        |value| Term::domain_value(boolean_sort.clone(), if value { "true" } else { "false" });
+    // The literals of the sort hooked `BOOL.Bool`, at that sort and with its kind.
+    let kind = definition.domain_kind(&boolean_sort)?;
+    let boolean = |value| {
+        Term::domain_value_of(
+            kind,
+            boolean_sort.clone(),
+            if value { "true" } else { "false" },
+        )
+    };
     let hooked = |hook: &str, arguments: Vec<Term>| {
         definition
             .symbols()
@@ -1528,7 +1535,7 @@ mod tests {
     fn json_source_matches_materialized_shared_and_collection_terms() {
         use k_rust_kore::kore::json;
 
-        let byte_string = Term::domain_value(Sort::simple("SortString"), vec![0, 255, b'x']);
+        let byte_string = Term::raw_domain_value(Sort::simple("SortString"), vec![0, 255, b'x']);
         let shared = Term::injection(
             Sort::simple("SortString"),
             Sort::simple("SortKItem"),
@@ -1559,7 +1566,7 @@ mod tests {
     #[cfg(feature = "measure")]
     #[test]
     fn source_node_count_sees_shared_backend_allocations() {
-        let leaf = Term::domain_value(Sort::simple("SortInt"), "1");
+        let leaf = Term::raw_domain_value(Sort::simple("SortInt"), "1");
         let mut root = leaf;
         for _ in 0..30 {
             root = Term::and(root.clone(), root);
@@ -1688,7 +1695,7 @@ mod tests {
 
     #[test]
     fn constrained_patterns_preserve_predicate_result_sorts() {
-        let value = Term::domain_value(Sort::simple("SortInt"), "1");
+        let value = Term::raw_domain_value(Sort::simple("SortInt"), "1");
         let pattern = Pattern {
             term: value.clone(),
             constraints: vec![Predicate::Equals(value.clone(), value)],
@@ -1707,7 +1714,7 @@ mod tests {
     #[test]
     fn constrained_patterns_group_predicates_and_collapse_bottom() {
         let sort = Sort::simple("SortInt");
-        let value = Term::domain_value(sort.clone(), "1");
+        let value = Term::raw_domain_value(sort.clone(), "1");
         let x = Term::variable(Variable::new("X", sort.clone()));
         let y = Term::variable(Variable::new("Y", sort.clone()));
         let grouped = constrained_pattern(&Pattern {
@@ -1734,7 +1741,7 @@ mod tests {
     #[test]
     fn bare_predicates_compare_true_before_the_predicate_term() {
         let boolean_sort = Sort::simple("SortBool");
-        let value = Term::domain_value(boolean_sort.clone(), "condition");
+        let value = Term::raw_domain_value(boolean_sort.clone(), "condition");
 
         assert_eq!(
             predicate_pattern(&Predicate::Term(value.clone()), &boolean_sort),
@@ -1754,7 +1761,7 @@ mod tests {
     fn boolean_equalities_place_domain_values_first() {
         let boolean_sort = Sort::simple("SortBool");
         let value = Term::variable(Variable::new("P", boolean_sort.clone()));
-        let false_value = Term::domain_value(boolean_sort.clone(), "false");
+        let false_value = Term::raw_domain_value(boolean_sort.clone(), "false");
 
         assert!(matches!(
             &predicate_pattern(
@@ -1788,7 +1795,7 @@ mod tests {
         let int_sort = Sort::simple("SortInt");
         let result_sort = Sort::simple("SortGeneratedTopCell");
         let x = Term::variable(Variable::new("X", int_sort.clone()));
-        let one = Term::domain_value(int_sort, "1");
+        let one = Term::raw_domain_value(int_sort, "1");
 
         let pattern =
             booster_predicate_pattern(&definition, &Predicate::Equals(x, one), &result_sort);
@@ -1808,7 +1815,7 @@ mod tests {
         let condition = definition
             .internalize_term(&parse_pattern("condition{}()").unwrap(), &[])
             .unwrap();
-        let truth = Term::domain_value(Sort::simple("SortBool"), "true");
+        let truth = Term::raw_domain_value(Sort::simple("SortBool"), "true");
         let pattern = booster_predicate_pattern(
             &definition,
             &Predicate::Equals(condition, truth.clone()),
@@ -1840,6 +1847,30 @@ mod tests {
         ));
     }
 
+    /// The Boolean literals a predicate externalizes to are at the sort the definition hooks
+    /// `BOOL.Bool`, built with that sort's kind: a renamed Boolean sort keeps its name.
+    #[test]
+    fn booster_constraints_use_the_literals_of_a_renamed_boolean_sort() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortTruth{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let result_sort = Sort::simple("SortGeneratedTopCell");
+        for (predicate, literal) in [
+            (Predicate::True, r#"\dv{SortTruth{}}("true")"#),
+            (Predicate::False, r#"\dv{SortTruth{}}("false")"#),
+        ] {
+            let printed = k_rust_kore::kore::printer::Printer::compact().print_pattern(
+                &booster_predicate_pattern(&definition, &predicate, &result_sort),
+            );
+            assert!(printed.contains(literal), "{predicate:?}: {printed}");
+        }
+    }
+
     #[test]
     fn rule_provenance_uses_the_declared_boolean_sort() {
         let syntax = parse_definition(
@@ -1857,7 +1888,7 @@ mod tests {
         .unwrap();
         let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
         let result_sort = Sort::simple("SortInt");
-        let renamed_truth = Term::domain_value(Sort::simple("SortTruth"), "true");
+        let renamed_truth = Term::raw_domain_value(Sort::simple("SortTruth"), "true");
         let renamed_condition = definition
             .internalize_term(
                 &parse_pattern(r#"intEqTruth{}(X:SortInt{}, \dv{SortInt{}}("1"))"#).unwrap(),
@@ -1879,7 +1910,7 @@ mod tests {
         ));
         let _admitted = definition.verify_standalone_pattern(&renamed, &[]).unwrap();
 
-        let lookalike_truth = Term::domain_value(Sort::simple("SortBool"), "true");
+        let lookalike_truth = Term::raw_domain_value(Sort::simple("SortBool"), "true");
         let lookalike_condition = definition
             .internalize_term(
                 &parse_pattern(r#"opaqueEqLookalike{}(X:SortInt{}, \dv{SortInt{}}("1"))"#).unwrap(),
@@ -1926,7 +1957,7 @@ mod tests {
                 &[],
             )
             .unwrap();
-        let truth = Term::domain_value(Sort::simple("SortBool"), "true");
+        let truth = Term::raw_domain_value(Sort::simple("SortBool"), "true");
 
         let rule_predicate = booster_rule_predicate_pattern_in_definition(
             &definition,

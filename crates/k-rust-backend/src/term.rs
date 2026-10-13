@@ -97,6 +97,7 @@ use crate::smt::SmtType;
 // against models, so dead code is allowed outside test builds.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) mod chunked;
+pub(crate) mod domain;
 pub mod head;
 pub mod items;
 pub mod names;
@@ -838,6 +839,28 @@ impl fmt::Debug for TermData {
     }
 }
 
+/// A term of the backend: an immutable, shared node and its synthesized attributes.
+///
+/// A domain value's text is its identity, so it is built with its sort's kind and stored in that
+/// kind's canonical text (`term::domain`). A library caller builds one with
+/// [`crate::definition::BackendDefinition::domain_value`], which reads the kind from the sort's
+/// hook, or with [`Term::int`], [`Term::bool`], [`Term::string`] or [`Term::bytes`]; no public
+/// function builds one from a sort and a text alone:
+///
+/// ```compile_fail,E0599
+/// use k_rust_backend::term::{Sort, Term};
+/// let _ = Term::domain_value(Sort::simple("SortMyInt"), "07");
+/// ```
+///
+/// ```compile_fail,E0624
+/// use k_rust_backend::term::{DomainKind, Sort, Term};
+/// let _ = Term::domain_value_of(DomainKind::Token, Sort::simple("SortMyInt"), "07");
+/// ```
+///
+/// ```
+/// use k_rust_backend::term::Term;
+/// let _ = (Term::int(7), Term::bool(true), Term::string("s"), Term::bytes(vec![0_u8]));
+/// ```
 #[derive(Clone, Debug)]
 pub struct Term(Arc<TermData>);
 
@@ -907,7 +930,7 @@ std::thread_local! {
 static DETACHED_AT_EXIT: LazyLock<Term> = LazyLock::new(detached_leaf);
 
 fn detached_leaf() -> Term {
-    Term::domain_value(Sort::Variable(Name::from("")), "")
+    Term::sentinel()
 }
 
 impl Term {
@@ -1174,29 +1197,92 @@ impl Term {
         Self::application_raw(symbol, sort_arguments, arguments)
     }
 
-    /// The domain value of `sort` that `value` names, with the kind of `sort` resolved by its
-    /// name ([`DomainKind::of_builtin_name`]), for callers without a definition: an `Int` text
-    /// is stored in canonical decimal, and a `MInt{W}` literal `[+-]?[0-9]+[pP][0-9]+` as the
-    /// residue of its signed decimal modulo `2^W` in `[0, 2^W)`, `p`, and the digits of the
-    /// sort's width argument (`-1p8` and `511p8` are `255p8`; `0377p8` is `121p8`, the digits
-    /// being decimal). A text that is no literal of its sort, and a negative literal of a width
-    /// above `MAX_INT_RESULT_BITS`, are kept as written; loading a definition refuses them.
-    pub fn domain_value(sort: Sort, value: impl Into<KoreString>) -> Self {
-        Self::domain_value_of(DomainKind::of_builtin_name(&sort), sort, value)
-    }
-
     /// The domain value of `sort` that `value` names, stored in the canonical text of `kind`,
     /// so that two domain values of one sort are the same term exactly when they denote the
     /// same element. `kind` alone decides the canonicalization; the sort's name is not read
-    /// again, so a caller with a definition passes the kind of the sort's hook
-    /// ([`crate::definition::BackendDefinition::domain_kind`]).
+    /// again. This is the one function that builds a domain value (`shared_domain_value_contract`
+    /// C3): a caller with a definition passes the kind of the sort's hook
+    /// ([`crate::definition::BackendDefinition::domain_kind`]), and a hook that returns a value
+    /// of its own builtin passes that builtin's kind. Each caller is a row of the route table that
+    /// `domain::tests::every_domain_value_is_built_by_a_listed_route` checks.
+    ///
+    /// The construction is noted for the checks of [`domain`]: while a hook evaluation records
+    /// its constructions, the evaluation entry compares each kind with the one the definition
+    /// gives the value's sort, and under a definition scope a debug build asserts it.
     pub(crate) fn domain_value_of(
         kind: DomainKind,
         sort: Sort,
         value: impl Into<KoreString>,
     ) -> Self {
         let value = canonical_text(kind, &sort, value.into());
-        Self::new(TermKind::DomainValue { sort, value })
+        let term = Self::new(TermKind::DomainValue { sort, value });
+        domain::note_construction(&term, kind);
+        term
+    }
+
+    /// The `Int` domain value of `value`, at the sort `SortInt`, which has the `Int` kind by its
+    /// name whether or not a definition hooks it (`shared_domain_value_contract` C2).
+    pub fn int(value: impl Into<BigInt>) -> Self {
+        Self::domain_value_of(
+            DomainKind::Int,
+            Sort::builtin(BuiltinSort::Int),
+            value.into().to_string(),
+        )
+    }
+
+    /// The `Bool` domain value `true` or `false`, at the sort `SortBool`, which has the `Bool`
+    /// kind by its name whether or not a definition hooks it.
+    pub fn bool(value: bool) -> Self {
+        Self::domain_value_of(
+            DomainKind::Bool,
+            Sort::builtin(BuiltinSort::Bool),
+            if value { "true" } else { "false" },
+        )
+    }
+
+    /// The `String` domain value of the code points of `value`, at the sort `SortString`, stored
+    /// as their UTF-8 (`LiteralEncoding::Utf8`). It is a value of a definition whose `SortString`
+    /// is hooked `STRING.String`.
+    pub fn string(value: impl AsRef<str>) -> Self {
+        Self::domain_value_of(
+            DomainKind::String,
+            Sort::builtin(BuiltinSort::String),
+            value.as_ref(),
+        )
+    }
+
+    /// The `Bytes` domain value of `value`, at the sort `SortBytes`, stored one byte per code
+    /// point (`LiteralEncoding::Bytes`). It is a value of a definition whose `SortBytes` is
+    /// hooked `BYTES.Bytes`.
+    pub fn bytes(value: impl Into<Arc<[u8]>>) -> Self {
+        Self::domain_value_of(
+            DomainKind::Bytes,
+            Sort::builtin(BuiltinSort::Bytes),
+            KoreString::from_bytes(value),
+        )
+    }
+
+    /// The domain value of `sort` holding `value` as given, without a kind: not validated and
+    /// not canonicalized. For tests that build values without a definition (the backend's and
+    /// the k-rust crate's test suites, the Lean bridge generators, the hook-model harness);
+    /// it exists only in test builds and with the test-only feature `raw-domain-values`, which
+    /// no normal build enables. A library caller builds a domain value with
+    /// [`crate::definition::BackendDefinition::domain_value`] or a fixed-sort constructor
+    /// ([`Term::int`], [`Term::bool`], [`Term::string`], [`Term::bytes`]).
+    #[cfg(any(test, feature = "raw-domain-values"))]
+    pub fn raw_domain_value(sort: Sort, value: impl Into<KoreString>) -> Self {
+        Self::new(TermKind::DomainValue {
+            sort,
+            value: value.into(),
+        })
+    }
+
+    /// The leaf a dropped handle is left on ([`DETACHED`]): no value of any sort.
+    fn sentinel() -> Self {
+        Self::new(TermKind::DomainValue {
+            sort: Sort::Variable(Name::from("")),
+            value: KoreString::from(""),
+        })
     }
 
     pub fn variable(variable: Variable) -> Self {
@@ -2734,26 +2820,16 @@ pub enum DomainKind {
     MInt(MIntWidth),
     /// The Booleans (`BOOL.Bool`): the texts `true` and `false`, each its own canonical text.
     Bool,
+    /// The strings (`STRING.String`): sequences of code points, stored as their UTF-8, so that
+    /// each string has one payload (`"\x41"`, `"\u0041"` and `"A"` are one value).
+    String,
+    /// The byte sequences (`BYTES.Bytes`): stored one byte per code point at `SortBytes` and as
+    /// the UTF-8 of code points at any other sort (`LiteralEncoding::of_domain_value`, read by
+    /// the sort's KORE name on every route). A code point above U+00FF names no byte.
+    Bytes,
     /// Every other sort with domain values (an unhooked token sort, `Id`, an unhooked
     /// `SortFloat`, ...): a text is its own value.
     Token,
-}
-
-impl DomainKind {
-    /// The kind of `sort` resolved by its name, for a caller without a definition: `SortInt` is
-    /// `Int`, `SortBool` is `Bool`, `SortMInt{A}` with a closed argument is `MInt` of its width,
-    /// and every other sort is `Token`.
-    pub(crate) fn of_builtin_name(sort: &Sort) -> Self {
-        if sort.is_builtin(BuiltinSort::Int) {
-            Self::Int
-        } else if sort.is_builtin(BuiltinSort::Bool) {
-            Self::Bool
-        } else if let Some(width) = mint_width(sort) {
-            Self::MInt(width)
-        } else {
-            Self::Token
-        }
-    }
 }
 
 /// The width of `sort` when it is a machine-integer sort `SortMInt{A}`: `Bits(n)` when `A` is
@@ -2857,7 +2933,7 @@ fn canonical_text(kind: DomainKind, sort: &Sort, value: KoreString) -> KoreStrin
     match kind {
         DomainKind::Int => canonical_int_text(value),
         DomainKind::MInt(width) => canonical_mint_text(width, sort, value),
-        DomainKind::Bool | DomainKind::Token => value,
+        DomainKind::Bool | DomainKind::String | DomainKind::Bytes | DomainKind::Token => value,
     }
 }
 
@@ -4245,7 +4321,7 @@ mod tests {
             let int = Sort::builtin(BuiltinSort::Int);
             let leaf =
                 (any::<bool>(), any::<bool>(), 0..2u8).prop_map(move |(inject, kitem, value)| {
-                    let value = Term::domain_value(int.clone(), value.to_string());
+                    let value = Term::raw_domain_value(int.clone(), value.to_string());
                     if inject {
                         let source = if kitem {
                             Sort::simple("SortKItem")
@@ -4329,8 +4405,8 @@ mod tests {
 
     #[test]
     fn collision_roots_exclude_concrete_shape_at_creation() {
-        let one = Term::domain_value(sort(), "1");
-        let two = Term::domain_value(sort(), "2");
+        let one = Term::raw_domain_value(sort(), "1");
+        let two = Term::raw_domain_value(sort(), "2");
         let set = Arc::new(SetDefinition {
             symbols: collection_symbols(),
             element_sort: Sort::simple("Element"),
@@ -4353,7 +4429,7 @@ mod tests {
                 vec![
                     (one.clone(), one),
                     (two.clone(), two.clone()),
-                    (two.clone(), Term::domain_value(sort(), "3")),
+                    (two.clone(), Term::raw_domain_value(sort(), "3")),
                 ],
                 None,
             ),
@@ -4374,7 +4450,7 @@ mod tests {
 
     #[test]
     fn collisions_propagate_through_every_immediate_child_position() {
-        let value = Term::domain_value(sort(), "1");
+        let value = Term::raw_domain_value(sort(), "1");
         let map = Arc::new(MapDefinition {
             symbols: collection_symbols(),
             key_sort: Sort::simple("Key"),
@@ -4420,13 +4496,13 @@ mod tests {
                 Term::map(map.clone(), vec![(value.clone(), collision.clone())], None),
                 Term::map(
                     map.clone(),
-                    vec![(Term::domain_value(sort(), "2"), value.clone())],
+                    vec![(Term::raw_domain_value(sort(), "2"), value.clone())],
                     Some(collision.clone()),
                 ),
                 Term::set(set.clone(), vec![collision.clone()], None),
                 Term::set(
                     set.clone(),
-                    vec![Term::domain_value(sort(), "2")],
+                    vec![Term::raw_domain_value(sort(), "2")],
                     Some(collision.clone()),
                 ),
             ];
@@ -4446,8 +4522,8 @@ mod tests {
 
     #[test]
     fn flattening_concat_substitution_and_child_replacement_create_collisions() {
-        let value = Term::domain_value(sort(), "1");
-        let other = Term::domain_value(sort(), "2");
+        let value = Term::raw_domain_value(sort(), "1");
+        let other = Term::raw_domain_value(sort(), "2");
         let map = Arc::new(MapDefinition {
             symbols: collection_symbols(),
             key_sort: Sort::simple("Key"),
@@ -4565,8 +4641,8 @@ mod tests {
         let apply = |symbol: &Arc<Symbol>, arguments: Vec<Term>| {
             Term::application(symbol.clone(), vec![], arguments)
         };
-        let int = |value: &str| Term::domain_value(Sort::simple("SortInt"), value);
-        let string = |value: &str| Term::domain_value(Sort::simple("SortString"), value);
+        let int = |value: &str| Term::raw_domain_value(Sort::simple("SortInt"), value);
+        let string = |value: &str| Term::raw_domain_value(Sort::simple("SortString"), value);
         let injected =
             |term: Term| Term::injection(Sort::simple("Key"), Sort::simple("KItem"), term);
         let cases = [
@@ -4648,7 +4724,7 @@ mod tests {
 
     #[test]
     fn valid_collection_shapes_and_anywhere_certificates_keep_their_contracts() {
-        let value = Term::domain_value(sort(), "1");
+        let value = Term::raw_domain_value(sort(), "1");
         let map = Arc::new(MapDefinition {
             symbols: collection_symbols(),
             key_sort: Sort::simple("Key"),
@@ -4670,7 +4746,7 @@ mod tests {
         for keys in [
             vec![],
             vec![value.clone()],
-            vec![value.clone(), Term::domain_value(sort(), "2")],
+            vec![value.clone(), Term::raw_domain_value(sort(), "2")],
             vec![key("a"), key("b")],
         ] {
             let map = Term::map(
@@ -4747,7 +4823,7 @@ mod tests {
         let concrete = Term::application(
             constructor(),
             Vec::new(),
-            vec![Term::domain_value(sort(), "value")],
+            vec![Term::raw_domain_value(sort(), "value")],
         );
         assert!(concrete.attributes().constructor_like);
         assert!(concrete.attributes().evaluated);
@@ -4770,7 +4846,7 @@ mod tests {
         let a = Sort::simple("A");
         let b = Sort::simple("B");
         let c = Sort::simple("C");
-        let value = Term::domain_value(a.clone(), "value");
+        let value = Term::raw_domain_value(a.clone(), "value");
         let nested = Term::injection(
             b.clone(),
             c.clone(),
@@ -4781,7 +4857,7 @@ mod tests {
 
     #[test]
     fn clones_share_immutable_storage() {
-        let term = Term::domain_value(sort(), "value");
+        let term = Term::raw_domain_value(sort(), "value");
         assert!(Arc::ptr_eq(&term.0, &term.clone().0));
     }
 
@@ -4789,7 +4865,7 @@ mod tests {
     fn int_domain_values_are_canonical_at_construction() {
         let int_sort = Sort::simple("SortInt");
         for (source, expected) in [("+3", "3"), ("007", "7"), ("-0", "0"), ("-12", "-12")] {
-            let term = Term::domain_value(int_sort.clone(), source);
+            let term = Term::domain_value_of(DomainKind::Int, int_sort.clone(), source);
             let TermKind::DomainValue { value, .. } = term.kind() else {
                 unreachable!()
             };
@@ -4797,14 +4873,15 @@ mod tests {
         }
 
         let canonical = KoreString::from("12");
-        let canonical_term = Term::domain_value(int_sort.clone(), canonical.clone());
+        let canonical_term =
+            Term::domain_value_of(DomainKind::Int, int_sort.clone(), canonical.clone());
         let TermKind::DomainValue { value, .. } = canonical_term.kind() else {
             unreachable!()
         };
         assert!(std::ptr::eq(value.as_bytes(), canonical.as_bytes()));
 
-        let signed = Term::domain_value(int_sort.clone(), "+3");
-        let unsigned = Term::domain_value(int_sort, "3");
+        let signed = Term::domain_value_of(DomainKind::Int, int_sort.clone(), "+3");
+        let unsigned = Term::domain_value_of(DomainKind::Int, int_sort, "3");
         assert_eq!(signed, unsigned);
         assert_eq!(
             calculate_hash(signed.kind()),
@@ -4819,6 +4896,10 @@ mod tests {
     fn mint_domain_values_are_canonical_at_construction() {
         let mint =
             |width: &str| Sort::application("SortMInt", vec![Sort::simple(format!("Sort{width}"))]);
+        let built = |sort: Sort, source: KoreString| {
+            let width = mint_width(&sort).expect("a machine-integer sort");
+            Term::domain_value_of(DomainKind::MInt(width), sort, source)
+        };
         let text = |term: &Term| match term.kind() {
             TermKind::DomainValue { value, .. } => value.clone(),
             _ => unreachable!(),
@@ -4837,12 +4918,12 @@ mod tests {
             ("0", "0p0", "0p0"),
             ("0", "-7p0", "0p0"),
         ] {
-            let term = Term::domain_value(mint(width), source);
+            let term = built(mint(width), source.into());
             assert_eq!(text(&term), expected, "{source} at width {width}");
         }
 
-        let spelled = Term::domain_value(mint("8"), "-1p8");
-        let canonical_term = Term::domain_value(mint("8"), "255p8");
+        let spelled = built(mint("8"), "-1p8".into());
+        let canonical_term = built(mint("8"), "255p8".into());
         assert_eq!(spelled, canonical_term);
         assert_eq!(
             calculate_hash(spelled.kind()),
@@ -4850,22 +4931,22 @@ mod tests {
         );
 
         let canonical = KoreString::from("200p8");
-        let kept = Term::domain_value(mint("8"), canonical.clone());
+        let kept = built(mint("8"), canonical.clone());
         assert!(std::ptr::eq(text(&kept).as_bytes(), canonical.as_bytes()));
 
         // A negative literal wider than `MAX_INT_RESULT_BITS` would need a decimal of about as
         // many bits; the constructor keeps the text (and its allocation), and load refuses it.
         let wide = KoreString::from("-1p33554432");
-        let kept = Term::domain_value(mint("33554432"), wide.clone());
+        let kept = built(mint("33554432"), wide.clone());
         assert!(std::ptr::eq(text(&kept).as_bytes(), wide.as_bytes()));
     }
 
     #[test]
     fn domain_value_equality_and_hash_preserve_raw_bytes() {
         let sort = Sort::builtin(BuiltinSort::String);
-        let raw = Term::domain_value(sort.clone(), vec![0xff, 0x80]);
-        let same = Term::domain_value(sort.clone(), vec![0xff, 0x80]);
-        let utf8 = Term::domain_value(sort, "ÿ\u{80}");
+        let raw = Term::raw_domain_value(sort.clone(), vec![0xff, 0x80]);
+        let same = Term::raw_domain_value(sort.clone(), vec![0xff, 0x80]);
+        let utf8 = Term::raw_domain_value(sort, "ÿ\u{80}");
 
         assert_eq!(raw, same);
         assert_eq!(calculate_hash(raw.kind()), calculate_hash(same.kind()));
@@ -4882,7 +4963,7 @@ mod tests {
         ));
         let mut hashes = std::collections::HashSet::new();
         for value in 0..10_000 {
-            let child = Term::domain_value(sort.clone(), value.to_string());
+            let child = Term::raw_domain_value(sort.clone(), value.to_string());
             let wrapped = Term::application(wrapper.clone(), Vec::new(), vec![child.clone()]);
             assert!(hashes.insert(child.attributes().hash));
             assert!(hashes.insert(wrapped.attributes().hash));
@@ -4891,8 +4972,8 @@ mod tests {
 
     #[test]
     fn canonicalizes_internal_collections() {
-        let one = Term::domain_value(sort(), "1");
-        let two = Term::domain_value(sort(), "2");
+        let one = Term::raw_domain_value(sort(), "1");
+        let two = Term::raw_domain_value(sort(), "2");
         let map_definition = Arc::new(MapDefinition {
             symbols: collection_symbols(),
             key_sort: Sort::simple("Key"),

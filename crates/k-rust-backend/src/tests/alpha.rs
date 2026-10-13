@@ -1744,7 +1744,7 @@ fn ordered_collections(first: &str, second: &str) -> OrderedCollections {
         element_sort: Sort::simple("SortS"),
         list_sort: "SortSet".into(),
     });
-    let value = |text: &str| Term::domain_value(sort.clone(), text);
+    let value = |text: &str| Term::raw_domain_value(sort.clone(), text);
     OrderedCollections {
         map: Pattern {
             term: Term::map(

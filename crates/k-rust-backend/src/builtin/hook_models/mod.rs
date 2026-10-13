@@ -287,7 +287,7 @@ fn result_collection(hook: &str) -> Option<CollectionMetadata> {
 }
 
 pub(super) fn item(value: u8) -> Term {
-    Term::domain_value(item_sort(), format!("i{value}"))
+    Term::raw_domain_value(item_sort(), format!("i{value}"))
 }
 
 pub(super) fn tag(name: &str, sort: &str) -> Term {
@@ -306,17 +306,23 @@ pub(super) fn variable(name: &str, sort: Sort) -> Term {
 /// syntax.
 pub(super) fn encode(value: &Val) -> Term {
     match value {
-        Val::Bool(value) => Term::domain_value(
+        Val::Bool(value) => Term::raw_domain_value(
             Sort::builtin(BuiltinSort::Bool),
             if *value { "true" } else { "false" },
         ),
-        Val::Int(value) => Term::domain_value(Sort::builtin(BuiltinSort::Int), value.to_string()),
-        Val::Str(value) => Term::domain_value(Sort::builtin(BuiltinSort::String), value.clone()),
-        Val::Bytes(value) => Term::domain_value(Sort::builtin(BuiltinSort::Bytes), value.clone()),
+        Val::Int(value) => {
+            Term::raw_domain_value(Sort::builtin(BuiltinSort::Int), value.to_string())
+        }
+        Val::Str(value) => {
+            Term::raw_domain_value(Sort::builtin(BuiltinSort::String), value.clone())
+        }
+        Val::Bytes(value) => {
+            Term::raw_domain_value(Sort::builtin(BuiltinSort::Bytes), value.clone())
+        }
         Val::Float(format, bits) => float::token_term(*format, *bits),
         Val::Item(value) => item(*value),
         Val::Tag(name) => tag(name, "SortTag"),
-        Val::Token(sort, text) => Term::domain_value(Sort::simple(sort.as_str()), text.clone()),
+        Val::Token(sort, text) => Term::raw_domain_value(Sort::simple(sort.as_str()), text.clone()),
         Val::List(values) => {
             Term::list(list_definition(), values.iter().map(encode).collect(), None)
         }
