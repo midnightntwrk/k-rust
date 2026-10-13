@@ -84,10 +84,11 @@ use std::{
 
 use k_rust_kore::kore::ast::KoreString;
 use k_rust_kore::measure::{self, Counter};
-use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
-use num_bigint::BigInt;
+use k_rust_kore::names::{BuiltinSort, MINT_SORT, WellKnownSymbol};
+use num_bigint::{BigInt, BigUint};
 use rustc_hash::FxHasher;
 
+use crate::builtin::MAX_INT_RESULT_BITS;
 use crate::smt::SmtType;
 
 // Every map, set and list term and every variable set is held in the tree (design K22). A few
@@ -1173,13 +1174,28 @@ impl Term {
         Self::application_raw(symbol, sort_arguments, arguments)
     }
 
+    /// The domain value of `sort` that `value` names, with the kind of `sort` resolved by its
+    /// name ([`DomainKind::of_builtin_name`]), for callers without a definition: an `Int` text
+    /// is stored in canonical decimal, and a `MInt{W}` literal `[+-]?[0-9]+[pP][0-9]+` as the
+    /// residue of its signed decimal modulo `2^W` in `[0, 2^W)`, `p`, and the digits of the
+    /// sort's width argument (`-1p8` and `511p8` are `255p8`; `0377p8` is `121p8`, the digits
+    /// being decimal). A text that is no literal of its sort, and a negative literal of a width
+    /// above `MAX_INT_RESULT_BITS`, are kept as written; loading a definition refuses them.
     pub fn domain_value(sort: Sort, value: impl Into<KoreString>) -> Self {
-        let value = value.into();
-        let value = if is_int_sort(&sort) {
-            canonical_int_text(value)
-        } else {
-            value
-        };
+        Self::domain_value_of(DomainKind::of_builtin_name(&sort), sort, value)
+    }
+
+    /// The domain value of `sort` that `value` names, stored in the canonical text of `kind`,
+    /// so that two domain values of one sort are the same term exactly when they denote the
+    /// same element. `kind` alone decides the canonicalization; the sort's name is not read
+    /// again, so a caller with a definition passes the kind of the sort's hook
+    /// ([`crate::definition::BackendDefinition::domain_kind`]).
+    pub(crate) fn domain_value_of(
+        kind: DomainKind,
+        sort: Sort,
+        value: impl Into<KoreString>,
+    ) -> Self {
+        let value = canonical_text(kind, &sort, value.into());
         Self::new(TermKind::DomainValue { sort, value })
     }
 
@@ -2688,10 +2704,219 @@ fn options_ptr_eq(left: Option<&Term>, right: Option<&Term>) -> bool {
     }
 }
 
-fn is_int_sort(sort: &Sort) -> bool {
-    sort.is_builtin(BuiltinSort::Int)
+/// The width of a machine-integer sort `SortMInt{A}`, the KORE head of K's one parametric builtin
+/// sort `MInt{W}`: the natural number its argument names. The frontend declares a width `W` as
+/// the sort `Sort<digits>{}` (`nat{}("<digits>")`), so the width is read from that name.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MIntWidth {
+    /// The argument `Sort<digits>{}` names this many bits (leading zeros allowed: `Sort08` is 8).
+    Bits(u64),
+    /// The argument names a numeral beyond `u64`.
+    Unrepresentable,
+    /// A closed argument that names no numeral (a declared `MInt{Foo}`): no text is a literal
+    /// of the sort.
+    NoWidth,
 }
 
+/// How the domain values of a sort denote its elements, which fixes their canonical text:
+/// equal elements of one sort have one text, so every comparison that reads domain values by
+/// text (matching, unification, `KEQUAL`, apartness, hashing) compares elements.
+///
+/// With a definition at hand the kind comes from the sort's hook
+/// ([`crate::definition::BackendDefinition::domain_kind`]), never from its name.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum DomainKind {
+    /// The integers (`INT.Int`) in decimal: the canonical text has no `+` and no leading zero.
+    Int,
+    /// The `2^W` bit patterns of a machine integer (`MINT.MInt`) of this width: a literal
+    /// denotes its signed decimal reduced modulo `2^W`, and the canonical text is that unsigned
+    /// residue, `p`, and the digits of the sort's width argument.
+    MInt(MIntWidth),
+    /// Every other sort with domain values (an unhooked token sort, `Id`, an unhooked
+    /// `SortFloat`, ...): a text is its own value.
+    Token,
+}
+
+impl DomainKind {
+    /// The kind of `sort` resolved by its name, for a caller without a definition: `SortInt` is
+    /// `Int`, `SortMInt{A}` with a closed argument is `MInt` of its width, and every other sort
+    /// is `Token`.
+    pub(crate) fn of_builtin_name(sort: &Sort) -> Self {
+        if sort.is_builtin(BuiltinSort::Int) {
+            Self::Int
+        } else if let Some(width) = mint_width(sort) {
+            Self::MInt(width)
+        } else {
+            Self::Token
+        }
+    }
+}
+
+/// The width of `sort` when it is a machine-integer sort `SortMInt{A}`: `Bits(n)` when `A` is
+/// `Sort<digits>{}` naming `n`, `Unrepresentable` when those digits exceed `u64`, and `NoWidth`
+/// for any other closed `A` (a declared `MInt{Foo}`). `None` when `A` holds a sort variable,
+/// whose width is not fixed yet, and for every other sort.
+pub(crate) fn mint_width(sort: &Sort) -> Option<MIntWidth> {
+    let Sort::Application { name, arguments } = sort else {
+        return None;
+    };
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    if name.as_ref() != MINT_SORT || argument.has_variable() {
+        return None;
+    }
+    Some(
+        numeral_sort_digits(argument).map_or(MIntWidth::NoWidth, |digits| {
+            digits
+                .parse::<u64>()
+                .map_or(MIntWidth::Unrepresentable, MIntWidth::Bits)
+        }),
+    )
+}
+
+/// The digits of the width argument of a machine-integer sort `SortMInt{Sort<digits>{}}`, as
+/// written in the sort's name.
+pub(crate) fn mint_width_digits(sort: &Sort) -> Option<&str> {
+    let Sort::Application { name, arguments } = sort else {
+        return None;
+    };
+    match arguments.as_slice() {
+        [argument] if name.as_ref() == MINT_SORT => numeral_sort_digits(argument),
+        _ => None,
+    }
+}
+
+/// The digits `d` of a nullary sort `Sort<d>{}`, the KORE declaration of a numeral.
+fn numeral_sort_digits(sort: &Sort) -> Option<&str> {
+    let Sort::Application { name, arguments } = sort else {
+        return None;
+    };
+    let digits = name.strip_prefix("Sort")?;
+    (arguments.is_empty() && !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+        .then_some(digits)
+}
+
+/// A machine-integer literal `[+-]?[0-9]+[pP][0-9]+` (`domains.md`, `MINT.literal`): a signed
+/// decimal integer and the decimal digits of a width.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MIntLiteral<'a> {
+    sign: Option<u8>,
+    magnitude: &'a str,
+    separator: u8,
+    width: &'a str,
+}
+
+impl<'a> MIntLiteral<'a> {
+    pub(crate) fn parse(text: &'a str) -> Option<Self> {
+        let (sign, rest) = match text.as_bytes().first() {
+            Some(&sign @ (b'+' | b'-')) => (Some(sign), &text[1..]),
+            _ => (None, text),
+        };
+        let (magnitude, tail) = rest.split_at(rest.find(['p', 'P'])?);
+        let width = &tail[1..];
+        let digits =
+            |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+        (digits(magnitude) && digits(width)).then_some(Self {
+            sign,
+            magnitude,
+            separator: tail.as_bytes()[0],
+            width,
+        })
+    }
+
+    /// True when the literal's suffix names the width `digits` name, leading zeros aside.
+    pub(crate) fn names_width(&self, digits: &str) -> bool {
+        self.width.trim_start_matches('0') == digits.trim_start_matches('0')
+    }
+
+    /// True for a negative literal other than a zero: its residue is `2^W` minus its
+    /// magnitude's, a number of about `W` bits whatever the length of the literal.
+    pub(crate) fn is_negative(&self) -> bool {
+        self.sign == Some(b'-') && self.magnitude.bytes().any(|byte| byte != b'0')
+    }
+}
+
+/// True when a negative literal of a machine-integer sort of `width` is refused by the bound on
+/// the integers the backend computes: its residue would be a decimal of about `width` bits.
+pub(crate) fn mint_width_beyond_bound(width: MIntWidth) -> bool {
+    match width {
+        MIntWidth::Bits(bits) => bits > MAX_INT_RESULT_BITS,
+        MIntWidth::Unrepresentable => true,
+        MIntWidth::NoWidth => false,
+    }
+}
+
+/// `value` in the canonical text of `kind` at `sort`, keeping its allocation when it is already
+/// canonical or names no element.
+fn canonical_text(kind: DomainKind, sort: &Sort, value: KoreString) -> KoreString {
+    match kind {
+        DomainKind::Int => canonical_int_text(value),
+        DomainKind::MInt(width) => canonical_mint_text(width, sort, value),
+        DomainKind::Token => value,
+    }
+}
+
+/// The residue of the literal `value` modulo `2^W` in `[0, 2^W)`, followed by `p` and the
+/// digits of `sort`'s width argument as written, so that the text stays a literal of its own
+/// sort. The text is kept as written when it is no literal of `sort` (load refuses it), and for
+/// a negative literal of a width beyond `MAX_INT_RESULT_BITS` (refused at load by that bound),
+/// whose residue would be a decimal of about `W` bits. A nonnegative literal is reduced within
+/// its own size.
+fn canonical_mint_text(width: MIntWidth, sort: &Sort, value: KoreString) -> KoreString {
+    let bits = match width {
+        MIntWidth::Bits(bits) => Some(bits),
+        MIntWidth::Unrepresentable => None,
+        MIntWidth::NoWidth => return value,
+    };
+    let Some(sort_digits) = mint_width_digits(sort) else {
+        return value;
+    };
+    let Ok(text) = value.as_utf8() else {
+        return value;
+    };
+    let Some(literal) = MIntLiteral::parse(text) else {
+        return value;
+    };
+    if !literal.names_width(sort_digits) {
+        return value;
+    }
+    let negative = literal.is_negative();
+    if negative && mint_width_beyond_bound(width) {
+        return value;
+    }
+    let magnitude: BigUint = literal
+        .magnitude
+        .parse()
+        .expect("a literal's magnitude is decimal digits");
+    let residue = match bits {
+        Some(bits) if negative => {
+            let modulus = BigUint::from(1_u8) << bits;
+            let reduced = magnitude % &modulus;
+            if reduced == BigUint::ZERO {
+                reduced
+            } else {
+                modulus - reduced
+            }
+        }
+        Some(bits) if magnitude.bits() > bits => magnitude % (BigUint::from(1_u8) << bits),
+        // Below `2^W`: the magnitude is its own residue.
+        _ => {
+            let canonical = literal.sign.is_none()
+                && literal.separator == b'p'
+                && literal.width == sort_digits
+                && (literal.magnitude.len() == 1 || !literal.magnitude.starts_with('0'));
+            if canonical {
+                return value;
+            }
+            magnitude
+        }
+    };
+    format!("{residue}p{sort_digits}").into()
+}
+
+/// `value` in canonical decimal (no `+`, no leading zero, `0` unsigned), keeping its allocation
+/// when it already is, and kept as written when it is no decimal integer.
 fn canonical_int_text(value: KoreString) -> KoreString {
     let Ok(text) = value.as_utf8() else {
         return value;
@@ -3998,7 +4223,9 @@ mod tests {
                     ..
                 },
             ) => {
-                if is_int_sort(left_source) != is_int_sort(right_source) {
+                if left_source.is_builtin(BuiltinSort::Int)
+                    != right_source.is_builtin(BuiltinSort::Int)
+                {
                     InjectionComparison::Distinct
                 } else {
                     InjectionComparison::Compare(left.clone(), right.clone())
@@ -4579,6 +4806,54 @@ mod tests {
             calculate_hash(signed.kind()),
             calculate_hash(unsigned.kind())
         );
+    }
+
+    /// A `MInt{W}` literal denotes its signed decimal reduced modulo `2^W`, so every spelling of
+    /// one element constructs the residue in `[0, 2^W)`, a lowercase `p` and the digits of the
+    /// sort's own width argument.
+    #[test]
+    fn mint_domain_values_are_canonical_at_construction() {
+        let mint =
+            |width: &str| Sort::application("SortMInt", vec![Sort::simple(format!("Sort{width}"))]);
+        let text = |term: &Term| match term.kind() {
+            TermKind::DomainValue { value, .. } => value.clone(),
+            _ => unreachable!(),
+        };
+        for (width, source, expected) in [
+            ("8", "256p8", "0p8"),
+            ("8", "-1p8", "255p8"),
+            ("8", "0377p8", "121p8"),
+            ("8", "+5P8", "5p8"),
+            ("8", "0p08", "0p8"),
+            ("8", "-256p8", "0p8"),
+            ("8", "511p8", "255p8"),
+            ("08", "0p8", "0p08"),
+            ("08", "0p08", "0p08"),
+            ("1", "-1p1", "1p1"),
+            ("0", "0p0", "0p0"),
+            ("0", "-7p0", "0p0"),
+        ] {
+            let term = Term::domain_value(mint(width), source);
+            assert_eq!(text(&term), expected, "{source} at width {width}");
+        }
+
+        let spelled = Term::domain_value(mint("8"), "-1p8");
+        let canonical_term = Term::domain_value(mint("8"), "255p8");
+        assert_eq!(spelled, canonical_term);
+        assert_eq!(
+            calculate_hash(spelled.kind()),
+            calculate_hash(canonical_term.kind())
+        );
+
+        let canonical = KoreString::from("200p8");
+        let kept = Term::domain_value(mint("8"), canonical.clone());
+        assert!(std::ptr::eq(text(&kept).as_bytes(), canonical.as_bytes()));
+
+        // A negative literal wider than `MAX_INT_RESULT_BITS` would need a decimal of about as
+        // many bits; the constructor keeps the text (and its allocation), and load refuses it.
+        let wide = KoreString::from("-1p33554432");
+        let kept = Term::domain_value(mint("33554432"), wide.clone());
+        assert!(std::ptr::eq(text(&kept).as_bytes(), wide.as_bytes()));
     }
 
     #[test]
