@@ -35,6 +35,7 @@ A card with measurement counters uses `counters = ["CounterVariant", ...]`, with
 A card without a dedicated counter must use `counters = []` and state the reason in `no_counter`.
 
 A counter measures the work of the algorithms whose cards list it, its claimants, so an item that bumps it (writes `Counter::X` outside `measure.rs` and `#[cfg(test)]` code, a macro's tokens included) does a claimant's work.
+`#[cfg(test)]` code includes every file only test code loads, as a file a `#[cfg(test)] mod tests;` declaration loads and the files it declares in turn; the graph reads no card, item, or counter bump from such a file.
 When no claimant's card names that item (its function, `Type::method`, or `impl Type`), the graph adds it to the sites of every claimant as a counted site, derived from the code rather than written on a card.
 A claimant naming it is enough: a caller may claim a callee algorithm's counter, measured inside its spans, and the callee's card already places the work.
 Counted sites follow the named ones in `graph.toml`, and coverage, profiles, the atlas staleness check, and `algo-graph drift` treat them as sites; a bump outside every item a site symbol names (a trait's default method, a constant's initializer) fails the freshness test, because no claimant could watch it.

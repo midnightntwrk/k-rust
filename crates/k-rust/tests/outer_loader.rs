@@ -1790,9 +1790,10 @@ fn rule_body_raw_text<'a>(
 }
 
 #[test]
-fn a_prepared_markdown_source_reloaded_under_another_selector_is_a_distinct_extraction() {
+fn a_prepared_markdown_source_reloaded_under_another_selector_resolves_to_its_raw_bytes() {
     // The `spec` block follows the `k` block, so the two selectors extract different texts from
-    // the same raw bytes; each set of spans must resolve through its own extraction's map.
+    // the same raw bytes. Each extraction keeps every character at its raw offset, so both share
+    // one offset map, and every span of either resolves to its raw bytes through it.
     let text = indoc! {r#"
         ```k
         module TEST
@@ -1844,17 +1845,17 @@ fn a_prepared_markdown_source_reloaded_under_another_selector_is_a_distinct_extr
         rule_body_raw_text(loaded.definition(), loaded.source_table(), "SPEC", text);
     assert_eq!(base_text, "b => a");
     assert_eq!(spec_text, "a => b");
-    assert_ne!(base_source, spec_source);
+    assert_eq!(base_source, spec_source);
     assert_eq!(
-        loaded.source_table().get(base_source),
-        loaded.source_table().get(spec_source)
+        loaded.source_table().offset_map(base_source),
+        Some(&k_rust::provenance::SourceOffsetMap::identity(text.len()))
     );
     assert_eq!(
         loaded.source_table().offset_map(base_source),
         base.source_table().offset_map(base_source)
     );
 
-    // The serialized form distinguishes the two extractions of one logical source.
+    // The serialized form keeps the spans of both selections resolving to their raw bytes.
     let encoded =
         k_rust::definition::json::to_provenance_string(loaded.definition(), loaded.source_table())
             .unwrap();

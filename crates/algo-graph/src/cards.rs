@@ -517,21 +517,40 @@ pub(crate) fn read_cards(
 }
 
 /// The cards and source index of the workspace source files `sources`, each a path relative to
-/// the workspace root (`crates/<crate>/src/...`) with its text.
+/// the workspace root (`crates/<crate>/src/...`) with its text. A file that only `#[cfg(test)]`
+/// code loads (see [`cfg_test_module_files`]) is test code, like an inline `#[cfg(test)]` module,
+/// and contributes nothing.
 pub(crate) fn index_sources(
     sources: Vec<(String, String)>,
     report: &mut Vec<String>,
 ) -> (Vec<Card>, SourceIndex) {
+    // Each syntax tree is dropped once its declarations and items are read, so the pass holds one
+    // tree at a time; the items of a file found to be test code are then discarded.
+    let mut declarations = Vec::new();
+    let visited = sources
+        .into_iter()
+        .map(|(relative, source)| {
+            let visitor = syn::parse_file(&source).map(|file| {
+                declarations.push((relative.clone(), module_declarations(&file)));
+                let mut visitor = ItemVisitor::default();
+                visitor.visit_file(&file);
+                visitor
+            });
+            (relative, source, visitor)
+        })
+        .collect::<Vec<_>>();
+    let test_files = cfg_test_files_of_declarations(declarations);
     let mut cards = Vec::new();
     let mut index = SourceIndex::default();
-    for (relative, source) in sources {
+    for (relative, source, visitor) in visited {
         let Some(crate_name) = crate_name(&relative) else {
             continue;
         };
-        match syn::parse_file(&source) {
-            Ok(file) => {
-                let mut visitor = ItemVisitor::default();
-                visitor.visit_file(&file);
+        if test_files.contains(&relative) {
+            continue;
+        }
+        match visitor {
+            Ok(visitor) => {
                 for (kind, source) in extract_fences(&visitor.docs) {
                     match toml::from_str::<CardBody>(&source) {
                         Ok(body) => cards.push(Card {
@@ -555,6 +574,224 @@ pub(crate) fn index_sources(
         }
     }
     (cards, index)
+}
+
+/// The workspace source files among `files` (each a path relative to the workspace root, as
+/// `crates/<crate>/src/...`, with its syntax) that are compiled only under `cfg(test)`: an
+/// out-of-line module declaration (`mod name;`) loads each, and no chain of declarations that are
+/// not test code leads to it from a file no declaration loads (a crate root, or a file outside
+/// the module tree, which is taken as compiled). A declaration is test code when it or an
+/// enclosing inline module is `#[cfg(test)]`.
+///
+/// A declaration loads the file its `#[path = "..."]` names, else `name.rs` or `name/mod.rs` in
+/// the declaring module's directory, whichever is among `files`. That directory is the declaring
+/// file's own for a crate root or `mod.rs` file, and its directory joined with its stem for any
+/// other file (`a/b.rs` declares into `a/b/`); each enclosing inline module adds its name (or its
+/// own `#[path]`) as a further directory. A file a `#[path]` declaration loads is a module whose
+/// file the declaration chose rather than its name, so it declares into its own directory as a
+/// `mod.rs` file does. A `#[path]` outside every inline module is relative to the declaring
+/// file's directory, one inside an inline module to the declaring module's directory.
+///
+/// Each syntax tree is dropped once its declarations are read, so a caller that streams `files`
+/// holds one tree at a time.
+pub fn cfg_test_module_files<S: Into<String>>(
+    files: impl IntoIterator<Item = (S, syn::File)>,
+) -> BTreeSet<String> {
+    cfg_test_files_of_declarations(
+        files
+            .into_iter()
+            .map(|(relative, file)| (relative.into(), module_declarations(&file)))
+            .collect(),
+    )
+}
+
+/// [`cfg_test_module_files`] from each file's out-of-line module declarations.
+fn cfg_test_files_of_declarations(
+    files: Vec<(String, Vec<ModuleDeclaration>)>,
+) -> BTreeSet<String> {
+    let known = files
+        .iter()
+        .map(|(relative, _)| relative.as_str())
+        .collect::<BTreeSet<_>>();
+    // Whether a file declares into its own directory depends on whether a `#[path]` declaration
+    // loads it, which depends on how the files declaring it resolve their declarations: resolve
+    // all of them again until the set of files `#[path]` declarations load stops growing. It only
+    // grows and is bounded by `files`, so this ends.
+    let mut path_loaded = BTreeSet::new();
+    let loads = loop {
+        let (loads, loaded_by_path) = module_loads(&files, &known, &path_loaded);
+        if loaded_by_path.is_subset(&path_loaded) {
+            break loads;
+        }
+        path_loaded.extend(loaded_by_path);
+    };
+    // A file is compiled outside tests when a file no declaration loads reaches it through
+    // declarations that are not test code.
+    let loaded = loads
+        .iter()
+        .map(|(_, loaded, _)| loaded.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut compiled = BTreeSet::new();
+    for root in known.iter().filter(|file| !loaded.contains(*file)) {
+        mark_compiled(root, &loads, &mut compiled);
+    }
+    loaded
+        .into_iter()
+        .filter(|file| !compiled.contains(*file))
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+/// The loads of the out-of-line module declarations of `files`, as (declaring file, loaded file,
+/// whether the declaration is test code), with the set of files a `#[path]` declaration loads,
+/// when the files of `path_loaded` declare into their own directory.
+fn module_loads(
+    files: &[(String, Vec<ModuleDeclaration>)],
+    known: &BTreeSet<&str>,
+    path_loaded: &BTreeSet<String>,
+) -> (Vec<(String, String, bool)>, BTreeSet<String>) {
+    let mut loads = Vec::new();
+    let mut loaded_by_path = BTreeSet::new();
+    for (relative, declarations) in files {
+        let (directory, stem) = match relative.rsplit_once('/') {
+            Some((directory, name)) => (directory, name.strip_suffix(".rs").unwrap_or(name)),
+            None => ("", relative.strip_suffix(".rs").unwrap_or(relative)),
+        };
+        let module_directory = if is_directory_owner(relative) || path_loaded.contains(relative) {
+            directory.to_owned()
+        } else {
+            format!("{directory}/{stem}")
+        };
+        for declaration in declarations {
+            let candidates = match &declaration.path {
+                Some(path) if declaration.inline.is_empty() => vec![format!("{directory}/{path}")],
+                Some(path) => vec![format!(
+                    "{module_directory}/{}/{path}",
+                    declaration.inline.join("/")
+                )],
+                None => {
+                    let base = std::iter::once(module_directory.as_str())
+                        .chain(declaration.inline.iter().map(String::as_str))
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    vec![
+                        format!("{base}/{}.rs", declaration.name),
+                        format!("{base}/{}/mod.rs", declaration.name),
+                    ]
+                }
+            };
+            if let Some(loaded) = candidates
+                .iter()
+                .filter_map(|candidate| normalize_relative(candidate))
+                .find(|candidate| known.contains(candidate.as_str()))
+            {
+                if declaration.path.is_some() {
+                    loaded_by_path.insert(loaded.clone());
+                }
+                loads.push((relative.to_string(), loaded, declaration.cfg_test));
+            }
+        }
+    }
+    (loads, loaded_by_path)
+}
+
+/// Adds `file` and every file its declarations that are not test code load, transitively.
+fn mark_compiled(file: &str, loads: &[(String, String, bool)], compiled: &mut BTreeSet<String>) {
+    if !compiled.insert(file.to_owned()) {
+        return;
+    }
+    for (_, loaded, _) in loads
+        .iter()
+        .filter(|(declaring, _, cfg_test)| declaring == file && !cfg_test)
+    {
+        mark_compiled(loaded, loads, compiled);
+    }
+}
+
+/// The out-of-line module declarations of `file`.
+fn module_declarations(file: &syn::File) -> Vec<ModuleDeclaration> {
+    let mut declarations = Vec::new();
+    collect_module_declarations(&file.items, &mut Vec::new(), false, &mut declarations);
+    declarations
+}
+
+/// An out-of-line module declaration `mod name;` in a file.
+struct ModuleDeclaration {
+    name: String,
+    /// Its `#[path = "..."]` value.
+    path: Option<String>,
+    /// The directories the enclosing inline modules add, outermost first.
+    inline: Vec<String>,
+    /// Whether it or an enclosing inline module is `#[cfg(test)]`.
+    cfg_test: bool,
+}
+
+fn collect_module_declarations(
+    items: &[syn::Item],
+    inline: &mut Vec<String>,
+    cfg_test: bool,
+    declarations: &mut Vec<ModuleDeclaration>,
+) {
+    for item in items {
+        let syn::Item::Mod(module) = item else {
+            continue;
+        };
+        let cfg_test = cfg_test || module.attrs.iter().any(is_cfg_test);
+        let path = module.attrs.iter().find_map(path_attribute);
+        match &module.content {
+            None => declarations.push(ModuleDeclaration {
+                name: module.ident.to_string(),
+                path,
+                inline: inline.clone(),
+                cfg_test,
+            }),
+            Some((_, items)) => {
+                inline.push(path.unwrap_or_else(|| module.ident.to_string()));
+                collect_module_declarations(items, inline, cfg_test, declarations);
+                inline.pop();
+            }
+        }
+    }
+}
+
+fn path_attribute(attribute: &syn::Attribute) -> Option<String> {
+    if let syn::Meta::NameValue(name_value) = &attribute.meta
+        && name_value.path.is_ident("path")
+        && let syn::Expr::Lit(expression) = &name_value.value
+        && let syn::Lit::Str(value) = &expression.lit
+    {
+        Some(value.value())
+    } else {
+        None
+    }
+}
+
+/// Whether the module of a workspace source file declares its out-of-line modules into the file's
+/// own directory: a `mod.rs` file, or a crate root (`src/lib.rs`, `src/main.rs`, `src/bin/*.rs`).
+fn is_directory_owner(relative: &str) -> bool {
+    let Some((_, inside)) = relative.split_once("/src/") else {
+        return false;
+    };
+    relative.ends_with("/mod.rs")
+        || matches!(inside, "lib.rs" | "main.rs")
+        || inside
+            .strip_prefix("bin/")
+            .is_some_and(|binary| !binary.contains('/') || binary.ends_with("/main.rs"))
+}
+
+/// `path` with its `.` and `..` segments resolved, or `None` when `..` leaves the workspace root.
+fn normalize_relative(path: &str) -> Option<String> {
+    let mut segments = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop()?;
+            }
+            segment => segments.push(segment),
+        }
+    }
+    Some(segments.join("/"))
 }
 
 fn collect_rust_files(directory: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -1628,6 +1865,132 @@ impl Engine { fn step() { let Ok(Stepped::Done) = produce(1) else { return }; } 
         assert_eq!(
             claims.place(COUNTER_DECLARATION_FILE, &bump(&["Counter::name"], "Steps")),
             CountedSite::Unclaimed
+        );
+    }
+
+    #[test]
+    fn a_file_only_cfg_test_declarations_load_is_test_code() {
+        let bump = |function: &str, counter: &str| {
+            format!("fn {function}() {{ measure::bump(Counter::{counter}); }}")
+        };
+        let card = "//! ```toml algorithm\n//! id = \"test.only\"\n//! sites = [\"t\"]\n//! ```\n";
+        let files = [
+            (
+                "crates/k-rust/src/lib.rs",
+                "#[cfg(test)] mod tests; mod engine; #[cfg(test)] mod helpers; \
+                 #[path = \"shared.rs\"] mod shared;"
+                    .to_owned(),
+            ),
+            // `name/mod.rs`, and a file it declares in its turn.
+            (
+                "crates/k-rust/src/tests/mod.rs",
+                format!("{card}mod nested; {}", bump("t", "A")),
+            ),
+            ("crates/k-rust/src/tests/nested.rs", bump("t", "B")),
+            // `name.rs` beside a crate root.
+            ("crates/k-rust/src/helpers.rs", bump("t", "C")),
+            // A file that is not `mod.rs` or a crate root declares into the directory its stem
+            // names, so its `tests` is `engine/tests.rs`, not the crate root's `tests/mod.rs`;
+            // a `#[path]` outside inline modules is relative to the file's directory, one inside
+            // an inline module to that module's directory.
+            (
+                "crates/k-rust/src/engine.rs",
+                format!(
+                    "{} #[cfg(test)] mod tests; \
+                     #[cfg(test)] #[path = \"engine_oracle.rs\"] mod oracle; \
+                     mod inner {{ #[cfg(test)] mod deep; #[cfg(test)] #[path = \"probe.rs\"] mod p; }} \
+                     #[cfg(test)] mod checks {{ mod fixtures; }} \
+                     #[cfg(test)] #[path = \"shared.rs\"] mod shared_again;",
+                    bump("run", "D")
+                ),
+            ),
+            ("crates/k-rust/src/engine/tests.rs", bump("t", "E")),
+            ("crates/k-rust/src/engine_oracle.rs", bump("t", "F")),
+            ("crates/k-rust/src/engine/inner/deep.rs", bump("t", "G")),
+            ("crates/k-rust/src/engine/inner/probe.rs", bump("t", "H")),
+            (
+                "crates/k-rust/src/engine/checks/fixtures.rs",
+                bump("t", "I"),
+            ),
+            // Loaded by a production declaration too, so compiled outside tests.
+            ("crates/k-rust/src/shared.rs", bump("share", "J")),
+            // Loaded by no declaration.
+            ("crates/k-rust/src/orphan.rs", bump("stray", "K")),
+        ];
+        let syntax = files
+            .iter()
+            .map(|(relative, source)| (*relative, syn::parse_file(source).unwrap()))
+            .collect::<Vec<_>>();
+        let test_files = cfg_test_module_files(syntax);
+        assert_eq!(
+            test_files.iter().map(String::as_str).collect::<Vec<_>>(),
+            [
+                "crates/k-rust/src/engine/checks/fixtures.rs",
+                "crates/k-rust/src/engine/inner/deep.rs",
+                "crates/k-rust/src/engine/inner/probe.rs",
+                "crates/k-rust/src/engine/tests.rs",
+                "crates/k-rust/src/engine_oracle.rs",
+                "crates/k-rust/src/helpers.rs",
+                "crates/k-rust/src/tests/mod.rs",
+                "crates/k-rust/src/tests/nested.rs",
+            ]
+        );
+
+        let mut report = Vec::new();
+        let (cards, index) = index_sources(
+            files
+                .iter()
+                .map(|(relative, source)| ((*relative).to_owned(), source.clone()))
+                .collect(),
+            &mut report,
+        );
+        assert!(report.is_empty(), "{report:?}");
+        assert!(
+            cards.is_empty(),
+            "a test file's card is not read: {cards:?}"
+        );
+        let bumped = index
+            .files
+            .values()
+            .flat_map(|facts| facts.counter_bumps.iter())
+            .map(|bump| bump.counter.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(bumped, ["D", "K", "J"]);
+        assert!(
+            !index
+                .files
+                .contains_key("crates/k-rust/src/engine/tests.rs")
+        );
+    }
+
+    #[test]
+    fn a_file_a_path_declaration_loads_declares_into_its_own_directory() {
+        let files = [
+            (
+                "crates/k-rust/src/lib.rs",
+                "#[cfg(test)] #[path = \"sub/x.rs\"] mod x; #[path = \"prod/p.rs\"] mod p;",
+            ),
+            // Loaded through `#[path]`, so its `y` is `sub/y.rs`, not `sub/x/y.rs`.
+            ("crates/k-rust/src/sub/x.rs", "mod y;"),
+            ("crates/k-rust/src/sub/y.rs", ""),
+            // Loaded by no declaration.
+            ("crates/k-rust/src/sub/x/y.rs", ""),
+            ("crates/k-rust/src/prod/p.rs", "#[cfg(test)] mod q; mod r;"),
+            ("crates/k-rust/src/prod/q.rs", ""),
+            ("crates/k-rust/src/prod/r.rs", ""),
+        ];
+        let syntax = files
+            .iter()
+            .map(|(relative, source)| (*relative, syn::parse_file(source).unwrap()))
+            .collect::<Vec<_>>();
+        let test_files = cfg_test_module_files(syntax);
+        assert_eq!(
+            test_files.iter().map(String::as_str).collect::<Vec<_>>(),
+            [
+                "crates/k-rust/src/prod/q.rs",
+                "crates/k-rust/src/sub/x.rs",
+                "crates/k-rust/src/sub/y.rs",
+            ]
         );
     }
 }

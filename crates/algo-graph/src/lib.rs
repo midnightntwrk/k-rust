@@ -38,6 +38,7 @@ pub use atlas::{
     SampledLadderRow, SampledShare, ShareRow, StaleAlgorithm, Staleness, UncardedRow, WorkloadCost,
     amdahl_ceiling, atlas, check_staleness, fit_power_law, read_atlas_index, receipt_graph,
 };
+pub use cards::cfg_test_module_files;
 use cards::{Card, CardKind, CountedSite, CounterClaims, Representation, SourceIndex};
 pub use coverage::{
     COVERAGE_SCHEMA_VERSION, Coverage, CoveredFile, CoveredFunction, canonical_coverage_toml,

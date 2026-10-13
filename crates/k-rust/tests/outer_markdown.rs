@@ -240,6 +240,64 @@ fn markdown_lines_end_at_every_line_terminator() {
     assert_eq!(rule_failure_location(&mixed), rule);
 }
 
+/// Prose is replaced, not dropped: a `\r` that ends a prose line, a line before a fence or the last
+/// line of a block is not joined with an `\n` after the characters between them into one `\r\n`,
+/// so every location after it is on its line of the file.
+#[test]
+fn markdown_prose_keeps_every_line_end_of_the_file() {
+    let syntax = concat!(
+        "  syntax Start ::= \"ok\" \"done\" [symbol(start)]\n",
+        "  syntax Other ::= \"bad\" [symbol(bad)]\n",
+    );
+    let cases = [
+        // A lone `\r` inside a prose line that `\n` ends.
+        (
+            format!("Prose\rbefore.\n```k\nmodule MAIN\n{syntax}  rule ok bad\nendmodule\n```\n"),
+            7,
+        ),
+        // A prose line ending in `\r` before an opening fence line ending in `\n`.
+        (
+            format!("Prose.\r```k\nmodule MAIN\n{syntax}  rule ok bad\nendmodule\n```\n"),
+            6,
+        ),
+        // A block whose last line ends in `\r` before a closing fence line ending in `\n`.
+        (
+            format!(
+                "```k\nmodule MAIN\n{}\r```\n\n```k\n  rule ok bad\nendmodule\n```\n",
+                syntax.trim_end()
+            ),
+            8,
+        ),
+    ];
+    for (source, line) in cases {
+        let extracted = extract_fenced_k_code_with_map(&source, "k").unwrap();
+        // Every character keeps its byte offset, and every `\r` and `\n` of the file is in the text.
+        assert_eq!(extracted.text.len(), source.len(), "{source:?}");
+        let line_ends = |text: &str| {
+            text.char_indices()
+                .filter(|(_, character)| matches!(character, '\r' | '\n'))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(line_ends(&extracted.text), line_ends(&source), "{source:?}");
+        let rule = extracted.text.find("ok bad").unwrap() + 3;
+        assert_eq!(
+            extracted.offset_map.raw_range(rule..rule + 3),
+            Some(rule..rule + 3)
+        );
+        assert_eq!(&source[rule..rule + 3], "bad");
+        assert_eq!(
+            rule_failure_location(&source),
+            Some(Location {
+                start_line: line,
+                start_column: 11,
+                end_line: line,
+                end_column: 14,
+            }),
+            "{source:?}"
+        );
+    }
+}
+
 #[test]
 fn selector_supports_boolean_operators_grouping_and_both_tag_spellings() {
     let source = indoc! {r#"

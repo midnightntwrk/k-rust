@@ -25,7 +25,7 @@ use std::{
     path::Path,
 };
 
-use algo_graph::{build_graph, workspace_root};
+use algo_graph::{build_graph, cfg_test_module_files, workspace_root};
 use syn::visit::Visit;
 
 /// The file that defines `Counter` and its registry; its references are declarations, not work.
@@ -201,13 +201,27 @@ fn every_item_that_bumps_a_counter_is_a_named_site_of_an_algorithm_the_counter_m
         }
     }
 
-    let mut violations = Vec::new();
-    for file in files.iter().filter(|file| *file != COUNTER_DEFINITION) {
+    // A file only `#[cfg(test)]` declarations load is test code, as an inline test module is.
+    // Each file's counter uses are read as the files stream past, so one syntax tree is held at a
+    // time, and the uses of the test files are discarded after.
+    let mut uses_of = Vec::new();
+    let test_files = cfg_test_module_files(files.iter().map(|file| {
         let text = fs::read_to_string(root.join(file)).unwrap();
         let syntax =
             syn::parse_file(&text).unwrap_or_else(|error| panic!("{file} does not parse: {error}"));
-        let mut uses = CounterUses::default();
-        uses.visit_file(&syntax);
+        if file != COUNTER_DEFINITION {
+            let mut uses = CounterUses::default();
+            uses.visit_file(&syntax);
+            uses_of.push((file.as_str(), uses));
+        }
+        (file.as_str(), syntax)
+    }));
+
+    let mut violations = Vec::new();
+    for (file, uses) in uses_of
+        .iter()
+        .filter(|(file, _)| !test_files.contains(*file))
+    {
         for (counter, enclosing) in &uses.uses {
             let Some(algorithms) = measured_by.get(counter.as_str()) else {
                 continue;
@@ -215,7 +229,7 @@ fn every_item_that_bumps_a_counter_is_a_named_site_of_an_algorithm_the_counter_m
             let named_here = |algorithm: &str, at_item: bool| {
                 sites.get(algorithm).is_some_and(|named| {
                     named.iter().any(|(site_file, symbol)| {
-                        *site_file == file.as_str()
+                        *site_file == *file
                             && (!at_item || enclosing.iter().any(|candidate| candidate == symbol))
                     })
                 })
