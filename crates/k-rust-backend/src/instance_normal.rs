@@ -1059,8 +1059,11 @@ mod tests {
     /// An equation-head application written in a scanned left-hand side is read by its root
     /// where the check admits its head: a step of the normal-form model matches `seq(X, a)` only
     /// against a sequence, so `wk(b)` and `wk(seq(b, c))` are normal forms, and the lemma's
-    /// `h(seq(X, Y))` does not reach `h(b)`. Where `seq` is withdrawn its applications are read
-    /// up to equations, and none of these is instance-normal.
+    /// `h(seq(X, Y))` does not reach `h(b)`. Where `seq` is withdrawn, `seq(b, c)` gets no token,
+    /// and neither does `wk(b)`: `wk`'s pair with `seq`'s unit equation at `wk(seq(a, a))` (`z`
+    /// against `wk(a)`) does not join, so the gate at `wk` itself refuses it. The pattern-side
+    /// gate at a head that keeps its claims is pinned by
+    /// `a_lemma_that_nests_a_withdrawn_head_reads_it_up_to_equations`.
     #[test]
     fn a_pattern_side_equation_head_is_read_by_its_root_where_it_is_admitted() {
         let admitted = nested_heads(false);
@@ -1075,6 +1078,10 @@ mod tests {
         let tainted = withdrawn.value_claims().tainted_symbols();
         assert!(
             tainted.iter().any(|symbol| symbol.as_ref() == "seq"),
+            "{tainted:?}"
+        );
+        assert!(
+            tainted.iter().any(|symbol| symbol.as_ref() == "wk"),
             "{tainted:?}"
         );
         assert!(!normal(&withdrawn, "seq{}(b{}(), c{}())"));

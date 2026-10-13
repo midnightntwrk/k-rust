@@ -39,11 +39,14 @@
 //!   value of the variable, so it holds at each value the harness has.
 //! - **Tokens on instances over values.** An instance rooted at an equation head, with each
 //!   argument replaced by its value, is the term innermost evaluation tries the equations on. A
-//!   token on it says that no equation reaches it, so it evaluates to itself. This judges the
-//!   scan's reading of a left-hand side at the arguments the evaluator meets, including an
-//!   equation-head or overloaded application written in an equation's argument pattern, whose
-//!   instance's argument the evaluator meets as the value it reduces to (`go(2)` as
-//!   `inj(lo(2))`).
+//!   token on it says that no equation reaches it, so it evaluates to itself. A failure is a
+//!   token on a term the backend's own evaluation rewrites or makes `\bottom`, so it never
+//!   raises a false alarm, but it sees only the scan defects the evaluator decides on its own:
+//!   a pattern the evaluator matches modulo the overload or injection axioms, such as an
+//!   overload-greater application in an argument pattern, whose instance's argument the
+//!   evaluator meets as the value it reduces to (`go(2)` as `inj(lo(2))`). Where the evaluator
+//!   leaves the term undecided (an equation-head pattern it reads up to equations) it sees
+//!   nothing, so it does not guard the scan's gate in general.
 //!
 //! An instance whose `requires`, `ensures`, priority or sides the backend leaves undecided is
 //! skipped and counted. The contract states and does not check that evaluation ends (P0), that
@@ -1398,7 +1401,7 @@ fn generalizations(
 /// Tokens on instances over values: each judged instance rooted at an equation head, with each
 /// argument replaced by its value, evaluates to itself where it gets an instance-normal token.
 /// The judged instance's own equation usually reaches that term, so a token on it is rare; where
-/// the scan mints one, the term must be a normal form.
+/// the scan mints one, the term must be a normal form. An undecided evaluation judges nothing.
 fn valued_instance_tokens(
     label: &str,
     backend: &BackendDefinition,

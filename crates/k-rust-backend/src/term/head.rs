@@ -398,7 +398,12 @@ impl NormalForms for RecordedPatterns<'_> {
 /// equations and every symbol they mention. So where `g` is admitted, every equation that
 /// mentions it joined at its `g` positions and the root reading decides the `M_NF` question.
 /// The gate is asked at `g` itself, not only through the scanned head: the scan also reads
-/// `symbolic` equations and simplification lemmas, which the check's closure does not cover.
+/// `symbolic` equations and simplification lemmas, which the check's closure does not cover, so
+/// a lemma or `symbolic` equation rooted at another head `h` that nests a withdrawn `g` keeps
+/// `g` open even though `h` keeps its claims. A lemma or `symbolic` equation rooted at `g`
+/// itself is paired by no check, so it does not withdraw `g`; that the values it adds to `g(…)`
+/// beyond its root are values `M_NF` gives `g(…)` rests only on the contract's assumption that
+/// such an equation is a theorem of the executable ones.
 /// An overloaded production is never fixed here: the overload axioms equate `g(inj(x))` with
 /// `inj(l(x))`, which a match modulo those axioms reaches through another root. While the check
 /// runs the gate admits nothing, so the check's own verdicts do not depend on this reading.
