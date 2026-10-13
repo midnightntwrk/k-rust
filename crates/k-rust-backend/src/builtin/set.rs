@@ -14,6 +14,7 @@
 //!   bulk-loaded result) per element of the smaller operand, `O(m log n)`; `inclusion`: one search
 //!   in the right set per element of the left, `O(m log n)` for `m` left elements.
 //! - `set2list`, `list2set`: `O(n)` and `O(n log n)`, the size of the result.
+//! - `choice`: the first stored element, one descent of the tree, `O(log n)`.
 
 use std::sync::Arc;
 
@@ -55,7 +56,7 @@ pub(super) fn evaluate(
         "SET.union" => union(arguments, result),
         "SET.list2set" => list_to_set(arguments, result),
         "SET.inclusion" => inclusion(arguments),
-        "SET.choice" => return Ok(choice(arguments)),
+        "SET.choice" => return choice(arguments),
         _ => {
             return Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::NotImplemented,
@@ -71,19 +72,24 @@ pub(super) fn evaluate(
 /// The empty set has no element, so the application is undefined. A set of one element `E` has
 /// that element, and every function the declaration admits gives it, whether or not `E` is
 /// constructor-like. A set with an opaque rest beside at most one element may be a set of one
-/// element under an instance, so the application waits for one. A set of two or more elements,
-/// with a rest or without, has two or more elements wherever it is defined (set concatenation is
-/// nilpotent), and which of them the hook gives is not a consequence of the definition: that
-/// stays the unsupported outcome, as does an application of another arity, which no declaration
-/// the load accepts has (`hook_signature`).
-fn choice(arguments: &[Term]) -> BuiltinResult {
-    let [set] = arguments else {
-        return BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented);
+/// element under an instance, so the application waits for one.
+///
+/// A set of two or more elements has two or more elements wherever it is defined (set
+/// concatenation is nilpotent), and which of them the hook gives is not a consequence of the
+/// definition. k-rust's choice is the element `Set2List` lists first, the first of the set's
+/// stored elements (`concrete_set`), so the two hooks agree. With every element
+/// constructor-like and no rest, the stored order is the order of the elements' values (domain
+/// values are canonical), so the choice is a function of the set, as the `function` declaration
+/// requires. Only an execution takes it: elsewhere the application is a defined value left
+/// unevaluated (`super::implementation_chosen`). An element that is not constructor-like, or an
+/// opaque rest, may put another element first in an instance, so the application waits. The
+/// first element is one descent of the tree, `O(log n)`.
+fn choice(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    expect_arity("SET.choice", arguments, 1)?;
+    let TermKind::Set { elements, rest, .. } = arguments[0].kind() else {
+        return Ok(BuiltinResult::NotApplicable);
     };
-    let TermKind::Set { elements, rest, .. } = set.kind() else {
-        return BuiltinResult::NotApplicable;
-    };
-    match (elements.len(), rest) {
+    Ok(match (elements.len(), rest) {
         (0, None) => BuiltinResult::Bottom,
         (1, None) => BuiltinResult::Value(
             elements
@@ -91,9 +97,11 @@ fn choice(arguments: &[Term]) -> BuiltinResult {
                 .expect("a one-element set's element")
                 .clone(),
         ),
-        (0 | 1, Some(_)) => BuiltinResult::NotApplicable,
-        _ => BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented),
-    }
+        _ => match concrete_set(&arguments[0]).and_then(|(_, elements)| elements.first()) {
+            Some(element) => BuiltinResult::Value(element.clone()),
+            None => BuiltinResult::NotApplicable,
+        },
+    })
 }
 
 /// `S1 S2`, the disjoint union: `\bottom` when the operands share an element, because set
@@ -1109,18 +1117,69 @@ mod tests {
         assert_eq!(choice_of(rest), BuiltinResult::NotApplicable);
     }
 
-    /// Which of two or more elements `choice` gives is not a consequence of the definition; this
-    /// ticket leaves it unsupported, with a rest beside the elements or not.
+    /// The first element `Set2List` lists of `set`, which lists in the set's stored order.
+    fn first_listed_element(set: &Term) -> Term {
+        let Ok(Some(list)) = to_list(std::slice::from_ref(set), into(&lists())) else {
+            panic!("Set2List of {set:?} is not evaluated");
+        };
+        let TermKind::List { heads, .. } = list.kind() else {
+            panic!("Set2List of {set:?} is no list: {list:?}");
+        };
+        heads.first().expect("an element").clone()
+    }
+
+    /// `choice` of a closed set of two or more constructor-like elements is the element
+    /// `Set2List` lists first, k-rust's documented order (the decimal text order for `Int`
+    /// elements). The stored order is a function of the set's value: the same set built by
+    /// concatenations in either order, or with two spellings of one `Float` element, gives the
+    /// same element. A symbolic element beside others, or an opaque rest, may put another
+    /// element first in an instance, so the application waits.
     #[test]
-    fn choice_of_two_items_is_still_unsupported() {
+    fn choice_is_the_first_element_set2list_lists() {
+        let of = |elements: &[Term]| Term::set(set_definition(), elements.to_vec(), None);
+        let int = |value: i64| Term::int(value);
+        let three = of(&[int(3), int(1), int(2)]);
+        assert_eq!(choice_of(three.clone()), BuiltinResult::Value(int(1)));
+        assert_eq!(first_listed_element(&three), int(1));
+        let text_order = of(&[int(10), int(2)]);
+        assert_eq!(choice_of(text_order.clone()), BuiltinResult::Value(int(10)));
+        assert_eq!(first_listed_element(&text_order), int(10));
+        let concatenated = |first: &Term, second: &Term| {
+            let BuiltinResult::Value(set) = hook("SET.concat", &[first.clone(), second.clone()])
+            else {
+                panic!("the concatenation is evaluated");
+            };
+            set
+        };
+        let (ten, two) = (of(&[int(10)]), of(&[int(2)]));
+        assert_eq!(
+            choice_of(concatenated(&ten, &two)),
+            choice_of(concatenated(&two, &ten))
+        );
+        let float = |text: &str| {
+            Term::domain_value_of(
+                crate::term::DomainKind::Float,
+                Sort::simple("SortFloat"),
+                text,
+            )
+        };
+        let written = of(&[float("2.0"), float("1.5")]);
+        let respelled = of(&[float("0.2e1"), float("1.5")]);
+        assert_eq!(choice_of(written.clone()), choice_of(respelled));
+        assert_eq!(
+            choice_of(written.clone()),
+            BuiltinResult::Value(first_listed_element(&written))
+        );
+        let x = Term::variable(Variable::new("X", Sort::simple("SortKItem")));
         let rest = Term::variable(Variable::new("R", Sort::simple("SortSet")));
-        for set in [
-            set(&["a", "b"]),
-            Term::set(set_definition(), vec![item("a"), item("b")], Some(rest)),
+        for undecided in [
+            of(&[int(1), x]),
+            Term::set(set_definition(), vec![int(1), int(2)], Some(rest)),
         ] {
             assert_eq!(
-                choice_of(set),
-                BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented)
+                choice_of(undecided.clone()),
+                BuiltinResult::NotApplicable,
+                "{undecided:?}"
             );
         }
     }

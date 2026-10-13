@@ -7672,6 +7672,138 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `choice` over a map and a set of three Int items, and a fold over a map's values that takes
+/// the chosen key's value and removes that key until the map is empty.
+const CHOICE_OF_SEVERAL: &str = r#"
+module CHOICES
+  imports DOMAINS
+  imports COLLECTIONS
+  syntax Op ::= "mchoice" | "schoice" | "sum"
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K)
+  rule mchoice => res(choice(3 |-> 30 1 |-> 10 2 |-> 20))
+  rule schoice => res(choice(SetItem(3) SetItem(1) SetItem(2)))
+  syntax Int ::= sumValues(Map) [function]
+  rule sumValues(.Map) => 0
+  rule sumValues(M) => {M[choice(M)]}:>Int +Int sumValues(M[choice(M) <- undef]) requires size(M) >Int 0
+  rule sum => res(sumValues(1 |-> 10 2 |-> 20 3 |-> 30))
+endmodule
+"#;
+
+/// `choice` of two or more items reached through a rule `requires` (on 1), a function equation's
+/// `requires` (on 2) and a right-hand side (on 0), and a rule that rewrites to `choice` (`pick`).
+/// `f` is `total`: its `owise` equation gives every map a value.
+const CHOICE_IN_CONDITIONS: &str = r#"
+module CHOICEREQ
+  imports DOMAINS
+  imports COLLECTIONS
+  syntax KItem ::= res(KItem) | cond(Bool) | fres(Int) | pick(Map)
+  syntax Int ::= f(Map) [function, total]
+  rule f(M) => 1 requires choice(M) ==K 1
+  rule f(_) => 0 [owise]
+  configuration <k> $PGM:Int </k>
+  rule 0 => res(choice(1 |-> 10 2 |-> 20))
+  rule 1 => cond(true) requires choice(1 |-> 10 2 |-> 20) ==K 1
+  rule 2 => fres(f(1 |-> 10 2 |-> 20))
+  rule pick(M) => choice(M)
+endmodule
+"#;
+
+/// An execution evaluates `choice` of two or more items as the item the collection's listing
+/// (`keys_list`, `Set2List`) puts first, k-rust's documented order: 1 of the keys 3, 1 and 2,
+/// and 1 of the set. The fold over a map's values through `choice` sums them whatever the
+/// choice. At the base each run halted with the unsupported-hook error on `MAP.choice` or
+/// `SET.choice`.
+#[test]
+fn krun_evaluates_choice_as_the_first_listed_key() {
+    for (program, value) in [("mchoice", "1"), ("schoice", "1"), ("sum", "60")] {
+        let output = krun_sorted_program(CHOICE_OF_SEVERAL, "CHOICES", "Op", program, &[]);
+        assert!(
+            output.contains("Lblres") && printed_ints(&output).first() == Some(&value.to_owned()),
+            "{program}: {output}"
+        );
+        assert!(!output.contains("choice"), "{program}: {output}");
+    }
+}
+
+/// An execution evaluates `choice` also in the conditions it decides: a rule `requires` (on 1)
+/// and a function equation's `requires` (on 2), with `krun` and with `krun --search-final`.
+#[test]
+fn krun_evaluates_choice_in_rule_and_equation_conditions() {
+    let cond = Regex::new(r#"Lblcond[^(]*\(\\dv\{SortBool\{\}\}\("true"\)\)"#).unwrap();
+    let fres = Regex::new(r#"Lblfres[^(]*\(\\dv\{SortInt\{\}\}\("1"\)\)"#).unwrap();
+    for extra in [&[][..], &["--search-final"][..]] {
+        let output = krun_int_program(CHOICE_IN_CONDITIONS, "CHOICEREQ", "1", extra);
+        assert!(
+            cond.is_match(&output) && !output.contains("choice"),
+            "{extra:?}: {output}"
+        );
+        let output = krun_int_program(CHOICE_IN_CONDITIONS, "CHOICEREQ", "2", extra);
+        assert!(
+            fres.is_match(&output) && !output.contains("choice"),
+            "{extra:?}: {output}"
+        );
+    }
+}
+
+/// Which key `choice` gives of a map of two keys is not a consequence of the definition, so no
+/// claim that names it is proven or disproved, on a right-hand side or through a rule's or a
+/// function equation's `requires`. `choice` of a non-empty map is defined, so no claim fails
+/// through an undefined step.
+#[test]
+fn kprove_proves_no_claim_that_depends_on_choice() {
+    let source = format!(
+        "{CHOICE_IN_CONDITIONS}
+module CHOICEREQ-SPEC
+  imports CHOICEREQ
+  claim [first-key]: <k> 0 => res(1) </k>
+  claim [other-key]: <k> 0 => res(2) </k>
+  claim [rule-requires]: <k> 1 => cond(true) </k>
+  claim [equation-requires]: <k> 2 => fres(1) </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "CHOICEREQ", "CHOICEREQ-SPEC");
+    for claim in [
+        "first-key",
+        "other-key",
+        "rule-requires",
+        "equation-requires",
+    ] {
+        assert_undecided(&verdicts, claim, &output);
+    }
+    // Left unevaluated as a defined value, not as an unsupported hook.
+    assert!(
+        !output.contains("undefined step") && !output.contains("unsupported hook"),
+        "{output}"
+    );
+}
+
+/// `choice` of a map of two keys left unevaluated outside an execution is a defined value, so the
+/// step that writes it has a successor and the claim that some item is reached is proven.
+#[test]
+fn kprove_proves_an_order_free_claim_over_choice() {
+    let source = format!(
+        "{CHOICE_IN_CONDITIONS}
+module CHOICE-FREE-SPEC
+  imports CHOICEREQ
+  claim [some-key]: <k> pick(1 |-> 10 2 |-> 20) => ?_K:KItem </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "CHOICEREQ", "CHOICE-FREE-SPEC");
+    assert_eq!(
+        claim_verdict(&verdicts, "some-key", &output),
+        "proven",
+        "{output}"
+    );
+    // Left unevaluated as a defined value, not as an unsupported hook.
+    assert!(
+        !output.contains("undefined step") && !output.contains("unsupported hook"),
+        "{output}"
+    );
+}
+
 #[test]
 fn search_without_a_pattern_binds_each_answer_to_var_result() {
     let (root, definition) = branching_search_fixture();

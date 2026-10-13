@@ -19,6 +19,7 @@
 //! - `concat`: the union of the two trees, `O(m log(n/m + 1))`, a repeated key read from the
 //!   union's summary.
 //! - `keys`, `keys_list`, `values`: `O(n)`, the size of the result.
+//! - `choice`: the first stored entry, one descent of the tree, `O(log n)`.
 
 use std::borrow::Cow;
 
@@ -65,7 +66,7 @@ pub(super) fn evaluate(
         "MAP.difference" => difference(arguments, sorts, result),
         "MAP.concat" => return concat(arguments, result),
         "MAP.lookup" => return lookup(arguments, sorts),
-        "MAP.choice" => return Ok(choice(arguments)),
+        "MAP.choice" => return choice(arguments),
         _ => {
             return Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::NotImplemented,
@@ -146,27 +147,33 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
 /// The empty map has no key, so the application is undefined. A map of one binding `K |-> V` has
 /// the one key `K`, and every function the declaration admits gives it, whether or not `K` is
 /// constructor-like. A map with an opaque rest beside at most one binding may be a map of one
-/// binding under an instance, so the application waits for one. A map of two or more bindings,
-/// with a rest or without, has two or more keys wherever it is defined (map concatenation binds
-/// each key once), and which of them the hook gives is not a consequence of the definition: that
-/// stays the unsupported outcome, as does an application of another arity, which no declaration
-/// the load accepts has (`hook_signature`).
-fn choice(arguments: &[Term]) -> BuiltinResult {
-    let [map] = arguments else {
-        return BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented);
+/// binding under an instance, so the application waits for one.
+///
+/// A map of two or more bindings has two or more keys wherever it is defined (map concatenation
+/// binds each key once), and which of them the hook gives is not a consequence of the definition.
+/// k-rust's choice is the key `keys_list` lists first, the first of the map's stored entries
+/// (`ordered_entries`), so the two hooks agree. With every key constructor-like and no rest, the
+/// stored order is the order of the keys' values (domain values are canonical), so the choice is
+/// a function of the map, as the `function` declaration requires. Only an execution takes it:
+/// elsewhere the application is a defined value left unevaluated (`super::implementation_chosen`).
+/// A key that is not constructor-like, or an opaque rest, may put another key first in an
+/// instance, so the application waits. The first entry is one descent of the tree, `O(log n)`.
+fn choice(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    expect_arity("MAP.choice", arguments, 1)?;
+    let TermKind::Map { entries, rest, .. } = arguments[0].kind() else {
+        return Ok(BuiltinResult::NotApplicable);
     };
-    let TermKind::Map { entries, rest, .. } = map.kind() else {
-        return BuiltinResult::NotApplicable;
-    };
-    match (entries.len(), rest) {
+    Ok(match (entries.len(), rest) {
         (0, None) => BuiltinResult::Bottom,
         (1, None) => {
             let (key, _) = entries.get(0).expect("a one-binding map's entry");
             BuiltinResult::Value(key.clone())
         }
-        (0 | 1, Some(_)) => BuiltinResult::NotApplicable,
-        _ => BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented),
-    }
+        _ => match ordered_entries(&arguments[0]).and_then(|(_, entries)| entries.first()) {
+            Some((key, _)) => BuiltinResult::Value(key.clone()),
+            None => BuiltinResult::NotApplicable,
+        },
+    })
 }
 
 /// The place of `key` among the keys of `entries`, syntactically: `Ok` with the index of the
@@ -1779,19 +1786,82 @@ mod tests {
         assert_eq!(choice_of(rest), BuiltinResult::NotApplicable);
     }
 
-    /// Which of two or more keys `choice` gives is not a consequence of the definition; this
-    /// ticket leaves it unsupported, with a rest beside the bindings or not.
+    /// The first key `keys_list` lists of `map`, which lists in the map's stored order.
+    fn first_listed_key(map: &Term) -> Term {
+        let Ok(Some(list)) = keys_list(std::slice::from_ref(map), into(&key_list())) else {
+            panic!("keys_list of {map:?} is not evaluated");
+        };
+        let TermKind::List { heads, .. } = list.kind() else {
+            panic!("keys_list of {map:?} is no list: {list:?}");
+        };
+        heads.first().expect("a key").clone()
+    }
+
+    /// `choice` of a closed map of two or more constructor-like keys is the key `keys_list`
+    /// lists first, k-rust's documented order (the decimal text order for `Int` keys), so the
+    /// two hooks share one choice. The stored order is a function of the map's value: the same
+    /// map built by concatenations in either order, or with two spellings of one `Float` key,
+    /// gives the same key. A symbolic key beside others, or an opaque rest, may put another key
+    /// first in an instance, so the application waits.
     #[test]
-    fn choice_of_two_items_is_still_unsupported() {
-        let two = vec![(key("1"), value("10")), (key("2"), value("20"))];
+    fn choice_is_the_first_key_keys_list_lists() {
+        let map = |entries: &[(Term, &str)]| {
+            Term::map(
+                definition("SortMap"),
+                entries
+                    .iter()
+                    .map(|(key, to)| (key.clone(), value(to)))
+                    .collect(),
+                None,
+            )
+        };
+        let int = |value: i64| Term::int(value);
+        let three = map(&[(int(3), "30"), (int(1), "10"), (int(2), "20")]);
+        assert_eq!(choice_of(three.clone()), BuiltinResult::Value(int(1)));
+        assert_eq!(first_listed_key(&three), int(1));
+        let text_order = map(&[(int(10), "a"), (int(2), "b")]);
+        assert_eq!(choice_of(text_order.clone()), BuiltinResult::Value(int(10)));
+        assert_eq!(first_listed_key(&text_order), int(10));
+        let concatenated = |first: &Term, second: &Term| {
+            let BuiltinResult::Value(map) = hook("MAP.concat", &[first.clone(), second.clone()])
+            else {
+                panic!("the concatenation is evaluated");
+            };
+            map
+        };
+        let (ten, two) = (map(&[(int(10), "a")]), map(&[(int(2), "b")]));
+        assert_eq!(
+            choice_of(concatenated(&ten, &two)),
+            choice_of(concatenated(&two, &ten))
+        );
+        let float = |text: &str| {
+            Term::domain_value_of(
+                crate::term::DomainKind::Float,
+                Sort::simple("SortFloat"),
+                text,
+            )
+        };
+        let written = map(&[(float("2.0"), "a"), (float("1.5"), "b")]);
+        let respelled = map(&[(float("0.2e1"), "a"), (float("1.5"), "b")]);
+        assert_eq!(choice_of(written.clone()), choice_of(respelled));
+        assert_eq!(
+            choice_of(written.clone()),
+            BuiltinResult::Value(first_listed_key(&written))
+        );
+        let k = Term::variable(Variable::new("K", Sort::simple("SortKey")));
         let rest = Term::variable(Variable::new("R", Sort::simple("SortMap")));
-        for map in [
-            Term::map(definition("SortMap"), two.clone(), None),
-            Term::map(definition("SortMap"), two, Some(rest)),
+        for undecided in [
+            map(&[(int(1), "10"), (k, "20")]),
+            Term::map(
+                definition("SortMap"),
+                vec![(int(1), value("10")), (int(2), value("20"))],
+                Some(rest),
+            ),
         ] {
             assert_eq!(
-                choice_of(map),
-                BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented)
+                choice_of(undecided.clone()),
+                BuiltinResult::NotApplicable,
+                "{undecided:?}"
             );
         }
     }
