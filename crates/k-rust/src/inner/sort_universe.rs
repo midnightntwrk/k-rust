@@ -413,8 +413,10 @@ pub(in crate::inner) struct RuleKernelSeeds {
 /// positions declared `KItem` (`ListItem`, `SetItem`) are `Bag` and `KItem` patterns, so these
 /// three receive a bracket and scaffolding in every rule grammar; a parenthesized `Bag => Bag`
 /// rewrite before a collection cell's trailing dots needs the `Bag` bracket. `Bag` and `Cell` are
-/// the structural sorts of a rule's cells and receive casts. `K`, `KItem`, `KLabel`, `KList` and
-/// `Bool` receive their casts in the fixed kernel syntax.
+/// the structural sorts of a rule's cells and a rule casts to both; `Cell` receives its casts
+/// here, and `Bag`, `K`, `KItem`, `KLabel`, `KList` and `Bool` receive theirs in the fixed kernel
+/// syntax (`add_k_syntax`). A cast is one production: a second copy of it would parse every cast
+/// to its sort twice, an ambiguity whose two readings are the same term.
 pub(in crate::inner) const fn rule_kernel_seeds(kernel: KernelSort) -> RuleKernelSeeds {
     match kernel {
         KernelSort::K => RuleKernelSeeds {
@@ -431,7 +433,7 @@ pub(in crate::inner) const fn rule_kernel_seeds(kernel: KernelSort) -> RuleKerne
         },
         KernelSort::Bag => RuleKernelSeeds {
             bracket: true,
-            casts: true,
+            casts: false,
             #[cfg(not(feature = "z3-inference"))]
             rule_scaffold: Some(ScaffoldPosition::AfterRuleCells),
         },
@@ -1211,7 +1213,7 @@ mod tests {
         );
         assert_eq!(
             rule_seeds(&RULE_CAST_SEED_ORDER, |seeds| seeds.casts),
-            [S::Bag, S::Cell]
+            [S::Cell]
         );
         #[cfg(not(feature = "z3-inference"))]
         {

@@ -983,6 +983,9 @@ fn add_rule_k_syntax(
         }
     }
     let rule_body_sort = rule_sort(&KernelSort::K.sort());
+    // The fixed kernel syntax derives `#RuleBody` from `K` (`add_k_syntax`); the portable
+    // build's rule body is its `K` scaffolding, which needs a production of its own.
+    #[cfg(not(feature = "z3-inference"))]
     grammar.add(
         Sort::new("#RuleBody"),
         vec![ProductionItem::NonTerminal {
@@ -2241,5 +2244,41 @@ endmodule
         if let Err(error) = try_load_with_prelude(accepted) {
             panic!("`{{done}}:>Foo` loads: {error}");
         }
+    }
+
+    /// A rule grammar declares each production once. A second copy of a production would parse
+    /// every text it derives twice, as an ambiguity whose readings are the same term, and a pass
+    /// that reads a node's sort before such readings are merged sees an ambiguity where there is
+    /// one term: list completion read the side `L:Bag` of a rewrite at a cell body that way, as
+    /// `K`, which a `Bag` position does not hold. The definition writes cells, so the grammar
+    /// holds the casts of `Bag` and `Cell` and every cell's productions.
+    #[test]
+    fn a_rule_grammar_has_no_two_equal_productions() {
+        let loaded = load_with_prelude(
+            r#"
+module MAIN
+  imports INT
+  configuration <T> <k> $PGM:K </k> <rs> <r multiplicity="*" type="List"> <rid> 0 </rid> </r> </rs> </T>
+endmodule
+"#,
+        );
+        let grammar = module_rule_grammar_of(loaded.resolved(), "MAIN");
+        assert_eq!(grammar.first_repeated_production(), None);
+        let bag = Sort::new("Bag");
+        assert_eq!(
+            grammar.equivalent_production_count(
+                &bag,
+                &[
+                    ProductionItem::NonTerminal {
+                        sort: bag.clone(),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(":Bag".into()),
+                ],
+                false,
+            ),
+            1,
+            "the semantic cast to Bag"
+        );
     }
 }
