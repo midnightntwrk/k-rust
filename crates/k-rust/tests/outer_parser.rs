@@ -285,6 +285,26 @@ fn bubble_comments_are_layout_wherever_a_word_may_begin() {
     );
 }
 
+/// The tags of `syntax priority` and of an associativity declaration are read as bubble words
+/// are: a comment where a tag or a `>` may begin is layout, whatever text touches its end.
+#[test]
+fn tag_list_comments_are_layout_wherever_a_tag_may_begin() {
+    let parsed = parse(
+        "tags.k",
+        "module MAIN\n  syntax priority /*c*/times /*c*/> plus /*c*/ > minus\n  syntax left /*c*/plus /*c*/ minus\nendmodule\n",
+    )
+    .unwrap();
+    let [
+        Sentence::Priority(priority),
+        Sentence::Associativity(associativity),
+    ] = parsed.modules[0].sentences.as_slice()
+    else {
+        panic!("expected a priority and an associativity sentence");
+    };
+    assert_eq!(priority.groups, [["times"], ["plus"], ["minus"]]);
+    assert_eq!(associativity.tags, ["plus", "minus"]);
+}
+
 #[test]
 fn sentence_spans_end_at_the_last_token() {
     let source = indoc! {r#"
