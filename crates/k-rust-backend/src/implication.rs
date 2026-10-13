@@ -2046,6 +2046,11 @@ fn consequent_obligations(
     let consequent_match = ConsequentMatch::new(substitution, destination.existentials());
     let mut obligations =
         consequent_match.obligation_branches(definition, destination, remainder, knowledge);
+    // The solved pairs carry no definedness of their destination side, unlike the remainder
+    // pairs (`obligation_branches`): their solution binds destination parts to parts of the
+    // antecedent's collection, which are defined wherever its term is, and the solve does not
+    // match an item whose content is a function application. A solve that does must state that
+    // item's `ceil_term` among the constraints added here.
     for branch in &mut obligations {
         branch.add_solved(&solved_constraints, knowledge);
     }
@@ -4300,6 +4305,60 @@ mod tests {
                 .len(),
             1,
         );
+    }
+
+    /// `mul` is the Int product, which the solver reads as total, and `undefi` a function with no
+    /// equation.
+    fn partial_operand_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol mul{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.mul"), smt-hook{}("*")]
+                symbol undefi{}() : SortInt{} [function{}()]
+            endmodule []"#,
+        )
+        .expect("partial operand definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("partial operand definition should internalize")
+    }
+
+    /// A destination term denotes its own definedness, so the part `0 = mul(0, undefi())` the
+    /// match leaves is checked under `⌈undefi()⌉` as well: `0` implies `mul(0, undefi())` only
+    /// where `undefi()` is defined, which nothing the antecedent states decides. The product is
+    /// `0` for every value of its operand, so without that obligation the equation alone would
+    /// make the implication valid. `mul(0, X)` has no partial operand and stays valid.
+    #[test]
+    fn a_remainder_equation_is_checked_under_the_definedness_of_its_destination_side() {
+        let definition = partial_operand_definition();
+        let antecedent = pattern(&definition, r#"\dv{SortInt{}}("0")"#);
+        let partial = pattern(&definition, r#"mul{}(\dv{SortInt{}}("0"), undefi{}())"#);
+        let undefined = Predicate::Ceil(term(&definition, "undefi{}()"));
+
+        let result = check_complete(&definition, &antecedent, &partial, &NoSolver)
+            .expect("implication should be checked");
+        assert_eq!(result.status(), ImplicationStatus::Indeterminate);
+        let condition = result
+            .into_condition()
+            .expect("the undecided obligations should be reported");
+        assert!(
+            condition.predicates.contains(&undefined),
+            "the destination side's definedness is an obligation: {condition:#?}"
+        );
+
+        #[cfg(feature = "z3")]
+        {
+            let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+            let result = check_complete(&definition, &antecedent, &partial, &solver)
+                .expect("implication should be checked");
+            assert_ne!(result.status(), ImplicationStatus::Valid, "{result:#?}");
+            let total = pattern(&definition, r#"mul{}(\dv{SortInt{}}("0"), X:SortInt{})"#);
+            let result = check_complete(&definition, &antecedent, &total, &solver)
+                .expect("implication should be checked");
+            assert_eq!(result.status(), ImplicationStatus::Valid, "{result:#?}");
+        }
     }
 
     #[test]
