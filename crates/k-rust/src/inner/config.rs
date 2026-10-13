@@ -559,6 +559,53 @@ pub(super) fn add_builtin_tokens(
     Ok(())
 }
 
+/// The K sequence syntax of a ground K value, added to a program grammar: `K ::= KItem`, `.K`
+/// (`#EmptyK`), left-associative `K ~> K` (`#KSequence`), and an avoided K bracket.
+///
+/// A K cell holds a sequence of items, and these are exactly its constructors, so a cell's
+/// content is a term of the program syntax plus this set. The bracket is grouping the ground
+/// grammar adds, not syntax of the definition, so it is `avoid`: where the definition's own
+/// syntax reads parenthesised text, that reading is what the text means. Nothing else of the
+/// rule grammar is added (no deprecated `.`, casts, `Bag`, `Bool` kernel syntax or variables).
+///
+/// The rule and configuration grammars install their sequence syntax with [`add_k_syntax`],
+/// which names the same `#EmptyK` and `#KSequence` labels; the two sets are kept apart so that
+/// neither grammar's production order moves.
+pub(super) fn add_ground_k_sequence_syntax(grammar: &mut Grammar) -> Result<(), ParseError> {
+    add_subsort(grammar, "K", "KItem")?;
+    grammar.add(
+        Sort::new("K"),
+        vec![ProductionItem::Terminal(".K".into())],
+        Some(Label::new("#EmptyK")),
+        false,
+        false,
+    )?;
+    grammar.add(
+        Sort::new("K"),
+        vec![
+            nonterminal("K"),
+            ProductionItem::Terminal("~>".into()),
+            nonterminal("K"),
+        ],
+        Some(Label::new("#KSequence")),
+        false,
+        false,
+    )?;
+    grammar.add_left_associative("#KSequence");
+    grammar.add_avoided_bracket(
+        Sort::new("K"),
+        vec![
+            ProductionItem::Terminal("(".into()),
+            nonterminal("K"),
+            ProductionItem::Terminal(")".into()),
+        ],
+    )
+}
+
+/// The kernel syntax of the rule and configuration grammars, K's sequence syntax among it.
+///
+/// A program grammar extended for ground K values adds only the sequence constructors, with
+/// [`add_ground_k_sequence_syntax`].
 pub(super) fn add_k_syntax(
     grammar: &mut Grammar,
     which: BuiltinTokenGrammar,

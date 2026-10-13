@@ -687,6 +687,39 @@ impl Grammar {
         )
     }
 
+    /// A bracket production `items` for `result` that is grouping only: it is `avoid`, so where
+    /// another well-sorted reading of the same text exists, prefer/avoid filtering keeps that one.
+    ///
+    /// Like [`Self::add_bracket`], it adds nothing when `result` already has a bracket with the
+    /// same items, so a source bracket (such as a parametric one instantiated at `result`) keeps
+    /// its own label and reading.
+    pub(crate) fn add_avoided_bracket(
+        &mut self,
+        result: Sort,
+        items: Vec<ProductionItem>,
+    ) -> Result<(), ParseError> {
+        if self.productions_for(&result).any(|index| {
+            let production = &self.productions[index];
+            production.bracket && production.declared_items == items
+        }) {
+            return Ok(());
+        }
+        let bracket_label = format!("#bracket:{result}");
+        self.add_production_with_lexical(
+            result,
+            &items,
+            None,
+            ProductionOptions {
+                transparent: true,
+                bracket: true,
+                bracket_label: Some(bracket_label),
+                avoid: true,
+                ..ProductionOptions::default()
+            },
+            &BTreeMap::new(),
+        )
+    }
+
     pub(crate) fn add_left_associative(&mut self, label: impl Into<String>) {
         let label = label.into();
         self.associativities.left.insert((label.clone(), label));
