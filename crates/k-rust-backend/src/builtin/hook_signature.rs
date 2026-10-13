@@ -19,8 +19,10 @@
 //! in the definition's own sorts, and the loader decides KORE from any producer the same way.
 //!
 //! An argument that is only read (an index, a key looked up or removed, a set whose elements are
-//! removed, a map whose bindings are removed) is not moved into the result, so its sort decides
-//! nothing here.
+//! removed) is not moved into the result, so its sort decides nothing here, except that the
+//! second operand of a set or map difference or of a set intersection is a collection of the
+//! first operand's kind: the hook compares the two collections' items, which it does on no other
+//! value, so a declaration taking anything else there has no model in which the hook computes it.
 
 use crate::{
     matching::SortGraph,
@@ -49,6 +51,8 @@ impl Kind {
 enum Operand {
     /// Read, not moved into the result.
     Read,
+    /// A collection of this kind, read and not moved into the result.
+    ReadCollection(Kind),
     /// An element of the list or set result.
     Element,
     /// A key of the map result.
@@ -83,7 +87,8 @@ enum Gives {
 /// return one of a collection's elements; `None` for every other hook.
 fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
     use Operand::{
-        Alternative, Element, Elements, Key, KeySource, Keys, Read, Source, Value, Values,
+        Alternative, Element, Elements, Key, KeySource, Keys, Read, ReadCollection, Source, Value,
+        Values,
     };
     let list = Gives::Collection(Kind::List);
     let set = Gives::Collection(Kind::Set);
@@ -100,7 +105,9 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
         "SET.unit" => (&[], set),
         "SET.element" => (&[Element], set),
         "SET.concat" | "SET.union" => (&[Elements(Kind::Set), Elements(Kind::Set)], set),
-        "SET.difference" | "SET.intersection" => (&[Elements(Kind::Set), Read], set),
+        "SET.difference" | "SET.intersection" => {
+            (&[Elements(Kind::Set), ReadCollection(Kind::Set)], set)
+        }
         "SET.list2set" => (&[Elements(Kind::List)], set),
         "SET.set2list" => (&[Elements(Kind::Set)], list),
         "SET.choice" => (&[KeySource(Kind::Set)], Gives::Member),
@@ -108,7 +115,8 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
         "MAP.element" => (&[Key, Value], map),
         "MAP.concat" | "MAP.updateAll" => (&[Elements(Kind::Map), Elements(Kind::Map)], map),
         "MAP.update" => (&[Elements(Kind::Map), Key, Value], map),
-        "MAP.remove" | "MAP.removeAll" | "MAP.difference" => (&[Elements(Kind::Map), Read], map),
+        "MAP.remove" | "MAP.removeAll" => (&[Elements(Kind::Map), Read], map),
+        "MAP.difference" => (&[Elements(Kind::Map), ReadCollection(Kind::Map)], map),
         "MAP.keys" => (&[Keys], set),
         "MAP.keys_list" => (&[Keys], list),
         "MAP.values" => (&[Values], list),
@@ -272,6 +280,14 @@ pub fn misfit<F: SortFacts>(
         let argument = || format!("argument {position} of {hook}");
         let reason = match *operand {
             Operand::Read => None,
+            Operand::ReadCollection(kind) => of_kind(sort, kind).is_none().then(|| {
+                format!(
+                    "{}, of sort {}, is no {} sort",
+                    argument(),
+                    facts.render(sort),
+                    kind.noun()
+                )
+            }),
             Operand::Element => fits(
                 argument(),
                 sort,

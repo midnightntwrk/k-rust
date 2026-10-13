@@ -483,6 +483,21 @@ fn a_collection_hook_whose_declaration_gives_no_value_of_its_result_sort_is_reje
             "MAP.difference gives a map, but the result sort SortVals is no map sort",
         ),
         (
+            "differenceOfInt{}(SortValMap{}, SortInt{}) : SortValMap{} \
+             [function{}(), total{}(), hook{}(\"MAP.difference\")]",
+            "argument 2 of MAP.difference, of sort SortInt, is no map sort",
+        ),
+        (
+            "differenceOfValMap{}(SortValSet{}, SortValMap{}) : SortValSet{} \
+             [function{}(), total{}(), hook{}(\"SET.difference\")]",
+            "argument 2 of SET.difference, of sort SortValMap, is no set sort",
+        ),
+        (
+            "intersectionOfVals{}(SortValSet{}, SortVals{}) : SortValSet{} \
+             [function{}(), total{}(), hook{}(\"SET.intersection\")]",
+            "argument 2 of SET.intersection, of sort SortVals, is no set sort",
+        ),
+        (
             "choiceVal{}(SortSet{}) : SortVal{} [function{}(), hook{}(\"SET.choice\")]",
             "an element of argument 1 of SET.choice, of sort SortKItem, is the result, but \
              SortKItem is not SortVal",
