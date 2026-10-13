@@ -73,7 +73,7 @@ use crate::{
     ite::{IteSplit, split_ite_pair},
     matching::{
         FailReason, MatchMode, MatchResult, SortError, is_collection_term,
-        match_terms_in_definition, solve_collection_pairs_in_definition,
+        match_terms_in_definition, merge_free_parts, solve_collection_pairs_in_definition,
     },
     rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
     rule::Predicate,
@@ -1917,6 +1917,7 @@ fn discharge_consequent(
         substitution,
         remainder,
         destination.existentials(),
+        &destination.pattern().constraints,
     );
     let origin = if remainder.is_empty() {
         Origin::ConsequentCondition
@@ -2223,6 +2224,12 @@ fn combine_obligation_branches(mut branches: Vec<Obligations>) -> Obligations {
 /// sides cancel, since the parts of a defined concatenation are disjoint, and a destination
 /// frame that is the sole remaining opaque term is bound to the subject's leftover, the one
 /// value that makes the two sides equal.
+/// Several such frames of one destination set or map are one frame (`merge_free_parts`) when
+/// each is an existential that occurs nowhere else in what the check decides: not bound by the
+/// match, not in another pair of the remainder, not in the subject, and not in the
+/// `constraints` of the destination. Their union is then the only thing the destination states
+/// of them, and any split of the leftover between them is a witness; the first takes it all and
+/// the others are empty.
 /// A solution is taken only when it is unique and binds destination existentials alone; any
 /// other outcome leaves the pairs as equality obligations.
 fn solve_collection_remainder_pairs(
@@ -2230,6 +2237,7 @@ fn solve_collection_remainder_pairs(
     substitution: Substitution,
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
     existentials: &BTreeSet<Variable>,
+    constraints: &[Predicate],
 ) -> (
     Substitution,
     Vec<(crate::term::Term, crate::term::Term)>,
@@ -2243,13 +2251,40 @@ fn solve_collection_remainder_pairs(
     if collections.is_empty() {
         return (substitution, remainder, Vec::new());
     }
-    let solutions = solve_collection_pairs_in_definition(
-        MatchMode::Implies,
-        definition,
-        substitution.clone(),
-        &collections,
-        None,
-    );
+    let constraint_variables = constraints
+        .iter()
+        .flat_map(Predicate::free_variables)
+        .collect::<BTreeSet<_>>();
+    let mut initial = substitution.clone();
+    let mut pairs = Vec::with_capacity(collections.len());
+    for (index, (pattern, subject)) in remainder.iter().enumerate() {
+        if !is_collection_pair(pattern, subject) {
+            continue;
+        }
+        let free = |variable: &Variable| {
+            existentials.contains(variable)
+                && !substitution.contains_key(variable)
+                && !constraint_variables.contains(variable)
+                && remainder.iter().enumerate().all(|(other, (left, right))| {
+                    !right.attributes().variables.contains(variable)
+                        && (other == index || !left.attributes().variables.contains(variable))
+                })
+        };
+        match merge_free_parts(pattern, free) {
+            Some((merged, empty)) => {
+                initial.extend(empty);
+                // Parts with no item merge into one variable, which is the subject.
+                if let crate::term::TermKind::Variable(part) = merged.kind() {
+                    initial.insert(part.clone(), subject.clone());
+                } else {
+                    pairs.push((merged, subject.clone()));
+                }
+            }
+            None => pairs.push((pattern.clone(), subject.clone())),
+        }
+    }
+    let solutions =
+        solve_collection_pairs_in_definition(MatchMode::Implies, definition, initial, &pairs, None);
     let Some([solution]) = solutions.as_deref() else {
         return (substitution, remainder, Vec::new());
     };

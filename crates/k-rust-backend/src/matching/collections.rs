@@ -1424,6 +1424,123 @@ pub(super) fn is_opaque_concat(term: &Term, concat: &Name) -> bool {
     matches!(term.kind(), TermKind::Application { symbol, .. } if &symbol.name == concat)
 }
 
+/// The items of a set or map pattern whose parts [`merge_free_parts`] reads.
+enum AcItems {
+    Set(Arc<crate::term::SetDefinition>, Items<Term>),
+    Map(Arc<MapDefinition>, Items<(Term, Term)>),
+}
+
+/// A set or map `pattern` with its free parts merged into one, and the bindings of the merged
+/// parts to the empty collection; `None` when fewer than two of its parts are free.
+///
+/// A part is free when it is a variable that `free` accepts, occurs in no other part and in no
+/// item of `pattern`. Set and map concatenation is associative and commutative with the empty
+/// collection as unit, so the free parts `V1 … Vk` stand together for their union, which is
+/// any collection disjoint from the rest of `pattern` exactly as one part `V1` alone is:
+/// `V1 ∪ … ∪ Vk` takes every value `V1` takes (the others empty), and `V1` every value of the
+/// union (`V1` the union). So when the caller's `free` accepts only variables that may be
+/// chosen (existentials) and occur nowhere else in what it decides, the pattern with `V1` alone
+/// and `V2 … Vk` bound to the empty collection has a solution exactly when `pattern` has one.
+pub(crate) fn merge_free_parts(
+    pattern: &Term,
+    free: impl Fn(&Variable) -> bool,
+) -> Option<(Term, Vec<(Variable, Term)>)> {
+    let (items, rest, concat) = match pattern.kind() {
+        TermKind::Set {
+            definition,
+            elements,
+            rest: Some(rest),
+        } => (
+            AcItems::Set(definition.clone(), elements.clone()),
+            rest,
+            &definition.symbols.concat,
+        ),
+        TermKind::Map {
+            definition,
+            entries,
+            rest: Some(rest),
+        } => (
+            AcItems::Map(definition.clone(), entries.clone()),
+            rest,
+            &definition.symbols.concat,
+        ),
+        TermKind::Application { symbol, .. } => match &symbol.attributes.collection {
+            Some(CollectionMetadata::Set(definition))
+                if definition.symbols.concat == symbol.name =>
+            {
+                (
+                    AcItems::Set(definition.clone(), Items::new()),
+                    pattern,
+                    &definition.symbols.concat,
+                )
+            }
+            Some(CollectionMetadata::Map(definition))
+                if definition.symbols.concat == symbol.name =>
+            {
+                (
+                    AcItems::Map(definition.clone(), Items::new()),
+                    pattern,
+                    &definition.symbols.concat,
+                )
+            }
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let (parts, head) = flatten_opaque_chunks(Some(rest.clone()), concat);
+    let in_items = |variable: &Variable| match &items {
+        AcItems::Set(_, elements) => elements
+            .iter()
+            .any(|element| element.attributes().variables.contains(variable)),
+        AcItems::Map(_, entries) => entries.iter().any(|(key, value)| {
+            key.attributes().variables.contains(variable)
+                || value.attributes().variables.contains(variable)
+        }),
+    };
+    let merged = parts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, part)| match part.kind() {
+            TermKind::Variable(variable)
+                if free(variable)
+                    && !in_items(variable)
+                    && parts.iter().enumerate().all(|(other, part)| {
+                        other == index || !part.attributes().variables.contains(variable)
+                    }) =>
+            {
+                Some((index, variable.clone()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let [_, dropped @ ..] = merged.as_slice() else {
+        return None;
+    };
+    if dropped.is_empty() {
+        return None;
+    }
+    let empty = match &items {
+        AcItems::Set(definition, _) => Term::set(definition.clone(), Vec::new(), None),
+        AcItems::Map(definition, _) => Term::map(definition.clone(), Vec::new(), None),
+    };
+    let bindings = dropped
+        .iter()
+        .map(|(_, variable)| (variable.clone(), empty.clone()))
+        .collect();
+    let kept = parts
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| !dropped.iter().any(|(dropped, _)| dropped == index))
+        .map(|(_, part)| part)
+        .collect();
+    let rest = rebuild_opaque_chunks(kept, head);
+    let pattern = match items {
+        AcItems::Set(definition, elements) => Term::set_of_items(definition, elements, rest),
+        AcItems::Map(definition, entries) => Term::map_of_items(definition, entries, rest),
+    };
+    Some((pattern, bindings))
+}
+
 /// Expand the collection pairs of an implication remainder into a disjunction of ordinary term
 /// equations: a closed destination map against an open current map has one branch per entry
 /// assignment, and a destination list with two or more parts and an item against a current
