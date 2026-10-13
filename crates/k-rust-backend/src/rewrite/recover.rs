@@ -1173,11 +1173,17 @@ fn bool_domain_value(term: &Term) -> Option<bool> {
 /// selects it: an `ite` application denotes its first branch where the condition is `true` and
 /// its second where it is `false`, so the two guarded matches cover exactly its values, without
 /// teaching the syntax-directed matcher about branching.
+///
+/// Each branch's condition is decided under the path first (`refuted`), and a branch it refutes
+/// is dropped before its operand is matched: the operand of a branch the path excludes is an
+/// operand the conditional never evaluates (`crate::deferred`), and matching it re-enters the
+/// rule attempt, which simplifies it. A feasible branch's operand is that branch's taken operand.
 pub(super) fn recover_ite_matches(
     definition: &BackendDefinition,
     substitution: Substitution,
     remainder: &[(Term, Term)],
-) -> Option<Vec<PartialRuleMatch>> {
+    refuted: &mut dyn FnMut(&Predicate) -> Stoppable<bool>,
+) -> Option<Stoppable<Vec<PartialRuleMatch>>> {
     let (index, side, condition, then_pair, else_pair) =
         remainder
             .iter()
@@ -1203,6 +1209,15 @@ pub(super) fn recover_ite_matches(
 
     let mut recovered = Vec::new();
     for (value, (pattern, subject)) in [(true, then_pair), (false, else_pair)] {
+        if matches!(side, SplitSide::Subject) {
+            let condition =
+                Predicate::Equals(substitute(&condition, &substitution), Term::bool(value));
+            match refuted(&condition) {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(stop) => return Some(Err(stop)),
+            }
+        }
         let matched = match_terms_in_definition(MatchMode::Rewrite, definition, &pattern, &subject);
         let (found, mut branch_remainder) = match matched {
             MatchResult::Failed(_) => continue,
@@ -1242,7 +1257,7 @@ pub(super) fn recover_ite_matches(
             remainder: branch_remainder,
         });
     }
-    Some(recovered)
+    Some(Ok(recovered))
 }
 
 pub(super) fn recover_overload_symbolic_match(

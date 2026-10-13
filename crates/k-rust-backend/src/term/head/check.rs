@@ -224,6 +224,7 @@ fn term_conjuncts(predicate: &Predicate, conjuncts: &mut Vec<Term>) -> bool {
         Predicate::False
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_)

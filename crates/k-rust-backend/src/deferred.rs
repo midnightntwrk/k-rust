@@ -1,0 +1,1023 @@
+//! Deferred definedness of the operands that `KEQUAL.ite`, `BOOL.andThen` and `BOOL.orElse`
+//! never evaluate.
+//!
+//! `#if C #then T #else E #fi`, `B1 andThenBool B2` and `B1 orElseBool B2` are applications of
+//! hooked function symbols, and every symbol application in matching logic is strict: it is
+//! undefined wherever one of its arguments is. So `#if true #then 1 #else u #fi` denotes
+//! `1 /\ \ceil(u)`, and the definedness of the operand the condition discards is part of the
+//! value. Evaluating that operand to decide its definedness would make recursion guarded by the
+//! conditional diverge and would perform the operand's effects, which the conditional is there
+//! to avoid. The backend therefore keeps the following invariant.
+//!
+//! Every statement of the definedness of (i) the operand a literal deciding operand discards, or
+//! (ii) an operand other than the deciding one while the deciding operand is not a literal (such
+//! operands are left unsimplified), exists only as [`Predicate::Defined`] atoms, created only by
+//! [`deferred_obligations`]. No definition equation is applied to any part of such an operand:
+//! an atom is decided only by [`decide_defined`] (folding by pure builtin hooks on literals, ceil
+//! equations whose instantiated condition that folding decides, the key condition of a
+//! collection of literal keys, one equation step selected by matching alone) and by a known fact
+//! or the solver, which reads it as the opaque atom of `\ceil(t)`. Each of these steps is bounded
+//! by the size of the atom's subject or by one selection scan, so deciding an atom terminates
+//! whatever the definition's equations do.
+//!
+//! An operand whose definedness depends on an impure application (a console read, or a function
+//! whose equations perform an effect) cannot be decided without performing it, and a constraint
+//! must never hold an impure application: [`deferred_obligations`] returns that case as a
+//! [`DeferredOutcome`], which its callers turn into the step's unsupported-hook stop.
+
+use k_rust_kore::names::{BuiltinSort, OWISE_RULE_PRIORITY};
+
+use crate::{
+    builtin::{
+        BuiltinResult, UnsupportedHookReason, evaluate_in_definition, implementation_chosen,
+    },
+    definition::BackendDefinition,
+    evaluation::EvaluationMode,
+    rule::{Predicate, RewriteRule, RuleRhs, applicable_groups, term_index},
+    simplify::{EquationInstances, Instance, SimplificationError, equation_instances},
+    stop::{self, Stoppable},
+    substitution::{Substitution, substitute},
+    term::{FunctionType, SymbolType, Term, TermKind, VariableKind},
+};
+
+/// The three hooked symbols whose deciding operand selects the operand that is evaluated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ShortCircuit {
+    /// `KEQUAL.ite`: `ite(C, T, E)`.
+    Ite,
+    /// `BOOL.andThen`: `B1 andThenBool B2`.
+    AndThen,
+    /// `BOOL.orElse`: `B1 orElseBool B2`.
+    OrElse,
+}
+
+impl ShortCircuit {
+    /// The kind of `term` and its arguments, when `term` is an application of one of the three
+    /// hooks at its declared arity.
+    pub(crate) fn of(term: &Term) -> Option<(Self, &[Term])> {
+        let TermKind::Application {
+            symbol, arguments, ..
+        } = term.kind()
+        else {
+            return None;
+        };
+        let kind = match symbol.attributes.hook.as_deref()? {
+            "KEQUAL.ite" if arguments.len() == 3 => Self::Ite,
+            "BOOL.andThen" if arguments.len() == 2 => Self::AndThen,
+            "BOOL.orElse" if arguments.len() == 2 => Self::OrElse,
+            _ => return None,
+        };
+        Some((kind, arguments.as_slice()))
+    }
+
+    /// The operand evaluated and the operand discarded, as argument positions, once the deciding
+    /// operand (position 0) is the literal `value`.
+    pub(crate) fn select(self, value: bool) -> (Option<usize>, Option<usize>) {
+        match (self, value) {
+            (Self::Ite, true) => (Some(1), Some(2)),
+            (Self::Ite, false) => (Some(2), Some(1)),
+            (Self::AndThen, false) | (Self::OrElse, true) => (None, Some(1)),
+            (Self::AndThen, true) | (Self::OrElse, false) => (Some(1), None),
+        }
+    }
+}
+
+/// The literal value of a Boolean domain value.
+pub(crate) fn bool_literal(term: &Term) -> Option<bool> {
+    let TermKind::DomainValue { sort, value } = term.kind() else {
+        return None;
+    };
+    if !sort.is_builtin(BuiltinSort::Bool) {
+        return None;
+    }
+    match value.as_utf8().ok()? {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+/// The argument positions of `term` whose definedness is deferred: when `term` is a short-circuit
+/// application, the operand a literal deciding operand discards, or every operand but the
+/// deciding one while that is not a literal. Empty for any other term.
+pub(crate) fn deferred_positions(term: &Term) -> Vec<usize> {
+    let Some((kind, arguments)) = ShortCircuit::of(term) else {
+        return Vec::new();
+    };
+    match bool_literal(&arguments[0]) {
+        Some(value) => kind.select(value).1.into_iter().collect(),
+        None => (1..arguments.len()).collect(),
+    }
+}
+
+/// An operand whose definedness depends on an impure application: the unsupported outcome at
+/// the point where the operand's definedness is stated. Nothing is performed and nothing is
+/// kept as a constraint.
+#[derive(Clone, Debug)]
+pub(crate) struct DeferredOutcome {
+    hook: String,
+    reason: UnsupportedHookReason,
+    term: Term,
+}
+
+impl DeferredOutcome {
+    fn new(application: &Term, detail: &str) -> Self {
+        let TermKind::Application { symbol, .. } = application.kind() else {
+            unreachable!("an impure subterm is an application");
+        };
+        Self {
+            hook: symbol
+                .attributes
+                .hook
+                .as_deref()
+                .map_or_else(|| symbol.name.to_string(), str::to_owned),
+            reason: UnsupportedHookReason::ArgumentOutOfRange {
+                detail: detail.to_owned(),
+            },
+            term: application.clone(),
+        }
+    }
+}
+
+impl DeferredOutcome {
+    /// The outcome as the deferred atom of the impure application itself, for a caller that
+    /// cannot return it: the predicate simplifier turns such an atom into the unsupported-hook
+    /// stop ([`decide_defined`]) before deciding anything else.
+    pub(crate) fn marker(&self) -> Predicate {
+        Predicate::Defined(self.term.clone())
+    }
+}
+
+impl From<DeferredOutcome> for SimplificationError {
+    fn from(outcome: DeferredOutcome) -> Self {
+        SimplificationError::UnsupportedHook {
+            hook: outcome.hook,
+            reason: outcome.reason,
+            term: outcome.term,
+        }
+    }
+}
+
+const IMPURE_UNDER_OBLIGATION: &str = "the definedness of an operand that #if, andThenBool or \
+     orElseBool does not evaluate depends on this impure application, which is not performed";
+
+const CONSOLE_OUTSIDE_DOMAIN: &str = "a console operation in an operand that #if, andThenBool or \
+     orElseBool does not evaluate, on arguments outside the console's domain; it is not performed";
+
+/// Whether `application`'s symbol performs an effect: declared `impure` (which the frontend
+/// sets on every function whose equations reach an impure symbol), or an `IO.` hook.
+pub(crate) fn is_impure_application(definition: &BackendDefinition, application: &Term) -> bool {
+    let TermKind::Application { symbol, .. } = application.kind() else {
+        return false;
+    };
+    definition.is_impure(&symbol.name)
+        || symbol
+            .attributes
+            .hook
+            .as_deref()
+            .is_some_and(|hook| hook.starts_with("IO."))
+}
+
+/// Whether `application`, a console hook application, has arguments in the console's domain,
+/// where it denotes an element whatever the console holds (domains.md: an IO operation returns
+/// its result or an `IOError`): `#write`/`#putc` on descriptor 1 or 2 with code points in
+/// 0..=255, `#getc` on descriptor 0, `#read` on descriptor 0 with a non-negative length. `None`
+/// for a hook that is not a console hook.
+fn console_domain(application: &Term) -> Option<bool> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = application.kind()
+    else {
+        return None;
+    };
+    let hook = symbol.attributes.hook.as_deref()?;
+    let int = |term: &Term| match term.kind() {
+        TermKind::DomainValue { sort, value } if sort.is_builtin(BuiltinSort::Int) => {
+            value.as_utf8().ok()?.parse::<i128>().ok()
+        }
+        _ => None,
+    };
+    let string = |term: &Term| match term.kind() {
+        TermKind::DomainValue { sort, value } if sort.is_builtin(BuiltinSort::String) => {
+            value.as_utf8().ok().map(str::to_owned)
+        }
+        _ => None,
+    };
+    let output = |descriptor: &Term| matches!(int(descriptor), Some(1 | 2));
+    Some(match (hook, arguments.as_slice()) {
+        ("IO.getc", [descriptor]) => int(descriptor) == Some(0),
+        ("IO.read", [descriptor, length]) => {
+            int(descriptor) == Some(0) && int(length).is_some_and(|length| length >= 0)
+        }
+        ("IO.putc", [descriptor, byte]) => {
+            output(descriptor) && int(byte).is_some_and(|byte| (0..=255).contains(&byte))
+        }
+        ("IO.write", [descriptor, text]) => {
+            output(descriptor)
+                && string(text).is_some_and(|text| text.chars().all(|c| u32::from(c) <= 0xFF))
+        }
+        ("IO.getc" | "IO.read" | "IO.putc" | "IO.write", _) => false,
+        _ => return None,
+    })
+}
+
+/// The immediate subterms of `term`.
+fn children(term: &Term) -> Vec<&Term> {
+    match term.kind() {
+        TermKind::Application { arguments, .. } => arguments.iter().collect(),
+        TermKind::And(left, right) => vec![left, right],
+        TermKind::Injection { term, .. } => vec![term],
+        TermKind::Map { entries, rest, .. } => entries
+            .iter()
+            .flat_map(|(key, value)| [key, value])
+            .chain(rest)
+            .collect(),
+        TermKind::List { heads, rest, .. } => heads
+            .iter()
+            .chain(
+                rest.iter()
+                    .flat_map(|(middle, tails)| std::iter::once(middle).chain(tails)),
+            )
+            .collect(),
+        TermKind::Set { elements, rest, .. } => elements.iter().chain(rest).collect(),
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => Vec::new(),
+    }
+}
+
+/// The first impure application in `term`, if any.
+fn impure_subterm(definition: &BackendDefinition, term: &Term) -> Option<Term> {
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if is_impure_application(definition, term) {
+            return Some(term.clone());
+        }
+        pending.extend(children(term));
+    }
+    None
+}
+
+/// The definedness of `term`, an operand that is never evaluated, as [`Predicate::Defined`]
+/// atoms, without calling `ceil_term`, a ceil equation or the simplifier.
+///
+/// One walk in pre-order: a domain value or an element variable gives nothing (a set variable
+/// gives its atom, since it ranges over every pattern); an injection, an application of a
+/// constructor or of a symbol declared total (an `impure` one included: the attribute states its
+/// definedness, so nothing is performed) gives its arguments' atoms, by strictness; an
+/// application of any other symbol gives its own atom, then its arguments'; a map or a set gives
+/// its own atom (the distinctness of its keys or elements) when it is not `ceil_free`, then its
+/// parts'; a list gives its items'. A console hook application on arguments in the console's
+/// domain ([`console_domain`]) is defined and gives only its arguments' atoms.
+///
+/// An atom is kept only if its subject holds no impure application: its truth would depend on
+/// an effect that is not performed, which no later step can decide. A partial impure
+/// application, a console hook outside its domain, and an atom whose subject holds an impure
+/// application are the [`DeferredOutcome`].
+pub(crate) fn deferred_obligations(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Result<Vec<Predicate>, DeferredOutcome> {
+    let mut atoms = Vec::new();
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if term.attributes().ceil_free() {
+            continue;
+        }
+        let mut children: Vec<&Term> = Vec::new();
+        match term.kind() {
+            TermKind::DomainValue { .. } => {}
+            TermKind::Variable(variable) => {
+                if variable.kind != VariableKind::Element {
+                    atoms.push(Predicate::Defined(term.clone()));
+                }
+            }
+            TermKind::Injection { term: inner, .. } => children.push(inner),
+            TermKind::And(left, right) => children.extend([left, right]),
+            TermKind::Application {
+                symbol, arguments, ..
+            } => {
+                children.extend(arguments);
+                match symbol.attributes.symbol_type {
+                    SymbolType::Constructor | SymbolType::Function(FunctionType::Total) => {}
+                    SymbolType::Function(FunctionType::Partial) => match console_domain(term) {
+                        Some(true) => {}
+                        Some(false) => {
+                            return Err(DeferredOutcome::new(term, CONSOLE_OUTSIDE_DOMAIN));
+                        }
+                        None if is_impure_application(definition, term) => {
+                            return Err(DeferredOutcome::new(term, IMPURE_UNDER_OBLIGATION));
+                        }
+                        None => atoms.push(Predicate::Defined(term.clone())),
+                    },
+                }
+            }
+            TermKind::Map { entries, rest, .. } => {
+                atoms.push(Predicate::Defined(term.clone()));
+                for (key, value) in entries {
+                    children.extend([key, value]);
+                }
+                children.extend(rest);
+            }
+            TermKind::Set { elements, rest, .. } => {
+                atoms.push(Predicate::Defined(term.clone()));
+                children.extend(elements);
+                children.extend(rest);
+            }
+            TermKind::List { heads, rest, .. } => {
+                children.extend(heads);
+                if let Some((middle, tails)) = rest {
+                    children.push(middle);
+                    children.extend(tails);
+                }
+            }
+        }
+        pending.extend(children.into_iter().rev());
+    }
+    let mut unique = Vec::with_capacity(atoms.len());
+    for atom in atoms {
+        let Predicate::Defined(subject) = &atom else {
+            unreachable!("the walk creates only deferred atoms");
+        };
+        if let Some(impure) = impure_subterm(definition, subject) {
+            return Err(DeferredOutcome::new(&impure, IMPURE_UNDER_OBLIGATION));
+        }
+        if !unique.contains(&atom) {
+            unique.push(atom);
+        }
+    }
+    Ok(unique)
+}
+
+/// The result of folding a term by pure builtin hooks on literals ([`fold_hooks`]).
+pub(crate) enum Folded {
+    /// The folded term, the input itself when nothing folded.
+    Term(Term),
+    /// A hooked application in the term is undefined on its literal arguments, so the term is.
+    Bottom(Term),
+}
+
+/// `term` with every application of a pure builtin hook whose arguments fold to domain values
+/// replaced by its value, innermost first: no function or simplification equation, no `impure`
+/// or `IO.` hook, no `evaluated` mark and no cache entry. A hook that is undefined on its
+/// arguments makes the whole term undefined ([`Folded::Bottom`]), since every application is
+/// strict. The walk enters applications and injections only.
+///
+/// A value only an execution chooses is not computed outside one, as in term simplification
+/// (`crate::evaluation`). A builtin failure leaves its application as it is.
+pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppable<Folded> {
+    stop::with_stack_headroom(|| {
+        let (symbol, sort_arguments, arguments) = match term.kind() {
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                arguments,
+            } => (symbol, sort_arguments, arguments),
+            TermKind::Injection {
+                source,
+                target,
+                term: inner,
+            } => {
+                return Ok(match fold_hooks(definition, inner)? {
+                    Folded::Term(folded) if folded.ptr_eq(inner) => Folded::Term(term.clone()),
+                    Folded::Term(folded) => {
+                        Folded::Term(Term::injection(source.clone(), target.clone(), folded))
+                    }
+                    bottom @ Folded::Bottom(_) => bottom,
+                });
+            }
+            _ => return Ok(Folded::Term(term.clone())),
+        };
+        if term.attributes().ceil_free() && term.attributes().constructor_like {
+            return Ok(Folded::Term(term.clone()));
+        }
+        let mut changed = false;
+        let mut folded_arguments = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            match fold_hooks(definition, argument)? {
+                Folded::Term(folded) => {
+                    changed |= !folded.ptr_eq(argument);
+                    folded_arguments.push(folded);
+                }
+                bottom @ Folded::Bottom(_) => return Ok(bottom),
+            }
+        }
+        let node = if changed {
+            Term::application(symbol.clone(), sort_arguments.clone(), folded_arguments)
+        } else {
+            term.clone()
+        };
+        let TermKind::Application {
+            symbol, arguments, ..
+        } = node.kind()
+        else {
+            return Ok(Folded::Term(node));
+        };
+        let pure_hook = symbol
+            .attributes
+            .hook
+            .as_deref()
+            .is_some_and(|hook| !hook.starts_with("IO."))
+            && !definition.is_impure(&symbol.name);
+        if !pure_hook
+            || !arguments
+                .iter()
+                .all(|argument| matches!(argument.kind(), TermKind::DomainValue { .. }))
+        {
+            return Ok(Folded::Term(node));
+        }
+        Ok(match evaluate_in_definition(&node, definition)? {
+            Ok(BuiltinResult::Value(_))
+                if crate::evaluation::current() == EvaluationMode::Proof
+                    && implementation_chosen(&node).is_some() =>
+            {
+                Folded::Term(node)
+            }
+            Ok(BuiltinResult::Value(value)) => Folded::Term(value),
+            Ok(BuiltinResult::Bottom) => Folded::Bottom(node),
+            Ok(
+                BuiltinResult::NotApplicable
+                | BuiltinResult::Effect(_)
+                | BuiltinResult::Unsupported(_),
+            )
+            | Err(_) => Folded::Term(node),
+        })
+    })
+}
+
+/// [`fold_hooks`] where a stop only forgoes the fold: the term is kept as it is, which is sound,
+/// and a stop of the request stays raised for its owner's next poll.
+pub(crate) fn fold_hooks_or_keep(definition: &BackendDefinition, term: &Term) -> Folded {
+    match fold_hooks(definition, term) {
+        Ok(folded) => folded,
+        Err(stop) => {
+            stop.forgo_refinement();
+            Folded::Term(term.clone())
+        }
+    }
+}
+
+/// The truth of `predicate`, an instantiated condition, when [`fold_hooks`] of its terms decides
+/// it; `None` otherwise. Only Boolean literals, and domain values of the builtin Bool, Int and
+/// String sorts (which have one text per value), are compared. The `\ceil` of a `ceil_free`
+/// term holds, and so does that of one of `siblings`, the arguments of the atom's subject, whose
+/// definedness the atom's sibling atoms state ([`deferred_obligations`] states every argument's).
+fn fold_predicate(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    siblings: &[Term],
+) -> Stoppable<Option<bool>> {
+    let fold = |term: &Term| -> Stoppable<Option<Term>> {
+        Ok(match fold_hooks(definition, term)? {
+            Folded::Term(folded) => Some(folded),
+            Folded::Bottom(_) => None,
+        })
+    };
+    let comparable = |term: &Term| match term.kind() {
+        TermKind::DomainValue { sort, .. } => {
+            sort.is_builtin(BuiltinSort::Bool)
+                || sort.is_builtin(BuiltinSort::Int)
+                || sort.is_builtin(BuiltinSort::String)
+        }
+        _ => false,
+    };
+    Ok(match predicate {
+        Predicate::True => Some(true),
+        Predicate::False => Some(false),
+        Predicate::Term(term) => fold(term)?.as_ref().and_then(bool_literal),
+        Predicate::Equals(left, right) => match (fold(left)?, fold(right)?) {
+            (Some(left), Some(right)) if comparable(&left) && comparable(&right) => {
+                (left.sort() == right.sort()).then_some(left == right)
+            }
+            _ => None,
+        },
+        Predicate::Not(inner) => fold_predicate(definition, inner, siblings)?.map(|value| !value),
+        Predicate::And(conjuncts) => {
+            let mut all = Some(true);
+            for conjunct in conjuncts {
+                match fold_predicate(definition, conjunct, siblings)? {
+                    Some(false) => return Ok(Some(false)),
+                    Some(true) => {}
+                    None => all = None,
+                }
+            }
+            all
+        }
+        Predicate::Ceil(term) | Predicate::Defined(term)
+            if term.attributes().ceil_free() || siblings.contains(term) =>
+        {
+            Some(true)
+        }
+        _ => None,
+    })
+}
+
+/// What [`decide_defined`] made of an atom `Defined(t)`.
+pub(crate) enum DeferredDecision {
+    /// `t` is defined.
+    Established,
+    /// `t` is undefined.
+    Refuted,
+    /// `t` folded to another term: these atoms state its definedness instead.
+    Replaced(Vec<Predicate>),
+    /// Undecided: the atom stays.
+    Open,
+}
+
+/// Decide `Defined(t)` by the steps that apply no definition equation, in order:
+/// - D1, fold `t` by pure builtin hooks on literals ([`fold_hooks`]): an undefined hook refutes
+///   it, and a changed term replaces the atom by the [`deferred_obligations`] of the result;
+/// - D3, a map or set without a rest whose keys or elements fold to domain values: pairwise
+///   distinct ones establish its own condition, a repeated one refutes it (the atoms of its
+///   values and elements are its siblings);
+/// - D2, an unconditional ceil equation of `t`'s root, used only when D1 decides every conjunct
+///   of its instantiated condition;
+/// - D4, one function equation step selected by matching alone ([`single_step`]).
+///
+/// Known facts (D6) and the solver (D7) are read by the predicate simplifier and the solver
+/// around this decision.
+pub(crate) fn decide_defined(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Stoppable<Result<DeferredDecision, DeferredOutcome>> {
+    if term.attributes().ceil_free() {
+        return Ok(Ok(DeferredDecision::Established));
+    }
+    // An atom whose subject holds an impure application is never kept: it is the outcome.
+    if let Some(impure) = impure_subterm(definition, term) {
+        return Ok(Err(DeferredOutcome::new(&impure, IMPURE_UNDER_OBLIGATION)));
+    }
+    match fold_hooks(definition, term)? {
+        Folded::Bottom(_) => return Ok(Ok(DeferredDecision::Refuted)),
+        Folded::Term(folded) if !folded.ptr_eq(term) && folded != *term => {
+            return Ok(deferred_obligations(definition, &folded).map(DeferredDecision::Replaced));
+        }
+        Folded::Term(_) => {}
+    }
+    if let Some(decision) = literal_collection(definition, term)? {
+        return Ok(Ok(decision));
+    }
+    if let Some(decision) = ceil_equation(definition, term)? {
+        return Ok(Ok(decision));
+    }
+    if let Some(decision) = single_step(definition, term)? {
+        return Ok(Ok(decision));
+    }
+    Ok(Ok(DeferredDecision::Open))
+}
+
+/// D3: the key condition of a map or set without a rest whose keys or elements fold to domain
+/// values.
+fn literal_collection(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Stoppable<Option<DeferredDecision>> {
+    let keys: Vec<&Term> = match term.kind() {
+        TermKind::Map {
+            entries,
+            rest: None,
+            ..
+        } => entries.iter().map(|(key, _)| key).collect(),
+        TermKind::Set {
+            elements,
+            rest: None,
+            ..
+        } => elements.iter().collect(),
+        _ => return Ok(None),
+    };
+    let mut folded = Vec::with_capacity(keys.len());
+    for key in keys {
+        match fold_hooks(definition, key)? {
+            Folded::Term(key) if matches!(key.kind(), TermKind::DomainValue { .. }) => {
+                if folded.contains(&key) {
+                    return Ok(Some(DeferredDecision::Refuted));
+                }
+                folded.push(key);
+            }
+            // An undefined key is stated by the key's own atom, and a key that is not a literal
+            // leaves the condition undecided.
+            Folded::Term(_) | Folded::Bottom(_) => return Ok(None),
+        }
+    }
+    Ok(Some(DeferredDecision::Established))
+}
+
+/// D2: the first unconditional ceil equation of `term`'s root whose instantiated condition
+/// [`fold_predicate`] decides.
+fn ceil_equation(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Stoppable<Option<DeferredDecision>> {
+    let arguments = match term.kind() {
+        TermKind::Application { arguments, .. } => arguments.as_slice(),
+        _ => &[],
+    };
+    let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
+    for rules in groups.values() {
+        for rule in rules {
+            if !rule.requires.is_empty()
+                || !rule.computed_attributes.unbound_result_variables.is_empty()
+                || !matches!(rule.rhs, RuleRhs::Predicates(_))
+            {
+                continue;
+            }
+            let (rule, EquationInstances::Matched(instances)) =
+                equation_instances(definition, rule, term, &[])
+            else {
+                continue;
+            };
+            let RuleRhs::Predicates(predicates) = &rule.rhs else {
+                unreachable!("renaming keeps the kind of the right-hand side");
+            };
+            for instance in instances {
+                let Instance::Usable(substitution) = instance else {
+                    continue;
+                };
+                let mut all = Some(true);
+                for predicate in predicates {
+                    let instantiated = substitute_predicate(predicate, &substitution);
+                    match fold_predicate(definition, &instantiated, arguments)? {
+                        Some(false) => return Ok(Some(DeferredDecision::Refuted)),
+                        Some(true) => {}
+                        None => all = None,
+                    }
+                }
+                if all == Some(true) {
+                    return Ok(Some(DeferredDecision::Established));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn substitute_predicate(predicate: &Predicate, substitution: &Substitution) -> Predicate {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "an instantiated ceil-equation or equation condition that is only folded by hooks; the definedness of the bindings is stated by the sibling atoms of the subject's arguments"
+    )]
+    let mut instantiated =
+        crate::rewrite::substitute_predicates(std::slice::from_ref(predicate), substitution);
+    instantiated.pop().expect("one predicate in, one out")
+}
+
+/// Whether `term`, below its root, has a function symbol (the hooked collection constructors
+/// included, as a map, set or list pattern).
+fn function_below_root(term: &Term) -> bool {
+    let has_function = |term: &Term| {
+        let mut pending = vec![term];
+        while let Some(term) = pending.pop() {
+            match term.kind() {
+                TermKind::Application { symbol, .. }
+                    if matches!(symbol.attributes.symbol_type, SymbolType::Function(_)) =>
+                {
+                    return true;
+                }
+                TermKind::Map { .. } | TermKind::Set { .. } | TermKind::List { .. } => return true,
+                _ => pending.extend(children(term)),
+            }
+        }
+        false
+    };
+    children(term).into_iter().any(has_function)
+}
+
+/// D4: decide `Defined(term)` by one function equation step whose selection is decided by
+/// matching alone, without evaluating its right-hand side.
+///
+/// The step is an instance of an equation `term = r`, an axiom: an instantiated right-hand side
+/// `\bottom` refutes the atom, and one whose [`deferred_obligations`] are empty establishes it
+/// (the definedness of the arguments the instance binds is stated by the atom's siblings). The
+/// selection is stricter than the evaluator's:
+/// - function-theory equations only; simplification lemmas are neither competitors nor
+///   selected;
+/// - every higher-priority group is refuted by a failed match of every equation in it, and the
+///   selected group has one equation with one usable instance, every other equation of it
+///   failing to match;
+/// - when a left-hand side it consults has a function symbol below its root, every argument of
+///   `term` must be instance-normal, since a failed match against an unevaluated argument is a
+///   refutation only of that argument's syntax;
+/// - an `owise` equation's competitor antecedent (its first `requires` conjunct, stating that
+///   no higher equation applies) is discharged by that refutation, and the rest of its
+///   `requires` must fold to `true` by hooks, as must the whole `requires` of any other
+///   equation;
+/// - no `ensures`, and no right-hand-side variable the left-hand side does not bind.
+///
+/// Otherwise it decides nothing. It is one selection scan, so it terminates.
+fn single_step(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<DeferredDecision>> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return Ok(None);
+    };
+    if !matches!(symbol.attributes.symbol_type, SymbolType::Function(_)) {
+        return Ok(None);
+    }
+    let groups = applicable_groups(definition.function_theory(), &term_index(term));
+    let mut arguments_normal = None;
+    for rules in groups.values() {
+        let mut candidate: Option<(RewriteRule, Substitution)> = None;
+        for rule in rules {
+            if function_below_root(&rule.lhs)
+                && !*arguments_normal.get_or_insert_with(|| {
+                    arguments
+                        .iter()
+                        .all(|argument| definition.instance_normal(argument).is_some())
+                })
+            {
+                return Ok(None);
+            }
+            let (renamed, instances) = equation_instances(definition, rule, term, &[]);
+            match instances {
+                EquationInstances::NotMatched(_) => {}
+                EquationInstances::Undecided => return Ok(None),
+                EquationInstances::Matched(mut instances) => {
+                    if candidate.is_some() || instances.len() != 1 {
+                        return Ok(None);
+                    }
+                    let Some(Instance::Usable(substitution)) = instances.pop() else {
+                        return Ok(None);
+                    };
+                    candidate = Some((renamed.into_owned(), substitution));
+                }
+            }
+        }
+        if let Some((rule, substitution)) = candidate {
+            return single_step_instance(definition, &rule, &substitution, arguments);
+        }
+    }
+    Ok(None)
+}
+
+/// The decision the selected instance of [`single_step`] gives.
+fn single_step_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    substitution: &Substitution,
+    arguments: &[Term],
+) -> Stoppable<Option<DeferredDecision>> {
+    if !rule.ensures.is_empty() || !rule.computed_attributes.unbound_result_variables.is_empty() {
+        return Ok(None);
+    }
+    let mut requires = rule.requires.iter().peekable();
+    if rule.attributes.priority == OWISE_RULE_PRIORITY
+        && requires
+            .peek()
+            .is_some_and(|first| matches!(first, Predicate::Not(_)))
+    {
+        requires.next();
+    }
+    for predicate in requires {
+        let instantiated = substitute_predicate(predicate, substitution);
+        if fold_predicate(definition, &instantiated, arguments)? != Some(true) {
+            return Ok(None);
+        }
+    }
+    Ok(match &rule.rhs {
+        RuleRhs::Bottom => Some(DeferredDecision::Refuted),
+        RuleRhs::Term(rhs) => {
+            let instantiated = substitute(rhs, substitution);
+            match deferred_obligations(definition, &instantiated) {
+                Ok(atoms) if atoms.is_empty() => Some(DeferredDecision::Established),
+                Ok(_) | Err(_) => None,
+            }
+        }
+        _ => None,
+    })
+}
+
+/// The constraints of a state given to an execution, with each `\ceil(t)` read as the deferred
+/// atoms of `t` ([`deferred_obligations`]).
+///
+/// A state a run reports prints its open deferred atoms as `\ceil(t)`, and a client resumes
+/// from such states. Read back as an ordinary `\ceil`, the obligation would be decided by
+/// evaluating `t`, the operand the conditional never evaluated; read back as a lone atom,
+/// `Defined(1 |-> f())` would lose the sibling `Defined(f())` its decision relies on. The input
+/// cannot tell an ordinary `\ceil` from a deferred one, so every one over a term that holds a
+/// function application is read this way, which can only leave open an obligation a continuous
+/// run would have decided by evaluation; one over a term without a function application is kept,
+/// since deciding it evaluates nothing. A `\ceil` over an impure application becomes the atom of
+/// that application, which the predicate simplifier turns into the unsupported-hook stop.
+pub(crate) fn resumed_constraints(
+    definition: &BackendDefinition,
+    constraints: Vec<Predicate>,
+) -> Vec<Predicate> {
+    let mut read = Vec::with_capacity(constraints.len());
+    for constraint in constraints {
+        match resumed_predicate(definition, constraint) {
+            Predicate::And(conjuncts) => {
+                for conjunct in conjuncts {
+                    if !read.contains(&conjunct) {
+                        read.push(conjunct);
+                    }
+                }
+            }
+            Predicate::True => {}
+            predicate if !read.contains(&predicate) => read.push(predicate),
+            _ => {}
+        }
+    }
+    read
+}
+
+/// Whether `term` holds an application of a function symbol.
+fn has_function_application(term: &Term) -> bool {
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if let TermKind::Application { symbol, .. } = term.kind()
+            && matches!(symbol.attributes.symbol_type, SymbolType::Function(_))
+        {
+            return true;
+        }
+        pending.extend(children(term));
+    }
+    false
+}
+
+fn resumed_predicate(definition: &BackendDefinition, predicate: Predicate) -> Predicate {
+    let recurse = |inner: Box<Predicate>| Box::new(resumed_predicate(definition, *inner));
+    match predicate {
+        // A subject without a function application has nothing to evaluate: its ordinary
+        // `\ceil` is decided by its collections' key conditions over constructors and values
+        // alone, and keeps what it states about them (the absence of a key from a rest).
+        Predicate::Ceil(term) if !has_function_application(&term) => Predicate::Ceil(term),
+        Predicate::Ceil(term) => match deferred_obligations(definition, &term) {
+            Ok(mut atoms) => match atoms.len() {
+                0 => Predicate::True,
+                1 => atoms.pop().expect("one atom"),
+                _ => Predicate::And(atoms),
+            },
+            Err(outcome) => outcome.marker(),
+        },
+        Predicate::Not(inner) => Predicate::Not(recurse(inner)),
+        Predicate::And(inner) => Predicate::And(
+            inner
+                .into_iter()
+                .map(|inner| resumed_predicate(definition, inner))
+                .collect(),
+        ),
+        Predicate::Or(inner) => Predicate::Or(
+            inner
+                .into_iter()
+                .map(|inner| resumed_predicate(definition, inner))
+                .collect(),
+        ),
+        Predicate::Implies(left, right) => Predicate::Implies(recurse(left), recurse(right)),
+        Predicate::Iff(left, right) => Predicate::Iff(recurse(left), recurse(right)),
+        Predicate::Exists(variable, inner) => Predicate::Exists(variable, recurse(inner)),
+        Predicate::Forall(variable, inner) => Predicate::Forall(variable, recurse(inner)),
+        predicate @ (Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Defined(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_)) => predicate,
+    }
+}
+
+/// What the result of a short-circuit hook states about the operands it evaluated: the deciding
+/// operand and, when its value is a literal, the selected one (the positions other than the
+/// deferred ones).
+///
+/// The result is taken under the conditions of the deciding operand's simplification, which
+/// state that operand defined and equal to its value, and is the selected operand's value, which
+/// is defined wherever the result is and equal to the selected operand there. So on the result's
+/// instances each evaluated operand is defined and equal to its simplified form, and two facts
+/// follow without evaluating the discarded operand:
+/// - an occurrence of an evaluated operand in the discarded one denotes its value, so it is read
+///   as that value (`#if X ==K none #then M[N] #else X and {M[N]}:>Pred #fi` states the
+///   definedness of `{v}:>Pred` for the value `v` of `M[N]`);
+/// - every subterm of an evaluated operand is defined (application is strict), so no atom is
+///   stated over one (`findChar`'s equation discards an operand that holds the very call its
+///   condition evaluates).
+///
+/// An operand that holds an impure application is no such fact: two occurrences of a console
+/// read are two reads. Operands are compared after the folding by builtin hooks on literals that
+/// the discarded operand had.
+pub(crate) struct EvaluatedOperands {
+    /// Each evaluated operand as it was, folded, and its value.
+    values: Vec<(Term, Term)>,
+    /// The subterms of the evaluated operands as they were, folded.
+    subterms: rustc_hash::FxHashSet<Term>,
+}
+
+impl EvaluatedOperands {
+    /// The facts of `application`, a short-circuit hook's application with its operands
+    /// simplified as the hook saw them, given `before`, the application before its operands were
+    /// simplified, and the `deferred` positions. Nothing when `before` is not the same hook's.
+    pub(crate) fn of(
+        definition: &BackendDefinition,
+        application: &Term,
+        before: &Term,
+        deferred: &[usize],
+    ) -> Self {
+        let mut facts = Self {
+            values: Vec::new(),
+            subterms: rustc_hash::FxHashSet::default(),
+        };
+        let (Some((kind, values)), Some((before_kind, operands))) =
+            (ShortCircuit::of(application), ShortCircuit::of(before))
+        else {
+            return facts;
+        };
+        if kind != before_kind {
+            return facts;
+        }
+        for (position, (operand, value)) in operands.iter().zip(values).enumerate() {
+            if deferred.contains(&position) || impure_subterm(definition, operand).is_some() {
+                continue;
+            }
+            let Folded::Term(folded) = fold_hooks_or_keep(definition, operand) else {
+                continue;
+            };
+            if folded != *value && !folded.attributes().ceil_free() {
+                facts.values.push((folded.clone(), value.clone()));
+            }
+            let mut pending = vec![folded];
+            while let Some(term) = pending.pop() {
+                if term.attributes().ceil_free() || !facts.subterms.insert(term.clone()) {
+                    continue;
+                }
+                pending.extend(children(&term).into_iter().cloned());
+            }
+        }
+        facts
+    }
+
+    /// The deferred atoms of `operand`, a discarded operand already folded by hooks, with the
+    /// evaluated operands read as their values and the atoms over their subterms left out.
+    pub(crate) fn discarded_obligations(
+        &self,
+        definition: &BackendDefinition,
+        operand: &Term,
+    ) -> Result<Vec<Predicate>, DeferredOutcome> {
+        let replaced = self.replace(operand);
+        let operand = if replaced.ptr_eq(operand) {
+            replaced
+        } else {
+            match fold_hooks_or_keep(definition, &replaced) {
+                Folded::Term(folded) => folded,
+                Folded::Bottom(_) => return Ok(vec![Predicate::False]),
+            }
+        };
+        let mut atoms = deferred_obligations(definition, &operand)?;
+        atoms.retain(
+            |atom| !matches!(atom, Predicate::Defined(subject) if self.subterms.contains(subject)),
+        );
+        Ok(atoms)
+    }
+
+    /// `term` with each occurrence of an evaluated operand replaced by its value, through
+    /// applications, injections and conjunctions.
+    fn replace(&self, term: &Term) -> Term {
+        if self.values.is_empty() {
+            return term.clone();
+        }
+        if let Some((_, value)) = self.values.iter().find(|(operand, _)| operand == term) {
+            return value.clone();
+        }
+        match term.kind() {
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                arguments,
+            } => {
+                let replaced = arguments
+                    .iter()
+                    .map(|argument| self.replace(argument))
+                    .collect::<Vec<_>>();
+                if replaced
+                    .iter()
+                    .zip(arguments)
+                    .all(|(new, old)| new.ptr_eq(old))
+                {
+                    term.clone()
+                } else {
+                    Term::application(symbol.clone(), sort_arguments.clone(), replaced)
+                }
+            }
+            TermKind::Injection {
+                source,
+                target,
+                term: inner,
+            } => {
+                let replaced = self.replace(inner);
+                if replaced.ptr_eq(inner) {
+                    term.clone()
+                } else {
+                    Term::injection(source.clone(), target.clone(), replaced)
+                }
+            }
+            TermKind::And(left, right) => {
+                let (new_left, new_right) = (self.replace(left), self.replace(right));
+                if new_left.ptr_eq(left) && new_right.ptr_eq(right) {
+                    term.clone()
+                } else {
+                    Term::and(new_left, new_right)
+                }
+            }
+            _ => term.clone(),
+        }
+    }
+}

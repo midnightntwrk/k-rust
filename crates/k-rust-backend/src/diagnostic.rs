@@ -786,7 +786,10 @@ impl<'a> Occurrences<'a> {
                 }
                 match predicate {
                     Predicate::True | Predicate::False => {}
-                    Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
+                    Predicate::Term(term)
+                    | Predicate::Ceil(term)
+                    | Predicate::Defined(term)
+                    | Predicate::Floor(term) => {
                         pending_terms.push(term);
                     }
                     Predicate::Equals(left, right) | Predicate::In(left, right) => {

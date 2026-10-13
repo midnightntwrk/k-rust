@@ -134,20 +134,21 @@ impl Simplification {
     pub(super) fn hook(
         definition: &BackendDefinition,
         application: &Term,
+        before_children: Option<&Term>,
         outcome: HookOutcome,
         hook: &str,
         known: &[Predicate],
-    ) -> Self {
+    ) -> Result<Self, crate::deferred::DeferredOutcome> {
         let (term, conditions, effects, undefined_term) = match outcome {
             HookOutcome::Value(value) => (
                 value,
-                ResultConditions::hook_arguments(definition, application, known),
+                ResultConditions::hook_arguments(definition, application, before_children, known)?,
                 Vec::new(),
                 None,
             ),
             HookOutcome::Effect(value, effect) => (
                 value,
-                ResultConditions::hook_arguments(definition, application, known),
+                ResultConditions::hook_arguments(definition, application, before_children, known)?,
                 vec![effect],
                 None,
             ),
@@ -158,7 +159,7 @@ impl Simplification {
                 Some(application.clone()),
             ),
         };
-        Self {
+        Ok(Self {
             term,
             conditions: conjuncts(conditions),
             applied_rules: Log::from(vec![format!("builtin:{hook}")]),
@@ -166,7 +167,7 @@ impl Simplification {
             exhausted: None,
             undefined_term,
             contradicted_total: None,
-        }
+        })
     }
 
     /// The result `term` of the function equation `rule`, with what its instance leaves of its

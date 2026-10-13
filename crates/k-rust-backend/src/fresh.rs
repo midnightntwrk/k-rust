@@ -670,7 +670,10 @@ impl<'n, 'r> Pass<'n, 'r> {
     fn predicate(&mut self, predicate: &Predicate) {
         match predicate {
             Predicate::True | Predicate::False => {}
-            Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
+            Predicate::Term(term)
+            | Predicate::Ceil(term)
+            | Predicate::Defined(term)
+            | Predicate::Floor(term) => {
                 self.term(term);
             }
             // The two sides of an equality are unordered, like the operands of a conjunction.
@@ -858,6 +861,7 @@ impl<'n, 'r> Pass<'n, 'r> {
                 hash_of(&(13u8, left.min(right), left.max(right)))
             }
             Predicate::Ceil(term) => hash_of(&(14u8, self.label(term))),
+            Predicate::Defined(term) => hash_of(&(25u8, self.label(term))),
             Predicate::Floor(term) => hash_of(&(15u8, self.label(term))),
             Predicate::In(left, right) => hash_of(&(16u8, self.label(left), self.label(right))),
             Predicate::Not(inner) => hash_of(&(17u8, self.predicate_label(inner))),
@@ -1024,6 +1028,7 @@ fn sort_operands(predicate: &mut Predicate) {
         | Predicate::False
         | Predicate::Term(_)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_) => {}

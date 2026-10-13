@@ -145,7 +145,10 @@ pub fn kore_variable_identity(variable: &crate::kore::ast::Variable) -> KoreVari
 pub fn collect_predicate_variables(predicate: &Predicate, variables: &mut BTreeSet<Variable>) {
     match predicate {
         Predicate::True | Predicate::False => {}
-        Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
+        Predicate::Term(term)
+        | Predicate::Ceil(term)
+        | Predicate::Defined(term)
+        | Predicate::Floor(term) => {
             variables.extend(term.attributes().variables.iter().cloned());
         }
         Predicate::Equals(left, right) | Predicate::In(left, right) => {

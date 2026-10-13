@@ -56,6 +56,7 @@ fn bound_names_of(predicate: &Predicate, names: &mut BTreeSet<String>) {
         | Predicate::Term(_)
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         // An absence prints with a binder of its own (`Absence::binder`), named apart from

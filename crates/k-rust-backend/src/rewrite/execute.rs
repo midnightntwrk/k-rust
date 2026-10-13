@@ -91,6 +91,15 @@ pub(super) fn execute_using(
     // the request asks for (`crate::evaluation`).
     let _evaluation = crate::evaluation::EvaluationScope::enter(options.evaluation);
     let _domain = crate::term::domain::DomainScope::enter(definition);
+    // A `\ceil` in a given state is read as deferred atoms (`crate::deferred`): a state
+    // resumed from a reported one does not evaluate the operands its run left unevaluated.
+    let initial = initial
+        .into_iter()
+        .map(|pattern| Pattern {
+            term: pattern.term,
+            constraints: crate::deferred::resumed_constraints(definition, pattern.constraints),
+        })
+        .collect();
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,
@@ -445,7 +454,9 @@ impl<'a> Execution<'a> {
                 let refuted_ceil = pattern_before_constraint_simplification
                     .constraints
                     .iter()
-                    .find(|predicate| matches!(predicate, Predicate::Ceil(_)));
+                    .find(|predicate| {
+                        matches!(predicate, Predicate::Ceil(_) | Predicate::Defined(_))
+                    });
                 let halt_reason = match (applied, refuted_ceil) {
                     (Some(applied), Some(obligation)) => HaltReason::Trivial {
                         depth: state.depth,

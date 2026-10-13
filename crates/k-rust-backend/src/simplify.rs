@@ -97,6 +97,10 @@ use crate::{
         Conjunct, ConsumedDefinedness, DecidedEquation, EquationInstance, InstantiatedCondition,
         MatchedEquation,
     },
+    deferred::{
+        DeferredDecision, DeferredOutcome, Folded, ShortCircuit, bool_literal,
+        deferred_obligations, deferred_positions, fold_hooks,
+    },
     definedness::{ceil_term, terms_apart},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
@@ -517,7 +521,8 @@ fn simplify_pattern_details(
     {
         constraints = vec![Predicate::False];
     }
-    constraints.retain(|constraint| !ceil_entailed_by_term(constraint, &simplified.term));
+    constraints
+        .retain(|constraint| !ceil_entailed_by_term(definition, constraint, &simplified.term));
     let mut constraints = discharge_valid_constraints(definition, constraints, solver)?;
     retain_substitution_predicates(
         &mut constraints,
@@ -543,10 +548,20 @@ fn simplify_pattern_details(
 /// context `C` consists of total symbols (constructors, cells, injections, `kseq`, `dotk`, and
 /// collections), whose own definedness is not an open obligation. Under a partial application
 /// the conjunct stays explicit, as the obligation `ceil_term` reports for that application.
-fn ceil_entailed_by_term(predicate: &Predicate, term: &Term) -> bool {
-    let Predicate::Ceil(subject) = predicate else {
+fn ceil_entailed_by_term(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    term: &Term,
+) -> bool {
+    let (Predicate::Ceil(subject) | Predicate::Defined(subject)) = predicate else {
         return false;
     };
+    // The deferred atom of an impure application is an outcome to raise, not a fact.
+    if matches!(predicate, Predicate::Defined(_))
+        && crate::deferred::is_impure_application(definition, subject)
+    {
+        return false;
+    }
     occurs_under_total_context(term, subject)
 }
 
@@ -620,7 +635,9 @@ fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -
                     visit(definition, known, conjunct, subterms);
                 }
             }
-            Predicate::Term(term) | Predicate::Ceil(term) => collect(term, subterms),
+            Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Defined(term) => {
+                collect(term, subterms);
+            }
             Predicate::Equals(left, right) if defined(left) || defined(right) => {
                 collect(left, subterms);
                 collect(right, subterms);
@@ -973,6 +990,7 @@ impl ShallowKey {
             | Predicate::Term(_)
             | Predicate::Equals(..)
             | Predicate::Ceil(_)
+            | Predicate::Defined(_)
             | Predicate::Floor(_)
             | Predicate::In(..)
             | Predicate::Absent(_) => {}
@@ -993,7 +1011,10 @@ impl ShallowKey {
         self.nodes += 1;
         std::mem::discriminant(predicate).hash(&mut self.hasher);
         match predicate {
-            Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
+            Predicate::Term(term)
+            | Predicate::Ceil(term)
+            | Predicate::Defined(term)
+            | Predicate::Floor(term) => {
                 term.hash(&mut self.hasher);
             }
             Predicate::Equals(left, right) | Predicate::In(left, right) => {
@@ -1037,6 +1058,7 @@ fn predicate_nodes_within(predicate: &Predicate, bound: usize) -> Option<usize> 
             | Predicate::Term(_)
             | Predicate::Equals(..)
             | Predicate::Ceil(_)
+            | Predicate::Defined(_)
             | Predicate::Floor(_)
             | Predicate::In(..)
             | Predicate::Absent(_) => {}
@@ -1392,7 +1414,7 @@ fn simplify_predicates_with_budget(
         if let Some(slot) = slots[index] {
             assumptions[offset + slot] = Predicate::True;
         }
-        let result = if let Predicate::Ceil(subject) = predicate
+        let result = if let Predicate::Ceil(subject) | Predicate::Defined(subject) = predicate
             && known_defined
                 .get_or_insert_with(|| known_defined_subterms(definition, known_predicates))
                 .contains(subject)
@@ -1434,6 +1456,13 @@ fn simplify_predicates_with_budget(
                 solver,
             )
         }?;
+        // A false conjunct makes the conjunction false: the later conjuncts are not simplified.
+        // A conditional's condition precedes its branch's equation in the conjunction that
+        // states it (`implication::remainder_obligation`), so a branch the condition excludes
+        // is never simplified, and an operand the conditional never evaluates stays unevaluated.
+        if result == Predicate::False {
+            return Ok(vec![Predicate::False]);
+        }
         if let Some(slot) = slots[index] {
             if result != *predicate {
                 let mut equalities = Vec::new();
@@ -2272,6 +2301,40 @@ fn simplify_predicate_on_stack(
                 );
             }
         }
+        // A deferred atom is decided only by the steps of `crate::deferred` (and by the known
+        // facts and the solver): its subject is never given to the term simplifier, and no
+        // ceil, simplification or predicate lemma is applied to it.
+        Predicate::Defined(term) => {
+            if assumptions.contains(&Predicate::Ceil(term.clone())) {
+                return Ok(Predicate::True);
+            }
+            return match crate::deferred::decide_defined(definition, term)? {
+                Err(outcome) => Err(SimplificationError::from(outcome).into()),
+                Ok(DeferredDecision::Established) => Ok(Predicate::True),
+                Ok(DeferredDecision::Refuted) => Ok(Predicate::False),
+                Ok(DeferredDecision::Open) => Ok(predicate.clone()),
+                Ok(DeferredDecision::Replaced(atoms)) => {
+                    let conjunction = Predicate::And(atoms);
+                    if *remaining == 0 {
+                        return Err(SimplificationError::PredicateIterationLimit {
+                            limit,
+                            predicate: conjunction,
+                        }
+                        .into());
+                    }
+                    *remaining -= 1;
+                    simplify_predicate_with_budget(
+                        definition,
+                        &conjunction,
+                        assumptions,
+                        limit,
+                        remaining,
+                        active_conditions,
+                        solver,
+                    )
+                }
+            };
+        }
         Predicate::Floor(term) => {
             let simplified = simplify_term(term)?;
             // `\floor(C /\ t')` is `\not C \/ \floor(t')`, not `C /\ \floor(t')`, because
@@ -2452,6 +2515,7 @@ fn simplify_predicate_on_stack(
         | Predicate::Term(_)
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_) => normalize_hereditary(simplified),
@@ -2593,7 +2657,8 @@ fn defined_uncomputed(definition: &BackendDefinition, term: &Term) -> SimplifyRe
 /// every `B`). A partial hook's application is the error at once: its definedness is unknown
 /// too, and every hook is strict, so even a discarded one would leave its `\ceil` as an undecided
 /// condition the run refuses in the end. An effect is the error at once: left unevaluated, later
-/// steps would run before it.
+/// steps would run before it. (An operand that `#if`, `andThenBool` or `orElseBool` discards is
+/// never simplified, so neither applies to it; `crate::deferred`.)
 fn defers_uncomputed(definition: &BackendDefinition, symbol: &Symbol, hook: &str) -> bool {
     symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
         && !definition.is_impure(&symbol.name)
@@ -2762,6 +2827,9 @@ fn push_predicate_terms(
             push_predicate_terms(definition, left, pending)?;
             push_predicate_terms(definition, right, pending)?;
         }
+        // A deferred atom states only the definedness of an operand that is never evaluated: no
+        // value of any part of it is used.
+        Predicate::Defined(_) => {}
         Predicate::True
         | Predicate::False
         | Predicate::Term(_)
@@ -2903,8 +2971,10 @@ fn apply_ceil_equation_instance(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
-    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term);
-    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed);
+    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
+        .map_err(SimplificationError::from)?;
+    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed)
+        .map_err(SimplificationError::from)?;
     let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes,
@@ -3065,7 +3135,8 @@ fn apply_predicate_equation(
         &rule.requires,
         substitution,
         ConsumedDefinedness::stated(consumed.obligations),
-    );
+    )
+    .map_err(SimplificationError::from)?;
     let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes,
@@ -3365,7 +3436,9 @@ fn strict_variables(
         })
     };
     match lhs {
-        Predicate::Ceil(term) => term.attributes().variables.to_btree_set(),
+        Predicate::Ceil(term) | Predicate::Defined(term) => {
+            term.attributes().variables.to_btree_set()
+        }
         Predicate::In(left, right) => left
             .attributes()
             .variables
@@ -3572,6 +3645,7 @@ pub(crate) fn has_quantifier(predicate: &Predicate) -> bool {
         | Predicate::Term(_)
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_) => false,
@@ -3610,6 +3684,7 @@ fn rename_binders_apart(
         Predicate::False => Predicate::False,
         Predicate::Term(inner) => Predicate::Term(term(inner, scope)),
         Predicate::Ceil(inner) => Predicate::Ceil(term(inner, scope)),
+        Predicate::Defined(inner) => Predicate::Defined(term(inner, scope)),
         Predicate::Floor(inner) => Predicate::Floor(term(inner, scope)),
         Predicate::Equals(left, right) => Predicate::Equals(term(left, scope), term(right, scope)),
         Predicate::In(left, right) => Predicate::In(term(left, scope), term(right, scope)),
@@ -3717,7 +3792,10 @@ fn same_connective(pattern: &Predicate, subject: &Predicate) -> bool {
 fn first_predicate_term(predicate: &Predicate) -> Option<&Term> {
     match predicate {
         Predicate::True | Predicate::False => None,
-        Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => Some(term),
+        Predicate::Term(term)
+        | Predicate::Ceil(term)
+        | Predicate::Defined(term)
+        | Predicate::Floor(term) => Some(term),
         Predicate::Equals(left, _) | Predicate::In(left, _) => Some(left),
         Predicate::Absent(absence) => Some(absence.key()),
         Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
@@ -4020,6 +4098,7 @@ fn normalize_hereditary(predicate: Predicate) -> Predicate {
         | Predicate::Term(_)
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_)) => atom,
@@ -4219,6 +4298,9 @@ fn simplify_on_stack(
             // A retried application is the subject of the step that failed: its children were
             // simplified in that round, and only its root is tried again.
             let retried = retry.take();
+            // The application before its children were simplified: the operands a short-circuit
+            // hook evaluated, whose definedness its result entails (`hook_argument_definedness`).
+            let before_children = retried.is_none().then(|| term.clone());
             let children = if retried.is_some() {
                 Simplification::irreducible(term.clone())
             } else {
@@ -4245,6 +4327,7 @@ fn simplify_on_stack(
             let (root, root_step, root_equation, unspecified) = simplify_root(
                 definition,
                 &children.term,
+                before_children.as_ref(),
                 assumptions,
                 options,
                 active_conditions,
@@ -4630,8 +4713,10 @@ fn top_equation_instance(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Vec<Predicate>, ()>> {
-    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term);
-    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed);
+    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
+        .map_err(SimplificationError::from)?;
+    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed)
+        .map_err(SimplificationError::from)?;
     let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes,
@@ -4683,6 +4768,9 @@ fn simplify_children(
 ) -> SimplifyResult<Simplification> {
     let mut accumulated = Accumulated::default();
     let children_unchanged = Cell::new(true);
+    // The refutation of a discarded short-circuit operand that builtin hooks show undefined,
+    // absorbed once `child` is no longer borrowed.
+    let mut discarded_bottom = None;
     let mut child = |term: &Term| {
         if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
             measure::bump(Counter::SimplifyNodesSkippedEvaluated);
@@ -4740,6 +4828,55 @@ fn simplify_children(
                 }
                 None => Term::and(child(left)?, child(right)?),
             }
+        }
+        // `KEQUAL.ite`, `BOOL.andThen` and `BOOL.orElse`: the deciding operand first, then only
+        // the operand it selects. The discarded operand is folded by builtin hooks on literals
+        // and nothing else; the hook states its definedness as deferred atoms
+        // (`hook_argument_definedness`). While the deciding operand is not a literal, no other
+        // operand is simplified.
+        TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } if let Some((kind, _)) = ShortCircuit::of(term) => {
+            let deciding = child(&arguments[0])?;
+            let mut operands = Vec::with_capacity(arguments.len());
+            operands.push(deciding.clone());
+            match bool_literal(&deciding) {
+                Some(value) => {
+                    let (selected, discarded) = kind.select(value);
+                    for (position, operand) in arguments.iter().enumerate().skip(1) {
+                        if Some(position) == selected {
+                            operands.push(child(operand)?);
+                        } else if Some(position) == discarded {
+                            match fold_hooks(definition, operand)? {
+                                Folded::Term(folded) => {
+                                    if !folded.ptr_eq(operand) {
+                                        children_unchanged.set(false);
+                                    }
+                                    operands.push(folded);
+                                }
+                                Folded::Bottom(undefined) => {
+                                    discarded_bottom = Some(undefined);
+                                    operands.push(operand.clone());
+                                }
+                            }
+                        } else {
+                            operands.push(operand.clone());
+                        }
+                    }
+                }
+                None => {
+                    // The operands stay unsimplified. One whose definedness depends on an impure
+                    // application is the outcome now, before any state holds it.
+                    for operand in &arguments[1..] {
+                        deferred_obligations(definition, operand)
+                            .map_err(SimplificationError::from)?;
+                        operands.push(operand.clone());
+                    }
+                }
+            }
+            Term::application(symbol.clone(), sort_arguments.clone(), operands)
         }
         TermKind::Application {
             symbol,
@@ -4897,6 +5034,35 @@ fn simplify_children(
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => term.clone(),
     };
+    if let Some(undefined) = discarded_bottom {
+        // The discarded operand is undefined, so the application is (every hook is strict): the
+        // refutation names the hooked application undefined on its literal arguments.
+        let TermKind::Application { symbol, .. } = undefined.kind() else {
+            unreachable!("only a hooked application folds to \\bottom");
+        };
+        let hook = symbol
+            .attributes
+            .hook
+            .as_deref()
+            .unwrap_or_default()
+            .to_owned();
+        let result = accumulated.absorb(
+            Simplification::hook(
+                definition,
+                &undefined,
+                None,
+                HookOutcome::Bottom,
+                &hook,
+                assumptions.predicates,
+            )
+            .map_err(SimplificationError::from)?,
+        );
+        if accumulated.undefined_term.is_none() {
+            accumulated.undefined_term = result.undefined_term;
+            accumulated.contradicted_total = result.contradicted_total;
+        }
+        children_unchanged.set(false);
+    }
     let term = if children_unchanged.get() {
         term.clone()
     } else {
@@ -4952,13 +5118,15 @@ type RootResult = (
 /// every caller conjoins as it conjoins the open definedness obligations of a function equation.
 ///
 /// Every hook is strict in every argument, `BOOL.andThen`, `BOOL.orElse` and `KEQUAL.ite`
-/// included: ground simplification already is, since children are simplified before the root and
-/// an undefined argument makes the whole term `\bottom` before the hook sees it, so symbolic
-/// evaluation must agree with it on every instance.
+/// included, on ground and symbolic arguments alike. Those three are the exception to the order:
+/// `simplify_children` simplifies their deciding operand first and only the operand it selects,
+/// and the hook states the definedness of the operand it discards as deferred atoms
+/// (`hook_argument_definedness`, `crate::deferred`), which no evaluation decides.
 #[allow(clippy::too_many_arguments)]
 fn simplify_root(
     definition: &BackendDefinition,
     term: &Term,
+    before_children: Option<&Term>,
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
@@ -5041,7 +5209,15 @@ fn simplify_root(
                 .as_deref()
                 .expect("evaluated builtin has a hook");
             return Ok((
-                Simplification::hook(definition, term, outcome, hook, known_predicates),
+                Simplification::hook(
+                    definition,
+                    term,
+                    before_children,
+                    outcome,
+                    hook,
+                    known_predicates,
+                )
+                .map_err(SimplificationError::from)?,
                 RootStep::Other,
                 None,
                 None,
@@ -6351,26 +6527,57 @@ impl Drop for UnspecifiedValues {
 /// hook's value is kept: it is redundant there, and a redundant conjunct is sound. A hook's
 /// result receives them only through `condition::ResultConditions::hook_arguments`, which records
 /// every member as an obligation.
+///
+/// An operand of `KEQUAL.ite`, `BOOL.andThen` or `BOOL.orElse` that is never evaluated (the one
+/// a literal deciding operand discards, or every operand but the deciding one while that is not
+/// a literal) states its definedness only as deferred atoms (`crate::deferred`), never through
+/// `ceil_term`, whose decision evaluates; an operand whose definedness depends on an impure
+/// application is the [`DeferredOutcome`].
+///
+/// The operands the hook evaluated are facts of its result (`crate::deferred::EvaluatedOperands`,
+/// from `before_children`, the application before its operands were simplified): the discarded
+/// operand's occurrences of them are read as their values, and no atom is stated over a subterm
+/// of one of them.
 pub(crate) fn hook_argument_definedness(
     definition: &BackendDefinition,
     application: &Term,
+    before_children: Option<&Term>,
     known_predicates: &[Predicate],
-) -> Vec<Predicate> {
+) -> Result<Vec<Predicate>, DeferredOutcome> {
     let TermKind::Application { arguments, .. } = application.kind() else {
         unreachable!("only applications have builtin hooks")
     };
+    let deferred = deferred_positions(application);
+    let mut evaluated_facts = None;
     let mut obligations = Vec::new();
-    for argument in arguments {
+    for (position, argument) in arguments.iter().enumerate() {
         if argument.attributes().ceil_free() {
             continue;
         }
-        for obligation in ceil_term(definition, argument) {
+        let stated = if deferred.contains(&position) {
+            match before_children {
+                Some(before) => evaluated_facts
+                    .get_or_insert_with(|| {
+                        crate::deferred::EvaluatedOperands::of(
+                            definition,
+                            application,
+                            before,
+                            &deferred,
+                        )
+                    })
+                    .discarded_obligations(definition, argument)?,
+                None => deferred_obligations(definition, argument)?,
+            }
+        } else {
+            ceil_term(definition, argument)
+        };
+        for obligation in stated {
             if !known_predicates.contains(&obligation) && !obligations.contains(&obligation) {
                 obligations.push(obligation);
             }
         }
     }
-    obligations
+    Ok(obligations)
 }
 
 fn builtin_effect_result(
@@ -6675,8 +6882,10 @@ fn decide_set_aside_instance<T, N>(
     if rule.requires.is_empty() {
         return Ok(EquationAttempt::Unused);
     }
-    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term);
-    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed);
+    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
+        .map_err(SimplificationError::from)?;
+    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed)
+        .map_err(SimplificationError::from)?;
     Ok(
         match evaluate_equation_condition(
             definition,
@@ -6836,8 +7045,10 @@ fn apply_equation_instance(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
-    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term);
-    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed);
+    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
+        .map_err(SimplificationError::from)?;
+    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed)
+        .map_err(SimplificationError::from)?;
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
     // `R[t]` holds on that element: both sides are empty when `t` is, and equal to `rhs[t]`

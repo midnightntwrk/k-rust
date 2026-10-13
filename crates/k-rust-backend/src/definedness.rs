@@ -460,7 +460,23 @@ fn ceil_term_node<'a>(
             }
             // Applications are strict in their arguments. Keep this knowledge explicit
             // even when the parent's ceil is opaque to predicate simplification and SMT.
-            children.extend(arguments);
+            // An operand of `KEQUAL.ite`, `BOOL.andThen` or `BOOL.orElse` that is never
+            // evaluated (`crate::deferred`) states its definedness as deferred atoms of its
+            // fold by builtin hooks, whatever its deciding operand: this walk also runs on
+            // unsimplified terms (an instantiated `requires`, a claim's left-hand side), where
+            // the deciding operand may be a literal.
+            let deferred = crate::deferred::deferred_positions(term);
+            if deferred.is_empty() {
+                children.extend(arguments);
+            } else {
+                for (position, argument) in arguments.iter().enumerate() {
+                    if deferred.contains(&position) {
+                        before.extend(deferred_operand_obligations(definition, argument));
+                    } else {
+                        children.push(argument);
+                    }
+                }
+            }
             Vec::new()
         }
         TermKind::And(left, right) => {
@@ -557,6 +573,21 @@ fn ceil_term_node<'a>(
             before.push(Predicate::Ceil(term.clone()));
             Vec::new()
         }
+    }
+}
+
+/// The definedness of `operand`, a short-circuit operand that is never evaluated: `\bottom`
+/// when builtin hooks show it undefined, otherwise the deferred atoms of its fold.
+///
+/// An operand whose definedness depends on an impure application is stated as the deferred atom
+/// of that application itself, which the predicate simplifier turns into the unsupported-hook
+/// stop (`crate::deferred::decide_defined`) before any decision reads it.
+fn deferred_operand_obligations(definition: &BackendDefinition, operand: &Term) -> Vec<Predicate> {
+    use crate::deferred::{Folded, deferred_obligations, fold_hooks_or_keep};
+    match fold_hooks_or_keep(definition, operand) {
+        Folded::Bottom(_) => vec![Predicate::False],
+        Folded::Term(folded) => deferred_obligations(definition, &folded)
+            .unwrap_or_else(|outcome| vec![outcome.marker()]),
     }
 }
 
@@ -1181,6 +1212,7 @@ fn nested_condition_definedness(
         Predicate::True
         | Predicate::False
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_) => predicate.clone(),
@@ -1257,6 +1289,9 @@ fn ceil_predicate(definition: &BackendDefinition, predicate: &Predicate) -> Vec<
             .collect(),
         // An absence is the `\ceil` of its joined collection, whose value is a variable.
         Predicate::Absent(absence) => ceil_term(definition, absence.joined()),
+        // A deferred atom's subject is never expanded by `ceil_term`, whose decision evaluates.
+        Predicate::Defined(term) => crate::deferred::deferred_obligations(definition, term)
+            .unwrap_or_else(|outcome| vec![outcome.marker()]),
         Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
             ceil_predicate(definition, inner)
         }

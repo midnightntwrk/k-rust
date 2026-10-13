@@ -27,6 +27,7 @@
 use std::cell::Cell;
 
 use crate::{
+    deferred::{DeferredOutcome, deferred_obligations, deferred_positions},
     definedness::{ceil_term, condition_definedness},
     definition::BackendDefinition,
     diagnostic,
@@ -446,12 +447,16 @@ impl EquationInstance {
     /// a set variable binds an arbitrary pattern and imposes no obligation. `ceil_term` already
     /// discharges constructors, total symbols and element variables, so the obligations name
     /// only partial applications, set variables and collection distinctness.
+    ///
+    /// A term bound inside an operand of a short-circuit subject that is never evaluated states
+    /// its definedness as deferred atoms (`ConsumedDefinedness`), and one whose definedness
+    /// depends on an impure application is the outcome.
     pub(crate) fn new(
         definition: &BackendDefinition,
         requires: &Condition,
         substitution: Substitution,
         consumed: ConsumedDefinedness,
-    ) -> Self {
+    ) -> Result<Self, DeferredOutcome> {
         let requires = requires.instantiate(&substitution);
         let mut definedness = Vec::new();
         let mut add = |predicate: Predicate| {
@@ -461,21 +466,26 @@ impl EquationInstance {
         };
         for (variable, value) in &substitution {
             if variable.kind == VariableKind::Element {
-                for predicate in ceil_term(definition, value) {
+                let stated = if consumed.binds_deferred(value) {
+                    deferred_obligations(definition, value)?
+                } else {
+                    ceil_term(definition, value)
+                };
+                for predicate in stated {
                     add(predicate);
                 }
             }
         }
-        for predicate in consumed.0 {
+        for predicate in consumed.obligations {
             add(predicate);
         }
-        Self {
+        Ok(Self {
             requires,
             matched: MatchedEquation {
                 substitution,
                 bindings: BindingDefinedness(definedness),
             },
-        }
+        })
     }
 
     /// The `requires` to decide, during which the binding obligations are taken as known
@@ -511,27 +521,48 @@ impl EquationInstance {
 /// root itself is what the equation is about (its own `\ceil` is the equation's result), so it
 /// consumes nothing: a collection at the root contributes its parts, not its own distinctness.
 #[must_use]
-pub(crate) struct ConsumedDefinedness(Vec<Predicate>);
+pub(crate) struct ConsumedDefinedness {
+    obligations: Vec<Predicate>,
+    /// The operands of `subject`, a `KEQUAL.ite`, `BOOL.andThen` or `BOOL.orElse` application,
+    /// that are never evaluated (`crate::deferred::deferred_positions`): a term the match binds
+    /// inside one of them states its definedness as deferred atoms ([`EquationInstance::new`]).
+    deferred_operands: Vec<Term>,
+}
 
 impl ConsumedDefinedness {
     /// `ceil_term` of each immediate subterm of `subject` that `pattern`, an equation's
     /// left-hand side matched against `subject`, does not bind whole to a variable. Each
     /// argument with a stored `ceil_free` attribute costs one read of it.
+    ///
+    /// An operand of a short-circuit `subject` that is never evaluated states its definedness
+    /// by `crate::deferred::deferred_obligations` instead of `ceil_term`, whose decision would
+    /// evaluate it: the `#if` equations at sort `K` (`#if C #then B1 #else _ #fi => B1 requires
+    /// C`) and the discarding equations of `andThenBool` and `orElseBool` apply where the hook
+    /// cannot, and bind or consume such an operand. One whose definedness depends on an impure
+    /// application is the outcome.
     pub(crate) fn of_arguments(
         definition: &BackendDefinition,
         pattern: &Term,
         subject: &Term,
-    ) -> Self {
+    ) -> Result<Self, DeferredOutcome> {
+        let positions = deferred_positions(subject);
         let mut obligations = Vec::new();
-        let mut consume = |argument: &Term| {
+        let mut consume = |position: Option<usize>, argument: &Term| {
             if argument.attributes().ceil_free() {
-                return;
+                return Ok(());
             }
-            for predicate in ceil_term(definition, argument) {
+            let stated = match position {
+                Some(position) if positions.contains(&position) => {
+                    deferred_obligations(definition, argument)?
+                }
+                _ => ceil_term(definition, argument),
+            };
+            for predicate in stated {
                 if !obligations.contains(&predicate) {
                     obligations.push(predicate);
                 }
             }
+            Ok::<_, DeferredOutcome>(())
         };
         match (pattern.kind(), subject.kind()) {
             (
@@ -541,9 +572,9 @@ impl ConsumedDefinedness {
                 },
                 TermKind::Application { arguments, .. },
             ) if patterns.len() == arguments.len() => {
-                for (pattern, argument) in patterns.iter().zip(arguments) {
+                for (position, (pattern, argument)) in patterns.iter().zip(arguments).enumerate() {
                     if !matches!(pattern.kind(), TermKind::Variable(_)) {
-                        consume(argument);
+                        consume(Some(position), argument)?;
                     }
                 }
             }
@@ -555,17 +586,71 @@ impl ConsumedDefinedness {
                 for child in
                     crate::term::children_lacking(subject.kind(), crate::term::Flag::CeilFree)
                 {
-                    consume(child);
+                    consume(None, child)?;
                 }
             }
         }
-        Self(obligations)
+        let deferred_operands = match subject.kind() {
+            TermKind::Application { arguments, .. } => positions
+                .iter()
+                .map(|&position| arguments[position].clone())
+                .collect(),
+            _ => Vec::new(),
+        };
+        Ok(Self {
+            obligations,
+            deferred_operands,
+        })
     }
 
     /// Obligations a caller computed from the operands it consumes (a predicate equation's).
     pub(crate) fn stated(obligations: Vec<Predicate>) -> Self {
-        Self(obligations)
+        Self {
+            obligations,
+            deferred_operands: Vec::new(),
+        }
     }
+
+    /// Whether `value`, a term the match binds, is part of an operand that is never evaluated.
+    fn binds_deferred(&self, value: &Term) -> bool {
+        self.deferred_operands
+            .iter()
+            .any(|operand| contains_subterm(operand, value))
+    }
+}
+
+/// Whether `needle` occurs in `haystack`.
+fn contains_subterm(haystack: &Term, needle: &Term) -> bool {
+    let mut pending = vec![haystack.clone()];
+    while let Some(term) = pending.pop() {
+        if term.ptr_eq(needle) || term == *needle {
+            return true;
+        }
+        match term.kind() {
+            TermKind::Application { arguments, .. } => pending.extend(arguments.iter().cloned()),
+            TermKind::And(left, right) => pending.extend([left.clone(), right.clone()]),
+            TermKind::Injection { term, .. } => pending.push(term.clone()),
+            TermKind::Map { entries, rest, .. } => {
+                for (key, value) in entries {
+                    pending.extend([key.clone(), value.clone()]);
+                }
+                pending.extend(rest.iter().cloned());
+            }
+            TermKind::List { heads, rest, .. } => {
+                pending.extend(heads.iter().cloned());
+                if let Some((middle, tails)) = rest {
+                    pending.push(middle.clone());
+                    pending.extend(tails.iter().cloned());
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                pending.extend(elements.iter().cloned());
+                pending.extend(rest.iter().cloned());
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+    false
 }
 
 /// An equation instance whose `requires` is to be, or has been, decided; its binding
@@ -843,12 +928,13 @@ impl ResultConditions {
     pub(crate) fn hook_arguments(
         definition: &BackendDefinition,
         application: &Term,
+        before_children: Option<&Term>,
         known: &[Predicate],
-    ) -> Self {
-        Self {
-            conjuncts: hook_argument_definedness(definition, application, known),
+    ) -> Result<Self, crate::deferred::DeferredOutcome> {
+        Ok(Self {
+            conjuncts: hook_argument_definedness(definition, application, before_children, known)?,
             assumptions: Vec::new(),
-        }
+        })
     }
 
     /// The conditions of an applied function equation's result, the only producer of

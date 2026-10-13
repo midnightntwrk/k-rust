@@ -887,7 +887,37 @@ fn recover_by_split(
                 .map(|matched| reenter_with(fresh_counter, matched)),
         ));
     }
-    if let Some(matches) = recover_ite_matches(definition, substitution.clone(), remainder) {
+    // A branch whose condition the path refutes, by its known predicates or then by the
+    // solver, is dropped before its operand is matched (`recover_ite_matches`).
+    let mut refuted = |condition: &Predicate| -> Stoppable<bool> {
+        let mut known = pattern.constraints.clone();
+        extend_unique(&mut known, inherited_conditions.iter().cloned());
+        let simplified = match simplify_predicates_with_solver(
+            definition,
+            std::slice::from_ref(condition),
+            &known,
+            context.simplification_options,
+            context.solver,
+        )? {
+            Ok(simplified) => simplified,
+            Err(_) => vec![condition.clone()],
+        };
+        if predicates_truth(&simplified) == Truth::False {
+            return Ok(true);
+        }
+        known.extend(simplified);
+        Ok(matches!(
+            context.solver.is_sat(&known, &Substitution::new())?,
+            Ok(Satisfiability::Unsat)
+        ))
+    };
+    if let Some(matches) =
+        recover_ite_matches(definition, substitution.clone(), remainder, &mut refuted)
+    {
+        let matches = match matches {
+            Ok(matches) => matches,
+            Err(stop) => return Some(Err(stop)),
+        };
         return Some(combine_rule_attempts(
             matches
                 .into_iter()

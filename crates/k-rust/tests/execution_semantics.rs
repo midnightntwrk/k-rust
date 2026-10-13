@@ -414,7 +414,8 @@ fn the_bn128_hooks_evaluate_on_the_pinned_plugin_point_productions() {
 }
 
 /// An application of a `total` hook without an evaluator (`expFloat`) is left unevaluated with a
-/// diagnostic, so a run whose result does not depend on it ends with that result; a run that
+/// diagnostic, so a run whose result does not depend on it ends with that result (in the operand
+/// a decided `#if` discards, `branch`, it is never evaluated, so there is no diagnostic); a run that
 /// decides a condition over it, or ends on a configuration holding it, halts on the
 /// unsupported-hook reason, as does one that reaches a partial hook without an evaluator
 /// (`logFloat`), whose definedness is unknown even where the application is discarded.
@@ -441,8 +442,9 @@ fn an_application_without_an_evaluator_halts_a_run_only_where_it_is_needed() {
         let [state] = text(&result).try_into().unwrap();
         assert!(state.contains(&value), "{program}: {state}");
         let diagnostics = format!("{:?}", leaf.diagnostics);
-        assert!(
+        assert_eq!(
             diagnostics.contains("UnsupportedHookUnevaluated") && diagnostics.contains("FLOAT.exp"),
+            program == "unused",
             "{program}: {diagnostics}"
         );
     }
@@ -677,22 +679,26 @@ fn run_driver(
 }
 
 /// `krun`'s run driver on results above the size bound. `2 ^Int 2^24` is defined (its exponent is
-/// not negative) but not computed, so a step whose result discards it, by the short-circuit of
-/// `false andBool` (`unused`) or the branch of a decided `#if` (`branch`), ends in the one result
-/// that does not hold it, with no definedness condition over it. A step whose result holds such a
-/// value (`used`), or whose rules branch on a condition over a `<<Int` one the solver cannot
-/// decide (`shl`), halts the run at that step with the unsupported-hook reason naming the bound.
+/// not negative) but not computed, so a step whose result discards it by the short-circuit of
+/// `false andBool` (`unused`) ends in the one result that does not hold it, with no definedness
+/// condition over it. The branch of a decided `#if` (`branch`) is never evaluated, so its
+/// definedness stays the open obligation `\ceil(2 ^Int i(2^24))` (showing it defined needs `i`'s
+/// value), still one result. A step whose result holds such a value (`used`), or whose rules
+/// branch on a condition over a `<<Int` one the solver cannot decide (`shl`), halts the run at
+/// that step with the unsupported-hook reason naming the bound.
 #[cfg(feature = "z3-inference")]
 #[test]
 fn the_run_driver_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
-    for (program, value) in [
+    for (program, value, ceils) in [
         (
             "unused",
             r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#,
+            0,
         ),
         (
             "branch",
             r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("7"))"#,
+            1,
         ),
     ] {
         let compiled = compile(SIZE_BOUND, "BOUND", "BOUND", "Pgm", program);
@@ -700,7 +706,9 @@ fn the_run_driver_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
         assert_eq!(output.exit_code, 0, "{program}");
         let result = Printer::compact().print_pattern(&output.pattern.to_pattern());
         assert!(
-            result.contains(value) && !result.contains(r"\ceil") && !result.contains(r"\or"),
+            result.contains(value)
+                && result.matches(r"\ceil").count() == ceils
+                && !result.contains(r"\or"),
             "{program}: {result}"
         );
     }

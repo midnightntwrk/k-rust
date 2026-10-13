@@ -12,6 +12,7 @@ pub mod builtin;
 pub mod claim;
 pub mod condition;
 pub mod confluence;
+pub(crate) mod deferred;
 pub mod definedness;
 pub mod definition;
 pub mod describe;

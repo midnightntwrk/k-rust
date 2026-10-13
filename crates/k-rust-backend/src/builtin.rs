@@ -1512,6 +1512,11 @@ fn int_sign_extend_bit_range(arguments: &[Term]) -> HookResult<BuiltinResult> {
     )))
 }
 
+/// `#if C #then T #else E #fi` on a literal `C`: the operand `C` selects. The application is
+/// strict, so its value is that operand under the definedness of the other one, which the
+/// simplifier states as a deferred atom without evaluating the discarded operand
+/// (`simplify::hook_argument_definedness`, `crate::deferred`; docs/compatibility.md,
+/// "Conditionals evaluate only the operand they select").
 fn kequal_ite(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("KEQUAL.ite", arguments, 3)?;
     let [condition, then_value, else_value] = arguments else {

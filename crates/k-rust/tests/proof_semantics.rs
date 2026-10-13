@@ -1277,6 +1277,97 @@ fn a_claim_condition_that_defines_a_right_hand_side_operand_keeps_it_proven() {
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
+/// Claims through operands `#if` discards: guarded recursion (`fact3`), a diverging discarded
+/// operand on either side of a claim, and a symbolic condition the claim's condition decides.
+const DISCARDED_OPERAND_CLAIMS: &str = r#"
+module PROVE2
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "go" "(" Int ")" [symbol(go)]
+               | "a" "(" Bool ")" [symbol(a)]
+               | "b" "(" ")"      [symbol(b)]
+               | "lhs" "(" Int ")" [symbol(lhs)]
+  syntax Int ::= fact(Int) [function, symbol(fact)]
+               | loopi()   [function, symbol(loopi)]
+  rule fact(N) => #if N <=Int 0 #then 1 #else N *Int fact(N -Int 1) #fi
+  rule loopi() => loopi() +Int 1
+  configuration <k> $PGM:Exp </k>
+  rule <k> go(N) => fact(N) </k>
+  rule <k> a(_) => 1 </k>
+  rule <k> b() => #if true #then 1 #else loopi() #fi </k>
+  rule <k> lhs(I) => I </k>
+endmodule
+
+module PROVE2-SPEC
+  imports PROVE2
+  claim [fact3]: <k> go(3) => 6 </k>
+  claim [rhsloop]: <k> a(true) => #if true #then 1 #else loopi() #fi </k>
+  claim [symloop]: <k> a(B) => #if B #then 1 #else loopi() #fi </k> requires B
+  claim [bloop]: <k> b() => 1 </k>
+  claim [bboth]: <k> b() => #if true #then 1 #else loopi() #fi </k>
+  claim [lhsite]: <k> lhs(#if true #then 1 #else loopi() #fi) => 1 </k>
+endmodule
+"#;
+
+/// A discarded operand is never evaluated on a proof route either: no claim below halts on the
+/// stack. A state that reaches the value under the discarded operand's open obligation has a
+/// trivial leaf where the obligation fails, so `fact3`, `bloop` and `bboth` are not proven
+/// (they are with vacuous results allowed); a destination whose discarded operand is undefined
+/// on some instance is not reached there (`rhsloop` and `symloop` are stuck), and a claim's
+/// left-hand side with one is proven, since the claim holds vacuously where it is undefined.
+#[test]
+fn a_claim_through_a_discarded_operand_never_evaluates_it() {
+    let kore = compile(DISCARDED_OPERAND_CLAIMS, "PROVE2-SPEC", "PROVE2");
+    let result = |claim: &str, allow_vacuous: bool| {
+        prove(
+            &kore,
+            "PROVE2-SPEC",
+            &format!("PROVE2-SPEC.{claim}"),
+            ProveRequest {
+                allow_vacuous,
+                ..ProveRequest::default()
+            },
+        )
+    };
+    let has = |result: &ProofResultOutput, outcome: ProofLeafOutcomeOutput| {
+        result.leaves.iter().any(|leaf| leaf.outcome == outcome)
+    };
+    for claim in ["fact3", "bloop", "bboth"] {
+        let failed = result(claim, false);
+        assert_eq!(failed.status, "failed", "{claim}: {failed:?}");
+        assert!(
+            has(&failed, ProofLeafOutcomeOutput::Trivial),
+            "{claim}: {failed:?}"
+        );
+        assert_eq!(
+            result(claim, true).status,
+            "proven",
+            "{claim} allowing vacuous results"
+        );
+    }
+    for claim in ["rhsloop", "symloop"] {
+        let failed = result(claim, false);
+        assert_eq!(failed.status, "failed", "{claim}: {failed:?}");
+        assert!(
+            has(&failed, ProofLeafOutcomeOutput::Stuck),
+            "{claim}: {failed:?}"
+        );
+    }
+    let proven = result("lhsite", false);
+    assert_eq!(proven.status, "proven", "{proven:?}");
+    for claim in ["fact3", "rhsloop", "symloop", "bloop", "bboth", "lhsite"] {
+        assert!(
+            !has(
+                &result(claim, false),
+                ProofLeafOutcomeOutput::StackExhausted
+            ),
+            "{claim}"
+        );
+    }
+}
+
 /// An anywhere head with `w(X) = mk(1) [anywhere, concrete]` above an `owise` equation
 /// `w(_) = mk(0)`: the first equation says `w(N) = mk(1)` for every `N`, and the `owise`
 /// equation's premise excludes every `N` the first one matches.
