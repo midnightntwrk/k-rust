@@ -301,8 +301,8 @@ hooks = [
 ]
 
 [[unsupported]]
-reason = "nondeterministic choice and map difference are not implemented"
-hooks = ["MAP.choice", "MAP.difference"]
+reason = "map difference is not implemented"
+hooks = ["MAP.difference"]
 
 [[unsupported]]
 reason = "machine-integer power, min/max, width conversion and Bytes conversion hooks are not implemented"
@@ -341,9 +341,12 @@ hooks = [
   "RANGEMAP.values",
 ]
 
+# MAP.choice and SET.choice evaluate on an empty collection (undefined) and on a
+# one-item collection (its item); docs/compatibility.md, "Hook values at the
+# edges of their domains".
 [[unsupported]]
-reason = "nondeterministic choice is not implemented"
-hooks = ["SET.choice"]
+reason = "choice among two or more items is not implemented"
+hooks = ["MAP.choice", "SET.choice"]
 
 [[unsupported]]
 reason = "Unicode properties, floating conversion, and UUID generation are not implemented"

@@ -61,6 +61,7 @@ pub(super) fn evaluate(
         "MAP.inclusion" => inclusion(arguments),
         "MAP.concat" => return concat(arguments, result),
         "MAP.lookup" => return lookup(arguments, sorts),
+        "MAP.choice" => return Ok(choice(arguments)),
         _ => {
             return Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::NotImplemented,
@@ -133,6 +134,35 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
             left_rest.clone().or_else(|| right_rest.clone()),
         )
         .into())
+}
+
+/// `choice(M)`: some key of `M`, the same key for the same map (`domains.md`), from a `function`
+/// that is not `total`.
+///
+/// The empty map has no key, so the application is undefined. A map of one binding `K |-> V` has
+/// the one key `K`, and every function the declaration admits gives it, whether or not `K` is
+/// constructor-like. A map with an opaque rest beside at most one binding may be a map of one
+/// binding under an instance, so the application waits for one. A map of two or more bindings,
+/// with a rest or without, has two or more keys wherever it is defined (map concatenation binds
+/// each key once), and which of them the hook gives is not a consequence of the definition: that
+/// stays the unsupported outcome, as does an application of another arity, which no declaration
+/// the load accepts has (`hook_signature`).
+fn choice(arguments: &[Term]) -> BuiltinResult {
+    let [map] = arguments else {
+        return BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented);
+    };
+    let TermKind::Map { entries, rest, .. } = map.kind() else {
+        return BuiltinResult::NotApplicable;
+    };
+    match (entries.len(), rest) {
+        (0, None) => BuiltinResult::Bottom,
+        (1, None) => {
+            let (key, _) = entries.get(0).expect("a one-binding map's entry");
+            BuiltinResult::Value(key.clone())
+        }
+        (0 | 1, Some(_)) => BuiltinResult::NotApplicable,
+        _ => BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented),
+    }
 }
 
 /// The place of `key` among the keys of `entries`, syntactically: `Ok` with the index of the
@@ -1588,6 +1618,71 @@ mod tests {
             assert!(
                 made <= searched + 1 + symbolic,
                 "{made} entries compared, the search compares {searched}, {symbolic} symbolic keys"
+            );
+        }
+    }
+
+    fn choice_of(map: Term) -> BuiltinResult {
+        super::super::evaluate_hook("MAP.choice", &[map])
+            .unwrap()
+            .unwrap()
+    }
+
+    /// The empty map has no key, and `choice` is partial: the application is undefined.
+    #[test]
+    fn choice_of_the_empty_collection_is_bottom() {
+        assert_eq!(
+            choice_of(Term::map(definition("SortMap"), Vec::new(), None)),
+            BuiltinResult::Bottom
+        );
+    }
+
+    /// A map of one binding has one key, which every admitted choice gives, also when it is a
+    /// variable; with a rest beside it the map may hold other keys, so the application waits.
+    #[test]
+    fn choice_of_a_one_item_collection_is_its_item_even_symbolic() {
+        assert_eq!(
+            choice_of(Term::map(
+                definition("SortMap"),
+                vec![(key("5"), value("50"))],
+                None
+            )),
+            BuiltinResult::Value(key("5"))
+        );
+        let x = Term::variable(Variable::new("X", Sort::simple("SortKey")));
+        assert_eq!(
+            choice_of(Term::map(
+                definition("SortMap"),
+                vec![(x.clone(), value("1"))],
+                None
+            )),
+            BuiltinResult::Value(x.clone())
+        );
+        let rest = Term::variable(Variable::new("R", Sort::simple("SortMap")));
+        assert_eq!(
+            choice_of(Term::map(
+                definition("SortMap"),
+                vec![(x, value("1"))],
+                Some(rest.clone())
+            )),
+            BuiltinResult::NotApplicable
+        );
+        assert_eq!(choice_of(rest), BuiltinResult::NotApplicable);
+    }
+
+    /// Which of two or more keys `choice` gives is not a consequence of the definition; this
+    /// ticket leaves it unsupported, with a rest beside the bindings or not.
+    #[test]
+    fn choice_of_two_items_is_still_unsupported() {
+        let two = vec![(key("1"), value("10")), (key("2"), value("20"))];
+        let rest = Term::variable(Variable::new("R", Sort::simple("SortMap")));
+        for map in [
+            Term::map(definition("SortMap"), two.clone(), None),
+            Term::map(definition("SortMap"), two, Some(rest)),
+        ] {
+            assert_eq!(
+                choice_of(map),
+                BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented)
             );
         }
     }

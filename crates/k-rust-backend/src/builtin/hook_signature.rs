@@ -7,8 +7,8 @@
 //! Each of those is an element of the result exactly when its sort is the result's element
 //! (key, value) sort or a subsort of it, whose values are elements once injected
 //! ([`super::ResultCollection`]). A hook that returns one element of a collection argument (a
-//! list's element, a map's value, or a default argument) gives a value of `S` exactly when that
-//! element's sort is `S` or a subsort of it.
+//! list's or set's element, a map's key or value, or a default argument) gives a value of `S`
+//! exactly when that element's sort is `S` or a subsort of it.
 //!
 //! Any other declaration says that the hook gives a value of `S` that it does not give in
 //! general: `makeBad(Int, Int) : Vals [hook(LIST.make)]` on a list of `Val` would build a list
@@ -63,6 +63,9 @@ enum Operand {
     /// A collection of this kind one of whose elements (a list's) or values (a map's) is the
     /// result.
     Source(Kind),
+    /// A collection of this kind one of whose keys (a map's) or elements (a set's) is the
+    /// result.
+    KeySource(Kind),
     /// A value the hook may give as its result.
     Alternative,
 }
@@ -71,14 +74,16 @@ enum Operand {
 #[derive(Clone, Copy, Debug)]
 enum Gives {
     Collection(Kind),
-    /// An element of its `Source` argument, or its `Alternative` argument.
+    /// An element of its `Source` or `KeySource` argument, or its `Alternative` argument.
     Member,
 }
 
 /// The arguments and the result of `hook`, for the collection hooks that build a collection or
 /// return one of a collection's elements; `None` for every other hook.
 fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
-    use Operand::{Alternative, Element, Elements, Key, Keys, Read, Source, Value, Values};
+    use Operand::{
+        Alternative, Element, Elements, Key, KeySource, Keys, Read, Source, Value, Values,
+    };
     let list = Gives::Collection(Kind::List);
     let set = Gives::Collection(Kind::Set);
     let map = Gives::Collection(Kind::Map);
@@ -97,6 +102,7 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
         "SET.difference" | "SET.intersection" => (&[Elements(Kind::Set), Read], set),
         "SET.list2set" => (&[Elements(Kind::List)], set),
         "SET.set2list" => (&[Elements(Kind::Set)], list),
+        "SET.choice" => (&[KeySource(Kind::Set)], Gives::Member),
         "MAP.unit" => (&[], map),
         "MAP.element" => (&[Key, Value], map),
         "MAP.concat" | "MAP.updateAll" => (&[Elements(Kind::Map), Elements(Kind::Map)], map),
@@ -107,6 +113,7 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
         "MAP.values" => (&[Values], list),
         "MAP.lookup" => (&[Source(Kind::Map), Read], Gives::Member),
         "MAP.lookupOrDefault" => (&[Source(Kind::Map), Read, Alternative], Gives::Member),
+        "MAP.choice" => (&[KeySource(Kind::Map)], Gives::Member),
         _ => return None,
     })
 }
@@ -331,6 +338,28 @@ pub fn misfit<F: SortFacts>(
                     }),
                 }
             }
+            Operand::KeySource(kind) => match of_kind(sort, kind) {
+                Some(CollectionShape::Map { key: source, .. }) => fits(
+                    format!("a key of {}", argument()),
+                    &source,
+                    None,
+                    "the result",
+                ),
+                Some(CollectionShape::Set(source) | CollectionShape::List(source)) => fits(
+                    format!("an element of {}", argument()),
+                    &source,
+                    None,
+                    "the result",
+                ),
+                None => {
+                    return Some(format!(
+                        "{}, of sort {}, is no {} sort",
+                        argument(),
+                        facts.render(sort),
+                        kind.noun()
+                    ));
+                }
+            },
             Operand::Keys | Operand::Values => {
                 let Some(CollectionShape::Map {
                     key: source_key,

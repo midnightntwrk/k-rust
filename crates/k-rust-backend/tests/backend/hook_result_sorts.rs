@@ -462,6 +462,20 @@ fn a_collection_hook_whose_declaration_gives_no_value_of_its_result_sort_is_reje
              [function{}(), hook{}(\"MAP.lookupOrDefault\")]",
             "argument 3 of MAP.lookupOrDefault, of sort SortKItem, is a possible result",
         ),
+        (
+            "choiceInt{}(SortMap{}) : SortInt{} [function{}(), hook{}(\"MAP.choice\")]",
+            "a key of argument 1 of MAP.choice, of sort SortKItem, is the result, but SortKItem \
+             is not SortInt",
+        ),
+        (
+            "choiceOfInt{}(SortInt{}) : SortKItem{} [function{}(), hook{}(\"MAP.choice\")]",
+            "argument 1 of MAP.choice, of sort SortInt, is no map sort",
+        ),
+        (
+            "choiceVal{}(SortSet{}) : SortVal{} [function{}(), hook{}(\"SET.choice\")]",
+            "an element of argument 1 of SET.choice, of sort SortKItem, is the result, but \
+             SortKItem is not SortVal",
+        ),
     ];
     let unexpected = cases
         .iter()
@@ -556,6 +570,56 @@ fn an_element_returning_hook_gives_a_value_of_its_result_sort() {
     assert!(
         differing.is_empty(),
         "an element-returning hook gave another value than its result sort's:\n{}",
+        differing.join("\n")
+    );
+}
+
+/// `choice` of a map gives a key and `choice` of a set an element, as a value of the symbol's
+/// result sort: the key (element) itself when its sort is that sort, its injection when it is a
+/// strict subsort. `choice` is declared at `KItem` in `domains.md`, above every key sort.
+#[test]
+fn choice_gives_its_one_key_or_element_as_a_value_of_its_result_sort() {
+    let source = with_declarations(
+        r#"  axiom{R} \exists{R}(Value:SortKItem{},
+      \equals{SortKItem{}, R}(Value:SortKItem{}, inj{SortInt{}, SortKItem{}}(From:SortInt{})))
+      [subsort{SortInt{}, SortKItem{}}()]
+  hooked-sort SortIntMap{}
+    [hook{}("MAP.Map"), unit{}(dotIntMap{}()), element{}(intMapItem{}()),
+     concat{}(intMapConcat{}())]
+  hooked-symbol dotIntMap{}() : SortIntMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+  hooked-symbol intMapItem{}(SortInt{}, SortVal{}) : SortIntMap{}
+    [function{}(), total{}(), hook{}("MAP.element")]
+  hooked-symbol intMapConcat{}(SortIntMap{}, SortIntMap{}) : SortIntMap{}
+    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+  hooked-symbol choiceIntMap{}(SortIntMap{}) : SortKItem{} [function{}(), hook{}("MAP.choice")]
+  hooked-symbol choiceValSet{}(SortValSet{}) : SortKItem{} [function{}(), hook{}("SET.choice")]
+  hooked-symbol choiceValSetVal{}(SortValSet{}) : SortVal{} [function{}(), hook{}("SET.choice")]"#,
+    );
+    let syntax = parse_definition(&source).expect("the declarations should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("choice into the key or element sort or a supersort should load");
+    let pairs = [
+        (
+            r#"choiceIntMap{}(intMapItem{}(\dv{SortInt{}}("5"), v{}()))"#,
+            r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("5"))"#,
+        ),
+        (
+            "choiceValSet{}(valSetItem{}(w{}()))",
+            "inj{SortVal{}, SortKItem{}}(w{}())",
+        ),
+        ("choiceValSetVal{}(valSetItem{}(w{}()))", "w{}()"),
+    ];
+    let differing = pairs
+        .iter()
+        .filter_map(|(hooked, expected)| {
+            let value = simplified(&definition, hooked);
+            let expected = internal_term(&definition, expected);
+            (value != expected).then(|| format!("{hooked}: {value:?}"))
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        differing.is_empty(),
+        "choice gave another value than its result sort's:\n{}",
         differing.join("\n")
     );
 }
