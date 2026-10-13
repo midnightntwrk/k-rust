@@ -7825,7 +7825,8 @@ endmodule
 /// when its values are, and then it has a listing. A claim that some list is reached is proven
 /// over such a map (`k-free`, `v-free`), a claim about one order is not (`k-order`, `v-order`),
 /// and a map holding a value undefined at some instance (`10 /Int X` at `X = 0`) still leaves
-/// its step undefined there (`z-free`).
+/// its step undefined there (`z-free`): that value's obligation is what remains, so the claim
+/// that excludes the instance is proven (`z-guarded`).
 #[test]
 fn kprove_takes_a_listing_of_a_map_with_symbolic_values_as_defined_as_the_map() {
     let source = r#"
@@ -7845,10 +7846,11 @@ module SYMV-SPEC
   claim [v-order]: <k> runv(X:Int) => done(ListItem(X) ListItem(3)) </k>
   claim [v-free]: <k> runv(_X:Int) => done(?_L:List) </k>
   claim [z-free]: <k> runz(_X:Int) => done(?_L:List) </k>
+  claim [z-guarded]: <k> runz(X:Int) => done(?_L:List) </k> requires X =/=Int 0
 endmodule
 "#;
     let (verdicts, output) = order_claim_verdicts(source, "SYMV", "SYMV-SPEC");
-    for claim in ["k-free", "v-free"] {
+    for claim in ["k-free", "v-free", "z-guarded"] {
         assert_eq!(
             claim_verdict(&verdicts, claim, &output),
             "proven",

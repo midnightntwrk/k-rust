@@ -2152,3 +2152,71 @@ fn backend_simplify_stays_a_proof_route_inside_an_execution_scope() {
         "{executed:?}"
     );
 }
+
+/// `kore-match-disjunction`'s `Backend::match_patterns` is a proof route: a target whose condition
+/// states that `keys_list` of a map lists `-1 10 2` is not decided by k-rust's order, also inside
+/// a caller's `Execution` scope, so matching it against `0` keeps that condition as a constraint.
+#[test]
+fn backend_match_patterns_stays_a_proof_route_inside_an_execution_scope() {
+    use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
+    let compiled = compile(
+        KEYS_LIST_ORDER_IN_CONDITIONS,
+        "ORDREQ",
+        "ORDREQ",
+        "Int",
+        "0",
+    );
+    let int =
+        |value: i64| format!(r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    let item = |key: i64, value: i64| {
+        format!("Lbl'UndsPipe'-'-GT-Unds'{{}}({}, {})", int(key), int(value))
+    };
+    let listing = parse_pattern(&format!(
+        "Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map{{}}(Lbl'Unds'Map'Unds'{{}}({}, Lbl'Unds'Map'Unds'{{}}({}, {})))",
+        item(10, 1),
+        item(2, 2),
+        item(-1, 3)
+    ))
+    .unwrap();
+    let list = parse_pattern(&format!(
+        "Lbl'Unds'List'Unds'{{}}(LblListItem{{}}({}), Lbl'Unds'List'Unds'{{}}(LblListItem{{}}({}), LblListItem{{}}({})))",
+        int(-1),
+        int(10),
+        int(2)
+    ))
+    .unwrap();
+    let mut backend = Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
+    let internalize = |backend: &mut Backend, pattern: &Pattern| {
+        backend
+            .with_solver(None, |definition, _| {
+                definition
+                    .verify_standalone_pattern(pattern, &[])
+                    .and_then(|admitted| admitted.internalize_pattern())
+                    .map_err(|error| k_rust::backend::BackendError(error.to_string()))
+            })
+            .unwrap()
+    };
+    // `X` where `keys_list` of the map lists `-1 10 2`: the condition the match decides.
+    let condition = parse_pattern(&format!(
+        r#"\and{{SortInt{{}}}}(X:SortInt{{}}, \equals{{SortList{{}}, SortInt{{}}}}({}, {}))"#,
+        Printer::compact().print_pattern(&listing),
+        Printer::compact().print_pattern(&list)
+    ))
+    .unwrap();
+    let target = internalize(&mut backend, &condition);
+    let subject = internalize(
+        &mut backend,
+        &parse_pattern(r#"\dv{SortInt{}}("0")"#).unwrap(),
+    );
+    let matched = with_evaluation(EvaluationMode::Execution, || {
+        backend.match_patterns(None, &target, std::slice::from_ref(&subject))
+    });
+    let proof = backend.match_patterns(None, &target, std::slice::from_ref(&subject));
+    // The condition stays a constraint of the match: its order is not read.
+    let matched = matched.unwrap();
+    assert!(
+        matches!(matched.as_slice(), [found] if !found.constraints.is_empty()),
+        "{matched:?}"
+    );
+    assert_eq!(matched, proof.unwrap());
+}

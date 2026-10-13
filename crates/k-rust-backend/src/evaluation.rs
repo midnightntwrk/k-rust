@@ -19,7 +19,7 @@
 //! deep evaluation grows the stack on the same thread (`nesting`), and results are collected
 //! before the scope closes.
 
-use std::cell::Cell;
+use std::{cell::Cell, marker::PhantomData};
 
 /// The mode an evaluation runs in.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
@@ -59,16 +59,24 @@ pub fn with_evaluation<R>(mode: EvaluationMode, action: impl FnOnce() -> R) -> R
 ///
 /// A proof, an implication check, a simplification or a model must never run inside an
 /// `Execution` scope: its verdict would read values the definition leaves open. The k-rust
-/// facade's proof routes enter a `Proof` scope themselves.
+/// facade's proof routes, and every definition load, enter a `Proof` scope themselves.
+///
+/// Scopes must be dropped innermost first, as local guards are: dropping restores the mode that
+/// was current when this scope was entered, so dropping an outer scope before an inner one leaves
+/// the inner scope's predecessor in place. [`with_evaluation`] keeps that order by construction.
+/// The guard is not `Send`, since the mode belongs to the thread that entered it.
 #[must_use = "the mode holds only while the scope is alive"]
 pub struct EvaluationScope {
     previous: EvaluationMode,
+    /// Not `Send` or `Sync`: the scope restores this thread's mode.
+    _thread: PhantomData<*const ()>,
 }
 
 impl EvaluationScope {
     pub fn enter(mode: EvaluationMode) -> Self {
         Self {
             previous: MODE.with(|current| current.replace(mode)),
+            _thread: PhantomData,
         }
     }
 }

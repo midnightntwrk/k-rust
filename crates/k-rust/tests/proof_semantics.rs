@@ -988,3 +988,43 @@ fn a_destination_item_written_by_a_final_update_or_union_is_found_beside_the_res
         }
     }
 }
+
+/// A proof evaluates only consequences of the definition, also when a library caller loads the
+/// definition and proves inside its own `Execution` scope: the load's analyses and the proof both
+/// run in `Proof`, so a claim about the order of `keys_list`, which the definition does not fix,
+/// is neither proven nor disproved, while the claim that some list is reached is proven.
+#[test]
+fn a_proof_inside_an_execution_scope_reads_no_order_the_definition_leaves_open() {
+    use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
+    const SOURCE: &str = r#"
+module ORD
+  imports DOMAINS
+  imports COLLECTIONS
+  configuration <k> $PGM:Int </k>
+  rule I:Int => keys_list(10 |-> 1 2 |-> 2 I |-> 3)
+endmodule
+module ORD-SPEC
+  imports ORD
+  claim [text-order]: <k> -1 => ListItem(-1) ListItem(10) ListItem(2) </k>
+  claim [some-list]: <k> -1 => ?_L:List </k>
+endmodule
+"#;
+    let kore = compile(SOURCE, "ORD-SPEC", "ORD");
+    let statuses = with_evaluation(EvaluationMode::Execution, || {
+        let mut backend = Backend::new(&kore, "ORD-SPEC", BackendOptions::default()).unwrap();
+        ["ORD-SPEC.text-order", "ORD-SPEC.some-list"].map(|claim| {
+            backend
+                .prove(ProveRequest {
+                    claim: Some(claim.to_owned()),
+                    ..ProveRequest::default()
+                })
+                .unwrap_or_else(|error| panic!("{claim}: {error:?}"))
+                .status
+        })
+    });
+    assert!(
+        !matches!(statuses[0].as_str(), "proven" | "disproved"),
+        "{statuses:?}"
+    );
+    assert_eq!(statuses[1], "proven", "{statuses:?}");
+}

@@ -23,7 +23,7 @@ use k_rust_backend::stop;
 use k_rust_backend::substitution::Substitution;
 use k_rust_backend::{
     definition::{Admission, Admitted, BackendDefinition},
-    evaluation::EvaluationMode,
+    evaluation::{EvaluationMode, EvaluationScope},
     externalize,
     fresh::RequestNames,
     implication::{ImplicationFailure, ImplicationStatus},
@@ -1368,6 +1368,9 @@ impl Backend {
                     .into(),
             ));
         }
+        // A proof route, including the definition's first load, whose analyses the proof reads
+        // (`k_rust_backend::evaluation`).
+        let _proof = EvaluationScope::enter(EvaluationMode::Proof);
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
             let (claim_index, claim) = proving::select_claim(definition, request.claim.as_deref())?;
             let mut seen = BTreeSet::new();
