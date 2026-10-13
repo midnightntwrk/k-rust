@@ -5182,6 +5182,119 @@ fn krun_keeps_the_definedness_of_an_untaken_conditional_branch() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A conditional with a symbolic condition that a rule's left-hand side meets.
+const SYMBOLIC_CONDITIONAL: &str = r#"
+module SPLIT
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= start(Int) [symbol(start)] | mid(Int) [symbol(mid)] | one() [symbol(one)]
+  syntax Int ::= undef() [function, symbol(undef)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> start(N) => mid(#if N >Int 0 #then 1 #else undef() #fi) ...</k>
+  rule <k> mid(1) => one() ...</k>
+endmodule
+"#;
+
+#[test]
+fn a_symbolic_conditional_splits_on_its_condition_under_the_unused_operands_definedness() {
+    // `mid(#if N >Int 0 #then 1 #else undef() #fi)` meets `mid(1)`: where `N >Int 0` the
+    // conditional is `1` only where `undef()` is defined, and where it does not hold the
+    // conditional is `undef()`, which is `1` where the two are equal. The rest stays at `mid`.
+    let (root, _) = fixture();
+    let split = compiled_for_execution(&root, "split", SYMBOLIC_CONDITIONAL, "SPLIT", "SPLIT");
+    let pattern = top_with("inj{SortExp{}, SortKItem{}}(Lblstart{}(VarN:SortInt{}))");
+    let output = kore_exec_from(&root, &split, "SPLIT", &pattern, 3);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    let positive = r#"Lbl'Unds-GT-'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("0"))"#;
+    let holds = format!(
+        r#"\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(\dv{{SortBool{{}}}}("true"), {positive})"#
+    );
+    let fails = format!("\\not{{SortGeneratedTopCell{{}}}}({holds})");
+    let equal = r#"\equals{SortInt{}, SortGeneratedTopCell{}}(\dv{SortInt{}}("1"), Lblundef{}())"#;
+    let unequal = format!("\\not{{SortGeneratedTopCell{{}}}}({equal})");
+    let defined = ceil_of("SortInt", "Lblundef{}()");
+    let conditional =
+        format!(r#"Lblite{{SortInt{{}}}}({positive}, \dv{{SortInt{{}}}}("1"), Lblundef{{}}())"#);
+    let state = |item: &str, conditions: &[&str]| {
+        format!(
+            "\\and{{SortGeneratedTopCell{{}}}}({}, \\and{{SortGeneratedTopCell{{}}}}({}))",
+            top_with(&format!("inj{{SortExp{{}}, SortKItem{{}}}}({item})")),
+            conditions.join(", ")
+        )
+    };
+    let expected = format!(
+        "\\or{{SortGeneratedTopCell{{}}}}({}, {}, {})",
+        state(&format!("Lblmid{{}}({conditional})"), &[&fails, &unequal]),
+        state("Lblone{}()", &[&defined, &fails, equal]),
+        state("Lblone{}()", &[&defined, &holds]),
+    );
+    assert_eq!(squashed(&stdout), squashed(&expected), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A console write in the operand that the other operand of a Boolean connective makes
+/// irrelevant to its value.
+const CONNECTIVE_EFFECTS: &str = r#"
+requires "domains.md"
+module EFF-SYNTAX
+  imports INT-SYNTAX
+  syntax Stmt ::= "ab" | "ob" | "ib" | "at" | "oe"
+endmodule
+module EFF
+  imports EFF-SYNTAX
+  imports K-IO
+  imports INT
+  imports BOOL
+  imports STRING
+  imports K-EQUAL
+  syntax Stmt ::= fin(Bool) [symbol(fin)]
+  configuration <k> $PGM:Stmt </k>
+  rule <k> ab => fin(false andBool (#putc(1, 65) ==K .K)) ...</k>
+  rule <k> ob => fin(true orBool (#putc(1, 66) ==K .K)) ...</k>
+  rule <k> ib => fin(false impliesBool (#putc(1, 67) ==K .K)) ...</k>
+  rule <k> at => fin(false andThenBool (#putc(1, 68) ==K .K)) ...</k>
+  rule <k> oe => fin(true orElseBool (#putc(1, 69) ==K .K)) ...</k>
+endmodule
+"#;
+
+#[test]
+fn the_strict_connectives_perform_the_effects_of_both_operands() {
+    // `andBool`, `orBool` and `impliesBool` simplify both operands, so the write in the operand
+    // that does not change the value is performed; `andThenBool` and `orElseBool` discard that
+    // operand without performing it.
+    let (root, _) = fixture();
+    let effects = compiled_for_execution(&root, "effects", CONNECTIVE_EFFECTS, "EFF", "EFF-SYNTAX");
+    for (expression, written) in [
+        ("ab", &b"A"[..]),
+        ("ob", b"B"),
+        ("ib", b"C"),
+        ("at", b""),
+        ("oe", b""),
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "krun",
+            "--definition",
+            effects.to_str().unwrap(),
+            "--sort",
+            "Stmt",
+            "--expression",
+            expression,
+            "--io",
+            "on",
+            "--output",
+            "none",
+        ]);
+        let output = output_with_stdin(&mut command, b"");
+        assert!(output.status.success(), "{expression}: {output:?}");
+        assert_eq!(output.stdout, written, "{expression}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A simplification lemma that reaches a conditional below its root.
 const LEMMA_OVER_CONDITIONAL: &str = r#"
 module LEMMA
