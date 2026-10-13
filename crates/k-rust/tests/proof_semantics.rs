@@ -614,3 +614,121 @@ fn a_part_named_elsewhere_in_the_destination_is_not_merged() {
         assert_eq!(status(claim), "failed", "{claim}");
     }
 }
+
+/// Claims over the collection of [`COLLECTION_CELL_ITEM_ANYWHERE`] (its definition, with this
+/// spec module) whose new instances have a symbolic identifier: `N` in (4, 6) is 5 alone, and
+/// `M` in (6, 8) is 7 alone.
+const AC_SYMBOLIC_SPEC: &str = r#"
+module ACS-SPEC
+  imports LCELL
+  imports BOOL
+  claim [sym-one]: <k> mk(N:Int) => .K </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> 5 </rid> </r> ?C:Bag) </rs> requires N >Int 4 andBool N <Int 6
+  claim [sym-two]: <k> mk(N:Int) => .K </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 5 </rid> </r> ?C:Bag) </rs> requires N >Int 4 andBool N <Int 6
+  claim [two-sym]: <k> mk(N:Int) ; mk(M:Int) => .K </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 7 </rid> </r> ?C:Bag) </rs> requires N >Int 4 andBool N <Int 6 andBool M >Int 6 andBool M <Int 8
+  claim [two-sym-both]: <k> mk(N:Int) ; mk(M:Int) => .K </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> 7 </rid> </r> ?A:Bag <r> <rid> 5 </rid> </r> ?C:Bag) </rs> requires N >Int 4 andBool N <Int 6 andBool M >Int 6 andBool M <Int 8
+  claim [sym-wide]: <k> mk(N:Int) => .K </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 5 </rid> </r> ?C:Bag) </rs> requires N >Int 4 andBool N <Int 7
+  claim [two-sym-absent]: <k> mk(N:Int) ; mk(M:Int) => .K </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 6 </rid> </r> ?C:Bag) </rs> requires N >Int 4 andBool N <Int 6 andBool M >Int 6 andBool M <Int 8
+  claim [sym-closed]: <k> mk(N:Int) => .K </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> 5 </rid> </r>) </rs> requires N >Int 4 andBool N <Int 6
+endmodule
+"#;
+
+/// A set or map whose items are all known (no opaque part) is defined on each instance, so its
+/// items are pairwise distinct there; a destination with items beside at most one part equals it
+/// exactly when each destination item is a distinct one of them and the part holds the others.
+/// An item whose identifier is symbolic is a case split on the identifier's equations with the
+/// destination's items: `sym-` holds because `N` is 5 on every instance, with one part or with
+/// the two parts read as one, and `two-sym-` because `M` is 7, whichever of `N` and `M` the
+/// destination's 7 is compared with first. A claim where some instance lacks the item
+/// (`sym-wide`, where `N` may be 6, and `two-sym-absent`) or holds one more (`sym-closed`, which
+/// leaves out the instance 1) is not proven.
+#[test]
+fn a_set_or_map_item_with_a_symbolic_identifier_is_found_by_its_equations() {
+    let definition = &COLLECTION_CELL_ITEM_ANYWHERE[..COLLECTION_CELL_ITEM_ANYWHERE
+        .find("module LCELL-SPEC")
+        .unwrap()];
+    for collection in ["Set", "Map"] {
+        let kore = compile(
+            &format!("{definition}{AC_SYMBOLIC_SPEC}").replace("$TYPE", collection),
+            "ACS-SPEC",
+            "LCELL",
+        );
+        let status = |claim: &str| {
+            prove(
+                &kore,
+                "ACS-SPEC",
+                &format!("ACS-SPEC.{claim}"),
+                ProveRequest::default(),
+            )
+            .status
+        };
+        for claim in ["sym-one", "sym-two", "two-sym", "two-sym-both"] {
+            assert_eq!(status(claim), "proven", "{collection} {claim}");
+        }
+        for claim in ["sym-wide", "two-sym-absent", "sym-closed"] {
+            let status = status(claim);
+            assert!(
+                matches!(status.as_str(), "failed" | "disproved"),
+                "{collection} {claim}: {status}"
+            );
+        }
+    }
+}
+
+/// Claims over the plain set `<s>` and map `<m>` of [`AC_FRAMES_ELSEWHERE`] (its definition, with
+/// this spec module) that add a symbolic `N`, which is 5 alone in (4, 6).
+const PAC_SYMBOLIC_SPEC: &str = r#"
+module PACS-SPEC
+  imports PAC
+  claim [set-sym-one]: <k> add(N:Int) => .K </k> <s> .Set => SetItem(5) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 6
+  claim [set-sym-two]: <k> add(N:Int) => .K </k> <s> .Set => ?A:Set SetItem(5) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 6
+  claim [map-sym-one]: <k> add(N:Int) => .K </k> <s> .Set => ?S:Set </s> <m> .Map => 5 |-> 5 ?C:Map </m> requires N >Int 4 andBool N <Int 6
+  claim [map-sym-two]: <k> add(N:Int) => .K </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map 5 |-> 5 ?C:Map </m> requires N >Int 4 andBool N <Int 6
+  claim [set-sym-wide]: <k> add(N:Int) => .K </k> <s> .Set => ?A:Set SetItem(5) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 7
+  claim [map-sym-wide]: <k> add(N:Int) => .K </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map 5 |-> 5 ?C:Map </m> requires N >Int 4 andBool N <Int 7
+  claim [map-sym-value]: <k> add(N:Int) => .K </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map 5 |-> 6 ?C:Map </m> requires N >Int 4 andBool N <Int 6
+endmodule
+"#;
+
+/// The proof status of each of `claims` of `spec`, a module of the given source over
+/// [`AC_FRAMES_ELSEWHERE`]'s definition.
+fn pac_statuses(spec: &str, module: &str, claims: &[&str]) -> Vec<(String, String)> {
+    let definition = &AC_FRAMES_ELSEWHERE[..AC_FRAMES_ELSEWHERE.find("module PAC-SPEC").unwrap()];
+    let kore = compile(&format!("{definition}{spec}"), module, "PAC");
+    claims
+        .iter()
+        .map(|claim| {
+            let status = prove(
+                &kore,
+                module,
+                &format!("{module}.{claim}"),
+                ProveRequest::default(),
+            )
+            .status;
+            ((*claim).to_owned(), status)
+        })
+        .collect()
+}
+
+/// The symbolic item of a plain set or map is found by its equations as a collection cell's is:
+/// `N` is 5 on every instance, with one part or with the two parts read as one. A claim where
+/// `N` may be 6 (`-wide`), or where the map's value is not `N`, is not proven.
+#[test]
+fn a_plain_set_or_map_item_with_a_symbolic_value_is_found_by_its_equations() {
+    let proven = ["set-sym-one", "set-sym-two", "map-sym-one", "map-sym-two"];
+    let unproven = ["set-sym-wide", "map-sym-wide", "map-sym-value"];
+    let statuses = pac_statuses(
+        PAC_SYMBOLIC_SPEC,
+        "PACS-SPEC",
+        &[proven.as_slice(), unproven.as_slice()].concat(),
+    );
+    for (claim, status) in statuses {
+        if proven.contains(&claim.as_str()) {
+            assert_eq!(status, "proven", "{claim}");
+        } else {
+            assert!(
+                matches!(status.as_str(), "failed" | "disproved"),
+                "{claim}: {status}"
+            );
+        }
+    }
+}
