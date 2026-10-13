@@ -2231,7 +2231,10 @@ fn combine_obligation_branches(mut branches: Vec<Obligations>) -> Obligations {
 /// of them, and any split of the leftover between them is a witness; the first takes it all and
 /// the others are empty.
 /// A solution is taken only when it is unique and binds destination existentials alone; any
-/// other outcome leaves the pairs as equality obligations.
+/// other outcome leaves the pairs as equality obligations, with the merge kept: it is an
+/// equivalence on its own (the merged pair, and the other merged parts bound to the empty
+/// collection), so a later expansion of the pairs (`expand_implication_remainders`) sees one
+/// part where the destination wrote several.
 fn solve_collection_remainder_pairs(
     definition: &BackendDefinition,
     substitution: Substitution,
@@ -2257,8 +2260,11 @@ fn solve_collection_remainder_pairs(
         .collect::<BTreeSet<_>>();
     let mut initial = substitution.clone();
     let mut pairs = Vec::with_capacity(collections.len());
+    // The remainder with each collection pair replaced by its merged form, in its order.
+    let mut merged_remainder = Vec::with_capacity(remainder.len());
     for (index, (pattern, subject)) in remainder.iter().enumerate() {
         if !is_collection_pair(pattern, subject) {
+            merged_remainder.push((pattern.clone(), subject.clone()));
             continue;
         }
         let free = |variable: &Variable| {
@@ -2277,16 +2283,25 @@ fn solve_collection_remainder_pairs(
                 if let crate::term::TermKind::Variable(part) = merged.kind() {
                     initial.insert(part.clone(), subject.clone());
                 } else {
-                    pairs.push((merged, subject.clone()));
+                    pairs.push((merged.clone(), subject.clone()));
+                    merged_remainder.push((merged, subject.clone()));
                 }
             }
-            None => pairs.push((pattern.clone(), subject.clone())),
+            None => {
+                pairs.push((pattern.clone(), subject.clone()));
+                merged_remainder.push((pattern.clone(), subject.clone()));
+            }
         }
     }
-    let solutions =
-        solve_collection_pairs_in_definition(MatchMode::Implies, definition, initial, &pairs, None);
+    let solutions = solve_collection_pairs_in_definition(
+        MatchMode::Implies,
+        definition,
+        initial.clone(),
+        &pairs,
+        None,
+    );
     let Some([solution]) = solutions.as_deref() else {
-        return (substitution, remainder, Vec::new());
+        return (initial, merged_remainder, Vec::new());
     };
     let binds_only_existentials = solution
         .matched
@@ -2295,7 +2310,7 @@ fn solve_collection_remainder_pairs(
         .filter(|variable| !substitution.contains_key(*variable))
         .all(|variable| existentials.contains(variable));
     if !binds_only_existentials {
-        return (substitution, remainder, Vec::new());
+        return (initial, merged_remainder, Vec::new());
     }
     let remainder = remainder
         .into_iter()
