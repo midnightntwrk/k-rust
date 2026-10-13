@@ -391,7 +391,7 @@ fn a_claim_finds_a_collection_cell_instance_between_two_parts_at_any_position() 
 }
 
 /// Claims over the collection of [`COLLECTION_CELL_ITEM_ANYWHERE`] (its definition, with this
-/// spec module) whose destinations place 0, 1 or 2 items beside two or three existential parts;
+/// spec module) whose destinations place 0 to 3 items beside two or three existential parts;
 /// `mk(2) ; mk(3)` takes `<r> 1 </r>` to the instances 1, 2 and 3. The `absent-` claims name an
 /// instance 9 that is not among them.
 const AC_FRAMES_SPEC: &str = r#"
@@ -403,6 +403,7 @@ module AC-SPEC
   claim [one-three]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 2 </rid> </r> ?B:Bag ?C:Bag) </rs>
   claim [two-two]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> 3 </rid> </r> ?A:Bag <r> <rid> 1 </rid> </r> ?C:Bag) </rs>
   claim [two-three]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 1 </rid> </r> ?B:Bag <r> <rid> 3 </rid> </r> ?C:Bag) </rs>
+  claim [three-three]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 3 </rid> </r> <r> <rid> 1 </rid> </r> ?B:Bag <r> <rid> 2 </rid> </r> ?C:Bag) </rs>
   claim [absent-one-two]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 9 </rid> </r> ?C:Bag) </rs>
   claim [absent-one-three]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => ?A:Bag <r> <rid> 9 </rid> </r> ?B:Bag ?C:Bag) </rs>
   claim [absent-two-two]: <k> mk(2) ; mk(3) => .K ... </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> 3 </rid> </r> ?A:Bag <r> <rid> 9 </rid> </r> ?C:Bag) </rs>
@@ -413,9 +414,10 @@ endmodule
 /// Set and map concatenation is associative and commutative with the empty collection as unit,
 /// so existential parts beside a set's or a map's items that occur nowhere else stand together
 /// for their union, which is one part: any collection disjoint from the items. A destination
-/// with two or three such parts and 0, 1 or 2 items therefore holds exactly when its items are
+/// with two or three such parts and 0 to 3 items therefore holds exactly when its items are
 /// instances of the final state, in any order (`two-three` writes 1 before 3), with any split of
-/// the other instances between the parts as witness. An item that is no instance (`absent-`)
+/// the other instances between the parts as witness, all of them empty where every instance is
+/// an item (`three-three`). An item that is no instance (`absent-`)
 /// still leaves its claim unproven.
 #[test]
 fn existential_parts_beside_set_or_map_items_are_one_part() {
@@ -444,6 +446,7 @@ fn existential_parts_beside_set_or_map_items_are_one_part() {
             "one-three",
             "two-two",
             "two-three",
+            "three-three",
         ] {
             assert_eq!(status(claim), "proven", "{collection} {claim}");
         }
@@ -458,9 +461,10 @@ fn existential_parts_beside_set_or_map_items_are_one_part() {
     }
 }
 
-/// A set `<s>` and a map `<m>` that `add` fills, and a set `<u>` and a map `<n>` beside them that
-/// no rule changes. The `-bound` claims name a part of `<s>` or `<m>` in `<u>` or `<n>` too, the
-/// `-constrained` claims in their `ensures`.
+/// A set `<s>` and a map `<m>` that `add` fills, and a set `<u>`, a map `<n>` and an integer `<c>`
+/// beside them that no rule changes. The `-bound` claims name a part of `<s>` or `<m>` in `<u>`
+/// or `<n>` too, the `-constrained` claims in their `ensures`, the `-sized` claims in a function
+/// application in `<c>`.
 const AC_FRAMES_ELSEWHERE: &str = r#"
 module PAC-SYNTAX
   imports INT-SYNTAX
@@ -474,7 +478,7 @@ module PAC
   imports SET
   imports MAP
   imports BOOL
-  configuration <T> <k> $PGM:Pgm </k> <s> .Set </s> <u> .Set </u> <m> .Map </m> <n> .Map </n> </T>
+  configuration <T> <k> $PGM:Pgm </k> <s> .Set </s> <u> .Set </u> <m> .Map </m> <n> .Map </n> <c> 1 </c> </T>
   rule <k> C:Cmd ; P:Pgm => C ~> P ... </k>
   rule <k> add(I) => .K ... </k> <s> S => S SetItem(I) </s> <m> M => M[I <- I] </m> requires notBool I in S
 endmodule
@@ -489,6 +493,8 @@ module PAC-SPEC
   claim [map-free]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map 2 |-> 2 ?C:Map </m>
   claim [map-bound]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map 2 |-> 2 ?C:Map </m> <n> 9 |-> 9 => ?C </n>
   claim [map-constrained]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map 2 |-> 2 ?C:Map </m> ensures 1 in_keys(?C)
+  claim [set-sized]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?A:Set SetItem(2) ?C:Set </s> <m> .Map => ?M:Map </m> <c> 1 => size(?C) </c>
+  claim [map-sized]: <k> add(1) ; add(2) ; add(3) => .K ... </k> <s> .Set => ?S:Set </s> <m> .Map => ?A:Map 2 |-> 2 ?C:Map </m> <c> 1 => size(?C) </c>
 endmodule
 "#;
 
@@ -496,8 +502,10 @@ endmodule
 /// destination also names elsewhere is not free to take the whole remainder: in `-bound` it is
 /// `<u>`'s or `<n>`'s `9`, which no split of 1 and 3 holds, so the claim is not proven; in
 /// `-constrained` it must hold 1, which the split with 1 in it does, so the claim holds and is
-/// not disproved (no split is tried, so it is left unproven). The parts of a plain set or map
-/// value with no item, or beside one, are one part as in a cell collection.
+/// not disproved (no split is tried, so it is left unproven); in `-sized` it must have one
+/// element, which the split with 1 or 3 alone in it has, so that claim holds and is not disproved
+/// either. The parts of a plain set or map value with no item, or beside one, are one part as in
+/// a cell collection.
 #[test]
 fn a_part_named_elsewhere_in_the_destination_is_not_merged() {
     let kore = compile(AC_FRAMES_ELSEWHERE, "PAC-SPEC", "PAC");
@@ -516,7 +524,12 @@ fn a_part_named_elsewhere_in_the_destination_is_not_merged() {
     for claim in ["set-bound", "map-bound"] {
         assert_ne!(status(claim), "proven", "{claim}");
     }
-    for claim in ["set-constrained", "map-constrained"] {
+    for claim in [
+        "set-constrained",
+        "map-constrained",
+        "set-sized",
+        "map-sized",
+    ] {
         assert_eq!(status(claim), "failed", "{claim}");
     }
 }
