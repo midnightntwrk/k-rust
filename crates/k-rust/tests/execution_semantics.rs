@@ -2044,3 +2044,73 @@ fn constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_t
         );
     }
 }
+
+/// The order `keys_list` lists a map's keys in, reached through a rule `requires` (on 1) and a
+/// function equation's `requires` (on 2).
+const KEYS_LIST_ORDER_IN_CONDITIONS: &str = r#"
+module ORDREQ
+  imports DOMAINS
+  imports COLLECTIONS
+  syntax KItem ::= res(List) | cond(Bool) | fres(Int)
+  syntax Int ::= f(Map) [function]
+  rule f(M) => 1 requires keys_list(M) ==K ListItem(-1) ListItem(10) ListItem(2)
+  rule f(_) => 0 [owise]
+  configuration <k> $PGM:Int </k>
+  rule 0 => res(keys_list(10 |-> 1 2 |-> 2 -1 |-> 3))
+  rule 1 => cond(true) requires keys_list(10 |-> 1 2 |-> 2 -1 |-> 3) ==K ListItem(-1) ListItem(10) ListItem(2)
+  rule 2 => fres(f(10 |-> 1 2 |-> 2 -1 |-> 3))
+endmodule
+"#;
+
+/// The facade's `execute` and `search_pattern` are executions: they evaluate every listing in
+/// k-rust's documented order (decimal text order for Int keys, -1 10 2), also in the conditions
+/// they decide, so a rule `requires` (on 1) and a function equation's `requires` (on 2) that hold
+/// in that order are taken.
+#[test]
+fn backend_execute_and_search_keep_the_order_in_conditions() {
+    for (program, expected) in [
+        (
+            "1",
+            r#"Lblcond'LParUndsRParUnds'ORDREQ'Unds'KItem'Unds'Bool{}(\dv{SortBool{}}("true"))"#,
+        ),
+        (
+            "2",
+            r#"Lblfres'LParUndsRParUnds'ORDREQ'Unds'KItem'Unds'Int{}(\dv{SortInt{}}("1"))"#,
+        ),
+    ] {
+        let compiled = compile(
+            KEYS_LIST_ORDER_IN_CONDITIONS,
+            "ORDREQ",
+            "ORDREQ",
+            "Int",
+            program,
+        );
+        let executed = text(&execute(&compiled, "ORDREQ", None));
+        assert!(
+            matches!(executed.as_slice(), [state]
+                if state.contains(expected) && !state.contains("Lblkeys")),
+            "execute {program}: {executed:?}"
+        );
+        let mut backend =
+            Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
+        let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+        let response = backend
+            .search_pattern(SearchPatternRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchPatternRequest::new(compiled.initial.clone(), target)
+            })
+            .unwrap();
+        let found = response
+            .matches
+            .iter()
+            .map(|found| {
+                Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(found.as_slice(), [state]
+                if state.contains(expected) && !state.contains("Lblkeys")),
+            "search_pattern {program}: {found:?}"
+        );
+    }
+}

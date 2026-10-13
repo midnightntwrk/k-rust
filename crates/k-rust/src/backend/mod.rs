@@ -23,6 +23,7 @@ use k_rust_backend::stop;
 use k_rust_backend::substitution::Substitution;
 use k_rust_backend::{
     definition::{Admission, Admitted, BackendDefinition},
+    evaluation::EvaluationMode,
     externalize,
     fresh::RequestNames,
     implication::{ImplicationFailure, ImplicationStatus},
@@ -867,6 +868,8 @@ impl Backend {
                 // The state as received, before its aliases are unfolded: none here, since an
                 // executable state has none, but every path names its request the same way.
                 request_names: RequestNames::of_received(&[&syntax]),
+                // `execute` runs a program, so it lists collections in k-rust's order.
+                evaluation: EvaluationMode::Execution,
             };
             let result = match observation_rules {
                 Some(rules) => {
@@ -1553,6 +1556,9 @@ fn bounded_search_options(
         max_results,
         max_simplification_iterations,
         request_names: RequestNames::default(),
+        // `search`, `search_paths` and `search_pattern*` explore the runs of a program, so they
+        // list collections in k-rust's order.
+        evaluation: EvaluationMode::Execution,
     }
 }
 

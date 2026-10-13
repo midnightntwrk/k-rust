@@ -100,6 +100,7 @@ use crate::{
     definedness::{ceil_term, terms_apart},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
+    evaluation::EvaluationMode,
     matching::{
         CollectionMatches, FailReason, InjectionEquality, MatchFailed, MatchMode, MatchResult,
         match_collection_remainders_all_in_definition, match_equation_in_definition,
@@ -2231,7 +2232,7 @@ fn simplify_predicate_on_stack(
             // add child ceils already supplied by the surrounding conjunction.
             expanded.retain(|predicate| !assumptions.contains(predicate));
             if expanded.as_slice() == [unchanged.clone()] {
-                let defined = size_bound_refusal(definition, &simplified.term)?.is_some();
+                let defined = defined_uncomputed(definition, &simplified.term)?;
                 with_simplification_constraints(
                     simplified.conditions.into_predicates(),
                     if defined { Predicate::True } else { unchanged },
@@ -2538,35 +2539,35 @@ fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predi
     }
 }
 
-/// The reason a hook's evaluator gives when `term`, a hooked application on constructor-like
-/// arguments, has a result above a result size bound (`ResultTooLarge`); `None` for any other
-/// term or outcome. An evaluator reports `ResultTooLarge` only where the hook has a value, so
-/// such an application is defined: its `\ceil` holds although the value is not computed.
-fn size_bound_refusal(
-    definition: &BackendDefinition,
-    term: &Term,
-) -> SimplifyResult<Option<UnsupportedHookReason>> {
+/// Whether `term`, a hooked application on constructor-like arguments that term simplification
+/// left unevaluated, is defined by its evaluator's verdict, so that its `\ceil` holds although
+/// its value is not computed: the evaluator gives a value (left unevaluated outside an execution
+/// where only an execution chooses it, `crate::evaluation`), a result above a result size bound
+/// (`ResultTooLarge`, reported only where the hook has a value), or one of several values the
+/// definition admits (`Unspecified` with `defined`). The verdict does not depend on the
+/// evaluation mode. `false` for any other term or outcome.
+fn defined_uncomputed(definition: &BackendDefinition, term: &Term) -> SimplifyResult<bool> {
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
     else {
-        return Ok(None);
+        return Ok(false);
     };
     if symbol.attributes.hook.is_none()
         || !arguments
             .iter()
             .all(|argument| argument.attributes().constructor_like)
     {
-        return Ok(None);
+        return Ok(false);
     }
-    Ok(
-        match evaluate_builtin(term, definition)?.map_err(SimplificationError::Builtin)? {
-            BuiltinResult::Unsupported(reason @ UnsupportedHookReason::ResultTooLarge { .. }) => {
-                Some(reason)
-            }
-            _ => None,
-        },
-    )
+    Ok(matches!(
+        evaluate_builtin(term, definition)?.map_err(SimplificationError::Builtin)?,
+        BuiltinResult::Value(_)
+            | BuiltinResult::Unsupported(
+                UnsupportedHookReason::ResultTooLarge { .. }
+                    | UnsupportedHookReason::Unspecified { defined: true, .. }
+            )
+    ))
 }
 
 /// Whether the backend leaves an application of the hooked `symbol` on constructor-like
@@ -2675,7 +2676,7 @@ fn uncomputed_refusal(
 /// carried and so never reaches this check.
 ///
 /// The `\ceil` of such an application is not a use of its value: it holds (an evaluator reports
-/// a size bound only where the hook is defined, `size_bound_refusal`, and the other kind is
+/// a size bound only where the hook is defined, `defined_uncomputed`, and the other kind is
 /// `total`), and term simplification leaves it as the obligation of a discarded partial subterm
 /// (`false andBool (2 ^Int N >Int 0)` is `false` under `\ceil(2 ^Int N)`).
 ///
@@ -2737,7 +2738,7 @@ fn push_predicate_terms(
         Predicate::Ceil(term) => {
             let total = matches!(term.kind(), TermKind::Application { symbol, .. }
                 if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total));
-            if !total && size_bound_refusal(definition, term)?.is_none() {
+            if !total && !defined_uncomputed(definition, term)? {
                 pending.push(term.clone());
             }
         }
@@ -4999,6 +5000,25 @@ fn simplify_root(
         None => evaluate_builtin(term, definition),
     }?
     .map_err(SimplificationError::Builtin)?;
+    // A value the definition leaves to the implementation (the order of `keys_list`, `values`
+    // and `Set2List` of two or more items) is computed only inside an execution, which runs a
+    // program and may take any value the definition admits. Elsewhere a verdict that read it
+    // would hold only in k-rust's choice, not in every model of the definition, so the
+    // application stays unevaluated as the defined value it is (`crate::evaluation`). The
+    // outcome is `Unsupported`, not `NotApplicable`, so that no normal-form certificate is
+    // recorded for it below: its value claim would let apartness tell it from a written list.
+    let builtin = match builtin {
+        BuiltinResult::Value(_) if crate::evaluation::current() == EvaluationMode::Proof => {
+            match crate::builtin::implementation_chosen(term) {
+                Some(detail) => BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                    detail,
+                    defined: true,
+                }),
+                None => builtin,
+            }
+        }
+        builtin => builtin,
+    };
     let unsupported = match builtin {
         BuiltinResult::NotApplicable => None,
         BuiltinResult::Unsupported(reason) => Some(reason),
@@ -5258,6 +5278,10 @@ fn simplify_root(
             };
             let reason = match unsupported {
                 Some(UnsupportedHookReason::Unspecified { .. }) if placeholder => None,
+                // A value only an execution chooses is left unevaluated by design, which
+                // docs/compatibility.md states; a warning at every occurrence would report
+                // nothing the user can act on.
+                Some(UnsupportedHookReason::Unspecified { defined: true, .. }) => None,
                 Some(reason @ UnsupportedHookReason::Unspecified { .. }) => unevaluated(reason),
                 outcome => match uncomputed_reason(outcome, has_equations) {
                     Some(reason @ UnsupportedHookReason::ResultTooLarge { .. }) => {
@@ -5280,6 +5304,10 @@ fn simplify_root(
             }
         } else if let Some(reason) = unsupported
             && !placeholder
+            && !matches!(
+                reason,
+                UnsupportedHookReason::Unspecified { defined: true, .. }
+            )
         {
             diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
                 hook: hook.to_owned(),
@@ -6021,12 +6049,22 @@ struct Record {
     /// The stack and the active rule-condition keys when the evaluation began.
     stack: Option<Arc<StackPrefix>>,
     active: BTreeSet<ConditionKey>,
+    /// The evaluation mode it ran in (`crate::evaluation`). Records live only while a lineage is
+    /// open, and the mode changes only where an execution, a search or an effect observer
+    /// begins, never inside a lineage, so a record is never looked up in another mode than the
+    /// one it was made in: the mode is not part of what a lookup compares.
+    evaluation: EvaluationMode,
 }
 
 impl Record {
     /// Whether an evaluation of the application now would read what this one read at every step,
     /// and so compute the same outcome.
     fn holds(&self, stack: &UnspecifiedStack, given: &EvaluationGiven<'_>) -> bool {
+        debug_assert_eq!(
+            self.evaluation,
+            crate::evaluation::current(),
+            "a record of an Unspecified evaluation is looked up in another mode than its own"
+        );
         if self.options != given.options
             || self.solver != solver_address(given.solver)
             || (self.reads.console && self.console != given.console)
@@ -6210,6 +6248,7 @@ impl UnspecifiedValues {
             reached,
             stack,
             active: given.active.clone(),
+            evaluation: crate::evaluation::current(),
         };
         let hash = AssumptionContent::hash(given.assumptions);
         UNSPECIFIED_VALUES.with_borrow_mut(|table| {

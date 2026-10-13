@@ -1,7 +1,7 @@
 #![cfg(feature = "cli")]
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -7646,6 +7646,277 @@ fn kprove_proves_collections_of_apart_symbolic_elements() {
     );
     // At equal arguments `same` builds a repeated element, so its set is undefined.
     assert_ne!(verdict("same"), "proven", "{stdout}\n{stderr}");
+}
+
+/// `keys_list` of a map whose keys are 10, 2 and the program: domains.md fixes no order of the
+/// listing, so a claim about the order is true in some models of the definition and false in
+/// others.
+const KEYS_LIST_ORDER: &str = r#"
+module ORD
+  imports DOMAINS
+  imports COLLECTIONS
+  configuration <k> $PGM:Int </k>
+  rule I:Int => keys_list(10 |-> 1 2 |-> 2 I |-> 3)
+endmodule
+"#;
+
+/// The order `keys_list` lists keys in, reached through a rule `requires` (on 1) and through a
+/// function equation's `requires` (on 2); on 0 the listing is the result.
+const KEYS_LIST_ORDER_IN_CONDITIONS: &str = r#"
+module ORDREQ
+  imports DOMAINS
+  imports COLLECTIONS
+  syntax KItem ::= res(List) | cond(Bool) | fres(Int)
+  syntax Int ::= f(Map) [function]
+  rule f(M) => 1 requires keys_list(M) ==K ListItem(-1) ListItem(10) ListItem(2)
+  rule f(_) => 0 [owise]
+  configuration <k> $PGM:Int </k>
+  rule 0 => res(keys_list(10 |-> 1 2 |-> 2 -1 |-> 3))
+  rule 1 => cond(true) requires keys_list(10 |-> 1 2 |-> 2 -1 |-> 3) ==K ListItem(-1) ListItem(10) ListItem(2)
+  rule 2 => fres(f(10 |-> 1 2 |-> 2 -1 |-> 3))
+endmodule
+"#;
+
+/// `kprove` of `source` with `spec` as the main module and `definition_module` as the definition
+/// module: the verdict word of each named claim, by claim name, and the output.
+fn order_claim_verdicts(
+    source: &str,
+    definition_module: &str,
+    spec: &str,
+) -> (BTreeMap<String, String>, String) {
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            spec,
+            "--definition-module",
+            definition_module,
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let prefix = format!("claim {spec}.");
+    let verdicts = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix(&prefix))
+        .filter_map(|line| {
+            let (name, rest) = line.split_once(": ")?;
+            Some((name.to_owned(), rest.split_whitespace().next()?.to_owned()))
+        })
+        .collect();
+    (verdicts, format!("{stdout}\n{stderr}"))
+}
+
+/// The verdict of `claim` among `verdicts`, which must have one.
+fn claim_verdict<'a>(verdicts: &'a BTreeMap<String, String>, claim: &str, output: &str) -> &'a str {
+    verdicts
+        .get(claim)
+        .unwrap_or_else(|| panic!("no {claim} verdict in {output}"))
+}
+
+/// Neither `proven` nor `disproved`: the definition entails neither the claim nor its failure.
+fn assert_undecided(verdicts: &BTreeMap<String, String>, claim: &str, output: &str) {
+    let verdict = claim_verdict(verdicts, claim, output);
+    assert!(
+        verdict != "proven" && verdict != "disproved",
+        "{claim} is {verdict}: {output}"
+    );
+}
+
+/// domains.md leaves the order of `keys_list` open, so neither order of the three keys is a
+/// consequence of the definition: no claim about it is proven, and none is disproved.
+#[test]
+fn kprove_proves_no_claim_that_depends_on_the_order_of_keys_list() {
+    let source = format!(
+        "{KEYS_LIST_ORDER}
+module ORD-SPEC
+  imports ORD
+  claim [text-order]: <k> -1 => ListItem(-1) ListItem(10) ListItem(2) </k>
+  claim [numeric-order]: <k> -1 => ListItem(-1) ListItem(2) ListItem(10) </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "ORD", "ORD-SPEC");
+    assert_undecided(&verdicts, "text-order", &output);
+    assert_undecided(&verdicts, "numeric-order", &output);
+}
+
+/// The order of `keys_list` reached through a rule `requires` (`cond`) and a function equation's
+/// `requires` (`fres`) is no more a consequence of the definition than on a right-hand side,
+/// while a claim that holds whatever the order (`res`) is proven.
+#[test]
+fn kprove_proves_no_claim_that_depends_on_the_order_in_conditions() {
+    let source = format!(
+        "{KEYS_LIST_ORDER_IN_CONDITIONS}
+module ORDREQ-SPEC
+  imports ORDREQ
+  claim [rule-requires]: <k> 1 => cond(true) </k>
+  claim [equation-requires]: <k> 2 => fres(1) </k>
+  claim [order-free]: <k> 0 => res(?_L:List) </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "ORDREQ", "ORDREQ-SPEC");
+    assert_undecided(&verdicts, "rule-requires", &output);
+    assert_undecided(&verdicts, "equation-requires", &output);
+    assert_eq!(
+        claim_verdict(&verdicts, "order-free", &output),
+        "proven",
+        "{output}"
+    );
+}
+
+/// `Set2List` fixes no order either: the claim about one order is neither proven nor disproved,
+/// and the claim that some list is reached is proven.
+#[test]
+fn kprove_proves_no_claim_that_depends_on_the_order_of_set2list() {
+    let source = r#"
+module ORD-SET
+  imports DOMAINS
+  imports COLLECTIONS
+  configuration <k> $PGM:Int </k>
+  rule I:Int => Set2List(SetItem(3) SetItem(1) SetItem(I) SetItem(7))
+endmodule
+module ORD-SET-SPEC
+  imports ORD-SET
+  claim [one-order]: <k> 0 => ListItem(0) ListItem(1) ListItem(3) ListItem(7) </k>
+  claim [order-free]: <k> 0 => ?_L:List </k>
+endmodule
+"#;
+    let (verdicts, output) = order_claim_verdicts(source, "ORD-SET", "ORD-SET-SPEC");
+    assert_undecided(&verdicts, "one-order", &output);
+    assert_eq!(
+        claim_verdict(&verdicts, "order-free", &output),
+        "proven",
+        "{output}"
+    );
+}
+
+/// A listing left unevaluated outside an execution is a defined value: `keys_list` of a map with
+/// distinct keys is defined, so the step that writes it has a successor, and the claim that some
+/// list is reached is proven, with no undefined step.
+#[test]
+fn kprove_proves_an_order_free_claim_over_keys_list() {
+    let source = format!(
+        "{KEYS_LIST_ORDER}
+module ORD-FREE-SPEC
+  imports ORD
+  claim [some-list]: <k> -1 => ?_L:List </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "ORD", "ORD-FREE-SPEC");
+    assert_eq!(
+        claim_verdict(&verdicts, "some-list", &output),
+        "proven",
+        "{output}"
+    );
+    assert!(!output.contains("undefined step"), "{output}");
+}
+
+/// The expected loss of leaving a listing unevaluated: its size is 3 in every model, but `size`
+/// of the unevaluated listing is not computed, so the claim that states it is not proven. A
+/// change that decides `LIST.size` of such a listing flips the second verdict to `proven`.
+#[test]
+fn kprove_loses_the_size_of_a_gated_listing() {
+    let source = format!(
+        "{KEYS_LIST_ORDER}
+module ORD-FREE-SPEC
+  imports ORD
+  claim [some-list]: <k> -1 => ?_L:List </k>
+  claim [three-keys]: <k> -1 => ?L:List </k> ensures size(?L) ==Int 3
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "ORD", "ORD-FREE-SPEC");
+    assert_eq!(
+        claim_verdict(&verdicts, "some-list", &output),
+        "proven",
+        "{output}"
+    );
+    assert_ne!(
+        claim_verdict(&verdicts, "three-keys", &output),
+        "proven",
+        "{output}"
+    );
+}
+
+/// `krun` of `source` (main and syntax module `main`, `$PGM` of sort Int) on `program`, with the
+/// `extra` arguments: the printed result.
+fn krun_int_program(source: &str, main: &str, program: &str, extra: &[&str]) -> String {
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", definition.to_str().unwrap()])
+        .args(["--main-module", main, "--syntax-module", main])
+        .args(["--sort", "Int", "--expression", program, "--io", "off"])
+        .args(extra)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    stdout
+}
+
+/// The Int domain values of `output`, in the order they are printed.
+fn printed_ints(output: &str) -> Vec<String> {
+    Regex::new(r#"\\dv\{SortInt\{\}\}\("(-?[0-9]+)"\)"#)
+        .unwrap()
+        .captures_iter(output)
+        .map(|found| found[1].to_owned())
+        .collect()
+}
+
+/// An execution lists the keys of a map in k-rust's documented order, the decimal text order
+/// for Int keys: -1, 10, 2.
+#[test]
+fn krun_lists_keys_in_the_documented_order() {
+    let output = krun_int_program(KEYS_LIST_ORDER, "ORD", "-1", &[]);
+    assert!(
+        printed_ints(&output).starts_with(&["-1".into(), "10".into(), "2".into()]),
+        "{output}"
+    );
+}
+
+/// An execution evaluates every listing in its documented order, also in the conditions it
+/// decides: a rule `requires` (on 1) and a function equation's `requires` (on 2), with `krun` and
+/// with `krun --search-final`.
+#[test]
+fn krun_keeps_the_order_in_rule_and_equation_conditions() {
+    let cond = Regex::new(r#"Lblcond[^(]*\(\\dv\{SortBool\{\}\}\("true"\)\)"#).unwrap();
+    let fres = Regex::new(r#"Lblfres[^(]*\(\\dv\{SortInt\{\}\}\("1"\)\)"#).unwrap();
+    let source = KEYS_LIST_ORDER_IN_CONDITIONS;
+    let listed = krun_int_program(source, "ORDREQ", "0", &[]);
+    assert!(
+        listed.contains("Lblres")
+            && printed_ints(&listed).starts_with(&["-1".into(), "10".into(), "2".into()]),
+        "{listed}"
+    );
+    for extra in [&[][..], &["--search-final"][..]] {
+        // The condition is decided, not carried as a constraint on the result.
+        let output = krun_int_program(source, "ORDREQ", "1", extra);
+        assert!(
+            cond.is_match(&output) && !output.contains("Lblkeys"),
+            "{extra:?}: {output}"
+        );
+        let output = krun_int_program(source, "ORDREQ", "2", extra);
+        assert!(
+            fres.is_match(&output) && !output.contains("Lblkeys"),
+            "{extra:?}: {output}"
+        );
+    }
 }
 
 /// The modal claim fixture prepared once with `kcompile --for-proving`, so that a `kprove`

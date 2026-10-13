@@ -105,6 +105,7 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let (Some(start_offset), Some(end_offset)) = offsets else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::Unspecified {
+                defined: false,
                 detail: format!(
                     "substrString from {start} to {end} on a string of length {}, outside the valid indices 0 <= start <= end <= length",
                     value.chars().count()
@@ -177,6 +178,7 @@ fn replace_all(arguments: &[Term]) -> HookResult<BuiltinResult> {
 fn empty_needle(operation: &str, needle: &Term) -> Option<BuiltinResult> {
     read_string(needle).is_some_and(str::is_empty).then(|| {
         BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+            defined: false,
             detail: format!(
                 "{operation} with an empty needle: the domains.md equations give count = 1 + count"
             ),
@@ -322,6 +324,7 @@ fn chr(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(char::from_u32(value).map_or_else(
         || {
             BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                defined: false,
                 detail: format!(
                     "chrChar({value}): a surrogate code point, which K's string syntax writes \
                      and KORE's string literals cannot"

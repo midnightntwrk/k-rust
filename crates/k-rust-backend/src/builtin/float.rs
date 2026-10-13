@@ -338,6 +338,7 @@ fn float_to_int(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(value.round_to_integer().map_or_else(
         || {
             BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                defined: false,
                 detail: "Float2Int of NaN or an infinity, which has no nearest integer".into(),
             })
         },

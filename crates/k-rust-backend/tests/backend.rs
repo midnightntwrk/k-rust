@@ -5,6 +5,8 @@
 mod anywhere_matching;
 #[path = "backend/definedness_classes.rs"]
 mod definedness_classes;
+#[path = "backend/evaluation_mode.rs"]
+mod evaluation_mode;
 #[path = "backend/hook_result_sorts.rs"]
 mod hook_result_sorts;
 #[path = "backend/issue_4114_overload.rs"]

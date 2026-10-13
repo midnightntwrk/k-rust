@@ -83,6 +83,7 @@ fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::Unspecified {
+                defined: false,
                 detail: "String2Bytes of a string holding a code point above 255".into(),
             },
         ));
@@ -290,6 +291,7 @@ fn int_to_bytes(arguments: &[Term], allowance: &Allowance) -> HookResult<Builtin
     {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::Unspecified {
+                defined: false,
                 detail: format!(
                     "Int2Bytes with the negative length {}",
                     describe_int(&length)

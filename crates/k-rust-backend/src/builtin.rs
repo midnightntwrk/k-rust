@@ -141,8 +141,18 @@ pub enum UnsupportedHookReason {
     /// still needs the value of the same application, or of one whose evaluation encloses it,
     /// gives none and is undone, and the application stays unevaluated only if none of its
     /// equations gives one (`simplify::UnspecifiedFrame`).
+    ///
+    /// Outside an execution it is also the outcome of a hook whose value on these arguments is
+    /// one of several the definition admits, such as `keys_list` of a map of two or more keys,
+    /// whose order domains.md does not fix: an execution takes k-rust's documented value, and
+    /// every other evaluation leaves the application unevaluated, with `defined` set
+    /// (`crate::evaluation`).
     Unspecified {
         detail: String,
+        /// The value exists and is one of several the definition admits: the application is
+        /// defined, so its `\ceil` holds although its value is not computed. `false` where the
+        /// definition leaves open whether a value exists, or gives none.
+        defined: bool,
     },
 }
 
@@ -155,7 +165,7 @@ impl fmt::Display for UnsupportedHookReason {
             Self::ArgumentOutOfRange { detail } | Self::ResultTooLarge { detail } => {
                 formatter.write_str(detail)
             }
-            Self::Unspecified { detail } => {
+            Self::Unspecified { detail, .. } => {
                 write!(
                     formatter,
                     "the definition does not determine its value: {detail}"
@@ -210,6 +220,38 @@ pub(crate) fn evaluate_in_definition(
     definition: &BackendDefinition,
 ) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
     evaluate_with_definition(term, Some(definition)).layered()
+}
+
+/// Why the definition admits several values of `term`, a hooked application whose evaluator
+/// computes one, so that the value is k-rust's choice rather than a consequence of the
+/// definition; `None` when every value the definition admits is the same.
+///
+/// `keys_list(M)` and `values(M)` of a closed map with two or more bindings whose keys are all
+/// constructor-like, and `Set2List(S)` of a closed set of two or more constructor-like elements,
+/// are some listing of the items: domains.md fixes no order, so every order of the items is a
+/// value some model gives. With zero or one item every listing is the same. The condition is the
+/// one under which the evaluators list the items (`map::ordered_entries`, `set::concrete_set`),
+/// read on the argument, not on the result. An application this names is defined: a closed map
+/// with distinct constructor-like keys, and a set of such elements, have a listing.
+pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    let hook = symbol.attributes.hook.as_deref()?;
+    let several = match hook {
+        "MAP.keys_list" | "MAP.values" => map::lists_several_items(arguments),
+        "SET.set2list" => set::lists_several_items(arguments),
+        _ => false,
+    };
+    several.then(|| {
+        format!(
+            "{hook} of two or more items lists them in an order domains.md does not fix, which \
+             only an execution chooses"
+        )
+    })
 }
 
 /// Evaluate a hook candidate with buffered execution state available.

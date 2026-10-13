@@ -87,6 +87,9 @@ pub(super) fn execute_using(
 ) -> (ExecutionResult, InitialSimplificationStatus) {
     let _span = measure::algorithm_span(Algorithm::BackendRewriteExecute);
     let _apart = crate::rule::ApartScope::enter();
+    // Every evaluation of the run, its rule and equation conditions included, runs in the mode
+    // the request asks for (`crate::evaluation`).
+    let _evaluation = crate::evaluation::EvaluationScope::enter(options.evaluation);
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,
@@ -1246,7 +1249,11 @@ impl<'a> Execution<'a> {
             _ => Vec::new(),
         };
         for effect in &effects {
-            (self.observe)(effect);
+            // An observer is the caller's code, not part of the run: whatever it evaluates is
+            // outside the execution, in `Proof` mode.
+            crate::evaluation::with_evaluation(crate::evaluation::EvaluationMode::Proof, || {
+                (self.observe)(effect);
+            });
         }
         (
             ExecutionResult {
