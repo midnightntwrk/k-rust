@@ -789,3 +789,74 @@ fn a_disjunctive_set_or_map_destination_is_decided_disjunct_by_disjunct() {
         }
     }
 }
+
+/// Claims whose destination item is an existential that the `ensures` constrains, over the plain
+/// set `<s>` and map `<m>` of [`AC_FRAMES_ELSEWHERE`] (its definition, with this spec module).
+const PAC_EXISTENTIAL_ITEM_SPEC: &str = r#"
+module PACX-SPEC
+  imports PAC
+  claim [set-ex]: <k> add(1) ; add(5) => .K </k> <s> .Set => SetItem(?X:Int) ?C:Set </s> <m> .Map => ?M:Map </m> ensures ?X >Int 3
+  claim [map-ex]: <k> add(1) ; add(5) => .K </k> <s> .Set => ?S:Set </s> <m> .Map => ?K:Int |-> ?V:Int ?C:Map </m> ensures ?V >Int 3
+  claim [set-ex-none]: <k> add(1) ; add(2) => .K </k> <s> .Set => SetItem(?X:Int) ?C:Set </s> <m> .Map => ?M:Map </m> ensures ?X >Int 3
+  claim [map-ex-none]: <k> add(1) ; add(2) => .K </k> <s> .Set => ?S:Set </s> <m> .Map => ?K:Int |-> ?V:Int ?C:Map </m> ensures ?V >Int 3
+endmodule
+"#;
+
+/// The same over the collection of [`COLLECTION_CELL_ITEM_ANYWHERE`], whose new instances have
+/// the symbolic identifiers `N`, 5 alone in (4, 6), and `M`, 7 alone in (6, 8).
+const AC_EXISTENTIAL_ITEM_SPEC: &str = r#"
+module ACX-SPEC
+  imports LCELL
+  imports BOOL
+  claim [ex-two]: <k> mk(N:Int) ; mk(M:Int) => .K </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> ?X:Int </rid> </r> <r> <rid> ?Y:Int </rid> </r> ?C:Bag) </rs> requires N >Int 4 andBool N <Int 6 andBool M >Int 6 andBool M <Int 8 ensures ?X >Int ?Y andBool ?Y >Int 4
+  claim [ex-two-none]: <k> mk(N:Int) ; mk(M:Int) => .K </k> <rs> (<r> <rid> 1 </rid> </r> => <r> <rid> ?X:Int </rid> </r> <r> <rid> ?Y:Int </rid> </r> ?C:Bag) </rs> requires N >Int 4 andBool N <Int 6 andBool M >Int 6 andBool M <Int 8 ensures ?X >Int 8
+endmodule
+"#;
+
+/// A destination item that is an existential is some item of a final collection of items alone,
+/// each placement one disjunct, so the claim holds where one placement satisfies the `ensures`
+/// (`5` in `{1, 5}`; `M` then `N` in the collection) and is not proven where none does.
+#[test]
+fn an_existential_set_or_map_item_is_any_final_item_its_constraint_admits() {
+    let proven = ["set-ex", "map-ex"];
+    let statuses = pac_statuses(
+        PAC_EXISTENTIAL_ITEM_SPEC,
+        "PACX-SPEC",
+        &["set-ex", "map-ex", "set-ex-none", "map-ex-none"],
+    );
+    for (claim, status) in statuses {
+        if proven.contains(&claim.as_str()) {
+            assert_eq!(status, "proven", "{claim}");
+        } else {
+            assert!(
+                matches!(status.as_str(), "failed" | "disproved"),
+                "{claim}: {status}"
+            );
+        }
+    }
+    let definition = &COLLECTION_CELL_ITEM_ANYWHERE[..COLLECTION_CELL_ITEM_ANYWHERE
+        .find("module LCELL-SPEC")
+        .unwrap()];
+    for collection in ["Set", "Map"] {
+        let kore = compile(
+            &format!("{definition}{AC_EXISTENTIAL_ITEM_SPEC}").replace("$TYPE", collection),
+            "ACX-SPEC",
+            "LCELL",
+        );
+        let status = |claim: &str| {
+            prove(
+                &kore,
+                "ACX-SPEC",
+                &format!("ACX-SPEC.{claim}"),
+                ProveRequest::default(),
+            )
+            .status
+        };
+        assert_eq!(status("ex-two"), "proven", "{collection} ex-two");
+        let none = status("ex-two-none");
+        assert!(
+            matches!(none.as_str(), "failed" | "disproved"),
+            "{collection} ex-two-none: {none}"
+        );
+    }
+}

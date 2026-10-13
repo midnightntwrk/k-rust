@@ -1711,7 +1711,7 @@ fn item_subject_expansion(
             .place(0, subject_entries.clone(), Vec::new(), &mut branches);
         }
         (
-            TermKind::Set { .. } | TermKind::Application { .. },
+            TermKind::Set { .. },
             TermKind::Set {
                 definition: subject_definition,
                 elements: subject_elements,
