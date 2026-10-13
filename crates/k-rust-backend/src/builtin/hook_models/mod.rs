@@ -1,12 +1,12 @@
-//! Model-based tests of the `LIST`, `MAP`, `SET`, `BYTES`, `STRING` and `FLOAT` hooks.
+//! Model-based tests of the `LIST`, `MAP`, `SET`, `BYTES`, `STRING`, `FLOAT` and `MINT` hooks.
 //!
 //! Each hook is checked against a model written from its documented meaning
 //! (`crates/k-rust/builtin/domains.md`): `Vec` for lists, `BTreeMap` and `BTreeSet` for maps and
-//! sets, byte vectors for `Bytes`, code-point sequences for `String`, and exact rational
-//! arithmetic rounded to the IEEE formats for `Float`. A case is a hook applied to arguments that
-//! may contain variables: element variables, opaque list, map and set segments, and opaque
-//! scalar arguments. Every case carries an assignment of values to its variables, and is checked
-//! on that instance:
+//! sets, byte vectors for `Bytes`, code-point sequences for `String`, exact rational arithmetic
+//! rounded to the IEEE formats for `Float`, and Rust's fixed-width integers for `MInt`. A case is
+//! a hook applied to arguments that may contain variables: element variables, opaque list, map
+//! and set segments, and opaque scalar arguments. Every case carries an assignment of values to
+//! its variables, and is checked on that instance:
 //!
 //! - the arguments are instantiated and evaluated; on these concrete arguments the hook must
 //!   return the model's value, or `\bottom` where the model is undefined (the hook may decline
@@ -21,6 +21,7 @@
 
 mod collections;
 mod float;
+mod mint;
 mod scalars;
 
 use std::{
@@ -54,6 +55,8 @@ pub(super) enum Val {
     Str(Vec<u8>),
     Bytes(Vec<u8>),
     Float(float::Format, u64),
+    /// A machine integer: its width and its unsigned residue, in `[0, 2^width)`.
+    MInt(u64, BigInt),
     Item(u8),
     /// A nullary constructor (`LE`, `Signed`, ...), by its KORE symbol name.
     Tag(String),
@@ -314,6 +317,9 @@ pub(super) fn encode(value: &Val) -> Term {
         Val::Str(value) => Term::domain_value(Sort::builtin(BuiltinSort::String), value.clone()),
         Val::Bytes(value) => Term::domain_value(Sort::builtin(BuiltinSort::Bytes), value.clone()),
         Val::Float(format, bits) => float::token_term(*format, *bits),
+        Val::MInt(width, value) => {
+            Term::domain_value(mint::mint_sort(width), format!("{value}p{width}"))
+        }
         Val::Item(value) => item(*value),
         Val::Tag(name) => tag(name, "SortTag"),
         Val::Token(sort, text) => Term::domain_value(Sort::simple(sort.as_str()), text.clone()),
@@ -424,6 +430,11 @@ fn decode_domain_value(sort: &Sort, value: &[u8]) -> Val {
         let (format, bits) = float::parse_token(text())
             .unwrap_or_else(|| panic!("{:?} is not in the Float syntax", text()));
         Val::Float(format, bits)
+    } else if let Some(crate::term::MIntWidth::Bits(width)) = crate::term::mint_width(sort) {
+        let (value, _) = text()
+            .split_once('p')
+            .unwrap_or_else(|| panic!("{:?} is not a canonical MInt literal", text()));
+        Val::MInt(width, value.parse().expect("a canonical MInt residue"))
     } else if *sort == item_sort() {
         Val::Item(
             text()

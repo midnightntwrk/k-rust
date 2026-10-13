@@ -2035,6 +2035,42 @@ endmodule
     );
 }
 
+/// The total machine-integer hooks evaluate on literals: `Int2MInt` takes the width of the sort
+/// its cast gives, `+MInt` and `*MInt` wrap modulo `2^8` (300 is 44; 20000 is 32), and the
+/// unsigned order compares residues.
+#[test]
+fn krun_evaluates_the_total_mint_hooks_on_literals() {
+    let source = r#"
+requires "domains.md"
+module MINT-PROBE-SYNTAX
+  imports INT-SYNTAX
+  imports MINT-SYNTAX
+  syntax MInt{8}
+  syntax Pgm ::= run(Int, Int)
+endmodule
+module MINT-PROBE
+  imports MINT-PROBE-SYNTAX
+  imports INT
+  imports MINT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= res(Int, Int, Int, Bool)
+  rule <k> run(A, B) => res(
+           MInt2Unsigned(Int2MInt(A)::MInt{8} +MInt Int2MInt(B)::MInt{8}),
+           MInt2Signed(Int2MInt(A)::MInt{8} *MInt Int2MInt(B)::MInt{8}),
+           bitwidthMInt(255p8),
+           Int2MInt(A)::MInt{8} <uMInt Int2MInt(B)::MInt{8}) </k>
+endmodule
+"#;
+    let output = compact_success(&krun_mint_program(source, "MINT-PROBE", "run(200, 100)"));
+    assert!(
+        output.contains(
+            r#"(\dv{SortInt{}}("44"),\dv{SortInt{}}("32"),\dv{SortInt{}}("8"),\dv{SortBool{}}("false"))"#
+        ),
+        "{output}"
+    );
+}
+
 /// `krust kore-simplify` of `pattern` in `definition` (module `MAIN`): its standard output,
 /// asserting success.
 fn kore_simplify_in(root: &Path, definition: &Path, pattern: &str) -> String {

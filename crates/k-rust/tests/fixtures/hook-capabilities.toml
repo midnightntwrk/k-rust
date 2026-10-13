@@ -11,6 +11,7 @@ backend_namespaces = [
   "KRYPTO",
   "LIST",
   "MAP",
+  "MINT",
   "SECP256K1",
   "SET",
   "STRING",
@@ -121,6 +122,28 @@ implemented = [
   "MAP.update",
   "MAP.updateAll",
   "MAP.values",
+  "MINT.add",
+  "MINT.and",
+  "MINT.bitwidth",
+  "MINT.eq",
+  "MINT.integer",
+  "MINT.mul",
+  "MINT.ne",
+  "MINT.neg",
+  "MINT.not",
+  "MINT.or",
+  "MINT.sge",
+  "MINT.sgt",
+  "MINT.sle",
+  "MINT.slt",
+  "MINT.sub",
+  "MINT.svalue",
+  "MINT.uge",
+  "MINT.ugt",
+  "MINT.ule",
+  "MINT.ult",
+  "MINT.uvalue",
+  "MINT.xor",
   "SET.concat",
   "SET.difference",
   "SET.element",
@@ -164,8 +187,9 @@ execution_only = [
   "IO.write",
 ]
 
-# These hooks identify KORE builtin sorts; the backend internalizer handles
-# them structurally and they are never evaluator calls.
+# These hooks identify KORE builtin sorts, or name the literal syntax of a
+# builtin sort's `token` production (MINT.literal); the backend internalizer
+# handles them structurally and they are never evaluator calls.
 structural = [
   "BOOL.Bool",
   "BUFFER.StringBuffer",
@@ -177,6 +201,7 @@ structural = [
   "LIST.List",
   "MAP.Map",
   "MINT.MInt",
+  "MINT.literal",
   "RANGEMAP.RangeMap",
   "SET.Set",
   "STRING.String",
@@ -272,47 +297,24 @@ reason = "nondeterministic choice and map difference are not implemented"
 hooks = ["MAP.choice", "MAP.difference"]
 
 [[unsupported]]
-reason = "fixed-width machine integer evaluation is not implemented"
+reason = "machine-integer division, remainder and shifts, and the power, min/max, width conversion and Bytes conversion hooks are not implemented"
 hooks = [
   "MINT.MInt2bytes",
-  "MINT.add",
-  "MINT.and",
   "MINT.ashr",
-  "MINT.bitwidth",
   "MINT.bytes2MInt",
-  "MINT.eq",
-  "MINT.integer",
-  "MINT.literal",
   "MINT.lshr",
-  "MINT.mul",
-  "MINT.ne",
-  "MINT.neg",
-  "MINT.not",
-  "MINT.or",
   "MINT.pow",
   "MINT.round",
   "MINT.sdiv",
   "MINT.sext",
-  "MINT.sge",
-  "MINT.sgt",
   "MINT.shl",
-  "MINT.sle",
-  "MINT.slt",
   "MINT.smax",
   "MINT.smin",
   "MINT.srem",
-  "MINT.sub",
-  "MINT.svalue",
   "MINT.udiv",
-  "MINT.uge",
-  "MINT.ugt",
-  "MINT.ule",
-  "MINT.ult",
   "MINT.umax",
   "MINT.umin",
   "MINT.urem",
-  "MINT.uvalue",
-  "MINT.xor",
 ]
 
 [[unsupported]]

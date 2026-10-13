@@ -129,6 +129,9 @@ struct UnsupportedHooks {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DeclaredHookKind {
     Production,
+    /// A `token` production: the hook names the literal syntax of its sort (`MINT.literal`),
+    /// which the internalizer reads, and no symbol carries it.
+    TokenProduction,
     Sort,
 }
 
@@ -197,10 +200,19 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
     );
 
     for hook in &structural {
-        assert_eq!(
-            declared[hook].kind,
-            DeclaredHookKind::Sort,
-            "structural classification is reserved for hooked sorts: {hook}"
+        assert!(
+            matches!(
+                declared[hook].kind,
+                DeclaredHookKind::Sort | DeclaredHookKind::TokenProduction
+            ),
+            "structural classification is reserved for hooked sorts and hooked token \
+             productions: {hook}"
+        );
+    }
+    for (hook, declaration) in &declared {
+        assert!(
+            declaration.kind != DeclaredHookKind::TokenProduction || structural.contains(hook),
+            "a hooked token production names a literal syntax, never an evaluator: {hook}"
         );
     }
     for hook in &implemented {
@@ -340,6 +352,15 @@ fn declared_hooks<'a>(roots: impl IntoIterator<Item = &'a str>) -> BTreeMap<Stri
                 SyntaxBody::Productions(blocks) => {
                     for production in blocks.into_iter().flat_map(|block| block.productions) {
                         if let Some(hook) = hook_attribute(&production.attributes) {
+                            let kind = if production
+                                .attributes
+                                .iter()
+                                .any(|attribute| attribute.key == "token")
+                            {
+                                DeclaredHookKind::TokenProduction
+                            } else {
+                                DeclaredHookKind::Production
+                            };
                             let arity = production
                                 .items
                                 .iter()
@@ -351,12 +372,7 @@ fn declared_hooks<'a>(roots: impl IntoIterator<Item = &'a str>) -> BTreeMap<Stri
                                     )
                                 })
                                 .count();
-                            insert_hook(
-                                &mut hooks,
-                                hook,
-                                DeclaredHookKind::Production,
-                                Some(arity),
-                            );
+                            insert_hook(&mut hooks, hook, kind, Some(arity));
                         }
                     }
                 }
