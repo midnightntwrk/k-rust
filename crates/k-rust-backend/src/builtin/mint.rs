@@ -8,6 +8,16 @@
 //! `bvult`, `bvslt`, `bv2int`, `int2bv`, ...) state exactly these operations to a solver, so an
 //! evaluator that disagreed with them would let the backend derive two values for one term.
 //!
+//! Division and remainder are partial: there is no quotient by zero, so a zero divisor is
+//! undefined (`\bottom`). SMT-LIB gives `bvudiv`, `bvurem`, `bvsdiv` and `bvsrem` values at a zero
+//! divisor, but that totalization is never read as a K value: a partial symbol's translation is
+//! approximate, and every solver decision over a partial term is taken under its `\ceil`. Where a
+//! quotient exists the `smt-hook`s fix its rounding: signed division truncates toward zero and
+//! the remainder (`bvsrem`, not `bvsmod`) has the dividend's sign. `MIN /sMInt -1` has a value,
+//! `MIN`: the quotient `2^(W-1)` has the pattern of `MIN`, and the result carries no sign. The
+//! shifts read their amount unsigned and have a value for every amount: a shift by `W` or more
+//! moves every bit out, giving 0, or all sign bits for `>>aMInt` (`bvshl`, `bvlshr`, `bvashr`).
+//!
 //! A domain value of `MInt{W}` holds its canonical text `<u>p<D>`, `D` the digits of the sort's
 //! width argument (`Term::domain_value_of`), so the hooks read the residue from that text and
 //! write their results in it.
@@ -15,7 +25,7 @@
 use std::cmp::Ordering;
 
 use num_bigint::{BigInt, BigUint, Sign};
-use num_traits::{One, Zero};
+use num_traits::{One, ToPrimitive, Zero};
 
 use super::{
     BuiltinError, BuiltinResult, HookResult, MAX_INT_RESULT_BITS, UnsupportedHookReason, bool_term,
@@ -51,6 +61,13 @@ pub(super) fn evaluate(
         "MINT.sle" => order(hook, arguments, Reading::Signed, Ordering::is_le),
         "MINT.sgt" => order(hook, arguments, Reading::Signed, Ordering::is_gt),
         "MINT.sge" => order(hook, arguments, Reading::Signed, Ordering::is_ge),
+        "MINT.udiv" => unsigned_division(hook, arguments, |left, right| left / right),
+        "MINT.urem" => unsigned_division(hook, arguments, |left, right| left % right),
+        "MINT.sdiv" => signed_division(hook, "/sMInt", arguments, |left, right| left / right),
+        "MINT.srem" => signed_division(hook, "%sMInt", arguments, |left, right| left % right),
+        "MINT.shl" => shift_left(arguments),
+        "MINT.lshr" => shift_right(hook, arguments, Reading::Unsigned),
+        "MINT.ashr" => shift_right(hook, arguments, Reading::Signed),
         _ => Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
         )),
@@ -274,6 +291,120 @@ fn wrapping_unary(
     Ok(match wrap(&value, word.width, limit) {
         Some(residue) => BuiltinResult::Value(word_term(&word.sort, &residue)),
         None => too_large(operation, &word.sort, limit),
+    })
+}
+
+/// `/uMInt` and `%uMInt`: floor division and remainder of the residues, undefined at a zero
+/// divisor. Both results are below the dividend, so below `2^W`.
+fn unsigned_division(
+    hook: &str,
+    arguments: &[Term],
+    apply: impl FnOnce(&BigUint, &BigUint) -> BigUint,
+) -> HookResult<BuiltinResult> {
+    let Some((left, right)) = read_pair(hook, arguments)? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if right.residue.is_zero() {
+        return Ok(BuiltinResult::Bottom);
+    }
+    Ok(BuiltinResult::Value(word_term(
+        &left.sort,
+        &apply(&left.residue, &right.residue),
+    )))
+}
+
+/// `/sMInt` and `%sMInt`: the quotient truncated toward zero, and the remainder with the
+/// dividend's sign, of the two's-complement readings, reduced modulo `2^W`; undefined at a zero
+/// divisor. `MIN /sMInt -1` is the quotient `2^(W-1)` reduced, `MIN`.
+fn signed_division(
+    hook: &str,
+    operation: &str,
+    arguments: &[Term],
+    apply: impl FnOnce(BigInt, BigInt) -> BigInt,
+) -> HookResult<BuiltinResult> {
+    let Some((left, right)) = read_pair(hook, arguments)? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if right.residue.is_zero() {
+        return Ok(BuiltinResult::Bottom);
+    }
+    let limit = limit(left.residue.bits().saturating_add(right.residue.bits()));
+    let value = apply(left.signed(), right.signed());
+    Ok(match wrap(&value, left.width, limit) {
+        Some(residue) => BuiltinResult::Value(word_term(&left.sort, &residue)),
+        None => too_large(operation, &left.sort, limit),
+    })
+}
+
+/// `<<MInt`: the residue times `2^amount`, modulo `2^W`, the amount read unsigned. Only the bits
+/// below `W - amount` stay, so an amount of `W` or more gives 0 without computing `2^amount`. A
+/// result wider than the bound on the integers the backend computes is refused before it is
+/// built, as `<<Int`'s is.
+fn shift_left(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    let Some((value, amount)) = read_pair("MINT.shl", arguments)? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let zero = || {
+        Ok(BuiltinResult::Value(word_term(
+            &value.sort,
+            &BigUint::zero(),
+        )))
+    };
+    if value
+        .width
+        .is_some_and(|width| amount.residue >= BigUint::from(width))
+    {
+        return zero();
+    }
+    let limit = limit(value.residue.bits().saturating_add(amount.residue.bits()));
+    let Some(shift) = amount.residue.to_u64() else {
+        // An amount beyond `u64` is below the width only at a width beyond `u64`, where the
+        // result of a nonzero value has more bits than any bound.
+        return if value.residue.is_zero() {
+            zero()
+        } else {
+            Ok(too_large("<<MInt", &value.sort, limit))
+        };
+    };
+    let kept = match value.width {
+        Some(width) if value.residue.bits() > width - shift => {
+            &value.residue & ((BigUint::one() << (width - shift)) - 1u8)
+        }
+        _ => value.residue.clone(),
+    };
+    if kept.is_zero() {
+        return zero();
+    }
+    if kept.bits().saturating_add(shift) > limit {
+        return Ok(too_large("<<MInt", &value.sort, limit));
+    }
+    Ok(BuiltinResult::Value(word_term(
+        &value.sort,
+        &(kept << shift),
+    )))
+}
+
+/// `>>lMInt` (`Unsigned`) and `>>aMInt` (`Signed`): the reading of the value divided by
+/// `2^amount` and rounded down, modulo `2^W`, the amount read unsigned. An amount at least the
+/// reading's bit length gives 0, or -1 (all sign bits) for a negative reading, without computing
+/// `2^amount`.
+fn shift_right(hook: &str, arguments: &[Term], reading: Reading) -> HookResult<BuiltinResult> {
+    let Some((value, amount)) = read_pair(hook, arguments)? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let read = match reading {
+        Reading::Unsigned => BigInt::from(value.residue.clone()),
+        Reading::Signed => value.signed(),
+    };
+    let shifted = match amount.residue.to_u64() {
+        Some(shift) if shift < read.bits() => read >> shift,
+        _ if read.sign() == Sign::Minus => -BigInt::one(),
+        _ => BigInt::zero(),
+    };
+    let limit = limit(value.residue.bits().saturating_add(amount.residue.bits()));
+    Ok(match wrap(&shifted, value.width, limit) {
+        Some(residue) => BuiltinResult::Value(word_term(&value.sort, &residue)),
+        None => too_large(">>aMInt", &value.sort, limit),
     })
 }
 

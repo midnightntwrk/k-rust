@@ -51,6 +51,18 @@ const TOTAL_HOOKS: [&str; 21] = [
     "MINT.sge",
 ];
 
+/// The partial hooks: division and remainder are undefined at a zero divisor, and the shifts are
+/// declared without `total` although every amount gives them a value.
+const PARTIAL_HOOKS: [&str; 7] = [
+    "MINT.udiv",
+    "MINT.urem",
+    "MINT.sdiv",
+    "MINT.srem",
+    "MINT.shl",
+    "MINT.ashr",
+    "MINT.lshr",
+];
+
 fn arity(hook: &str) -> usize {
     match hook {
         "MINT.svalue" | "MINT.uvalue" | "MINT.bitwidth" | "MINT.neg" | "MINT.not" => 1,
@@ -90,8 +102,19 @@ fn pattern(draw: &mut Draw<'_>, width: u32) -> u128 {
     value & mask(width)
 }
 
-fn mint_case(draw: &mut Draw<'_>) -> Case {
-    let hook = draw.pick(&TOTAL_HOOKS);
+/// A shift amount of width `width`: mostly near the width, where the result changes shape.
+fn amount(draw: &mut Draw<'_>, width: u32) -> u128 {
+    let width = u128::from(width);
+    let value = match draw.below(4) {
+        0 => draw.pick(&[0, 1, width - 1, width, width + 1]),
+        1 => u128::from(draw.u64()) % width,
+        _ => return pattern(draw, width as u32),
+    };
+    value & mask(width as u32)
+}
+
+fn mint_case(draw: &mut Draw<'_>, hooks: &[&'static str]) -> Case {
+    let hook = draw.pick(hooks);
     let width = draw.pick(&WIDTHS);
     let mut env = Env::new();
     let mut arguments: Vec<Term> = Vec::new();
@@ -100,7 +123,13 @@ fn mint_case(draw: &mut Draw<'_>) -> Case {
             // The same argument twice: equality is reflexive whatever it denotes.
             arguments[0].clone()
         } else {
-            let value = pattern(draw, width);
+            let value = if !arguments.is_empty()
+                && matches!(hook, "MINT.shl" | "MINT.ashr" | "MINT.lshr")
+            {
+                amount(draw, width)
+            } else {
+                pattern(draw, width)
+            };
             draw.scalar(encode(&mint(width, value)), mint_sort(width), &mut env)
         };
         arguments.push(argument);
@@ -179,6 +208,53 @@ fn native_result(
     }
 }
 
+/// A partial hook's value on `W`-bit operands `a` and `b` read as `$u` and `$s`, `None` where it
+/// is undefined. `wrapping_div` gives `MIN` for `MIN / -1`; `wrapping_shl` masks the amount, so
+/// the checked shifts give the value of an amount of `W` or more.
+macro_rules! native_partial {
+    ($u:ty, $s:ty, $hook:expr, $a:expr, $b:expr) => {{
+        let (a, b) = ($a as $u, $b as $u);
+        let (sa, sb) = (a as $s, b as $s);
+        let amount = u32::try_from(b).ok();
+        match $hook {
+            "MINT.udiv" => a.checked_div(b),
+            "MINT.urem" => a.checked_rem(b),
+            "MINT.sdiv" => (b != 0).then(|| sa.wrapping_div(sb) as $u),
+            "MINT.srem" => (b != 0).then(|| sa.wrapping_rem(sb) as $u),
+            "MINT.shl" => Some(amount.and_then(|amount| a.checked_shl(amount)).unwrap_or(0)),
+            "MINT.lshr" => Some(amount.and_then(|amount| a.checked_shr(amount)).unwrap_or(0)),
+            "MINT.ashr" => Some(
+                amount
+                    .and_then(|amount| sa.checked_shr(amount))
+                    .unwrap_or(if sa < 0 { -1 } else { 0 }) as $u,
+            ),
+            other => panic!("no native model of {other}"),
+        }
+        .map(|pattern| pattern as u128)
+    }};
+}
+
+/// A partial hook's value in 128 bits, masked to `width`.
+fn wide_partial(hook: &str, width: u32, a: u128, b: u128) -> Option<u128> {
+    let m = mask(width);
+    let (sa, sb) = (sign_extend(a, width), sign_extend(b, width));
+    let beyond = b >= u128::from(width);
+    match hook {
+        "MINT.udiv" => a.checked_div(b),
+        "MINT.urem" => a.checked_rem(b),
+        "MINT.sdiv" => (b != 0).then(|| sa.wrapping_div(sb) as u128 & m),
+        "MINT.srem" => (b != 0).then(|| sa.wrapping_rem(sb) as u128 & m),
+        "MINT.shl" => Some(if beyond { 0 } else { a << b & m }),
+        "MINT.lshr" => Some(if beyond { 0 } else { a >> b }),
+        "MINT.ashr" => Some(if beyond {
+            if sa < 0 { m } else { 0 }
+        } else {
+            (sa >> b) as u128 & m
+        }),
+        other => panic!("no native model of {other}"),
+    }
+}
+
 /// The two's-complement reading of the `width`-bit pattern `value`, by sign extension.
 fn sign_extend(value: u128, width: u32) -> i128 {
     let shift = 128 - width;
@@ -229,6 +305,16 @@ fn mint_model(hook: &str, inputs: &[Val]) -> Spec {
         assert_eq!(other, width, "operands of one width");
         b
     });
+    if PARTIAL_HOOKS.contains(&hook) {
+        let result = match width {
+            8 => native_partial!(u8, i8, hook, a, b),
+            16 => native_partial!(u16, i16, hook, a, b),
+            32 => native_partial!(u32, i32, hook, a, b),
+            64 => native_partial!(u64, i64, hook, a, b),
+            _ => wide_partial(hook, width, a, b),
+        };
+        return Spec::partial(result.map(|pattern| mint(width, pattern)));
+    }
     Spec::value(match width {
         8 => native!(u8, i8, hook, width, a, b),
         16 => native!(u16, i16, hook, width, a, b),
@@ -240,12 +326,21 @@ fn mint_model(hook: &str, inputs: &[Val]) -> Spec {
 
 #[test]
 fn total_mint_hooks_agree_with_native_fixed_width_arithmetic() {
-    let tallies = run(CASES, &mint_case, &mint_model);
+    let tallies = run(CASES, &|draw| mint_case(draw, &TOTAL_HOOKS), &mint_model);
     assert_reached(
         &tallies,
         &TOTAL_HOOKS,
         &["MINT.bitwidth", "MINT.eq", "MINT.ne"],
     );
+}
+
+/// Division, remainder and shifts: a zero divisor gives `\bottom`, signed division truncates
+/// toward zero with the remainder of the dividend's sign, `MIN /sMInt -1` wraps to `MIN`, and a
+/// shift by `W` or more gives 0, or all sign bits for `>>aMInt`.
+#[test]
+fn partial_mint_hooks_agree_with_native_fixed_width_arithmetic() {
+    let tallies = run(CASES, &|draw| mint_case(draw, &PARTIAL_HOOKS), &mint_model);
+    assert_reached(&tallies, &PARTIAL_HOOKS, &[]);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -438,5 +533,95 @@ fn a_wrapped_result_wider_than_the_result_bound_is_too_large() {
     assert_eq!(
         evaluated(&int2mint(Sort::simple(format!("Sort{width}")), int(7))),
         BuiltinResult::Value(mint_term(width, &format!("7p{width}")))
+    );
+}
+
+/// In `MInt{0}` every divisor is the one element 0, so every division and remainder is
+/// undefined, and every shift gives that element.
+#[test]
+fn width_zero_divisions_are_undefined_and_shifts_are_zero() {
+    let zero = mint_term(0, "0p0");
+    let arguments = [zero.clone(), zero.clone()];
+    for hook in ["MINT.udiv", "MINT.urem", "MINT.sdiv", "MINT.srem"] {
+        assert_eq!(
+            evaluate(hook, &arguments),
+            Ok(BuiltinResult::Bottom),
+            "{hook}"
+        );
+    }
+    for hook in ["MINT.shl", "MINT.ashr", "MINT.lshr"] {
+        assert_eq!(
+            evaluate(hook, &arguments),
+            Ok(BuiltinResult::Value(zero.clone())),
+            "{hook}"
+        );
+    }
+}
+
+/// `MIN /sMInt -1` is `MIN`: the quotient `2^(W-1)` has the pattern of `MIN`, as `bvsdiv` gives;
+/// `MIN %sMInt -1` is 0.
+#[test]
+fn signed_division_of_the_least_value_by_minus_one_wraps() {
+    for width in [8_u32, 127] {
+        let least = BigInt::from(1) << (width - 1);
+        let minus_one = (BigInt::from(1) << width) - 1;
+        let min = mint_term(width, &format!("{least}p{width}"));
+        let arguments = [
+            min.clone(),
+            mint_term(width, &format!("{minus_one}p{width}")),
+        ];
+        assert_eq!(
+            evaluate("MINT.sdiv", &arguments),
+            Ok(BuiltinResult::Value(min)),
+            "width {width}"
+        );
+        assert_eq!(
+            evaluate("MINT.srem", &arguments),
+            Ok(BuiltinResult::Value(mint_term(
+                width,
+                &format!("0p{width}")
+            ))),
+            "width {width}"
+        );
+    }
+}
+
+/// A left shift whose result would be wider than the result bound is refused before it is built,
+/// as `<<Int`'s is; a shift by the width or more is 0 at any width.
+#[test]
+fn a_left_shift_wider_than_the_result_bound_is_too_large() {
+    let width = 1_u64 << 30;
+    let one = mint_term(width, &format!("1p{width}"));
+    let result = evaluate(
+        "MINT.shl",
+        &[
+            one.clone(),
+            mint_term(width, &format!("{}p{width}", 1_u64 << 29)),
+        ],
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            result,
+            BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge { .. })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(
+        evaluate(
+            "MINT.shl",
+            &[one.clone(), mint_term(width, &format!("{width}p{width}"))]
+        ),
+        Ok(BuiltinResult::Value(mint_term(
+            width,
+            &format!("0p{width}")
+        )))
+    );
+    assert_eq!(
+        evaluate("MINT.shl", &[one, mint_term(width, &format!("3p{width}"))]),
+        Ok(BuiltinResult::Value(mint_term(
+            width,
+            &format!("8p{width}")
+        )))
     );
 }

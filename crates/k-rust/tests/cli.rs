@@ -2071,6 +2071,81 @@ endmodule
     );
 }
 
+/// Division, remainder and shifts of `MInt{8}`: `-100` is the pattern `156p8`, so
+/// `/uMInt 3p8` is 52, `/sMInt` truncates `-100 / 3` toward zero (-33), `%sMInt` keeps the
+/// dividend's sign (-1), a shift by 9 or 200 (at least the width) gives 0, and `>>aMInt` copies
+/// the sign bit (206 is `-50`).
+const MINT_DIVISION_AND_SHIFTS: &str = r#"
+requires "domains.md"
+module MINTLIT-SYNTAX
+  imports INT-SYNTAX
+  imports MINT-SYNTAX
+  syntax MInt{8}
+  syntax Pgm ::= go(Int)
+endmodule
+module MINTLIT
+  imports MINTLIT-SYNTAX
+  imports INT
+  imports MINT
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= vals(Int, Int, Int, Int, Int, Int)
+  rule <k> go(I) => vals(
+     MInt2Unsigned(Int2MInt(I)::MInt{8} /uMInt 3p8),
+     MInt2Signed(Int2MInt(I)::MInt{8} /sMInt 3p8),
+     MInt2Signed(Int2MInt(I)::MInt{8} %sMInt 3p8),
+     MInt2Unsigned(Int2MInt(I)::MInt{8} <<MInt 9p8),
+     MInt2Unsigned(Int2MInt(I)::MInt{8} >>aMInt 1p8),
+     MInt2Unsigned(Int2MInt(I)::MInt{8} >>lMInt 200p8)) </k>
+endmodule
+"#;
+
+#[test]
+fn krun_evaluates_mint_division_remainder_and_shifts_on_literals() {
+    let output = compact_success(&krun_mint_program(
+        MINT_DIVISION_AND_SHIFTS,
+        "MINTLIT",
+        "go(-100)",
+    ));
+    assert!(
+        output.contains(
+            r#"(\dv{SortInt{}}("52"),\dv{SortInt{}}("-33"),\dv{SortInt{}}("-1"),\dv{SortInt{}}("0"),\dv{SortInt{}}("206"),\dv{SortInt{}}("0"))"#
+        ),
+        "{output}"
+    );
+}
+
+/// No quotient by zero exists and `/uMInt` is partial, so `1p8 /uMInt 0p8` is undefined.
+#[test]
+fn kore_simplify_of_a_mint_division_by_zero_is_bottom() {
+    let (root, definition) = fixture();
+    fs::write(&definition, MINT_DIVISION_AND_SHIFTS).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "MINTLIT"], &compiled);
+    let pattern = root.join("udiv0.kore");
+    fs::write(
+        &pattern,
+        r#"Lbl'UndsSlsh'uMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(\dv{SortMInt{Sort8{}}}("1p8"), \dv{SortMInt{Sort8{}}}("0p8"))"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kore-simplify", "-m", "MINTLIT", "-p"])
+        .arg(&pattern)
+        .arg(compiled.join("definition.kore"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        r#"\bottom{SortMInt{Sort8{}}}()"#
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// `krust kore-simplify` of `pattern` in `definition` (module `MAIN`): its standard output,
 /// asserting success.
 fn kore_simplify_in(root: &Path, definition: &Path, pattern: &str) -> String {

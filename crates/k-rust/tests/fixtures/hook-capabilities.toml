@@ -124,24 +124,31 @@ implemented = [
   "MAP.values",
   "MINT.add",
   "MINT.and",
+  "MINT.ashr",
   "MINT.bitwidth",
   "MINT.eq",
   "MINT.integer",
+  "MINT.lshr",
   "MINT.mul",
   "MINT.ne",
   "MINT.neg",
   "MINT.not",
   "MINT.or",
+  "MINT.sdiv",
   "MINT.sge",
   "MINT.sgt",
+  "MINT.shl",
   "MINT.sle",
   "MINT.slt",
+  "MINT.srem",
   "MINT.sub",
   "MINT.svalue",
+  "MINT.udiv",
   "MINT.uge",
   "MINT.ugt",
   "MINT.ule",
   "MINT.ult",
+  "MINT.urem",
   "MINT.uvalue",
   "MINT.xor",
   "SET.concat",
@@ -297,24 +304,17 @@ reason = "nondeterministic choice and map difference are not implemented"
 hooks = ["MAP.choice", "MAP.difference"]
 
 [[unsupported]]
-reason = "machine-integer division, remainder and shifts, and the power, min/max, width conversion and Bytes conversion hooks are not implemented"
+reason = "machine-integer power, min/max, width conversion and Bytes conversion hooks are not implemented"
 hooks = [
   "MINT.MInt2bytes",
-  "MINT.ashr",
   "MINT.bytes2MInt",
-  "MINT.lshr",
   "MINT.pow",
   "MINT.round",
-  "MINT.sdiv",
   "MINT.sext",
-  "MINT.shl",
   "MINT.smax",
   "MINT.smin",
-  "MINT.srem",
-  "MINT.udiv",
   "MINT.umax",
   "MINT.umin",
-  "MINT.urem",
 ]
 
 [[unsupported]]
