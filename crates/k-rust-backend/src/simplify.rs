@@ -94,8 +94,8 @@ use crate::{
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
     condition::{
-        Conjunct, ConsumedDefinedness, DecidedEquation, EquationInstance, InstantiatedCondition,
-        MatchedEquation,
+        Conjunct, ConsumedDefinedness, DecidedEquation, DeferredVariables, EquationInstance,
+        InstantiatedCondition, MatchedEquation,
     },
     deferred::{
         DeferredDecision, DeferredOutcome, Folded, ShortCircuit, bool_literal,
@@ -3135,11 +3135,12 @@ fn apply_predicate_equation(
         ));
     };
     let consumed_strict = consumed.strict;
+    let deferred = consumed.deferred;
     let instance = EquationInstance::new(
         definition,
         &rule.requires,
         substitution,
-        ConsumedDefinedness::stated(consumed.obligations),
+        ConsumedDefinedness::stated(consumed.obligations, deferred.clone()),
     )
     .map_err(SimplificationError::from)?;
     let matched = match evaluate_equation_condition(
@@ -3174,6 +3175,7 @@ fn apply_predicate_equation(
         definition,
         matched.substitution(),
         matched.bindings().as_known(),
+        &deferred,
     );
     match decide_equation_bindings(
         definition,
@@ -3215,11 +3217,14 @@ fn apply_predicate_equation(
 
 /// What a predicate equation's left-hand side consumes of its subject's term operands
 /// ([`ConsumedDefinedness`]): the obligations of each operand that the match does not bind whole
-/// to a variable, minus those of the terms it binds and those the path states, and whether the left-hand side is strict in
-/// every operand that has such an obligation.
+/// to a variable, minus those of the terms it binds and those the path states, whether the
+/// left-hand side is strict in every operand that has such an obligation, and the variables the
+/// match binds only inside an operand of a conditional that is not evaluated, whose bound terms
+/// state their definedness as deferred atoms ([`DeferredVariables`]).
 struct PredicateOperands {
     obligations: Vec<Predicate>,
     strict: bool,
+    deferred: DeferredVariables,
 }
 
 impl PredicateOperands {
@@ -3241,15 +3246,27 @@ impl PredicateOperands {
             known_predicates,
             &mut operands,
         );
+        // The reading of each binding is the one `EquationInstance::new` states it by, so that
+        // an operand's obligation a bound term already states is recognised below.
+        let deferred = DeferredVariables::of(
+            operands
+                .iter()
+                .map(|(pattern, subject, _)| (*pattern, *subject)),
+        );
         let mut bound = Vec::new();
         for (variable, value) in substitution {
             if variable.kind == VariableKind::Element && !value.attributes().ceil_free() {
-                bound.extend(ceil_term(definition, value).ok()?);
+                bound.extend(
+                    deferred
+                        .binding_definedness(definition, variable, value)
+                        .ok()?,
+                );
             }
         }
         let mut consumed = Self {
             obligations: Vec::new(),
             strict: true,
+            deferred,
         };
         for (pattern, subject, operand) in operands {
             // A variable binds its operand whole: an element variable's binding obligation is
@@ -3401,21 +3418,24 @@ fn collect_predicate_operands<'a>(
 
 /// The element variables of `substitution` whose binding raised one of the obligations in
 /// `definedness` (`BindingDefinedness::as_known`): those bound to a term that may be empty
-/// under the path condition.
+/// under the path condition. Each binding is read as the instance stated it (`deferred`).
 fn obligated_variables(
     definition: &BackendDefinition,
     substitution: &Substitution,
     definedness: &[Predicate],
+    deferred: &DeferredVariables,
 ) -> BTreeSet<Variable> {
     substitution
         .iter()
         .filter(|(variable, value)| {
             variable.kind == VariableKind::Element
-                && ceil_term(definition, value).is_ok_and(|obligations| {
-                    obligations
-                        .iter()
-                        .any(|obligation| definedness.contains(obligation))
-                })
+                && deferred
+                    .binding_definedness(definition, variable, value)
+                    .is_ok_and(|obligations| {
+                        obligations
+                            .iter()
+                            .any(|obligation| definedness.contains(obligation))
+                    })
         })
         .map(|(variable, _)| variable.clone())
         .collect()
