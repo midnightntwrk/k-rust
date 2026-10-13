@@ -60,6 +60,45 @@ pub enum ConfigurationError {
     /// wrappers by label name and moves configuration content into generated sentences, so it
     /// would drop the parameter or attach it to a sentence the caller did not write.
     LabelParameters(Box<ConfigurationLabelParameters>),
+    /// A visible `cell` production that is not the one a configuration declaration generates
+    /// for its cell sort, reported at that production.
+    CellProduction(Box<ConfigurationCellProduction>),
+}
+
+/// A visible `cell` production that a configuration meets where it declares a cell, for
+/// [`ConfigurationError::CellProduction`].
+///
+/// A cell sort's terms are the cells of its name, and declaring the cell in a configuration
+/// generates the sort's one `cell` production (label `<name>`), which initializing, completing
+/// and wrapping the configuration build. Another `cell` production of that sort would be a
+/// second constructor of the cell that no declaration describes, and a configuration that reads
+/// its cell text as such a production declares no cell where it writes one.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConfigurationCellProduction {
+    /// The module whose configuration meets the production.
+    pub module: String,
+    /// The configuration's source and location.
+    pub configuration_source: Option<String>,
+    pub configuration_location: Option<super::Location>,
+    pub reading: CellProductionReading,
+    /// The production's sort, a cell sort.
+    pub sort: Sort,
+    /// The production, as `syntax Sort ::= items`.
+    pub production: String,
+    /// The production's source and location.
+    pub source: Option<String>,
+    pub location: Option<super::Location>,
+}
+
+/// How a configuration meets a [`ConfigurationCellProduction`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CellProductionReading {
+    /// The configuration declares a cell of the production's sort, whose generated production
+    /// has another label (`cell` is the cell's name, without angle brackets).
+    BesideDeclaredCell { cell: String },
+    /// The configuration grammar read a term of the configuration as the production, so the
+    /// configuration holds the term as a value instead of declaring its cell.
+    ReadAsTerm,
 }
 
 /// The configuration sentence and the label of a [`ConfigurationError::LabelParameters`].
@@ -94,7 +133,46 @@ impl fmt::Display for ConfigurationError {
                     parameters: rejected.parameters.clone(),
                 }
             ),
+            Self::CellProduction(cell) => {
+                write_location(formatter, &cell.source, cell.location.as_ref())?;
+                let configuration = match (&cell.configuration_source, &cell.configuration_location)
+                {
+                    (Some(source), Some(location)) => format!(
+                        "the configuration of module {:?} at {source}:{}:{}",
+                        cell.module, location.start_line, location.start_column
+                    ),
+                    _ => format!("the configuration of module {:?}", cell.module),
+                };
+                match &cell.reading {
+                    CellProductionReading::BesideDeclaredCell { cell: name } => write!(
+                        formatter,
+                        "cell production `{}` is a second cell production of cell sort {}: {configuration} declares <{name}>, which generates the one cell production of {}, `<{name}>`; remove this production",
+                        cell.production, cell.sort, cell.sort
+                    ),
+                    CellProductionReading::ReadAsTerm => write!(
+                        formatter,
+                        "{configuration} reads a cell it writes as cell production `{}` of cell sort {} instead of declaring the cell: the one cell production of a cell sort is the one its declaration generates; remove this production",
+                        cell.production, cell.sort
+                    ),
+                }
+            }
         }
+    }
+}
+
+fn write_location(
+    formatter: &mut fmt::Formatter<'_>,
+    source: &Option<String>,
+    location: Option<&super::Location>,
+) -> fmt::Result {
+    match (source, location) {
+        (Some(source), Some(location)) => write!(
+            formatter,
+            "{source}:{}:{}: ",
+            location.start_line, location.start_column
+        ),
+        (Some(source), None) => write!(formatter, "{source}: "),
+        (None, _) => Ok(()),
     }
 }
 
@@ -467,6 +545,7 @@ impl Generator<'_, '_> {
                 })
             }
             Term::Apply { label, arguments } => {
+                self.reject_cell_term(label)?;
                 let sort = if let Some(sort) = label.semantic_cast_sort() {
                     Some(sort)
                 } else {
@@ -672,6 +751,7 @@ impl Generator<'_, '_> {
             .unwrap_or("Bag")
             .to_owned();
 
+        self.reject_other_cell_production(cell_name, &sort, &label)?;
         let items = cell_items(cell_name, &children.child_sorts);
         let mut cell_attributes = merge_attributes(&properties, self.attributes);
         if !properties.has(AttributeKey::Format) {
@@ -1077,6 +1157,78 @@ impl Generator<'_, '_> {
         Ok(properties)
     }
 
+    /// Reject a visible `cell` production of `sort` whose label is not `label`, the one this
+    /// cell's generated production has (an imported configuration that declares the same cell
+    /// generated it under that label), at that production.
+    fn reject_other_cell_production(
+        &self,
+        cell_name: &str,
+        sort: &Sort,
+        label: &str,
+    ) -> Result<(), ConfigurationError> {
+        let other = self
+            .catalog
+            .productions_for_sort(&super::SortHead::from(sort))
+            .iter()
+            .map(|id| self.catalog.production(*id))
+            .find(|production| {
+                matches!(production, Sentence::Production { label: written, attributes, .. }
+                    if attributes.has(AttributeKey::Cell)
+                        && written.as_ref().is_none_or(|written| written.name != label))
+            });
+        match other {
+            Some(other) => Err(self.cell_production_error(
+                other,
+                CellProductionReading::BesideDeclaredCell {
+                    cell: cell_name.to_owned(),
+                },
+            )),
+            None => Ok(()),
+        }
+    }
+
+    /// Reject a configuration term the configuration grammar read as a visible `cell` production,
+    /// at that production: a cell written in a configuration is a declaration of that cell.
+    fn reject_cell_term(&self, label: &Label) -> Result<(), ConfigurationError> {
+        let cell = self
+            .catalog
+            .productions_for(&LabelHead::from(label))
+            .iter()
+            .map(|id| self.catalog.production(*id))
+            .find(|production| is_cell_production(production));
+        match cell {
+            Some(cell) => Err(self.cell_production_error(cell, CellProductionReading::ReadAsTerm)),
+            None => Ok(()),
+        }
+    }
+
+    fn cell_production_error(
+        &self,
+        production: &Sentence,
+        reading: CellProductionReading,
+    ) -> ConfigurationError {
+        let Sentence::Production {
+            sort,
+            items,
+            attributes,
+            ..
+        } = production
+        else {
+            unreachable!("a cell production is a production");
+        };
+        let (configuration_source, configuration_location) = self.position();
+        ConfigurationError::CellProduction(Box::new(ConfigurationCellProduction {
+            module: self.module.to_owned(),
+            configuration_source,
+            configuration_location,
+            reading,
+            sort: sort.clone(),
+            production: production_text(sort, items),
+            source: attributes.source().map(str::to_owned),
+            location: attributes.location(),
+        }))
+    }
+
     fn label_exists(&self, label: &str) -> bool {
         self.existing_labels.contains(label) || self.generated.production_labels.contains(label)
     }
@@ -1099,7 +1251,8 @@ impl Generator<'_, '_> {
         })
     }
 
-    fn error(&self, message: impl Into<String>) -> ConfigurationError {
+    /// The configuration's source and location, or its module's.
+    fn position(&self) -> (Option<String>, Option<super::Location>) {
         let source = self
             .attributes
             .source()
@@ -1109,6 +1262,11 @@ impl Generator<'_, '_> {
             .attributes
             .location()
             .or_else(|| self.module_attributes.location());
+        (source, location)
+    }
+
+    fn error(&self, message: impl Into<String>) -> ConfigurationError {
+        let (source, location) = self.position();
         ConfigurationError::Invalid {
             module: self.module.to_owned(),
             source,
@@ -1354,6 +1512,30 @@ fn production(
         items,
         attributes,
     }
+}
+
+fn is_cell_production(sentence: &Sentence) -> bool {
+    matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell))
+}
+
+/// `syntax Sort ::= items`, as a production is written.
+fn production_text(sort: &Sort, items: &[ProductionItem]) -> String {
+    let items = items
+        .iter()
+        .map(|item| match item {
+            ProductionItem::NonTerminal { sort, name: None } => sort.to_string(),
+            ProductionItem::NonTerminal {
+                sort,
+                name: Some(name),
+            } => format!("{name}:{sort}"),
+            ProductionItem::Terminal(value) => crate::kast::string::quote(value),
+            ProductionItem::RegexTerminal { regex, .. } => {
+                format!("r{}", crate::kast::string::quote(regex))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("syntax {sort} ::= {items}")
 }
 
 fn cell_items(name: &str, children: &[Sort]) -> Vec<ProductionItem> {
