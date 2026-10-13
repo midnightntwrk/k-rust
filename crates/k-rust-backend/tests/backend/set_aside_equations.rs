@@ -1,6 +1,5 @@
 //! A function equation that the evaluator sets aside (a `concrete` or `symbolic` attribute
-//! rejects its binding, or its right-hand side is `\top`) still holds of the application it
-//! matched. An `owise` equation's premise, and an explicit lower priority, state that the lower
+//! rejects its binding) still holds of the application it matched. An `owise` equation's premise, and an explicit lower priority, state that the lower
 //! equation applies only where no higher-priority equation does, so neither may apply in the
 //! set-aside equation's place: the application stays unevaluated. Only where every higher
 //! equation is refuted (its left-hand side does not match, or its `requires` is refuted, whether
@@ -181,47 +180,6 @@ fn a_concrete_anywhere_equation_set_aside_keeps_the_owise_equation_from_applying
         &format!("w{{}}({})", int(3)),
         &format!("mk{{}}({})", int(1)),
         "one",
-    );
-}
-
-/// (d) An equation whose right-hand side is `\top`, at priority 40, matches `fp(pair(1, 2))`;
-/// the evaluator cannot rewrite the application to it, and the priority-50 equation, which the
-/// priority reading confines to arguments no priority-40 equation matches, does not apply in
-/// its place. An argument the first equation does not match takes the second.
-#[test]
-fn a_top_equation_keeps_a_lower_priority_equation_from_applying() {
-    let definition = definition(
-        "symbol fp{}(SortExp{}) : SortInt{} [function{}()]",
-        &[
-            equation(
-                "fp",
-                &["SortExp{}"],
-                "SortInt{}",
-                &["pair{}(VarA:SortInt{}, VarB:SortInt{})"],
-                r"\top{SortInt{}}()",
-                TOP,
-                r#"label{}("top"), priority{}("40")"#,
-            ),
-            equation(
-                "fp",
-                &["SortExp{}"],
-                "SortInt{}",
-                &["VarE:SortExp{}"],
-                &int(0),
-                TOP,
-                r#"label{}("zero"), priority{}("50")"#,
-            ),
-        ],
-    );
-    assert_kept(
-        &definition,
-        &format!("fp{{}}(pair{{}}({}, {}))", int(1), int(2)),
-    );
-    assert_evaluates(
-        &definition,
-        &format!("fp{{}}(mk{{}}({}))", int(1)),
-        &int(0),
-        "zero",
     );
 }
 

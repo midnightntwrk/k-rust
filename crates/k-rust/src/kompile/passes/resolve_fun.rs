@@ -484,10 +484,9 @@ impl Resolver<'_, '_, '_> {
                 // value there unconstrained, an unknown that rewriting can narrow, rather than
                 // undefined. This `owise` equation states that it is `\bottom` there. As an
                 // `owise` axiom it holds only where the equation above does not apply, so a
-                // symbolic or unevaluated argument keeps the application, and so does an
-                // argument the equation above matches but the backend cannot use (a `#Top`
-                // body), since that equation still holds there; a covering pattern leaves no
-                // argument outside P.
+                // symbolic or unevaluated argument keeps the application; a covering pattern
+                // leaves no argument outside P. (A `#Top` body gives the equation above no term,
+                // and the backend refuses such a definition when it loads it.)
                 let owise_pattern = Term::Apply {
                     label: Label::semantic_cast(&parameter_sort),
                     arguments: vec![Term::variable("#Owise")],

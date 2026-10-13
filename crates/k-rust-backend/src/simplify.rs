@@ -6919,8 +6919,10 @@ fn apply_equation_instance(
         // The result is not a term the subject can be rewritten to. A `\top` lemma is used
         // where its subject is an operand of a term-level conjunction, which drops the operand
         // (`matches_top_equation`); elsewhere the evaluator does not use it, which is sound,
-        // since the subject is kept, equal to itself, and no lower-priority function equation
-        // applies in its place (`Unused` blocks the function scan).
+        // since the subject is kept, equal to itself. Only a simplification lemma reaches this
+        // arm: a function or anywhere equation with a `\top` right-hand side is refused when the
+        // definition is loaded (`RulePatternError::TopFunctionEquation`), and a predicate
+        // right-hand side belongs to a ceil axiom.
         RuleRhs::Top | RuleRhs::Predicates(_) => return Ok(EquationAttempt::Unused),
     };
     let mut live = Vec::new();
