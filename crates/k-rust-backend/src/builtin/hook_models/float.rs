@@ -662,14 +662,24 @@ fn float_case(draw: &mut Draw<'_>) -> Case {
         }
         "FLOAT.add" | "FLOAT.sub" | "FLOAT.mul" | "FLOAT.div" | "FLOAT.min" | "FLOAT.max"
         | "FLOAT.lt" | "FLOAT.le" | "FLOAT.gt" | "FLOAT.ge" | "FLOAT.eq" => {
-            let left = value_bits(draw, format);
-            let right = match draw.below(4) {
-                0 => left,
-                1 => negate(format, left),
-                _ => value_bits(draw, format),
+            // One case in eight takes one operand of each format, in either order.
+            let (left_format, right_format) = if draw.chance(1) {
+                let other = match format {
+                    Format::Binary32 => Format::Binary64,
+                    Format::Binary64 => Format::Binary32,
+                };
+                (format, other)
+            } else {
+                (format, format)
             };
-            let left = token(draw, format, left);
-            let right = token(draw, format, right);
+            let left = value_bits(draw, left_format);
+            let right = match draw.below(4) {
+                0 => convert(left_format, right_format, left),
+                1 => negate(right_format, convert(left_format, right_format, left)),
+                _ => value_bits(draw, right_format),
+            };
+            let left = token(draw, left_format, left);
+            let right = token(draw, right_format, right);
             vec![
                 draw.scalar(left, Sort::builtin(BuiltinSort::Float), env),
                 draw.scalar(right, Sort::builtin(BuiltinSort::Float), env),
@@ -703,37 +713,48 @@ fn float_model(hook: &str, arguments: &[Val]) -> Spec {
         [Float(format, bits)] => Spec::value(float(*format, operation(*format, *bits))),
         _ => panic!("{hook} takes one Float: {arguments:?}"),
     };
-    let binary = |operation: &dyn Fn(Format, u64, u64) -> u64| match arguments {
-        [Float(format, left), Float(right_format, right)] if format == right_format => {
-            Spec::value(float(*format, operation(*format, *left, *right)))
-        }
-        _ => panic!("{hook} takes two Floats of one format: {arguments:?}"),
-    };
-    let comparison = |holds: &dyn Fn(Ordering) -> bool| match arguments {
-        [Float(format, left), Float(_, right)] => {
-            Spec::value(Bool(compare(*format, *left, *right).is_some_and(holds)))
-        }
-        _ => panic!("{hook} takes two Floats: {arguments:?}"),
-    };
-    // `fp.min` and `fp.max`: a NaN operand yields the other operand; the result for two zeros
-    // of different signs is either zero.
-    let extremum = |wanted: Ordering| match arguments {
-        [Float(format, left), Float(_, right)] => {
-            let (format, left, right) = (*format, *left, *right);
-            match compare(format, left, right) {
-                None if matches!(classify(format, left), Exact::Nan) => {
-                    Spec::value(float(format, right))
-                }
-                None => Spec::value(float(format, left)),
-                Some(Ordering::Equal) if left != right => Spec::one_of(vec![
-                    float(format, signed_zero(format, false)),
-                    float(format, signed_zero(format, true)),
-                ]),
-                Some(order) if order == wanted => Spec::value(float(format, left)),
-                Some(_) => Spec::value(float(format, right)),
+    // Two operands in one format: that format. A binary32 and a binary64 operand: binary64, the
+    // format that contains the other, into which the binary32 one converts exactly; an operation
+    // is the exact result rounded once to it, and a comparison compares the exact values.
+    let common = || match arguments {
+        [Float(left_format, left), Float(right_format, right)] => {
+            if left_format == right_format {
+                (*left_format, *left, *right)
+            } else {
+                let wider = Format::Binary64;
+                (
+                    wider,
+                    convert(*left_format, wider, *left),
+                    convert(*right_format, wider, *right),
+                )
             }
         }
         _ => panic!("{hook} takes two Floats: {arguments:?}"),
+    };
+    let binary = |operation: &dyn Fn(Format, u64, u64) -> u64| {
+        let (format, left, right) = common();
+        Spec::value(float(format, operation(format, left, right)))
+    };
+    let comparison = |holds: &dyn Fn(Ordering) -> bool| {
+        let (format, left, right) = common();
+        Spec::value(Bool(compare(format, left, right).is_some_and(holds)))
+    };
+    // `fp.min` and `fp.max`: a NaN operand yields the other operand; the result for two zeros
+    // of different signs is either zero.
+    let extremum = |wanted: Ordering| {
+        let (format, left, right) = common();
+        match compare(format, left, right) {
+            None if matches!(classify(format, left), Exact::Nan) => {
+                Spec::value(float(format, right))
+            }
+            None => Spec::value(float(format, left)),
+            Some(Ordering::Equal) if left != right => Spec::one_of(vec![
+                float(format, signed_zero(format, false)),
+                float(format, signed_zero(format, true)),
+            ]),
+            Some(order) if order == wanted => Spec::value(float(format, left)),
+            Some(_) => Spec::value(float(format, right)),
+        }
     };
     match hook {
         "FLOAT.precision" | "FLOAT.exponentBits" => {

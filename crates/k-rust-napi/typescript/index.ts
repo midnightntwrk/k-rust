@@ -448,14 +448,6 @@ export type BuiltinFailure =
       precision: string
       exponentBits: string
     }
-  | {
-      kind: 'mismatched-float-formats'
-      hook: string
-      leftPrecision: number
-      leftExponentBits: number
-      rightPrecision: number
-      rightExponentBits: number
-    }
 
 export type TranslationFailure =
   | { kind: 'non-boolean-and'; term: Kore }

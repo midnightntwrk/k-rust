@@ -95,13 +95,6 @@ pub enum BuiltinError {
         precision: String,
         exponent_bits: String,
     },
-    MismatchedFloatFormats {
-        hook: String,
-        left_precision: u32,
-        left_exponent_bits: u32,
-        right_precision: u32,
-        right_exponent_bits: u32,
-    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -145,8 +138,9 @@ pub enum UnsupportedHookReason {
     ///
     /// Outside an execution it is also the outcome of a hook whose value on these arguments is
     /// one of several the definition admits, such as `keys_list` of a map of two or more keys,
-    /// whose order domains.md does not fix: an execution takes k-rust's documented value, and
-    /// every other evaluation leaves the application unevaluated, with `defined` set
+    /// whose order domains.md does not fix, or a Float operation over a binary32 and a binary64
+    /// operand, whose result format it does not name: an execution takes k-rust's documented
+    /// value, and every other evaluation leaves the application unevaluated, with `defined` set
     /// (`crate::evaluation`).
     Unspecified {
         detail: String,
@@ -235,6 +229,12 @@ pub(crate) fn evaluate_in_definition(
 /// read on the argument, not on the result. An application this names is defined exactly when
 /// its argument is: a closed map with distinct constructor-like keys is defined when its values
 /// are, a set of such elements is defined, and each has a listing.
+///
+/// `+Float`, `-Float`, `*Float`, `/Float`, `minFloat` and `maxFloat` over a binary32 and a
+/// binary64 operand are the exact result rounded to some destination format, which domains.md
+/// does not name ([`float::mixed_destination`], the same reading of the arguments the evaluator
+/// widens): every model rounds it to some format, so the application is defined, and only its
+/// value is open.
 pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     let TermKind::Application {
         symbol, arguments, ..
@@ -246,7 +246,7 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     let several = match hook {
         "MAP.keys_list" | "MAP.values" => map::lists_several_items(arguments),
         "SET.set2list" => set::lists_several_items(arguments),
-        _ => false,
+        _ => return float::mixed_destination(hook, arguments).map(|pair| pair.detail(hook)),
     };
     several.then(|| {
         format!(
@@ -2741,18 +2741,55 @@ mod tests {
         }
     }
 
+    /// Over a binary32 and a binary64 operand the arithmetic hooks and min/max round the exact
+    /// result once to binary64, the operand format that contains the other, whichever operand is
+    /// the binary32 one. The evaluator computes this value in every mode; only the root
+    /// evaluation outside an execution withholds it (`implementation_chosen`).
     #[test]
-    fn float_arithmetic_rejects_mixed_formats() {
-        assert_eq!(
-            evaluate_hook("FLOAT.add", &[float_term("1.0f"), float_term("1.0")]),
-            Ok(Err(BuiltinError::MismatchedFloatFormats {
-                hook: "FLOAT.add".into(),
-                left_precision: 24,
-                left_exponent_bits: 8,
-                right_precision: 53,
-                right_exponent_bits: 11,
-            }))
-        );
+    fn float_arithmetic_over_two_formats_rounds_to_the_wider_format() {
+        let cases = [
+            ("FLOAT.add", "0.1f", "0.2", "3.0000000149011613e-01p53x11"),
+            ("FLOAT.add", "0.2", "0.1f", "3.0000000149011613e-01p53x11"),
+            ("FLOAT.sub", "0.1f", "0.2", "-9.9999998509883892e-02p53x11"),
+            ("FLOAT.sub", "0.2", "0.1f", "9.9999998509883892e-02p53x11"),
+            ("FLOAT.mul", "0.1f", "0.2", "2.0000000298023225e-02p53x11"),
+            ("FLOAT.mul", "0.2", "0.1f", "2.0000000298023225e-02p53x11"),
+            ("FLOAT.div", "0.1f", "2.0", "5.0000000745058060e-02p53x11"),
+            ("FLOAT.div", "2.0", "0.1f", "1.9999999701976780e+01p53x11"),
+            ("FLOAT.max", "0.5f", "0.5", "5.0000000000000000e-01p53x11"),
+            ("FLOAT.max", "0.5", "0.5f", "5.0000000000000000e-01p53x11"),
+            ("FLOAT.max", "0.1f", "2.0", "2.0000000000000000e+00p53x11"),
+            ("FLOAT.max", "2.0", "0.1f", "2.0000000000000000e+00p53x11"),
+            ("FLOAT.min", "0.1f", "2.0", "1.0000000149011612e-01p53x11"),
+            ("FLOAT.min", "2.0", "0.1f", "1.0000000149011612e-01p53x11"),
+            ("FLOAT.min", "-0.0f", "0.0", "-0e+00p53x11"),
+            ("FLOAT.min", "0.0", "-0.0f", "-0e+00p53x11"),
+            ("FLOAT.max", "NaNf", "2.0", "2.0000000000000000e+00p53x11"),
+            ("FLOAT.add", "Infinityf", "1.0", "Infinityp53x11"),
+            ("FLOAT.div", "1.0p24x8", "0.0p53x11", "Infinityp53x11"),
+        ];
+        for (hook, left, right, expected) in cases {
+            assert_eq!(
+                evaluate_hook(hook, &[float_term(left), float_term(right)]),
+                Ok(Ok(BuiltinResult::Value(float_term(expected)))),
+                "{hook}({left}, {right})"
+            );
+        }
+        // Comparisons need no destination: they compare the exact values.
+        let comparisons = [
+            ("FLOAT.lt", "0.1f", "0.1", false),
+            ("FLOAT.gt", "0.1f", "0.1", true),
+            ("FLOAT.eq", "0.1f", "0.1", false),
+            ("FLOAT.eq", "0.5f", "0.5", true),
+            ("FLOAT.lt", "0.1", "0.1f", true),
+        ];
+        for (hook, left, right, expected) in comparisons {
+            assert_eq!(
+                evaluate_hook(hook, &[float_term(left), float_term(right)]),
+                Ok(Ok(BuiltinResult::Value(bool_term(expected)))),
+                "{hook}({left}, {right})"
+            );
+        }
     }
 
     #[test]

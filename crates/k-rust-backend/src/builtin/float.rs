@@ -29,6 +29,106 @@ enum BinaryOperation {
     Max,
 }
 
+impl BinaryOperation {
+    /// The Float-valued binary operation `hook` names, for the six the backend evaluates.
+    fn of(hook: &str) -> Option<Self> {
+        Some(match hook {
+            "FLOAT.add" => Self::Add,
+            "FLOAT.sub" => Self::Sub,
+            "FLOAT.mul" => Self::Mul,
+            "FLOAT.div" => Self::Div,
+            "FLOAT.min" => Self::Min,
+            "FLOAT.max" => Self::Max,
+            _ => return None,
+        })
+    }
+
+    fn binary32(self, left: f32, right: f32) -> f32 {
+        match self {
+            Self::Add => left + right,
+            Self::Sub => left - right,
+            Self::Mul => left * right,
+            Self::Div => left / right,
+            Self::Min => minimum_f32(left, right),
+            Self::Max => maximum_f32(left, right),
+        }
+    }
+
+    fn binary64(self, left: f64, right: f64) -> f64 {
+        match self {
+            Self::Add => left + right,
+            Self::Sub => left - right,
+            Self::Mul => left * right,
+            Self::Div => left / right,
+            Self::Min => minimum_f64(left, right),
+            Self::Max => maximum_f64(left, right),
+        }
+    }
+}
+
+/// The operands of a binary Float operation of which one is binary32 and the other binary64, in
+/// their argument order.
+///
+/// `domains.md` names no format for such an operation's result. IEEE 754 defines an operation as
+/// its exact result rounded once to a destination format and leaves the destination of operands
+/// of two formats to the language; k-rust's reading, applied only in an execution, takes the
+/// operand format that contains the other, binary64 (the destination IEEE 754-2008 10.3 gives
+/// under `preferredWidthNone`): every binary32 value, subnormals, infinities, signed zeros and
+/// NaN included, is a binary64 value, so the binary32 operand widens exactly and the result is
+/// rounded once.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MixedPair {
+    left: KFloat,
+    right: KFloat,
+}
+
+impl MixedPair {
+    /// The pair `left`, `right` when their formats are binary32 and binary64, in either order.
+    fn of(left: KFloat, right: KFloat) -> Option<Self> {
+        matches!(
+            (left, right),
+            (KFloat::Binary32(_), KFloat::Binary64(_)) | (KFloat::Binary64(_), KFloat::Binary32(_))
+        )
+        .then_some(Self { left, right })
+    }
+
+    /// Both operands in the destination format, binary64; exact.
+    fn widened(self) -> (f64, f64) {
+        (self.left.as_f64(), self.right.as_f64())
+    }
+
+    /// Why the definition leaves `hook`'s value on this pair to a reading, for the
+    /// unevaluated application outside an execution.
+    pub(crate) fn detail(self, hook: &str) -> String {
+        format!(
+            "{hook} of a Float of precision {} with {} exponent bits and one of precision {} with \
+             {} exponent bits rounds to a result format domains.md does not name; k-rust's \
+             reading, binary64, applies only in an execution",
+            self.left.precision(),
+            self.left.exponent_bits(),
+            self.right.precision(),
+            self.right.exponent_bits(),
+        )
+    }
+}
+
+/// The binary32 and binary64 operands of `hook` applied to `arguments`, when `hook` is one of the
+/// Float-valued binary hooks the backend evaluates (`+Float`, `-Float`, `*Float`, `/Float`,
+/// `minFloat`, `maxFloat`) and the evaluator reads its two arguments as one binary32 and one
+/// binary64 value; `None` otherwise.
+///
+/// The arguments are read exactly as the evaluator reads them (`read_operands`), and the pair is
+/// the one the evaluator widens (`KFloat::binary`), so every application on which the evaluator
+/// takes the binary64 reading is named here, whatever spelling its operands use. Comparisons are
+/// not named: they need no destination format.
+pub(crate) fn mixed_destination(hook: &str, arguments: &[Term]) -> Option<MixedPair> {
+    BinaryOperation::of(hook)?;
+    let Ok(Some((left, right))) = read_operands(hook, arguments) else {
+        return None;
+    };
+    MixedPair::of(left, right)
+}
+
 #[derive(Clone, Copy)]
 enum Comparison {
     Less,
@@ -168,35 +268,38 @@ impl KFloat {
         }
     }
 
-    fn binary(self, other: Self, hook: &str, operation: BinaryOperation) -> HookResult<Self> {
+    /// The exact result of `operation` rounded once to nearest, ties to even, in the destination
+    /// format: the operands' format when they share one, and otherwise the operand format that
+    /// contains the other, binary64 ([`MixedPair`]). The second is k-rust's reading, which the
+    /// root evaluation outside an execution withholds (`super::implementation_chosen`).
+    ///
+    /// A value is computed only when both operands are binary32 or binary64: an operand of any
+    /// other format is refused by `read_float` (`UnsupportedFloatFormat`) before this, and is never
+    /// read as binary32 or binary64.
+    fn binary(self, other: Self, operation: BinaryOperation) -> Self {
         match (self, other) {
-            (Self::Binary32(left), Self::Binary32(right)) => Ok(Self::Binary32(match operation {
-                BinaryOperation::Add => left + right,
-                BinaryOperation::Sub => left - right,
-                BinaryOperation::Mul => left * right,
-                BinaryOperation::Div => left / right,
-                BinaryOperation::Min => minimum_f32(left, right),
-                BinaryOperation::Max => maximum_f32(left, right),
-            })),
-            (Self::Binary64(left), Self::Binary64(right)) => Ok(Self::Binary64(match operation {
-                BinaryOperation::Add => left + right,
-                BinaryOperation::Sub => left - right,
-                BinaryOperation::Mul => left * right,
-                BinaryOperation::Div => left / right,
-                BinaryOperation::Min => minimum_f64(left, right),
-                BinaryOperation::Max => maximum_f64(left, right),
-            })),
-            (left, right) => Err(BuiltinError::MismatchedFloatFormats {
-                hook: hook.into(),
-                left_precision: left.precision(),
-                left_exponent_bits: left.exponent_bits(),
-                right_precision: right.precision(),
-                right_exponent_bits: right.exponent_bits(),
+            (Self::Binary32(left), Self::Binary32(right)) => {
+                Self::Binary32(operation.binary32(left, right))
             }
-            .into()),
+            (Self::Binary64(left), Self::Binary64(right)) => {
+                Self::Binary64(operation.binary64(left, right))
+            }
+            // The pairs `MixedPair::of` names, spelled out so that a further format is a build
+            // error here rather than a pair this arm would read as binary32 and binary64.
+            (Self::Binary32(_), Self::Binary64(_)) | (Self::Binary64(_), Self::Binary32(_)) => {
+                let (left, right) = MixedPair {
+                    left: self,
+                    right: other,
+                }
+                .widened();
+                Self::Binary64(operation.binary64(left, right))
+            }
         }
     }
 
+    /// Whether the comparison holds of the exact values. A truth value has no format, so values
+    /// of two formats are compared as they are (IEEE 754-2008 5.11), in every evaluation mode:
+    /// both widen exactly to binary64.
     fn compare(self, other: Self, comparison: Comparison) -> bool {
         let left = self.as_f64();
         let right = other.as_f64();
@@ -259,12 +362,10 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResu
         "FLOAT.ceil" => inspect(hook, arguments, |value| float_term(value.ceil())),
         "FLOAT.trunc" => inspect(hook, arguments, |value| float_term(value.trunc())),
         "FLOAT.root" => root(hook, arguments),
-        "FLOAT.add" => binary(hook, arguments, BinaryOperation::Add),
-        "FLOAT.sub" => binary(hook, arguments, BinaryOperation::Sub),
-        "FLOAT.mul" => binary(hook, arguments, BinaryOperation::Mul),
-        "FLOAT.div" => binary(hook, arguments, BinaryOperation::Div),
-        "FLOAT.min" => binary(hook, arguments, BinaryOperation::Min),
-        "FLOAT.max" => binary(hook, arguments, BinaryOperation::Max),
+        "FLOAT.add" | "FLOAT.sub" | "FLOAT.mul" | "FLOAT.div" | "FLOAT.min" | "FLOAT.max" => {
+            let operation = BinaryOperation::of(hook).expect("a binary Float operation");
+            binary(hook, arguments, operation)
+        }
         "FLOAT.lt" => compare(hook, arguments, Comparison::Less),
         "FLOAT.le" => compare(hook, arguments, Comparison::LessEqual),
         "FLOAT.gt" => compare(hook, arguments, Comparison::Greater),
@@ -391,25 +492,30 @@ fn read_format(
     }
 }
 
-fn binary(hook: &str, arguments: &[Term], operation: BinaryOperation) -> HookResult<BuiltinResult> {
+/// The two Float operands of a binary hook, as every binary Float evaluator and
+/// [`mixed_destination`] read them; `None` while either is not a Float domain value.
+fn read_operands(hook: &str, arguments: &[Term]) -> HookResult<Option<(KFloat, KFloat)>> {
     expect_arity(hook, arguments, 2)?;
     let Some(left) = read_float(hook, &arguments[0])? else {
-        return Ok(BuiltinResult::NotApplicable);
+        return Ok(None);
     };
     let Some(right) = read_float(hook, &arguments[1])? else {
+        return Ok(None);
+    };
+    Ok(Some((left, right)))
+}
+
+fn binary(hook: &str, arguments: &[Term], operation: BinaryOperation) -> HookResult<BuiltinResult> {
+    let Some((left, right)) = read_operands(hook, arguments)? else {
         return Ok(BuiltinResult::NotApplicable);
     };
     Ok(BuiltinResult::Value(float_term(
-        left.binary(right, hook, operation)?,
+        left.binary(right, operation),
     )))
 }
 
 fn compare(hook: &str, arguments: &[Term], comparison: Comparison) -> HookResult<BuiltinResult> {
-    expect_arity(hook, arguments, 2)?;
-    let Some(left) = read_float(hook, &arguments[0])? else {
-        return Ok(BuiltinResult::NotApplicable);
-    };
-    let Some(right) = read_float(hook, &arguments[1])? else {
+    let Some((left, right)) = read_operands(hook, arguments)? else {
         return Ok(BuiltinResult::NotApplicable);
     };
     Ok(BuiltinResult::Value(bool_term(
@@ -639,5 +745,70 @@ fn maximum_f64(left: f64, right: f64) -> f64 {
         0.0
     } else {
         left
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn float(token: &str) -> Term {
+        Term::domain_value(Sort::builtin(BuiltinSort::Float), token)
+    }
+
+    /// `mixed_destination` names exactly the pairs the evaluator reads as one binary32 and one
+    /// binary64 operand: every spelling of each format, in both orders, for the six Float-valued
+    /// binary hooks; not one format, not a comparison, not a symbolic operand, and not a format
+    /// the evaluator does not read.
+    #[test]
+    fn mixed_destination_names_exactly_the_pairs_the_evaluator_widens() {
+        let binary32 = ["0.1f", "0.1F", "0.1p24x8", "0.1p024x008", "0.1P24X8"];
+        let binary64 = ["2.0", "2.0d", "2.0D", "2.0p53x11", "2.0p053x0011"];
+        let hooks = [
+            "FLOAT.add",
+            "FLOAT.sub",
+            "FLOAT.mul",
+            "FLOAT.div",
+            "FLOAT.min",
+            "FLOAT.max",
+        ];
+        for hook in hooks {
+            for single in binary32 {
+                for double in binary64 {
+                    for (left, right) in [(single, double), (double, single)] {
+                        let arguments = [float(left), float(right)];
+                        assert!(
+                            mixed_destination(hook, &arguments).is_some(),
+                            "{hook}({left}, {right})"
+                        );
+                        let Ok(BuiltinResult::Value(value)) = evaluate(hook, &arguments) else {
+                            panic!("{hook}({left}, {right}) has a value");
+                        };
+                        let TermKind::DomainValue { value, .. } = value.kind() else {
+                            panic!("{hook}({left}, {right}) is a domain value");
+                        };
+                        assert!(
+                            value.as_utf8().unwrap().ends_with("p53x11"),
+                            "{hook}({left}, {right})"
+                        );
+                    }
+                }
+            }
+            for (left, right) in [("0.1f", "2.0p24x8"), ("0.1", "2.0p53x11")] {
+                assert!(
+                    mixed_destination(hook, &[float(left), float(right)]).is_none(),
+                    "{hook}({left}, {right})"
+                );
+            }
+            let variable = Term::variable(crate::term::Variable::new(
+                "X",
+                Sort::builtin(BuiltinSort::Float),
+            ));
+            assert!(mixed_destination(hook, &[float("0.1f"), variable]).is_none());
+            assert!(mixed_destination(hook, &[float("0.1f"), float("2.0p113x15")]).is_none());
+        }
+        for hook in ["FLOAT.lt", "FLOAT.eq", "FLOAT.rem", "FLOAT.pow"] {
+            assert!(mixed_destination(hook, &[float("0.1f"), float("2.0")]).is_none());
+        }
     }
 }

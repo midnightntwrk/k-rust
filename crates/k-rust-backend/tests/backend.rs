@@ -13,6 +13,8 @@ mod hook_result_sorts;
 mod issue_4114_overload;
 #[path = "backend/matching.rs"]
 mod matching;
+#[path = "backend/mixed_float_formats.rs"]
+mod mixed_float_formats;
 #[path = "backend/names.rs"]
 mod names;
 #[path = "backend/overloaded_list_owise.rs"]
