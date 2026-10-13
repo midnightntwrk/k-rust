@@ -14730,13 +14730,105 @@ fn assert_no_write_phases(timings: &serde_json::Value) {
     for write_phase in ["generate bison parser", "write artifacts"] {
         assert!(!names.contains(&write_phase), "{names:?}");
     }
+    assert_total_is_the_sum_of_the_group_spans(timings);
+}
+
+/// A kcompile timings file's `total_wall_seconds` is the sum of its three groups' wall spans.
+fn assert_total_is_the_sum_of_the_group_spans(timings: &serde_json::Value) {
     let wall = |key: &str| timings[key].as_f64().unwrap();
     let groups =
         wall("load_wall_seconds") + wall("compile_wall_seconds") + wall("write_wall_seconds");
+    // The file holds the exact sum; the tolerance absorbs serde_json's float parsing, which is
+    // not correctly rounding without its `float_roundtrip` feature and can read a value one ulp
+    // away from the one written.
     assert!(
         (wall("total_wall_seconds") - groups).abs() < 1e-9,
         "{groups}: {timings}"
     );
+}
+
+/// A run whose `--timings` file cannot be written still fails with its own error and exit
+/// status; the failed timings write is reported before it.
+#[test]
+fn kcompile_keeps_its_error_when_the_timings_of_a_failed_run_cannot_be_written() {
+    let (root, definition) = fixture();
+    fs::write(&definition, LATE_FAILURE).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&definition)
+        .args(["--main-module", "LATE", "--warnings-to-errors"])
+        .arg("--output-directory")
+        .arg(root.join("compiled"))
+        .arg("--timings")
+        .arg(root.join("missing-directory").join("timings.json"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    let warning = stderr
+        .find("warning: the timings of the failed run were not written: ")
+        .unwrap_or_else(|| panic!("{stderr}"));
+    let error = stderr
+        .find(
+            "error: kcompile stage \"hook namespace checks\" failed: hook namespace checks failed",
+        )
+        .unwrap_or_else(|| panic!("{stderr}"));
+    assert!(warning < error, "{stderr}");
+    assert!(!root.join("missing-directory").exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A compile whose artifact write fails records the write group up to the failed write, with
+/// the group's measured span, and exits with the write's own error.
+#[test]
+fn kcompile_timings_measure_a_failed_artifact_write() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax Input ::= Int
+  configuration <k> $PGM:Input </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output_directory = root.join("compiled");
+    // A directory where the first artifact file goes makes that write fail.
+    fs::create_dir_all(output_directory.join("definition.kore")).unwrap();
+    let timings_path = root.join("kcompile-timings.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&definition)
+        .args(["--main-module", "MAIN"])
+        .arg("--output-directory")
+        .arg(&output_directory)
+        .arg("--timings")
+        .arg(&timings_path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("error: Is a directory"), "{stderr}");
+    let timings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&timings_path).unwrap()).unwrap();
+    let mut expected = expected_compile_phases_through("print macros.kore");
+    expected.push("write artifacts");
+    assert_eq!(compile_phase_names(&timings), expected);
+    assert!(
+        timings["write_seconds"].as_f64().unwrap() > 0.0,
+        "{timings}"
+    );
+    assert!(
+        timings["write_wall_seconds"].as_f64().unwrap()
+            >= timings["write_seconds"].as_f64().unwrap(),
+        "{timings}"
+    );
+    assert_total_is_the_sum_of_the_group_spans(&timings);
+    fs::remove_dir_all(root).unwrap();
 }
 
 /// A compile that fails at its hook namespace check still writes the load phases and every
