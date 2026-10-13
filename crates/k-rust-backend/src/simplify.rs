@@ -5214,6 +5214,9 @@ fn simplify_root(
             match crate::builtin::implementation_chosen(term) {
                 Some(detail) => BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
                     detail,
+                    // The hook's description gives the application a value, whichever it is, so
+                    // it is defined whatever its symbol's declaration says
+                    // (`implementation_chosen`).
                     defined: true,
                 }),
                 None => builtin,

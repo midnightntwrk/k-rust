@@ -511,21 +511,48 @@ fn mint_hooks_agree_with_an_arbitrary_precision_model_above_128_bits() {
 
 /// `Int2MInt{W}(argument)` as `domains.md` declares it, `W` the sort argument `width`.
 fn int2mint(width: Sort, argument: Term) -> Term {
+    int2mint_declared(FunctionType::Total, width, argument)
+}
+
+/// An application to `argument` of a function hooked `MINT.integer` at `MInt{width}`, declared
+/// `total` or not.
+fn int2mint_declared(totality: FunctionType, width: Sort, argument: Term) -> Term {
     let parameter = Sort::Variable("W".into());
-    let mut attributes = SymbolAttributes::constructor().with_declared_function(true);
-    attributes.symbol_type = SymbolType::Function(FunctionType::Total);
-    attributes.hook = Some("MINT.integer".into());
     Term::application(
         Arc::new(Symbol {
             name: "LblInt2MInt".into(),
             sort_variables: vec!["W".into()],
             argument_sorts: vec![Sort::builtin(BuiltinSort::Int)],
             result_sort: Sort::application(MINT_SORT, vec![parameter]),
-            attributes,
+            attributes: hooked_function("MINT.integer", totality),
         }),
         vec![width],
         vec![argument],
     )
+}
+
+/// An application to `argument`, of sort `MInt{width}`, of a function hooked `MINT.bitwidth`,
+/// declared `total` or not.
+fn bitwidth_declared(totality: FunctionType, width: Sort, argument: Term) -> Term {
+    let parameter = Sort::Variable("W".into());
+    Term::application(
+        Arc::new(Symbol {
+            name: "LblbitwidthMInt".into(),
+            sort_variables: vec!["W".into()],
+            argument_sorts: vec![Sort::application(MINT_SORT, vec![parameter])],
+            result_sort: Sort::builtin(BuiltinSort::Int),
+            attributes: hooked_function("MINT.bitwidth", totality),
+        }),
+        vec![width],
+        vec![argument],
+    )
+}
+
+fn hooked_function(hook: &str, totality: FunctionType) -> SymbolAttributes {
+    let mut attributes = SymbolAttributes::constructor().with_declared_function(true);
+    attributes.symbol_type = SymbolType::Function(totality);
+    attributes.hook = Some(hook.into());
+    attributes
 }
 
 fn evaluated(term: &Term) -> BuiltinResult {
@@ -546,13 +573,15 @@ pub(super) fn mint_term(width: impl std::fmt::Display, text: &str) -> Term {
     Term::domain_value_of(DomainKind::MInt(width), sort, text)
 }
 
-/// An application of a `total` hook whose value the definition does not determine: it has one,
-/// so it is defined.
-fn unspecified(result: &BuiltinResult) -> bool {
-    matches!(
-        result,
-        BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { defined: true, .. })
-    )
+/// Whether `result` leaves the application unevaluated as one whose value the definition does
+/// not determine, shown defined (`Some(true)`) or not (`Some(false)`).
+fn unspecified(result: &BuiltinResult) -> Option<bool> {
+    match result {
+        BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { defined, .. }) => {
+            Some(*defined)
+        }
+        _ => None,
+    }
 }
 
 #[test]
@@ -628,16 +657,41 @@ fn width_zero_has_one_element() {
     }
 }
 
-/// A sort `MInt{Foo}` names no width, so the value of a total conversion into it, and the width
-/// of its elements, are not determined; a sort `MInt{W}` whose argument is a sort variable has a
-/// width that is not fixed yet, and the application waits for it.
+/// A sort `MInt{Foo}` names no width, so the hooks' description gives no value of a conversion
+/// into it, nor a width of its elements. Only the declaration says whether the application has
+/// a value all the same: that of a function declared `total` has one in every model, which the
+/// definition does not determine, so it is defined; that of a function declared without `total`,
+/// or a hook evaluated without a declaration, is not shown defined. A sort `MInt{W}` whose
+/// argument is a sort variable has a width that is not fixed yet, and the application waits for
+/// it.
 #[test]
 fn a_sort_without_a_numeral_width_leaves_the_total_conversions_unspecified() {
     let foo = Sort::simple("SortFoo");
-    assert!(unspecified(&evaluated(&int2mint(foo.clone(), int(5)))));
-    let no_width = Sort::application(MINT_SORT, vec![foo]);
+    let no_width = Sort::application(MINT_SORT, vec![foo.clone()]);
+    assert_eq!(
+        unspecified(&evaluated(&int2mint(foo.clone(), int(5)))),
+        Some(true)
+    );
+    for (totality, defined) in [(FunctionType::Total, true), (FunctionType::Partial, false)] {
+        let conversion = evaluated(&int2mint_declared(totality, foo.clone(), int(5)));
+        assert_eq!(
+            unspecified(&conversion),
+            Some(defined),
+            "Int2MInt, {totality:?}: {conversion:?}"
+        );
+        let width = evaluated(&bitwidth_declared(
+            totality,
+            foo.clone(),
+            variable("X", no_width.clone()),
+        ));
+        assert_eq!(
+            unspecified(&width),
+            Some(defined),
+            "bitwidthMInt, {totality:?}: {width:?}"
+        );
+    }
     let result = evaluate("MINT.bitwidth", &[variable("X", no_width)]).unwrap();
-    assert!(unspecified(&result), "{result:?}");
+    assert_eq!(unspecified(&result), Some(false), "{result:?}");
 
     let parameter = Sort::Variable("W".into());
     assert_eq!(

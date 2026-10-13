@@ -12076,6 +12076,63 @@ endmodule
 
 /// The modal claim fixture prepared once with `kcompile --for-proving`, so that a `kprove`
 /// child loads the compiled KORE instead of compiling the definition and its prelude.
+/// Functions hooked `MINT.integer` at `MInt{Foo}`, a machine-integer sort that names no width:
+/// a user function declared without `total` (`partial`), one declared `total` (`declared`), and
+/// the prelude's `Int2MInt`, which is `total` (`prelude`).
+const WIDTHLESS_MINT: &str = r#"
+module WIDTHLESS
+  imports INT
+  imports MINT
+  syntax Foo
+  syntax MInt{Foo} ::= partialWord(Int) [function, hook(MINT.integer)]
+                     | totalWord(Int) [function, total, hook(MINT.integer)]
+  syntax Pgm ::= partial(Int) | declared(Int) | prelude(Int) | word(MInt{Foo})
+  configuration <k> $PGM:Pgm </k>
+  rule partial(I) => word(partialWord(I))
+  rule declared(I) => word(totalWord(I))
+  rule prelude(I) => word(Int2MInt(I))
+endmodule
+"#;
+
+/// `MInt{Foo}` names no width, so the description of `MINT.integer` gives a conversion into it
+/// no value, and only a `total` declaration says that it has one. A step that writes the
+/// application of the function declared without `total` therefore has a successor in no model the
+/// definition is known to have, on a literal as on a variable, and no claim through it is
+/// proven; the same claims through a function declared `total` are proven, the value being some
+/// machine integer the definition does not determine.
+#[test]
+fn kprove_takes_a_widthless_mint_conversion_as_defined_only_where_it_is_declared_total() {
+    let source = format!(
+        "{WIDTHLESS_MINT}
+module WIDTHLESS-SPEC
+  imports WIDTHLESS
+  claim [partial-literal]: <k> partial(5) => word(?_W:MInt{{Foo}}) </k>
+  claim [partial-variable]: <k> partial(_I:Int) => word(?_W:MInt{{Foo}}) </k>
+  claim [declared-literal]: <k> declared(5) => word(?_W:MInt{{Foo}}) </k>
+  claim [declared-variable]: <k> declared(_I:Int) => word(?_W:MInt{{Foo}}) </k>
+  claim [prelude-literal]: <k> prelude(5) => word(?_W:MInt{{Foo}}) </k>
+  claim [prelude-variable]: <k> prelude(_I:Int) => word(?_W:MInt{{Foo}}) </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "WIDTHLESS", "WIDTHLESS-SPEC");
+    for claim in ["partial-literal", "partial-variable"] {
+        assert_undecided(&verdicts, claim, &output);
+    }
+    for claim in [
+        "declared-literal",
+        "declared-variable",
+        "prelude-literal",
+        "prelude-variable",
+    ] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
+}
+
 fn compiled_modal_claim_fixture() -> (PathBuf, PathBuf) {
     let (root, definition, _) = modal_claim_fixture();
     let compiled = root.join("compiled");
