@@ -537,6 +537,12 @@ fn check_precision(precision: u32) -> Result<(), Unfolded> {
 }
 
 fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), Unfolded> {
+    // A field of 0 names no format, whatever the other field is, so it is decided first.
+    if precision == 0 || exponent == 0 {
+        return Err(
+            "Float precision and exponent bits must both be positive to name a format.".into(),
+        );
+    }
     if precision > i32::MAX as u32 || precision > float::prec_max() {
         return Err(Unfolded::Unsupported(
             "Float precision is outside the supported range".into(),
@@ -546,11 +552,6 @@ fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), Unfolde
         return Err(Unfolded::Unsupported(
             "Float exponent bits are outside the supported range".into(),
         ));
-    }
-    if precision == 0 || exponent == 0 {
-        return Err(
-            "Float precision and exponent bits must both be positive to name a format.".into(),
-        );
     }
     if precision < 2 || exponent < 2 {
         return Err(Unfolded::Unsupported(
@@ -618,19 +619,26 @@ fn parse_parts(token: &str) -> Result<(&str, u32, u32), Unfolded> {
     if let Some((value_and_precision, exponent)) = token.rsplit_once(['x', 'X'])
         && let Some((value, precision)) = value_and_precision.rsplit_once(['p', 'P'])
     {
-        // The fields are unbounded integers; one beyond 32 bits names a format the fold does
-        // not compute.
-        let field = |digits: &str| -> Result<u32, Unfolded> {
-            let field: BigInt = digits
+        // The fields are unbounded integers. A field of 0 names no format, whatever the other
+        // field is, so the token names no Float; otherwise a field beyond 32 bits names a format
+        // the fold does not compute.
+        let field = |digits: &str| -> Result<BigInt, Unfolded> {
+            Ok(digits
                 .parse()
-                .map_err(|_| format!("invalid Float token {token:?}"))?;
+                .map_err(|_| format!("invalid Float token {token:?}"))?)
+        };
+        let (precision, exponent) = (field(precision)?, field(exponent)?);
+        if !precision.is_positive() || !exponent.is_positive() {
+            return Err(format!("invalid Float token {token:?}").into());
+        }
+        let narrow = |field: BigInt| {
             field.to_u32().ok_or_else(|| {
                 Unfolded::Unsupported(format!(
                     "Float token {token:?} has a format field outside the supported range"
                 ))
             })
         };
-        return Ok((value, field(precision)?, field(exponent)?));
+        return Ok((value, narrow(precision)?, narrow(exponent)?));
     }
     if let Some(value) = token.strip_suffix(['f', 'F']) {
         Ok((value, 24, 8))
@@ -878,7 +886,16 @@ mod tests {
     /// beyond MPFR's range), never calling it invalid.
     #[test]
     fn enforces_explicit_float_context_boundaries() {
-        for token in ["1p0x8", "1p24x0", "NaNp00x11"] {
+        for token in [
+            "1p0x8",
+            "1p24x0",
+            "NaNp00x11",
+            "1.0p0x2147483648",
+            "1.0p0x4294967296",
+            "1.0p0x99999999999",
+            "1.0p2147483648x0",
+            "1.0p99999999999x0",
+        ] {
             assert_eq!(
                 KFloat::parse(token).unwrap_err(),
                 Unfolded::Undefined(format!("invalid Float token {token:?}"))

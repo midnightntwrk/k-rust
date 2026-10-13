@@ -3420,8 +3420,18 @@ mod tests {
             );
         }
         // `Float2Int` is total, and NaN and the infinities have no nearest integer: the value
-        // there is not given by the definition.
-        for value in ["Infinity", "-Infinityf", "NaNf", "NaN"] {
+        // there is not given by the definition, in every format, one the backend does not
+        // compute included (decided from the token, as `isNaN` is).
+        for value in [
+            "Infinity",
+            "-Infinityf",
+            "NaNf",
+            "NaN",
+            "NaNp113x15",
+            "Infinityp113x15",
+            "-Infinityp11x5",
+            "+Infinityp99999999999x8",
+        ] {
             assert!(
                 matches!(
                     evaluate_hook("FLOAT.float2int", &[float_term(value)]),
@@ -3432,6 +3442,17 @@ mod tests {
                 "float2int({value})"
             );
         }
+    }
+
+    /// A finite Float of a format the backend does not compute has a nearest integer, which
+    /// `Float2Int` does not compute.
+    #[test]
+    fn float_to_int_of_a_finite_uncomputed_format_is_unsupported() {
+        assert_uncomputed_format(
+            evaluate_hook("FLOAT.float2int", &[float_term("1.5p113x15")]),
+            &["FLOAT.float2int", "p113x15"],
+            "float2int(1.5p113x15)",
+        );
     }
 
     #[test]

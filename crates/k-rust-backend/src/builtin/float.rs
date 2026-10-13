@@ -647,21 +647,29 @@ fn float_to_int(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(value) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // `Float2Int` is total; NaN and the infinities have no nearest integer, in any format, so
+    // the definition does not give its value there. In a format the backend does not compute
+    // they are named by the token's body alone, as `isNaN` reads it.
+    let no_nearest_integer = || {
+        BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+            defined: false,
+            detail: "Float2Int of NaN or an infinity, which has no nearest integer".into(),
+        })
+    };
     let value = match value {
         Operand::Computed(value) => value,
+        Operand::Uncomputed { body, .. }
+            if body == "NaN" || body.strip_prefix(['+', '-']).unwrap_or(body) == "Infinity" =>
+        {
+            return Ok(no_nearest_integer());
+        }
         Operand::Uncomputed { format, .. } => return Ok(uncomputed_operands(hook, &[&format])),
     };
-    // `Float2Int` is total; NaN and the infinities have no nearest integer, so the definition
-    // does not give its value there.
-    Ok(value.round_to_integer().map_or_else(
-        || {
-            BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
-                defined: false,
-                detail: "Float2Int of NaN or an infinity, which has no nearest integer".into(),
-            })
-        },
-        |integer| BuiltinResult::Value(int_term(integer)),
-    ))
+    Ok(value
+        .round_to_integer()
+        .map_or_else(no_nearest_integer, |integer| {
+            BuiltinResult::Value(int_term(integer))
+        }))
 }
 
 fn maximum_value(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
