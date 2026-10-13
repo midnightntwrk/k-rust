@@ -712,7 +712,7 @@ So a definition's terminal `"\u2028"` is the one-character string a program's `"
 A string holds text, so an escape that names no Unicode scalar value (a surrogate, or a number above U+10FFFF) is an error.
 This diverges from the pinned K, which rejects `\f`, `\x`, `\u` and `\U` in each of these strings, so krust accepts definitions the pinned K rejects; and the pinned K accepts a carriage return written verbatim in each of them, which krust accepts in none.
 krust before this change rejected the four escapes too, and the verbatim carriage return in attribute strings only.
-A line terminator other than `\n` and `\r` may stand for itself in a string, and is then a line end of the definition's text, which locations after it count.
+A line terminator other than `\n` and `\r` may stand for itself in a string, and is then a line end of the definition's text, which locations after it count. The pinned K counts no line at such a character: `syntax Foo ::= "a` U+2028 `b"` on line 2 is located at `Location(2,18,2,23)` there and at `Location(2,18,3,3)` by krust, and everything after it one line lower.
 So [kast.md](../crates/k-rust/builtin/kast.md) writes U+0085, U+2028 and U+2029 in the `DEFAULT-LAYOUT` regexes as `\u0085`, `\u2028` and `\u2029`: the regexes are the same, and the module's lines are its lines as written.
 (`outer_strings_are_k_string_literals` in [outer_parser.rs](../crates/k-rust/tests/outer_parser.rs).)
 

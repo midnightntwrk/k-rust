@@ -40,9 +40,7 @@ pub(super) fn is_whitespace(character: char) -> bool {
 /// Whether `character` begins a line terminator of `crate::lines`, the line ends every location
 /// counts.
 fn is_line_end(character: char) -> bool {
-    lines::LINE_TERMINATORS
-        .into_iter()
-        .any(|terminator| terminator.starts_with(character))
+    lines::starts_terminator(character)
 }
 
 /// [`is_whitespace`] as the body of a `regex` character class.
@@ -112,13 +110,16 @@ pub fn parse(source: impl Into<String>, input: &str) -> Result<SourceFile, Parse
 fn line_starts(input: &str) -> Vec<usize> {
     let mut starts = vec![0];
     let mut index = 0;
-    // Invariant: `starts` holds 0 and the end of every line terminator that ends at or before `index`, which is a character boundary; each iteration moves past one character or terminator.
+    // Invariant: `starts` holds 0 and the end of every line terminator that ends at or before `index`, which is a character boundary; each iteration moves past one terminator, or to the next byte that may begin one (a character boundary, as no terminator begins with a continuation byte).
     while index < input.len() {
         if let Some(terminator) = lines::terminator_at(input, index) {
             index += terminator.len();
             starts.push(index);
         } else {
-            index += input[index..].chars().next().map_or(1, char::len_utf8);
+            index += input.as_bytes()[index + 1..]
+                .iter()
+                .position(|byte| lines::may_start_terminator(*byte))
+                .map_or(input.len() - index, |offset| offset + 1);
         }
     }
     starts

@@ -21,6 +21,17 @@ pub(crate) const LINE_TERMINATORS: [&str; 8] = [
     "\r\n", "\n", "\r", "\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}",
 ];
 
+/// Whether `character` is the first character of a line terminator.
+pub(crate) fn starts_terminator(character: char) -> bool {
+    matches!(character, '\n'..='\r' | '\u{85}' | '\u{2028}' | '\u{2029}')
+}
+
+/// Whether `byte` may be the first byte of a line terminator: the first byte of the UTF-8
+/// encoding of a character [`starts_terminator`] holds of.
+pub(crate) fn may_start_terminator(byte: u8) -> bool {
+    matches!(byte, b'\n'..=b'\r' | 0xC2 | 0xE2)
+}
+
 /// The longest line terminator `text` has at byte `index`, if any. It does not ask whether
 /// `index` is itself inside a terminator (see [`ends_line`]).
 pub(crate) fn terminator_at(text: &str, index: usize) -> Option<&'static str> {
@@ -95,6 +106,27 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+
+    #[test]
+    fn the_first_characters_and_bytes_of_the_terminators_are_the_tables() {
+        for character in (0..=0x10FFFF).filter_map(char::from_u32) {
+            assert_eq!(
+                starts_terminator(character),
+                LINE_TERMINATORS
+                    .into_iter()
+                    .any(|terminator| terminator.starts_with(character)),
+                "{character:?}"
+            );
+        }
+        for byte in 0..=u8::MAX {
+            if LINE_TERMINATORS
+                .into_iter()
+                .any(|terminator| terminator.as_bytes()[0] == byte)
+            {
+                assert!(may_start_terminator(byte), "{byte:#x}");
+            }
+        }
+    }
 
     #[test]
     fn a_terminator_precedes_every_terminator_that_is_a_prefix_or_suffix_of_it() {
