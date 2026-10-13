@@ -86,16 +86,6 @@ pub enum BuiltinError {
         hook: String,
         token: String,
     },
-    UnsupportedFloatFormat {
-        hook: String,
-        precision: u32,
-        exponent_bits: u32,
-    },
-    UnsupportedFloatFormatParameters {
-        hook: String,
-        precision: String,
-        exponent_bits: String,
-    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -236,6 +226,10 @@ pub(crate) fn evaluate_in_definition(
 /// does not name ([`float::mixed_destination`], the same reading of the arguments the evaluator
 /// widens): every model rounds it to some format, so the application is defined, and only its
 /// value is open.
+///
+/// `signFloat` of a NaN, of any format, reads a sign bit the `NaN` literal is not given
+/// ([`float::nan_sign`]): the hook is total, so the application is defined, and only its value
+/// is open.
 pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     let TermKind::Application {
         symbol, arguments, ..
@@ -247,7 +241,11 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     let several = match hook {
         "MAP.keys_list" | "MAP.values" => map::lists_several_items(arguments),
         "SET.set2list" => set::lists_several_items(arguments),
-        _ => return float::mixed_destination(hook, arguments).map(|pair| pair.detail(hook)),
+        _ => {
+            return float::mixed_destination(hook, arguments)
+                .map(|pair| pair.detail(hook))
+                .or_else(|| float::nan_sign(hook, arguments));
+        }
     };
     several.then(|| {
         format!(
@@ -2838,16 +2836,156 @@ mod tests {
         }
     }
 
+    /// `ArgumentOutOfRange` whose detail contains every one of `needles`.
+    fn assert_uncomputed_format(
+        outcome: Stoppable<Result<BuiltinResult, BuiltinError>>,
+        needles: &[&str],
+        case: &str,
+    ) {
+        let Ok(Ok(BuiltinResult::Unsupported(UnsupportedHookReason::ArgumentOutOfRange {
+            detail,
+        }))) = outcome
+        else {
+            panic!("{case}: expected ArgumentOutOfRange, got {outcome:?}");
+        };
+        for needle in needles {
+            assert!(
+                detail.contains(needle),
+                "{case}: {detail:?} lacks {needle:?}"
+            );
+        }
+    }
+
+    /// A Float of a format other than binary32 and binary64 is a value the backend does not
+    /// compute: the hooks that read only the suffix, the `NaN` lexeme and the sign evaluate on
+    /// every format whose fields are at least 2, and every other hook, or any hook on a field of
+    /// 1, is the unsupported-hook outcome naming the format. A field of 0 names no format, so the
+    /// token names no Float.
     #[test]
     fn float_tokens_reject_unsupported_or_malformed_ground_formats() {
+        let int = |value: i64| BuiltinResult::Value(int_term(BigInt::from(value)));
+        let boolean = |value: bool| BuiltinResult::Value(bool_term(value));
+        let cases = [
+            ("FLOAT.precision", "-1.0p113x15", int(113)),
+            ("FLOAT.exponentBits", "-1.0p113x15", int(15)),
+            ("FLOAT.sign", "-1.0p113x15", boolean(true)),
+            ("FLOAT.isNaN", "-1.0p113x15", boolean(false)),
+            ("FLOAT.precision", "NaNp113x15", int(113)),
+            ("FLOAT.exponentBits", "NaNp113x15", int(15)),
+            ("FLOAT.sign", "NaNp113x15", boolean(false)),
+            ("FLOAT.isNaN", "NaNp113x15", boolean(true)),
+            ("FLOAT.sign", "-1e-30p11x5", boolean(true)),
+            ("FLOAT.sign", "0e0p2x2", boolean(false)),
+            ("FLOAT.precision", "1.0p2x2", int(2)),
+            ("FLOAT.precision", "1.0p053x011", int(53)),
+            ("FLOAT.exponentBits", "1.0p024x008", int(8)),
+        ];
+        for (hook, token, expected) in cases {
+            assert_eq!(
+                evaluate_hook(hook, &[float_term(token)]),
+                Ok(Ok(expected)),
+                "{hook}({token})"
+            );
+        }
         assert_eq!(
-            evaluate_hook("FLOAT.precision", &[float_term("1.0p2x8")]),
-            Ok(Err(BuiltinError::UnsupportedFloatFormat {
-                hook: "FLOAT.precision".into(),
-                precision: 2,
-                exponent_bits: 8,
-            }))
+            evaluate_hook("FLOAT.precision", &[float_term("1.0p99999999999x8")]),
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(
+                99_999_999_999_i64
+            )))))
         );
+        assert_eq!(
+            evaluate_hook("FLOAT.exponentBits", &[float_term("1.0p8x99999999999")]),
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(
+                99_999_999_999_i64
+            )))))
+        );
+        assert_uncomputed_format(
+            evaluate_hook("FLOAT.abs", &[float_term("1.0p2x8")]),
+            &["FLOAT.abs", "p2x8"],
+            "abs(1.0p2x8)",
+        );
+        assert_uncomputed_format(
+            evaluate_hook(
+                "FLOAT.div",
+                &[float_term("1.0p113x15"), float_term("1.0p113x15")],
+            ),
+            &["FLOAT.div", "p113x15"],
+            "div(1.0p113x15, 1.0p113x15)",
+        );
+        assert_uncomputed_format(
+            evaluate_hook("FLOAT.neg", &[float_term("1.0p99999999999x8")]),
+            &["FLOAT.neg", "p99999999999x8"],
+            "neg(1.0p99999999999x8)",
+        );
+        // A field of 1 names a format k-rust does not compute, for every hook.
+        for token in ["1.0p1x8", "1.0p8x1", "NaNp1x1"] {
+            for hook in [
+                "FLOAT.precision",
+                "FLOAT.exponentBits",
+                "FLOAT.sign",
+                "FLOAT.isNaN",
+                "FLOAT.abs",
+            ] {
+                let format = &token[token.find('p').unwrap()..];
+                assert_uncomputed_format(
+                    evaluate_hook(hook, &[float_term(token)]),
+                    &[hook, format],
+                    &format!("{hook}({token})"),
+                );
+            }
+        }
+        // An operand of a format the backend does not read is never read as binary64, whichever
+        // operand it is; a comparison with one is the same gap.
+        for (left, right) in [("1.0", "0.1p11x5"), ("0.1p11x5", "1.0")] {
+            assert_uncomputed_format(
+                evaluate_hook("FLOAT.div", &[float_term(left), float_term(right)]),
+                &["FLOAT.div", "p11x5"],
+                &format!("div({left}, {right})"),
+            );
+        }
+        for hook in ["FLOAT.lt", "FLOAT.eq"] {
+            assert_uncomputed_format(
+                evaluate_hook(hook, &[float_term("1.0"), float_term("1.0p113x15")]),
+                &[hook, "p113x15"],
+                &format!("{hook}(1.0, 1.0p113x15)"),
+            );
+            assert_uncomputed_format(
+                evaluate_hook(hook, &[float_term("1.0p113x15"), float_term("1.0p24x200")]),
+                &[hook, "p113x15", "p24x200"],
+                &format!("{hook}(1.0p113x15, 1.0p24x200)"),
+            );
+        }
+        // The decided mixed rule rounds to the operand format that contains the other: for
+        // p113x15 and binary64 that is p113x15, which the backend does not compute; for p113x15
+        // and p24x200 no operand format contains the other.
+        for (left, right) in [("1.0p113x15", "1.0"), ("1.0", "1.0p113x15")] {
+            assert_uncomputed_format(
+                evaluate_hook("FLOAT.div", &[float_term(left), float_term(right)]),
+                &["FLOAT.div", "p113x15"],
+                &format!("div({left}, {right})"),
+            );
+        }
+        assert_uncomputed_format(
+            evaluate_hook(
+                "FLOAT.add",
+                &[float_term("1.0p113x15"), float_term("1.0p24x200")],
+            ),
+            &["FLOAT.add", "p113x15", "p24x200", "neither"],
+            "add(1.0p113x15, 1.0p24x200)",
+        );
+        // A field of 0 names no format.
+        for token in ["1.0p0x8", "1.0p24x0", "NaNp00x11"] {
+            for hook in ["FLOAT.precision", "FLOAT.abs"] {
+                assert_eq!(
+                    evaluate_hook(hook, &[float_term(token)]),
+                    Ok(Err(BuiltinError::InvalidFloatToken {
+                        hook: hook.into(),
+                        token: token.into(),
+                    })),
+                    "{hook}({token})"
+                );
+            }
+        }
         // A Float domain value names an element in FLOAT-SYNTAX only; spellings that general
         // float parsers also read name none.
         for token in [
@@ -3122,21 +3260,121 @@ mod tests {
                 "round({value}, {precision}, {exponent_bits})"
             );
         }
-        assert_eq!(
-            evaluate_hook(
+    }
+
+    /// A format argument names a format when both its fields are positive: binary32 and
+    /// binary64 are computed, and every other one, a field of 1 or a field beyond 32 bits
+    /// included, is the unsupported-hook outcome naming it. A field of zero or below names no
+    /// format, so `roundFloat`, `Int2Float` and `maxValueFloat` are undefined there, whatever
+    /// the value, even a symbolic one or one of a format the backend does not compute.
+    #[test]
+    fn float_format_arguments_name_a_format_or_none() {
+        let int = |value: i64| int_term(BigInt::from(value));
+        let case = |hook: &str, arguments: &[Term]| {
+            let texts = arguments
+                .iter()
+                .map(|argument| match argument.kind() {
+                    TermKind::DomainValue { value, .. } => value.as_utf8().unwrap().to_owned(),
+                    _ => "_".to_owned(),
+                })
+                .collect::<Vec<_>>();
+            format!("{hook}({})", texts.join(", "))
+        };
+        let symbolic = Term::variable(Variable::new("F", Sort::simple("SortFloat")));
+        let symbolic_int = Term::variable(Variable::new("I", Sort::simple("SortInt")));
+        let uncomputed = [
+            (
                 "FLOAT.round",
-                &[
-                    float_term("1.0"),
-                    int_term(BigInt::from(2)),
-                    int_term(BigInt::from(8)),
-                ],
+                vec![float_term("1.0"), int(2), int(8)],
+                "p2x8",
             ),
-            Ok(Err(BuiltinError::UnsupportedFloatFormat {
-                hook: "FLOAT.round".into(),
-                precision: 2,
-                exponent_bits: 8,
-            }))
-        );
+            (
+                "FLOAT.round",
+                vec![float_term("1.0"), int(113), int(15)],
+                "p113x15",
+            ),
+            (
+                "FLOAT.round",
+                vec![float_term("1.0"), int(1), int(8)],
+                "p1x8",
+            ),
+            (
+                "FLOAT.round",
+                vec![float_term("1.0"), int(24), int(1)],
+                "p24x1",
+            ),
+            (
+                "FLOAT.round",
+                vec![float_term("1.0"), int(1 << 40), int(8)],
+                "p1099511627776x8",
+            ),
+            (
+                "FLOAT.round",
+                vec![float_term("1.0p113x15"), int(53), int(11)],
+                "p113x15",
+            ),
+            ("FLOAT.int2float", vec![int(1), int(11), int(5)], "p11x5"),
+            ("FLOAT.maxValue", vec![int(113), int(15)], "p113x15"),
+            ("FLOAT.maxValue", vec![int(1), int(1)], "p1x1"),
+        ];
+        for (hook, arguments, format) in uncomputed {
+            assert_uncomputed_format(
+                evaluate_hook(hook, &arguments),
+                &[hook, format],
+                &case(hook, &arguments),
+            );
+        }
+        let undefined = [
+            ("FLOAT.round", vec![float_term("1.0"), int(0), int(8)]),
+            ("FLOAT.round", vec![float_term("1.0"), int(-1), int(8)]),
+            ("FLOAT.round", vec![float_term("1.0"), int(24), int(-3)]),
+            (
+                "FLOAT.round",
+                vec![float_term("1.0p113x15"), int(0), int(8)],
+            ),
+            ("FLOAT.round", vec![symbolic.clone(), int(0), int(8)]),
+            ("FLOAT.int2float", vec![int(1), int(24), int(0)]),
+            (
+                "FLOAT.int2float",
+                vec![symbolic_int.clone(), int(0), int(8)],
+            ),
+            // No format has 0 exponent bits, whatever the precision.
+            (
+                "FLOAT.round",
+                vec![float_term("1.0"), symbolic_int.clone(), int(0)],
+            ),
+            ("FLOAT.maxValue", vec![int(0), int(0)]),
+            ("FLOAT.maxValue", vec![int(-24), int(8)]),
+        ];
+        for (hook, arguments) in undefined {
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Ok(Ok(BuiltinResult::Bottom)),
+                "{}",
+                case(hook, &arguments)
+            );
+        }
+        let not_applicable = [
+            ("FLOAT.round", vec![symbolic.clone(), int(53), int(11)]),
+            ("FLOAT.round", vec![symbolic, int(113), int(15)]),
+            (
+                "FLOAT.round",
+                vec![float_term("1.0"), symbolic_int.clone(), int(11)],
+            ),
+            (
+                "FLOAT.int2float",
+                vec![symbolic_int.clone(), int(53), int(11)],
+            ),
+            ("FLOAT.maxValue", vec![symbolic_int, int(11)]),
+        ];
+        for (hook, arguments) in not_applicable {
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Ok(Ok(BuiltinResult::NotApplicable)),
+                "{}",
+                case(hook, &arguments)
+            );
+        }
     }
 
     #[test]
@@ -3194,8 +3432,18 @@ mod tests {
             );
         }
         // `Float2Int` is total, and NaN and the infinities have no nearest integer: the value
-        // there is not given by the definition.
-        for value in ["Infinity", "-Infinityf", "NaNf", "NaN"] {
+        // there is not given by the definition, in every format, one the backend does not
+        // compute included (decided from the token, as `isNaN` is).
+        for value in [
+            "Infinity",
+            "-Infinityf",
+            "NaNf",
+            "NaN",
+            "NaNp113x15",
+            "Infinityp113x15",
+            "-Infinityp11x5",
+            "+Infinityp99999999999x8",
+        ] {
             assert!(
                 matches!(
                     evaluate_hook("FLOAT.float2int", &[float_term(value)]),
@@ -3206,6 +3454,17 @@ mod tests {
                 "float2int({value})"
             );
         }
+    }
+
+    /// A finite Float of a format the backend does not compute has a nearest integer, which
+    /// `Float2Int` does not compute.
+    #[test]
+    fn float_to_int_of_a_finite_uncomputed_format_is_unsupported() {
+        assert_uncomputed_format(
+            evaluate_hook("FLOAT.float2int", &[float_term("1.5p113x15")]),
+            &["FLOAT.float2int", "p113x15"],
+            "float2int(1.5p113x15)",
+        );
     }
 
     #[test]

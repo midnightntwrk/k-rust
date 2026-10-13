@@ -5001,7 +5001,7 @@ fn simplify_root(
     .map_err(SimplificationError::Builtin)?;
     // A value the definition leaves to the implementation (the order of `keys_list`, `values`
     // and `Set2List` of two or more items, the result format of a Float operation over a
-    // binary32 and a binary64 operand) is computed only inside an execution, which runs a
+    // binary32 and a binary64 operand, the sign of a NaN) is computed only inside an execution, which runs a
     // program and may take any value the definition admits. Elsewhere a verdict that read it
     // would hold only in k-rust's choice, not in every model of the definition, so the
     // application stays unevaluated as the defined value it is (`crate::evaluation`). The

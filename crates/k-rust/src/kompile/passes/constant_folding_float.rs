@@ -19,7 +19,7 @@ use std::{
 
 use gmp_mpfr_sys::mpfr;
 use num_bigint::BigInt;
-use num_traits::ToPrimitive;
+use num_traits::{Signed, ToPrimitive};
 use rug::{
     Float, Integer,
     float::{self, Round, Special},
@@ -40,8 +40,17 @@ impl KFloat {
             return Err(format!("invalid Float token {token:?}").into());
         }
         let (text, precision, exponent_bits) = parse_parts(token)?;
-        validate_context(precision, exponent_bits)
-            .map_err(|_| format!("invalid Float token {token:?}"))?;
+        // A positive field names a format, so only a field of 0 makes the token name no Float; a
+        // format the fold cannot represent (a field of 1, or one beyond MPFR's range) is one it
+        // does not compute.
+        validate_context(precision, exponent_bits).map_err(|unfolded| match unfolded {
+            Unfolded::Undefined(_) => Unfolded::Undefined(format!("invalid Float token {token:?}")),
+            Unfolded::Unspecified(message)
+            | Unfolded::TooLarge(message)
+            | Unfolded::Unsupported(message) => {
+                Unfolded::Unsupported(format!("Float token {token:?}: {message}"))
+            }
+        })?;
         check_precision(precision)?;
         match text {
             "Infinity" => Ok(Self::special(precision, exponent_bits, Special::Infinity)),
@@ -251,7 +260,19 @@ pub(super) fn evaluate(hook: &str, values: &[Value]) -> Option<Result<Value, Unf
             };
             Ok(Value::Int(exponent.into()))
         }),
-        "FLOAT.sign" => unary_float(values, |a| Ok(Value::Bool(a.value.is_sign_negative()))),
+        // The `NaN` literal is given no sign bit, so the sign of a NaN is a value only an
+        // execution chooses; the fold's output is the definition proofs load too.
+        "FLOAT.sign" => unary_float(values, |a| {
+            if a.value.is_nan() {
+                Err(Unfolded::Unspecified(
+                    "signFloat of a NaN reads a sign bit the NaN literal is not given, which only \
+                     an execution chooses"
+                        .into(),
+                ))
+            } else {
+                Ok(Value::Bool(a.value.is_sign_negative()))
+            }
+        }),
         "FLOAT.isNaN" => unary_float(values, |a| Ok(Value::Bool(a.value.is_nan()))),
         "FLOAT.neg" => unary_float(values, |a| Ok(Value::Float(a.exact(|value| -value)))),
         "FLOAT.abs" => unary_float(values, |a| Ok(Value::Float(a.exact(Float::abs)))),
@@ -498,11 +519,20 @@ fn extreme_value(values: &[Value], maximum: bool) -> Option<Result<Value, Unfold
     })
 }
 
+/// The format a precision and an exponent-bits argument name. A field of zero or below names no
+/// format (`domains.md` requires positive integers), so the application is undefined; a positive
+/// field the fold cannot represent names a format it does not compute.
 fn context(precision: &Value, exponent: &Value) -> Result<(u32, u32), Unfolded> {
-    let precision = int_value(precision)?.to_u32().ok_or_else(|| {
+    let (precision, exponent) = (int_value(precision)?, int_value(exponent)?);
+    if !precision.is_positive() || !exponent.is_positive() {
+        return Err(
+            "Float precision and exponent bits must both be positive to name a format.".into(),
+        );
+    }
+    let precision = precision.to_u32().ok_or_else(|| {
         Unfolded::Unsupported("Float precision is outside the supported range".into())
     })?;
-    let exponent = int_value(exponent)?.to_u32().ok_or_else(|| {
+    let exponent = exponent.to_u32().ok_or_else(|| {
         Unfolded::Unsupported("Float exponent bits are outside the supported range".into())
     })?;
     validate_context(precision, exponent)?;
@@ -519,6 +549,12 @@ fn check_precision(precision: u32) -> Result<(), Unfolded> {
 }
 
 fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), Unfolded> {
+    // A field of 0 names no format, whatever the other field is, so it is decided first.
+    if precision == 0 || exponent == 0 {
+        return Err(
+            "Float precision and exponent bits must both be positive to name a format.".into(),
+        );
+    }
     if precision > i32::MAX as u32 || precision > float::prec_max() {
         return Err(Unfolded::Unsupported(
             "Float precision is outside the supported range".into(),
@@ -530,7 +566,11 @@ fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), Unfolde
         ));
     }
     if precision < 2 || exponent < 2 {
-        return Err("Float precision and exponent bits must both be at least 2.".into());
+        return Err(Unfolded::Unsupported(
+            "a Float format with a precision or exponent-bits field of 1 has no IEEE-like \
+             parameters, and the fold does not compute it"
+                .into(),
+        ));
     }
     context_exponent_limits(precision, exponent)?;
     Ok((precision, exponent))
@@ -591,15 +631,26 @@ fn parse_parts(token: &str) -> Result<(&str, u32, u32), Unfolded> {
     if let Some((value_and_precision, exponent)) = token.rsplit_once(['x', 'X'])
         && let Some((value, precision)) = value_and_precision.rsplit_once(['p', 'P'])
     {
-        return Ok((
-            value,
-            precision
+        // The fields are unbounded integers. A field of 0 names no format, whatever the other
+        // field is, so the token names no Float; otherwise a field beyond 32 bits names a format
+        // the fold does not compute.
+        let field = |digits: &str| -> Result<BigInt, Unfolded> {
+            Ok(digits
                 .parse()
-                .map_err(|_| format!("invalid Float token {token:?}"))?,
-            exponent
-                .parse()
-                .map_err(|_| format!("invalid Float token {token:?}"))?,
-        ));
+                .map_err(|_| format!("invalid Float token {token:?}"))?)
+        };
+        let (precision, exponent) = (field(precision)?, field(exponent)?);
+        if !precision.is_positive() || !exponent.is_positive() {
+            return Err(format!("invalid Float token {token:?}").into());
+        }
+        let narrow = |field: BigInt| {
+            field.to_u32().ok_or_else(|| {
+                Unfolded::Unsupported(format!(
+                    "Float token {token:?} has a format field outside the supported range"
+                ))
+            })
+        };
+        return Ok((value, narrow(precision)?, narrow(exponent)?));
     }
     if let Some(value) = token.strip_suffix(['f', 'F']) {
         Ok((value, 24, 8))
@@ -842,22 +893,41 @@ mod tests {
         assert!(float("12.5").format("%Rf %Rf").is_err());
     }
 
+    /// A token whose suffix has a field of 0 names no Float; any other `pNxM` names a value,
+    /// which the fold leaves unfolded where it cannot represent the format (a field of 1, or
+    /// beyond MPFR's range), never calling it invalid.
     #[test]
     fn enforces_explicit_float_context_boundaries() {
         for token in [
             "1p0x8",
-            "NaNp1x8",
             "1p24x0",
+            "NaNp00x11",
+            "1.0p0x2147483648",
+            "1.0p0x4294967296",
+            "1.0p0x99999999999",
+            "1.0p2147483648x0",
+            "1.0p99999999999x0",
+        ] {
+            assert_eq!(
+                KFloat::parse(token).unwrap_err(),
+                Unfolded::Undefined(format!("invalid Float token {token:?}"))
+            );
+        }
+        for token in [
+            "NaNp1x8",
             "Infinityp24x1",
+            "1p1x1",
             "1p2147483648x8",
             "NaNp24x2147483648",
             "1p24x31",
             "NaNp24x31",
             "1p24x32",
+            "1p99999999999x8",
         ] {
-            assert_eq!(
-                KFloat::parse(token).unwrap_err().message(),
-                format!("invalid Float token {token:?}")
+            assert!(
+                matches!(KFloat::parse(token), Err(Unfolded::Unsupported(_))),
+                "{token}: {:?}",
+                KFloat::parse(token)
             );
         }
 
@@ -1073,6 +1143,68 @@ mod tests {
         ));
     }
 
+    /// The fold's output is the definition proofs load too, and `domains.md` gives the `NaN`
+    /// literal no sign bit, so `signFloat` of a NaN, whose value only an execution chooses, is
+    /// left unfolded as unspecified in every format; every other sign is folded.
+    #[test]
+    fn leaves_the_sign_of_a_nan_unfolded_as_unspecified() {
+        for token in ["NaN", "NaNf", "NaNp11x5", "NaNp113x15"] {
+            assert!(
+                matches!(
+                    evaluate("FLOAT.sign", &[Value::Float(float(token))]),
+                    Some(Err(Unfolded::Unspecified(_)))
+                ),
+                "{token}: {:?}",
+                evaluate("FLOAT.sign", &[Value::Float(float(token))])
+            );
+        }
+        for (token, negative) in [("-0.0", true), ("-Infinityf", true), ("0.1p11x5", false)] {
+            assert!(
+                matches!(
+                    evaluate("FLOAT.sign", &[Value::Float(float(token))]),
+                    Some(Ok(Value::Bool(value))) if value == negative
+                ),
+                "{token}"
+            );
+        }
+    }
+
+    /// `roundFloat` to a precision or exponent width of 1 names a format the fold does not
+    /// compute (unfolded, unsupported), and to one of zero or below names no format (undefined).
+    #[test]
+    fn rounds_to_a_format_of_a_field_of_one_unsupported_and_of_zero_or_below_undefined() {
+        let round = |precision: i64, exponent: i64| {
+            evaluate(
+                "FLOAT.round",
+                &[
+                    Value::Float(float("1.0")),
+                    Value::Int(precision.into()),
+                    Value::Int(exponent.into()),
+                ],
+            )
+        };
+        for (precision, exponent) in [(1, 8), (24, 1)] {
+            assert!(
+                matches!(
+                    round(precision, exponent),
+                    Some(Err(Unfolded::Unsupported(_)))
+                ),
+                "round(1.0, {precision}, {exponent}): {:?}",
+                round(precision, exponent)
+            );
+        }
+        for (precision, exponent) in [(0, 8), (-1, 8), (24, 0), (24, -1)] {
+            assert!(
+                matches!(
+                    round(precision, exponent),
+                    Some(Err(Unfolded::Undefined(_)))
+                ),
+                "round(1.0, {precision}, {exponent}): {:?}",
+                round(precision, exponent)
+            );
+        }
+    }
+
     /// A Float of more than 2^20 bits of precision is left unfolded, whether a hook would build
     /// it or a token names it.
     #[test]
@@ -1107,14 +1239,26 @@ mod tests {
                 .to_owned()
         };
 
-        assert_eq!(
-            context_error(1, 8),
-            "Float precision and exponent bits must both be at least 2."
-        );
-        assert_eq!(
-            context_error(24, 1),
-            "Float precision and exponent bits must both be at least 2."
-        );
+        let context_of = |precision: i64, exponent: i64| {
+            context(&Value::Int(precision.into()), &Value::Int(exponent.into()))
+        };
+        for (precision, exponent) in [(1, 8), (24, 1), (1, 1)] {
+            assert!(
+                matches!(
+                    context_of(precision, exponent),
+                    Err(Unfolded::Unsupported(_))
+                ),
+                "({precision}, {exponent}): {:?}",
+                context_of(precision, exponent)
+            );
+        }
+        for (precision, exponent) in [(0, 8), (24, 0), (-1, 8), (24, -1), (0, 0)] {
+            assert!(
+                matches!(context_of(precision, exponent), Err(Unfolded::Undefined(_))),
+                "({precision}, {exponent}): {:?}",
+                context_of(precision, exponent)
+            );
+        }
         assert_eq!(
             context_error(i64::from(i32::MAX) + 1, 8),
             "Float precision is outside the supported range"
