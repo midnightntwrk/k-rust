@@ -860,3 +860,131 @@ fn an_existential_set_or_map_item_is_any_final_item_its_constraint_admits() {
         );
     }
 }
+
+/// Claims that `add` an integer `M` to the plain set `<s>` of [`AC_FRAMES_ELSEWHERE`] (its
+/// definition, with this spec module) holding symbolic integers, whose ranges either keep `M`
+/// apart from each of them (`-disjoint`, `set-two-sym`, `ex-sym`) or let it equal one
+/// (`-overlap`).
+const PAC_GUARDED_ADD_SPEC: &str = r#"
+module PACG-SPEC
+  imports PAC
+  claim [step-disjoint]: <k> add(M:Int) => .K </k> <s> SetItem(N:Int) => SetItem(N) SetItem(M) </s> <m> X:Map => ?Y:Map </m> requires N >Int 4 andBool N <Int 6 andBool M >Int 6 andBool M <Int 8
+  claim [step-two-disjoint]: <k> add(M:Int) => .K </k> <s> SetItem(N:Int) SetItem(L:Int) => SetItem(N) SetItem(L) SetItem(M) </s> <m> X:Map => ?Y:Map </m> requires N >Int 4 andBool N <Int 6 andBool L >Int 0 andBool L <Int 3 andBool M >Int 6 andBool M <Int 8
+  claim [set-two-sym]: <k> add(N:Int) ; add(M:Int) => .K </k> <s> .Set => ?A:Set SetItem(7) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 6 andBool M >Int 6 andBool M <Int 8
+  claim [ex-sym]: <k> add(N:Int) ; add(M:Int) => .K </k> <s> .Set => SetItem(?X:Int) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 6 andBool M >Int 0 andBool M <Int 2 ensures ?X >Int 3
+  claim [step-overlap]: <k> add(M:Int) => .K </k> <s> SetItem(N:Int) => SetItem(N) SetItem(M) </s> <m> X:Map => ?Y:Map </m> requires N >Int 4 andBool N <Int 7 andBool M >Int 5 andBool M <Int 8
+  claim [step-two-overlap]: <k> add(M:Int) => .K </k> <s> SetItem(N:Int) SetItem(L:Int) => SetItem(N) SetItem(L) SetItem(M) </s> <m> X:Map => ?Y:Map </m> requires N >Int 4 andBool N <Int 6 andBool L >Int 0 andBool L <Int 8 andBool M >Int 6 andBool M <Int 8
+  claim [set-two-sym-overlap]: <k> add(N:Int) ; add(M:Int) => .K </k> <s> .Set => ?A:Set SetItem(7) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 8 andBool M >Int 6 andBool M <Int 8
+  claim [ex-sym-overlap]: <k> add(N:Int) ; add(M:Int) => .K </k> <s> .Set => SetItem(?X:Int) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 6 andBool M >Int 0 andBool M <Int 6 ensures ?X >Int 3
+endmodule
+"#;
+
+/// `add(M)` rewrites where `M` is not in the set and is stuck where it is. Membership in a set
+/// whose elements are all known is equality with one of them, so where the ranges make `M`
+/// differ from every element, the stuck branch's condition is unsatisfiable, the branch denotes
+/// no state, and only the step remains. Where a range lets `M` equal an element (6, or 7 in
+/// `step-two-overlap`, 5 in `ex-sym-overlap`), that instance is stuck before `.K`, and the
+/// claim is not proven.
+#[test]
+fn a_guarded_add_has_no_stuck_branch_where_the_ranges_keep_its_item_out_of_the_set() {
+    let proven = [
+        "step-disjoint",
+        "step-two-disjoint",
+        "set-two-sym",
+        "ex-sym",
+    ];
+    let unproven = [
+        "step-overlap",
+        "step-two-overlap",
+        "set-two-sym-overlap",
+        "ex-sym-overlap",
+    ];
+    let statuses = pac_statuses(
+        PAC_GUARDED_ADD_SPEC,
+        "PACG-SPEC",
+        &[proven.as_slice(), unproven.as_slice()].concat(),
+    );
+    for (claim, status) in statuses {
+        if proven.contains(&claim.as_str()) {
+            assert_eq!(status, "proven", "{claim}");
+        } else {
+            assert!(
+                matches!(status.as_str(), "failed" | "disproved"),
+                "{claim}: {status}"
+            );
+        }
+    }
+}
+
+/// Claims over the map `<m>` of [`AC_FRAMES_ELSEWHERE`] (its definition, with this spec module)
+/// after `add`, which leaves `M[2 <- 2]` (`M[2 <- 2][3 <- 3]`) for an arbitrary map `M`, and
+/// over a written union in `<u>` and written updates in `<n>`, which `add` leaves alone.
+const PAC_UPDATE_SPEC: &str = r#"
+module PACU-SPEC
+  imports PAC
+  claim [map-open-one]: <k> add(2) => .K </k> <s> S => ?S:Set </s> <m> M => 2 |-> 2 ?C:Map </m> requires notBool 2 in S
+  claim [map-open-two]: <k> add(2) => .K </k> <s> S => ?S:Set </s> <m> M => ?A:Map 2 |-> 2 ?C:Map </m> requires notBool 2 in S
+  claim [map-upd-one]: <k> add(2) => .K </k> <s> S => ?S:Set </s> <m> M => 2 |-> 2 ?C:Map </m> requires notBool 2 in S andBool notBool 2 in_keys(M)
+  claim [map-two-items]: <k> add(2) ; add(3) => .K </k> <s> .Set => ?S:Set </s> <m> M => 2 |-> 2 3 |-> 3 ?C:Map </m>
+  claim [update-override]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <n> N[3 <- 5][3 <- 7] => 3 |-> 7 ?C:Map </n> requires notBool 2 in X
+  claim [union-one]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <u> S |Set SetItem(2) => SetItem(2) ?C:Set </u> requires notBool 2 in X
+  claim [union-two]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <u> SetItem(2) |Set S => ?A:Set SetItem(2) ?C:Set </u> requires notBool 2 in X
+  claim [union-chain]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <u> (S |Set SetItem(2)) |Set SetItem(3) => SetItem(2) SetItem(3) ?C:Set </u> requires notBool 2 in X
+  claim [map-wrong-value]: <k> add(2) => .K </k> <s> S => ?S:Set </s> <m> M => 2 |-> 3 ?C:Map </m> requires notBool 2 in S
+  claim [map-absent-key]: <k> add(2) => .K </k> <s> S => ?S:Set </s> <m> M => 3 |-> 3 ?C:Map </m> requires notBool 2 in S
+  claim [update-overridden]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <n> N[3 <- 5][3 <- 7] => 3 |-> 5 ?C:Map </n> requires notBool 2 in X
+  claim [union-absent]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <u> S |Set SetItem(2) => SetItem(3) ?C:Set </u> requires notBool 2 in X
+  claim [update-symbolic-keys]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <n> N[K:Int <- 1][L:Int <- 2] => K |-> 1 ?C:Map </n> requires notBool 2 in X
+  claim [union-symbolic-items]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <u> (S |Set SetItem(K:Int)) |Set SetItem(L:Int) => SetItem(K) SetItem(L) ?C:Set </u> requires notBool 2 in X
+  claim [map-parts]: <k> add(2) => .K </k> <s> S => ?S:Set </s> <m> M => ?A:Map ?C:Map </m> requires notBool 2 in S
+endmodule
+"#;
+
+/// `M[K <- V]` binds `K` to `V` and every other key as `M` does, so it is the map `K |-> V`
+/// beside `M` without `K`, whatever `M` holds; `A |Set B` with `B` a set of items is `B` beside
+/// `A -Set B`. A destination with items and a free part therefore holds of such a final
+/// collection when its items are the ones written there: the part is the rest, for one part or
+/// two read as one, along a chain of updates with distinct keys (the outer one winning where
+/// both write a key) or of unions. A destination item with another value (`map-wrong-value`,
+/// `update-overridden`) or another key or element (`map-absent-key`, `union-absent`, which `M`
+/// or `S` may lack) is not proven, nor is the inner key of a chain whose keys may be equal
+/// (`update-symbolic-keys`: where `K` is `L`, `K` is bound to 2), nor are two items of a chain of
+/// unions that may be equal (`union-symbolic-items`: where `K` is `L`, the union adds one item).
+/// A destination of parts alone holds of such a collection as of any other (`map-parts`).
+#[test]
+fn a_destination_item_written_by_a_final_update_or_union_is_found_beside_the_rest() {
+    let proven = [
+        "map-open-one",
+        "map-open-two",
+        "map-upd-one",
+        "map-two-items",
+        "update-override",
+        "union-one",
+        "union-two",
+        "union-chain",
+        "map-parts",
+    ];
+    let unproven = [
+        "map-wrong-value",
+        "map-absent-key",
+        "update-overridden",
+        "union-absent",
+        "update-symbolic-keys",
+        "union-symbolic-items",
+    ];
+    let statuses = pac_statuses(
+        PAC_UPDATE_SPEC,
+        "PACU-SPEC",
+        &[proven.as_slice(), unproven.as_slice()].concat(),
+    );
+    for (claim, status) in statuses {
+        if proven.contains(&claim.as_str()) {
+            assert_eq!(status, "proven", "{claim}");
+        } else {
+            assert!(
+                matches!(status.as_str(), "failed" | "disproved"),
+                "{claim}: {status}"
+            );
+        }
+    }
+}

@@ -3794,6 +3794,12 @@ fn normalize_hooked_boolean_predicate(
                 });
             }
             ("BOOL.not", [operand]) => return bool_operand(operand, !value),
+            ("SET.in", [element, set]) => {
+                if let Some(membership) = set_membership_equations(definition, element, set, value)
+                {
+                    return membership;
+                }
+            }
             _ => {}
         }
     }
@@ -3834,6 +3840,64 @@ fn normalize_hooked_boolean_predicate(
     predicates.extend(ceil_term(definition, &right_operand));
     predicates.push(condition);
     normalize_predicate(Predicate::And(predicates))
+}
+
+/// `Set:in(element, set) = value` as equations, where `set` is a set whose elements are all
+/// written (it has no part of its own), or `None` for another `set` or an element that no
+/// equation compares with the set's elements.
+///
+/// A set with no part holds exactly the values of its elements, so `element` is in it exactly
+/// when it equals one of them: `Set:in` is `true` there exactly when `element` and `set` are
+/// defined and some equation `element = e` holds, and `false` exactly when both are defined and
+/// none does. The equations are atoms the solver reads (an equation of integers is an integer
+/// equality), where the membership itself is an opaque Boolean to it, so a path condition whose
+/// membership contradicts the other constraints on the elements is refuted.
+///
+/// An element identical to `element` makes the one equation that of `element` with itself.
+/// Otherwise, a constructor-like element and a different constructor-like element are different
+/// values, so where `element` is constructor-like only the elements that are not have an
+/// equation that can hold, and the others are left out (an empty disjunction is false).
+fn set_membership_equations(
+    definition: &BackendDefinition,
+    element: &Term,
+    set: &Term,
+    value: bool,
+) -> Option<Predicate> {
+    let TermKind::Set {
+        elements,
+        rest: None,
+        ..
+    } = set.kind()
+    else {
+        return None;
+    };
+    // `Term::set` keeps the elements in the order of `Term`, under which equal means identical.
+    let identical = elements.search_by(|existing| existing.cmp(element)).is_ok();
+    let candidates: Vec<&Term> = if identical {
+        vec![element]
+    } else if element.attributes().constructor_like {
+        elements.symbolic_keyed().collect()
+    } else {
+        elements.iter().collect()
+    };
+    let mut equations = Vec::with_capacity(candidates.len());
+    for existing in candidates {
+        let (left, right) = align_subsort_operands(definition, element, existing)?;
+        let equality = normalize_injection_equality(definition, Predicate::Equals(left, right));
+        equations.push(if value {
+            equality
+        } else {
+            Predicate::Not(Box::new(equality))
+        });
+    }
+    let mut predicates = ceil_term(definition, element);
+    predicates.extend(ceil_term(definition, set));
+    predicates.push(if value {
+        Predicate::Or(equations)
+    } else {
+        Predicate::And(equations)
+    });
+    Some(normalize_predicate(Predicate::And(predicates)))
 }
 
 fn boolean_literal_equality(term: &Term, value: bool) -> Option<Predicate> {
@@ -8437,5 +8501,105 @@ mod tests {
             Predicate::And(vec![Predicate::True, atom.clone()])
         );
         assert_eq!(normalize_hereditary(double_negation), atom);
+    }
+
+    /// `predicate` with each equation's sides in the order of `Term`, an equation and its
+    /// converse being one atom.
+    fn oriented(predicate: Predicate) -> Predicate {
+        match predicate {
+            Predicate::Equals(left, right) if right < left => Predicate::Equals(right, left),
+            Predicate::Not(inner) => Predicate::Not(Box::new(oriented(*inner))),
+            Predicate::And(inner) => Predicate::And(inner.into_iter().map(oriented).collect()),
+            Predicate::Or(inner) => Predicate::Or(inner.into_iter().map(oriented).collect()),
+            predicate => predicate,
+        }
+    }
+
+    /// `Set:in(e, S) = b` over a set `S` whose elements are all written is decided by the
+    /// equations of `e` with them: `true` is some equation, `false` none, each beside the
+    /// definedness of `S` (its elements pairwise different). A constructor-like `e` has no
+    /// equation with a different constructor-like element, and a set with a part of its own is
+    /// left as the membership.
+    #[test]
+    fn membership_in_a_set_of_written_elements_is_equality_with_one_of_them() {
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortSet{}
+                    [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+                hooked-symbol setUnit{}() : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.unit")]
+                hooked-symbol setItem{}(SortInt{}) : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.element")]
+                hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
+                    [function{}(), hook{}("SET.concat"), assoc{}(), comm{}()]
+                hooked-symbol inSet{}(SortInt{}, SortSet{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("SET.in")]
+            endmodule []"#;
+        let definition = BackendDefinition::internalize(
+            &parse_definition(source).expect("definition should parse"),
+            "MAIN",
+        )
+        .expect("definition should internalize");
+        let membership = |element: &str, set: &str, value: bool| {
+            let membership = term(&definition, &format!("inSet{{}}({element}, {set})"));
+            let value = Term::domain_value(
+                Sort::builtin(BuiltinSort::Bool),
+                if value { "true" } else { "false" },
+            );
+            unstopped(simplify_predicates_with_solver(
+                &definition,
+                &[Predicate::Equals(value, membership)],
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            ))
+            .expect("the membership should simplify")
+            .into_iter()
+            .map(oriented)
+            .collect::<Vec<_>>()
+        };
+        let equals = |left: &str, right: &str| {
+            oriented(Predicate::Equals(
+                term(&definition, left),
+                term(&definition, right),
+            ))
+        };
+        let not = |predicate: Predicate| Predicate::Not(Box::new(predicate));
+        let (k, a, b) = ("K:SortInt{}", "A:SortInt{}", "B:SortInt{}");
+        let one = r#"\dv{SortInt{}}("1")"#;
+        let two = r#"\dv{SortInt{}}("2")"#;
+        let pair = format!("setConcat{{}}(setItem{{}}({a}), setItem{{}}({b}))");
+
+        assert_eq!(
+            membership(k, &pair, true),
+            vec![
+                not(equals(a, b)),
+                Predicate::Or(vec![equals(k, a), equals(k, b)]),
+            ]
+        );
+        assert_eq!(
+            membership(k, &pair, false),
+            vec![not(equals(a, b)), not(equals(k, a)), not(equals(k, b))]
+        );
+
+        let with_two = format!("setConcat{{}}(setItem{{}}({a}), setItem{{}}({two}))");
+        assert_eq!(
+            membership(one, &with_two, true),
+            // `A = 1` makes `A` differ from 2, so the definedness conjunct goes.
+            vec![equals(one, a)]
+        );
+        assert_eq!(
+            membership(one, &with_two, false),
+            vec![not(equals(a, two)), not(equals(one, a))]
+        );
+
+        let open = format!("setConcat{{}}(setItem{{}}({a}), S:SortSet{{}})");
+        let open_membership = term(&definition, &format!("inSet{{}}({k}, {open})"));
+        assert_eq!(
+            membership(k, &open, true),
+            vec![Predicate::Term(open_membership)]
+        );
     }
 }

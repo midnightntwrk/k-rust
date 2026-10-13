@@ -2259,6 +2259,9 @@ fn combine_obligation_branches(mut branches: Vec<Obligations>) -> Obligations {
 /// equivalence on its own (the merged pair, and the other merged parts bound to the empty
 /// collection), so a later expansion of the pairs (`expand_implication_remainders`) sees one
 /// part where the destination wrote several.
+/// A subject that is an update of a map or a union with a set of items, against a destination
+/// of that collection, is first written as the collection it equals
+/// ([`subject_collection_form`]), so such a pair is a collection pair too.
 fn solve_collection_remainder_pairs(
     definition: &BackendDefinition,
     substitution: Substitution,
@@ -2270,6 +2273,14 @@ fn solve_collection_remainder_pairs(
     Vec<(crate::term::Term, crate::term::Term)>,
     Vec<Predicate>,
 ) {
+    let remainder = remainder
+        .into_iter()
+        .map(|(pattern, subject)| {
+            let subject =
+                subject_collection_form(definition, &pattern, &subject).unwrap_or(subject);
+            (pattern, subject)
+        })
+        .collect::<Vec<_>>();
     let collections = remainder
         .iter()
         .filter(|(left, right)| is_collection_pair(left, right))
@@ -2349,6 +2360,148 @@ fn solve_collection_remainder_pairs(
 
 fn is_collection_pair(left: &crate::term::Term, right: &crate::term::Term) -> bool {
     is_collection_term(left) && is_collection_term(right)
+}
+
+/// `subject` written as the collection term it equals, when `pattern` is a map or set
+/// collection term and `subject` is, for that collection, a chain of `MAP.update` applications
+/// or of `SET.union` applications with a set of items, and the definition declares the
+/// collection's `MAP.remove` (`SET.difference`) function; `None` otherwise.
+///
+/// `M[K <- V]` binds `K` to `V` and every other key of `M` to its value in `M`, so it is the map
+/// `K |-> V` beside `M` without `K`: that concatenation is defined, since `K` is no key of the
+/// removal, and binds the same keys to the same values. Along a chain `M[K1 <- V1][K2 <- V2]`
+/// the outer update wins for a key both write, so a key identical to one already taken is
+/// skipped, and the chain is followed only while each new key is identical to every key taken
+/// or certainly differs from each (two constructor-like keys that differ syntactically denote
+/// different values), so the items taken have distinct keys and the removal of all of them
+/// from the inner map is disjoint from them. Likewise `A |Set B`, with `B` a set of items (its
+/// elements pairwise distinct, as an operand of the defined subject), is `B` beside `A -Set B`,
+/// and so on along a chain of such unions whose items are identical or certainly differ.
+///
+/// The equation holds on every instance where the subject is defined (both functions are
+/// total on defined operands), so a pair with the subject replaced states the same equality;
+/// the subject is a subterm of the antecedent, defined on each of its instances.
+fn subject_collection_form(
+    definition: &BackendDefinition,
+    pattern: &crate::term::Term,
+    subject: &crate::term::Term,
+) -> Option<crate::term::Term> {
+    use crate::term::{CollectionMetadata, Term, TermKind};
+    let collection = if let TermKind::Map { definition, .. } = pattern.kind() {
+        CollectionMetadata::Map(definition.clone())
+    } else if let TermKind::Set { definition, .. } = pattern.kind() {
+        CollectionMetadata::Set(definition.clone())
+    } else if let TermKind::Application { symbol, .. } = pattern.kind()
+        && is_collection_term(pattern)
+    {
+        symbol.attributes.collection.clone()?
+    } else {
+        return None;
+    };
+    let hooked = |term: &Term, hook: &str| {
+        let TermKind::Application {
+            symbol, arguments, ..
+        } = term.kind()
+        else {
+            return None;
+        };
+        (symbol.attributes.hook.as_deref() == Some(hook)
+            && symbol.attributes.result_collection.as_ref() == Some(&collection))
+        .then(|| (symbol.clone(), arguments.clone()))
+    };
+    // Each new item is identical to every item taken, or certainly differs from each.
+    let fits = |taken: &[Term], item: &Term| {
+        taken.iter().all(|other| {
+            other == item
+                || (other.attributes().constructor_like && item.attributes().constructor_like)
+        })
+    };
+    let declared = |hook: &str, argument_sorts: &[crate::term::Sort]| {
+        definition
+            .symbols()
+            .values()
+            .find(|symbol| {
+                symbol.attributes.hook.as_deref() == Some(hook)
+                    && symbol.attributes.result_collection.as_ref() == Some(&collection)
+                    && symbol.sort_variables.is_empty()
+                    && symbol.argument_sorts == argument_sorts
+            })
+            .cloned()
+    };
+    match &collection {
+        CollectionMetadata::Map(map) => {
+            let (update, _) = hooked(subject, "MAP.update")?;
+            let remove = declared("MAP.remove", update.argument_sorts.get(..2)?)?;
+            let mut keys = Vec::new();
+            let mut entries = Vec::new();
+            let mut base = subject.clone();
+            while let Some((_, arguments)) = hooked(&base, "MAP.update") {
+                let [inner, key, value] = arguments.as_slice() else {
+                    break;
+                };
+                if !fits(&keys, key) {
+                    break;
+                }
+                if !keys.contains(key) {
+                    keys.push(key.clone());
+                    entries.push((key.clone(), value.clone()));
+                }
+                base = inner.clone();
+            }
+            if entries.is_empty() {
+                return None;
+            }
+            let rest = keys.into_iter().fold(base, |rest, key| {
+                Term::application(remove.clone(), Vec::new(), vec![rest, key])
+            });
+            Some(Term::map(map.clone(), entries, Some(rest)))
+        }
+        CollectionMetadata::Set(set) => {
+            let (union, _) = hooked(subject, "SET.union")?;
+            let difference = declared("SET.difference", &union.argument_sorts)?;
+            let items = |term: &Term| {
+                let TermKind::Set {
+                    elements,
+                    rest: None,
+                    ..
+                } = term.kind()
+                else {
+                    return None;
+                };
+                (!elements.is_empty()).then(|| elements.to_vec())
+            };
+            let mut elements: Vec<Term> = Vec::new();
+            let mut base = subject.clone();
+            while let Some((_, arguments)) = hooked(&base, "SET.union") {
+                let [left, right] = arguments.as_slice() else {
+                    break;
+                };
+                let Some((inner, added)) = items(right)
+                    .map(|added| (left, added))
+                    .or_else(|| items(left).map(|added| (right, added)))
+                else {
+                    break;
+                };
+                // The items of one operand are distinct already.
+                if !added.iter().all(|element| fits(&elements, element)) {
+                    break;
+                }
+                for element in added {
+                    if !elements.contains(&element) {
+                        elements.push(element);
+                    }
+                }
+                base = inner.clone();
+            }
+            if elements.is_empty() {
+                return None;
+            }
+            let removed = Term::set(set.clone(), elements.clone(), None);
+            let rest = Term::application(difference, Vec::new(), vec![base, removed]);
+            Some(Term::set(set.clone(), elements, Some(rest)))
+        }
+        CollectionMetadata::List(_) => None,
+    }
 }
 
 fn remainder_obligation(left: &crate::term::Term, right: &crate::term::Term) -> Predicate {
