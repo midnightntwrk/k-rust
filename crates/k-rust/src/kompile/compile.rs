@@ -306,8 +306,10 @@ pub fn compile_loaded_definition_timed(
 ///
 /// On failure the appended phases are every stage that ran, ending with the stage that failed
 /// when the failure is a timed stage's own. [`CompileError::stage`] names the failing stage in
-/// every case; a failure raised between stages (such as `"post-compilation checks"` or
-/// `"emitted sentence provenance"`) follows the last timed phase.
+/// every case; a failure raised between stages follows the last timed phase. Such failures are
+/// `"post-compilation checks"`, `"emitted sentence provenance"`, and a refusal raised before a
+/// stage runs under that stage's name, such as the `"emit KORE"` refusal when no stack holds the
+/// transformed definitions' deepest term: no phase of that name is recorded then.
 ///
 /// The entries and span `timings` already holds are kept, so one value may accumulate the
 /// load and compile phases; this function sets no span. A caller that wants the call's
@@ -372,7 +374,7 @@ struct Transformed {
     resolved: ResolvedDefinition,
 }
 
-/// The emission half of [`compile_loaded_definition_timed`]: the checks of the transformed
+/// The emission half of [`compile_loaded_definition_with_timings`]: the checks of the transformed
 /// definition, its KORE, and the provenance of the emitted sentences.
 fn emit_compiled(
     loaded: &LoadedDefinition,
