@@ -22,7 +22,8 @@ use k_rust_kore::{
 use crate::support::{internal_term, unstopped::simplify_predicate_with_solver};
 
 /// `loopi() = loopi() +Int 1`, `f(X) = X +Int 1`, `two(X) = once(X)` and `once(X) = X`; the
-/// partial hooked `tdiv` with the ceil equation `⌈tdiv(I1, I2)⌉ = (I2 =/=Int 0)`; over `Nat`,
+/// partial hooked `lookup` (`MAP.lookup`) without an equation; the partial hooked `tdiv` with the
+/// ceil equation `⌈tdiv(I1, I2)⌉ = (I2 =/=Int 0)`; over `Nat`,
 /// `h(g(z)) = z` above `h(_) = \bottom [owise]`, with `g(s(X)) = z`, and `p(z) = z` above
 /// `p(_) = \bottom [owise]`.
 fn definition() -> BackendDefinition {
@@ -44,6 +45,8 @@ fn definition() -> BackendDefinition {
                 [function{{}}(), total{{}}(), hook{{}}("MAP.element")]
             hooked-symbol mapConcat{{}}(SortMap{{}}, SortMap{{}}) : SortMap{{}}
                 [function{{}}(), hook{{}}("MAP.concat"), assoc{{}}(), comm{{}}()]
+            hooked-symbol lookup{{}}(SortMap{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), hook{{}}("MAP.lookup")]
             hooked-symbol plus{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
                 [function{{}}(), total{{}}(), hook{{}}("INT.add"), smt-hook{{}}("+")]
             hooked-symbol tdiv{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
@@ -273,6 +276,46 @@ fn a_map_of_distinct_literal_keys_establishes_only_its_own_key_condition() {
     let open = r#"mapConcat{}(mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2")), M:SortMap{})"#;
     let (decided, _) = decide(&definition, open);
     assert_eq!(decided, defined(&definition, open));
+}
+
+#[test]
+fn a_hook_on_a_ground_collection_decides_a_deferred_atom() {
+    // `MAP.lookup` reads its arguments only, so on a closed map of literals it decides the atom
+    // without an equation: a key the map binds is defined, one it does not bind is not. An
+    // argument that is not ground and constructor-like gives the hook nothing to read: a map
+    // with a rest, and a map whose value `loopi()` only its equation could reduce, leave the
+    // atom open, and `loopi()` is not evaluated.
+    let definition = definition();
+    let map = r#"mapConcat{}(mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("10")), mapItem{}(\dv{SortInt{}}("3"), \dv{SortInt{}}("30")))"#;
+    let (decided, evaluated) = decide(
+        &definition,
+        &format!(r#"lookup{{}}({map}, \dv{{SortInt{{}}}}("3"))"#),
+    );
+    assert_eq!(decided, Predicate::True);
+    assert!(!evaluated);
+    let (decided, evaluated) = decide(
+        &definition,
+        &format!(r#"lookup{{}}({map}, \dv{{SortInt{{}}}}("2"))"#),
+    );
+    assert_eq!(decided, Predicate::False);
+    assert!(!evaluated);
+    // The key is folded first: `1 +Int 2` is `3`.
+    let (decided, evaluated) = decide(
+        &definition,
+        &format!(
+            r#"lookup{{}}({map}, plus{{}}(\dv{{SortInt{{}}}}("1"), \dv{{SortInt{{}}}}("2")))"#
+        ),
+    );
+    assert_eq!(decided, Predicate::True);
+    assert!(!evaluated);
+    for subject in [
+        r#"lookup{}(mapConcat{}(mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("10")), M:SortMap{}), \dv{SortInt{}}("3"))"#.to_owned(),
+        format!(r#"lookup{{}}(mapItem{{}}(\dv{{SortInt{{}}}}("1"), {LOOPI}), \dv{{SortInt{{}}}}("1"))"#),
+    ] {
+        let (decided, evaluated) = decide(&definition, &subject);
+        assert_eq!(decided, defined(&definition, &subject), "{subject}");
+        assert!(!evaluated, "{subject}");
+    }
 }
 
 #[test]

@@ -12,16 +12,16 @@
 //! Every statement of the definedness of (i) the operand a literal deciding operand discards, or
 //! (ii) an operand other than the deciding one while the deciding operand is not a literal (such
 //! operands are left unsimplified), exists only as [`Predicate::Defined`] atoms, created only by
-//! [`deferred_obligations`]. Such an operand is not evaluated beyond the bounded steps that
-//! decide its atoms: an atom is decided only by [`decide_defined`] (folding by pure builtin hooks on
-//! literals, with the value of one equation step on literal arguments whose right-hand side
-//! those hooks fold to a literal; ceil equations whose instantiated condition that folding
-//! decides, or whose instance is stated in the atom's place over hook arithmetic; the key
-//! condition of a collection of literal keys; one equation step selected by matching alone) and
-//! by a known fact or the solver, which reads it as the opaque atom of `\ceil(t)`. Each of these
-//! steps is bounded by the size of the atom's subject or by one selection scan per application,
-//! and none repeats on its own result, so deciding an atom terminates whatever the definition's
-//! equations do.
+//! [`deferred_obligations`]. Such an operand is not evaluated beyond the bounded steps that decide
+//! its atoms: an atom is decided only by [`decide_defined`] (folding by pure builtin hooks on
+//! ground constructor-like arguments, collections included, with the value of one equation step on
+//! literal arguments whose right-hand side those hooks fold to a literal; ceil equations whose
+//! instantiated condition that folding decides, or whose instance is stated in the atom's place
+//! over hook arithmetic; the key condition of a collection of literal keys; one equation step
+//! selected by matching alone) and by a known fact or the solver, which reads it as the opaque
+//! atom of `\ceil(t)`. Each of these steps is bounded by the size of the atom's subject or by one
+//! selection scan per application, and none repeats on its own result, so deciding an atom
+//! terminates whatever the definition's equations do.
 //!
 //! An operand whose definedness depends on an impure application (a console read, or a function
 //! whose equations perform an effect) cannot be decided without performing it, and a constraint
@@ -350,19 +350,21 @@ pub(crate) fn deferred_obligations(
     Ok(unique)
 }
 
-/// The result of folding a term by pure builtin hooks on literals ([`fold_hooks`]).
+/// The result of folding a term by pure builtin hooks on ground values ([`fold_hooks`]).
 pub(crate) enum Folded {
     /// The folded term, the input itself when nothing folded.
     Term(Term),
-    /// A hooked application in the term is undefined on its literal arguments, so the term is.
+    /// A hooked application in the term is undefined on its ground arguments, so the term is.
     Bottom(Term),
 }
 
-/// `term` with every application of a pure builtin hook whose arguments fold to domain values
-/// replaced by its value, innermost first: no function or simplification equation, no `impure`
-/// or `IO.` hook, no `evaluated` mark and no cache entry. A hook that is undefined on its
-/// arguments makes the whole term undefined ([`Folded::Bottom`]), since every application is
-/// strict. The walk enters applications and injections only.
+/// `term` with every application of a pure builtin hook whose arguments fold to ground
+/// constructor-like terms (domain values, constructor applications, closed collections of such
+/// items; [`pure_hook_on_values`]) replaced by its value, innermost first: no function or
+/// simplification equation, no `impure` or `IO.` hook, no `evaluated` mark and no cache entry. A
+/// hook that is undefined on its arguments makes the whole term undefined ([`Folded::Bottom`]),
+/// since every application is strict. The walk enters applications and injections only, so a
+/// collection is read as it stands: a hook inside one of its items is not folded.
 ///
 /// A value only an execution chooses is not computed outside one, as in term simplification
 /// (`crate::evaluation`). A builtin failure leaves its application as it is.
@@ -428,22 +430,19 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
         else {
             return Ok(Folded::Term(node));
         };
+        // The one equation step is taken on literal arguments only; a hook is evaluated on any
+        // ground constructor-like ones (`pure_hook_on_values`).
         let literal_arguments = arguments
             .iter()
             .all(|argument| matches!(argument.kind(), TermKind::DomainValue { .. }));
-        let pure = !definition.is_impure(&symbol.name)
-            && !symbol
-                .attributes
-                .hook
-                .as_deref()
-                .is_some_and(|hook| hook.starts_with("IO."));
-        if !pure || !literal_arguments {
-            return Ok(Folded::Term(node));
-        }
+        let values = values && literal_arguments && !is_impure_application(definition, &node);
         if symbol.attributes.hook.is_none() {
             if values && let Some(value) = step_value(definition, &node)? {
                 return Ok(Folded::Term(value));
             }
+            return Ok(Folded::Term(node));
+        }
+        if !pure_hook_on_values(definition, &node) {
             return Ok(Folded::Term(node));
         }
         Ok(match evaluate_in_definition(&node, definition)? {
@@ -469,6 +468,46 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
             | Err(_) => Folded::Term(node),
         })
     })
+}
+
+/// Whether `application` applies a pure builtin hook (its symbol is not `impure` and its hook is
+/// no `IO.` operation) to ground constructor-like arguments: domain values, constructor
+/// applications and closed collections of such items (`TermAttributes::constructor_like`, which
+/// no term holding a variable or a function application has).
+///
+/// The hook's evaluator reads those arguments only: it applies no equation of the definition,
+/// performs no effect, and refuses a result above its own size bounds, so evaluating it is one
+/// bounded step, whatever the definition's equations do.
+fn pure_hook_on_values(definition: &BackendDefinition, application: &Term) -> bool {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = application.kind()
+    else {
+        return false;
+    };
+    symbol.attributes.hook.is_some()
+        && !is_impure_application(definition, application)
+        && arguments
+            .iter()
+            .all(|argument| argument.attributes().constructor_like)
+}
+
+/// Whether `term`, which [`fold_with_values`] left as it is, is a pure builtin hook application
+/// on ground constructor-like arguments that its evaluator shows defined although this
+/// evaluation does not take its value: a value only an execution chooses
+/// (`implementation_chosen`, which the fold withholds on a proof route) or one of several values
+/// the definition admits (`Unspecified` with `defined`). The application has a value in every
+/// model, whichever it is, so its atom holds and no value is chosen. A result above a size bound
+/// decides nothing here.
+fn defined_without_value(definition: &BackendDefinition, term: &Term) -> Stoppable<bool> {
+    if !pure_hook_on_values(definition, term) {
+        return Ok(false);
+    }
+    Ok(matches!(
+        evaluate_in_definition(term, definition)?,
+        Ok(BuiltinResult::Value(_)
+            | BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { defined: true, .. }))
+    ))
 }
 
 /// The value of `application`, a ground application with literal arguments, by its one equation
@@ -573,10 +612,12 @@ pub(crate) enum DeferredDecision {
 
 /// Decide `Defined(t)` by bounded steps, which take at most one equation instance per application
 /// and never evaluate its result, in order:
-/// - D1, fold `t` by pure builtin hooks on literals, a ground function application also taking
-///   the value of its one equation step when hooks fold that step's right-hand side to a literal
-///   ([`fold_with_values`]): an undefined hook refutes the atom, and a changed term replaces it
-///   by the [`deferred_obligations`] of the result;
+/// - D1, fold `t` by pure builtin hooks on ground constructor-like arguments, a ground function
+///   application on literal arguments also taking the value of its one equation step when hooks
+///   fold that step's right-hand side to a literal ([`fold_with_values`]): an undefined hook
+///   refutes the atom, and a changed term replaces it by the [`deferred_obligations`] of the
+///   result; a hook application the evaluator shows defined without this evaluation taking its
+///   value establishes the atom ([`defined_without_value`]);
 /// - D3, a map or set without a rest whose keys or elements fold to domain values: pairwise
 ///   distinct ones establish its own condition, a repeated one refutes it (the atoms of its
 ///   values and elements are its siblings);
@@ -604,6 +645,9 @@ pub(crate) fn decide_defined(
             return Ok(deferred_obligations(definition, &folded).map(DeferredDecision::Replaced));
         }
         Folded::Term(_) => {}
+    }
+    if defined_without_value(definition, term)? {
+        return Ok(Ok(DeferredDecision::Established));
     }
     if let Some(decision) = literal_collection(definition, term)? {
         return Ok(Ok(decision));
