@@ -373,6 +373,7 @@ or `--server-port 0` to request an ephemeral port.
 configuration as defined while matching rewrite rules. `implies` accepts `assume-defined` as the
 reference proxy's backend-routing hint; the unified Rust service already uses that in-process path.
 `execute` accepts the k-rust extension `max-simplification-iterations`; omitted values use the same shared default as the library and CLI.
+`execute` also accepts the k-rust extension `evaluation-mode`: `proof` (the default) leaves `keys_list`, `values` and `Set2List` of two or more items unevaluated, since `domains.md` fixes no order and a prover reads the states, and `execution` lists them in k-rust's order, as `krun` does ([Implementation-chosen hook values](docs/compatibility.md#implementation-chosen-hook-values)).
 A parameter object with a key the method does not declare is rejected with `-32602`, `Invalid params`, and is not executed; the reason is in [RPC behavior](docs/compatibility.md#rpc-behavior).
 The standalone RPC `simplify` method remains deliberately unbounded.
 
