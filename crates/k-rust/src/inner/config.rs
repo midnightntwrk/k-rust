@@ -345,6 +345,28 @@ fn configuration_grammar(
     } else {
         SortSynonyms::default()
     };
+    // The sorts the per-sort productions range over: the rule grammar's universe over this
+    // grammar's visible sentences. A visible production gives each of its operand sorts a
+    // position whether or not that sort's declaration is visible here (a private import hides
+    // it), and a configuration variable standing at that position needs the sort's variable
+    // subsorts, so an operand sort is a member even when no visible sentence declares it.
+    let universe = SortUniverse::new(&visible, &synonyms);
+    // A cell written in a configuration is the declaration of that cell, and the cell's
+    // production is what expanding that declaration generates, after parsing. A `cell` production
+    // visible here was therefore written beside the configuration (or imported from RULE-CELLS),
+    // and reading cell text through it would turn a declaration into a term, or, when its tags
+    // scan as its own terminals, make the configuration unparsable. Leaving every visible `cell`
+    // production out of the grammar keeps each written cell a declaration; expansion then meets a
+    // written `cell` production of a declared cell's sort and reports it where it is written.
+    // Only the production's syntax is left out: the sorts it declares and positions stay sorts of
+    // the module, so the universe above is the one of the full view.
+    let is_cell_production = |sentence: &&Sentence| matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell));
+    let signature = signature
+        - visible[..signature]
+            .iter()
+            .filter(|sentence| is_cell_production(sentence))
+            .count();
+    visible.retain(|sentence| !is_cell_production(sentence));
     // The reference configuration grammar imports DEFAULT-LAYOUT explicitly,
     // even when the language declares a program-specific `#Layout` sort.
     let mut grammar = Grammar::from_configuration_view(
@@ -352,12 +374,6 @@ fn configuration_grammar(
         signature,
         synonyms.denotations().clone(),
     )?;
-    // The sorts the per-sort productions range over: the rule grammar's universe over this
-    // grammar's visible sentences. A visible production gives each of its operand sorts a
-    // position whether or not that sort's declaration is visible here (a private import hides
-    // it), and a configuration variable standing at that position needs the sort's variable
-    // subsorts, so an operand sort is a member even when no visible sentence declares it.
-    let universe = SortUniverse::new(&visible, &synonyms);
 
     add_config_cells(&mut grammar)?;
     grammar.add_matching_terminal_tokens(Sort::new("#CellName"), is_cell_name)?;

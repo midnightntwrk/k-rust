@@ -19,7 +19,7 @@
 //!
 //! Expansion of parsed configuration declarations into generated sentences.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -61,7 +61,8 @@ pub enum ConfigurationError {
     /// would drop the parameter or attach it to a sentence the caller did not write.
     LabelParameters(Box<ConfigurationLabelParameters>),
     /// A visible `cell` production that is not the one a configuration declaration generates
-    /// for its cell sort, reported at that production.
+    /// for its cell sort, or that writes a declared cell's tags under another sort, reported at
+    /// that production.
     CellProduction(Box<ConfigurationCellProduction>),
 }
 
@@ -93,16 +94,23 @@ pub struct ConfigurationCellProduction {
 /// How a configuration meets a [`ConfigurationCellProduction`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CellProductionReading {
-    /// The configuration declares a cell of the production's sort, whose generated production
-    /// has another label (`cell` is the cell's name, without angle brackets).
+    /// The configuration declares a cell of the production's sort, and the production was
+    /// written, whatever its label: no configuration the module imports generated it (`cell` is
+    /// the cell's name, without angle brackets).
     BesideDeclaredCell { cell: String },
-    /// The configuration grammar read a term of the configuration as the production, so the
-    /// configuration holds the term as a value instead of declaring its cell.
+    /// The configuration holds a term of the production as a value where it would declare a
+    /// cell. A configuration parsed from source never does, since the configuration grammar holds
+    /// no `cell` production; a configuration sentence built by other means can.
     ReadAsTerm,
     /// The configuration declares `cell`, and the production is the one an imported
     /// configuration generated for its cell `other` of the same sort (their names differ only in
     /// the case of their first letter): two cells of one sort.
     BesideImportedCell { cell: String, other: String },
+    /// The configuration declares `cell`, of cell sort `cell_sort`, and the production, written
+    /// under another sort, has the cell's tags `<cell>` and `</cell>`: tags are the syntax of a
+    /// cell, so the production is a second syntax of the declared cell, which no rule or
+    /// configuration writing the cell could tell from the cell's own production.
+    TagsOfDeclaredCell { cell: String, cell_sort: Sort },
 }
 
 /// The configuration sentence and the label of a [`ConfigurationError::LabelParameters`].
@@ -157,6 +165,14 @@ impl fmt::Display for ConfigurationError {
                         formatter,
                         "{configuration} declares <{name}>, whose cell sort {} is already the sort of <{other}>, declared here by an imported configuration: a cell sort is the sort of one cell; rename one of the two cells",
                         cell.sort
+                    ),
+                    CellProductionReading::TagsOfDeclaredCell {
+                        cell: name,
+                        cell_sort,
+                    } => write!(
+                        formatter,
+                        "cell production `{}` writes the tags of cell <{name}> under sort {}: {configuration} declares <{name}>, whose tags are the syntax of the one cell production of its cell sort {cell_sort}, `<{name}>`; remove this production",
+                        cell.production, cell.sort
                     ),
                     CellProductionReading::ReadAsTerm => write!(
                         formatter,
@@ -304,6 +320,9 @@ fn expand_configurations_inner(
         .map(|id| resolved.module(*id).name.clone())
         .collect::<Vec<_>>();
     let mut diagnostics = Vec::new();
+    // The labels of the cell productions each expanded module's configurations generated, by
+    // module: an importer that declares one of those cells again meets it as its own.
+    let mut generated_cell_labels_by_module = BTreeMap::<String, BTreeSet<String>>::new();
 
     // Invariant: `transformed` and `resolved` carry the generated cell sentences of every entry of `module_names` (dependency order) before `module_name`; each iteration consumes one module name and its `position` lookup scans `transformed.modules`, O(|module_names| * |transformed.modules|).
     for module_name in module_names {
@@ -329,6 +348,15 @@ fn expand_configurations_inner(
             .defined_labels()
             .map(|label| label.as_str().to_owned())
             .collect();
+        // Only a configuration this module imports generated a cell production it may meet as
+        // its own; one in a module it does not import cannot have.
+        let generated_cell_labels = resolved
+            .transitive_imports(module_id)
+            .into_iter()
+            .filter_map(|import| generated_cell_labels_by_module.get(&resolved.module(import).name))
+            .flatten()
+            .cloned()
+            .collect::<BTreeSet<_>>();
         let local = transformed.modules[module_index].local_sentences.clone();
         let mut output = local
             .iter()
@@ -352,6 +380,7 @@ fn expand_configurations_inner(
                 module: &module_name,
                 catalog: &catalog,
                 existing_labels: existing_labels.clone(),
+                generated_cell_labels: &generated_cell_labels,
                 generated: &mut generated,
                 attributes,
                 module_attributes: &module_attributes,
@@ -361,7 +390,22 @@ fn expand_configurations_inner(
             generator.generate_top(body, ensures)?;
         }
 
-        output.extend(generated.kept.into_sentences().into_iter().map(Arc::new));
+        let generated = generated.kept.into_sentences();
+        generated_cell_labels_by_module
+            .entry(module_name.clone())
+            .or_default()
+            .extend(generated.iter().filter_map(|sentence| {
+                if let Sentence::Production {
+                    label: Some(label), ..
+                } = sentence
+                    && is_cell_production(sentence)
+                {
+                    Some(label.name.clone())
+                } else {
+                    None
+                }
+            }));
+        output.extend(generated.into_iter().map(Arc::new));
         let previous = transformed.clone();
         transformed.modules[module_index].local_sentences = output;
         resolved = resolved
@@ -481,6 +525,9 @@ struct Generator<'a, 'catalog> {
     module: &'a str,
     catalog: &'catalog ProductionCatalog<'catalog>,
     existing_labels: BTreeSet<String>,
+    /// The labels of the cell productions the configurations of the modules this module imports
+    /// generated in this expansion.
+    generated_cell_labels: &'a BTreeSet<String>,
     generated: &'a mut GeneratedSentences,
     attributes: &'a Attributes,
     module_attributes: &'a Attributes,
@@ -1166,15 +1213,22 @@ impl Generator<'_, '_> {
         Ok(properties)
     }
 
-    /// Reject a visible `cell` production of `sort` whose label is not `label`, the one this
-    /// cell's generated production has (an imported configuration that declares the same cell
-    /// generated it under that label), at that production.
+    /// Reject a visible `cell` production of `sort` other than this cell's own, at that
+    /// production. The cell's own production is the one an imported configuration declaring this
+    /// same cell generated, under `label`; K's reserved cells, which only compiler-written
+    /// configurations declare, also own the production K provides under their label. Any other
+    /// `cell` production was written, whatever its label and attributes: the declaration is the
+    /// one source of its cell's production, and a written one under `label` would otherwise
+    /// stand in for the production the declaration generates, without the declaration's
+    /// attributes.
     fn reject_other_cell_production(
         &self,
         cell_name: &str,
         sort: &Sort,
         label: &str,
     ) -> Result<(), ConfigurationError> {
+        let reserved =
+            cell_name == GeneratedCell::Top.name() || cell_name == GeneratedCell::Counter.name();
         let other = self
             .catalog
             .productions_for_sort(&super::SortHead::from(sort))
@@ -1183,14 +1237,21 @@ impl Generator<'_, '_> {
             .find(|production| {
                 matches!(production, Sentence::Production { label: written, attributes, .. }
                     if attributes.has(AttributeKey::Cell)
-                        && written.as_ref().is_none_or(|written| written.name != label))
+                        && !(written.as_ref().is_some_and(|written| written.name == label)
+                            && (reserved || self.generated_cell_labels.contains(label))))
             });
         let Some(other) = other else {
-            return Ok(());
+            return self.reject_cell_production_with_tags(cell_name, sort, label);
         };
-        // A configuration generated `other` (its declaration gives the cell's name), so no
-        // production was written; the two declarations name one cell sort.
-        let reading = match other.attributes().string(AttributeKey::CellName) {
+        // When an imported configuration generated `other` (its declaration gives the cell's
+        // name), no production was written: the two declarations name one cell sort.
+        let generated = matches!(other, Sentence::Production { label: Some(other), .. }
+            if self.generated_cell_labels.contains(&other.name));
+        let reading = match other
+            .attributes()
+            .string(AttributeKey::CellName)
+            .filter(|_| generated)
+        {
             Some(other) => CellProductionReading::BesideImportedCell {
                 cell: cell_name.to_owned(),
                 other: other.to_owned(),
@@ -1202,8 +1263,38 @@ impl Generator<'_, '_> {
         Err(self.cell_production_error(other, reading))
     }
 
-    /// Reject a configuration term the configuration grammar read as a visible `cell` production,
-    /// at that production: a cell written in a configuration is a declaration of that cell.
+    /// Reject a visible `cell` production of another sort than `sort` whose tags are this cell's,
+    /// `label` and its closing tag, at that production. Tags are the syntax of a cell: such a
+    /// production would be a second syntax of the declared cell, and no declaration generates a
+    /// production of another sort with them, so it was written.
+    fn reject_cell_production_with_tags(
+        &self,
+        cell_name: &str,
+        sort: &Sort,
+        label: &str,
+    ) -> Result<(), ConfigurationError> {
+        let closing = format!("</{cell_name}>");
+        let written = self.catalog.productions().find(|(_, production)| {
+            matches!(production, Sentence::Production { sort: written, items, .. }
+                if is_cell_production(production)
+                    && written != sort
+                    && matches!(items.first(), Some(ProductionItem::Terminal(open)) if open == label)
+                    && matches!(items.last(), Some(ProductionItem::Terminal(close)) if *close == closing))
+        });
+        match written {
+            Some((_, written)) => Err(self.cell_production_error(
+                written,
+                CellProductionReading::TagsOfDeclaredCell {
+                    cell: cell_name.to_owned(),
+                    cell_sort: sort.clone(),
+                },
+            )),
+            None => Ok(()),
+        }
+    }
+
+    /// Reject a configuration term that is an application of a visible `cell` production, at that
+    /// production: a cell written in a configuration is a declaration of that cell.
     fn reject_cell_term(&self, label: &Label) -> Result<(), ConfigurationError> {
         let cell = self
             .catalog

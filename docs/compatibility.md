@@ -524,6 +524,18 @@ Rust compiles their `<stack>` under `<kmir>`: the rules apply only when a caller
 In the reference's axioms the stack's place holds the variable its completion generates for an unmentioned cell, on both sides of the rewrite.
 N45 ([Comparison contract](#comparison-contract)) compares those two axioms with exactly that cell application in the port replaced by the reference's variable.
 
+## Written cell productions
+
+A cell written in a configuration is the declaration of that cell, and declaring it generates the cell sort's one `cell` production, label `<name>`, whose attributes (`cellName`, `maincell`, the multiplicity and collection type, the format) come from the declaration and drive initializing, completing and wrapping the configuration.
+The configuration grammar therefore holds no `cell` production: a cell written there always reads as a declaration, never as a term of a `cell` production written beside the configuration.
+The sort such a production declares stays a sort of the configuration grammar, so a configuration variable or cast of that sort parses as before.
+Expansion then rejects every `cell` production of a declared cell's sort other than the one the configuration of an imported module generated, at that production, naming the production, its cell sort and the configuration that declares the cell.
+This includes a written production that repeats the cell's tags, label and items (`syntax TCell ::= "<t>" Int "</t>" [cell, symbol(<t>)]` beside a configuration declaring `<t> 0 </t>`), whatever attributes it writes, `cellName` included: it would stand in for the production the declaration generates, without the declaration's attributes, so the compiled definition would no longer be the one the configuration describes.
+A production written under the label an imported module's configuration generated for the cell is a second production of that label, and the definition checks reject it at the written production as a duplicate symbol.
+Expansion also rejects, at the production, a written `cell` production of another sort whose tags are a declared cell's (`syntax FooCell ::= "<t>" Int "</t>" [cell]` beside a configuration declaring `<t> 0 </t>`): a cell's tags are its syntax, so the production would be a second syntax of the declared cell, which no rule or configuration writing `<t> ... </t>` could tell from the cell's own.
+The pinned K frontend accepts a written `cell` production under the label of the cell's generated production (`symbol(<t>)` above), for an ordinary cell and for a `multiplicity="*"` cell, and rejects one under another label, as Rust does.
+It accepts a `cell` production of another sort with a declared cell's tags, and rejects each rule that writes the cell as ambiguous between the two productions.
+
 ## Domain values
 
 A literal `#token("s", "S")`, emitted as `\dv{S}("s")`, denotes the element of `S` that `s` names in `S`'s literal domain, and the emitted definition declares that domain only by the attribute `hasDomainValues` on the declaration of `S`'s head.
