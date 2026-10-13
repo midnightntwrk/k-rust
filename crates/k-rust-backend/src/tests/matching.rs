@@ -1201,6 +1201,30 @@ fn an_open_subject_keeps_the_whole_equation_as_a_branch() {
 }
 
 #[test]
+fn an_item_whose_match_is_left_open_keeps_its_position() {
+    let definition = collection_definition();
+    let (a, b) = (list_element("a"), list_element("b"));
+    let pattern = concat_list(&definition, &["A:SortList{}", &a, "C:SortList{}"]);
+    // `I` may be `a`, so its position is a branch whose item equation the implication decides;
+    // `b` is not `a`, so its position is none.
+    let subject = concat_list(&definition, &["listItem{}(I:SortElement{})", &b]);
+    assert_eq!(
+        expand_list_pair(&definition, &pattern, &subject),
+        Some(vec![vec![
+            (
+                var("A", Sort::simple("SortList")),
+                concat_list(&definition, &[])
+            ),
+            (element_value("a"), var("I", Sort::simple("SortElement"))),
+            (
+                var("C", Sort::simple("SortList")),
+                concat_list(&definition, &[&b])
+            ),
+        ]])
+    );
+}
+
+#[test]
 fn a_list_pattern_without_an_item_or_with_one_part_is_not_expanded() {
     let definition = collection_definition();
     let (a, b) = (list_element("a"), list_element("b"));

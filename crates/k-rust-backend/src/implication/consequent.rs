@@ -60,7 +60,7 @@ impl ConsequentMatch {
     /// destination list's items between its parts at positions of the current list's items;
     /// when the current list has a part of its own, the list's equation itself is one more
     /// branch, so the branches together are equivalent to the remainder (`matching`'s
-    /// `expand_implication_remainders`). No branch is a false remainder.
+    /// `expand_implication_remainders`). An empty set of branches is a false remainder.
     ///
     /// `known` holds facts of the antecedent's instances (I7), on which every obligation is
     /// decided.

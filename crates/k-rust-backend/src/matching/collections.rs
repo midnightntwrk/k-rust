@@ -1631,9 +1631,9 @@ fn concat_list_runs(
 /// beyond them. Each branch implies the equation by associativity.
 ///
 /// When the subject has no part, every element of its value is at a known position, so the
-/// branches are equivalent to the equation, and no branch refutes it. A subject part may hold a
-/// pattern item, or be empty under an adjacency across it, which no known-position branch
-/// states, so a subject with a part adds the equation itself as one more branch: the
+/// branches are equivalent to the equation, and an empty set of them refutes it. A subject part
+/// may hold a pattern item, or be empty under an adjacency across it, which no known-position
+/// branch states, so a subject with a part adds the equation itself as one more branch: the
 /// disjunction stays equivalent to the equation, and an item found at a known position decides
 /// it.
 ///
