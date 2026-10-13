@@ -7656,6 +7656,202 @@ endmodule
     );
 }
 
+/// `M1 -Map M2` keeps the bindings of `M1` that `M2` does not hold with the same value: of
+/// `1 |-> 10 2 |-> 20 3 |-> 30` without `1 |-> 10 2 |-> 99`, the binding of 1 is removed, that
+/// of 2 is kept because `M2` binds 2 to another value, and that of 3 because `M2` does not bind
+/// 3. At the base the run halted with the unsupported-hook error on `MAP.difference`.
+#[test]
+fn krun_evaluates_map_difference_by_binding() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MDIFF-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= "mdiff"
+endmodule
+
+module MDIFF
+  imports MDIFF-SYNTAX
+  imports DOMAINS
+  imports COLLECTIONS
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K)
+  rule mdiff => res((1 |-> 10 2 |-> 20 3 |-> 30) -Map (1 |-> 10 2 |-> 99))
+endmodule
+"#,
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", "MDIFF"], &compiled);
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
+        .args(["--sort", "Op", "--expression", "mdiff", "--io", "off"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("unsupported hook"), "{stderr}");
+    let stdout = String::from_utf8(output.stdout)
+        .unwrap()
+        .split_whitespace()
+        .collect::<String>();
+    let int =
+        |value: u32| format!(r#"inj{{SortInt{{}},SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    let binding = |key, value| format!("Lbl'UndsPipe'-'-GT-Unds'{{}}({},{})", int(key), int(value));
+    let expected = format!(
+        "Lblres'LParUndsRParUnds'MDIFF'Unds'KItem'Unds'K{{}}(kseq{{}}(inj{{SortMap{{}},SortKItem{{}}}}(Lbl'Unds'Map'Unds'{{}}({},{})),dotk{{}}()))",
+        binding(2, 20),
+        binding(3, 30)
+    );
+    assert!(stdout.contains(&expected), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `choice` over a map and a set of three Int items, and a fold over a map's values that takes
+/// the chosen key's value and removes that key until the map is empty.
+const CHOICE_OF_SEVERAL: &str = r#"
+module CHOICES
+  imports DOMAINS
+  imports COLLECTIONS
+  syntax Op ::= "mchoice" | "schoice" | "sum"
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K)
+  rule mchoice => res(choice(3 |-> 30 1 |-> 10 2 |-> 20))
+  rule schoice => res(choice(SetItem(3) SetItem(1) SetItem(2)))
+  syntax Int ::= sumValues(Map) [function]
+  rule sumValues(.Map) => 0
+  rule sumValues(M) => {M[choice(M)]}:>Int +Int sumValues(M[choice(M) <- undef]) requires size(M) >Int 0
+  rule sum => res(sumValues(1 |-> 10 2 |-> 20 3 |-> 30))
+endmodule
+"#;
+
+/// `choice` of two or more items reached through a rule `requires` (on 1), a function equation's
+/// `requires` (on 2) and a right-hand side (on 0, and `pickr` of a map, `picks` of a set).
+/// `f` is `total`: its `owise` equation gives every map a value.
+const CHOICE_IN_CONDITIONS: &str = r#"
+module CHOICEREQ
+  imports DOMAINS
+  imports COLLECTIONS
+  syntax KItem ::= res(KItem) | cond(Bool) | fres(Int) | pickr(Map) | picks(Set)
+  syntax Int ::= f(Map) [function, total]
+  rule f(M) => 1 requires choice(M) ==K 1
+  rule f(_) => 0 [owise]
+  configuration <k> $PGM:Int </k>
+  rule 0 => res(choice(1 |-> 10 2 |-> 20))
+  rule 1 => cond(true) requires choice(1 |-> 10 2 |-> 20) ==K 1
+  rule 2 => fres(f(1 |-> 10 2 |-> 20))
+  rule pickr(M) => res(choice(M))
+  rule picks(S) => res(choice(S))
+endmodule
+"#;
+
+/// An execution evaluates `choice` of two or more items as the item the collection's listing
+/// (`keys_list`, `Set2List`) puts first, k-rust's documented order: 1 of the keys 3, 1 and 2,
+/// and 1 of the set. The fold over a map's values through `choice` sums them whatever the
+/// choice. At the base each run halted with the unsupported-hook error on `MAP.choice` or
+/// `SET.choice`.
+#[test]
+fn krun_evaluates_choice_as_the_first_listed_key() {
+    for (program, value) in [("mchoice", "1"), ("schoice", "1"), ("sum", "60")] {
+        let output = krun_sorted_program(CHOICE_OF_SEVERAL, "CHOICES", "Op", program, &[]);
+        assert!(
+            output.contains("Lblres") && printed_ints(&output).first() == Some(&value.to_owned()),
+            "{program}: {output}"
+        );
+        assert!(!output.contains("choice"), "{program}: {output}");
+    }
+}
+
+/// An execution evaluates `choice` also in the conditions it decides: a rule `requires` (on 1)
+/// and a function equation's `requires` (on 2), with `krun` and with `krun --search-final`.
+#[test]
+fn krun_evaluates_choice_in_rule_and_equation_conditions() {
+    let cond = Regex::new(r#"Lblcond[^(]*\(\\dv\{SortBool\{\}\}\("true"\)\)"#).unwrap();
+    let fres = Regex::new(r#"Lblfres[^(]*\(\\dv\{SortInt\{\}\}\("1"\)\)"#).unwrap();
+    for extra in [&[][..], &["--search-final"][..]] {
+        let output = krun_int_program(CHOICE_IN_CONDITIONS, "CHOICEREQ", "1", extra);
+        assert!(
+            cond.is_match(&output) && !output.contains("choice"),
+            "{extra:?}: {output}"
+        );
+        let output = krun_int_program(CHOICE_IN_CONDITIONS, "CHOICEREQ", "2", extra);
+        assert!(
+            fres.is_match(&output) && !output.contains("choice"),
+            "{extra:?}: {output}"
+        );
+    }
+}
+
+/// Which key `choice` gives of a map of two keys, or which element of a set of two elements, is
+/// not a consequence of the definition, so no claim that names it is proven or disproved, on a
+/// right-hand side or through a rule's or a function equation's `requires`. `choice` of a non-empty map is defined, so no claim fails
+/// through an undefined step.
+#[test]
+fn kprove_proves_no_claim_that_depends_on_choice() {
+    let source = format!(
+        "{CHOICE_IN_CONDITIONS}
+module CHOICEREQ-SPEC
+  imports CHOICEREQ
+  claim [first-key]: <k> 0 => res(1) </k>
+  claim [other-key]: <k> 0 => res(2) </k>
+  claim [rule-requires]: <k> 1 => cond(true) </k>
+  claim [equation-requires]: <k> 2 => fres(1) </k>
+  claim [set-first]: <k> picks(SetItem(1) SetItem(2)) => res(1) </k>
+  claim [set-other]: <k> picks(SetItem(1) SetItem(2)) => res(2) </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "CHOICEREQ", "CHOICEREQ-SPEC");
+    for claim in [
+        "first-key",
+        "other-key",
+        "rule-requires",
+        "equation-requires",
+        "set-first",
+        "set-other",
+    ] {
+        assert_undecided(&verdicts, claim, &output);
+    }
+    // Left unevaluated as a defined value, not as an unsupported hook.
+    assert!(
+        !output.contains("undefined step") && !output.contains("unsupported hook"),
+        "{output}"
+    );
+}
+
+/// `choice` of a map of two keys (a set of two elements) left unevaluated outside an execution is
+/// a defined value, so the step that writes it under `res` has a successor, and the claim that
+/// `res` of some item is reached, which constrains the item in no way, is proven. The destination
+/// is reachable only through that step.
+#[test]
+fn kprove_proves_an_order_free_claim_over_choice() {
+    let source = format!(
+        "{CHOICE_IN_CONDITIONS}
+module CHOICE-FREE-SPEC
+  imports CHOICEREQ
+  claim [some-key]: <k> pickr(1 |-> 10 2 |-> 20) => res(?_K:KItem) </k>
+  claim [some-element]: <k> picks(SetItem(1) SetItem(2)) => res(?_K:KItem) </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "CHOICEREQ", "CHOICE-FREE-SPEC");
+    for claim in ["some-key", "some-element"] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
+    // Left unevaluated as a defined value, not as an unsupported hook.
+    assert!(
+        !output.contains("undefined step") && !output.contains("unsupported hook"),
+        "{output}"
+    );
+}
+
 #[test]
 fn search_without_a_pattern_binds_each_answer_to_var_result() {
     let (root, definition) = branching_search_fixture();

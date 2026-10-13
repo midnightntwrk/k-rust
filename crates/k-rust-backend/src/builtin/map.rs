@@ -13,9 +13,13 @@
 //! - `update`, `remove`: one search and one path copy, `O(log n)`.
 //! - `updateAll`, `removeAll`: one search and one path copy per item of the second argument,
 //!   `O(m log n)`; `inclusion`: one search in the right map per entry of the left, `O(m log n)`.
+//! - `difference`: one search in the right map per entry of the left, and one path copy per
+//!   binding removed, `O(n log m + r log n)` for `r` removed; a key the search does not find is
+//!   decided absent by `absent`, as for `lookup`.
 //! - `concat`: the union of the two trees, `O(m log(n/m + 1))`, a repeated key read from the
 //!   union's summary.
 //! - `keys`, `keys_list`, `values`: `O(n)`, the size of the result.
+//! - `choice`: the first stored entry, one descent of the tree, `O(log n)`.
 
 use std::borrow::Cow;
 
@@ -59,9 +63,10 @@ pub(super) fn evaluate(
         "MAP.keys_list" => keys_list(arguments, result),
         "MAP.values" => values(arguments, result),
         "MAP.inclusion" => inclusion(arguments),
+        "MAP.difference" => difference(arguments, sorts, result),
         "MAP.concat" => return concat(arguments, result),
         "MAP.lookup" => return lookup(arguments, sorts),
-        "MAP.choice" => return Ok(choice(arguments)),
+        "MAP.choice" => return choice(arguments),
         _ => {
             return Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::NotImplemented,
@@ -142,27 +147,33 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
 /// The empty map has no key, so the application is undefined. A map of one binding `K |-> V` has
 /// the one key `K`, and every function the declaration admits gives it, whether or not `K` is
 /// constructor-like. A map with an opaque rest beside at most one binding may be a map of one
-/// binding under an instance, so the application waits for one. A map of two or more bindings,
-/// with a rest or without, has two or more keys wherever it is defined (map concatenation binds
-/// each key once), and which of them the hook gives is not a consequence of the definition: that
-/// stays the unsupported outcome, as does an application of another arity, which no declaration
-/// the load accepts has (`hook_signature`).
-fn choice(arguments: &[Term]) -> BuiltinResult {
-    let [map] = arguments else {
-        return BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented);
+/// binding under an instance, so the application waits for one.
+///
+/// A map of two or more bindings has two or more keys wherever it is defined (map concatenation
+/// binds each key once), and which of them the hook gives is not a consequence of the definition.
+/// k-rust's choice is the key `keys_list` lists first, the first of the map's stored entries
+/// (`ordered_entries`), so the two hooks agree. With every key constructor-like and no rest, the
+/// stored order is the order of the keys' values (domain values are canonical), so the choice is
+/// a function of the map, as the `function` declaration requires. Only an execution takes it:
+/// elsewhere the application is a defined value left unevaluated (`super::implementation_chosen`).
+/// A key that is not constructor-like, or an opaque rest, may put another key first in an
+/// instance, so the application waits. The first entry is one descent of the tree, `O(log n)`.
+fn choice(arguments: &[Term]) -> HookResult<BuiltinResult> {
+    expect_arity("MAP.choice", arguments, 1)?;
+    let TermKind::Map { entries, rest, .. } = arguments[0].kind() else {
+        return Ok(BuiltinResult::NotApplicable);
     };
-    let TermKind::Map { entries, rest, .. } = map.kind() else {
-        return BuiltinResult::NotApplicable;
-    };
-    match (entries.len(), rest) {
+    Ok(match (entries.len(), rest) {
         (0, None) => BuiltinResult::Bottom,
         (1, None) => {
             let (key, _) = entries.get(0).expect("a one-binding map's entry");
             BuiltinResult::Value(key.clone())
         }
-        (0 | 1, Some(_)) => BuiltinResult::NotApplicable,
-        _ => BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented),
-    }
+        _ => match ordered_entries(&arguments[0]).and_then(|(_, entries)| entries.first()) {
+            Some((key, _)) => BuiltinResult::Value(key.clone()),
+            None => BuiltinResult::NotApplicable,
+        },
+    })
 }
 
 /// The place of `key` among the keys of `entries`, syntactically: `Ok` with the index of the
@@ -733,6 +744,111 @@ fn entry_inclusion(
         return Ok(Some(bool_term(false)));
     }
     Ok((!undecided).then(|| bool_term(true)))
+}
+
+/// `M1 -Map M2`: the bindings of `M1` that `M2` does not hold with the same value
+/// (`domains.md`: only keys whose value is the same in both maps are removed). The hook is
+/// `total`, so an application whose value this does not decide is left unevaluated.
+///
+/// Each binding `K |-> V` of a closed `M1` is decided on its own. Where `M2` binds `K`
+/// syntactically, to `W`, it binds that key and no other to `W` (a map binds each key once), so
+/// the binding is removed when `V` and `W` are the same term and kept when they are different
+/// values (`values_differ`: two different constructor-like terms, or apart terms); otherwise the
+/// two values may or may not be equal. Where `M2` does not bind `K` syntactically, the binding is
+/// kept when `K` is no key of `M2` (`absent`); otherwise a key of `M2` that is not
+/// constructor-like, or `M2`'s rest, may be `K`. One binding left undecided leaves the whole
+/// application undecided.
+///
+/// Three cases hold whatever the bindings: a map without the bindings of the empty map is
+/// itself, the empty map without any bindings is empty, and a map without its own bindings is
+/// empty, rests included, because equal terms denote equal maps. A map with an opaque rest is
+/// decided by those cases only: the rest may hold any binding of `M2`.
+fn difference(
+    arguments: &[Term],
+    sorts: Option<&SortGraph>,
+    result: ResultCollection<'_>,
+) -> HookResult<Option<Term>> {
+    expect_arity("MAP.difference", arguments, 2)?;
+    let [left, right] = arguments else {
+        unreachable!()
+    };
+    let closed_empty = |map: &Term| matches!(map.kind(), TermKind::Map { entries, rest: None, .. } if entries.is_empty());
+    let source = match (left.kind(), right.kind()) {
+        (
+            TermKind::Map { definition, .. },
+            TermKind::Map {
+                definition: right_definition,
+                ..
+            },
+        ) => {
+            if definition != right_definition {
+                return Ok(None);
+            }
+            Some(definition)
+        }
+        // A whole map without a map of its sort: the operand that is no map term (a map
+        // variable, an unevaluated function) must be of the map term's sort.
+        (TermKind::Map { definition, .. }, _) => {
+            (right.sort() == map_sort(definition)).then_some(definition)
+        }
+        (_, TermKind::Map { definition, .. }) => {
+            (left.sort() == map_sort(definition)).then_some(definition)
+        }
+        _ => None,
+    };
+    if left == right || (source.is_some() && closed_empty(left)) {
+        return Ok(result
+            .map(source)
+            .and_then(|into| into.build(Vec::new(), None)));
+    }
+    let Some(definition) = source else {
+        return Ok(None);
+    };
+    if closed_empty(right) {
+        return Ok(result
+            .map(Some(definition))
+            .and_then(|into| into.adopt(left)));
+    }
+    let (
+        TermKind::Map {
+            entries,
+            rest: None,
+            ..
+        },
+        TermKind::Map {
+            entries: right_entries,
+            rest: right_rest,
+            ..
+        },
+    ) = (left.kind(), right.kind())
+    else {
+        return Ok(None);
+    };
+    let Some(into) = result.map(Some(definition)) else {
+        return Ok(None);
+    };
+    let mut removed = Vec::new();
+    for (index, (key, value)) in entries.iter().enumerate() {
+        let remove = match bound_at(right_entries, key).and_then(|at| right_entries.get(at)) {
+            Some((_, other)) if value == other => true,
+            Some((_, other)) if values_differ(sorts, value, other) => false,
+            Some(_) => return Ok(None),
+            None if absent(sorts, key, right_entries, right_rest) => false,
+            None => return Ok(None),
+        };
+        if remove {
+            removed.push(index);
+        }
+    }
+    if removed.is_empty() {
+        return Ok(into.adopt(left));
+    }
+    // Removing from the last place keeps the places of the bindings before it.
+    let kept = removed
+        .iter()
+        .rev()
+        .fold(entries.clone(), |kept, &index| kept.remove_at(index).0);
+    Ok(into.build_from(Cow::Owned(kept), definition, None))
 }
 
 fn map_sort(definition: &MapDefinition) -> crate::term::Sort {
@@ -1670,20 +1786,356 @@ mod tests {
         assert_eq!(choice_of(rest), BuiltinResult::NotApplicable);
     }
 
-    /// Which of two or more keys `choice` gives is not a consequence of the definition; this
-    /// ticket leaves it unsupported, with a rest beside the bindings or not.
+    /// The first key `keys_list` lists of `map`, which lists in the map's stored order.
+    fn first_listed_key(map: &Term) -> Term {
+        let Ok(Some(list)) = keys_list(std::slice::from_ref(map), into(&key_list())) else {
+            panic!("keys_list of {map:?} is not evaluated");
+        };
+        let TermKind::List { heads, .. } = list.kind() else {
+            panic!("keys_list of {map:?} is no list: {list:?}");
+        };
+        heads.first().expect("a key").clone()
+    }
+
+    /// `choice` of a closed map of two or more constructor-like keys is the key `keys_list`
+    /// lists first, k-rust's documented order (the decimal text order for `Int` keys), so the
+    /// two hooks share one choice. The stored order is a function of the map's value: the same
+    /// map built by concatenations in either order, or with two spellings of one `Float` key,
+    /// gives the same key. A symbolic key beside others, or an opaque rest, may put another key
+    /// first in an instance, so the application waits.
     #[test]
-    fn choice_of_two_items_is_still_unsupported() {
-        let two = vec![(key("1"), value("10")), (key("2"), value("20"))];
+    fn choice_is_the_first_key_keys_list_lists() {
+        let map = |entries: &[(Term, &str)]| {
+            Term::map(
+                definition("SortMap"),
+                entries
+                    .iter()
+                    .map(|(key, to)| (key.clone(), value(to)))
+                    .collect(),
+                None,
+            )
+        };
+        let int = |value: i64| Term::int(value);
+        let three = map(&[(int(3), "30"), (int(1), "10"), (int(2), "20")]);
+        assert_eq!(choice_of(three.clone()), BuiltinResult::Value(int(1)));
+        assert_eq!(first_listed_key(&three), int(1));
+        let text_order = map(&[(int(10), "a"), (int(2), "b")]);
+        assert_eq!(choice_of(text_order.clone()), BuiltinResult::Value(int(10)));
+        assert_eq!(first_listed_key(&text_order), int(10));
+        let concatenated = |first: &Term, second: &Term| {
+            let BuiltinResult::Value(map) = hook("MAP.concat", &[first.clone(), second.clone()])
+            else {
+                panic!("the concatenation is evaluated");
+            };
+            map
+        };
+        let (ten, two) = (map(&[(int(10), "a")]), map(&[(int(2), "b")]));
+        assert_eq!(
+            choice_of(concatenated(&ten, &two)),
+            choice_of(concatenated(&two, &ten))
+        );
+        let float = |text: &str| {
+            Term::domain_value_of(
+                crate::term::DomainKind::Float,
+                Sort::simple("SortFloat"),
+                text,
+            )
+        };
+        let written = map(&[(float("2.0"), "a"), (float("1.5"), "b")]);
+        let respelled = map(&[(float("0.2e1"), "a"), (float("1.5"), "b")]);
+        assert_eq!(choice_of(written.clone()), choice_of(respelled));
+        assert_eq!(
+            choice_of(written.clone()),
+            BuiltinResult::Value(first_listed_key(&written))
+        );
+        let k = Term::variable(Variable::new("K", Sort::simple("SortKey")));
         let rest = Term::variable(Variable::new("R", Sort::simple("SortMap")));
-        for map in [
-            Term::map(definition("SortMap"), two.clone(), None),
-            Term::map(definition("SortMap"), two, Some(rest)),
+        for undecided in [
+            map(&[(int(1), "10"), (k, "20")]),
+            Term::map(
+                definition("SortMap"),
+                vec![(int(1), value("10")), (int(2), value("20"))],
+                Some(rest),
+            ),
         ] {
             assert_eq!(
-                choice_of(map),
-                BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented)
+                choice_of(undecided.clone()),
+                BuiltinResult::NotApplicable,
+                "{undecided:?}"
             );
         }
+    }
+
+    fn bindings(definition: &Arc<MapDefinition>, entries: &[(&str, &str)]) -> Term {
+        Term::map(
+            definition.clone(),
+            entries
+                .iter()
+                .map(|(bound, to)| (key(bound), value(to)))
+                .collect(),
+            None,
+        )
+    }
+
+    /// `-Map` removes a binding only where the other map binds its key to the same value: a key
+    /// the other map binds to another value stays, as does a key it does not bind.
+    #[test]
+    fn difference_removes_only_bindings_held_with_the_same_value() {
+        let definition = definition("SortMap");
+        let left = bindings(&definition, &[("1", "10"), ("2", "20"), ("3", "30")]);
+        let right = bindings(&definition, &[("1", "10"), ("2", "99")]);
+        assert_eq!(
+            hook("MAP.difference", &[left.clone(), right]),
+            BuiltinResult::Value(bindings(&definition, &[("2", "20"), ("3", "30")]))
+        );
+        let empty = bindings(&definition, &[]);
+        assert_eq!(
+            hook("MAP.difference", &[left.clone(), empty.clone()]),
+            BuiltinResult::Value(left.clone())
+        );
+        assert_eq!(
+            hook("MAP.difference", &[empty.clone(), left]),
+            BuiltinResult::Value(empty)
+        );
+        // A key both bind to one symbolic value, or to two values that differ, is decided too.
+        let k = Term::variable(Variable::new("K", Sort::simple("SortKey")));
+        let symbolic = Term::map(definition.clone(), vec![(k.clone(), value("10"))], None);
+        let other = Term::map(
+            definition.clone(),
+            vec![(k.clone(), value("20")), (key("1"), value("10"))],
+            None,
+        );
+        assert_eq!(
+            difference(&[symbolic.clone(), other], None, undeclared()),
+            Ok(Some(symbolic.clone()))
+        );
+        let same = Term::map(
+            definition.clone(),
+            vec![(k, value("10")), (key("1"), value("10"))],
+            None,
+        );
+        assert_eq!(
+            difference(&[symbolic, same], None, undeclared()),
+            Ok(Some(bindings(&definition, &[])))
+        );
+    }
+
+    /// A binding whose value may or may not be the other map's value of its key, or whose key may
+    /// or may not be a key of the other map, leaves the application unevaluated: the hook is
+    /// `total`, so its value is then left to the simplifier.
+    #[test]
+    fn difference_with_an_undecided_value_or_key_is_not_evaluated() {
+        let foreign = Term::map(definition("SortOther"), vec![(key("1"), value("10"))], None);
+        let definition = definition("SortMap");
+        let v = Term::variable(Variable::new("V", Sort::simple("SortValue")));
+        let k = Term::variable(Variable::new("K", Sort::simple("SortKey")));
+        let rest = Term::variable(Variable::new("R", Sort::simple("SortMap")));
+        let symbolic_value = Term::map(definition.clone(), vec![(key("1"), v)], None);
+        let symbolic_key = Term::map(definition.clone(), vec![(k, value("10"))], None);
+        let opaque = Term::map(
+            definition.clone(),
+            vec![(key("2"), value("20"))],
+            Some(rest.clone()),
+        );
+        let one = bindings(&definition, &[("1", "10")]);
+        for (left, right) in [
+            (symbolic_value, one.clone()),
+            (one.clone(), symbolic_key),
+            (one.clone(), opaque.clone()),
+            (opaque, one.clone()),
+            (rest, one),
+        ] {
+            assert_eq!(
+                hook("MAP.difference", &[left.clone(), right.clone()]),
+                BuiltinResult::NotApplicable,
+                "{left:?} -Map {right:?}"
+            );
+        }
+        // Maps of two collections are not compared.
+        assert_eq!(
+            hook(
+                "MAP.difference",
+                &[bindings(&definition, &[("1", "10")]), foreign]
+            ),
+            BuiltinResult::NotApplicable
+        );
+    }
+
+    /// Equal terms denote equal maps, so a map without its own bindings is empty, whatever its
+    /// rest holds and also when it is no more than a map variable.
+    #[test]
+    fn difference_of_a_map_with_itself_is_empty() {
+        let definition = definition("SortMap");
+        let rest = Term::variable(Variable::new("R", Sort::simple("SortMap")));
+        let v = Term::variable(Variable::new("V", Sort::simple("SortValue")));
+        let map = Term::map(
+            definition.clone(),
+            vec![(key("1"), v), (key("2"), value("20"))],
+            Some(rest.clone()),
+        );
+        let empty = bindings(&definition, &[]);
+        assert_eq!(
+            hook("MAP.difference", &[map.clone(), map]),
+            BuiltinResult::Value(empty.clone())
+        );
+        let collection = CollectionMetadata::Map(definition);
+        assert_eq!(
+            difference(&[rest.clone(), rest], None, into(&collection)),
+            Ok(Some(empty))
+        );
+    }
+
+    /// Maps of `SortFloat`, machine-integer and `SortMyInt` values and keys, whose sorts this
+    /// definition hooks `FLOAT.Float`, `MINT.MInt` and `INT.Int`, with a `-Map` symbol each.
+    const SPELLINGS: &str = r#"[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+  hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
+  sort Sort8{} []
+  hooked-sort SortMyInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortFloatMap{}
+    [hook{}("MAP.Map"), unit{}(dotFloatMap{}()), element{}(floatItem{}()),
+     concat{}(floatConcat{}())]
+  hooked-symbol dotFloatMap{}() : SortFloatMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+  hooked-symbol floatItem{}(SortInt{}, SortFloat{}) : SortFloatMap{}
+    [function{}(), total{}(), hook{}("MAP.element")]
+  hooked-symbol floatConcat{}(SortFloatMap{}, SortFloatMap{}) : SortFloatMap{}
+    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+  hooked-symbol floatDifference{}(SortFloatMap{}, SortFloatMap{}) : SortFloatMap{}
+    [function{}(), total{}(), hook{}("MAP.difference")]
+  hooked-sort SortWordMap{}
+    [hook{}("MAP.Map"), unit{}(dotWordMap{}()), element{}(wordItem{}()),
+     concat{}(wordConcat{}())]
+  hooked-symbol dotWordMap{}() : SortWordMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+  hooked-symbol wordItem{}(SortInt{}, SortMInt{Sort8{}}) : SortWordMap{}
+    [function{}(), total{}(), hook{}("MAP.element")]
+  hooked-symbol wordConcat{}(SortWordMap{}, SortWordMap{}) : SortWordMap{}
+    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+  hooked-symbol wordDifference{}(SortWordMap{}, SortWordMap{}) : SortWordMap{}
+    [function{}(), total{}(), hook{}("MAP.difference")]
+  hooked-sort SortMyIntMap{}
+    [hook{}("MAP.Map"), unit{}(dotMyIntMap{}()), element{}(myIntItem{}()),
+     concat{}(myIntConcat{}())]
+  hooked-symbol dotMyIntMap{}() : SortMyIntMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+  hooked-symbol myIntItem{}(SortMyInt{}, SortMyInt{}) : SortMyIntMap{}
+    [function{}(), total{}(), hook{}("MAP.element")]
+  hooked-symbol myIntConcat{}(SortMyIntMap{}, SortMyIntMap{}) : SortMyIntMap{}
+    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+  hooked-symbol myIntDifference{}(SortMyIntMap{}, SortMyIntMap{}) : SortMyIntMap{}
+    [function{}(), total{}(), hook{}("MAP.difference")]
+endmodule []"#;
+
+    /// Values and keys of a sort carrying a builtin hook are compared as the values they denote,
+    /// not as written: the definition builds every domain value in its kind's canonical text, so
+    /// two spellings of one value are one term. Each case is evaluated in the definition, from
+    /// its KORE, and once with a binding the other map does not hold, so that the bindings are
+    /// compared one by one rather than as two equal maps.
+    #[test]
+    fn difference_compares_builtin_values_not_spellings() {
+        use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+        let syntax = parse_definition(SPELLINGS).expect("the definition parses");
+        let definition = crate::definition::BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("the definition loads");
+        let term = |pattern: &str| {
+            definition
+                .internalize_term(&parse_pattern(pattern).expect("the pattern parses"), &[])
+                .unwrap_or_else(|error| panic!("{pattern}: {error}"))
+        };
+        let int = |text: &str| format!(r#"\dv{{SortInt{{}}}}("{text}")"#);
+        let float = |text: &str| format!(r#"\dv{{SortFloat{{}}}}("{text}")"#);
+        let word = |text: &str| format!(r#"\dv{{SortMInt{{Sort8{{}}}}}}("{text}")"#);
+        let my = |text: &str| format!(r#"\dv{{SortMyInt{{}}}}("{text}")"#);
+        // (symbol prefix, key, value in the left map, value in the right map, key in the right
+        // map, an extra binding of the left map's sorts that the right map does not hold)
+        let cases = [
+            (
+                "float",
+                int("1"),
+                float("2.0"),
+                float("0.2e1"),
+                int("1"),
+                (int("2"), float("3.0")),
+            ),
+            (
+                "float",
+                int("1"),
+                float("1.0p113x15"),
+                float("1.00p113x15"),
+                int("1"),
+                (int("2"), float("3.0p113x15")),
+            ),
+            (
+                "word",
+                int("1"),
+                word("255p8"),
+                word("-1p8"),
+                int("1"),
+                (int("2"), word("3p8")),
+            ),
+            (
+                "myInt",
+                my("1"),
+                my("07"),
+                my("7"),
+                my("1"),
+                (my("2"), my("3")),
+            ),
+            (
+                "myInt",
+                my("07"),
+                my("1"),
+                my("1"),
+                my("7"),
+                (my("8"), my("3")),
+            ),
+        ];
+        for (prefix, key, left_value, right_value, right_key, (extra_key, extra_value)) in cases {
+            let item = |key: &str, value: &str| format!("{prefix}Item{{}}({key}, {value})");
+            let right = item(&right_key, &right_value);
+            let empty = term(&format!("dot{}Map{{}}()", capitalized(prefix)));
+            let extra = term(&item(&extra_key, &extra_value));
+            for (left, expected) in [
+                (item(&key, &left_value), empty),
+                (
+                    format!(
+                        "{prefix}Concat{{}}({}, {})",
+                        item(&key, &left_value),
+                        item(&extra_key, &extra_value)
+                    ),
+                    extra,
+                ),
+            ] {
+                let application = format!("{prefix}Difference{{}}({left}, {right})");
+                let result = super::super::evaluate_in_definition(&term(&application), &definition)
+                    .expect("the evaluation does not stop")
+                    .expect("the evaluation does not fail");
+                assert_eq!(result, BuiltinResult::Value(expected), "{application}");
+            }
+        }
+        // The control: different values stay different.
+        let kept = term(&format!("floatItem{{}}({}, {})", int("1"), float("2.0")));
+        let application = format!(
+            "floatDifference{{}}(floatItem{{}}({}, {}), floatItem{{}}({}, {}))",
+            int("1"),
+            float("2.0"),
+            int("1"),
+            float("2.5")
+        );
+        assert_eq!(
+            super::super::evaluate_in_definition(&term(&application), &definition)
+                .expect("the evaluation does not stop")
+                .expect("the evaluation does not fail"),
+            BuiltinResult::Value(kept)
+        );
+    }
+
+    fn capitalized(prefix: &str) -> String {
+        let mut characters = prefix.chars();
+        characters
+            .next()
+            .map(|first| first.to_ascii_uppercase().to_string() + characters.as_str())
+            .unwrap_or_default()
     }
 }

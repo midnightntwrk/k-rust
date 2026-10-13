@@ -320,7 +320,7 @@ fn list_hooks_agree_with_a_vec_model() {
 // ---------------------------------------------------------------------------------------------
 // MAP
 
-const MAP_HOOKS: [&str; 15] = [
+const MAP_HOOKS: [&str; 17] = [
     "MAP.element",
     "MAP.unit",
     "MAP.update",
@@ -336,6 +336,8 @@ const MAP_HOOKS: [&str; 15] = [
     "MAP.inclusion",
     "MAP.concat",
     "MAP.lookup",
+    "MAP.difference",
+    "MAP.choice",
 ];
 
 fn map_case(draw: &mut Draw<'_>) -> Case {
@@ -361,10 +363,10 @@ fn map_case(draw: &mut Draw<'_>) -> Case {
             vec![key, map.term()]
         }
         "MAP.removeAll" => vec![map_shape(draw, env).term(), set(draw, env)],
-        "MAP.size" | "MAP.keys" | "MAP.keys_list" | "MAP.values" => {
+        "MAP.size" | "MAP.keys" | "MAP.keys_list" | "MAP.values" | "MAP.choice" => {
             vec![map_shape(draw, env).term()]
         }
-        "MAP.updateAll" | "MAP.inclusion" | "MAP.concat" => {
+        "MAP.updateAll" | "MAP.inclusion" | "MAP.concat" | "MAP.difference" => {
             let first = map_shape(draw, env);
             let second = related_map(draw, env, &first);
             if draw.chance(4) {
@@ -432,6 +434,17 @@ fn map_model(hook: &str, arguments: &[Val]) -> Spec {
             }))
         }
         ("MAP.lookup", [Map(map), key]) => Spec::partial(map.get(key).cloned()),
+        // Only the bindings the right map holds with the same value are removed.
+        ("MAP.difference", [Map(left), Map(right)]) => Spec::value(Map(left
+            .iter()
+            .filter(|(key, value)| right.get(key) != Some(value))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect())),
+        // Some key of a non-empty map: k-rust's is the one `keys_list` lists first, which the
+        // listing test above pairs with the map's bindings.
+        ("MAP.choice", [Map(map)]) => Spec::partial(
+            (!map.is_empty()).then(|| first_listed("MAP.keys_list", &Map(map.clone()))),
+        ),
         _ => panic!("no MAP model for {hook} on {arguments:?}"),
     }
 }
@@ -454,6 +467,8 @@ fn map_hooks_agree_with_a_btreemap_model() {
                     "MAP.inclusion",
                     "MAP.concat",
                     "MAP.lookup",
+                    "MAP.difference",
+                    "MAP.choice",
                 ],
             );
         });
@@ -495,10 +510,26 @@ fn map_values_follow_the_order_of_keys_list() {
     }
 }
 
+/// The first item `listing` (`MAP.keys_list`, `SET.set2list`) lists of the collection `value`,
+/// evaluated on its canonical term: `choice` gives the item its collection's listing puts first,
+/// and the listing's order is not otherwise a function of the model's values.
+fn first_listed(listing: &str, value: &Val) -> Val {
+    let collection = super::encode(value);
+    let Ok(super::BuiltinResult::Value(list)) =
+        super::evaluate(listing, std::slice::from_ref(&collection))
+    else {
+        panic!("{listing} of {value:?} is not evaluated");
+    };
+    let Some(Val::List(items)) = super::decode(&list, &Env::new()) else {
+        panic!("{listing} of {value:?} is no list");
+    };
+    items.into_iter().next().expect("a non-empty listing")
+}
+
 // ---------------------------------------------------------------------------------------------
 // SET
 
-const SET_HOOKS: [&str; 11] = [
+const SET_HOOKS: [&str; 12] = [
     "SET.concat",
     "SET.element",
     "SET.unit",
@@ -510,6 +541,7 @@ const SET_HOOKS: [&str; 11] = [
     "SET.list2set",
     "SET.inclusion",
     "SET.union",
+    "SET.choice",
 ];
 
 fn set_case(draw: &mut Draw<'_>) -> Case {
@@ -520,7 +552,7 @@ fn set_case(draw: &mut Draw<'_>) -> Case {
         "SET.element" => vec![element(draw, env)],
         "SET.unit" => vec![],
         "SET.in" => vec![element(draw, env), set(draw, env)],
-        "SET.set2list" | "SET.size" => vec![set(draw, env)],
+        "SET.set2list" | "SET.size" | "SET.choice" => vec![set(draw, env)],
         "SET.list2set" => vec![list(draw, env)],
         "SET.concat" | "SET.difference" | "SET.intersection" | "SET.inclusion" | "SET.union" => {
             let first = set(draw, env);
@@ -564,6 +596,10 @@ fn set_model(hook: &str, arguments: &[Val]) -> Spec {
         ("SET.union", [Set(left), Set(right)]) => {
             Spec::value(Set(left.union(right).cloned().collect()))
         }
+        // Some element of a non-empty set: k-rust's is the one `Set2List` lists first.
+        ("SET.choice", [Set(set)]) => Spec::partial(
+            (!set.is_empty()).then(|| first_listed("SET.set2list", &Set(set.clone()))),
+        ),
         _ => panic!("no SET model for {hook} on {arguments:?}"),
     }
 }
@@ -576,7 +612,7 @@ fn set_hooks_agree_with_a_btreeset_model() {
             assert_reached(
                 &tallies,
                 &SET_HOOKS,
-                &["SET.concat", "SET.element", "SET.in"],
+                &["SET.concat", "SET.element", "SET.in", "SET.choice"],
             );
         });
     }

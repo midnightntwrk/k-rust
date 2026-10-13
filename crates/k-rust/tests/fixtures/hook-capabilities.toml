@@ -109,7 +109,9 @@ implemented = [
   "LIST.unit",
   "LIST.update",
   "LIST.updateAll",
+  "MAP.choice",
   "MAP.concat",
+  "MAP.difference",
   "MAP.element",
   "MAP.in_keys",
   "MAP.inclusion",
@@ -153,6 +155,7 @@ implemented = [
   "MINT.urem",
   "MINT.uvalue",
   "MINT.xor",
+  "SET.choice",
   "SET.concat",
   "SET.difference",
   "SET.element",
@@ -303,10 +306,6 @@ hooks = [
 ]
 
 [[unsupported]]
-reason = "map difference is not implemented"
-hooks = ["MAP.difference"]
-
-[[unsupported]]
 reason = "machine-integer power, min/max, width conversion and Bytes conversion hooks are not implemented"
 hooks = [
   "MINT.MInt2bytes",
@@ -342,13 +341,6 @@ hooks = [
   "RANGEMAP.updateRng",
   "RANGEMAP.values",
 ]
-
-# MAP.choice and SET.choice evaluate on an empty collection (undefined) and on a
-# one-item collection (its item); docs/compatibility.md, "Hook values at the
-# edges of their domains".
-[[unsupported]]
-reason = "choice among two or more items is not implemented"
-hooks = ["MAP.choice", "SET.choice"]
 
 [[unsupported]]
 reason = "Unicode properties, floating conversion, and UUID generation are not implemented"

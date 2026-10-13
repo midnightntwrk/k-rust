@@ -472,6 +472,32 @@ fn a_collection_hook_whose_declaration_gives_no_value_of_its_result_sort_is_reje
             "argument 1 of MAP.choice, of sort SortInt, is no map sort",
         ),
         (
+            "differenceIntoValMap{}(SortMap{}, SortMap{}) : SortValMap{} \
+             [function{}(), total{}(), hook{}(\"MAP.difference\")]",
+            "a key of argument 1 of MAP.difference, of sort SortKItem, is a key of the result, \
+             but SortKItem is not SortVal",
+        ),
+        (
+            "differenceIntoVals{}(SortValMap{}, SortValMap{}) : SortVals{} \
+             [function{}(), total{}(), hook{}(\"MAP.difference\")]",
+            "MAP.difference gives a map, but the result sort SortVals is no map sort",
+        ),
+        (
+            "differenceOfInt{}(SortValMap{}, SortInt{}) : SortValMap{} \
+             [function{}(), total{}(), hook{}(\"MAP.difference\")]",
+            "argument 2 of MAP.difference, of sort SortInt, is no map sort",
+        ),
+        (
+            "differenceOfValMap{}(SortValSet{}, SortValMap{}) : SortValSet{} \
+             [function{}(), total{}(), hook{}(\"SET.difference\")]",
+            "argument 2 of SET.difference, of sort SortValMap, is no set sort",
+        ),
+        (
+            "intersectionOfVals{}(SortValSet{}, SortVals{}) : SortValSet{} \
+             [function{}(), total{}(), hook{}(\"SET.intersection\")]",
+            "argument 2 of SET.intersection, of sort SortVals, is no set sort",
+        ),
+        (
             "choiceVal{}(SortSet{}) : SortVal{} [function{}(), hook{}(\"SET.choice\")]",
             "an element of argument 1 of SET.choice, of sort SortKItem, is the result, but \
              SortKItem is not SortVal",
@@ -620,6 +646,76 @@ fn choice_gives_its_one_key_or_element_as_a_value_of_its_result_sort() {
     assert!(
         differing.is_empty(),
         "choice gave another value than its result sort's:\n{}",
+        differing.join("\n")
+    );
+}
+
+/// `-Map` declared on a user map sort builds its result in that sort, and declared from a map of
+/// `Val` into the builtin `KItem` map, in that map with the kept bindings injected. A binding the
+/// other map holds with the same value is removed, and one it holds with another value is kept.
+#[test]
+fn map_difference_builds_the_value_of_its_declared_map_sort() {
+    let source = with_declarations(
+        r#"  hooked-symbol differenceValMap{}(SortValMap{}, SortValMap{}) : SortValMap{}
+    [function{}(), total{}(), hook{}("MAP.difference")]
+  hooked-symbol differenceValMapIntoMap{}(SortValMap{}, SortValMap{}) : SortMap{}
+    [function{}(), total{}(), hook{}("MAP.difference")]"#,
+    );
+    let syntax = parse_definition(&source).expect("the declarations should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("a difference into a map of the bindings' sorts or wider ones should load");
+    let two = "valMapConcat{}(valMapItem{}(v{}(), w{}()), valMapItem{}(w{}(), w{}()))";
+    let inj = |term: &str| format!("inj{{SortVal{{}}, SortKItem{{}}}}({term})");
+    let pairs = [
+        (
+            format!("differenceValMap{{}}({two}, valMapItem{{}}(v{{}}(), w{{}}()))"),
+            "valMapItem{}(w{}(), w{}())".to_owned(),
+        ),
+        (
+            format!("differenceValMap{{}}({two}, valMapItem{{}}(v{{}}(), v{{}}()))"),
+            two.to_owned(),
+        ),
+        (
+            format!("differenceValMap{{}}({two}, {two})"),
+            "dotValMap{}()".to_owned(),
+        ),
+        (
+            format!("differenceValMapIntoMap{{}}({two}, valMapItem{{}}(v{{}}(), w{{}}()))"),
+            format!(
+                "Lbl'UndsPipe'-'-GT-Unds'{{}}({}, {})",
+                inj("w{}()"),
+                inj("w{}()")
+            ),
+        ),
+        (
+            format!("differenceValMapIntoMap{{}}({two}, dotValMap{{}}())"),
+            format!(
+                "Lbl'Unds'Map'Unds'{{}}(Lbl'UndsPipe'-'-GT-Unds'{{}}({}, {}), \
+                 Lbl'UndsPipe'-'-GT-Unds'{{}}({}, {}))",
+                inj("v{}()"),
+                inj("w{}()"),
+                inj("w{}()"),
+                inj("w{}()")
+            ),
+        ),
+    ];
+    let differing = pairs
+        .iter()
+        .filter_map(|(hooked, expected)| {
+            let value = simplified(&definition, hooked);
+            let expected = simplified(&definition, expected);
+            (value != expected || value.sort() != expected.sort()).then(|| {
+                format!(
+                    "{hooked} => {value:?} of {}, expected {}",
+                    sort_name(&value.sort()),
+                    sort_name(&expected.sort())
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        differing.is_empty(),
+        "-Map gave another value than its declared map sort's:\n{}",
         differing.join("\n")
     );
 }

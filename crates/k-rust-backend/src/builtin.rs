@@ -215,11 +215,15 @@ pub(crate) fn evaluate_in_definition(
 /// `keys_list(M)` and `values(M)` of a closed map with two or more bindings whose keys are all
 /// constructor-like, and `Set2List(S)` of a closed set of two or more constructor-like elements,
 /// are some listing of the items: domains.md fixes no order, so every order of the items is a
-/// value some model gives. With zero or one item every listing is the same. The condition is the
-/// one under which the evaluators list the items (`map::ordered_entries`, `set::concrete_set`),
-/// read on the argument, not on the result. An application this names is defined exactly when
-/// its argument is: a closed map with distinct constructor-like keys is defined when its values
-/// are, a set of such elements is defined, and each has a listing.
+/// value some model gives. With zero or one item every listing is the same. `choice(M)` and
+/// `choice(S)` of the same collections are some key (element) of them, which domains.md does not
+/// name either: every item is the value some model gives, and k-rust's is the item its listing
+/// puts first. The condition is the one under which the evaluators list the items
+/// (`map::ordered_entries`, `set::concrete_set`), read on the argument, not on the result: a
+/// `choice` value is one item and carries no count. An application this names is defined exactly
+/// when its argument is: a closed map with distinct constructor-like keys is defined when its
+/// values are, a set of such elements is defined, and each has a listing and, being non-empty,
+/// an item to choose.
 ///
 /// `+Float`, `-Float`, `*Float`, `/Float`, `minFloat` and `maxFloat` over a binary32 and a
 /// binary64 operand are the exact result rounded to some destination format, which domains.md
@@ -238,9 +242,23 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
         return None;
     };
     let hook = symbol.attributes.hook.as_deref()?;
-    let several = match hook {
-        "MAP.keys_list" | "MAP.values" => map::lists_several_items(arguments),
-        "SET.set2list" => set::lists_several_items(arguments),
+    let (several, what) = match hook {
+        "MAP.keys_list" | "MAP.values" => (
+            map::lists_several_items(arguments),
+            "lists them in an order",
+        ),
+        "SET.set2list" => (
+            set::lists_several_items(arguments),
+            "lists them in an order",
+        ),
+        "MAP.choice" => (
+            map::lists_several_items(arguments),
+            "gives one of them, which",
+        ),
+        "SET.choice" => (
+            set::lists_several_items(arguments),
+            "gives one of them, which",
+        ),
         _ => {
             return float::mixed_destination(hook, arguments)
                 .map(|pair| pair.detail(hook))
@@ -249,8 +267,8 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     };
     several.then(|| {
         format!(
-            "{hook} of two or more items lists them in an order domains.md does not fix, which \
-             only an execution chooses"
+            "{hook} of two or more items {what} domains.md does not fix, which only an \
+             execution chooses"
         )
     })
 }
