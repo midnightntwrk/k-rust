@@ -1326,6 +1326,33 @@ module SYMF-SPEC
 endmodule
 "#;
 
+/// A map pattern that matches `w(1 |-> 5  20 |-> N)` in two ways: the instance at key 1 has its
+/// `requires` refuted, the one at key 20 is set aside by `concrete(V)` (its value `N` is
+/// symbolic) and its `requires` holds, so the first equation gives `mk(N)` and the `owise`
+/// premise excludes the subject. At `w(1 |-> 5  2 |-> N)` both instances are refuted.
+const SET_ASIDE_MAP_INSTANCE: &str = r#"
+module INST-SYNTAX
+  imports INT
+  imports MAP
+  imports BOOL
+  syntax Foo ::= w(Map) [symbol(w)] | mk(Int) [symbol(mk)]
+endmodule
+
+module INST
+  imports INST-SYNTAX
+  configuration <k> $PGM:K </k>
+  rule w((K:Int |-> V:Int) _M) => mk(V) requires K >Int 10 [anywhere, concrete(V)]
+  rule w(_) => mk(0) [anywhere, owise]
+endmodule
+
+module INST-SPEC
+  imports INST
+  claim [mixed-zero]: <k> w(1 |-> 5  20 |-> N:Int) => mk(0) </k>
+  claim [mixed-n]: <k> w(1 |-> 5  20 |-> N:Int) => mk(N) </k>
+  claim [both-refuted-zero]: <k> w(1 |-> 5  2 |-> N:Int) => mk(0) </k>
+endmodule
+"#;
+
 /// A `concrete` anywhere equation with a `requires` above an `owise` one: the `owise` premise
 /// excludes exactly the arguments above 10.
 const ANYWHERE_CONCRETE_REQUIRES_OVER_OWISE: &str = r#"
@@ -1385,6 +1412,8 @@ fn statuses_breaking(
 /// of the application, so no lower-priority equation applies in its place: the false claims
 /// that take the `owise` value are not proven, and the true claims that take the first
 /// equation's value are not disproved. On a ground argument the `concrete` equation applies.
+/// Among the instances of one map pattern, a set-aside one that holds is not hidden by one
+/// whose `requires` is refuted; where every instance is refuted the `owise` equation applies.
 #[test]
 fn an_owise_equation_does_not_apply_below_a_set_aside_equation() {
     let wrong = [
@@ -1405,6 +1434,16 @@ fn an_owise_equation_does_not_apply_below_a_set_aside_equation() {
             &[
                 ("owise-zero", false, "proven"),
                 ("first-one", false, "disproved"),
+            ],
+        ),
+        statuses_breaking(
+            SET_ASIDE_MAP_INSTANCE,
+            "INST-SPEC",
+            "INST",
+            &[
+                ("mixed-zero", false, "proven"),
+                ("mixed-n", false, "disproved"),
+                ("both-refuted-zero", true, "proven"),
             ],
         ),
     ]
