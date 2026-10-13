@@ -671,9 +671,11 @@ pub enum RulePatternError {
         sentence: Box<SentenceKey>,
     },
     /// An executable function or anywhere equation whose right-hand side gives no term, only
-    /// `\top` (with or without predicates). It states that the application is every value of
-    /// its sort, while an application of a function or anywhere head has at most one value, so
-    /// it holds only in a model whose result sort has at most one element. Carries the axiom's
+    /// `\top` or predicates (`#Top`, `#Top` with an `ensures`, `#Ceil(X)`). Such a right-hand
+    /// side denotes every value of its sort or none, so the equation states that the application
+    /// is every value wherever it is defined, while an application of a function or anywhere
+    /// head has at most one value: it holds only in a model whose result sort has at most one
+    /// element, or where the application is undefined. Carries the axiom's
     /// name and position ([`RuleAttributes::diagnostic_name`]), the symbol its left-hand side
     /// applies (which names a generated equation, such as a lambda's, that has no position), and
     /// its sentence.
@@ -714,10 +716,9 @@ impl std::fmt::Display for RulePatternError {
             Self::TopFunctionEquation { axiom, head, .. } => write!(
                 formatter,
                 "the function equation {axiom} of {head} gives no term as its right-hand side, \
-                 only \\top, \
-                 which states that the application is every value of its sort, while a function \
-                 application has at most one value; write it as a `simplification` lemma or give \
-                 the value"
+                 only \\top or predicates, which denote every value of its sort or none, while \
+                 a function or anywhere application has at most one value; write it as a \
+                 `simplification` lemma or give the value"
             ),
         }
     }
@@ -4224,9 +4225,10 @@ mod tests {
         assert!(matches!(rule.rhs, RuleRhs::Top));
     }
 
-    /// A function equation whose right-hand side is `\top`, with or without predicates, states
-    /// that the application is every value of its sort; it is refused at load, naming the
-    /// equation by its label and written position. Its simplification counterpart loads
+    /// A function equation whose right-hand side is `\top`, with or without predicates, or only a
+    /// predicate, states that the application is every value of its sort or none; it is refused
+    /// at load, naming the equation by its label, written position and head. Its simplification
+    /// counterpart loads
     /// (`internalizes_top_right_hand_sides_of_simplifications`).
     #[test]
     fn top_right_hand_sides_are_rejected_on_function_equations() {
@@ -4235,6 +4237,10 @@ mod tests {
             (
                 "top-ensures",
                 r"\and{SortS{}}(\top{SortS{}}(), \equals{SortS{}, SortS{}}(X0:SortS{}, a{}()))",
+            ),
+            (
+                "predicate",
+                r"\and{SortS{}}(\ceil{SortS{}, SortS{}}(X0:SortS{}), \top{SortS{}}())",
             ),
         ] {
             let error = top_rhs_definition(&format!(
@@ -4258,7 +4264,7 @@ mod tests {
                 "{case}: {message}"
             );
             assert!(
-                message.contains("every value of its sort"),
+                message.contains("every value of its sort or none"),
                 "{case}: {message}"
             );
         }

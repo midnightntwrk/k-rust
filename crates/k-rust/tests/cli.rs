@@ -485,7 +485,7 @@ fn a_function_equation_whose_right_hand_side_is_top_is_refused_at_load() {
     // The equation is named by its identifier, its written position and its head.
     let refusal = |rule: &str, head: &str| {
         format!(
-            " at {} of {head} gives no term as its right-hand side, only \\top",
+            " at {} of {head} gives no term as its right-hand side, only \\top or predicates",
             position(rule)
         )
     };
