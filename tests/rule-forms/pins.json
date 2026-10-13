@@ -274,7 +274,7 @@
       "decl-one-step": {
         "native": {
           "parse": "accepted",
-          "run": "refused: invalid executable state: MacroOrAliasInExecutablePattern(\"LbldeclareOnce\")"
+          "run": "refused: invalid executable state: invalid executable input: macro or alias symbol 'LbldeclareOnce' survived expansion"
         },
         "java": {
           "parse": "accepted",
@@ -932,7 +932,7 @@
       "decl-one-step": {
         "native": {
           "parse": "accepted",
-          "run": "refused: invalid executable state: MacroOrAliasInExecutablePattern(\"LbldeclareOnce\")"
+          "run": "refused: invalid executable state: invalid executable input: macro or alias symbol 'LbldeclareOnce' survived expansion"
         },
         "java": {
           "parse": "accepted",
