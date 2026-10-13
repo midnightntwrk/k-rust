@@ -2606,6 +2606,12 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                     .any(|instance| self.subsorts.less_than_eq(instance, bound))
             })
         });
+        // Every kept bound is at or above every sort of `non_parametric`, so one of those sorts
+        // that is itself kept is below every kept bound: the least element, and the only minimal
+        // one. Finding it needs no pairwise comparison of the bounds.
+        if let Some(least) = non_parametric.iter().find(|sort| bounds.contains(*sort)) {
+            return BTreeSet::from([least.clone()]);
+        }
         self.subsorts.minimal(&bounds)
     }
 }
@@ -3107,6 +3113,37 @@ mod tests {
         assert_eq!(
             projected("inj{K,KList}(inj{Int,K}(X))", &subsorts),
             "inj{K,KList}(inj{Int,K}(X))"
+        );
+    }
+    /// On a chain S0 < S1 < ... < S9, the least upper bound of a member and a sort above it is
+    /// the sort above, a single sort is its own bound when the expected sort is above it, and a
+    /// sort with no bound at or below the expected sort is refused.
+    #[test]
+    fn least_upper_bound_of_a_chain_member_and_its_supersort_is_the_supersort() {
+        let sorts = (0..10)
+            .map(|i| format!(" syntax S{i}\n"))
+            .chain((1..10).map(|i| format!(" syntax S{i} ::= S{}\n", i - 1)))
+            .collect::<String>();
+        let parsed =
+            crate::outer::parse("chain.k", &format!("module MAIN\n{sorts}endmodule\n")).unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+        let sort = |i: usize| Sort::new(format!("S{i}"));
+        assert_eq!(
+            injector.least_upper_bound(&[sort(3), sort(7)], None),
+            Ok(sort(7))
+        );
+        assert_eq!(
+            injector.least_upper_bound(&[sort(3)], Some(&sort(5))),
+            Ok(sort(3))
+        );
+        assert_eq!(
+            injector.least_upper_bound(&[sort(3)], Some(&sort(2))),
+            Err(SortInjectionError::IncompatibleSorts {
+                sorts: vec![sort(3)],
+                expected: Some(sort(2)),
+            })
         );
     }
 }

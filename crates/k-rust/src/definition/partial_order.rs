@@ -1,9 +1,9 @@
 //! ```toml algorithm
 //! id = "definition.order.partial"
 //! name = "finite partial-order construction and closure"
-//! sites = ["PartialOrder", "PartialOrder::new", "find_cycle", "first_cycle"]
+//! sites = ["PartialOrder", "PartialOrder::new", "PartialOrder::less_than", "find_cycle", "first_cycle"]
 //! variable = "V = elements; E = direct relations; C = sum over direct relations (a, b) of 1 + |closure(b)|, the elements cloned and inserted into closure sets"
-//! counters = ["KompilePartialOrdersBuilt"]
+//! counters = ["KompilePartialOrdersBuilt", "KompileOrderQueries"]
 //!
 //! [[cost]]
 //! mode = "one partial order"
@@ -14,12 +14,17 @@
 //! bound = "O((V + E) log V); no closure is computed and no partial order is counted"
 //!
 //! [[cost]]
+//! mode = "less_than query"
+//! bound = "O(log V)"
+//!
+//! [[cost]]
 //! mode = "upper_bounds or lower_bounds of a nonempty set S"
 //! bound = "O(|S| x (1 + b) x log V) with b the strict successors (upper) or predecessors (lower) of the member of S with the fewest; the first lower_bounds of an order also inverts the closure once, O(C log V)"
 //! ```
 //!
 //! Finite partial orders use Kahn topological sorting, reverse-order transitive closure, and set-intersection bounds.
-//! Construction is O(V + E + closure); `Counter::KompilePartialOrdersBuilt` measures builds.
+//! Construction is O(V + E + closure); `Counter::KompilePartialOrdersBuilt` measures builds and
+//! `Counter::KompileOrderQueries` the `less_than` queries every comparison goes through.
 //!
 //! A deterministic, `petgraph`-backed finite partial order.
 
@@ -179,6 +184,7 @@ impl<T: Clone + Ord> PartialOrder<T> {
     }
 
     pub fn less_than(&self, lesser: &T, greater: &T) -> bool {
+        measure::bump(Counter::KompileOrderQueries);
         self.closure
             .get(lesser)
             .is_some_and(|successors| successors.contains(greater))

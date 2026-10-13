@@ -3,7 +3,8 @@
 //! A rule body is as deep as its author writes it: an operator chain or a numeral thousands of
 //! levels deep parses in work linear in its length (`inner_parser_scaling`), and the compile
 //! passes after parsing must then neither overflow the native stack nor take memory in the square
-//! of its depth.
+//! of its depth. A sort hierarchy many levels deep must likewise not cost subsort-order queries
+//! in the cube of its sorts.
 //!
 //! The bytes come from the counting allocator this binary installs, which counts the whole
 //! process, so every test of this binary takes one lock: a test that only allocates would
@@ -208,5 +209,71 @@ fn a_nesting_injected_at_every_level_compiles_in_memory_linear_in_its_depth() {
     assert!(
         increments.is_some_and(|(first, second)| second <= first * 3),
         "{at_500}, {at_1000} and {at_2000} bytes at 500, 1,000 and 2,000 levels"
+    );
+}
+
+/// A definition whose `n` sorts `D<layer>x<c>` stand in layers of four, each sort below every
+/// sort of the layer before it, with one leaf sort `L<layer>x<c>` below each, beside four rules
+/// on a step sort.
+fn dense_sorts(n: usize) -> String {
+    let mut sorts = String::new();
+    for layer in 0..n / 4 {
+        for c in 0..4 {
+            sorts.push_str(&format!("  syntax D{layer}x{c}\n"));
+            if layer > 0 {
+                for p in 0..4 {
+                    sorts.push_str(&format!("  syntax D{}x{p} ::= D{layer}x{c}\n", layer - 1));
+                }
+            }
+        }
+    }
+    for layer in 0..n / 4 {
+        for c in 0..4 {
+            sorts.push_str(&format!(
+                "  syntax L{layer}x{c}\n  syntax D{layer}x{c} ::= L{layer}x{c}\n"
+            ));
+        }
+    }
+    let rules = (0..4)
+        .map(|j| format!("  rule <k> tick({j}) => tick({}) ...</k>\n", j + 1))
+        .collect::<String>();
+    format!(
+        r#"module MAIN
+  imports INT
+  syntax Step ::= tick(Int) | wrap(Step) | "done"
+{sorts}  configuration <k> $PGM:K </k>
+{rules}endmodule
+"#
+    )
+}
+
+/// The subsort-order queries of loading and compiling `dense_sorts(n)`.
+fn dense_order_queries(n: usize) -> u64 {
+    let source = dense_sorts(n);
+    let before = measure::snapshot();
+    let loaded = load(&source);
+    let compiled = compile_loaded_definition(&loaded, CompileOptions::default());
+    let queries = measure::snapshot()
+        .delta(&before)
+        .get(Counter::KompileOrderQueries);
+    assert!(compiled.is_ok(), "{:?}", compiled.err());
+    queries
+}
+
+/// A least upper bound of sorts one of which is above the others is that sort, found without
+/// comparing the upper bounds pairwise, so compiling a hierarchy of n sorts makes order queries
+/// in about the square of n: the generated equations of each sort ask for such a bound once or a
+/// few times, and each answer costs order queries in the sorts above it. The pairwise
+/// comparison made each answer cost the square of those sorts, and the whole hierarchy the cube
+/// of n.
+#[test]
+fn a_least_upper_bound_needs_order_queries_quadratic_in_a_sort_hierarchy() {
+    let _measuring = measuring();
+    let [at_32, at_64, at_128] = [32, 64, 128].map(dense_order_queries);
+    println!("order queries: {at_32}, {at_64} and {at_128} at 32, 64 and 128 sorts");
+    let increments = at_64.checked_sub(at_32).zip(at_128.checked_sub(at_64));
+    assert!(
+        increments.is_some_and(|(first, second)| second <= first * 9 / 2 + 4_096),
+        "{at_32}, {at_64} and {at_128} order queries at 32, 64 and 128 sorts"
     );
 }

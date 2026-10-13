@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 18;
+pub const COUNTER_SCHEMA_VERSION: u64 = 19;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -372,6 +372,11 @@ pub enum Counter {
     KompileProductionCatalogsBuilt,
     /// Finite partial orders constructed.
     KompilePartialOrdersBuilt,
+    /// Strict-order queries (`PartialOrder::less_than`) on a finite partial order, through which
+    /// every other comparison, bound and minimum of the order is answered. Its family is
+    /// `kompile.` because `PartialOrder` lives in the compiler's definition layer, as for
+    /// `kompile.partial_orders_built`; the inner parser's sort queries count too.
+    KompileOrderQueries,
     /// Explicit sort-injection terms inserted.
     KompileInjectionsInserted,
     /// Macro rules that matched and were applied.
@@ -570,7 +575,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 95;
+    pub const COUNT: usize = 96;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -584,6 +589,7 @@ impl Counter {
         Counter::KompileSentenceEquivalenceChecks,
         Counter::KompileProductionCatalogsBuilt,
         Counter::KompilePartialOrdersBuilt,
+        Counter::KompileOrderQueries,
         Counter::KompileInjectionsInserted,
         Counter::KompileMacroApplications,
         Counter::KompileMacroExpansionVisits,
@@ -684,6 +690,7 @@ impl Counter {
             Counter::KompileSentenceEquivalenceChecks => "kompile.sentence_equivalence_checks",
             Counter::KompileProductionCatalogsBuilt => "kompile.production_catalogs_built",
             Counter::KompilePartialOrdersBuilt => "kompile.partial_orders_built",
+            Counter::KompileOrderQueries => "kompile.order_queries",
             Counter::KompileInjectionsInserted => "kompile.injections_inserted",
             Counter::KompileMacroApplications => "kompile.macro_applications",
             Counter::KompileMacroExpansionVisits => "kompile.macro_expansion_visits",
