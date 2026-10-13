@@ -2230,3 +2230,54 @@ endmodule
         assert_ends_in_okb(SOURCE, "KEQ-USER", program, expected);
     }
 }
+
+/// A user function hooked `KEQUAL.eq` or `KEQUAL.ne` whose two operands have different sorts is
+/// not decided: `z() eqfb z()` compares `inj{Bar, Foo}(z())` with `z()`, two spellings of one
+/// value, so a comparison of the terms would give a wrong `false`. Each run halts on the
+/// unevaluated hook, as for any constructor-like application without a value.
+#[test]
+fn a_user_symbol_hooked_kequal_on_two_sorts_is_left_unevaluated() {
+    const SOURCE: &str = r#"
+module KEQ-MIX-SYNTAX
+  syntax Stmt ::= "mixsub" | "mixsubne" | "mixkitem" | "mixdiff"
+endmodule
+module KEQ-MIX
+  imports KEQ-MIX-SYNTAX
+  imports K-EQUAL
+  imports BOOL
+  configuration <k> $PGM:Stmt </k>
+  syntax KItem ::= okb(Bool) [symbol(okb)] | a()
+  syntax Bar ::= z()
+  syntax Foo ::= Bar | x()
+  syntax Bool ::= Foo "eqfb" Bar [function, total, hook(KEQUAL.eq)]
+  syntax Bool ::= Foo "nefb" Bar [function, total, hook(KEQUAL.ne)]
+  syntax Bool ::= KItem "eqik" K [function, total, hook(KEQUAL.eq)]
+  rule <k> mixsub => okb(z() eqfb z()) ...</k>
+  rule <k> mixsubne => okb(z() nefb z()) ...</k>
+  rule <k> mixkitem => okb(a() eqik a()) ...</k>
+  rule <k> mixdiff => okb(x() eqfb z()) ...</k>
+endmodule
+"#;
+    for (program, hook) in [
+        ("mixsub", "KEQUAL.eq"),
+        ("mixsubne", "KEQUAL.ne"),
+        ("mixkitem", "KEQUAL.eq"),
+        ("mixdiff", "KEQUAL.eq"),
+    ] {
+        let compiled = compile(SOURCE, "KEQ-MIX", "KEQ-MIX-SYNTAX", "Stmt", program);
+        let result = execute(&compiled, "KEQ-MIX", Some(3));
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("{program}: {result:#?}");
+        };
+        assert_eq!(leaf.reason, HaltReasonOutput::UnsupportedHook, "{program}");
+        let detail = leaf.detail.as_deref().unwrap_or_default();
+        assert!(
+            detail.contains(&format!(
+                "unsupported hook '{hook}' on constructor-like arguments"
+            )),
+            "{program}: {detail}"
+        );
+        let [state] = text(&result).try_into().unwrap();
+        assert!(!state.contains(r#"\dv{SortBool{}}"#), "{program}: {state}");
+    }
+}
