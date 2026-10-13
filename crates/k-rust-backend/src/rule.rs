@@ -670,6 +670,20 @@ pub enum RulePatternError {
     NegatedConfiguration {
         sentence: Box<SentenceKey>,
     },
+    /// An executable function or anywhere equation whose right-hand side gives no term, only
+    /// `\top` or predicates (`#Top`, `#Top` with an `ensures`, `#Ceil(X)`). Such a right-hand
+    /// side denotes every value of its sort or none, so the equation states that the application
+    /// is every value wherever it is defined, while an application of a function or anywhere
+    /// head has at most one value: it holds only in a model whose result sort has at most one
+    /// element, or where the application is undefined. Carries the axiom's
+    /// name and position ([`RuleAttributes::diagnostic_name`]), the symbol its left-hand side
+    /// applies (which names a generated equation, such as a lambda's, that has no position), and
+    /// its sentence.
+    TopFunctionEquation {
+        axiom: String,
+        head: String,
+        sentence: Box<SentenceKey>,
+    },
 }
 
 /// What is wrong with a pattern the backend reads as a constrained term (a rule's side, a
@@ -698,6 +712,13 @@ impl std::fmt::Display for RulePatternError {
                  that the subject is outside a set of configurations, and no rule condition \
                  states that",
                 sentence.1, sentence.0
+            ),
+            Self::TopFunctionEquation { axiom, head, .. } => write!(
+                formatter,
+                "the function equation {axiom} of {head} gives no term as its right-hand side, \
+                 only \\top or predicates, which denote every value of its sort or none, while \
+                 a function or anywhere application has at most one value; write it as a \
+                 `simplification` lemma or give the value"
             ),
         }
     }
@@ -1790,8 +1811,34 @@ pub fn internalize_axiom(
             }
             let requires =
                 internalize_predicates(definition, requires, sort_parameters, injection_role)?;
+            // A right-hand side that is `\top`, or `\top` with predicates (`#Top ensures P`),
+            // gives the application no term to equal: it states that the application is every
+            // value of its sort, which no application of a function or anywhere head is unless
+            // the sort has one value, and the evaluator could never use it. It is refused here,
+            // naming the axiom; a simplification lemma may have it (it is used on an operand of
+            // a term-level conjunction), and a ceil axiom is filed apart.
+            let top_function_equation = || {
+                DefinitionError::RulePattern(RulePatternError::TopFunctionEquation {
+                    axiom: attributes.diagnostic_name(str::to_owned),
+                    head: match lhs.kind() {
+                        TermKind::Application { symbol, .. } => symbol.name.to_string(),
+                        _ => "a left-hand side that is no application".to_owned(),
+                    },
+                    sentence: Box::new(sentence.clone()),
+                })
+            };
             let (rhs, ensures) =
-                internalize_term_rhs(definition, rhs, sort_parameters, injection_role)?;
+                internalize_term_rhs(definition, rhs, sort_parameters, injection_role).map_err(
+                    |error| match error {
+                        DefinitionError::RulePattern(RulePatternError::MissingTerm) => {
+                            top_function_equation()
+                        }
+                        error => error,
+                    },
+                )?;
+            if matches!(rhs, RuleRhs::Top) {
+                return Err(top_function_equation());
+            }
             let rename =
                 |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
             let rhs = rename_rhs(rhs, rename);
@@ -4176,6 +4223,51 @@ mod tests {
             .expect("simplification rule should be indexed");
 
         assert!(matches!(rule.rhs, RuleRhs::Top));
+    }
+
+    /// A function equation whose right-hand side is `\top`, with or without predicates, or only a
+    /// predicate, states that the application is every value of its sort or none; it is refused
+    /// at load, naming the equation by its label, written position and head. Its simplification
+    /// counterpart loads
+    /// (`internalizes_top_right_hand_sides_of_simplifications`).
+    #[test]
+    fn top_right_hand_sides_are_rejected_on_function_equations() {
+        for (case, right) in [
+            ("top", r"\and{SortS{}}(\top{SortS{}}(), \top{SortS{}}())"),
+            (
+                "top-ensures",
+                r"\and{SortS{}}(\top{SortS{}}(), \equals{SortS{}, SortS{}}(X0:SortS{}, a{}()))",
+            ),
+            (
+                "predicate",
+                r"\and{SortS{}}(\ceil{SortS{}, SortS{}}(X0:SortS{}), \top{SortS{}}())",
+            ),
+        ] {
+            let error = top_rhs_definition(&format!(
+                r#"
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortS{{}}, R}}(X0:SortS{{}}, a{{}}()), \top{{R}}())),
+                    \equals{{SortS{{}}, R}}(f{{}}(X0:SortS{{}}), {right})
+                ) [label{{}}("top-f"),
+                   org'Stop'kframework'Stop'attributes'Stop'Location{{}}("Location(7,3,7,30)"),
+                   org'Stop'kframework'Stop'attributes'Stop'Source{{}}("Source(/src/skip.k)")]
+                "#
+            ))
+            .expect_err("a function equation must give its application a term");
+            assert!(
+                matches!(error, DefinitionError::RulePattern(_)),
+                "{case}: {error:?}"
+            );
+            let message = error.to_string();
+            assert!(
+                message.contains("function equation top-f at /src/skip.k:7:3 of f gives no term"),
+                "{case}: {message}"
+            );
+            assert!(
+                message.contains("every value of its sort or none"),
+                "{case}: {message}"
+            );
+        }
     }
 
     #[test]

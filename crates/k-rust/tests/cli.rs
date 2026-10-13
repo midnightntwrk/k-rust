@@ -437,6 +437,127 @@ fn krun_reports_a_prelude_failure_with_an_unbounded_rewrite_rule() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A function equation with a `#Top` right-hand side beside an `owise` one, a `#Top` equation at
+/// priority 40 beside a priority-50 one, and an ordinary function `g`.
+const TOP_FUNCTION_EQUATIONS: &str = r#"
+module SKIP
+  imports INT
+  syntax Exp ::= Int
+               | "pair" "(" Exp "," Exp ")" [symbol(pair)]
+               | "tp" "(" Exp ")"           [symbol(tp)]
+               | "done" "(" Exp ")"         [symbol(done)]
+  syntax Exp ::= f(Exp)  [symbol(f), function]
+               | fp(Exp) [symbol(fp), function]
+  syntax Int ::= g(Int)  [symbol(g), function]
+  configuration <k> $PGM:Exp </k>
+  rule tp(E) => done(f(E))
+  rule f(pair(_, _)) => #Top
+  rule f(_) => 0 [owise]
+  rule fp(pair(_, _)) => #Top [priority(40)]
+  rule fp(_) => 0
+  rule g(_) => 1
+endmodule
+
+module SKIP-SPEC
+  imports SKIP
+  claim [g-one]: <k> g(3) => 1 </k>
+endmodule
+"#;
+
+#[test]
+fn a_function_equation_whose_right_hand_side_is_top_is_refused_at_load() {
+    // `f(pair(_, _)) = #Top` states that `f(pair(1, 2))` is every value of `Exp`, which has
+    // several, while a function application has at most one value: the definition has no model.
+    // `kcompile` does not load the backend definition, so it succeeds; `krun` and `kprove` refuse
+    // the definition when they load it, naming the equation at its written position.
+    let (root, _) = fixture();
+    let source = root.join("skip.k");
+    fs::write(&source, TOP_FUNCTION_EQUATIONS).unwrap();
+    let position = |rule: &str| {
+        let (index, line) = TOP_FUNCTION_EQUATIONS
+            .lines()
+            .enumerate()
+            .find(|(_, line)| line.trim_start().starts_with(rule))
+            .unwrap();
+        let column = line.len() - line.trim_start().len() + 1;
+        format!("{}:{}:{column}", source.display(), index + 1)
+    };
+    // The equation is named by its identifier, its written position and its head.
+    let refusal = |rule: &str, head: &str| {
+        format!(
+            " at {} of {head} gives no term as its right-hand side, only \\top or predicates",
+            position(rule)
+        )
+    };
+    let compiled = root.join("compiled");
+    let preparation = watchdog::output(watchdog::Request::Compile {
+        source: &source,
+        main_module: "SKIP",
+        output: &compiled,
+        kind: watchdog::Compilation::Run {
+            syntax_module: "SKIP",
+        },
+    });
+    assert!(preparation.status.success(), "{preparation:?}");
+
+    let output = watchdog::output(watchdog::Request::Krun {
+        input: watchdog::Input::Compiled(&compiled),
+        main_module: "SKIP",
+        syntax_module: "SKIP",
+        sort: "Exp",
+        expression: "tp(pair(1, 2))",
+    });
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"", "{output:?}");
+    // The first `#Top` equation the load meets is named; which of the two that is depends on
+    // the load order, so either one's position is accepted.
+    assert!(
+        stderr.contains(&refusal("rule f(pair", "Lblf"))
+            || stderr.contains(&refusal("rule fp(pair", "Lblfp")),
+        "{stderr}"
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kprove")
+        .arg(&source)
+        .args(["--main-module", "SKIP-SPEC", "--definition-module", "SKIP"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        stderr.contains(&refusal("rule f(pair", "Lblf"))
+            || stderr.contains(&refusal("rule fp(pair", "Lblfp")),
+        "{stderr}"
+    );
+
+    // Without the two `#Top` equations (and the claims) the definition loads and `g` evaluates.
+    let (definition, _claims) = TOP_FUNCTION_EQUATIONS
+        .split_once("module SKIP-SPEC")
+        .unwrap();
+    let without_top = definition
+        .lines()
+        .filter(|line| !line.contains("=> #Top"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(&source, without_top).unwrap();
+    let output = watchdog::output(watchdog::Request::Krun {
+        input: watchdog::Input::Source(&source),
+        main_module: "SKIP",
+        syntax_module: "SKIP",
+        sort: "Int",
+        expression: "g(3)",
+    });
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains(r#"\dv{SortInt{}}("1")"#),
+        "{output:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kore_exec_warns_when_a_returned_leaf_exhausts_its_simplification_budget() {
     let (root, definition) = fixture();
@@ -4053,6 +4174,36 @@ endmodule
     );
     let output = bounded_krun(&low, "Exp", "go(lam(3))", &[]);
     assert_halts_uninstantiated(&output, 0, Some("Rule-hVar'Unds'Gen0, Rule-hVarA"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_halts_on_a_ground_application_whose_concrete_equation_is_set_aside() {
+    // `p(0)` is ground but not a constructor term, so the `concrete` equation of `w` is set
+    // aside on `w(p(0))`; its `requires` is undecided there, so the `owise` equation does not
+    // apply and `w(p(0))` stays. The rule `h(X) => w(p(X))` could then apply only by narrowing
+    // the kept application, so the variable-free run halts instead of answering `mk(0)`.
+    let (root, _) = fixture();
+    let anyreq = compiled_for_execution(
+        &root,
+        "anyreq",
+        r#"
+module ANYREQ
+  imports INT
+  syntax W ::= w(Int) [symbol(w)] | mk(Int) [symbol(mk)] | h(Int) [symbol(h)]
+  syntax Int ::= p(Int) [function, symbol(p)]
+  configuration <k> $PGM:W </k>
+  rule w(X) => mk(1) requires X >Int 10 [anywhere, concrete]
+  rule w(_) => mk(0) [anywhere, owise]
+  rule p(X) => X requires X >Int 0
+  rule h(X) => w(p(X))
+endmodule
+"#,
+        "ANYREQ",
+        "ANYREQ",
+    );
+    let output = bounded_krun(&anyreq, "W", "w(p(0))", &[]);
+    assert_halts_uninstantiated(&output, 0, Some("Rule-hVarX"));
     fs::remove_dir_all(root).unwrap();
 }
 
