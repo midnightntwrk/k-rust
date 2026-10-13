@@ -14026,6 +14026,66 @@ fn a_stuck_leaf_discharges_a_constraint_the_solver_proves_valid() {
     assert_eq!(leaf.pattern.constraints, Vec::new(), "{leaf:#?}");
 }
 
+#[test]
+fn an_untaken_partial_branch_splits_execution_into_a_guarded_leaf_and_a_trivial_one() {
+    // `go() => done(#if true #then "1" #else undef() #fi)` with a partial `undef` that has no
+    // equation: the conditional is strict, so the step's result is `done("1")` where `undef()`
+    // is defined and no state where it is not. Execution reports both parts and nothing else.
+    let definition = definition(
+        r#"
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            sort SortC{} []
+            symbol go{}() : SortC{} [constructor{}()]
+            symbol done{}(SortS{}) : SortC{} [constructor{}()]
+            symbol undef{}() : SortS{} [function{}()]
+            hooked-symbol ite{}(SortBool{}, SortS{}, SortS{}) : SortS{}
+                [function{}(), total{}(), hook{}("KEQUAL.ite")]
+            axiom{} \rewrites{SortC{}}(
+                \and{SortC{}}(go{}(), \top{SortC{}}()),
+                done{}(ite{}(\dv{SortBool{}}("true"), \dv{SortS{}}("1"), undef{}()))
+            ) [label{}("go")]
+        "#,
+    );
+    let initial = Pattern {
+        term: internal_term(&definition, "go{}()"),
+        constraints: Vec::new(),
+    };
+    let obligation = Predicate::Defined(internal_term(&definition, "undef{}()"));
+
+    let result = execute(&definition, initial.clone(), ExecutionOptions::default());
+    let [first, second] = result.leaves.as_slice() else {
+        panic!("expected two leaves, found {:#?}", result.leaves);
+    };
+    let (trivial, guarded) = if matches!(first.halt_reason, HaltReason::Trivial { .. }) {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    assert!(
+        matches!(&trivial.halt_reason, HaltReason::Trivial { depth: 1, rule_id: Some(rule), .. } if rule == "go"),
+        "{trivial:#?}"
+    );
+    assert_eq!(trivial.pattern.term, initial.term);
+    assert_eq!(
+        trivial.pattern.constraints,
+        vec![Predicate::Not(Box::new(obligation.clone()))],
+        "{trivial:#?}"
+    );
+    assert!(
+        matches!(guarded.halt_reason, HaltReason::Stuck),
+        "{guarded:#?}"
+    );
+    assert_eq!(
+        guarded.pattern.term,
+        internal_term(&definition, r#"done{}(\dv{SortS{}}("1"))"#)
+    );
+    assert_eq!(
+        guarded.pattern.constraints,
+        vec![obligation],
+        "{guarded:#?}"
+    );
+}
+
 /// `top("initial") => pack(partial("v"))` twice, then `pack(X) => top("done")`: the operand
 /// `partial("v")` leaves the term at the second step, so its definedness obligation is no
 /// longer entailed by the term and every leaf keeps it.

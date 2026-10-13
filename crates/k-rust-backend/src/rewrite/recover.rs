@@ -251,6 +251,9 @@ fn recover_by_simplifying_pairs(
 
 pub(super) enum GeneralUnificationRecovery {
     Unified(Vec<(Substitution, Vec<Predicate>)>),
+    /// A solution's definedness depends on an impure application in an operand a conditional
+    /// never evaluates (`crate::deferred`): the attempt's unsupported-hook outcome.
+    Outcome(crate::deferred::DeferredOutcome),
     Bottom,
     Unsupported,
 }
@@ -312,7 +315,7 @@ pub(super) fn recover_general_unification(
             if solutions.is_empty() {
                 return GeneralUnificationRecovery::Bottom;
             }
-            GeneralUnificationRecovery::Unified(finalize_general_unification(
+            match finalize_general_unification(
                 definition,
                 rule,
                 pattern,
@@ -321,10 +324,13 @@ pub(super) fn recover_general_unification(
                 &remainder,
                 fresh_counter,
                 one_state,
-            ))
+            ) {
+                Ok(solutions) => GeneralUnificationRecovery::Unified(solutions),
+                Err(outcome) => GeneralUnificationRecovery::Outcome(outcome),
+            }
         }
         UnificationResult::Unified(unified) => {
-            GeneralUnificationRecovery::Unified(finalize_general_unification(
+            match finalize_general_unification(
                 definition,
                 rule,
                 pattern,
@@ -336,7 +342,10 @@ pub(super) fn recover_general_unification(
                 &[],
                 fresh_counter,
                 one_state,
-            ))
+            ) {
+                Ok(solutions) => GeneralUnificationRecovery::Unified(solutions),
+                Err(outcome) => GeneralUnificationRecovery::Outcome(outcome),
+            }
         }
     }
 }
@@ -351,7 +360,7 @@ fn finalize_general_unification(
     collection_pairs: &[(Term, Term)],
     fresh_counter: &mut FreshCounter,
     one_state: bool,
-) -> Vec<(Substitution, Vec<Predicate>)> {
+) -> Result<Vec<(Substitution, Vec<Predicate>)>, crate::deferred::DeferredOutcome> {
     solutions
         .into_iter()
         .map(|solution| {
@@ -368,9 +377,9 @@ fn finalize_general_unification(
             let (substitution, mut constraints) = matched.into_parts();
             extend_unique(
                 &mut constraints,
-                collection_unification_definedness(definition, collection_pairs, &substitution),
+                collection_unification_definedness(definition, collection_pairs, &substitution)?,
             );
-            (substitution, constraints)
+            Ok((substitution, constraints))
         })
         .collect()
 }
@@ -379,19 +388,19 @@ pub(crate) fn collection_unification_definedness(
     definition: &BackendDefinition,
     pairs: &[(Term, Term)],
     substitution: &Substitution,
-) -> Vec<Predicate> {
+) -> Result<Vec<Predicate>, crate::deferred::DeferredOutcome> {
     let mut conditions = Vec::new();
     for (left, right) in pairs {
         extend_unique(
             &mut conditions,
-            ceil_term(definition, &substitute(left, substitution)),
+            ceil_term(definition, &substitute(left, substitution))?,
         );
         extend_unique(
             &mut conditions,
-            ceil_term(definition, &substitute(right, substitution)),
+            ceil_term(definition, &substitute(right, substitution))?,
         );
     }
-    conditions
+    Ok(conditions)
 }
 
 /// Recover first-order narrowing when a functional pattern is matched by a symbolic
@@ -451,7 +460,7 @@ pub(super) fn recover_functional_symbolic_match(
                 .unwrap_or(false)
         );
         let definedness = if contains_function_pattern(&rule_term) {
-            ceil_term(definition, &rule_term)
+            ceil_term(definition, &rule_term).ok()?
         } else {
             Vec::new()
         };
@@ -946,8 +955,8 @@ pub(super) fn recover_map_not_in_keys_matches(
         }]);
     }
 
-    let mut conditions = ceil_term(definition, &key);
-    extend_unique(&mut conditions, ceil_term(definition, &map));
+    let mut conditions = ceil_term(definition, &key).ok()?;
+    extend_unique(&mut conditions, ceil_term(definition, &map).ok()?);
     for (map_key, _) in entries {
         extend_unique(
             &mut conditions,
@@ -1173,11 +1182,17 @@ fn bool_domain_value(term: &Term) -> Option<bool> {
 /// selects it: an `ite` application denotes its first branch where the condition is `true` and
 /// its second where it is `false`, so the two guarded matches cover exactly its values, without
 /// teaching the syntax-directed matcher about branching.
+///
+/// Each branch's condition is decided under the path first (`refuted`), and a branch it refutes
+/// is dropped before its operand is matched: the operand of a branch the path excludes is an
+/// operand the conditional never evaluates (`crate::deferred`), and matching it re-enters the
+/// rule attempt, which simplifies it. A feasible branch's operand is that branch's taken operand.
 pub(super) fn recover_ite_matches(
     definition: &BackendDefinition,
     substitution: Substitution,
     remainder: &[(Term, Term)],
-) -> Option<Vec<PartialRuleMatch>> {
+    refuted: &mut dyn FnMut(&Predicate) -> Stoppable<bool>,
+) -> Option<Stoppable<Vec<PartialRuleMatch>>> {
     let (index, side, condition, then_pair, else_pair) =
         remainder
             .iter()
@@ -1203,6 +1218,15 @@ pub(super) fn recover_ite_matches(
 
     let mut recovered = Vec::new();
     for (value, (pattern, subject)) in [(true, then_pair), (false, else_pair)] {
+        if matches!(side, SplitSide::Subject) {
+            let condition =
+                Predicate::Equals(substitute(&condition, &substitution), Term::bool(value));
+            match refuted(&condition) {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(stop) => return Some(Err(stop)),
+            }
+        }
         let matched = match_terms_in_definition(MatchMode::Rewrite, definition, &pattern, &subject);
         let (found, mut branch_remainder) = match matched {
             MatchResult::Failed(_) => continue,
@@ -1242,7 +1266,7 @@ pub(super) fn recover_ite_matches(
             remainder: branch_remainder,
         });
     }
-    Some(recovered)
+    Some(Ok(recovered))
 }
 
 pub(super) fn recover_overload_symbolic_match(

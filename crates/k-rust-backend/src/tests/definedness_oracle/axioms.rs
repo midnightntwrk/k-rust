@@ -843,7 +843,8 @@ fn higher_group_applies(
                 let requires = higher
                     .requires
                     .instantiate(&substitution)
-                    .with_definedness(backend, &[]);
+                    .with_definedness(backend, &[])
+                    .unwrap();
                 if decide(backend, requires)? {
                     return Some(true);
                 }
@@ -1103,7 +1104,8 @@ fn instances(
             let requires = rule
                 .requires
                 .instantiate(&valuation)
-                .with_definedness(backend, &[]);
+                .with_definedness(backend, &[])
+                .unwrap();
             match decide(backend, requires) {
                 Some(true) => {}
                 Some(false) => continue,
@@ -1127,7 +1129,8 @@ fn instances(
                     backend,
                     rule.ensures
                         .instantiate(&valuation)
-                        .with_definedness(backend, &[]),
+                        .with_definedness(backend, &[])
+                        .unwrap(),
                 )
             };
             tally.instances += 1;

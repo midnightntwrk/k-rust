@@ -400,6 +400,7 @@ fn logical_rule_predicate(boolean_sort: &Sort, predicate: &Predicate) -> Predica
         Predicate::True
         | Predicate::False
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(_, _)
         | Predicate::Absent(_) => predicate.clone(),
@@ -573,6 +574,7 @@ fn predicate_as_boolean_term(
         Predicate::Iff(left, right) => hooked("BOOL.eq", vec![recurse(left)?, recurse(right)?]),
         Predicate::Term(_)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(_, _)
         | Predicate::Absent(_)
@@ -623,7 +625,7 @@ fn predicate_pattern_with_terms(
                 right: Box::new(term(right)),
             }
         }
-        Predicate::Ceil(value) => kore::Pattern::Ceil {
+        Predicate::Ceil(value) | Predicate::Defined(value) => kore::Pattern::Ceil {
             operand_sort: Box::new(sort(&value.sort())),
             result_sort: sort(result_sort),
             argument: Box::new(term(value)),
@@ -867,6 +869,7 @@ fn rename_capturing_binders(predicate: &Predicate) -> Option<Predicate> {
         | Predicate::Term(_)
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         // `Absence::new` names an absence's binder apart from its key and rest.
@@ -1288,7 +1291,7 @@ fn predicate_node<'t>(
                 right: External::Term(right),
             }
         }
-        Predicate::Ceil(value) => PatternNode::Ceil {
+        Predicate::Ceil(value) | Predicate::Defined(value) => PatternNode::Ceil {
             operand_sort: sort_of(value),
             result_sort: result(),
             argument: External::Term(value),

@@ -233,6 +233,7 @@ fn has_binder(predicate: &Predicate) -> bool {
         | Predicate::Term(_)
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_) => false,

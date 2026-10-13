@@ -653,6 +653,7 @@ pub(crate) fn rename_predicate(predicate: &Predicate, context: &AlphaContext) ->
         Term(term) => Term(rename_term(term, context)),
         Equals(left, right) => Equals(rename_term(left, context), rename_term(right, context)),
         Ceil(term) => Ceil(rename_term(term, context)),
+        Defined(term) => Defined(rename_term(term, context)),
         Floor(term) => Floor(rename_term(term, context)),
         In(left, right) => In(rename_term(left, context), rename_term(right, context)),
         Absent(absence) => absence.map_terms(|term| rename_term(term, context)),

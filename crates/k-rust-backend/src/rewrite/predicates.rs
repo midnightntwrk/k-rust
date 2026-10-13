@@ -307,6 +307,7 @@ fn substitute_predicate(predicate: &Predicate, substitution: &Substitution) -> P
             substitute(right, substitution),
         ),
         Predicate::Ceil(term) => Predicate::Ceil(substitute(term, substitution)),
+        Predicate::Defined(term) => Predicate::Defined(substitute(term, substitution)),
         Predicate::Floor(term) => Predicate::Floor(substitute(term, substitution)),
         Predicate::In(left, right) => Predicate::In(
             substitute(left, substitution),
@@ -540,9 +541,12 @@ pub(crate) fn predicate_truth(predicate: &Predicate) -> Truth {
             (Truth::True, Truth::False) | (Truth::False, Truth::True) => Truth::False,
             _ => Truth::Unknown,
         },
-        Predicate::Ceil(term) if term.attributes().constructor_like => Truth::True,
+        Predicate::Ceil(term) | Predicate::Defined(term) if term.attributes().constructor_like => {
+            Truth::True
+        }
         Predicate::Equals(..)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_)

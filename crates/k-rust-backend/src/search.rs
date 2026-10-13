@@ -952,11 +952,23 @@ fn search_graph_collecting(
             solver,
             &mut diagnostics,
         ) {
-            Ok(None) => {
+            Ok(Ok(None)) => {
                 initial_without_instance += 1;
                 continue;
             }
-            Ok(Some(defined_where)) => defined_where,
+            Ok(Ok(Some(defined_where))) => defined_where,
+            Ok(Err(error)) => {
+                incomplete.push(IncompleteSearch::Simplification {
+                    state: materialize_search_state(
+                        state,
+                        observation_head,
+                        &diagnostics,
+                        &observation_log,
+                    ),
+                    error,
+                });
+                continue;
+            }
             Err(stop) => publish_stop!(
                 materialize_search_state(state, observation_head, &diagnostics, &observation_log),
                 stop
@@ -1271,9 +1283,9 @@ fn initial_state_definedness(
     max_simplification_iterations: usize,
     solver: &dyn SmtSolver,
     diagnostics: &mut PathDiagnostics,
-) -> Stoppable<Option<Vec<Predicate>>> {
+) -> Stoppable<Result<Option<Vec<Predicate>>, SimplificationError>> {
     if state.depth != 0 || !is_rewritable {
-        return Ok(Some(Vec::new()));
+        return Ok(Ok(Some(Vec::new())));
     }
     let options = SimplificationOptions {
         max_iterations: max_simplification_iterations,
@@ -1284,21 +1296,22 @@ fn initial_state_definedness(
     });
     diagnostics.extend(&emitted);
     if let FactsVerdict::Refuted = verdict? {
-        return Ok(None);
+        return Ok(Ok(None));
     }
     let (definedness, emitted) =
         diagnostic::collect(|| initial_definedness(definition, &state.pattern, options, solver));
     diagnostics.extend(&emitted);
     Ok(match definedness? {
-        InitialDefinedness::Undefined => None,
+        InitialDefinedness::Undefined => Ok(None),
         InitialDefinedness::Where(definedness) => {
             if !definedness.is_empty() {
                 diagnostics.extend(&[BackendDiagnostic::UndefinedInitialInstances {
                     definedness: definedness.clone(),
                 }]);
             }
-            Some(definedness)
+            Ok(Some(definedness))
         }
+        InitialDefinedness::Unsupported(error) => Err(error),
     })
 }
 
@@ -1751,11 +1764,18 @@ fn search_paths_collecting(
             solver,
             &mut path.diagnostics,
         ) {
-            Ok(None) => {
+            Ok(Ok(None)) => {
                 initial_bottom = true;
                 continue;
             }
-            Ok(Some(defined_where)) => defined_where,
+            Ok(Ok(Some(defined_where))) => defined_where,
+            Ok(Err(error)) => {
+                incomplete.push(IncompleteSearch::Simplification {
+                    state: path.materialize_state(&observation_log),
+                    error,
+                });
+                continue;
+            }
             Err(stop) => publish_stop!(stop),
         };
         // A path that reaches a state it already visited, up to the names of the variables the
@@ -2569,23 +2589,28 @@ fn match_condition(
     // `\bottom`: the solver reads a partial function as a total one and would give it a value.
     let subject_knowledge = pattern_knowledge(definition, subject);
     let mut constraints = subject.constraints.clone();
-    constraints.extend(
-        instantiate_constraints(&target.constraints, &substitution)
-            .with_definedness(definition, &subject_knowledge),
-    );
+    match instantiate_constraints(&target.constraints, &substitution)
+        .with_definedness(definition, &subject_knowledge)
+    {
+        Ok(instance) => constraints.extend(instance),
+        Err(outcome) => return Ok(Err(PatternMatchError::Simplification(outcome.into()))),
+    }
     // The knowledge the subject's constraints do not already carry is decided with the match
     // condition, not reported in it: it holds on every instance of the subject, which the
     // match's state carries. The subject's constraints themselves travel in the condition, and
     // so does a fact that an equation of the target rewrites (`normalize_match_condition`).
     let facts = knowledge_facts(subject_knowledge, &subject.constraints);
-    let (substitution, constraints, facts) = normalize_match_condition(
+    let (substitution, constraints, facts) = match normalize_match_condition(
         definition,
         substitution,
         constraints,
         subject.constraints.len(),
         facts,
         output_variables,
-    );
+    ) {
+        Ok(normalized) => normalized,
+        Err(outcome) => return Ok(Err(PatternMatchError::Simplification(outcome.into()))),
+    };
     // A match reports that an instance exists, so the facts are decided before they are taken as
     // known (I7'): a refuted fact means the subject has no instance, and so no instance of it
     // matches. An undecided fact stays a fact about the subject, not a condition of the match.
@@ -2755,7 +2780,7 @@ fn normalize_match_condition(
     state_constraints: usize,
     mut facts: Vec<Predicate>,
     output_variables: &BTreeSet<crate::term::Variable>,
-) -> (Substitution, Vec<Predicate>, UndecidedFacts) {
+) -> Result<(Substitution, Vec<Predicate>, UndecidedFacts), crate::deferred::DeferredOutcome> {
     let _span = measure::algorithm_span(Algorithm::BackendSubstitutionExtractOutput);
     let mut solved = Substitution::new();
     // `on_every_instance[i]`: constraint `i` holds on every instance of the state.
@@ -2809,7 +2834,9 @@ fn normalize_match_condition(
         // No round adds a fact once none remains, so the statuses matter only while some do.
         if !facts.is_empty() {
             if equation_on_every_instance {
-                facts = eliminate_bindings(definition, &facts, &binding, &[]);
+                // A fact whose binding's definedness cannot be stated is left out, which only
+                // weakens the facts.
+                facts = eliminate_bindings(definition, &facts, &binding, &[]).unwrap_or_default();
             } else {
                 for (holds, constraint) in on_every_instance.iter_mut().zip(&constraints) {
                     if *holds && mentions_variable(constraint, &variable) {
@@ -2826,7 +2853,7 @@ fn normalize_match_condition(
         }
         // `eliminate_bindings` keeps the order of `constraints` and appends the obligations,
         // which hold wherever the equation does.
-        constraints = eliminate_bindings(definition, &constraints, &binding, &facts);
+        constraints = eliminate_bindings(definition, &constraints, &binding, &facts)?;
         on_every_instance.resize(constraints.len(), equation_on_every_instance);
     }
 
@@ -2837,7 +2864,7 @@ fn normalize_match_condition(
     // value is `s[t/x]` for bindings `y ↦ s` and `x ↦ t`, whose definedness `⌈s⌉[t/x] ∧ ⌈t⌉`
     // is among the constraints or the facts. No constraint mentions a solved variable, so
     // `solved` is not applied to them again.
-    (output, constraints, UndecidedFacts::new(facts))
+    Ok((output, constraints, UndecidedFacts::new(facts)))
 }
 
 /// Whether a term of `predicate` has `variable` free.
@@ -5351,7 +5378,8 @@ mod tests {
             0,
             Vec::new(),
             &BTreeSet::from([result_variable.clone()]),
-        );
+        )
+        .unwrap();
 
         assert_eq!(output, Substitution::from([(result_variable, value)]));
         assert!(constraints.is_empty());

@@ -364,8 +364,15 @@ impl TranslationState {
                     self.translate_predicate(right)?,
                 ],
             )),
-            Predicate::Ceil(term) if term.attributes().constructor_like => Ok(SExpr::atom("true")),
+            Predicate::Ceil(term) | Predicate::Defined(term)
+                if term.attributes().constructor_like =>
+            {
+                Ok(SExpr::atom("true"))
+            }
             predicate @ Predicate::Ceil(_) => Ok(self.abstract_predicate(predicate)),
+            // A deferred atom is the opaque atom of `\ceil(t)`, never a translation of `t`, under
+            // which an uninterpreted application would read as defined.
+            Predicate::Defined(term) => Ok(self.abstract_predicate(&Predicate::Ceil(term.clone()))),
             // An absence is opaque to the solver: one Boolean per key and rest.
             predicate @ (Predicate::Floor(_) | Predicate::In(..) | Predicate::Absent(_)) => {
                 Ok(self.abstract_predicate(predicate))

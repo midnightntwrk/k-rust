@@ -1277,6 +1277,180 @@ fn a_claim_condition_that_defines_a_right_hand_side_operand_keeps_it_proven() {
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
+/// Claims through operands `#if` discards: guarded recursion (`fact3`), a diverging discarded
+/// operand on either side of a claim, and a symbolic condition the claim's condition decides.
+const DISCARDED_OPERAND_CLAIMS: &str = r#"
+module PROVE2
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "go" "(" Int ")" [symbol(go)]
+               | "a" "(" Bool ")" [symbol(a)]
+               | "b" "(" ")"      [symbol(b)]
+               | "lhs" "(" Int ")" [symbol(lhs)]
+               | "a2" "(" Int ")" [symbol(a2)]
+  syntax Int ::= fact(Int) [function, symbol(fact)]
+               | loopi()   [function, symbol(loopi)]
+  rule fact(N) => #if N <=Int 0 #then 1 #else N *Int fact(N -Int 1) #fi
+  rule loopi() => loopi() +Int 1
+  configuration <k> $PGM:Exp </k>
+  rule <k> go(N) => fact(N) </k>
+  rule <k> a(_) => 1 </k>
+  rule <k> b() => #if true #then 1 #else loopi() #fi </k>
+  rule <k> lhs(I) => I </k>
+  rule <k> a2(_) => 1 </k>
+endmodule
+
+module PROVE2-SPEC
+  imports PROVE2
+  claim [fact3]: <k> go(3) => 6 </k>
+  claim [rhsloop]: <k> a(true) => #if true #then 1 #else loopi() #fi </k>
+  claim [symloop]: <k> a(B) => #if B #then 1 #else loopi() #fi </k> requires B
+  claim [bloop]: <k> b() => 1 </k>
+  claim [bboth]: <k> b() => #if true #then 1 #else loopi() #fi </k>
+  claim [lhsite]: <k> lhs(#if true #then 1 #else loopi() #fi) => 1 </k>
+  claim [symloop2]: <k> a2(X) => #if X >Int 0 #then 1 #else loopi() #fi </k> requires X >Int 5
+endmodule
+"#;
+
+/// A discarded operand is never evaluated on a proof route either: no claim below halts on the
+/// stack. A state that reaches the value under the discarded operand's open obligation has a
+/// trivial leaf where the obligation fails, so `fact3`, `bloop` and `bboth` are not proven
+/// (they are with vacuous results allowed); a destination whose discarded operand is undefined
+/// on some instance is not reached there (`rhsloop` and `symloop` are stuck), and a claim's
+/// left-hand side with one is proven, since the claim holds vacuously where it is undefined.
+#[test]
+fn a_claim_through_a_discarded_operand_never_evaluates_it() {
+    let kore = compile(DISCARDED_OPERAND_CLAIMS, "PROVE2-SPEC", "PROVE2");
+    let result = |claim: &str, allow_vacuous: bool| {
+        prove(
+            &kore,
+            "PROVE2-SPEC",
+            &format!("PROVE2-SPEC.{claim}"),
+            ProveRequest {
+                allow_vacuous,
+                ..ProveRequest::default()
+            },
+        )
+    };
+    let has = |result: &ProofResultOutput, outcome: ProofLeafOutcomeOutput| {
+        result.leaves.iter().any(|leaf| leaf.outcome == outcome)
+    };
+    for claim in ["fact3", "bloop", "bboth"] {
+        let failed = result(claim, false);
+        assert_eq!(failed.status, "failed", "{claim}: {failed:?}");
+        assert!(
+            has(&failed, ProofLeafOutcomeOutput::Trivial),
+            "{claim}: {failed:?}"
+        );
+        assert_eq!(
+            result(claim, true).status,
+            "proven",
+            "{claim} allowing vacuous results"
+        );
+    }
+    // `symloop2`'s condition `X >Int 0` is decided by the solver from `X >Int 5`, before the
+    // `else` branch's equation `1 = loopi()` would be simplified.
+    for claim in ["rhsloop", "symloop", "symloop2"] {
+        let failed = result(claim, false);
+        assert_eq!(failed.status, "failed", "{claim}: {failed:?}");
+        assert!(
+            has(&failed, ProofLeafOutcomeOutput::Stuck),
+            "{claim}: {failed:?}"
+        );
+    }
+    let proven = result("lhsite", false);
+    assert_eq!(proven.status, "proven", "{proven:?}");
+    for claim in [
+        "fact3", "rhsloop", "symloop", "symloop2", "bloop", "bboth", "lhsite",
+    ] {
+        assert!(
+            !has(
+                &result(claim, false),
+                ProofLeafOutcomeOutput::StackExhausted
+            ),
+            "{claim}"
+        );
+    }
+}
+
+/// Claims whose conditionals discard a division by a variable the claim's condition keeps
+/// nonzero, and their false twins.
+const DISCARDED_DIVISION: &str = r#"
+module D2
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool | q(Int) [symbol(q)] | r(Int, Int) [symbol(r)] | s(Bool, Int) [symbol(s)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> q(X) => #if X >Int 5 #then 1 #else 10 /Int X #fi </k>
+  rule <k> r(W0, W1) => #if W1 ==Int 0 #then 0 #else W0 /Int W1 #fi </k>
+  rule <k> s(B, X) => B orElseBool (10 /Int X ==Int 1) </k>
+endmodule
+
+module D2-SPEC
+  imports D2
+  claim [qpos]: <k> q(X) => 1 </k> requires X >Int 5
+  claim [rnz]: <k> r(W0, W1) => W0 /Int W1 </k> requires W1 >Int 0
+  claim [rz]: <k> r(_W0, W1) => 0 </k> requires W1 ==Int 0
+  claim [sor]: <k> s(B, X) => true </k> requires B andBool X >Int 0
+  claim [sorf]: <k> s(B, _X) => true </k> requires B
+endmodule
+"#;
+
+/// The definedness of a discarded division over variables and literals is the instance of its
+/// ceil equation (`W1 =/=Int 0`), which the solver decides from the claim's condition: `qpos`,
+/// `rnz` (the `/Word` idiom) and `sor` are proven. `rz` discards `W0 /Int 0` and `sorf` may
+/// divide by zero, so neither is.
+#[test]
+fn a_discarded_division_over_variables_states_its_divisor_condition() {
+    let wrong = unexpected_statuses(
+        DISCARDED_DIVISION,
+        "D2-SPEC",
+        "D2",
+        &[
+            ("qpos", "proven"),
+            ("rnz", "proven"),
+            ("sor", "proven"),
+            ("rz", "failed"),
+            ("sorf", "failed"),
+        ],
+    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A claim whose conditional discards a definedness that depends on a console read is never
+/// proven: its left-hand side or its destination meets the impure application, which is not
+/// performed (`a_discarded_conditional_operand_performs_no_console_effect` in cli.rs).
+const IMPURE_DISCARD: &str = r#"
+requires "domains.md"
+module MARKER
+  imports K-IO
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= a(Int) [symbol(a)] | b(Int) [symbol(b)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> a(N) => b(N) </k>
+endmodule
+
+module MARKER-SPEC
+  imports MARKER
+  claim [m1]: <k> a(X) => b(#if true #then X #else 1 /Int ({#getc(0)}:>Int -Int 81) #fi) </k> requires X ==Int {#getc(0)}:>Int
+  claim [m2]: <k> a(#if true #then 1 #else 1 /Int {#getc(0)}:>Int #fi) => b(#if true #then 1 #else 1 /Int ({#getc(0)}:>Int -Int 81) #fi) </k>
+  claim [m3]: <k> b(#if true #then 1 #else 1 /Int {#getc(0)}:>Int #fi) => b(#if true #then 1 #else 1 /Int ({#getc(0)}:>Int -Int 81) #fi) </k>
+endmodule
+"#;
+
+#[test]
+fn a_claim_through_an_impure_discarded_operand_is_never_proven() {
+    let statuses = claim_statuses(IMPURE_DISCARD, "MARKER-SPEC", "MARKER", &["m1", "m2", "m3"]);
+    for (claim, status) in statuses {
+        assert_ne!(status, "proven", "{claim}");
+    }
+}
+
 /// An anywhere head with `w(X) = mk(1) [anywhere, concrete]` above an `owise` equation
 /// `w(_) = mk(0)`: the first equation says `w(N) = mk(1)` for every `N`, and the `owise`
 /// equation's premise excludes every `N` the first one matches.

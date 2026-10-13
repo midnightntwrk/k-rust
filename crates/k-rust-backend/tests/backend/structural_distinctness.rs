@@ -226,7 +226,7 @@ fn set_definedness_separates_symbolic_elements_whose_roots_differ() {
     ] {
         let set = set_of_elements(&definition, left, right);
         assert_eq!(
-            has_disequality(&ceil_term(&definition, &set)),
+            has_disequality(&ceil_term(&definition, &set).unwrap()),
             needs_disequality,
             "{left}, {right}"
         );
@@ -348,7 +348,7 @@ fn set_definedness_keeps_the_disequality_of_an_anywhere_redex_and_its_normal_for
     let definition = definition(false);
     let set = set_of_cells(&definition, REDEX, NORMAL);
 
-    assert!(has_disequality(&ceil_term(&definition, &set)));
+    assert!(has_disequality(&ceil_term(&definition, &set).unwrap()));
 
     // The same elements after normalization: `wrap(s(z))` becomes `wrap(z)`, so the set holds
     // one element twice. Set concatenation is nilpotent, so it is `\bottom`.
@@ -367,12 +367,14 @@ fn set_definedness_keeps_the_disequality_of_an_anywhere_redex_and_its_normal_for
 fn set_definedness_still_separates_constructor_and_certified_elements() {
     let definition = definition(false);
     let constructors = set_of_cells(&definition, "addr{}(s{}(z{}()))", "addr{}(z{}())");
-    assert!(!has_disequality(&ceil_term(&definition, &constructors)));
+    assert!(!has_disequality(
+        &ceil_term(&definition, &constructors).unwrap()
+    ));
 
     // Before simplification the `tag` applications carry no normal-form certificate; after it,
     // they and `wrap(z)` are certified normal forms, separated without a residual disequality.
     let fresh = set_of_cells(&definition, "tag{}(s{}(z{}()))", "tag{}(z{}())");
-    assert!(has_disequality(&ceil_term(&definition, &fresh)));
+    assert!(has_disequality(&ceil_term(&definition, &fresh).unwrap()));
     for (left, right) in [
         ("tag{}(s{}(z{}()))", "tag{}(z{}())"),
         (NORMAL, "tag{}(z{}())"),
@@ -385,7 +387,7 @@ fn set_definedness_still_separates_constructor_and_certified_elements() {
         .expect("the set should simplify")
         .term;
         assert!(
-            !has_disequality(&ceil_term(&definition, &set)),
+            !has_disequality(&ceil_term(&definition, &set).unwrap()),
             "{left}, {right}"
         );
     }
@@ -414,13 +416,16 @@ fn injections_are_separated_by_sorts_and_certified_normal_forms_only() {
     let wrapped = format!("item{{}}(inj{{SortAddress{{}}, SortKItem{{}}}}({REDEX}))");
     let undecided = simplify_equality(&guarded, sub, &wrapped, &solver);
     assert_ne!(undecided, Predicate::False);
-    assert!(has_disequality(&ceil_term(
-        &guarded,
-        &internal_term(
+    assert!(has_disequality(
+        &ceil_term(
             &guarded,
-            &format!("setConcat{{}}(setItem{{}}({sub}), setItem{{}}({wrapped}))"),
-        ),
-    )));
+            &internal_term(
+                &guarded,
+                &format!("setConcat{{}}(setItem{{}}({sub}), setItem{{}}({wrapped}))"),
+            ),
+        )
+        .unwrap()
+    ));
     // Once `wrap(s(z))` is normalized to the certified `wrap(z)`, a normal form headed by an
     // anywhere production is not the value of an injection.
     assert_eq!(

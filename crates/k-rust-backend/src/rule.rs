@@ -101,6 +101,19 @@ pub enum Predicate {
     Forall(Variable, Box<Predicate>),
     /// A key's absence from the keys of a map, or an element's from a set ([`Absence`]).
     Absent(Absence),
+    /// A deferred-definedness atom: `\ceil(t)`, stated for an operand of `KEQUAL.ite`,
+    /// `BOOL.andThen` or `BOOL.orElse` that is not evaluated (the operand the deciding operand
+    /// discards, or any operand while the deciding operand is not a literal).
+    ///
+    /// It means exactly what `Ceil(t)` means, and is printed as `\ceil(t)`. It differs in how it
+    /// is decided: it is created only by the backend's `deferred_obligations`, never passed to
+    /// `ceil_term` or to the term simplifier, and no definition equation is applied to any part
+    /// of `t` beyond one bounded step; only the predicate simplifier decides it, by these steps
+    /// (folding by pure builtin hooks on literals, ceil equations whose instantiated condition
+    /// those hooks decide or whose instance over hook arithmetic is stated in its place, the key
+    /// condition of a collection of literal keys, one equation step selected by matching alone,
+    /// a known fact, and the solver, which reads it as the same opaque atom as `\ceil(t)`).
+    Defined(Term),
 }
 
 /// The map or set an [`Absence`] is about.
@@ -313,7 +326,9 @@ impl Predicate {
     pub fn visit_terms(&self, visitor: &mut impl FnMut(&Term)) {
         match self {
             Self::True | Self::False => {}
-            Self::Term(term) | Self::Ceil(term) | Self::Floor(term) => visitor(term),
+            Self::Term(term) | Self::Ceil(term) | Self::Defined(term) | Self::Floor(term) => {
+                visitor(term)
+            }
             Self::Equals(left, right) | Self::In(left, right) => {
                 visitor(left);
                 visitor(right);
@@ -341,7 +356,7 @@ impl Predicate {
         measure::bump(Counter::SimplifyPredicateNodesVisited);
         match self {
             Self::True | Self::False => BTreeSet::new(),
-            Self::Term(term) | Self::Ceil(term) | Self::Floor(term) => {
+            Self::Term(term) | Self::Ceil(term) | Self::Defined(term) | Self::Floor(term) => {
                 term.attributes().variables.to_btree_set()
             }
             Self::Equals(left, right) | Self::In(left, right) => {
@@ -3170,6 +3185,7 @@ fn rename_predicate(
             Predicate::Equals(rename_term(left, rename), rename_term(right, rename))
         }
         Predicate::Ceil(term) => Predicate::Ceil(rename_term(term, rename)),
+        Predicate::Defined(term) => Predicate::Defined(rename_term(term, rename)),
         Predicate::Floor(term) => Predicate::Floor(rename_term(term, rename)),
         Predicate::In(left, right) => {
             Predicate::In(rename_term(left, rename), rename_term(right, rename))
@@ -3382,9 +3398,10 @@ fn mentions_any(predicate: &Predicate, variables: &BTreeSet<Variable>) -> bool {
     measure::bump(Counter::SimplifyPredicateNodesVisited);
     match predicate {
         Predicate::True | Predicate::False => false,
-        Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
-            !term.attributes().variables.is_disjoint(variables)
-        }
+        Predicate::Term(term)
+        | Predicate::Ceil(term)
+        | Predicate::Defined(term)
+        | Predicate::Floor(term) => !term.attributes().variables.is_disjoint(variables),
         Predicate::Equals(left, right) | Predicate::In(left, right) => {
             !left.attributes().variables.is_disjoint(variables)
                 || !right.attributes().variables.is_disjoint(variables)
@@ -3411,9 +3428,10 @@ pub(crate) fn mentions_free(predicate: &Predicate, variable: &Variable) -> bool 
     measure::bump(Counter::SimplifyPredicateNodesVisited);
     match predicate {
         Predicate::True | Predicate::False => false,
-        Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
-            term.attributes().variables.contains(variable)
-        }
+        Predicate::Term(term)
+        | Predicate::Ceil(term)
+        | Predicate::Defined(term)
+        | Predicate::Floor(term) => term.attributes().variables.contains(variable),
         Predicate::Equals(left, right) | Predicate::In(left, right) => {
             left.attributes().variables.contains(variable)
                 || right.attributes().variables.contains(variable)
@@ -3639,6 +3657,7 @@ fn collect_binders(predicate: &Predicate, variables: &mut BTreeSet<Variable>) {
         | Predicate::Term(_)
         | Predicate::Equals(..)
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_) => {}

@@ -34,6 +34,7 @@ use k_rust_kore::measure::{self, Algorithm};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
+    deferred::DeferredOutcome,
     definition::BackendDefinition,
     matching::{
         InjectionEquality, MatchMode, MatchResult, SortGraph, match_injection_equality,
@@ -63,21 +64,33 @@ pub(crate) fn rule_is_defined(definition: &BackendDefinition, rule: &RewriteRule
     let RuleRhs::Term(rhs) = &rule.rhs else {
         return false;
     };
-    let lhs = ceil_term(definition, &rule.lhs);
-    let requires = rule
-        .requires
-        .iter()
-        .flat_map(|predicate| ceil_predicate(definition, predicate))
-        .collect::<Vec<_>>();
-    let mut rhs = ceil_term(definition, rhs);
-    rhs.retain(|predicate| !lhs.contains(predicate) && !requires.contains(predicate));
-    requires.is_empty() && rhs.is_empty()
+    // A rule whose definedness depends on an impure application in an operand a conditional
+    // never evaluates is not shown defined.
+    let defined = || -> Result<bool, DeferredOutcome> {
+        let lhs = ceil_term(definition, &rule.lhs)?;
+        let mut requires = Vec::new();
+        for predicate in rule.requires.iter() {
+            requires.extend(ceil_predicate(definition, predicate)?);
+        }
+        let mut rhs = ceil_term(definition, rhs)?;
+        rhs.retain(|predicate| !lhs.contains(predicate) && !requires.contains(predicate));
+        Ok(requires.is_empty() && rhs.is_empty())
+    };
+    defined().unwrap_or(false)
 }
 
 /// The definedness obligations of `term`, deduplicated: the ceil of every partial application
 /// (or the instance of its ceil equation), the ceil of every set variable, and the disequalities
 /// and not-in atoms of every map and set, in the order `ceil_term_walk` gives.
-pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> {
+///
+/// An operand of `#if`, `andThenBool` or `orElseBool` that is not evaluated states its
+/// definedness as deferred atoms (`crate::deferred`); when that definedness depends on an impure
+/// application the result is the [`DeferredOutcome`], which the caller turns into its step's
+/// unsupported-hook stop: no constraint states it.
+pub fn ceil_term(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Result<Vec<Predicate>, DeferredOutcome> {
     let _span = measure::algorithm_span(Algorithm::BackendDefinedness);
     ceil_term_walk(definition, term, AtCeilFree::Skip)
 }
@@ -88,7 +101,7 @@ pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> 
 pub(crate) fn ceil_term_without_attribute(
     definition: &BackendDefinition,
     term: &Term,
-) -> Vec<Predicate> {
+) -> Result<Vec<Predicate>, DeferredOutcome> {
     ceil_term_walk(definition, term, AtCeilFree::Descend)
 }
 
@@ -139,7 +152,7 @@ fn ceil_term_walk(
     definition: &BackendDefinition,
     term: &Term,
     at_ceil_free: AtCeilFree,
-) -> Vec<Predicate> {
+) -> Result<Vec<Predicate>, DeferredOutcome> {
     let mut predicates = Vec::new();
     let mut children = Vec::new();
     let mut work = vec![Pending::Term(term)];
@@ -164,7 +177,7 @@ fn ceil_term_walk(
             at_ceil_free,
             &mut predicates,
             &mut children,
-        );
+        )?;
         if !after.is_empty() {
             work.push(Pending::Obligations(after));
         }
@@ -172,7 +185,7 @@ fn ceil_term_walk(
         work.extend(children.drain(..).rev().map(Pending::Term));
     }
     deduplicate(&mut predicates);
-    predicates
+    Ok(predicates)
 }
 
 /// Debug builds: verify the `ceil_free` shortcut on `term`, a subterm [`ceil_term_walk`] skips.
@@ -228,7 +241,8 @@ fn check_ceil_free(definition: &BackendDefinition, term: &Term) {
             AtCeilFree::Descend,
             &mut obligations,
             &mut children,
-        );
+        )
+        .expect("a ceil_free term holds no impure operand of a short-circuit hook");
         assert!(
             obligations.is_empty() && after.is_empty(),
             "a ceil_free term has definedness obligations: {term:?}"
@@ -446,7 +460,7 @@ fn ceil_term_node<'a>(
     at_ceil_free: AtCeilFree,
     before: &mut Vec<Predicate>,
     children: &mut Vec<&'a Term>,
-) -> Vec<Predicate> {
+) -> Result<Vec<Predicate>, DeferredOutcome> {
     let skip = at_ceil_free == AtCeilFree::Skip;
     match term.kind() {
         TermKind::Application {
@@ -460,16 +474,32 @@ fn ceil_term_node<'a>(
             }
             // Applications are strict in their arguments. Keep this knowledge explicit
             // even when the parent's ceil is opaque to predicate simplification and SMT.
-            children.extend(arguments);
-            Vec::new()
+            // An operand of `KEQUAL.ite`, `BOOL.andThen` or `BOOL.orElse` that is never
+            // evaluated (`crate::deferred`) states its definedness as deferred atoms of its
+            // fold by builtin hooks, whatever its deciding operand: this walk also runs on
+            // unsimplified terms (an instantiated `requires`, a claim's left-hand side), where
+            // the deciding operand may be a literal.
+            let deferred = crate::deferred::deferred_positions(term);
+            if deferred.is_empty() {
+                children.extend(arguments);
+            } else {
+                for (position, argument) in arguments.iter().enumerate() {
+                    if deferred.contains(&position) {
+                        before.extend(deferred_operand_obligations(definition, argument)?);
+                    } else {
+                        children.push(argument);
+                    }
+                }
+            }
+            Ok(Vec::new())
         }
         TermKind::And(left, right) => {
             children.extend([left, right]);
-            Vec::new()
+            Ok(Vec::new())
         }
         TermKind::Injection { term, .. } => {
             children.push(term);
-            Vec::new()
+            Ok(Vec::new())
         }
         TermKind::Map {
             definition: map,
@@ -489,7 +519,7 @@ fn ceil_term_node<'a>(
             }
             children.extend(rest);
             if skip && rest.is_none() && keys_apart(&entries.summary()) {
-                return Vec::new();
+                return Ok(Vec::new());
             }
             let keys = entries.iter().map(|(key, _)| key).collect::<Vec<_>>();
             let groups = KeyGroups::new(&keys);
@@ -506,7 +536,7 @@ fn ceil_term_node<'a>(
                     ));
                 }
             }
-            after
+            Ok(after)
         }
         TermKind::List { heads, rest, .. } => {
             push_list_items(definition, heads, skip, children);
@@ -514,7 +544,7 @@ fn ceil_term_node<'a>(
                 children.push(middle);
                 push_list_items(definition, tails, skip, children);
             }
-            Vec::new()
+            Ok(Vec::new())
         }
         TermKind::Set {
             definition: set,
@@ -530,7 +560,7 @@ fn ceil_term_node<'a>(
             }
             children.extend(rest);
             if skip && rest.is_none() && keys_apart(&elements.summary()) {
-                return Vec::new();
+                return Ok(Vec::new());
             }
             let keys = elements.iter().collect::<Vec<_>>();
             let groups = KeyGroups::new(&keys);
@@ -547,16 +577,31 @@ fn ceil_term_node<'a>(
                     ));
                 }
             }
-            after
+            Ok(after)
         }
-        TermKind::DomainValue { .. } => Vec::new(),
+        TermKind::DomainValue { .. } => Ok(Vec::new()),
         // KORE element variables range over elements and are therefore defined. Set variables
         // range over arbitrary patterns, so their definedness remains an explicit obligation.
-        TermKind::Variable(variable) if variable.kind == VariableKind::Element => Vec::new(),
+        TermKind::Variable(variable) if variable.kind == VariableKind::Element => Ok(Vec::new()),
         TermKind::Variable(_) => {
             before.push(Predicate::Ceil(term.clone()));
-            Vec::new()
+            Ok(Vec::new())
         }
+    }
+}
+
+/// The definedness of `operand`, a short-circuit operand that is not evaluated: `\bottom`
+/// when builtin hooks show it undefined, otherwise the deferred atoms of its fold.
+///
+/// An operand whose definedness depends on an impure application is the [`DeferredOutcome`].
+fn deferred_operand_obligations(
+    definition: &BackendDefinition,
+    operand: &Term,
+) -> Result<Vec<Predicate>, DeferredOutcome> {
+    use crate::deferred::{Folded, deferred_obligations, fold_hooks_or_keep};
+    match fold_hooks_or_keep(definition, operand) {
+        Folded::Bottom(_) => Ok(vec![Predicate::False]),
+        Folded::Term(folded) => deferred_obligations(definition, &folded),
     }
 }
 
@@ -944,9 +989,9 @@ pub(crate) fn condition_definedness(
     definition: &BackendDefinition,
     conditions: Vec<Predicate>,
     known: &[Predicate],
-) -> Vec<Predicate> {
+) -> Result<Vec<Predicate>, DeferredOutcome> {
     if predicates_are_ceil_free(&conditions) {
-        return conditions;
+        return Ok(conditions);
     }
     let _span = measure::algorithm_span(Algorithm::BackendDefinedness);
     let mut obligations = Vec::new();
@@ -957,10 +1002,10 @@ pub(crate) fn condition_definedness(
             condition,
             known,
             &mut obligations,
-        ));
+        )?);
     }
     if obligations.is_empty() {
-        return rewritten;
+        return Ok(rewritten);
     }
     let mut seen = FxHashSet::with_capacity_and_hasher(
         known.len() + rewritten.len() + obligations.len(),
@@ -975,7 +1020,7 @@ pub(crate) fn condition_definedness(
         }
     }
     result.extend(rewritten);
-    result
+    Ok(result)
 }
 
 /// Whether every term of `predicates` has its stored `ceil_free` attribute, one read per term:
@@ -1015,9 +1060,13 @@ pub(crate) fn pattern_knowledge<'a>(
     if pattern.term.attributes().ceil_free() && predicates_are_ceil_free(&pattern.constraints) {
         return Cow::Borrowed(&pattern.constraints);
     }
-    let mut knowledge = condition_definedness(definition, pattern.constraints.clone(), &[]);
+    // Facts are consequences of the pattern, so leaving one out only weakens what is known: a
+    // definedness that depends on an impure application in an operand a conditional never
+    // evaluates (`crate::deferred`) is not a fact this states, and the constraints stand as given.
+    let mut knowledge = condition_definedness(definition, pattern.constraints.clone(), &[])
+        .unwrap_or_else(|_| pattern.constraints.clone());
     let mut known = knowledge.iter().cloned().collect::<FxHashSet<_>>();
-    for predicate in ceil_term(definition, &pattern.term) {
+    for predicate in ceil_term(definition, &pattern.term).unwrap_or_default() {
         if known.insert(predicate.clone()) {
             knowledge.push(predicate);
         }
@@ -1150,20 +1199,20 @@ fn hoist_condition_definedness(
     predicate: &Predicate,
     known: &[Predicate],
     obligations: &mut Vec<Predicate>,
-) -> Predicate {
+) -> Result<Predicate, DeferredOutcome> {
     if let Predicate::And(conjuncts) = predicate {
-        return Predicate::And(
+        return Ok(Predicate::And(
             conjuncts
                 .iter()
                 .map(|conjunct| {
                     hoist_condition_definedness(definition, conjunct, known, obligations)
                 })
-                .collect(),
-        );
+                .collect::<Result<_, _>>()?,
+        ));
     }
     if let Some(term) = condition_atom_term(definition, predicate, known) {
-        obligations.extend(ceil_term_walk(definition, term, AtCeilFree::Skip));
-        return predicate.clone();
+        obligations.extend(ceil_term_walk(definition, term, AtCeilFree::Skip)?);
+        return Ok(predicate.clone());
     }
     nested_condition_definedness(definition, predicate, known)
 }
@@ -1174,52 +1223,53 @@ fn nested_condition_definedness(
     definition: &BackendDefinition,
     predicate: &Predicate,
     known: &[Predicate],
-) -> Predicate {
+) -> Result<Predicate, DeferredOutcome> {
     let nested =
-        |inner: &Predicate| Box::new(nested_condition_definedness(definition, inner, known));
-    match predicate {
+        |inner: &Predicate| nested_condition_definedness(definition, inner, known).map(Box::new);
+    Ok(match predicate {
         Predicate::True
         | Predicate::False
         | Predicate::Ceil(_)
+        | Predicate::Defined(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
         | Predicate::Absent(_) => predicate.clone(),
         Predicate::Term(_) | Predicate::Equals(..) => {
             let Some(term) = condition_atom_term(definition, predicate, known) else {
-                return predicate.clone();
+                return Ok(predicate.clone());
             };
-            let mut conjuncts = ceil_term_walk(definition, term, AtCeilFree::Skip);
+            let mut conjuncts = ceil_term_walk(definition, term, AtCeilFree::Skip)?;
             conjuncts.retain(|obligation| !known.contains(obligation));
             if conjuncts.is_empty() {
-                return predicate.clone();
+                return Ok(predicate.clone());
             }
             conjuncts.push(predicate.clone());
             Predicate::And(conjuncts)
         }
-        Predicate::Not(inner) => Predicate::Not(nested(inner)),
+        Predicate::Not(inner) => Predicate::Not(nested(inner)?),
         Predicate::Exists(variable, inner) => Predicate::Exists(
             variable.clone(),
-            Box::new(under_binder(definition, variable, inner, known)),
+            Box::new(under_binder(definition, variable, inner, known)?),
         ),
         Predicate::Forall(variable, inner) => Predicate::Forall(
             variable.clone(),
-            Box::new(under_binder(definition, variable, inner, known)),
+            Box::new(under_binder(definition, variable, inner, known)?),
         ),
         Predicate::And(inner) => Predicate::And(
             inner
                 .iter()
                 .map(|inner| nested_condition_definedness(definition, inner, known))
-                .collect(),
+                .collect::<Result<_, _>>()?,
         ),
         Predicate::Or(inner) => Predicate::Or(
             inner
                 .iter()
                 .map(|inner| nested_condition_definedness(definition, inner, known))
-                .collect(),
+                .collect::<Result<_, _>>()?,
         ),
-        Predicate::Implies(left, right) => Predicate::Implies(nested(left), nested(right)),
-        Predicate::Iff(left, right) => Predicate::Iff(nested(left), nested(right)),
-    }
+        Predicate::Implies(left, right) => Predicate::Implies(nested(left)?, nested(right)?),
+        Predicate::Iff(left, right) => Predicate::Iff(nested(left)?, nested(right)?),
+    })
 }
 
 /// [`nested_condition_definedness`] of `inner`, the body of a quantifier over `variable`.
@@ -1232,7 +1282,7 @@ fn under_binder(
     variable: &Variable,
     inner: &Predicate,
     known: &[Predicate],
-) -> Predicate {
+) -> Result<Predicate, DeferredOutcome> {
     let holds = |fact: &Predicate| !crate::rule::mentions_free(fact, variable);
     if known.iter().all(holds) {
         return nested_condition_definedness(definition, inner, known);
@@ -1245,32 +1295,40 @@ fn under_binder(
     nested_condition_definedness(definition, inner, &unshadowed)
 }
 
-fn ceil_predicate(definition: &BackendDefinition, predicate: &Predicate) -> Vec<Predicate> {
-    match predicate {
+fn ceil_predicate(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+) -> Result<Vec<Predicate>, DeferredOutcome> {
+    Ok(match predicate {
         Predicate::True | Predicate::False => Vec::new(),
         Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
-            ceil_term(definition, term)
+            ceil_term(definition, term)?
         }
-        Predicate::Equals(left, right) | Predicate::In(left, right) => ceil_term(definition, left)
-            .into_iter()
-            .chain(ceil_term(definition, right))
-            .collect(),
+        Predicate::Equals(left, right) | Predicate::In(left, right) => {
+            let mut obligations = ceil_term(definition, left)?;
+            obligations.extend(ceil_term(definition, right)?);
+            obligations
+        }
         // An absence is the `\ceil` of its joined collection, whose value is a variable.
-        Predicate::Absent(absence) => ceil_term(definition, absence.joined()),
+        Predicate::Absent(absence) => ceil_term(definition, absence.joined())?,
+        // A deferred atom's subject is never expanded by `ceil_term`, whose decision evaluates.
+        Predicate::Defined(term) => crate::deferred::deferred_obligations(definition, term)?,
         Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
-            ceil_predicate(definition, inner)
+            ceil_predicate(definition, inner)?
         }
-        Predicate::And(inner) | Predicate::Or(inner) => inner
-            .iter()
-            .flat_map(|predicate| ceil_predicate(definition, predicate))
-            .collect(),
+        Predicate::And(inner) | Predicate::Or(inner) => {
+            let mut obligations = Vec::new();
+            for predicate in inner {
+                obligations.extend(ceil_predicate(definition, predicate)?);
+            }
+            obligations
+        }
         Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
-            ceil_predicate(definition, left)
-                .into_iter()
-                .chain(ceil_predicate(definition, right))
-                .collect()
+            let mut obligations = ceil_predicate(definition, left)?;
+            obligations.extend(ceil_predicate(definition, right)?);
+            obligations
         }
-    }
+    })
 }
 
 /// The definedness obligation that `element` is not a key (`MAP.in_keys`) or an element
@@ -1448,10 +1506,10 @@ mod tests {
                         .stack_size(SMALL_STACK)
                         .spawn_scoped(scope, || {
                             [
-                                ceil_term(&definition, &partial),
-                                ceil_term_without_attribute(&definition, &partial),
-                                ceil_term(&definition, &wrap),
-                                ceil_term_without_attribute(&definition, &wrap),
+                                ceil_term(&definition, &partial).unwrap(),
+                                ceil_term_without_attribute(&definition, &partial).unwrap(),
+                                ceil_term(&definition, &wrap).unwrap(),
+                                ceil_term_without_attribute(&definition, &wrap).unwrap(),
                             ]
                         })
                         .unwrap()
@@ -1493,10 +1551,10 @@ mod tests {
         let inner = wrap(wrap(leaf.clone()));
         let outer = wrap(inner.clone());
         assert!(!inner.ceil_free_checked() && !leaf.ceil_free_checked());
-        assert_eq!(ceil_term(&definition, &inner), Vec::new());
+        assert_eq!(ceil_term(&definition, &inner).unwrap(), Vec::new());
         assert!(inner.ceil_free_checked() && leaf.ceil_free_checked());
         assert!(!outer.ceil_free_checked());
-        assert_eq!(ceil_term(&definition, &outer), Vec::new());
+        assert_eq!(ceil_term(&definition, &outer).unwrap(), Vec::new());
         assert!(outer.ceil_free_checked());
     }
 
@@ -1537,7 +1595,7 @@ mod tests {
                     &[],
                 )
                 .unwrap();
-            (ceil_term(&definition, &subject), subject)
+            (ceil_term(&definition, &subject).unwrap(), subject)
         };
         let (unbound, subject) = ceil(r#"\equals{SortS{}, Q}(X:SortS{}, Z:SortS{})"#);
         assert_eq!(unbound, vec![Predicate::Ceil(subject)]);
@@ -1567,7 +1625,7 @@ mod tests {
         let subject = definition
             .internalize_term(&parse_pattern(subject).unwrap(), &[])
             .unwrap();
-        ceil_term(&definition, &subject)
+        ceil_term(&definition, &subject).unwrap()
     }
 
     fn internalized(source: &str) -> Term {
@@ -1690,7 +1748,8 @@ mod tests {
         // A top-level atom: its obligation is hoisted as a sibling conjunct, before the
         // conditions, with either side of the equality as the defined one.
         assert_eq!(
-            condition_definedness(&definition, vec![equals_x.clone(), equals_y.clone()], &[]),
+            condition_definedness(&definition, vec![equals_x.clone(), equals_y.clone()], &[])
+                .unwrap(),
             vec![
                 ceil_x.clone(),
                 ceil_y.clone(),
@@ -1704,7 +1763,8 @@ mod tests {
                 &definition,
                 vec![Predicate::And(vec![equals_x.clone()])],
                 &[]
-            ),
+            )
+            .unwrap(),
             vec![ceil_x.clone(), Predicate::And(vec![equals_x.clone()])]
         );
         // A known obligation, or one the condition already states, is not restated.
@@ -1713,18 +1773,20 @@ mod tests {
                 &definition,
                 vec![equals_x.clone()],
                 std::slice::from_ref(&ceil_x)
-            ),
+            )
+            .unwrap(),
             vec![equals_x.clone()]
         );
         assert_eq!(
-            condition_definedness(&definition, vec![ceil_x.clone(), equals_x.clone()], &[]),
+            condition_definedness(&definition, vec![ceil_x.clone(), equals_x.clone()], &[])
+                .unwrap(),
             vec![ceil_x.clone(), equals_x.clone()]
         );
         // Under a negation or a disjunction the obligation is conjoined in place: hoisting it
         // would change the meaning, since `\not \equals(\bottom, v)` holds.
         let negated = Predicate::Not(Box::new(equals_x.clone()));
         assert_eq!(
-            condition_definedness(&definition, vec![negated], &[]),
+            condition_definedness(&definition, vec![negated], &[]).unwrap(),
             vec![Predicate::Not(Box::new(Predicate::And(vec![
                 ceil_x.clone(),
                 equals_x.clone()
@@ -1732,7 +1794,7 @@ mod tests {
         );
         let disjunction = Predicate::Or(vec![equals_x.clone(), equals_y.clone()]);
         assert_eq!(
-            condition_definedness(&definition, vec![disjunction], &[]),
+            condition_definedness(&definition, vec![disjunction], &[]).unwrap(),
             vec![Predicate::Or(vec![
                 Predicate::And(vec![ceil_x.clone(), equals_x.clone()]),
                 Predicate::And(vec![ceil_y.clone(), equals_y.clone()]),
@@ -1754,7 +1816,8 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                condition_definedness(&definition, vec![quantified], std::slice::from_ref(&ceil_x)),
+                condition_definedness(&definition, vec![quantified], std::slice::from_ref(&ceil_x))
+                    .unwrap(),
                 vec![expected]
             );
         }
@@ -1765,7 +1828,7 @@ mod tests {
         let defined = Predicate::Equals(x, value);
         for condition in [undecided, defined, ceil_x.clone()] {
             assert_eq!(
-                condition_definedness(&definition, vec![condition.clone()], &[]),
+                condition_definedness(&definition, vec![condition.clone()], &[]).unwrap(),
                 vec![condition]
             );
         }
@@ -1818,7 +1881,7 @@ mod tests {
         let pick = definition
             .internalize_term(&parse_pattern("pick{}(K:SortKey{})").unwrap(), &[])
             .unwrap();
-        (ceil_term(definition, &term), Predicate::Ceil(pick))
+        (ceil_term(definition, &term).unwrap(), Predicate::Ceil(pick))
     }
 
     fn internal(definition: &BackendDefinition, source: &str) -> Term {

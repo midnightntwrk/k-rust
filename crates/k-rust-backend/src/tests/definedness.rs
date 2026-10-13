@@ -88,7 +88,7 @@ fn ceil_free_shortcut_returns_the_full_walk() {
     let mut closed = [0usize; 2];
     for case in 0..CASES {
         let term = strategy.new_tree(&mut runner).expect("a case").current();
-        let full = ceil_term_without_attribute(&definition, &term);
+        let full = ceil_term_without_attribute(&definition, &term).unwrap();
         let free = term.attributes().ceil_free();
         if free {
             assert!(
@@ -97,7 +97,7 @@ fn ceil_free_shortcut_returns_the_full_walk() {
             );
         }
         assert_eq!(
-            ceil_term(&definition, &term),
+            ceil_term(&definition, &term).unwrap(),
             full,
             "case {case}: the shortcut changed the obligations of {term:?}"
         );
@@ -698,7 +698,7 @@ fn keys_of_one_skeleton_need_no_apartness_check() {
     let checks = |entries: Vec<(Term, Term)>| {
         let map = Term::map(map_definition.clone(), entries, None);
         crate::definedness::APARTNESS_CHECKS.set(0);
-        let obligations = ceil_term(&definition, &map);
+        let obligations = ceil_term(&definition, &map).unwrap();
         (crate::definedness::APARTNESS_CHECKS.get(), obligations)
     };
     let mut entries = (0..200)
@@ -785,7 +785,7 @@ fn one_undefined_item_of_a_large_collection_is_reached_without_the_others() {
     let list = Term::list(list_definition, elements, None);
     for (term, walked) in [(map, 4), (list, 3)] {
         crate::definedness::WALKED_TERMS.set(0);
-        let obligations = ceil_term(&definition, &term);
+        let obligations = ceil_term(&definition, &term).unwrap();
         assert_eq!(
             crate::definedness::WALKED_TERMS.get(),
             walked,
@@ -796,7 +796,10 @@ fn one_undefined_item_of_a_large_collection_is_reached_without_the_others() {
             obligations,
             vec![crate::rule::Predicate::Ceil(undefined.clone())]
         );
-        assert_eq!(obligations, ceil_term_without_attribute(&definition, &term));
+        assert_eq!(
+            obligations,
+            ceil_term_without_attribute(&definition, &term).unwrap()
+        );
     }
 }
 
@@ -863,7 +866,7 @@ fn the_debug_check_finds_a_wrong_ceil_free_item_the_walk_passes_over() {
     }) {
         assert!(!term.attributes().ceil_free(), "{}", kind_name(&term));
         let walked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            ceil_term(&definition, &term)
+            ceil_term(&definition, &term).unwrap()
         }));
         let failure = walked.expect_err(kind_name(&term));
         let message = failure
@@ -894,7 +897,7 @@ fn the_debug_check_of_passed_over_items_reads_what_an_edit_built() {
     let taken = undefined_item("taken");
     let handed_over = |term: &Term| {
         PASSED_OVER_ITEMS.set(0);
-        ceil_term(&definition, term);
+        ceil_term(&definition, term).unwrap();
         PASSED_OVER_ITEMS.get()
     };
     for term in collections_of(|index| {

@@ -6500,6 +6500,17 @@ const TEN_BY_X: &str = r#"tdiv{}(\dv{SortInt{}}("10"), X:SortInt{})"#;
 /// Simplify `source`, in which `$D` stands for `tdiv(10, X)`, and check that it evaluates to
 /// `expected` under exactly the obligation `\ceil(tdiv(10, X))`.
 fn assert_hook_keeps_argument_definedness(source: &str, expected: &str) {
+    assert_hook_keeps_obligation(source, expected, Predicate::Ceil);
+}
+
+/// As [`assert_hook_keeps_argument_definedness`], for an operand that `#if`, `andThenBool` or
+/// `orElseBool` discards: the obligation is the deferred atom of `tdiv(10, X)`, which prints as
+/// its `\ceil` and is never decided by evaluating the operand.
+fn assert_hook_defers_discarded_operand_definedness(source: &str, expected: &str) {
+    assert_hook_keeps_obligation(source, expected, Predicate::Defined);
+}
+
+fn assert_hook_keeps_obligation(source: &str, expected: &str, obligation: fn(Term) -> Predicate) {
     let definition = hook_definedness_definition();
     let input = term(&definition, &source.replace("$D", TEN_BY_X));
     let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
@@ -6511,7 +6522,7 @@ fn assert_hook_keeps_argument_definedness(source: &str, expected: &str) {
     );
     assert_eq!(
         result.constraints(),
-        [Predicate::Ceil(term(&definition, TEN_BY_X))],
+        [obligation(term(&definition, TEN_BY_X))],
         "input: {source}"
     );
     assert_eq!(result.undefined_term, None, "input: {source}");
@@ -6554,10 +6565,18 @@ fn absorbing_boolean_operators_keep_the_absorbed_operand_definedness() {
         ("and", FALSE),
         ("andThen", FALSE),
     ] {
-        assert_hook_keeps_argument_definedness(
-            &format!("{hook}{{}}({absorbing}, {operand})"),
-            absorbing,
-        );
+        // The short-circuit hooks never evaluate the operand a literal first operand discards.
+        if hook.ends_with("Else") || hook.ends_with("Then") {
+            assert_hook_defers_discarded_operand_definedness(
+                &format!("{hook}{{}}({absorbing}, {operand})"),
+                absorbing,
+            );
+        } else {
+            assert_hook_keeps_argument_definedness(
+                &format!("{hook}{{}}({absorbing}, {operand})"),
+                absorbing,
+            );
+        }
         assert_hook_keeps_argument_definedness(
             &format!("{hook}{{}}({operand}, {absorbing})"),
             absorbing,
@@ -6568,8 +6587,8 @@ fn absorbing_boolean_operators_keep_the_absorbed_operand_definedness() {
 #[test]
 fn if_then_else_keeps_the_definedness_of_the_branch_it_discards() {
     let one = r#"\dv{SortInt{}}("1")"#;
-    assert_hook_keeps_argument_definedness(&format!("ite{{}}({TRUE}, {one}, $D)"), one);
-    assert_hook_keeps_argument_definedness(&format!("ite{{}}({FALSE}, $D, {one})"), one);
+    assert_hook_defers_discarded_operand_definedness(&format!("ite{{}}({TRUE}, {one}, $D)"), one);
+    assert_hook_defers_discarded_operand_definedness(&format!("ite{{}}({FALSE}, $D, {one})"), one);
 }
 
 #[test]

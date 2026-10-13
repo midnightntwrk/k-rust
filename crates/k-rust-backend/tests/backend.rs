@@ -3,6 +3,8 @@
 
 #[path = "backend/anywhere_matching.rs"]
 mod anywhere_matching;
+#[path = "backend/deferred_definedness.rs"]
+mod deferred_definedness;
 #[path = "backend/definedness_classes.rs"]
 mod definedness_classes;
 #[path = "backend/evaluation_mode.rs"]

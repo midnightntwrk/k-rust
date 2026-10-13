@@ -3079,9 +3079,10 @@ endmodule
 /// refuted is not in the result, so it is not reported. `f(3)` is attempted while the requires
 /// of `k1` on `k(3)` is simplified, since the arguments of `andBool` are simplified before it
 /// short-circuits; `k1` is refuted and `k2` evaluates the call. The same holds at each of the 200
-/// steps of a loop. A call the result keeps is still reported: in the `<k>` cell, as the untaken
-/// branch of `#if`, and as the argument of an equation that drops it, whose definedness the
-/// result carries in both cases.
+/// steps of a loop. A call the result keeps is still reported: in the `<k>` cell, and as the
+/// argument of an equation that drops it, whose definedness the result carries. As the untaken
+/// branch of `#if` the call is never attempted, so nothing reports it, though the result carries
+/// its definedness.
 #[test]
 fn krun_reports_a_call_left_unevaluated_only_where_the_result_keeps_it() {
     let source = |configuration: &str| {
@@ -3115,11 +3116,11 @@ endmodule
         );
         assert!(warnings.is_empty(), "{configuration}: {warnings:?}");
     }
-    for configuration in [
-        "done(f(3))",
-        "done(#if true #then 7 #else f(3) #fi)",
-        "done(drop(f(3)))",
-    ] {
+    let (stdout, warnings) =
+        krun_equation_warnings(&source("done(#if true #then 7 #else f(3) #fi)"));
+    assert!(stdout.contains("Lblf{}"), "{stdout}");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    for configuration in ["done(f(3))", "done(drop(f(3)))"] {
         let (stdout, warnings) = krun_equation_warnings(&source(configuration));
         assert!(stdout.contains("Lblf{}"), "{configuration}: {stdout}");
         assert_eq!(warnings.len(), 1, "{configuration}: {warnings:?}");
@@ -5071,6 +5072,1075 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `stdout` and every `expected` fragment without whitespace, so that a fragment matches across
+/// the printer's line breaks.
+fn squashed(text: &str) -> String {
+    text.split_whitespace().collect()
+}
+
+/// Assert that `output` is a successful run with no simplification-budget warning whose final
+/// `<k>` cell holds `item` and whose constraints contain every `obligation` (KORE, compared
+/// without whitespace).
+fn assert_value_under(output: &Output, item: &str, obligations: &[&str]) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(!stderr.contains("simplification budget"), "{stderr}");
+    let printed = squashed(&stdout);
+    assert!(
+        printed.contains(&squashed(&format!("kseq{{}}({item}, dotk{{}}())"))),
+        "{stdout}"
+    );
+    for obligation in obligations {
+        assert!(
+            printed.contains(&squashed(obligation)),
+            "{obligation}: {stdout}"
+        );
+    }
+}
+
+/// The `\ceil` of `subject`, a KORE term of `sort`, as a constraint of a final configuration.
+fn ceil_of(sort: &str, subject: &str) -> String {
+    format!("\\ceil{{{sort}{{}}, SortGeneratedTopCell{{}}}}({subject})")
+}
+
+/// Recursion whose base case `#if`, `orElseBool` or `andThenBool` selects.
+const GUARDED_RECURSION: &str = r#"
+module FACT
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "go" "(" Int ")" [symbol(go)]
+               | "goOr" "(" Int ")" [symbol(goOr)]
+               | "goAnd" "(" Int ")" [symbol(goAnd)]
+               | "goReq" "(" Int ")" [symbol(goReq)]
+  syntax Int ::= fact(Int) [symbol(fact), function]
+               | factReq(Int) [symbol(factReq), function]
+  syntax Bool ::= zeroDown(Int) [symbol(zeroDown), function]
+                | allPos(Int) [symbol(allPos), function]
+  rule fact(N) => #if N <=Int 0 #then 1 #else N *Int fact(N -Int 1) #fi
+  rule factReq(N) => 1 requires N <=Int 0
+  rule factReq(N) => N *Int factReq(N -Int 1) requires N >Int 0
+  rule zeroDown(N) => N ==Int 0 orElseBool zeroDown(N -Int 1)
+  rule allPos(N) => N <=Int 0 orElseBool (N >Int 0 andThenBool allPos(N -Int 1))
+  configuration <k> $PGM:Exp </k>
+  rule go(N) => fact(N)
+  rule goReq(N) => factReq(N)
+  rule goOr(N) => zeroDown(N)
+  rule goAnd(N) => allPos(N)
+endmodule
+"#;
+
+#[test]
+fn recursion_guarded_by_a_conditional_ends_under_the_definedness_of_the_untaken_call() {
+    // `#if`, `orElseBool` and `andThenBool` evaluate their deciding operand first and never
+    // the operand it discards, so the recursion stops at its base case. Application is strict,
+    // so the value keeps the discarded call's definedness as an obligation: `fact(3)` is `6`
+    // under `\ceil(fact(-1))`, its exact denotation, since the axioms also admit a `fact` that is
+    // `\bottom` everywhere. The `requires` form never builds the untaken call.
+    let (root, _) = fixture();
+    let fact = compiled_for_execution(&root, "fact", GUARDED_RECURSION, "FACT", "FACT");
+    let int = |value: &str| {
+        format!(r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#)
+    };
+    let truth = r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("true"))"#;
+    let minus_one = r#"(\dv{SortInt{}}("-1"))"#;
+    let output = bounded_krun(&fact, "Exp", "go(3)", &["-w", "all"]);
+    assert_value_under(
+        &output,
+        &int("6"),
+        &[&ceil_of("SortInt", &format!("Lblfact{{}}{minus_one}"))],
+    );
+    let output = bounded_krun(&fact, "Exp", "goOr(2)", &["-w", "all"]);
+    assert_value_under(
+        &output,
+        truth,
+        &[&ceil_of("SortBool", &format!("LblzeroDown{{}}{minus_one}"))],
+    );
+    let output = bounded_krun(&fact, "Exp", "goAnd(2)", &["-w", "all"]);
+    assert_value_under(
+        &output,
+        truth,
+        &[&ceil_of("SortBool", &format!("LblallPos{{}}{minus_one}"))],
+    );
+    let output = bounded_krun(&fact, "Exp", "goReq(3)", &["-w", "all"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        k_cell_output(&int("6"))
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Discarded operands whose evaluation does not end, directly or through the definedness of
+/// an enclosing partial application: a ceil equation's condition (`/Int`, `%Int`) and a map's
+/// key distinctness.
+const DISCARDED_DIVERGENCE: &str = r#"
+module LEAK
+  imports INT
+  imports BOOL
+  imports MAP
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "iteLoop" "(" ")"     [symbol(iteLoop)]
+               | "andThenLoop" "(" ")" [symbol(andThenLoop)]
+               | "divLoop" "(" ")"     [symbol(divLoop)]
+               | "modLoop" "(" ")"     [symbol(modLoop)]
+               | "mapLoop" "(" ")"     [symbol(mapLoop)]
+  syntax Int ::= loopi() [function, symbol(loopi)]
+  syntax Bool ::= loopb() [function, symbol(loopb)]
+  rule loopi() => loopi() +Int 1
+  rule loopb() => notBool loopb()
+  configuration <k> $PGM:Exp </k>
+  rule iteLoop() => #if true #then 1 #else loopi() #fi
+  rule andThenLoop() => false andThenBool loopb()
+  rule divLoop() => #if true #then 1 #else 1 /Int loopi() #fi
+  rule modLoop() => #if true #then 1 #else 1 %Int loopi() #fi
+  rule mapLoop() => #if true #then 1 #else size(loopi() |-> 1 2 |-> 2) #fi
+endmodule
+"#;
+
+#[test]
+fn a_discarded_diverging_operand_is_not_evaluated() {
+    // No equation of the definition is applied to a discarded operand, its definedness
+    // conditions included: each run ends at once under the open obligations, where evaluating
+    // `loopi()` or `loopb()` would not end.
+    let (root, _) = fixture();
+    let leak = compiled_for_execution(&root, "leak", DISCARDED_DIVERGENCE, "LEAK", "LEAK");
+    let one = r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#;
+    let loopi = ceil_of("SortInt", "Lblloopi{}()");
+    let output = bounded_krun(&leak, "Exp", "iteLoop()", &["-w", "all"]);
+    assert_value_under(&output, one, &[&loopi]);
+    let output = bounded_krun(&leak, "Exp", "andThenLoop()", &["-w", "all"]);
+    assert_value_under(
+        &output,
+        r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))"#,
+        &[&ceil_of("SortBool", "Lblloopb{}()")],
+    );
+    for (expression, label) in [
+        ("divLoop()", "Lbl'UndsSlsh'Int'Unds'"),
+        ("modLoop()", "Lbl'UndsPerc'Int'Unds'"),
+    ] {
+        let output = bounded_krun(&leak, "Exp", expression, &["-w", "all"]);
+        assert_value_under(
+            &output,
+            one,
+            &[
+                &ceil_of(
+                    "SortInt",
+                    &format!(r#"{label}{{}}(\dv{{SortInt{{}}}}("1"), Lblloopi{{}}())"#),
+                ),
+                &loopi,
+            ],
+        );
+    }
+    let output = bounded_krun(&leak, "Exp", "mapLoop()", &["-w", "all"]);
+    assert_value_under(
+        &output,
+        one,
+        &["\\ceil{SortMap{}, SortGeneratedTopCell{}}(", &loopi],
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Discarded operands builtin hooks decide on literals, or do not.
+const DISCARDED_GROUND: &str = r#"
+module GROUND
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "divz" "(" ")" [symbol(divz)]
+               | "fdivz" "(" ")" [symbol(fdivz)]
+               | "fdivok" "(" ")" [symbol(fdivok)]
+               | "gdivz" "(" ")" [symbol(gdivz)]
+               | "andDivz" "(" ")" [symbol(andDivz)]
+               | "reqIte" "(" Int ")" [symbol(reqIte)]
+               | "ok" [symbol(ok)]
+  syntax Int ::= f(Int) [symbol(f), function]
+               | g(Int) [symbol(g), function]
+  rule f(N) => N +Int 1
+  rule g(N) => f(N)
+  configuration <k> $PGM:Exp </k>
+  rule divz() => #if true #then 1 #else 1 /Int 0 #fi
+  rule fdivz() => #if true #then 1 #else 1 /Int f(-1) #fi
+  rule fdivok() => #if true #then 1 #else 1 /Int f(1) #fi
+  rule gdivz() => #if true #then 1 #else 1 /Int g(-1) #fi
+  rule andDivz() => false andThenBool (1 /Int 0 >Int 0)
+  rule reqIte(N) => ok requires #if N >Int 0 #then true #else 1 /Int 0 >Int 0 #fi
+endmodule
+"#;
+
+#[test]
+fn a_discarded_operand_hooks_show_undefined_is_bottom() {
+    // Builtin hooks fold a discarded operand on literals, and `1 /Int 0` folds to `\bottom`: the
+    // conditional is `\bottom`, and the refuted obligation is the hook's.
+    let (root, _) = fixture();
+    let ground = compiled_for_execution(&root, "ground", DISCARDED_GROUND, "GROUND", "GROUND");
+    for expression in ["divz()", "andDivz()"] {
+        let output = bounded_krun(&ground, "Exp", expression, &[]);
+        assert_undefined_step(&output, 1);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(r#"refuted obligation \ceil{SortInt{}, SortGeneratedTopCell{}}(Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#),
+            "{expression}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_discarded_operand_takes_the_value_of_one_ground_equation_step() {
+    // `f(-1) = -1 +Int 1` is one equation step on a literal argument whose right-hand side
+    // builtin hooks fold to `0`, so the discarded `1 /Int f(-1)` is `1 /Int 0`, undefined, and
+    // `fdivz()` is `\bottom`; with `f(1)` the operand is defined and `fdivok()` is a bare `1`.
+    // `g(-1) = f(-1)` would need a second step, which a discarded operand never gets: `gdivz()` is
+    // `1` under the open `\ceil(1 /Int g(-1))`.
+    let (root, _) = fixture();
+    let ground = compiled_for_execution(&root, "ground", DISCARDED_GROUND, "GROUND", "GROUND");
+    let output = bounded_krun(&ground, "Exp", "fdivz()", &[]);
+    assert_undefined_step(&output, 1);
+    let output = bounded_krun(&ground, "Exp", "fdivok()", &["-w", "all"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        squashed(&String::from_utf8_lossy(&output.stdout)),
+        squashed(&k_cell_output(
+            r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#
+        ))
+    );
+    let output = bounded_krun(&ground, "Exp", "gdivz()", &["-w", "all"]);
+    let quotient = r#"Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"), Lblg{}(\dv{SortInt{}}("-1")))"#;
+    assert_value_under(
+        &output,
+        r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#,
+        &[&ceil_of("SortInt", quotient)],
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A conditional and each Boolean connective with a decided deciding operand, whose unused
+/// operand applies a partial function without equations.
+const UNTAKEN_OPERANDS: &str = r#"
+module SHORTCIRCUIT
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "ite" "(" ")" [symbol(goIte)]
+               | "iteFalse" "(" ")" [symbol(goIteFalse)]
+               | "andThen" "(" ")" [symbol(goAndThen)]
+               | "andB" "(" ")" [symbol(goAnd)]
+               | "orElse" "(" ")" [symbol(goOrElse)]
+               | "orB" "(" ")" [symbol(goOr)]
+               | "implies" "(" ")" [symbol(goImplies)]
+  syntax Int ::= "undef" "(" ")" [symbol(undef), function]
+  syntax Bool ::= "undefb" "(" ")" [symbol(undefb), function]
+  configuration <k> $PGM:Exp </k>
+  rule ite() => #if true #then 1 #else undef() #fi
+  rule iteFalse() => #if false #then undef() #else 2 #fi
+  rule andThen() => false andThenBool undefb()
+  rule andB() => false andBool undefb()
+  rule orElse() => true orElseBool undefb()
+  rule orB() => true orBool undefb()
+  rule implies() => false impliesBool undefb()
+endmodule
+"#;
+
+#[test]
+fn krun_keeps_the_definedness_of_an_untaken_conditional_branch() {
+    // `#if` and the Boolean connectives are applications of hooked symbols, undefined wherever
+    // an operand is: each run prints the value its deciding operand gives under the `\ceil` of
+    // the operand the value does not depend on, and nothing else.
+    let (root, _) = fixture();
+    let operands = compiled_for_execution(
+        &root,
+        "operands",
+        UNTAKEN_OPERANDS,
+        "SHORTCIRCUIT",
+        "SHORTCIRCUIT",
+    );
+    let under = |item: &str, sort: &str, subject: &str| {
+        format!(
+            "\\and{{SortGeneratedTopCell{{}}}}({}, {})",
+            k_cell_output(item).trim_end(),
+            ceil_of(sort, subject)
+        )
+    };
+    let int = |value: &str| {
+        format!(r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#)
+    };
+    let bool = |value: &str| {
+        format!(r#"inj{{SortBool{{}}, SortKItem{{}}}}(\dv{{SortBool{{}}}}("{value}"))"#)
+    };
+    for (expression, expected) in [
+        ("ite()", under(&int("1"), "SortInt", "Lblundef{}()")),
+        ("iteFalse()", under(&int("2"), "SortInt", "Lblundef{}()")),
+        (
+            "andThen()",
+            under(&bool("false"), "SortBool", "Lblundefb{}()"),
+        ),
+        ("andB()", under(&bool("false"), "SortBool", "Lblundefb{}()")),
+        (
+            "orElse()",
+            under(&bool("true"), "SortBool", "Lblundefb{}()"),
+        ),
+        ("orB()", under(&bool("true"), "SortBool", "Lblundefb{}()")),
+        (
+            "implies()",
+            under(&bool("true"), "SortBool", "Lblundefb{}()"),
+        ),
+    ] {
+        let output = bounded_krun(&operands, "Exp", expression, &["-w", "all"]);
+        assert!(output.status.success(), "{expression}: {output:?}");
+        assert_eq!(
+            squashed(&String::from_utf8_lossy(&output.stdout)),
+            squashed(&expected),
+            "{expression}"
+        );
+    }
+
+    // An unused operand that builtin hooks show undefined makes the value `\bottom`, and in a
+    // `requires` the rule does not apply.
+    let ground = compiled_for_execution(&root, "ground", DISCARDED_GROUND, "GROUND", "GROUND");
+    let output = bounded_krun(&ground, "Exp", "divz()", &[]);
+    assert_undefined_step(&output, 1);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(r#"refuted obligation \ceil{SortInt{}, SortGeneratedTopCell{}}(Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#),
+        "{stderr}"
+    );
+    let output = bounded_krun(&ground, "Exp", "reqIte(1)", &[]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        squashed(&String::from_utf8_lossy(&output.stdout)),
+        squashed(&k_cell_output(
+            r#"inj{SortExp{}, SortKItem{}}(LblreqIte{}(\dv{SortInt{}}("1")))"#
+        )),
+    );
+
+    // Control: the obligation is the operand's own. With an equation that defines `undef()`, the
+    // same conditional is a bare `1`.
+    let defined = UNTAKEN_OPERANDS.replace(
+        "  configuration <k> $PGM:Exp </k>",
+        "  rule undef() => 0\n  configuration <k> $PGM:Exp </k>",
+    );
+    assert_ne!(defined, UNTAKEN_OPERANDS);
+    let defined =
+        compiled_for_execution(&root, "defined", &defined, "SHORTCIRCUIT", "SHORTCIRCUIT");
+    let output = bounded_krun(&defined, "Exp", "ite()", &["-w", "all"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        squashed(&String::from_utf8_lossy(&output.stdout)),
+        squashed(&k_cell_output(&int("1"))),
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A conditional with a symbolic condition that a rule's left-hand side meets.
+const SYMBOLIC_CONDITIONAL: &str = r#"
+module SPLIT
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= start(Int) [symbol(start)] | mid(Int) [symbol(mid)] | one() [symbol(one)]
+  syntax Int ::= undef() [function, symbol(undef)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> start(N) => mid(#if N >Int 0 #then 1 #else undef() #fi) ...</k>
+  rule <k> mid(1) => one() ...</k>
+endmodule
+"#;
+
+#[test]
+fn a_symbolic_conditional_splits_on_its_condition_under_the_unused_operands_definedness() {
+    // `mid(#if N >Int 0 #then 1 #else undef() #fi)` meets `mid(1)`: where `N >Int 0` the
+    // conditional is `1` only where `undef()` is defined, and where it does not hold the
+    // conditional is `undef()`, which is `1` where the two are equal. The rest stays at `mid`.
+    let (root, _) = fixture();
+    let split = compiled_for_execution(&root, "split", SYMBOLIC_CONDITIONAL, "SPLIT", "SPLIT");
+    let pattern = top_with("inj{SortExp{}, SortKItem{}}(Lblstart{}(VarN:SortInt{}))");
+    let output = kore_exec_from(&root, &split, "SPLIT", &pattern, 3);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    let positive = r#"Lbl'Unds-GT-'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("0"))"#;
+    let holds = format!(
+        r#"\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(\dv{{SortBool{{}}}}("true"), {positive})"#
+    );
+    let fails = format!("\\not{{SortGeneratedTopCell{{}}}}({holds})");
+    let equal = r#"\equals{SortInt{}, SortGeneratedTopCell{}}(\dv{SortInt{}}("1"), Lblundef{}())"#;
+    let unequal = format!("\\not{{SortGeneratedTopCell{{}}}}({equal})");
+    let defined = ceil_of("SortInt", "Lblundef{}()");
+    let conditional =
+        format!(r#"Lblite{{SortInt{{}}}}({positive}, \dv{{SortInt{{}}}}("1"), Lblundef{{}}())"#);
+    let state = |item: &str, conditions: &[&str]| {
+        format!(
+            "\\and{{SortGeneratedTopCell{{}}}}({}, \\and{{SortGeneratedTopCell{{}}}}({}))",
+            top_with(&format!("inj{{SortExp{{}}, SortKItem{{}}}}({item})")),
+            conditions.join(", ")
+        )
+    };
+    let expected = format!(
+        "\\or{{SortGeneratedTopCell{{}}}}({}, {}, {})",
+        state(&format!("Lblmid{{}}({conditional})"), &[&fails, &unequal]),
+        state("Lblone{}()", &[&defined, &fails, equal]),
+        state("Lblone{}()", &[&defined, &holds]),
+    );
+    assert_eq!(squashed(&stdout), squashed(&expected), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A console write in the operand that the other operand of a Boolean connective makes
+/// irrelevant to its value.
+const CONNECTIVE_EFFECTS: &str = r#"
+requires "domains.md"
+module EFF-SYNTAX
+  imports INT-SYNTAX
+  syntax Stmt ::= "ab" | "ob" | "ib" | "at" | "oe"
+endmodule
+module EFF
+  imports EFF-SYNTAX
+  imports K-IO
+  imports INT
+  imports BOOL
+  imports STRING
+  imports K-EQUAL
+  syntax Stmt ::= fin(Bool) [symbol(fin)]
+  configuration <k> $PGM:Stmt </k>
+  rule <k> ab => fin(false andBool (#putc(1, 65) ==K .K)) ...</k>
+  rule <k> ob => fin(true orBool (#putc(1, 66) ==K .K)) ...</k>
+  rule <k> ib => fin(false impliesBool (#putc(1, 67) ==K .K)) ...</k>
+  rule <k> at => fin(false andThenBool (#putc(1, 68) ==K .K)) ...</k>
+  rule <k> oe => fin(true orElseBool (#putc(1, 69) ==K .K)) ...</k>
+endmodule
+"#;
+
+#[test]
+fn the_strict_connectives_perform_the_effects_of_both_operands() {
+    // `andBool`, `orBool` and `impliesBool` simplify both operands, so the write in the operand
+    // that does not change the value is performed; `andThenBool` and `orElseBool` discard that
+    // operand without performing it.
+    let (root, _) = fixture();
+    let effects = compiled_for_execution(&root, "effects", CONNECTIVE_EFFECTS, "EFF", "EFF-SYNTAX");
+    for (expression, written) in [
+        ("ab", &b"A"[..]),
+        ("ob", b"B"),
+        ("ib", b"C"),
+        ("at", b""),
+        ("oe", b""),
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "krun",
+            "--definition",
+            effects.to_str().unwrap(),
+            "--sort",
+            "Stmt",
+            "--expression",
+            expression,
+            "--io",
+            "on",
+            "--output",
+            "none",
+        ]);
+        let output = output_with_stdin(&mut command, b"");
+        assert!(output.status.success(), "{expression}: {output:?}");
+        assert_eq!(output.stdout, written, "{expression}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A simplification lemma that reaches a conditional below its root.
+const LEMMA_OVER_CONDITIONAL: &str = r#"
+module LEMMA
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= start(Int) [symbol(start)] | done(Int) [symbol(done)]
+  syntax Int ::= loopi() [function, symbol(loopi)]
+  rule loopi() => loopi() +Int 1
+  rule #if B #then X #else Y #fi +Int Z => #if B #then X +Int Z #else Y +Int Z #fi [simplification]
+  configuration <k> $PGM:Exp </k>
+  rule <k> start(N) => done(#if N >Int 0 #then 1 #else loopi() #fi +Int 1) ...</k>
+endmodule
+"#;
+
+#[test]
+fn a_lemma_binding_an_operand_below_its_root_does_not_evaluate_it() {
+    // The lemma's match binds `Y` to `loopi()`, an operand the conditional never evaluates while
+    // `N >Int 0` is undecided; the binding's definedness is a deferred obligation, so the run ends
+    // at the rewritten conditional instead of evaluating `loopi()`.
+    let (root, _) = fixture();
+    let lemma = compiled_for_execution(&root, "lemma", LEMMA_OVER_CONDITIONAL, "LEMMA", "LEMMA");
+    let pattern = top_with("inj{SortExp{}, SortKItem{}}(Lblstart{}(VarN:SortInt{}))");
+    let output = kore_exec_from(&root, &lemma, "LEMMA", &pattern, 2);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(!stderr.contains("stack"), "{stderr}");
+    assert!(
+        squashed(&stdout).contains(&squashed(
+            r#"Lbl'UndsPlus'Int'Unds'{}(Lblloopi{}(), \dv{SortInt{}}("1"))"#
+        )),
+        "{stdout}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A lemma rooted at a conditional that splits a map inside the operand the conditional does not
+/// evaluate, binding `M` to a map the match builds from the entries it leaves.
+const LEMMA_SPLITTING_AN_OPERAND: &str = r#"
+module RESTL
+  imports INT
+  imports BOOL
+  imports MAP
+  imports K-EQUAL
+  syntax Exp ::= start(Int) [symbol(start)] | done(Int) [symbol(done)]
+  syntax Int ::= loopi() [function, symbol(loopi)]
+  rule loopi() => loopi() +Int 1
+  rule #if B #then X:Int #else size((1 |-> _) M) #fi => #if B #then X #else 1 +Int size(M) #fi [simplification]
+  configuration <k> $PGM:Exp </k>
+  rule <k> start(N) => done(#if N >Int 0 #then 1 #else size(1 |-> 2 3 |-> loopi()) #fi) ...</k>
+endmodule
+"#;
+
+/// A lemma rooted at a conditional that binds `V`, of a sort above the operand's, to the
+/// operand's `loopi()` injected into that sort.
+const LEMMA_INJECTING_AN_OPERAND: &str = r#"
+module REINJ
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Val ::= Int | "nil"
+  syntax Exp ::= start(Int) [symbol(start)] | done(Int) [symbol(done)]
+  syntax Int ::= loopi() [function, symbol(loopi)] | unk(KItem) [function, symbol(unk)]
+  rule loopi() => loopi() +Int 1
+  rule #if B #then X:Int #else unk(V:Val) #fi => #if B #then X #else unk(V) +Int 7 #fi [simplification]
+  configuration <k> $PGM:Exp </k>
+  rule <k> start(N) => done(#if N >Int 0 #then 1 #else unk(loopi()) #fi) ...</k>
+endmodule
+"#;
+
+#[test]
+fn a_lemma_binding_a_term_it_builds_from_an_operand_does_not_evaluate_it() {
+    // Neither binding is a subterm of the subject: `M` is the map of the entries the split
+    // leaves, and `V` is `loopi()` under an injection the subject does not hold. Both are parts
+    // of an operand the conditional does not evaluate while `N >Int 0` is undecided, so their
+    // definedness is a deferred obligation and the run ends at the rewritten conditional instead
+    // of evaluating `loopi()`.
+    let (root, _) = fixture();
+    let pattern = top_with("inj{SortExp{}, SortKItem{}}(Lblstart{}(VarN:SortInt{}))");
+    for (name, source, module, rewritten) in [
+        (
+            "restl",
+            LEMMA_SPLITTING_AN_OPERAND,
+            "RESTL",
+            r#"Lbl'UndsPlus'Int'Unds'{}(\dv{SortInt{}}("1"), LblsizeMap{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("3")), inj{SortInt{}, SortKItem{}}(Lblloopi{}()))))"#,
+        ),
+        (
+            "reinj",
+            LEMMA_INJECTING_AN_OPERAND,
+            "REINJ",
+            r#"Lbl'UndsPlus'Int'Unds'{}(Lblunk{}(inj{SortInt{}, SortKItem{}}(Lblloopi{}())), \dv{SortInt{}}("7"))"#,
+        ),
+    ] {
+        let compiled = compiled_for_execution(&root, name, source, module, module);
+        let output = kore_exec_from(&root, &compiled, module, &pattern, 2);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{name}: {stdout}\n{stderr}");
+        assert!(!stderr.contains("stack"), "{name}: {stderr}");
+        assert!(
+            squashed(&stdout).contains(&squashed(rewritten)),
+            "{name}: {stdout}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A conditional whose discarded operand's definedness depends on a console read.
+const IMPURE_OPERAND: &str = r#"
+requires "domains.md"
+module MARKER
+  imports K-IO
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= a(Int) [symbol(a)] | b(Int) [symbol(b)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> a(N) => b(N) </k>
+endmodule
+"#;
+
+/// The antecedent `b(1) /\ \ceil({#getc(0)}:>Int)` and the consequent
+/// `b(#if true #then 1 #else 1 /Int ({#getc(0)}:>Int -Int 81) #fi)`, false in a model where the
+/// read is 81.
+fn impure_implication() -> (String, String) {
+    let getc = "Lblproject'Coln'Int{}(kseq{}(inj{SortIOInt{}, SortKItem{}}(Lbl'Hash'getc'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int{}(\\dv{SortInt{}}(\"0\"))), dotk{}()))";
+    let antecedent = format!(
+        "\\and{{SortGeneratedTopCell{{}}}}({}, \\ceil{{SortInt{{}}, SortGeneratedTopCell{{}}}}({getc}))",
+        top_with("inj{SortExp{}, SortKItem{}}(Lblb{}(\\dv{SortInt{}}(\"1\")))")
+    );
+    let consequent = top_with(&format!(
+        "inj{{SortExp{{}}, SortKItem{{}}}}(Lblb{{}}(Lblite{{SortInt{{}}}}(\\dv{{SortBool{{}}}}(\"true\"), \\dv{{SortInt{{}}}}(\"1\"), Lbl'UndsSlsh'Int'Unds'{{}}(\\dv{{SortInt{{}}}}(\"1\"), Lbl'Unds'-Int'Unds'{{}}({getc}, \\dv{{SortInt{{}}}}(\"81\"))))))"
+    ));
+    (antecedent, consequent)
+}
+
+#[test]
+fn an_implication_through_an_impure_discarded_operand_is_never_valid() {
+    // The consequent's discarded operand `1 /Int ({#getc(0)}:>Int -Int 81)` is defined only where
+    // the read is not 81, and its definedness depends on the read, which is never performed: the
+    // implication is not decided, by `kore-implies` or by RPC `implies`, whatever the antecedent
+    // states about the read.
+    let (root, _) = fixture();
+    let compiled = compiled_for_execution(&root, "marker", IMPURE_OPERAND, "MARKER", "MARKER");
+    let definition = compiled.join("definition.kore");
+    let (antecedent, consequent) = impure_implication();
+    let antecedent_path = root.join("antecedent.kore");
+    let consequent_path = root.join("consequent.kore");
+    fs::write(&antecedent_path, &antecedent).unwrap();
+    fs::write(&consequent_path, &consequent).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-implies",
+            definition.to_str().unwrap(),
+            "--module",
+            "MARKER",
+            "--antecedent",
+            antecedent_path.to_str().unwrap(),
+            "--consequent",
+            consequent_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let verdict: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(verdict["status"], "unknown", "{verdict:#}");
+
+    use std::{
+        io::{BufRead, BufReader},
+        net::TcpStream,
+        time::Duration,
+    };
+    let mut server = KoreRpcServer(
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kore-rpc")
+            .arg(&definition)
+            .args(["--module", "MARKER", "--server-port", "0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let mut announcement = String::new();
+    BufReader::new(server.0.stderr.take().unwrap())
+        .read_line(&mut announcement)
+        .unwrap();
+    let address = announcement
+        .strip_prefix("KORE JSON-RPC listening on ")
+        .unwrap_or_else(|| panic!("no listening address in {announcement:?}"))
+        .trim();
+    let stream = TcpStream::connect(address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    let encode = |text: &str| k_rust::kore::json::to_value(&parse_pattern(text).unwrap()).unwrap();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "implies",
+        "params": { "antecedent": encode(&antecedent), "consequent": encode(&consequent) },
+    });
+    writeln!(writer, "{request}").unwrap();
+    let mut response = String::new();
+    reader.read_line(&mut response).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+    assert_ne!(response["result"]["status"], "valid", "{response:#}");
+    assert_ne!(response["result"]["valid"], true, "{response:#}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_requires_conditional_is_strict_in_its_unused_operand() {
+    // A `requires` holds only where it is defined, and `#if` is strict in every operand: with
+    // `1 /Int 0` in the unused operand the condition is `\bottom` and the rule does not apply.
+    let (root, _) = fixture();
+    let ground = compiled_for_execution(&root, "ground", DISCARDED_GROUND, "GROUND", "GROUND");
+    for value in ["1", "0"] {
+        let output = bounded_krun(&ground, "Exp", &format!("reqIte({value})"), &[]);
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            squashed(&String::from_utf8_lossy(&output.stdout)),
+            squashed(&k_cell_output(&format!(
+                r#"inj{{SortExp{{}}, SortKItem{{}}}}(LblreqIte{{}}(\dv{{SortInt{{}}}}("{value}")))"#
+            ))),
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A discarded application decided by one equation step selected by matching alone.
+const ONE_STEP: &str = r#"
+module ONE
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int
+               | "pick" "(" ")" [symbol(pick)]
+  syntax Int ::= f(Int) [function, symbol(f)]
+  rule f(1) => 5
+  configuration <k> $PGM:Exp </k>
+  rule pick() => #if true #then 0 #else f(1) #fi
+endmodule
+"#;
+
+#[test]
+fn a_deferred_atom_is_decided_by_one_equation_step_without_evaluation() {
+    // `f(1) => 5` is an instance of an axiom whose right-hand side is defined, so the discarded
+    // `f(1)` is defined and `pick()` is a bare `0`. A generated lambda applied to a value its
+    // pattern refutes is `\bottom` by its `owise` equation, which the refutation of the
+    // higher equation by matching selects (`krun_a_refuted_let_in_an_untaken_if_operand_is_undefined`).
+    let (root, _) = fixture();
+    let one = compiled_for_execution(&root, "one", ONE_STEP, "ONE", "ONE");
+    let output = bounded_krun(&one, "Exp", "pick()", &["-w", "all"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        k_cell_output(r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))"#)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `#if` at sort `K` with a condition only the path decides, and an Int `#if` met by a later
+/// rule's left-hand side.
+const PATH_DECIDED: &str = r#"
+module KITE
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int
+               | "startI" "(" Int ")" [symbol(startI)]
+               | "startD" "(" Int ")" [symbol(startD)]
+               | "done" [symbol(done)]
+               | "other" [symbol(other)]
+  syntax K ::= loopk() [function, symbol(loopk)]
+  syntax Int ::= loopi() [function, symbol(loopi)]
+  rule loopk() => other ~> loopk()
+  rule loopi() => loopi() +Int 1
+  configuration <k> $PGM:Exp </k>
+  rule <k> startI(X) => #if X >Int 0 #then (done ~> .K) #else loopk() #fi ...</k> requires X >Int 0
+  rule <k> startD(X) => #if X >Int 0 #then 7 #else loopi() #fi ...</k> requires X >Int 0
+  rule <k> 7 => done ...</k>
+endmodule
+"#;
+
+/// `krust kore-exec` of `compiled` from the initial state `pattern` (KORE text) to `depth`.
+fn kore_exec_from(root: &Path, compiled: &Path, module: &str, pattern: &str, depth: u64) -> Output {
+    let initial = root.join(format!(
+        "initial-{}.kore",
+        NEXT_INITIAL.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::write(&initial, pattern).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "kore-exec",
+        compiled.join("definition.kore").to_str().unwrap(),
+        "--module",
+        module,
+        "--pattern",
+        initial.to_str().unwrap(),
+        "--depth",
+        &depth.to_string(),
+    ]);
+    watchdog::backend(command)
+}
+
+static NEXT_INITIAL: AtomicU64 = AtomicU64::new(0);
+
+/// The initial configuration of the generated top cell with `item` in its `<k>` cell.
+fn top_with(item: &str) -> String {
+    format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({item}, dotk{{}}())), \
+         Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
+    )
+}
+
+#[test]
+fn a_path_decided_conditional_defers_its_discarded_operand() {
+    // With `X >Int 0` on the path, the `#if` equation at sort `K` selects `done ~> .K`, and the
+    // operand it binds and drops, `loopk()`, keeps its definedness as a deferred obligation. An
+    // Int `#if` that a later rule's left-hand side meets is split by its condition, and the
+    // branch the path refutes is dropped before its operand `loopi()` is matched. Neither run
+    // evaluates the discarded operand.
+    let (root, _) = fixture();
+    let kite = compiled_for_execution(&root, "kite", PATH_DECIDED, "KITE", "KITE");
+    let done = r#"kseq{}(inj{SortExp{}, SortKItem{}}(Lbldone{}()), dotk{}())"#;
+    for (start, obligation) in [
+        ("LblstartI", ceil_of("SortK", "Lblloopk{}()")),
+        ("LblstartD", ceil_of("SortInt", "Lblloopi{}()")),
+    ] {
+        let pattern = top_with(&format!(
+            "inj{{SortExp{{}}, SortKItem{{}}}}({start}{{}}(VarX:SortInt{{}}))"
+        ));
+        let output = kore_exec_from(&root, &kite, "KITE", &pattern, 3);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{start}: {stdout}\n{stderr}");
+        assert!(!stderr.contains("stack"), "{start}: {stderr}");
+        let printed = squashed(&stdout);
+        assert!(printed.contains(&squashed(done)), "{start}: {stdout}");
+        assert!(
+            printed.contains(&squashed(&obligation)),
+            "{start}: {stdout}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn resuming_from_a_leaf_with_an_open_obligation_does_not_evaluate_it() {
+    // A `\ceil` in a state given to execution is read as the deferred obligation a run reports
+    // it as, so resuming from the leaf `1 /\ \ceil(loopi())` ends at the same leaf instead of
+    // evaluating `loopi()`.
+    let (root, _) = fixture();
+    let leak = compiled_for_execution(&root, "leak", DISCARDED_DIVERGENCE, "LEAK", "LEAK");
+    let one = r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#;
+    let leaf = format!(
+        "\\and{{SortGeneratedTopCell{{}}}}({}, {})",
+        top_with(one),
+        ceil_of("SortInt", "Lblloopi{}()")
+    );
+    let output = kore_exec_from(&root, &leak, "LEAK", &leaf, 1);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(squashed(&stdout), squashed(&leaf));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_symbolic_conditional_keeps_its_operands_unevaluated() {
+    // With `N` symbolic, no operand but the condition is simplified, so `go(N)` ends at the
+    // first unfolding of `fact` without a budget warning.
+    let (root, _) = fixture();
+    let fact = compiled_for_execution(&root, "fact", GUARDED_RECURSION, "FACT", "FACT");
+    let pattern = top_with("inj{SortExp{}, SortKItem{}}(Lblgo{}(VarN:SortInt{}))");
+    let output = kore_exec_from(&root, &fact, "FACT", &pattern, 3);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(!stderr.contains("simplification budget"), "{stderr}");
+    assert!(
+        squashed(&stdout).contains(&squashed(
+            r#"Lbl'UndsStar'Int'Unds'{}(VarN:SortInt{}, Lblfact{}(Lbl'Unds'-Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("1"))))"#
+        )),
+        "{stdout}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A conditional whose discarded operand repeats its selected one.
+const SHARED_OPERAND: &str = r#"
+module VALUE
+  imports INT
+  imports BOOL
+  imports STRING
+  imports MAP
+  imports K-EQUAL
+  syntax Pred ::= "none" [symbol(none)] | p(Int) [symbol(p)] | Pred "and" Pred [symbol(and)]
+  syntax Cmd ::= load(String) [symbol(load)]
+  configuration <k> $PGM:Cmd </k> <g> none </g> <p> "a" |-> p(1) </p>
+  rule <k> load(N) => .K ...</k>
+       <g> X => #if X ==K none #then {M [ N ]}:>Pred #else X and {M [ N ]}:>Pred #fi </g>
+       <p> M:Map </p>
+endmodule
+"#;
+
+#[test]
+fn a_discarded_operand_reads_an_evaluated_operand_as_its_value() {
+    // The selected operand `{M["a"]}:>Pred` evaluates to `p(1)`, which the result is, so the
+    // discarded operand's occurrence of it denotes `p(1)` too: its definedness is that of
+    // `none and p(1)`, which holds, and no obligation is left. The discarded operand is still
+    // not evaluated.
+    let (root, _) = fixture();
+    let value = compiled_for_execution(&root, "value", SHARED_OPERAND, "VALUE", "VALUE");
+    let output = bounded_krun(&value, "Cmd", "load(\"a\")", &["-w", "all"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        squashed(&stdout).contains(&squashed(
+            r#"Lbl'-LT-'g'-GT-'{}(Lblp{}(\dv{SortInt{}}("1")))"#
+        )),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("\\ceil"), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A `requires` whose conditional discards a diverging operand.
+const CONDITIONAL_REQUIRES: &str = r#"
+module RCEIL
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= Int | Bool
+               | "run" "(" Bool ")" [symbol(run)]
+               | "done" [symbol(done)]
+  syntax Bool ::= loopb() [function, symbol(loopb)]
+  rule loopb() => notBool loopb()
+  configuration <k> $PGM:Exp </k>
+  rule <k> run(B) => done ...</k> requires #if B #then true #else loopb() #fi
+endmodule
+"#;
+
+#[test]
+fn a_rule_condition_states_a_discarded_operand_as_a_deferred_obligation() {
+    // The instantiated `requires` `#if true #then true #else loopb() #fi` is decided before it is
+    // simplified, and its definedness is stated for the operand `true` discards as a deferred
+    // obligation: the rule applies under `\ceil(loopb())`, and the instances where `loopb()` is
+    // undefined stay at `run(true)`.
+    let (root, _) = fixture();
+    let rceil = compiled_for_execution(&root, "rceil", CONDITIONAL_REQUIRES, "RCEIL", "RCEIL");
+    let output = bounded_krun(&rceil, "Exp", "run(true)", &["-w", "all"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    let printed = squashed(&stdout);
+    let loopb = ceil_of("SortBool", "Lblloopb{}()");
+    assert!(
+        printed.contains(&squashed(
+            "kseq{}(inj{SortExp{}, SortKItem{}}(Lbldone{}()), dotk{}())"
+        )),
+        "{stdout}"
+    );
+    assert!(printed.contains(&squashed(&loopb)), "{stdout}");
+    assert!(
+        printed.contains(&squashed(&format!(
+            "\\not{{SortGeneratedTopCell{{}}}}({loopb})"
+        ))),
+        "{stdout}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Console operations in operands `#if` and `andThenBool` discard.
+const DISCARDED_CONSOLE: &str = r#"
+requires "domains.md"
+
+module IO-ITE-SYNTAX
+  imports INT-SYNTAX
+  syntax Stmt ::= "ite" | "itefalse" | "rd" | "rdDiv" | "rdNest" | "fp" | "fpReq" | "echo"
+                | "andg" | "andgt" | "after" | "rq" | "out" "(" Int ")" [symbol(out)]
+  syntax KResult
+endmodule
+
+module IO-ITE
+  imports IO-ITE-SYNTAX
+  imports K-IO
+  imports INT
+  imports BOOL
+  imports STRING
+  imports K-EQUAL
+  syntax Int ::= fact(Int) [function, symbol(fact)]
+               | factReq(Int) [function, symbol(factReq)]
+               | h(Int) [function, symbol(h)]
+  syntax Bool ::= g() [function, symbol(g)]
+                | gt() [function, total, symbol(gt)]
+  rule fact(N) => #if N <=Int 0 #then 1 #else N *Int fact(N -Int 1) #fi
+  rule factReq(N) => 1 requires N <=Int 0
+  rule factReq(N) => N *Int factReq(N -Int 1) requires N >Int 0
+  rule g() => #write(1, "g") ==K .K
+  rule gt() => #write(1, "g") ==K .K
+  configuration <k> $PGM:Stmt </k>
+  rule <k> ite => #if 1 <Int 2 #then #write(1, "taken") #else #write(1, "untaken") #fi ...</k>
+  rule <k> itefalse => #if 2 <Int 1 #then #write(1, "untaken") #else #write(1, "taken") #fi ...</k>
+  rule <k> rd => #if 1 <Int 2 #then .K #else #getc(0) ~> .K #fi ~> echo ...</k>
+  rule <k> rdDiv => #putc(1, #if 1 <Int 2 #then 48 #else 1 /Int {#getc(0)}:>Int #fi) ~> echo ...</k>
+  rule <k> rdNest => #putc(1, #if 1 <Int 2 #then 48 #else h({#getc(0)}:>Int) #fi) ~> echo ...</k>
+  rule <k> echo => #putc(1, {#getc(0)}:>Int) ...</k>
+  rule <k> fp => out(fact(3)) ...</k>
+  rule <k> fpReq => out(factReq(3)) ...</k>
+  rule <k> out(N) => #write(1, Int2String(N)) ...</k>
+  rule <k> andg => #putc(1, #if false andThenBool g() #then 49 #else 48 #fi) ~> after ...</k>
+  rule <k> andgt => #putc(1, #if false andThenBool gt() #then 49 #else 48 #fi) ~> after ...</k>
+  rule <k> after => #write(1, "!") ...</k>
+  rule <k> rq => after ...</k> requires #if 1 <Int 2 #then true #else 1 /Int {#getc(0)}:>Int >Int 0 #fi
+endmodule
+"#;
+
+#[test]
+fn a_discarded_conditional_operand_performs_no_console_effect() {
+    // A discarded console operation is never performed. One whose definedness depends on a
+    // read that is not performed (`1 /Int #getc(0)`, `h(#getc(0))`), or on a function whose
+    // equation writes and which is not declared `total` (`g`), is the unsupported outcome at the
+    // step that discards it, with nothing consumed or written; a `total` one (`gt`) is defined
+    // by its declaration. After `#if`-guarded recursion the state carries an obligation, so the
+    // console is unavailable for the rest of the path (`fp`); the `requires` form is not (`fpReq`).
+    let (root, _) = fixture();
+    let console = compiled_for_execution(
+        &root,
+        "console",
+        DISCARDED_CONSOLE,
+        "IO-ITE",
+        "IO-ITE-SYNTAX",
+    );
+    let run = |expression: &str, input: &[u8]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "krun",
+            "--definition",
+            console.to_str().unwrap(),
+            "--sort",
+            "Stmt",
+            "--expression",
+            expression,
+            "--io",
+            "on",
+            "--output",
+            "none",
+        ]);
+        output_with_stdin(&mut command, input)
+    };
+    for (expression, input, written) in [
+        ("ite", &b""[..], &b"taken"[..]),
+        ("itefalse", b"", b"taken"),
+        ("rd", b"QR", b"Q"),
+        ("fpReq", b"", b"6"),
+        ("andgt", b"", b"0!"),
+    ] {
+        let output = run(expression, input);
+        assert!(output.status.success(), "{expression}: {output:?}");
+        assert_eq!(output.stdout, written, "{expression}");
+    }
+    for (expression, hook, depth) in [
+        ("rdDiv", "IO.getc", 0),
+        ("rdNest", "IO.getc", 0),
+        ("andg", "Lblg", 0),
+        ("rq", "IO.getc", 0),
+        ("fp", "IO.write", 1),
+    ] {
+        let output = run(expression, b"QR");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{expression}: {stderr}");
+        assert_eq!(output.stdout, b"", "{expression}");
+        assert!(
+            stderr.contains(&format!(
+                "error: in-process backend halted at depth {depth}: unsupported hook '{hook}'"
+            )),
+            "{expression}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_a_refuted_let_in_requires_is_not_satisfied() {
     // A `requires` clause holds only where it is defined and true; a refuted `#let` in it is
@@ -6869,8 +7939,10 @@ fn krun_refuses_an_application_without_an_evaluator_only_where_a_run_needs_it() 
         let (success, stdout, stderr) = run(program);
         assert!(success, "{program}: {stdout}{stderr}");
         assert!(stdout.contains(value), "{program}: {stdout}");
-        assert!(
+        // The operand a decided `#if` discards (`branch`) is never evaluated.
+        assert_eq!(
             stderr.contains("hook FLOAT.exp was left unevaluated"),
+            program == "unused",
             "{program}: {stderr}"
         );
     }

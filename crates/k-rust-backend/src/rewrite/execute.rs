@@ -184,7 +184,24 @@ impl<'a> Execution<'a> {
         let mut leaves = Vec::new();
         let mut validated = VecDeque::with_capacity(pending.len());
         // Invariant: `validated` holds, in queue order, the popped states without a surviving macro or alias symbol, and `leaves` one leaf per other popped state; nothing is pushed onto `pending`, so each initial state is popped once.
-        while let Some(state) = pending.pop_front() {
+        while let Some(mut state) = pending.pop_front() {
+            // A `\ceil` in a given state is read as deferred atoms (`crate::deferred`): a state
+            // resumed from a reported one does not evaluate the operands its run left
+            // unevaluated. One over an operand whose definedness depends on an impure
+            // application is the unsupported-hook outcome.
+            match crate::deferred::resumed_constraints(
+                definition,
+                std::mem::take(&mut state.pattern.constraints),
+            ) {
+                Ok(constraints) => state.pattern.constraints = constraints,
+                Err(outcome) => {
+                    leaves.push(state.leaf(
+                        HaltReason::Simplification(outcome.into()),
+                        &ObservationLog::default(),
+                    ));
+                    continue;
+                }
+            }
             if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
                 leaves.push(state.leaf(
                     HaltReason::Indeterminate(IndeterminateReason::SurvivingMacroOrAlias {
@@ -445,7 +462,9 @@ impl<'a> Execution<'a> {
                 let refuted_ceil = pattern_before_constraint_simplification
                     .constraints
                     .iter()
-                    .find(|predicate| matches!(predicate, Predicate::Ceil(_)));
+                    .find(|predicate| {
+                        matches!(predicate, Predicate::Ceil(_) | Predicate::Defined(_))
+                    });
                 let halt_reason = match (applied, refuted_ceil) {
                     (Some(applied), Some(obligation)) => HaltReason::Trivial {
                         depth: state.depth,
@@ -655,6 +674,9 @@ impl<'a> Execution<'a> {
                     state.defined_where = definedness;
                 }
                 Ok(state)
+            }
+            Ok(InitialDefinedness::Unsupported(error)) => {
+                Err(state.leaf(HaltReason::Simplification(error), &self.observation_log))
             }
             Err(stop) => Err(self.stopped_leaf(state, stop)),
         }

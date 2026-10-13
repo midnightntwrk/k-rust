@@ -360,23 +360,35 @@ pub fn check_negated_consequent(
     // a negation `⊤`, which a solver reading a partial function as a total operation would not see.
     let mut conjunction = Pattern {
         term: substitute(&antecedent.term, &substitution),
-        constraints: instantiate_constraints(&antecedent.constraints, &substitution)
-            .with_definedness(definition, &[]),
+        constraints: match instantiate_constraints(&antecedent.constraints, &substitution)
+            .with_definedness(definition, &[])
+        {
+            Ok(constraints) => constraints,
+            Err(_) => return Ok(Ok(ImplicationVerdict::Indeterminate { outside: None })),
+        },
     };
-    // The bindings' values must denote values too, even where the term no longer mentions them.
-    let definedness = substitution
-        .values()
-        .flat_map(|value| ceil_term(definition, value))
-        .collect::<Vec<_>>();
-    for predicate in instantiate_constraints(&negated.constraints, &substitution)
-        .with_definedness(definition, &conjunction.constraints)
-        .into_iter()
-        .chain(
+    // A definedness that depends on an impure application in an operand a conditional never
+    // evaluates (`crate::deferred`) leaves the check undecided.
+    let stated = (|| {
+        // The bindings' values must denote values too, even where the term no longer mentions
+        // them.
+        let mut definedness = Vec::new();
+        for value in substitution.values() {
+            definedness.extend(ceil_term(definition, value)?);
+        }
+        let mut stated = instantiate_constraints(&negated.constraints, &substitution)
+            .with_definedness(definition, &conjunction.constraints)?;
+        stated.extend(
             instantiate_constraints(&constraints, &substitution)
-                .with_definedness(definition, &conjunction.constraints),
-        )
-        .chain(definedness)
-    {
+                .with_definedness(definition, &conjunction.constraints)?,
+        );
+        stated.extend(definedness);
+        Ok::<_, crate::deferred::DeferredOutcome>(stated)
+    })();
+    let Ok(stated) = stated else {
+        return Ok(Ok(ImplicationVerdict::Indeterminate { outside: None }));
+    };
+    for predicate in stated {
         if !conjunction.constraints.contains(&predicate) {
             conjunction.constraints.push(predicate);
         }
@@ -388,7 +400,10 @@ pub fn check_negated_consequent(
         }));
     }
     let mut query = conjunction.constraints.clone();
-    for predicate in ceil_term(definition, &conjunction.term) {
+    let Ok(term_definedness) = ceil_term(definition, &conjunction.term) else {
+        return Ok(Ok(ImplicationVerdict::Indeterminate { outside: None }));
+    };
+    for predicate in term_definedness {
         if !query.contains(&predicate) {
             query.push(predicate);
         }
@@ -1102,13 +1117,22 @@ fn establish_disjunction(
                 MatchResult::Success(substitution) => (substitution, Vec::new()),
             };
             matched = true;
-            let (_, obligations, _) = consequent_obligations(
+            // A destination whose definedness depends on an impure application in an operand a
+            // conditional never evaluates (`crate::deferred`) cannot be prepared: the round is
+            // left open, never shown to hold.
+            let Ok((_, obligations, _)) = consequent_obligations(
                 definition,
                 destination,
                 substitution,
                 remainder,
                 &knowledge,
-            );
+                options,
+                solver,
+            )?
+            else {
+                open = Some(Established::Unprepared);
+                continue;
+            };
             // A stop propagates before either fallback below sees the result: an obligation that
             // could not be prepared leaves the round open, but a stop is no answer to leave open.
             let obligations = match eliminate_and_quantify_obligation_branches(
@@ -1917,8 +1941,18 @@ fn discharge_consequent(
     // Every obligation is decided on the antecedent's instances, where its term is defined and its
     // constraints hold with their definedness stated (I7).
     let knowledge = pattern_knowledge(definition, antecedent);
-    let (consequent_match, obligations, origin) =
-        consequent_obligations(definition, destination, substitution, remainder, &knowledge);
+    let Ok((consequent_match, obligations, origin)) = consequent_obligations(
+        definition,
+        destination,
+        substitution,
+        remainder,
+        &knowledge,
+        options,
+        solver,
+    )?
+    else {
+        return Ok(Established::Unprepared);
+    };
     // A stop propagates before either fallback below sees the result: obligations that could
     // not be prepared establish nothing, but a stop is no answer to establish nothing from.
     let obligations = match eliminate_and_quantify_obligation_branches(
@@ -2030,7 +2064,9 @@ fn consequent_obligations(
     substitution: Substitution,
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
     knowledge: &[Predicate],
-) -> (ConsequentMatch, Vec<ConsequentObligations>, Origin) {
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<Result<PreparedConsequent, crate::deferred::DeferredOutcome>> {
     let (substitution, remainder, solved_constraints) = solve_collection_remainder_pairs(
         definition,
         substitution,
@@ -2044,8 +2080,19 @@ fn consequent_obligations(
         Origin::MatchRemainder
     };
     let consequent_match = ConsequentMatch::new(substitution, destination.existentials());
-    let mut obligations =
-        consequent_match.obligation_branches(definition, destination, remainder, knowledge);
+    let mut refuted = |condition: &Predicate| {
+        refuted_on_antecedent(definition, knowledge, options, solver, condition)
+    };
+    let mut obligations = match consequent_match.obligation_branches(
+        definition,
+        destination,
+        remainder,
+        knowledge,
+        &mut refuted,
+    )? {
+        Ok(obligations) => obligations,
+        Err(outcome) => return Ok(Err(outcome)),
+    };
     // The solved pairs carry no definedness of their destination side, unlike the remainder
     // pairs (`obligation_branches`): their solution binds destination parts to parts of the
     // antecedent's collection, which are defined wherever its term is, and the solve does not
@@ -2054,7 +2101,7 @@ fn consequent_obligations(
     for branch in &mut obligations {
         branch.add_solved(&solved_constraints, knowledge);
     }
-    (consequent_match, obligations, origin)
+    Ok(Ok((consequent_match, obligations, origin)))
 }
 
 /// Whether the antecedent's instances, described by `knowledge`, admit no counterexample to
@@ -2165,13 +2212,9 @@ fn eliminate_existential_witnesses(
         witnesses = compose(&found, &witnesses);
         // `∃e. (e = t ∧ ψ)` is `⌈t⌉ ∧ ψ[t/e]` for an element variable `e` (I2): the witness's
         // definedness stays an obligation unless the antecedent's knowledge holds it.
-        branch = simplify_predicates_with_solver(
-            definition,
-            &eliminate_bindings(definition, &rest, &found, known),
-            known,
-            options,
-            solver,
-        )??;
+        let eliminated = eliminate_bindings(definition, &rest, &found, known)
+            .map_err(SimplificationError::from)?;
+        branch = simplify_predicates_with_solver(definition, &eliminated, known, options, solver)??;
         branch.retain(|predicate| !matches!(predicate, Predicate::True));
         if predicates_truth(&branch) == Truth::False {
             return Ok(Obligations {
@@ -2192,7 +2235,8 @@ fn eliminate_existential_witnesses(
     }
 
     Ok(Obligations {
-        predicates: eliminate_bindings(definition, &branch, &residual, known),
+        predicates: eliminate_bindings(definition, &branch, &residual, known)
+            .map_err(SimplificationError::from)?,
         witnesses,
     })
 }
@@ -2509,7 +2553,23 @@ fn subject_collection_form(
     }
 }
 
-fn remainder_obligation(left: &crate::term::Term, right: &crate::term::Term) -> Predicate {
+/// A destination's match with its obligation branches and what they come from
+/// ([`consequent_obligations`]).
+type PreparedConsequent = (ConsequentMatch, Vec<ConsequentObligations>, Origin);
+
+/// Decides whether a condition is refuted on the antecedent's instances, by its known facts and
+/// then the solver ([`refuted_on_antecedent`]).
+pub(super) type ConditionRefuter<'a> = dyn FnMut(&Predicate) -> Stoppable<bool> + 'a;
+
+/// The equation of a remainder pair, with an `ite` on either side stated by its condition and
+/// branches. Each branch's condition is decided on the antecedent first (`refuted`), and a
+/// refuted branch is dropped before its equation is built: its operand is one the conditional
+/// never evaluates there (`crate::deferred`), and simplifying the equation would evaluate it.
+fn remainder_obligation(
+    left: &crate::term::Term,
+    right: &crate::term::Term,
+    refuted: &mut ConditionRefuter<'_>,
+) -> Stoppable<Predicate> {
     let Some(IteSplit {
         condition,
         then_pair,
@@ -2517,20 +2577,54 @@ fn remainder_obligation(left: &crate::term::Term, right: &crate::term::Term) -> 
         ..
     }) = split_ite_pair(left, right)
     else {
-        return Predicate::Equals(left.clone(), right.clone());
+        return Ok(Predicate::Equals(left.clone(), right.clone()));
     };
-    let then_obligation = remainder_obligation(&then_pair.0, &then_pair.1);
-    let else_obligation = remainder_obligation(&else_pair.0, &else_pair.1);
-    normalize_predicate(Predicate::Or(vec![
-        normalize_predicate(Predicate::And(vec![
-            Predicate::Term(condition.clone()),
-            then_obligation,
-        ])),
-        normalize_predicate(Predicate::And(vec![
+    let mut disjuncts = Vec::with_capacity(2);
+    for (guard, (pattern, subject)) in [
+        (Predicate::Term(condition.clone()), then_pair),
+        (
             Predicate::Not(Box::new(Predicate::Term(condition))),
-            else_obligation,
-        ])),
-    ]))
+            else_pair,
+        ),
+    ] {
+        if refuted(&guard)? {
+            continue;
+        }
+        let obligation = remainder_obligation(&pattern, &subject, refuted)?;
+        disjuncts.push(normalize_predicate(Predicate::And(vec![guard, obligation])));
+    }
+    Ok(normalize_predicate(Predicate::Or(disjuncts)))
+}
+
+/// Whether `condition` is false on every instance of the antecedent that `knowledge` describes:
+/// simplified under the known facts (a conditional's condition is its deciding operand, which is
+/// evaluated), then put to the solver with them. A failed simplification refutes nothing.
+fn refuted_on_antecedent(
+    definition: &BackendDefinition,
+    knowledge: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    condition: &Predicate,
+) -> Stoppable<bool> {
+    let simplified = match simplify_predicates_with_solver(
+        definition,
+        std::slice::from_ref(condition),
+        knowledge,
+        options,
+        solver,
+    )? {
+        Ok(simplified) => simplified,
+        Err(_) => return Ok(false),
+    };
+    if predicates_truth(&simplified) == Truth::False {
+        return Ok(true);
+    }
+    let mut query = knowledge.to_vec();
+    query.extend(simplified);
+    Ok(matches!(
+        solver.is_sat(&query, &Substitution::new())?,
+        Ok(Satisfiability::Unsat)
+    ))
 }
 
 fn free_variables(pattern: &Pattern) -> BTreeSet<Variable> {
@@ -3192,7 +3286,10 @@ mod tests {
                     ),
                 )],
                 &[],
-            );
+                &mut |_| Ok(false),
+            )
+            .unwrap()
+            .unwrap();
         let [obligations] = <[_; 1]>::try_from(branches)
             .unwrap_or_else(|branches| panic!("one branch, found {}", branches.len()));
 
