@@ -1562,9 +1562,8 @@ fn flatten_list_runs(
             symbol,
             sort_arguments,
             arguments,
-        } if symbol.name == definition.symbols.concat
-            && let [left, right] = arguments.as_slice() =>
-        {
+        } if symbol.name == definition.symbols.concat && arguments.len() == 2 => {
+            let (left, right) = (&arguments[0], &arguments[1]);
             head.get_or_insert_with(|| OpaqueConcatHead {
                 symbol: symbol.clone(),
                 sort_arguments: sort_arguments.clone(),
