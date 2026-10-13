@@ -422,6 +422,10 @@ fn string_to_token(arguments: &[Term], declaration: Declaration<'_>) -> HookResu
                     described_text(text),
                     externalize::sort(result_sort)
                 ),
+                // The declaration is `total`: the application has a value of the result sort in
+                // every model of the definition, which only leaves open which one, so its
+                // `\ceil` holds.
+                defined: true,
             })
         } else {
             BuiltinResult::Bottom

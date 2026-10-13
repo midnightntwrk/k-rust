@@ -242,6 +242,11 @@ mod tests {
         // `float_term`: the constant kind of `SortFloat` (`Token` until Float values have a kind
         // of their own).
         ("builtin/float.rs", 1, 0),
+        // The `MINT` hooks' results (`word_term`): the `MInt` kind of the width their
+        // machine-integer sort names, the kind `domain_kind` gives a sort hooked `MINT.MInt`. The
+        // evaluation entry's record of the hook's constructions leaves the application
+        // unevaluated where the definition gives that sort another kind.
+        ("builtin/mint.rs", 1, 0),
         // KVar renaming: `domain_kind` of the token's sort, read with the definition's KVar
         // sorts (`KVarSorts`).
         ("builtin/substitution.rs", 1, 0),

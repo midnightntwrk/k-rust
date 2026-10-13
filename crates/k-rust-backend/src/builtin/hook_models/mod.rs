@@ -323,9 +323,7 @@ pub(super) fn encode(value: &Val) -> Term {
             Term::raw_domain_value(Sort::builtin(BuiltinSort::Bytes), value.clone())
         }
         Val::Float(format, bits) => float::token_term(*format, *bits),
-        Val::MInt(width, value) => {
-            Term::domain_value(mint::mint_sort(width), format!("{value}p{width}"))
-        }
+        Val::MInt(width, value) => mint::mint_term(width, &format!("{value}p{width}")),
         Val::Item(value) => item(*value),
         Val::Tag(name) => tag(name, "SortTag"),
         Val::Token(sort, text) => Term::raw_domain_value(Sort::simple(sort.as_str()), text.clone()),

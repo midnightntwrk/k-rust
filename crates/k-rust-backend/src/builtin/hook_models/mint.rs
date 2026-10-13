@@ -16,7 +16,9 @@ use k_rust_kore::names::{BuiltinSort, MINT_SORT};
 use super::{Case, Draw, Env, Spec, Val, assert_reached, encode, evaluate, run, variable};
 use crate::{
     builtin::{BuiltinError, BuiltinResult, UnsupportedHookReason},
-    term::{FunctionType, Sort, Symbol, SymbolAttributes, SymbolType, Term},
+    term::{
+        DomainKind, FunctionType, Sort, Symbol, SymbolAttributes, SymbolType, Term, mint_width,
+    },
 };
 
 const CASES: u32 = 4000;
@@ -536,8 +538,12 @@ fn int(value: impl Into<BigInt>) -> Term {
     encode(&Val::Int(value.into()))
 }
 
-fn mint_term(width: impl std::fmt::Display, text: &str) -> Term {
-    Term::domain_value(mint_sort(width), text)
+/// The literal `text` of the machine-integer sort of `width`, built with the kind a sort hooked
+/// `MINT.MInt` of that width has, so its text is canonical (the residue modulo `2^width`).
+pub(super) fn mint_term(width: impl std::fmt::Display, text: &str) -> Term {
+    let sort = mint_sort(width);
+    let width = mint_width(&sort).expect("a machine-integer sort of a numeral width");
+    Term::domain_value_of(DomainKind::MInt(width), sort, text)
 }
 
 /// An application of a `total` hook whose value the definition does not determine: it has one,

@@ -760,7 +760,7 @@ mod tests {
     use super::*;
 
     fn float(token: &str) -> Term {
-        Term::domain_value(Sort::builtin(BuiltinSort::Float), token)
+        Term::raw_domain_value(Sort::builtin(BuiltinSort::Float), token)
     }
 
     /// `mixed_destination` names exactly the pairs the evaluator reads as one binary32 and one
