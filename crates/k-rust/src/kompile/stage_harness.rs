@@ -20,6 +20,7 @@
 use crate::{
     definition::{Definition, FlatModule, Sentence},
     outer::{ResolvedSource, load_for_compilation},
+    timings::PhaseTimings,
 };
 
 use super::{
@@ -74,15 +75,19 @@ pub(crate) fn run_to_stage(source: &str, stage: &str) -> StageRun {
     )
     .unwrap_or_else(|error| panic!("the source should load: {error:?}"));
     let mut observed = None;
-    let compiled =
-        compile_loaded_definition_observed(&loaded, options, &mut |ran, input, output| {
+    let compiled = compile_loaded_definition_observed(
+        &loaded,
+        options,
+        &mut PhaseTimings::default(),
+        &mut |ran, input, output| {
             if ran.name == stage {
                 observed = Some(StageRun {
                     input: input.clone(),
                     output: output.cloned().map_err(CompileError::clone),
                 });
             }
-        });
+        },
+    );
     let Some(run) = observed else {
         panic!("the compile stopped before {stage:?}: {:?}", compiled.err());
     };

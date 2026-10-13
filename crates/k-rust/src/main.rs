@@ -52,7 +52,7 @@ use k_rust::{
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
         ConfigurationAssembler, ConfigurationError, ProgramGrammar, compile_loaded_definition,
-        compile_loaded_definition_timed, compile_search_pattern,
+        compile_loaded_definition_with_timings, compile_search_pattern,
         pipeline::{emission_phase, load_phase},
     },
     kore::{
@@ -408,7 +408,9 @@ struct KcompileArgs {
     #[arg(long, requires = "for_proving", value_name = "PATH")]
     compiled_definition: Option<PathBuf>,
 
-    /// Write phase timings in seconds as JSON (excludes process startup and teardown).
+    /// Write phase timings in seconds as JSON (excludes process startup and teardown). A run
+    /// that fails from compilation on still writes the file, with the phases that ran; the exit
+    /// status says whether the run succeeded.
     #[arg(long, value_name = "FILE")]
     timings: Option<PathBuf>,
 
@@ -692,7 +694,9 @@ struct KrunArgs {
     #[command(flatten)]
     smt: SmtArgs,
 
-    /// Write phase timings in seconds as JSON (excludes process startup and teardown).
+    /// Write phase timings in seconds as JSON (excludes process startup and teardown). A run
+    /// whose compilation fails still writes the file, with the load and compile phases that ran
+    /// and every execution field zero; the exit status says whether the run succeeded.
     #[arg(long, value_name = "FILE")]
     timings: Option<PathBuf>,
 
@@ -1893,11 +1897,17 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     if let Some(warning) = syntax_module.fallback_warning {
         loaded.extend_diagnostics(options.common.diagnostics.apply(vec![warning]));
     }
-    let (artifacts, compile_timings) = match compile_loaded_definition_timed(
+    // From the compile on, every exit writes the timings of the phases that ran: the run's
+    // outcome is its result, and the file records where the time went up to that outcome.
+    let mut compile_timings = PhaseTimings::default();
+    let mut write_timings = PhaseTimings::default();
+    let compiled = kcompile_after_load(
+        &options,
         &loaded,
+        &syntax_module.name,
         CompileOptions {
             backend: options.backend,
-            hook_namespaces: options.hook_namespaces,
+            hook_namespaces: options.hook_namespaces.clone(),
             default_claims_to_all_path: options.for_proving,
             check_mode: configuration_module.map_or(CheckMode::Definition, |module| {
                 CheckMode::Proof {
@@ -1908,8 +1918,47 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             builtin_source_prefixes,
             ..CompileOptions::default()
         },
-    ) {
-        Ok(compiled) => compiled,
+        &mut compile_timings,
+        &mut write_timings,
+    );
+    let written = CompileTimings::new(load_timings, compile_timings, write_timings)
+        .write(options.timings.as_deref());
+    finish_with_timings(compiled, written)
+}
+
+/// Report the outcome of a run that wrote its `--timings` file on every exit: a failed run keeps
+/// its own error, and a failure to write the timings is then reported on stderr; a run that
+/// succeeded fails only when its timings could not be written.
+fn finish_with_timings<T>(
+    run: Result<T, Box<dyn Error>>,
+    timings_written: Result<(), Box<dyn Error>>,
+) -> Result<T, Box<dyn Error>> {
+    match (run, timings_written) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Ok(_), Err(error)) => Err(error),
+        (Err(error), Ok(())) => Err(error),
+        (Err(error), Err(timings_error)) => {
+            eprintln!("warning: the timings of the failed run were not written: {timings_error}");
+            Err(error)
+        }
+    }
+}
+
+/// The body of `kcompile` from the compile on: compile the loaded definition, check it, and write
+/// its artifacts, recording the compile phases in `compile_timings` and the Bison and write
+/// phases in `write_timings` whatever the outcome.
+fn kcompile_after_load(
+    options: &KcompileOptions,
+    loaded: &k_rust::outer::LoadedDefinition,
+    syntax_module: &str,
+    compile_options: CompileOptions,
+    compile_timings: &mut PhaseTimings,
+    write_timings: &mut PhaseTimings,
+) -> Result<(), Box<dyn Error>> {
+    let artifacts = match compile_timings
+        .span(|timings| compile_loaded_definition_with_timings(loaded, compile_options, timings))
+    {
+        Ok(artifacts) => artifacts,
         Err(error) => {
             emit_diagnostics(&error.diagnostics);
             return Err(error.into());
@@ -1938,8 +1987,22 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     // marker first prevents both interrupted recompilation and LLVM output written over a prior
     // Rust directory from appearing runnable.
     unpublish_runnable_artifact(&options.output_directory)?;
-    let write_span_started = Instant::now();
-    let mut write_timings = PhaseTimings::default();
+    // Bison generation and the artifact writes are the write group; its span is measured on
+    // every outcome, as the compile group's is.
+    write_timings.span(|write_timings| {
+        write_kcompile_artifacts(options, loaded, syntax_module, &artifacts, write_timings)
+    })
+}
+
+/// Generate the Bison parser when one is asked for and write `kcompile`'s artifacts, recording
+/// each phase in `write_timings`.
+fn write_kcompile_artifacts(
+    options: &KcompileOptions,
+    loaded: &k_rust::outer::LoadedDefinition,
+    syntax_module: &str,
+    artifacts: &k_rust::kompile::CompiledKoreArtifacts,
+    write_timings: &mut PhaseTimings,
+) -> Result<(), Box<dyn Error>> {
     let bison_mode = if options.gen_glr_bison_parser {
         Some(k_rust::bison::Mode::Glr)
     } else if options.gen_bison_parser {
@@ -1954,7 +2017,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         write_timings.time(emission_phase::GENERATE_BISON_PARSER, || {
             k_rust::bison::generate_program_parser(
                 loaded.resolved(),
-                &syntax_module.name,
+                syntax_module,
                 &start_sort,
                 &options.output_directory,
                 k_rust::bison::Options {
@@ -1978,14 +2041,14 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             write_timings.time(emission_phase::WRITE_ARTIFACTS, || {
                 if options.emit_json || options.for_proving {
                     let definition = if options.compiled_definition.is_some() {
-                        parsed_definition_for_json(&loaded, &syntax_module.name)?
+                        parsed_definition_for_json(loaded, syntax_module)?
                     } else {
                         // Fresh compilation already selected its modules before parsing. Keep that exact
                         // graph, including any distinct configuration root, in the parsed artifact.
                         let mut definition = loaded.definition().clone();
                         definition.attributes.set(
                             AttributeKey::SyntaxModule,
-                            serde_json::Value::String(syntax_module.name.clone()),
+                            serde_json::Value::String(syntax_module.to_owned()),
                         );
                         definition
                     };
@@ -2055,7 +2118,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
                     write_runnable_artifact(
                         &options.output_directory,
                         &options.common.module,
-                        &syntax_module.name,
+                        syntax_module,
                         loaded.definition(),
                         loaded.source_table(),
                         &artifacts.execution_definition,
@@ -2069,16 +2132,12 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         },
     );
     match written {
-        Ok(written) => written?,
+        Ok(written) => written,
         Err(error) => {
             emit_diagnostics(&error.diagnostics);
-            return Err(error.into());
+            Err(error.into())
         }
     }
-    write_timings.set_span_seconds(write_span_started.elapsed().as_secs_f64());
-    CompileTimings::new(load_timings, compile_timings, write_timings)
-        .write(options.timings.as_deref())?;
-    Ok(())
 }
 
 fn parsed_definition_for_json(
@@ -2357,19 +2416,38 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             loaded.extend_diagnostics(common.diagnostics.apply(vec![warning]));
         }
         let builtin_source_prefixes = common.builtin_source_prefixes();
-        let (artifacts, compile_timings) = match compile_loaded_definition_timed(
-            &loaded,
-            CompileOptions {
-                backend: CompilationBackend::Rust,
-                diagnostics: common.diagnostics,
-                builtin_source_prefixes,
-                ..CompileOptions::default()
-            },
-        ) {
-            Ok(compiled) => compiled,
+        let mut compile_timings = PhaseTimings::default();
+        let artifacts = match compile_timings.span(|timings| {
+            compile_loaded_definition_with_timings(
+                &loaded,
+                CompileOptions {
+                    backend: CompilationBackend::Rust,
+                    diagnostics: common.diagnostics,
+                    builtin_source_prefixes,
+                    ..CompileOptions::default()
+                },
+                timings,
+            )
+        }) {
+            Ok(artifacts) => artifacts,
             Err(error) => {
                 emit_diagnostics(&error.diagnostics);
-                return Err(error.into());
+                // A failed compile ends the run: its timings document holds the phases that
+                // ran, and every execution field is zero because nothing executed.
+                let written = KrunTimings {
+                    compile: CompileTimings::new(
+                        load_timings,
+                        compile_timings,
+                        PhaseTimings::default(),
+                    ),
+                    program_parse_seconds: 0.0,
+                    config_vars_parse_seconds: 0.0,
+                    internalize_seconds: 0.0,
+                    execute_seconds: 0.0,
+                    output_seconds: 0.0,
+                }
+                .write(options.timings.as_deref());
+                return finish_with_timings(Err(error.into()), written);
             }
         };
         emit_diagnostics(&artifacts.diagnostics);
