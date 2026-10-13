@@ -4209,10 +4209,11 @@ endmodule
 
 #[test]
 fn krun_halts_instead_of_narrowing_a_variable_free_configuration_modulo_algebraic_axioms() {
-    // `&` and `;` are unhooked associative productions, which the backend matches as free
-    // constructors: `1 & 2 & 3` is `(1 & 2) & 3`, so `sum(I:Int & B)` meets `bagCat(1, 2)` at
-    // `I:Int`. Narrowing that pair restates the configuration's own value as fresh unknowns at
-    // every step; the variable-free configuration halts instead.
+    // `&` and `;` are unhooked associative productions, which the backend matches only by
+    // identity: `1 & 2 & 3` is `(1 & 2) & 3`, which is not the term `sum(I:Int & B)` spells, so
+    // the pair is left undecided and binds neither `I` nor `B`. Narrowing that pair restates the
+    // configuration's own value as fresh unknowns at every step; the variable-free configuration
+    // halts instead.
     let (root, _) = fixture();
     let bag = compiled_for_execution(
         &root,
@@ -4338,6 +4339,274 @@ endmodule
         "{output:?}"
     );
     fs::remove_dir_all(root).unwrap();
+}
+
+/// An unhooked bag operation with `assoc`, `comm` and `unit`, with programs that compare,
+/// collect and look up two of its ground applications equal by `comm`, and a rule whose ground
+/// pattern shares the constant `1` with its right-hand side.
+const ALGEBRAIC_GROUND_TERMS: &str = r#"
+module ALG
+  imports INT
+  imports BOOL
+  imports SET
+  imports MAP
+  imports K-EQUAL
+  syntax Bag ::= "nil" [symbol(bagNil)]
+               | Int
+               | Bag "&" Bag [left, assoc, comm, unit(bagNil), symbol(bagCat)]
+  syntax Pgm ::= "eqk" [symbol(eqk)] | "setsize" [symbol(setsize)] | "mapsize" [symbol(mapsize)]
+               | g(Bag) [symbol(g)]
+  configuration <k> $PGM:Pgm </k> <out> .K </out>
+  rule <k> eqk => .K </k> <out> _ => ((1 & 2) ==K (2 & 1)) </out>
+  rule <k> setsize => .K </k> <out> _ => size(SetItem(1 & 2) SetItem(2 & 1)) </out>
+  rule <k> mapsize => .K </k> <out> _ => size(((1 & 2) |-> 7) ((2 & 1) |-> 8)) </out>
+  rule <k> g(1 & 2) => .K </k> <out> _ => 1 </out>
+endmodule
+"#;
+
+/// The compact `\not(1 & 2 = 2 & 1)` a configuration carries where two ground `bagCat`
+/// applications equal by `comm` must be distinct.
+const NOT_BAG_SWAP_EQUAL: &str = r#"\not{SortGeneratedTopCell{}}(\equals{SortBag{},SortGeneratedTopCell{}}(LblbagCat{}(inj{SortInt{},SortBag{}}(\dv{SortInt{}}("1")),inj{SortInt{},SortBag{}}(\dv{SortInt{}}("2"))),LblbagCat{}(inj{SortInt{},SortBag{}}(\dv{SortInt{}}("2")),inj{SortInt{},SortBag{}}(\dv{SortInt{}}("1")))))"#;
+
+/// The backend decides a pair rooted at an unhooked algebraic symbol only by identity, so two
+/// ground applications equal by `comm` are not identified: `==K` stays unevaluated, and a set
+/// or map holding both is built under the condition that they differ (the map then has two
+/// entries).
+#[test]
+fn ground_terms_equal_by_unhooked_algebraic_axioms_are_not_identified() {
+    let (root, _) = fixture();
+    let compiled = compiled_for_execution(&root, "alg", ALGEBRAIC_GROUND_TERMS, "ALG", "ALG");
+    let run = |program: &str| {
+        let output = bounded_krun(&compiled, "Pgm", program, &[]);
+        assert!(output.status.success(), "{program}: {output:?}");
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .split_whitespace()
+            .collect::<String>()
+    };
+    let eqk = run("eqk");
+    assert!(
+        eqk.starts_with("Lbl'-LT-'generatedTop'-GT-'{}(")
+            && eqk.contains("Lbl'UndsEqlsEqls'K'Unds'{}(")
+            && !eqk.contains(r"\dv{SortBool{}}"),
+        "{eqk}"
+    );
+    let set_size = run("setsize");
+    assert!(
+        set_size.starts_with(r"\and{SortGeneratedTopCell{}}(")
+            && set_size.contains("Lblsize'LParUndsRParUnds'SET'Unds'Int'Unds'Set{}(")
+            && set_size.ends_with(&format!("{NOT_BAG_SWAP_EQUAL})")),
+        "{set_size}"
+    );
+    let map_size = run("mapsize");
+    assert!(
+        map_size.starts_with(r"\and{SortGeneratedTopCell{}}(")
+            && map_size.contains(
+                r#"Lbl'-LT-'out'-GT-'{}(kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("2")),dotk{}()))"#
+            )
+            && map_size.ends_with(&format!("{NOT_BAG_SWAP_EQUAL})")),
+        "{map_size}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `minimize_term_construction` shares the constant `1`, which the rule's right-hand side
+/// writes too, as `\and(1, _Gen)`, so the rule's pattern `g(1 & 2)` holds a variable below the
+/// algebraic application: matched only by identity, it never binds it, and the variable-free
+/// run halts instead of applying the rule to the term it spells.
+#[test]
+fn a_ground_algebraic_pattern_with_a_shared_constant_halts_a_variable_free_run() {
+    let (root, _) = fixture();
+    let compiled = compiled_for_execution(&root, "alg", ALGEBRAIC_GROUND_TERMS, "ALG", "ALG");
+    let output = bounded_krun(&compiled, "Pgm", "g(1 & 2)", &[]);
+    assert_halts_uninstantiated(&output, 0, None);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("leaves Rule-hVar'Unds'Gen"), "{stderr}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Function equations over an unhooked bag operation, each beside an `owise` equation.
+const ALGEBRAIC_EQUATIONS: &str = r#"
+module ALG-EQ
+  imports INT
+  syntax Bag ::= "nil" [symbol(bagNil)]
+               | Int
+               | Bag "&" Bag [left, assoc, comm, unit(bagNil), symbol(bagCat)]
+  syntax Int ::= f(Bag) [function, symbol(f)]
+               | g(Bag) [function, symbol(g)]
+               | k(Bag) [function, symbol(k)]
+  configuration <k> $PGM:Int </k>
+  rule f(1 & 2) => 5
+  rule f(_) => 0 [owise]
+  rule g(1 & 2) => 1
+  rule g(_) => 0 [owise]
+  rule k(I:Int & _:Bag) => I
+  rule k(_) => 0 [owise]
+endmodule
+"#;
+
+/// An equation whose argument pattern holds the algebraic symbol applies only where the
+/// argument is the same term as the compiled pattern: `f(1 & 2)` is `5`, but `g(1 & 2) => 1`
+/// shares `1` and the pattern `k(I:Int & _)` holds variables below the symbol, so neither
+/// applies even to the term it spells. No argument of the sort is shown apart from the pattern,
+/// so each `owise` equation is blocked on every other argument, `nil` and `3` included.
+#[test]
+fn a_function_equation_over_an_unhooked_algebraic_argument_applies_only_to_its_compiled_pattern() {
+    let (root, _) = fixture();
+    let compiled = compiled_for_execution(&root, "alg-eq", ALGEBRAIC_EQUATIONS, "ALG-EQ", "ALG-EQ");
+    let run = |program: &str| {
+        let output = bounded_krun(&compiled, "Int", program, &[]);
+        assert!(output.status.success(), "{program}: {output:?}");
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .split_whitespace()
+            .collect::<String>()
+    };
+    assert_eq!(
+        run("f(1 & 2)"),
+        unconstrained_final(r#"inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("5"))"#)
+    );
+    for (program, head) in [
+        ("f(2 & 1)", "Lblf{}("),
+        ("f(3)", "Lblf{}("),
+        ("g(1 & 2)", "Lblg{}("),
+        ("k(1 & 2)", "Lblk{}("),
+        ("k(nil)", "Lblk{}("),
+        ("k(3)", "Lblk{}("),
+    ] {
+        let stdout = run(program);
+        assert!(
+            stdout.starts_with("Lbl'-LT-'generatedTop'-GT-'{}(")
+                && stdout.contains(&format!("kseq{{}}(inj{{SortInt{{}},SortKItem{{}}}}({head}")),
+            "{program}: {stdout}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Rewrite rules over an unhooked bag operation, for the claims below.
+const ALGEBRAIC_PROOF: &str = r#"
+module GP
+  imports INT
+  syntax Bag ::= "nil" [symbol(bagNil)]
+               | Int
+               | Bag "&" Bag [left, assoc, comm, unit(bagNil), symbol(bagCat)]
+  syntax Pgm ::= h(Bag) [symbol(h)] | "done" [symbol(done)]
+  configuration <k> $PGM:Pgm </k>
+  rule <k> h(_:Int & _:Bag) => done </k>
+  rule <k> h(_) => done </k> [owise]
+endmodule
+"#;
+
+/// Claims whose unwritten cells are frame variables.
+const ALGEBRAIC_FRAMED_CLAIMS: &str = r#"
+module GP-SPEC
+  imports GP
+  claim [pair]: <k> h(1 & 2) => done </k>
+  claim [atom]: <k> h(3) => done </k>
+endmodule
+"#;
+
+/// Claims that write every cell, so their configurations are variable-free.
+const ALGEBRAIC_FULL_CLAIMS: &str = r#"
+module GP-FULL-SPEC
+  imports GP
+  claim [atom]: <k> h(3) => done </k> <generatedCounter> 0 </generatedCounter>
+  claim [pair]: <k> h(1 & 2) => done </k> <generatedCounter> 0 </generatedCounter>
+endmodule
+"#;
+
+/// Claims over an unhooked bag operation that hold in every model by `comm` or `unit`.
+const ALGEBRAIC_VALID_CLAIMS: &str = r#"
+module P2
+  imports INT
+  syntax Bag ::= "nil" [symbol(bagNil)]
+               | Int
+               | Bag "&" Bag [left, assoc, comm, unit(bagNil), symbol(bagCat)]
+  syntax Pgm ::= go(Bag) [symbol(go)] | done(Bag) [symbol(done)] | start(Bag) [symbol(start)]
+               | "fin" [symbol(fin)] | single(Bag) [symbol(single)]
+               | "isone" [symbol(isone)] | "notone" [symbol(notone)]
+  configuration <k> $PGM:Pgm </k>
+  rule <k> go(B) => done(B) </k>
+  rule <k> start(2 & 1) => fin </k>
+  rule <k> single(I:Int) => isone </k> requires I ==Int 1
+  rule <k> single(I:Int) => notone </k> requires I =/=Int 1
+endmodule
+
+module P2-SPEC
+  imports P2
+  claim [swap]: <k> go(1 & 2) => done(2 & 1) </k>
+  claim [start]: <k> start(1 & 2) => fin </k>
+  claim [unit]: <k> single(1 & nil) => isone </k>
+  claim [unit-left]: <k> go(nil & 3) => done(3) </k>
+  claim [start-one-path]: <k> start(1 & 2) => fin </k> [one-path]
+  claim [false]: <k> go(1 & 2) => done(3) </k>
+endmodule
+"#;
+
+/// `kprove` of `module` in `source` (definition module `definition`): its exit status and the
+/// verdict word of each named claim.
+fn algebraic_verdicts(
+    source: &str,
+    module: &str,
+    definition: &str,
+    claims: &[&str],
+) -> (bool, Vec<String>) {
+    let (root, spec) = fixture();
+    fs::write(&spec, source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kprove")
+        .arg(&spec)
+        .args(["--main-module", module, "--definition-module", definition])
+        .args(["--depth", "10"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let verdicts = claims
+        .iter()
+        .map(|claim| {
+            let prefix = format!("claim {module}.{claim}: ");
+            stdout
+                .lines()
+                .find_map(|line| line.strip_prefix(&prefix))
+                .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}"))
+                .split_whitespace()
+                .next()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    fs::remove_dir_all(root).unwrap();
+    (output.status.success(), verdicts)
+}
+
+/// On the proof route an unsolved pair rooted at the algebraic symbol is a branch condition:
+/// a claim that holds on every branch is proven, one that needs two terms identified or
+/// separated by the axioms is `failed`, and none valid in every model is disproved. A claim
+/// that writes every cell over a constructor-like configuration meets the instantiation halt
+/// and is `indeterminate`; one holding an application of the symbol narrows and is proven.
+#[test]
+fn kprove_over_an_unhooked_algebraic_operation_never_disproves_a_claim_valid_in_every_model() {
+    let framed = format!("{ALGEBRAIC_PROOF}{ALGEBRAIC_FRAMED_CLAIMS}");
+    let (success, verdicts) = algebraic_verdicts(&framed, "GP-SPEC", "GP", &["pair", "atom"]);
+    assert!(success);
+    assert_eq!(verdicts, ["proven", "proven"]);
+    let full = format!("{ALGEBRAIC_PROOF}{ALGEBRAIC_FULL_CLAIMS}");
+    let (success, verdicts) = algebraic_verdicts(&full, "GP-FULL-SPEC", "GP", &["atom", "pair"]);
+    assert!(!success);
+    assert_eq!(verdicts, ["indeterminate", "proven"]);
+    let claims = [
+        "swap",
+        "start",
+        "unit",
+        "unit-left",
+        "start-one-path",
+        "false",
+    ];
+    let (success, verdicts) = algebraic_verdicts(ALGEBRAIC_VALID_CLAIMS, "P2-SPEC", "P2", &claims);
+    assert!(!success);
+    assert_eq!(verdicts, ["failed"; 6]);
 }
 
 /// `#let P = E #in B` denotes B under the match of E against P, and nothing when E is no
