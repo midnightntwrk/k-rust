@@ -1598,7 +1598,7 @@ The macro rule is not an axiom of the executed definition: `kcompile` writes it 
 Nor is the macro-like production a constructor of its sort there: `definition.kore` declares its symbol `function`, `macro` and `value-production` with no equation, its sort's no-junk axiom does not list it among the sort's alternatives, and the backend loads it as a `Residual` head, a `Function(Partial)` symbol with definedness obligations ([Anywhere rules](#anywhere-rules)).
 So an application of it left after expansion has no value the executed definition determines.
 By the declaration (`value-production`) it is a defined value of its sort, which by the no-junk axiom equals some value the sort's listed alternatives build, but the definition does not say which; the backend reads the head more weakly, as possibly undefined.
-Either way no rule can be decided against such an application, so every route refuses it rather than executing it.
+Either way no rule whose left side has a constructor where such an application stands can be decided against it, so every route refuses it rather than executing it.
 
 The refusal is enforced at three points.
 A rule or claim that still holds a macro-like application after expansion is rejected at compile time with `InvalidMacroExpansion` ("Rule contains macro symbol that was not expanded"); a context is exempt.
@@ -1613,12 +1613,14 @@ The refusal is the cost of the one-step strategy in the third case: read as equa
 
 A surviving application is not read as a constructor, because that would add a value to its sort that the no-junk axiom excludes, and would contradict the macro rule read as the equation it states: `decl x , y , z ; = var x ; decl y , z ;` against the no-confusion of a constructor `decl _ ;` with `_ _`.
 Executing it as it is gives no answer either.
-Its value is not determined, so a rule whose left side has a constructor where it stands neither applies nor is refuted there: on execution and search routes a variable-free state then ends at best as an incomplete outcome ([Concrete rewrite instantiation](#concrete-rewrite-instantiation)), and a symbolic state, or any state on a proof route, would narrow it against every rule whose left side can hold its sort.
+Its value is not determined, so a rule whose left side has a constructor where it stands neither applies nor is refuted there.
+On execution and search routes a variable-free state then halts as an incomplete outcome where such a rule leaves a left-hand-side variable unbound ([Concrete rewrite instantiation](#concrete-rewrite-instantiation)), and branches under an undecided equality with the application where such a rule binds every variable, as one with a ground left-hand side does; a rule that rebuilds the state then repeats that without end, as [Anywhere rules](#anywhere-rules) states for a withdrawn anywhere head.
+A symbolic state, or any state on a proof route, would narrow it against every rule whose left side can hold its sort.
 The refusal reports that incompleteness where it arises: before the first step for input, and at the successor for a state a step builds.
 
 This differs from the pinned reference, whose two backends also differ from each other.
 The LLVM backend keeps a surviving application as an ordinary constructor, so `decl x , y , z ;` ends there at `<k> decl y , z , .Ids ; ~> .K </k>`.
-The Haskell backend (`kore-exec` 0.1.155) fails with `DecidePredicateUnknown` while applying an equation, and `krun` reports `Backend crashed during rewriting`, so it gives the application no determined value either.
+The Haskell backend (`kore-exec` 0.1.155) fails with `DecidePredicateUnknown` while applying an equation, and `krun` reports `Backend crashed during rewriting`, so that backend returns no result for it.
 
 A definition makes its expansion complete, or does not use a macro.
 With `macro-rec` on the production and a clause for every argument shape (the two clauses above), `decl x ;` and `decl x , y , z ;` both expand completely and run to `<k> .K </k>`.
