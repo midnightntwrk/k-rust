@@ -1626,6 +1626,18 @@ fn the_k_bracket_only_groups_what_the_definition_does_not_read() {
         fixture.kore(&parser, "K", "push x ~> y"),
         seq(&[push(seq(&[id("x")])), id("y")])
     );
+    // Sequence syntax is read inside a K-sorted argument at any start sort.
+    assert_eq!(
+        fixture.kore(&parser, "KItem", "push (x ~> y)"),
+        push(seq(&[id("x"), id("y")]))
+    );
+    assert_eq!(fixture.kore(&parser, "KItem", "push .K"), push(seq(&[])));
+    assert!(
+        fixture
+            .plain("GROUND")
+            .parse(&Sort::new("KItem"), "push (x ~> y)")
+            .is_err()
+    );
 
     // A definition's own `avoid` `( .. )` production competes with the avoided K bracket on
     // equal terms: both readings are avoided, so the item is an ambiguity at K and parses only
@@ -1693,6 +1705,8 @@ fn ground_values_refuse_a_module_that_sees_k_top_sort() {
         ("GROUND-KSEQ", "KSEQ"),
         ("GROUND-K", "K"),
         ("GROUND-VIA", "KSEQ"),
+        ("KSEQ", "KSEQ"),
+        ("K-TOP-SORT", "K-TOP-SORT"),
     ] {
         let error = ProgramParser::for_ground_values(fixture.resolved(), module)
             .expect_err("a module that sees K-TOP-SORT is refused");
@@ -1720,6 +1734,86 @@ fn ground_values_refuse_a_module_that_sees_k_top_sort() {
     for text in ["x", "op 1"] {
         let message = ambiguity(&with_kseq, "K", text);
         assert!(message.contains("userList"), "{text:?}: {message}");
+    }
+}
+
+/// Modules whose program grammar sees, or does not see, `K-TOP-SORT` other than through their
+/// import closure: a private import below a direct one, a direct private import, and
+/// `-PROGRAM-PARSING` companions that add or drop a `KSEQ` import.
+const VISIBILITY: &str = r#"
+module V-SYNTAX
+  imports ID-SYNTAX
+  syntax Exp ::= Id
+  syntax Exps ::= List{Exp, ","} [symbol(exps)]
+  syntax KItem ::= f(Exps) [symbol(f)]
+endmodule
+module V-PRIVATE-HELPER
+  imports private KSEQ
+endmodule
+module V
+  imports V-SYNTAX
+  imports V-PRIVATE-HELPER
+  imports ID
+  configuration <k> $PGM:K </k>
+endmodule
+module V-DIRECT
+  imports V
+  imports private KSEQ
+endmodule
+module V-COMPANION-SYNTAX
+  syntax Foo ::= "foo" [symbol(foo)]
+endmodule
+module V-COMPANION-SYNTAX-PROGRAM-PARSING
+  imports V-COMPANION-SYNTAX
+  imports KSEQ
+endmodule
+module V-COMPANION
+  imports V-SYNTAX
+  imports V-COMPANION-SYNTAX
+  imports ID
+endmodule
+module V-LIB
+  imports KSEQ
+  syntax Bar ::= "bar" [symbol(bar)]
+endmodule
+module V-LIB-PROGRAM-PARSING
+  syntax Bar ::= "bar" [symbol(bar)]
+endmodule
+module V-LIB-USER
+  imports V-SYNTAX
+  imports V-LIB
+  imports ID
+endmodule
+"#;
+
+/// The refusal reads the modules the program grammar collects, not the import closure.
+#[test]
+fn ground_values_refuse_exactly_the_modules_whose_program_grammar_sees_k_top_sort() {
+    let fixture = GroundFixture::load(VISIBILITY, "V");
+    // KSEQ below a private import, or only in a module replaced by its program companion, is not
+    // part of the grammar: the user list's elements stay unique and sequences parse.
+    for module in ["V", "V-LIB-USER"] {
+        let _ = fixture
+            .plain(module)
+            .parse(&Sort::new("KItem"), "x")
+            .unwrap_or_else(|error| panic!("{module}: {error}"));
+        let _ = fixture
+            .ground(module)
+            .parse(&Sort::new("K"), "f(x, y) ~> x ~> .K")
+            .unwrap_or_else(|error| panic!("{module}: {error}"));
+    }
+    // A direct private import, or a program companion importing KSEQ, puts K-TOP-SORT in the
+    // grammar, where the user list's elements are ambiguous: these are refused.
+    for module in ["V-DIRECT", "V-COMPANION"] {
+        ambiguity(&fixture.plain(module), "KItem", "x");
+        assert_eq!(
+            ProgramParser::for_ground_values(fixture.resolved(), module)
+                .expect_err("the program grammar sees K-TOP-SORT"),
+            ProgramError::KSequenceModuleVisible {
+                module: module.to_owned(),
+                via: "KSEQ".to_owned(),
+            }
+        );
     }
 }
 
@@ -1773,8 +1867,15 @@ fn ground_values_need_the_union_of_syntax_and_main_modules() {
         .ground("SPLIT")
         .parse(&Sort::new("K"), "say hello ~> halt")
         .expect_err("the main module has no lexical syntax for the program token");
+    // It fails at the program token: the main module scans `say` but has no lexeme for `hello`.
     assert!(
-        matches!(*error.error, ParseError::NoParse { .. }),
+        matches!(*error.error, ParseError::NoParse { position: 4, .. }),
+        "{error:?}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("unexpected character sequence 'h'"),
         "{error}"
     );
     let union = fixture.ground("SPLIT-UNION");
