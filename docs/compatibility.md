@@ -528,7 +528,8 @@ N45 ([Comparison contract](#comparison-contract)) compares those two axioms with
 
 A cell written in a configuration is the declaration of that cell, and declaring it generates the cell sort's one `cell` production, label `<name>`, whose attributes (`cellName`, `maincell`, the multiplicity and collection type, the format) come from the declaration and drive initializing, completing and wrapping the configuration.
 The configuration grammar therefore holds no `cell` production: a cell written there always reads as a declaration, never as a term of a `cell` production written beside the configuration.
-Expansion then rejects every `cell` production of a declared cell's sort other than the one a configuration generated, at that production, naming the production, its cell sort and the configuration that declares the cell.
+The sort such a production declares stays a sort of the configuration grammar, so a configuration variable or cast of that sort parses as before.
+Expansion then rejects every `cell` production of a declared cell's sort other than the one the configuration of an imported module generated, at that production, naming the production, its cell sort and the configuration that declares the cell.
 This includes a written production that repeats the cell's tags, label and items (`syntax TCell ::= "<t>" Int "</t>" [cell, symbol(<t>)]` beside a configuration declaring `<t> 0 </t>`), whatever attributes it writes, `cellName` included: it would stand in for the production the declaration generates, without the declaration's attributes, so the compiled definition would no longer be the one the configuration describes.
 The pinned K frontend accepts a written `cell` production under the label of the cell's generated production (`symbol(<t>)` above), for an ordinary cell and for a `multiplicity="*"` cell, and rejects one under another label, as Rust does.
 

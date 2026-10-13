@@ -19,7 +19,7 @@
 //!
 //! Expansion of parsed configuration declarations into generated sentences.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -93,8 +93,9 @@ pub struct ConfigurationCellProduction {
 /// How a configuration meets a [`ConfigurationCellProduction`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CellProductionReading {
-    /// The configuration declares a cell of the production's sort, whose generated production
-    /// has another label (`cell` is the cell's name, without angle brackets).
+    /// The configuration declares a cell of the production's sort, and the production was
+    /// written, whatever its label: no configuration the module imports generated it (`cell` is
+    /// the cell's name, without angle brackets).
     BesideDeclaredCell { cell: String },
     /// The configuration holds a term of the production as a value where it would declare a
     /// cell. A configuration parsed from source never does, since the configuration grammar holds
@@ -305,9 +306,9 @@ fn expand_configurations_inner(
         .map(|id| resolved.module(*id).name.clone())
         .collect::<Vec<_>>();
     let mut diagnostics = Vec::new();
-    // The labels of the cell productions the configurations of the modules expanded so far
-    // generated: an importer that declares one of those cells again meets it as its own.
-    let mut generated_cell_labels = BTreeSet::new();
+    // The labels of the cell productions each expanded module's configurations generated, by
+    // module: an importer that declares one of those cells again meets it as its own.
+    let mut generated_cell_labels_by_module = BTreeMap::<String, BTreeSet<String>>::new();
 
     // Invariant: `transformed` and `resolved` carry the generated cell sentences of every entry of `module_names` (dependency order) before `module_name`; each iteration consumes one module name and its `position` lookup scans `transformed.modules`, O(|module_names| * |transformed.modules|).
     for module_name in module_names {
@@ -333,6 +334,15 @@ fn expand_configurations_inner(
             .defined_labels()
             .map(|label| label.as_str().to_owned())
             .collect();
+        // Only a configuration this module imports generated a cell production it may meet as
+        // its own; one in a module it does not import cannot have.
+        let generated_cell_labels = resolved
+            .transitive_imports(module_id)
+            .into_iter()
+            .filter_map(|import| generated_cell_labels_by_module.get(&resolved.module(import).name))
+            .flatten()
+            .cloned()
+            .collect::<BTreeSet<_>>();
         let local = transformed.modules[module_index].local_sentences.clone();
         let mut output = local
             .iter()
@@ -367,17 +377,20 @@ fn expand_configurations_inner(
         }
 
         let generated = generated.kept.into_sentences();
-        generated_cell_labels.extend(generated.iter().filter_map(|sentence| {
-            if let Sentence::Production {
-                label: Some(label), ..
-            } = sentence
-                && is_cell_production(sentence)
-            {
-                Some(label.name.clone())
-            } else {
-                None
-            }
-        }));
+        generated_cell_labels_by_module
+            .entry(module_name.clone())
+            .or_default()
+            .extend(generated.iter().filter_map(|sentence| {
+                if let Sentence::Production {
+                    label: Some(label), ..
+                } = sentence
+                    && is_cell_production(sentence)
+                {
+                    Some(label.name.clone())
+                } else {
+                    None
+                }
+            }));
         output.extend(generated.into_iter().map(Arc::new));
         let previous = transformed.clone();
         transformed.modules[module_index].local_sentences = output;
@@ -498,8 +511,8 @@ struct Generator<'a, 'catalog> {
     module: &'a str,
     catalog: &'catalog ProductionCatalog<'catalog>,
     existing_labels: BTreeSet<String>,
-    /// The labels of the cell productions earlier modules' configurations generated in this
-    /// expansion.
+    /// The labels of the cell productions the configurations of the modules this module imports
+    /// generated in this expansion.
     generated_cell_labels: &'a BTreeSet<String>,
     generated: &'a mut GeneratedSentences,
     attributes: &'a Attributes,

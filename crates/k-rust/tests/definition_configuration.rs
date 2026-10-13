@@ -1716,3 +1716,50 @@ fn two_configurations_declaring_cells_of_one_sort_name_both_cells() {
     assert!(text.contains("rename one of the two cells"), "{text}");
     assert!(!text.contains("remove this production"), "{text}");
 }
+
+#[test]
+fn a_written_cell_productions_sort_stays_a_sort_of_the_configuration_grammar() {
+    // The configuration grammar leaves the written `cell` production's syntax out, not the sort it
+    // declares: a configuration variable of that sort still parses, as it did before.
+    let definition = parsed(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax FooCell ::= "<foo>" Int "</foo>" [cell]
+          configuration <k> $PGM:K </k> <s> $FOO:FooCell </s>
+        endmodule
+    "#});
+    expand_configurations(&definition).expect("no configuration declares <foo>");
+}
+
+#[test]
+fn a_cell_production_a_configuration_the_module_does_not_import_generated_is_not_its_own() {
+    // `A`, which `MAIN` does not import, declares `<t>` and is expanded first; the production
+    // `MAIN` writes under `<t>`'s label is still written, not one a configuration generated.
+    let definition = parsed(indoc! {r#"
+        module A
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <k> $PGM:K </k> <t> 1 </t>
+        endmodule
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax TCell ::= "<t>" Int "</t>" [cell, symbol(<t>)]
+          configuration <k> $PGM:K </k> <t> 0 </t>
+        endmodule
+    "#});
+    let order = definition
+        .modules
+        .iter()
+        .map(|module| module.name.clone())
+        .collect::<Vec<_>>();
+    let error = expand_configurations(&definition).expect_err(&format!(
+        "written <t> production is rejected (modules {order:?})"
+    ));
+    let ConfigurationError::CellProduction(cell) = &error else {
+        panic!("expected a cell production error, got {error}: {error:?}");
+    };
+    assert_eq!(
+        cell.reading,
+        CellProductionReading::BesideDeclaredCell { cell: "t".into() },
+        "{error}"
+    );
+}
