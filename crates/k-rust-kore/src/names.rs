@@ -122,6 +122,10 @@ impl BuiltinSort {
     }
 }
 
+/// The KORE head of K's one parametric builtin sort, `MInt{W}`: `SortMInt{Sort<W>{}}`, whose one
+/// argument names the width. It is not a [`BuiltinSort`], whose sorts are nullary.
+pub const MINT_SORT: &str = "SortMInt";
+
 /// Attribute symbols the frontend emits into `definition.kore` and the backend reads.
 ///
 /// `as_str` is the KORE identifier as written, including K's identifier encoding of

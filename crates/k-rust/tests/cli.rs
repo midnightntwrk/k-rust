@@ -1739,6 +1739,401 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Rules that tell the element `255p8` of `MInt{8}` apart from every other element.
+const MINT_SPELLINGS: &str = r#"
+requires "domains.md"
+module FP-SYNTAX
+  imports INT-SYNTAX
+  imports MINT-SYNTAX
+  syntax MInt{8}
+  syntax Pgm ::= step(MInt{8}) | stepm(MInt{8}) | done() | bad()
+endmodule
+module FP
+  imports FP-SYNTAX
+  imports INT
+  imports MINT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k>
+  rule <k> step(X) => bad() ... </k> requires X ==K 255p8
+  rule <k> step(X) => done() ... </k> requires notBool (X ==K 255p8)
+  rule <k> stepm(255p8) => bad() ... </k>
+  rule <k> stepm(_) => done() ... </k> [owise]
+endmodule
+"#;
+
+/// The literals `07` and `7` of a sort hooked `INT.Int` under its own name are one integer, so
+/// the rule on `7` applies to `07` and the claim is false.
+const HOOKED_INT_SPELLINGS: &str = r#"
+requires "domains.md"
+module HFP-SYNTAX
+  imports INT-SYNTAX
+  syntax MyInt [hook(INT.Int)]
+  syntax MyInt ::= r"[0-9]+" [token, prec(2)]
+  syntax Pgm ::= stepm(MyInt) | done() | bad()
+endmodule
+module HFP
+  imports HFP-SYNTAX
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k>
+  rule <k> stepm(#token("7", "MyInt")) => bad() ... </k>
+  rule <k> stepm(_) => done() ... </k> [owise]
+endmodule
+module HFP-SPEC
+  imports HFP
+  claim <k> stepm(#token("07", "MyInt")) => done() ... </k>
+endmodule
+"#;
+
+/// `kprove` of `spec` in `source` against `definition_module`: the claim's verdict, and the
+/// whole standard output.
+fn kprove_single_claim(source: &str, spec: &str, definition_module: &str) -> (String, String) {
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            spec,
+            "--definition-module",
+            definition_module,
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let verdict = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("claim #1: "))
+        .unwrap_or_else(|| {
+            panic!(
+                "{spec}: no verdict in {stdout}\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+        })
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_owned();
+    fs::remove_dir_all(root).unwrap();
+    (verdict, stdout)
+}
+
+/// Two spellings of one machine integer are one term: a claim that holds only if `-1p8` (or a
+/// symbolic `X` equal to `511p8`) were another element than `255p8` is not proven, and its proof
+/// ends at the `bad()` state the rules on `255p8` reach. On the ground claims that state is a
+/// certified counterexample, so they are disproved.
+#[test]
+fn kprove_proves_nothing_through_two_spellings_of_one_mint_element() {
+    // Each claim states that a spelling of `255p8` reaches `done()`: `-1p8` and `511p8` are the
+    // integers -1 and 511 truncated to 8 bits, so the `bad()` rules apply and every claim is
+    // false. Each claim is the only one of its spec module and file.
+    for (spec, claim, expected) in [
+        (
+            "FP-A",
+            "claim <k> step(-1p8) => done() ... </k>",
+            "disproved",
+        ),
+        (
+            "FP-A2",
+            "claim <k> step(X) => done() ... </k> requires X ==K 511p8",
+            "failed",
+        ),
+        (
+            "FP-B",
+            "claim <k> stepm(-1p8) => done() ... </k>",
+            "disproved",
+        ),
+    ] {
+        let source = format!("{MINT_SPELLINGS}module {spec}\n  imports FP\n  {claim}\nendmodule\n");
+        let (verdict, stdout) = kprove_single_claim(&source, spec, "FP");
+        assert_eq!(verdict, expected, "{spec}: {stdout}");
+        assert!(
+            stdout.contains(r"Lblbad'LParRParUnds'FP-SYNTAX'Unds'Pgm{}()"),
+            "{spec}: no bad() leaf in {stdout}"
+        );
+    }
+}
+
+/// The load-time literals of a sort hooked `INT.Int` under its own name are read by the hook:
+/// `#token("07", "MyInt")` and `#token("7", "MyInt")` are one term, so the claim that `07`
+/// reaches `done()` is disproved by the certified `bad()` state.
+#[test]
+fn kprove_proves_nothing_through_two_spellings_of_one_hooked_int_value() {
+    let (verdict, stdout) = kprove_single_claim(HOOKED_INT_SPELLINGS, "HFP-SPEC", "HFP");
+    assert_eq!(verdict, "disproved", "{stdout}");
+    assert!(
+        stdout.contains(r"Lblbad'LParRParUnds'HFP-SYNTAX'Unds'Pgm{}()"),
+        "no bad() leaf in {stdout}"
+    );
+}
+
+/// `krun` of `program` (a `Pgm`) in the definition `source` with main module `module`.
+fn krun_mint_program(source: &str, module: &str, program: &str) -> Output {
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(&definition, &["--main-module", module], &compiled);
+    let program_file = root.join("program.pgm");
+    fs::write(&program_file, program).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
+        .arg(&program_file)
+        .args(["--sort", "Pgm", "--io", "off"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    output
+}
+
+/// The final configuration of a successful `krun`, without whitespace.
+fn compact_success(output: &Output) -> String {
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .collect()
+}
+
+const MINT_DOMAIN_VALUES: &str = r#"
+requires "domains.md"
+module MINTDV-SYNTAX
+  imports INT-SYNTAX
+  imports MINT-SYNTAX
+  syntax MInt{8}
+  syntax Pgm ::= go() | m()
+endmodule
+module MINTDV
+  imports MINTDV-SYNTAX
+  imports INT
+  imports MINT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= Bool | f(MInt{8}) | matched() | lit(MInt{8})
+  rule <k> go() => (256p8 ==K 0p8) ~> (-1p8 ==K 255p8) ~> lit(0377p8) ... </k>
+  rule <k> m() => f(256p8) ... </k>
+  rule <k> f(0p8) => matched() ... </k>
+endmodule
+"#;
+
+/// A machine-integer literal denotes its signed decimal reduced modulo `2^W`: `256p8` is `0p8`,
+/// `-1p8` is `255p8`, and `0377p8` (decimal digits) is `121p8`. `==K` and rule matching see one
+/// term for each element, and the result prints the residue.
+#[test]
+fn krun_reads_mint_literals_as_their_residue() {
+    let go = compact_success(&krun_mint_program(MINT_DOMAIN_VALUES, "MINTDV", "go()"));
+    assert!(
+        go.contains(
+            r#"kseq{}(inj{SortBool{},SortKItem{}}(\dv{SortBool{}}("true")),kseq{}(inj{SortBool{},SortKItem{}}(\dv{SortBool{}}("true")),kseq{}(Lbllit'LParUndsRParUnds'MINTDV'Unds'KItem'Unds'MInt{}(\dv{SortMInt{Sort8{}}}("121p8")),dotk{}())))"#
+        ),
+        "{go}"
+    );
+    let m = compact_success(&krun_mint_program(MINT_DOMAIN_VALUES, "MINTDV", "m()"));
+    assert!(
+        m.contains("Lblmatched'LParRParUnds'MINTDV'Unds'KItem{}()"),
+        "{m}"
+    );
+}
+
+/// An `owise` equation applies only where no other equation does: `f(0p8)` is `f(256p8)`, which
+/// the first equation gives the value 1.
+#[test]
+fn krun_owise_equation_sees_one_mint_element_in_two_spellings() {
+    let source = r#"
+requires "domains.md"
+module OW-SYNTAX
+  imports INT-SYNTAX
+  imports MINT-SYNTAX
+  syntax MInt{8}
+  syntax Pgm ::= go()
+endmodule
+module OW
+  imports OW-SYNTAX
+  imports INT
+  imports MINT
+  configuration <k> $PGM:Pgm </k>
+  syntax Int ::= f(MInt{8}) [function]
+  rule f(256p8) => 1
+  rule f(0p8) => 2 [owise]
+  syntax KItem ::= Int
+  rule <k> go() => f(0p8) ... </k>
+endmodule
+"#;
+    let output = compact_success(&krun_mint_program(source, "OW", "go()"));
+    assert!(
+        output.contains(r#"kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("1")),dotk{}())"#),
+        "{output}"
+    );
+}
+
+/// A token of `MInt{8}` outside the literal syntax names no element of the sort, so the
+/// definition holding it is refused when `krun` loads it.
+#[test]
+fn krun_refuses_a_mint_token_outside_the_literal_syntax() {
+    let source = r#"
+requires "domains.md"
+module TOK-SYNTAX
+  imports INT-SYNTAX
+  imports MINT-SYNTAX
+  syntax MInt{8}
+  syntax Pgm ::= go()
+endmodule
+module TOK
+  imports TOK-SYNTAX
+  imports MINT
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= t(MInt{8})
+  rule <k> go() => t(#token("abcp8", "MInt{8}")) ... </k>
+endmodule
+"#;
+    let output = krun_mint_program(source, "TOK", "go()");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && stderr.contains(r#"Invalid domain value "abcp8""#),
+        "{stderr}\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+/// A sort hooked `MINT.MInt` under its own name has no width argument, so no text is a literal of
+/// it, and the definition holding one of its tokens is refused when `krun` loads it.
+#[test]
+fn krun_refuses_a_sort_hooked_mint_under_another_name() {
+    let source = r#"
+requires "domains.md"
+module HOOKMINT-SYNTAX
+  imports INT-SYNTAX
+  syntax Word [hook(MINT.MInt)]
+  syntax Word ::= r"[0-9]+w" [token, prec(2)]
+  syntax Pgm ::= go()
+endmodule
+module HOOKMINT
+  imports HOOKMINT-SYNTAX
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= Bool
+  rule <k> go() => (#token("07w", "Word") ==K #token("7w", "Word")) ... </k>
+endmodule
+"#;
+    let output = krun_mint_program(source, "HOOKMINT", "go()");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && stderr.contains("Invalid domain value"),
+        "{stderr}\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+/// `krust kore-simplify` of `pattern` in `definition` (module `MAIN`): its standard output,
+/// asserting success.
+fn kore_simplify_in(root: &Path, definition: &Path, pattern: &str) -> String {
+    let path = root.join("pattern.kore");
+    fs::write(&path, pattern).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kore-simplify")
+        .arg(definition)
+        .args(["--module", "MAIN", "--pattern"])
+        .arg(&path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{pattern}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// A sort named `SortInt` declared without the hook `INT.Int` is still the integers, as the SMT
+/// translation and the INT hooks read it: its literal `07` is `7`, and `X = 07` contradicts
+/// `X =/= 7`.
+#[test]
+fn kore_simplify_reads_an_unhooked_sort_int_as_the_integers() {
+    let (root, _) = fixture();
+    let definition = root.join("unhooked-int.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortInt{} [hasDomainValues{}()]
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  sort SortK{} []
+  symbol c{}(SortInt{}) : SortK{} [constructor{}(), functional{}(), injective{}()]
+endmodule []
+"#,
+    )
+    .unwrap();
+    let compact = |text: String| text.split_whitespace().collect::<String>();
+    assert_eq!(
+        compact(kore_simplify_in(
+            &root,
+            &definition,
+            r#"c{}(\dv{SortInt{}}("07"))"#
+        )),
+        r#"c{}(\dv{SortInt{}}("7"))"#
+    );
+    assert_eq!(
+        compact(kore_simplify_in(
+            &root,
+            &definition,
+            r#"\and{SortK{}}(c{}(X:SortInt{}), \and{SortK{}}(\equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("07")), \not{SortK{}}(\equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("7")))))"#
+        )),
+        r#"\bottom{SortK{}}()"#
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A definition compiled without the prelude declares `SortBool` without its hook, and its
+/// generated sort-predicate equations hold the literals `true` and `false`; the backend loads it
+/// and evaluates its functions.
+#[test]
+fn a_definition_compiled_without_the_prelude_loads_its_unhooked_booleans() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" [function, symbol(a)] | "b" [symbol(b)]
+  rule a => b
+endmodule
+"#,
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &[
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "MAIN",
+            "--no-prelude",
+        ],
+        &compiled,
+    );
+    let kore = compiled.join("definition.kore");
+    let text = fs::read_to_string(&kore).unwrap();
+    assert!(
+        text.contains("sort SortBool{} [hasDomainValues{}()")
+            && text.contains(r#"\dv{SortBool{}}("true")"#),
+        "{text}"
+    );
+    assert_eq!(kore_simplify_in(&root, &kore, "Lbla{}()\n"), "Lblb{}()\n");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kast_omits_inferred_parametric_label_arguments() {
     let (root, definition) = fixture();

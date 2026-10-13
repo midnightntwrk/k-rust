@@ -93,12 +93,25 @@ use crate::{
     },
     smt::{SExpr, SmtType},
     term::{
-        AlgebraicAxioms, CollectionMetadata, CollectionSymbols, FunctionType, HeadRole,
-        ListDefinition, MapDefinition, Name, Sort, Symbol, SymbolAttributes, SymbolDeclaration,
-        SymbolType, Term, TermKind, Variable,
+        AlgebraicAxioms, CollectionMetadata, CollectionSymbols, DomainKind, FunctionType, HeadRole,
+        ListDefinition, MIntLiteral, MIntWidth, MapDefinition, Name, Sort, Symbol,
+        SymbolAttributes, SymbolDeclaration, SymbolType, Term, TermKind, Variable, mint_width,
+        mint_width_beyond_bound, mint_width_digits,
         names::{HookName, variable_name_problems},
     },
 };
+
+/// Why a domain value names no element of its sort.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InvalidDomainValueReason {
+    /// The text is not in the literal syntax of the sort's hook.
+    NotALiteral,
+    /// A machine-integer literal whose suffix names another width than its sort's.
+    OtherWidth,
+    /// A sort hooked `MINT.MInt` that is not `SortMInt` applied to a numeral sort, so that it
+    /// has no width and no text is a literal of it.
+    NoWidth,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SortInfo {
@@ -881,6 +894,16 @@ pub enum DefinitionError {
     InvalidDomainValue {
         sort: Box<kore::Sort>,
         value: String,
+        reason: InvalidDomainValueReason,
+    },
+    /// A domain value whose canonical text the backend declines to compute: a negative literal
+    /// of a machine-integer sort wider than `limit_bits` (`MAX_INT_RESULT_BITS`), whose residue
+    /// modulo `2^W` would be a decimal of about `W` bits. The literal names an element of its
+    /// sort; the refusal is a resource bound of k-rust.
+    DomainValueTooLarge {
+        sort: Box<kore::Sort>,
+        value: String,
+        limit_bits: u64,
     },
     ExpectedTerm(&'static str),
     EmptyAssociativeApplication(String),
@@ -1065,9 +1088,35 @@ impl fmt::Display for DefinitionError {
                 formatter,
                 "Sort {sort} used with a domain value must have the hasDomainValues attribute."
             ),
-            Self::InvalidDomainValue { sort, value } => {
-                write!(formatter, "Invalid domain value {value:?} for sort {sort}")
+            Self::InvalidDomainValue {
+                sort,
+                value,
+                reason,
+            } => {
+                write!(formatter, "Invalid domain value {value:?} for sort {sort}")?;
+                match reason {
+                    InvalidDomainValueReason::NotALiteral => Ok(()),
+                    InvalidDomainValueReason::OtherWidth => write!(
+                        formatter,
+                        ": its width suffix names another width than the sort's"
+                    ),
+                    InvalidDomainValueReason::NoWidth => write!(
+                        formatter,
+                        ": a sort hooked MINT.MInt has domain values only as SortMInt applied to \
+                         a numeral width"
+                    ),
+                }
             }
+            Self::DomainValueTooLarge {
+                sort,
+                value,
+                limit_bits,
+            } => write!(
+                formatter,
+                "Domain value {value:?} of sort {sort} is beyond a resource bound: its canonical \
+                 text, the residue modulo 2^W, would need more than {limit_bits} bits \
+                 (MAX_INT_RESULT_BITS)"
+            ),
             Self::ExpectedTerm(pattern) => {
                 write!(
                     formatter,
@@ -2606,8 +2655,8 @@ impl BackendDefinition {
             }
             kore::Pattern::DomainValue { sort, value } => {
                 let sort = internalize_sort(sort, &self.sorts, sort_variables)?;
-                self.validate_domain_value(&sort, value)?;
-                Ok(Term::domain_value(sort, value.clone()))
+                let kind = self.validate_domain_value(&sort, value)?;
+                Ok(Term::domain_value_of(kind, sort, value.clone()))
             }
             kore::Pattern::And { arguments, .. } => {
                 let (terms, predicates): (Vec<_>, Vec<_>) = arguments
@@ -2703,11 +2752,54 @@ impl BackendDefinition {
         }
     }
 
+    /// How the domain values of `sort` denote its elements, read from the hook and
+    /// `hasDomainValues` attribute its head was declared with:
+    /// - `INT.Int` gives [`DomainKind::Int`] (`syntax MyInt [hook(INT.Int)]` included) and
+    ///   `BOOL.Bool` gives [`DomainKind::Bool`];
+    /// - `MINT.MInt` gives [`DomainKind::MInt`] of the width of `SortMInt{Sort<digits>{}}`, and
+    ///   no kind for any other sort with that hook, which names no width;
+    /// - any other sort with domain values gives [`DomainKind::Token`] (an unhooked `SortFloat`
+    ///   included), and a sort without domain values gives none.
+    ///
+    /// The kind is never read from a sort's name, with one exception: the sorts named `SortInt`
+    /// and `SortBool` are `Int` and `Bool` whether or not they carry the hook. The frontend's
+    /// generated equations (a `requires` clause, a sort predicate), the SMT translation and the
+    /// INT and BOOL hook readers all read these two names as the integers and the Booleans, and
+    /// a definition compiled without the prelude declares them without their hooks; reading
+    /// them otherwise here would let the backend hold two values (`07` and `7`) that the solver
+    /// reads as one.
+    pub fn domain_kind(&self, sort: &Sort) -> Option<DomainKind> {
+        let Sort::Application { name, .. } = sort else {
+            return None;
+        };
+        let info = self.sorts.get(name)?;
+        if !info.has_domain_values {
+            return None;
+        }
+        if sort.is_builtin(BuiltinSort::Int) {
+            return Some(DomainKind::Int);
+        }
+        if sort.is_builtin(BuiltinSort::Bool) {
+            return Some(DomainKind::Bool);
+        }
+        Some(match info.hook.as_deref() {
+            Some("INT.Int") => DomainKind::Int,
+            Some("BOOL.Bool") => DomainKind::Bool,
+            Some("MINT.MInt") => match mint_width(sort)? {
+                MIntWidth::NoWidth => return None,
+                width => DomainKind::MInt(width),
+            },
+            _ => DomainKind::Token,
+        })
+    }
+
+    /// The kind of the domain value `value` of `sort` when it names an element of the sort;
+    /// otherwise the reason it is refused.
     fn validate_domain_value(
         &self,
         sort: &Sort,
         value: &kore::KoreString,
-    ) -> Result<(), DefinitionError> {
+    ) -> Result<DomainKind, DefinitionError> {
         let Sort::Application { name, .. } = sort else {
             return Err(DefinitionError::SortWithoutDomainValues {
                 sort: Box::new(externalize::sort(sort)),
@@ -2722,19 +2814,43 @@ impl BackendDefinition {
             });
         }
         let text = value.as_utf8().ok();
-        if info.hook.as_deref() == Some("BOOL.Bool") && !matches!(text, Some("true" | "false")) {
-            return Err(DefinitionError::InvalidDomainValue {
-                sort: Box::new(externalize::sort(sort)),
-                value: text.map_or_else(|| kore_string::quote(value), str::to_owned),
-            });
+        let invalid = |reason| DefinitionError::InvalidDomainValue {
+            sort: Box::new(externalize::sort(sort)),
+            value: text.map_or_else(|| kore_string::quote(value), str::to_owned),
+            reason,
+        };
+        // Only a sort hooked `MINT.MInt` that names no width has domain values and no kind.
+        let kind = self
+            .domain_kind(sort)
+            .ok_or_else(|| invalid(InvalidDomainValueReason::NoWidth))?;
+        match kind {
+            DomainKind::Bool if !matches!(text, Some("true" | "false")) => {
+                return Err(invalid(InvalidDomainValueReason::NotALiteral));
+            }
+            DomainKind::Int if !text.is_some_and(is_decimal_integer) => {
+                return Err(invalid(InvalidDomainValueReason::NotALiteral));
+            }
+            DomainKind::MInt(width) => {
+                let Some(digits) = mint_width_digits(sort) else {
+                    return Err(invalid(InvalidDomainValueReason::NoWidth));
+                };
+                let Some(literal) = text.and_then(MIntLiteral::parse) else {
+                    return Err(invalid(InvalidDomainValueReason::NotALiteral));
+                };
+                if !literal.names_width(digits) {
+                    return Err(invalid(InvalidDomainValueReason::OtherWidth));
+                }
+                if literal.is_negative() && mint_width_beyond_bound(width) {
+                    return Err(DefinitionError::DomainValueTooLarge {
+                        sort: Box::new(externalize::sort(sort)),
+                        value: text.unwrap_or_default().to_owned(),
+                        limit_bits: crate::builtin::MAX_INT_RESULT_BITS,
+                    });
+                }
+            }
+            DomainKind::Int | DomainKind::Bool | DomainKind::Token => {}
         }
-        if info.hook.as_deref() == Some("INT.Int") && !text.is_some_and(is_decimal_integer) {
-            return Err(DefinitionError::InvalidDomainValue {
-                sort: Box::new(externalize::sort(sort)),
-                value: text.map_or_else(|| kore_string::quote(value), str::to_owned),
-            });
-        }
-        Ok(())
+        Ok(kind)
     }
 
     fn validate_application_shape(
@@ -4394,7 +4510,7 @@ mod tests {
                 .expect("malformed Int domain value should parse as KORE");
             assert!(matches!(
                 definition.internalize_term(&pattern, &[]),
-                Err(DefinitionError::InvalidDomainValue { sort, value: actual })
+                Err(DefinitionError::InvalidDomainValue { sort, value: actual, .. })
                     if *sort == crate::externalize::sort(&Sort::simple("SortInt")) && actual == value
             ));
         }
@@ -4404,6 +4520,170 @@ mod tests {
         definition
             .internalize_term(&token, &[])
             .expect("an unhooked hasDomainValues sort stays accepted");
+    }
+
+    /// The text a domain value of `pattern` internalizes to in `definition`.
+    fn internalized_text(definition: &BackendDefinition, pattern: &str) -> String {
+        let pattern = parse_pattern(pattern).expect("domain value should parse as KORE");
+        let term = definition
+            .internalize_term(&pattern, &[])
+            .unwrap_or_else(|error| panic!("{error}"));
+        let TermKind::DomainValue { value, .. } = term.kind() else {
+            panic!("not a domain value: {term:?}");
+        };
+        value.as_utf8().unwrap().to_owned()
+    }
+
+    /// The error internalizing `pattern` in `definition` gives, as displayed.
+    fn internalize_error(definition: &BackendDefinition, pattern: &str) -> String {
+        let parsed = parse_pattern(pattern).expect("domain value should parse as KORE");
+        match definition.internalize_term(&parsed, &[]) {
+            Ok(term) => panic!("{pattern} internalized to {term:?}"),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    /// A literal of `SortMInt{W}` internalizes to its residue modulo `2^W`; a text that is no
+    /// literal, a literal whose suffix names another width, and a literal of a sort hooked
+    /// `MINT.MInt` that names no width are refused, and so is a negative literal whose residue
+    /// would be a decimal wider than the backend computes.
+    #[test]
+    fn machine_integer_literals_are_read_as_their_residue_or_refused() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
+                hooked-sort SortWord{} [hook{}("MINT.MInt"), hasDomainValues{}()]
+                sort Sort8{} []
+                sort SortFoo{} []
+                sort Sort33554432{} []
+                sort Sort99999999999999999999{} []
+            endmodule []
+        "#})
+        .expect("machine-integer definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("machine-integer definition should internalize");
+
+        assert_eq!(
+            internalized_text(&definition, r#"\dv{SortMInt{Sort8{}}}("256p8")"#),
+            "0p8"
+        );
+        assert_eq!(
+            internalized_text(&definition, r#"\dv{SortMInt{Sort8{}}}("-1p8")"#),
+            "255p8"
+        );
+        assert_eq!(
+            internalized_text(
+                &definition,
+                r#"\dv{SortMInt{Sort33554432{}}}("7p33554432")"#
+            ),
+            "7p33554432"
+        );
+        for pattern in [
+            r#"\dv{SortMInt{Sort8{}}}("1p16")"#,
+            r#"\dv{SortMInt{Sort8{}}}("12")"#,
+            r#"\dv{SortMInt{Sort8{}}}("0x1p8")"#,
+            r#"\dv{SortMInt{Sort8{}}}("abcp8")"#,
+            r#"\dv{SortMInt{SortFoo{}}}("1p8")"#,
+            r#"\dv{SortWord{}}("7w")"#,
+            r#"\dv{SortWord{}}("7p8")"#,
+        ] {
+            let error = internalize_error(&definition, pattern);
+            assert!(
+                error.starts_with("Invalid domain value"),
+                "{pattern}: {error}"
+            );
+        }
+        let error = internalize_error(
+            &definition,
+            r#"\dv{SortMInt{Sort33554432{}}}("-1p33554432")"#,
+        );
+        assert!(error.contains("resource bound"), "{error}");
+
+        // A width beyond `u64` (`MIntWidth::Unrepresentable`) is still a width: a nonnegative
+        // literal is below `2^W` and is its own residue, while a negative one is refused by the
+        // same resource bound.
+        let wide = "SortMInt{Sort99999999999999999999{}}";
+        assert_eq!(
+            internalized_text(
+                &definition,
+                &format!(r#"\dv{{{wide}}}("+05P099999999999999999999")"#)
+            ),
+            "5p99999999999999999999"
+        );
+        let parsed = parse_pattern(&format!(r#"\dv{{{wide}}}("-5p99999999999999999999")"#))
+            .expect("domain value should parse as KORE");
+        assert!(matches!(
+            definition.internalize_term(&parsed, &[]),
+            Err(DefinitionError::DomainValueTooLarge { .. })
+        ));
+    }
+
+    /// The kind of a domain value comes from its sort's hook, not its name: a sort hooked
+    /// `INT.Int` under another name reads its literals as integers, and a sort named `SortFloat`
+    /// without a hook keeps every text as its own value.
+    #[test]
+    fn domain_value_kind_comes_from_the_sort_hook() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortMyInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortFloat{} [hasDomainValues{}()]
+            endmodule []
+        "#})
+        .expect("hooked definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("hooked definition should internalize");
+
+        assert_eq!(
+            internalized_text(&definition, r#"\dv{SortMyInt{}}("07")"#),
+            "7"
+        );
+        assert_eq!(
+            internalized_text(&definition, r#"\dv{SortFloat{}}("1.00")"#),
+            "1.00"
+        );
+    }
+
+    /// The sorts named `SortInt` and `SortBool` are the integers and the Booleans whether or not
+    /// they carry the hook, as a definition compiled without the prelude declares them: `07` is
+    /// `7`, and a text that is no Boolean or no decimal integer is refused.
+    #[test]
+    fn unhooked_builtin_names_keep_their_builtin_kind() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortInt{} [hasDomainValues{}()]
+                sort SortBool{} [hasDomainValues{}(), token{}()]
+            endmodule []
+        "#})
+        .expect("unhooked definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("unhooked definition should internalize");
+
+        assert_eq!(
+            definition.domain_kind(&Sort::simple("SortInt")),
+            Some(DomainKind::Int)
+        );
+        assert_eq!(
+            definition.domain_kind(&Sort::simple("SortBool")),
+            Some(DomainKind::Bool)
+        );
+        assert_eq!(
+            internalized_text(&definition, r#"\dv{SortInt{}}("07")"#),
+            "7"
+        );
+        assert_eq!(
+            internalized_text(&definition, r#"\dv{SortBool{}}("true")"#),
+            "true"
+        );
+        for pattern in [r#"\dv{SortBool{}}("maybe")"#, r#"\dv{SortInt{}}("seven")"#] {
+            let error = internalize_error(&definition, pattern);
+            assert!(
+                error.starts_with("Invalid domain value"),
+                "{pattern}: {error}"
+            );
+        }
     }
 
     #[test]
