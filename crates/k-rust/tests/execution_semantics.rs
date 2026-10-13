@@ -2115,6 +2115,72 @@ fn backend_execute_and_search_keep_the_order_in_conditions() {
     }
 }
 
+/// Float operations over a binary32 and a binary64 operand, as a result (`div`) and in
+/// complementary rule conditions (`pick`).
+const MIXED_FLOAT_FORMATS: &str = r#"
+module MIXED
+  imports DOMAINS
+  imports FLOAT
+  syntax Pgm ::= div(Float, Float) | pick(Float, Float)
+  configuration <k> $PGM:Pgm </k>
+  rule div(X, Y) => X /Float Y
+  rule pick(X, Y) => true requires X /Float Y >Float 0.0
+  rule pick(X, Y) => false requires notBool (X /Float Y >Float 0.0)
+endmodule
+"#;
+
+/// The facade's `execute`, the route KRS runs programs through, is an execution: a Float
+/// operation over a binary32 and a binary64 operand is the exact result rounded to binary64.
+#[test]
+fn backend_execute_rounds_float_arithmetic_over_two_formats() {
+    let compiled = compile(
+        MIXED_FLOAT_FORMATS,
+        "MIXED",
+        "MIXED",
+        "Pgm",
+        "div(0.1f, 2.0)",
+    );
+    let executed = text(&execute(&compiled, "MIXED", None));
+    assert!(
+        matches!(executed.as_slice(), [state]
+            if state.contains(r#"\dv{SortFloat{}}("5.0000000745058060e-02p53x11")"#)),
+        "{executed:?}"
+    );
+}
+
+/// The facade's `search_pattern` is an execution too: the condition over the mixed quotient is
+/// decided, so the search reaches `true` and nothing else.
+#[test]
+fn backend_search_rounds_float_arithmetic_over_two_formats() {
+    let compiled = compile(
+        MIXED_FLOAT_FORMATS,
+        "MIXED",
+        "MIXED",
+        "Pgm",
+        "pick(1.0f, 2.0)",
+    );
+    let mut backend = Backend::new(&compiled.kore, "MIXED", BackendOptions::default()).unwrap();
+    let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+    let response = backend
+        .search_pattern(SearchPatternRequest {
+            search_type: SearchTypeArg::Final,
+            ..SearchPatternRequest::new(compiled.initial.clone(), target)
+        })
+        .unwrap();
+    let found = response
+        .matches
+        .iter()
+        .map(|found| {
+            Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        matches!(found.as_slice(), [state]
+            if state.contains(r#"\dv{SortBool{}}("true")"#) && !state.contains("Lblpick")),
+        "{found:?}"
+    );
+}
+
 /// The facade's proof routes evaluate only consequences of the definition, also when the caller
 /// runs them inside an `Execution` scope: `simplify` leaves `keys_list` of a map of three keys
 /// unevaluated there, while `execute` in the same definition lists them.

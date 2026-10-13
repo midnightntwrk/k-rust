@@ -431,16 +431,6 @@ impl Display for BuiltinError {
                 formatter,
                 "hook {hook} cannot read a floating-point format of precision {precision} with {exponent_bits} exponent bits"
             ),
-            Self::MismatchedFloatFormats {
-                hook,
-                left_precision,
-                left_exponent_bits,
-                right_precision,
-                right_exponent_bits,
-            } => write!(
-                formatter,
-                "hook {hook} was given floating-point numbers of two formats, precision {left_precision} with {left_exponent_bits} exponent bits and precision {right_precision} with {right_exponent_bits} exponent bits"
-            ),
         }
     }
 }

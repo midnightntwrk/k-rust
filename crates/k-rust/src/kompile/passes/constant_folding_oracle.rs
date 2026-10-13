@@ -326,7 +326,9 @@ enum Expect {
     /// application unfolded as too large.
     TooLarge,
     /// The hook is `total` and its documentation gives no value here (the backend leaves it
-    /// `Unspecified`), so the fold must leave the application unfolded as unspecified.
+    /// `Unspecified`), or the value is one the definition leaves to a reading k-rust applies
+    /// only in an execution (a Float operation over two formats), so the fold must leave the
+    /// application unfolded as unspecified.
     Unspecified,
     /// No oracle covers this case; the fold must still finish without panicking.
     Unchecked,
@@ -1028,7 +1030,6 @@ fn backend_expectation(
         )) => Ok(None),
         // Without a result sort the backend cannot name the token's sort.
         Ok(BuiltinResult::NotApplicable) if hook == "STRING.string2token" => Ok(None),
-        Err(BuiltinError::MismatchedFloatFormats { .. }) => Ok(Some(Expect::Undefined)),
         Err(
             BuiltinError::UnsupportedFloatFormat { .. }
             | BuiltinError::UnsupportedFloatFormatParameters { .. },
@@ -1267,19 +1268,28 @@ fn ieee_remainder(x: Fl, y: Fl) -> Fl {
     in_format(x, value)
 }
 
+/// Whether `hook` is a Float-valued binary hook applied to a binary32 and a binary64 operand.
+/// `domains.md` names no result format for it, and the backend's binary64 reading applies only
+/// in an execution, so the fold, whose output proofs load too, must leave it unfolded as
+/// unspecified. Comparisons need no format and are not included.
+fn mixed_float_operation(hook: &str, arguments: &[Arg]) -> bool {
+    if let [Arg::Float(a), Arg::Float(b)] = arguments
+        && let (Some(a), Some(b)) = (standard_float(a), standard_float(b))
+    {
+        !matches!((a, b), (Fl::B32(_), Fl::B32(_)) | (Fl::B64(_), Fl::B64(_)))
+            && HOOKS
+                .iter()
+                .any(|entry| entry.0 == hook && entry.2 == Kind::Float)
+    } else {
+        false
+    }
+}
+
 /// The model for hooks the backend does not evaluate.
 fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
     let value = |out| Expect::Value(out);
-    if let [Arg::Float(a), Arg::Float(b)] = arguments
-        && let (Some(a), Some(b)) = (standard_float(a), standard_float(b))
-        && !matches!((a, b), (Fl::B32(_), Fl::B32(_)) | (Fl::B64(_), Fl::B64(_)))
-        && HOOKS
-            .iter()
-            .any(|entry| entry.0 == hook && entry.2 == Kind::Float)
-    {
-        // A binary Float operation rounds to its operands' common precision and exponent
-        // width, so operands of two formats have no result. Comparisons need no format.
-        return Expect::Undefined;
+    if mixed_float_operation(hook, arguments) {
+        return Expect::Unspecified;
     }
     if let Some(libm) = libm_model(hook, arguments) {
         return value(Out::Float(libm));
@@ -1495,6 +1505,9 @@ fn check_case(
             }
             documented
         }
+        // The backend computes the binary64 reading for the six hooks it evaluates, a value
+        // the fold must not write.
+        None if mixed_float_operation(hook, arguments) => Expect::Unspecified,
         None => backend.unwrap_or_else(|| model_expectation(hook, arguments)),
     };
 

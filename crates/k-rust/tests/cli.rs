@@ -8224,12 +8224,24 @@ endmodule
 /// `krun` of `source` (main and syntax module `main`, `$PGM` of sort Int) on `program`, with the
 /// `extra` arguments: the printed result.
 fn krun_int_program(source: &str, main: &str, program: &str, extra: &[&str]) -> String {
+    krun_sorted_program(source, main, "Int", program, extra)
+}
+
+/// `krun` of `source` (main and syntax module `main`, `$PGM` of sort `sort`) on `program`, with
+/// the `extra` arguments: the printed result.
+fn krun_sorted_program(
+    source: &str,
+    main: &str,
+    sort: &str,
+    program: &str,
+    extra: &[&str],
+) -> String {
     let (root, definition) = fixture();
     fs::write(&definition, source).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args(["krun", definition.to_str().unwrap()])
         .args(["--main-module", main, "--syntax-module", main])
-        .args(["--sort", "Int", "--expression", program, "--io", "off"])
+        .args(["--sort", sort, "--expression", program, "--io", "off"])
         .args(extra)
         .stdin(Stdio::null())
         .output()
@@ -8291,6 +8303,88 @@ fn krun_keeps_the_order_in_rule_and_equation_conditions() {
             "{extra:?}: {output}"
         );
     }
+}
+
+/// Float operations over a binary32 and a binary64 operand, whose result format domains.md does
+/// not name: as a result (`div`), under `precisionFloat` (`fmt`), and in complementary rule
+/// conditions (`pick`).
+const MIXED_FLOAT_FORMATS: &str = r#"
+module MIXED
+  imports DOMAINS
+  imports FLOAT
+  syntax Pgm ::= div(Float, Float) | fmt(Float, Float) | pick(Float, Float)
+  configuration <k> $PGM:Pgm </k>
+  rule div(X, Y) => X /Float Y
+  rule fmt(X, Y) => precisionFloat(X +Float Y)
+  rule pick(X, Y) => true requires X /Float Y >Float 0.0
+  rule pick(X, Y) => false requires notBool (X /Float Y >Float 0.0)
+endmodule
+"#;
+
+/// An execution rounds a Float operation over a binary32 and a binary64 operand to binary64, the
+/// operand format that contains the other, also where a rule condition reads it, with `krun` and
+/// with `krun --search-final`.
+#[test]
+fn krun_rounds_float_arithmetic_over_two_formats_to_the_wider_format() {
+    let source = MIXED_FLOAT_FORMATS;
+    let output = krun_sorted_program(source, "MIXED", "Pgm", "div(0.1f, 2.0)", &[]);
+    assert!(
+        output.contains(r#"\dv{SortFloat{}}("5.0000000745058060e-02p53x11")"#),
+        "{output}"
+    );
+    for extra in [&[][..], &["--search-final"][..]] {
+        let output = krun_sorted_program(source, "MIXED", "Pgm", "pick(1.0f, 2.0)", extra);
+        assert!(
+            output.contains(r#"\dv{SortBool{}}("true")"#)
+                && !output.contains(r#"\dv{SortBool{}}("false")"#)
+                && !output.contains("Lblpick"),
+            "{extra:?}: {output}"
+        );
+    }
+}
+
+/// The definition does not fix the format of a Float operation's result over a binary32 and a
+/// binary64 operand: a model of it may round to either, so a claim about the result's value or
+/// format is neither proven nor disproved.
+#[test]
+fn kprove_proves_no_claim_that_depends_on_the_format_of_a_mixed_result() {
+    let source = format!(
+        "{MIXED_FLOAT_FORMATS}
+module MIXED-SPEC
+  imports MIXED
+  claim [value]: <k> div(0.1f, 2.0) => 5.0000000745058060e-02p53x11 </k>
+  claim [format]: <k> fmt(0.1f, 0.2) => 53 </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "MIXED", "MIXED-SPEC");
+    assert_undecided(&verdicts, "value", &output);
+    assert_undecided(&verdicts, "format", &output);
+}
+
+/// A Float operation over a binary32 and a binary64 operand is defined whatever format its result
+/// takes, so the claim that some Float is reached is proven, with no undefined step; an operation
+/// over one format is evaluated in a proof as in an execution.
+#[test]
+fn kprove_proves_a_format_free_claim_over_a_mixed_result() {
+    let source = format!(
+        "{MIXED_FLOAT_FORMATS}
+module MIXED-SPEC
+  imports MIXED
+  claim [some-float]: <k> div(0.1f, 2.0) => ?_F:Float </k>
+  claim [one-format]: <k> div(0.1f, 2.0f) => 5.00000007e-02p24x8 </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "MIXED", "MIXED-SPEC");
+    for claim in ["some-float", "one-format"] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
+    assert!(!output.contains("undefined step"), "{output}");
 }
 
 /// The modal claim fixture prepared once with `kcompile --for-proving`, so that a `kprove`

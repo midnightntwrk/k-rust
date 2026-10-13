@@ -402,8 +402,10 @@ impl<'view, 'definition> Folder<'view, 'definition> {
 enum Unfolded {
     /// The hook is undefined (`#Bottom`) on these arguments.
     Undefined(String),
-    /// The hook is `total` and its documentation gives no value on these arguments: the
-    /// application denotes a value the definition does not determine.
+    /// The hook is `total` and its documentation gives no value on these arguments, or the
+    /// value is one the definition leaves to a reading k-rust applies only in an execution (a
+    /// Float operation over two formats): the application denotes a value the definition does
+    /// not determine.
     Unspecified(String),
     /// The value is defined but larger than `MAX_FOLDED_BITS`.
     TooLarge(String),

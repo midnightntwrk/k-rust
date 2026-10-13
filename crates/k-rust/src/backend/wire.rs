@@ -420,13 +420,6 @@ pub enum BuiltinFailureOutput {
         precision: String,
         exponent_bits: String,
     },
-    MismatchedFloatFormats {
-        hook: String,
-        left_precision: u32,
-        left_exponent_bits: u32,
-        right_precision: u32,
-        right_exponent_bits: u32,
-    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1212,19 +1205,6 @@ fn builtin_failure_output(error: BuiltinError) -> Result<BuiltinFailureOutput, B
             hook,
             precision,
             exponent_bits,
-        },
-        BuiltinError::MismatchedFloatFormats {
-            hook,
-            left_precision,
-            left_exponent_bits,
-            right_precision,
-            right_exponent_bits,
-        } => BuiltinFailureOutput::MismatchedFloatFormats {
-            hook,
-            left_precision,
-            left_exponent_bits,
-            right_precision,
-            right_exponent_bits,
         },
     })
 }
@@ -2098,16 +2078,6 @@ mod tests {
                     exponent_bits: "e".into(),
                 },
                 serde_json::json!({"kind": "unsupported-float-format-parameters", "hook": "FLOAT", "precision": "p", "exponentBits": "e"}),
-            ),
-            (
-                BuiltinFailureOutput::MismatchedFloatFormats {
-                    hook: "FLOAT".into(),
-                    left_precision: 53,
-                    left_exponent_bits: 11,
-                    right_precision: 24,
-                    right_exponent_bits: 8,
-                },
-                serde_json::json!({"kind": "mismatched-float-formats", "hook": "FLOAT", "leftPrecision": 53, "leftExponentBits": 11, "rightPrecision": 24, "rightExponentBits": 8}),
             ),
         ];
         for (failure, expected) in cases {

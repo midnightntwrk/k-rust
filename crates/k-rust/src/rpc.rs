@@ -3408,6 +3408,83 @@ endmodule
         assert_eq!(response["result"]["reason"], "branching", "{response}");
     }
 
+    fn mixed_float_service() -> RpcService {
+        use k_rust::{
+            backend::Backend,
+            builtin::embedded,
+            kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+            outer::{LoadOptions, ResolvedSource, load_with_options},
+        };
+        const SOURCE: &str = r#"module MIXED
+  imports DOMAINS
+  imports FLOAT
+  syntax KItem ::= div(Float, Float) [symbol(div)] | res(Float) [symbol(res)]
+  configuration <k> $PGM:K </k>
+  rule div(X, Y) => res(X /Float Y)
+endmodule
+"#;
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("mixed.k", SOURCE),
+            "MIXED",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap();
+        let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+        RpcService::with_backend(
+            Backend::new(
+                &compiled.definition_kore,
+                "MIXED",
+                BackendOptions::default(),
+            )
+            .unwrap(),
+        )
+    }
+
+    /// A Float operation over a binary32 and a binary64 operand has a result format the
+    /// definition leaves open, so a default `execute`, the step primitive of provers, leaves it
+    /// unevaluated; with `"evaluation-mode": "execution"` it is the quotient rounded to binary64.
+    #[test]
+    fn execute_rounds_a_mixed_format_float_operation_only_on_request() {
+        let mut service = mixed_float_service();
+        let state = encode_kore(
+            &parse_pattern(
+                "Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbldiv{}(\\dv{SortFloat{}}(\"0.1f\"), \\dv{SortFloat{}}(\"2.0\")), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"0\")))",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let quotient = "5.0000000745058060e-02p53x11";
+        let response = request(&mut service, 1, "execute", json!({ "state": state }));
+        let result = response["result"]["state"].to_string();
+        assert_eq!(response["result"]["reason"], "stuck", "{response}");
+        assert!(
+            result.contains("Lblres") && result.contains("0.1f") && !result.contains(quotient),
+            "{response}"
+        );
+        let response = request(
+            &mut service,
+            2,
+            "execute",
+            json!({ "state": state, "evaluation-mode": "execution" }),
+        );
+        let result = response["result"]["state"].to_string();
+        assert_eq!(response["result"]["reason"], "stuck", "{response}");
+        assert!(
+            result.contains("Lblres") && result.contains(quotient) && !result.contains("0.1f"),
+            "{response}"
+        );
+    }
+
     fn symbolic_branch_service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(

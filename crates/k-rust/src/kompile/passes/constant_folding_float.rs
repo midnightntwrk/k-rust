@@ -135,14 +135,19 @@ impl KFloat {
         }
     }
 
+    /// Whether `other` has this value's precision and exponent width, so that a binary
+    /// operation over the two has their format as its destination. Over two formats
+    /// `domains.md` names no destination: the result format is a reading k-rust applies only in
+    /// an execution, while the fold's output is the definition that proofs load too, so such a
+    /// pair is left unfolded as a value the definition leaves open (`Unspecified`).
     fn context_matches(&self, other: &Self, hook: &str) -> Result<(), Unfolded> {
         if self.value.prec() == other.value.prec() && self.exponent_bits == other.exponent_bits {
             Ok(())
         } else {
-            Err(
-                format!("Arguments to hook {hook} do not match in exponent bits and precision.")
-                    .into(),
-            )
+            Err(Unfolded::Unspecified(format!(
+                "Arguments to hook {hook} have two formats, whose result format is chosen only in \
+                 an execution."
+            )))
         }
     }
 
@@ -1010,6 +1015,41 @@ mod tests {
             folded_int("FLOAT.float2int", vec![Value::Float(float("-2.5"))]),
             BigInt::from(-2)
         );
+    }
+
+    /// The fold's output is the definition every route loads, proofs included, so it does not
+    /// choose a result format for an operation over a binary32 and a binary64 operand: every binary
+    /// Float-valued hook leaves such a pair unfolded, as a value the definition leaves open. A
+    /// comparison needs no result format and is folded.
+    #[test]
+    fn leaves_operations_over_two_formats_unfolded_as_unspecified() {
+        for hook in [
+            "FLOAT.add",
+            "FLOAT.sub",
+            "FLOAT.mul",
+            "FLOAT.div",
+            "FLOAT.rem",
+            "FLOAT.pow",
+            "FLOAT.atan2",
+            "FLOAT.min",
+            "FLOAT.max",
+        ] {
+            for (left, right) in [("0.1f", "2.0"), ("2.0", "0.1f")] {
+                let values = [Value::Float(float(left)), Value::Float(float(right))];
+                assert!(
+                    matches!(evaluate(hook, &values), Some(Err(Unfolded::Unspecified(_)))),
+                    "{hook}({left}, {right}): {:?}",
+                    evaluate(hook, &values)
+                );
+            }
+        }
+        assert!(matches!(
+            evaluate(
+                "FLOAT.gt",
+                &[Value::Float(float("0.1f")), Value::Float(float("0.1"))]
+            ),
+            Some(Ok(Value::Bool(true)))
+        ));
     }
 
     /// A Float of more than 2^20 bits of precision is left unfolded, whether a hook would build
