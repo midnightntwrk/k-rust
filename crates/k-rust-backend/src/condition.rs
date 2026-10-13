@@ -24,7 +24,7 @@
 //! equation's open `ensures`, which the definition asserts wherever that equation's instance
 //! exists.
 
-use std::cell::Cell;
+use std::{cell::Cell, collections::BTreeSet};
 
 use crate::{
     deferred::{DeferredOutcome, deferred_obligations, deferred_positions},
@@ -446,9 +446,9 @@ impl EquationInstance {
     /// discharges constructors, total symbols and element variables, so the obligations name
     /// only partial applications, set variables and collection distinctness.
     ///
-    /// A term bound inside an operand of a short-circuit subject that is never evaluated states
-    /// its definedness as deferred atoms (`ConsumedDefinedness`), and one whose definedness
-    /// depends on an impure application is the outcome.
+    /// A term a variable binds inside an operand of a short-circuit application of the subject
+    /// that is not evaluated states its definedness as deferred atoms (`ConsumedDefinedness`),
+    /// and one whose definedness depends on an impure application is the outcome.
     pub(crate) fn new(
         definition: &BackendDefinition,
         requires: &Condition,
@@ -464,7 +464,7 @@ impl EquationInstance {
         };
         for (variable, value) in &substitution {
             if variable.kind == VariableKind::Element {
-                let stated = if consumed.binds_deferred(value) {
+                let stated = if consumed.binds_deferred(variable) {
                     deferred_obligations(definition, value)?
                 } else {
                     ceil_term(definition, value)?
@@ -521,10 +521,11 @@ impl EquationInstance {
 #[must_use]
 pub(crate) struct ConsumedDefinedness {
     obligations: Vec<Predicate>,
-    /// The operands of the `KEQUAL.ite`, `BOOL.andThen` and `BOOL.orElse` applications of
-    /// `subject` that are never evaluated (`short_circuit_operands`): a term the match binds
-    /// inside one of them states its definedness as deferred atoms ([`EquationInstance::new`]).
-    deferred_operands: Vec<Term>,
+    /// The left-hand side's variables that the match binds only inside an operand of a
+    /// `KEQUAL.ite`, `BOOL.andThen` or `BOOL.orElse` application of `subject` that is not
+    /// evaluated (`deferred_variables`): the term such a variable binds states its definedness
+    /// as deferred atoms ([`EquationInstance::new`]).
+    deferred_variables: BTreeSet<Variable>,
 }
 
 impl ConsumedDefinedness {
@@ -532,7 +533,7 @@ impl ConsumedDefinedness {
     /// left-hand side matched against `subject`, does not bind whole to a variable. Each
     /// argument with a stored `ceil_free` attribute costs one read of it.
     ///
-    /// An operand of a short-circuit `subject` that is never evaluated states its definedness
+    /// An operand of a short-circuit `subject` that is not evaluated states its definedness
     /// by `crate::deferred::deferred_obligations` instead of `ceil_term`, whose decision would
     /// evaluate it: the `#if` equations at sort `K` (`#if C #then B1 #else _ #fi => B1 requires
     /// C`) and the discarding equations of `andThenBool` and `orElseBool` apply where the hook
@@ -588,10 +589,9 @@ impl ConsumedDefinedness {
                 }
             }
         }
-        let deferred_operands = short_circuit_operands(subject);
         Ok(Self {
             obligations,
-            deferred_operands,
+            deferred_variables: deferred_variables(pattern, subject),
         })
     }
 
@@ -599,96 +599,112 @@ impl ConsumedDefinedness {
     pub(crate) fn stated(obligations: Vec<Predicate>) -> Self {
         Self {
             obligations,
-            deferred_operands: Vec::new(),
+            deferred_variables: BTreeSet::new(),
         }
     }
 
-    /// Whether `value`, a term the match binds, is part of an operand that is never evaluated.
-    fn binds_deferred(&self, value: &Term) -> bool {
-        self.deferred_operands
-            .iter()
-            .any(|operand| contains_subterm(operand, value))
+    /// Whether the match binds `variable` only inside an operand that is not evaluated.
+    fn binds_deferred(&self, variable: &Variable) -> bool {
+        self.deferred_variables.contains(variable)
     }
 }
 
-/// The operands of every `KEQUAL.ite`, `BOOL.andThen` and `BOOL.orElse` application in `term`
-/// that are never evaluated (`crate::deferred::deferred_positions`), at the root or below it: an
-/// equation whose left-hand side reaches a conditional below its root (a lemma
-/// `#if B #then X #else Y #fi +Int Z => ..`) binds them as well. The walk does not enter those
-/// operands themselves, whose own conditionals are inside them already.
-fn short_circuit_operands(term: &Term) -> Vec<Term> {
-    let mut operands = Vec::new();
-    let mut pending = vec![term.clone()];
+/// The variables of `pattern`, an equation's left-hand side matched against `subject`, that
+/// occur only where the match reads an operand of a `KEQUAL.ite`, `BOOL.andThen` or
+/// `BOOL.orElse` application of `subject` that is not evaluated
+/// (`crate::deferred::deferred_positions`), at the subject's root or below it: a lemma
+/// `#if B #then X #else Y #fi +Int Z => ..` reaches a conditional below its root.
+///
+/// The reading is by position in the left-hand side, not by the term bound: a variable under
+/// such an operand's position binds a part of the operand whatever term the match builds for it
+/// (the rest of a collection it splits, a value it injects again), which is no subterm of the
+/// subject to be recognised by. A variable that also occurs at an evaluated position binds a
+/// term equal to one the subject holds evaluated, so it is not deferred.
+///
+/// The walk follows the left-hand side, so it costs its size and not the subject's. Where the
+/// two do not align argument by argument (a collection pattern, matched up to the order of its
+/// items), every variable below is read as deferred when the subject's part there holds an
+/// operand that is not evaluated: the deferred reading states no less than the evaluated one
+/// decides, so taking it for a variable bound outside the operand loses precision only.
+fn deferred_variables(pattern: &Term, subject: &Term) -> BTreeSet<Variable> {
+    let mut deferred = BTreeSet::new();
+    let mut evaluated = BTreeSet::new();
+    let mut pending = vec![(pattern, subject)];
+    while let Some((pattern, subject)) = pending.pop() {
+        // A `ceil_free` part of the subject has no operand whose definedness is open.
+        if subject.attributes().ceil_free() {
+            continue;
+        }
+        match (pattern.kind(), subject.kind()) {
+            (TermKind::Variable(variable), _) => {
+                evaluated.insert(variable.clone());
+            }
+            (TermKind::DomainValue { .. }, _) => {}
+            (TermKind::And(left, right), _) => pending.extend([(left, subject), (right, subject)]),
+            (
+                TermKind::Application {
+                    symbol: pattern_symbol,
+                    arguments: patterns,
+                    ..
+                },
+                TermKind::Application {
+                    symbol, arguments, ..
+                },
+            ) if pattern_symbol.name == symbol.name && patterns.len() == arguments.len() => {
+                let positions = deferred_positions(subject);
+                for (position, (pattern, argument)) in patterns.iter().zip(arguments).enumerate() {
+                    if positions.contains(&position) {
+                        collect_variables(pattern, &mut deferred);
+                    } else {
+                        pending.push((pattern, argument));
+                    }
+                }
+            }
+            (TermKind::Injection { term: pattern, .. }, TermKind::Injection { term, .. }) => {
+                pending.push((pattern, term));
+            }
+            _ => {
+                let target = if holds_deferred_operand(subject) {
+                    &mut deferred
+                } else {
+                    &mut evaluated
+                };
+                collect_variables(pattern, target);
+            }
+        }
+    }
+    deferred.retain(|variable| !evaluated.contains(variable));
+    deferred
+}
+
+/// The variables of `pattern`, added to `variables`.
+fn collect_variables(pattern: &Term, variables: &mut BTreeSet<Variable>) {
+    let mut pending = vec![pattern];
+    while let Some(pattern) = pending.pop() {
+        match pattern.kind() {
+            TermKind::Variable(variable) => {
+                variables.insert(variable.clone());
+            }
+            kind => pending.extend(crate::term::immediate_children(kind)),
+        }
+    }
+}
+
+/// Whether `term` holds a short-circuit application with an operand that is not evaluated. The
+/// `ceil_free` parts are passed over, a collection's through its trees' summaries.
+fn holds_deferred_operand(term: &Term) -> bool {
+    let mut pending = vec![term];
     while let Some(term) = pending.pop() {
         if term.attributes().ceil_free() {
             continue;
         }
-        let positions = deferred_positions(&term);
-        match term.kind() {
-            TermKind::Application { arguments, .. } => {
-                for (position, argument) in arguments.iter().enumerate() {
-                    if positions.contains(&position) {
-                        operands.push(argument.clone());
-                    } else {
-                        pending.push(argument.clone());
-                    }
-                }
-            }
-            TermKind::And(left, right) => pending.extend([left.clone(), right.clone()]),
-            TermKind::Injection { term, .. } => pending.push(term.clone()),
-            TermKind::Map { entries, rest, .. } => {
-                for (key, value) in entries {
-                    pending.extend([key.clone(), value.clone()]);
-                }
-                pending.extend(rest.iter().cloned());
-            }
-            TermKind::List { heads, rest, .. } => {
-                pending.extend(heads.iter().cloned());
-                if let Some((middle, tails)) = rest {
-                    pending.push(middle.clone());
-                    pending.extend(tails.iter().cloned());
-                }
-            }
-            TermKind::Set { elements, rest, .. } => {
-                pending.extend(elements.iter().cloned());
-                pending.extend(rest.iter().cloned());
-            }
-            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
-        }
-    }
-    operands
-}
-
-/// Whether `needle` occurs in `haystack`.
-fn contains_subterm(haystack: &Term, needle: &Term) -> bool {
-    let mut pending = vec![haystack.clone()];
-    while let Some(term) = pending.pop() {
-        if term.ptr_eq(needle) || term == *needle {
+        if !deferred_positions(term).is_empty() {
             return true;
         }
-        match term.kind() {
-            TermKind::Application { arguments, .. } => pending.extend(arguments.iter().cloned()),
-            TermKind::And(left, right) => pending.extend([left.clone(), right.clone()]),
-            TermKind::Injection { term, .. } => pending.push(term.clone()),
-            TermKind::Map { entries, rest, .. } => {
-                for (key, value) in entries {
-                    pending.extend([key.clone(), value.clone()]);
-                }
-                pending.extend(rest.iter().cloned());
-            }
-            TermKind::List { heads, rest, .. } => {
-                pending.extend(heads.iter().cloned());
-                if let Some((middle, tails)) = rest {
-                    pending.push(middle.clone());
-                    pending.extend(tails.iter().cloned());
-                }
-            }
-            TermKind::Set { elements, rest, .. } => {
-                pending.extend(elements.iter().cloned());
-                pending.extend(rest.iter().cloned());
-            }
-            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
-        }
+        pending.extend(crate::term::children_lacking(
+            term.kind(),
+            crate::term::Flag::CeilFree,
+        ));
     }
     false
 }

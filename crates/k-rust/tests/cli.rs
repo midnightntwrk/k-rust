@@ -5101,6 +5101,77 @@ fn a_lemma_binding_an_operand_below_its_root_does_not_evaluate_it() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A lemma rooted at a conditional that splits a map inside the operand the conditional does not
+/// evaluate, binding `M` to a map the match builds from the entries it leaves.
+const LEMMA_SPLITTING_AN_OPERAND: &str = r#"
+module RESTL
+  imports INT
+  imports BOOL
+  imports MAP
+  imports K-EQUAL
+  syntax Exp ::= start(Int) [symbol(start)] | done(Int) [symbol(done)]
+  syntax Int ::= loopi() [function, symbol(loopi)]
+  rule loopi() => loopi() +Int 1
+  rule #if B #then X:Int #else size((1 |-> _) M) #fi => #if B #then X #else 1 +Int size(M) #fi [simplification]
+  configuration <k> $PGM:Exp </k>
+  rule <k> start(N) => done(#if N >Int 0 #then 1 #else size(1 |-> 2 3 |-> loopi()) #fi) ...</k>
+endmodule
+"#;
+
+/// A lemma rooted at a conditional that binds `V`, of a sort above the operand's, to the
+/// operand's `loopi()` injected into that sort.
+const LEMMA_INJECTING_AN_OPERAND: &str = r#"
+module REINJ
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Val ::= Int | "nil"
+  syntax Exp ::= start(Int) [symbol(start)] | done(Int) [symbol(done)]
+  syntax Int ::= loopi() [function, symbol(loopi)] | unk(KItem) [function, symbol(unk)]
+  rule loopi() => loopi() +Int 1
+  rule #if B #then X:Int #else unk(V:Val) #fi => #if B #then X #else unk(V) +Int 7 #fi [simplification]
+  configuration <k> $PGM:Exp </k>
+  rule <k> start(N) => done(#if N >Int 0 #then 1 #else unk(loopi()) #fi) ...</k>
+endmodule
+"#;
+
+#[test]
+fn a_lemma_binding_a_term_it_builds_from_an_operand_does_not_evaluate_it() {
+    // Neither binding is a subterm of the subject: `M` is the map of the entries the split
+    // leaves, and `V` is `loopi()` under an injection the subject does not hold. Both are parts
+    // of an operand the conditional does not evaluate while `N >Int 0` is undecided, so their
+    // definedness is a deferred obligation and the run ends at the rewritten conditional instead
+    // of evaluating `loopi()`.
+    let (root, _) = fixture();
+    let pattern = top_with("inj{SortExp{}, SortKItem{}}(Lblstart{}(VarN:SortInt{}))");
+    for (name, source, module, rewritten) in [
+        (
+            "restl",
+            LEMMA_SPLITTING_AN_OPERAND,
+            "RESTL",
+            r#"Lbl'UndsPlus'Int'Unds'{}(\dv{SortInt{}}("1"), LblsizeMap{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("3")), inj{SortInt{}, SortKItem{}}(Lblloopi{}()))))"#,
+        ),
+        (
+            "reinj",
+            LEMMA_INJECTING_AN_OPERAND,
+            "REINJ",
+            r#"Lbl'UndsPlus'Int'Unds'{}(Lblunk{}(inj{SortInt{}, SortKItem{}}(Lblloopi{}())), \dv{SortInt{}}("7"))"#,
+        ),
+    ] {
+        let compiled = compiled_for_execution(&root, name, source, module, module);
+        let output = kore_exec_from(&root, &compiled, module, &pattern, 2);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{name}: {stdout}\n{stderr}");
+        assert!(!stderr.contains("stack"), "{name}: {stderr}");
+        assert!(
+            squashed(&stdout).contains(&squashed(rewritten)),
+            "{name}: {stdout}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A conditional whose discarded operand's definedness depends on a console read.
 const IMPURE_OPERAND: &str = r#"
 requires "domains.md"

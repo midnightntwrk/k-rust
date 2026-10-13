@@ -2832,7 +2832,7 @@ fn push_predicate_terms(
             push_predicate_terms(definition, left, pending)?;
             push_predicate_terms(definition, right, pending)?;
         }
-        // A deferred atom states only the definedness of an operand that is never evaluated: no
+        // A deferred atom states only the definedness of an operand that is not evaluated: no
         // value of any part of it is used.
         Predicate::Defined(_) => {}
         Predicate::True
@@ -6542,7 +6542,7 @@ impl Drop for UnspecifiedValues {
 /// result receives them only through `condition::ResultConditions::hook_arguments`, which records
 /// every member as an obligation.
 ///
-/// An operand of `KEQUAL.ite`, `BOOL.andThen` or `BOOL.orElse` that is never evaluated (the one
+/// An operand of `KEQUAL.ite`, `BOOL.andThen` or `BOOL.orElse` that is not evaluated (the one
 /// a literal deciding operand discards, or every operand but the deciding one while that is not
 /// a literal) states its definedness only as deferred atoms (`crate::deferred`), never through
 /// `ceil_term`, whose decision evaluates; an operand whose definedness depends on an impure

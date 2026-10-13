@@ -83,7 +83,7 @@ pub(crate) fn rule_is_defined(definition: &BackendDefinition, rule: &RewriteRule
 /// (or the instance of its ceil equation), the ceil of every set variable, and the disequalities
 /// and not-in atoms of every map and set, in the order `ceil_term_walk` gives.
 ///
-/// An operand of `#if`, `andThenBool` or `orElseBool` that is never evaluated states its
+/// An operand of `#if`, `andThenBool` or `orElseBool` that is not evaluated states its
 /// definedness as deferred atoms (`crate::deferred`); when that definedness depends on an impure
 /// application the result is the [`DeferredOutcome`], which the caller turns into its step's
 /// unsupported-hook stop: no constraint states it.
@@ -590,7 +590,7 @@ fn ceil_term_node<'a>(
     }
 }
 
-/// The definedness of `operand`, a short-circuit operand that is never evaluated: `\bottom`
+/// The definedness of `operand`, a short-circuit operand that is not evaluated: `\bottom`
 /// when builtin hooks show it undefined, otherwise the deferred atoms of its fold.
 ///
 /// An operand whose definedness depends on an impure application is the [`DeferredOutcome`].

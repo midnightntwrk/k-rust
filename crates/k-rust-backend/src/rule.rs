@@ -102,7 +102,7 @@ pub enum Predicate {
     /// A key's absence from the keys of a map, or an element's from a set ([`Absence`]).
     Absent(Absence),
     /// A deferred-definedness atom: `\ceil(t)`, stated for an operand of `KEQUAL.ite`,
-    /// `BOOL.andThen` or `BOOL.orElse` that is never evaluated (the operand the deciding operand
+    /// `BOOL.andThen` or `BOOL.orElse` that is not evaluated (the operand the deciding operand
     /// discards, or any operand while the deciding operand is not a literal).
     ///
     /// It means exactly what `Ceil(t)` means, and is printed as `\ceil(t)`. It differs in how it

@@ -1,5 +1,5 @@
 //! Deferred definedness of the operands that `KEQUAL.ite`, `BOOL.andThen` and `BOOL.orElse`
-//! never evaluate.
+//! do not evaluate.
 //!
 //! `#if C #then T #else E #fi`, `B1 andThenBool B2` and `B1 orElseBool B2` are applications of
 //! hooked function symbols, and every symbol application in matching logic is strict: it is
@@ -12,8 +12,8 @@
 //! Every statement of the definedness of (i) the operand a literal deciding operand discards, or
 //! (ii) an operand other than the deciding one while the deciding operand is not a literal (such
 //! operands are left unsimplified), exists only as [`Predicate::Defined`] atoms, created only by
-//! [`deferred_obligations`]. The definition's equations are never run on any part of such an
-//! operand: an atom is decided only by [`decide_defined`] (folding by pure builtin hooks on
+//! [`deferred_obligations`]. Such an operand is not evaluated beyond the bounded steps that
+//! decide its atoms: an atom is decided only by [`decide_defined`] (folding by pure builtin hooks on
 //! literals, with the value of one equation step on literal arguments whose right-hand side
 //! those hooks fold to a literal; ceil equations whose instantiated condition that folding
 //! decides, or whose instance is stated in the atom's place over hook arithmetic; the key
@@ -259,7 +259,7 @@ fn impure_subterm(definition: &BackendDefinition, term: &Term) -> Option<Term> {
     None
 }
 
-/// The definedness of `term`, an operand that is never evaluated, as [`Predicate::Defined`]
+/// The definedness of `term`, an operand that is not evaluated, as [`Predicate::Defined`]
 /// atoms, without calling `ceil_term`, a ceil equation or the simplifier.
 ///
 /// One walk in pre-order: a domain value or an element variable gives nothing (a set variable
@@ -571,7 +571,8 @@ pub(crate) enum DeferredDecision {
     Open,
 }
 
-/// Decide `Defined(t)` by steps that never run the definition's equations, in order:
+/// Decide `Defined(t)` by bounded steps, which take at most one equation instance per application
+/// and never evaluate its result, in order:
 /// - D1, fold `t` by pure builtin hooks on literals, a ground function application also taking
 ///   the value of its one equation step when hooks fold that step's right-hand side to a literal
 ///   ([`fold_with_values`]): an undefined hook refutes the atom, and a changed term replaces it
