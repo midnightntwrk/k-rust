@@ -281,28 +281,58 @@ pub fn compile_loaded_definition(
 }
 
 /// [`compile_loaded_definition`] that also returns the wall-clock duration of every pipeline
-/// stage in execution order.
+/// stage in execution order, with the call's wall-clock span.
 ///
 /// The stage names are the pipeline's documented order; `crates/k-rust/tests/phase_timings.rs`
-/// pins the list.
+/// pins the list. A failed compile returns no timings here; use
+/// [`compile_loaded_definition_with_timings`] to keep the timings of the stages that ran.
 pub fn compile_loaded_definition_timed(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<(CompiledKoreArtifacts, PhaseTimings), CompileError> {
-    compile_loaded_definition_observed(loaded, options, &mut |_, _, _| {})
+    let mut timings = PhaseTimings::default();
+    timings
+        .span(|timings| compile_loaded_definition_with_timings(loaded, options, timings))
+        .map(|artifacts| (artifacts, timings))
 }
 
-/// [`compile_loaded_definition_timed`], reporting every transformation and emission stage to
-/// `observer` as it completes or fails.
+/// [`compile_loaded_definition`], appending the wall-clock duration of every pipeline stage that
+/// runs to `timings`, whether compilation succeeds or fails.
+///
+/// Phases are appended in execution order at the caller's current nesting depth: depth 0 for a
+/// fresh value, one level deeper inside each enclosing [`PhaseTimings::time_nested`], so a caller
+/// can nest the compile under a phase of its own. Their relative depths and names are those
+/// [`compile_loaded_definition_timed`] returns.
+///
+/// On failure the appended phases are every stage that ran, ending with the stage that failed
+/// when the failure is a timed stage's own. [`CompileError::stage`] names the failing stage in
+/// every case; a failure raised between stages (such as `"post-compilation checks"` or
+/// `"emitted sentence provenance"`) follows the last timed phase.
+///
+/// The entries and span `timings` already holds are kept, so one value may accumulate the
+/// load and compile phases; this function sets no span. A caller that wants the call's
+/// wall-clock span wraps it in [`PhaseTimings::span`].
+///
+/// The timings are a property of one run, not of the definition, so they are deliberately not
+/// part of [`CompileError`]: two compiles that fail the same way return equal errors.
+pub fn compile_loaded_definition_with_timings(
+    loaded: &LoadedDefinition,
+    options: CompileOptions,
+    timings: &mut PhaseTimings,
+) -> Result<CompiledKoreArtifacts, CompileError> {
+    compile_loaded_definition_observed(loaded, options, timings, &mut |_, _, _| {})
+}
+
+/// [`compile_loaded_definition_with_timings`], reporting every transformation and emission stage
+/// to `observer` as it completes or fails.
 pub(crate) fn compile_loaded_definition_observed(
     loaded: &LoadedDefinition,
     options: CompileOptions,
+    timings: &mut PhaseTimings,
     observer: &mut StageObserver<'_>,
-) -> Result<(CompiledKoreArtifacts, PhaseTimings), CompileError> {
-    let span_started = web_time::Instant::now();
-    let mut timings = PhaseTimings::default();
+) -> Result<CompiledKoreArtifacts, CompileError> {
     let (execution_definition, definition, diagnostics, resolved) =
-        transform_loaded_definition(loaded, &options, &mut timings, observer)?;
+        transform_loaded_definition(loaded, &options, timings, observer)?;
     // Emission walks the transformed definitions (KORE conversion, printing, provenance): it
     // runs on a stack that holds their deepest term.
     DeepestTerm::of_all([&execution_definition, &definition]).run(
@@ -312,7 +342,6 @@ pub(crate) fn compile_loaded_definition_observed(
                 loaded,
                 &options,
                 timings,
-                span_started,
                 Transformed {
                     execution_definition,
                     definition,
@@ -348,17 +377,15 @@ struct Transformed {
 fn emit_compiled(
     loaded: &LoadedDefinition,
     options: &CompileOptions,
-    mut timings: PhaseTimings,
-    span_started: web_time::Instant,
+    timings: &mut PhaseTimings,
     transformed: Transformed,
-) -> Result<(CompiledKoreArtifacts, PhaseTimings), CompileError> {
+) -> Result<CompiledKoreArtifacts, CompileError> {
     let Transformed {
         execution_definition,
         definition,
         mut diagnostics,
         resolved,
     } = transformed;
-    let timings = &mut timings;
     measure::add(
         Counter::KompileSentencesTransformed,
         definition
@@ -461,20 +488,16 @@ fn emit_compiled(
     let sentence_provenance =
         collect_sentence_provenance(&emitted_sources, &execution_definition, loaded)
             .map_err(|message| CompileError::from_error("emitted sentence provenance", message))?;
-    timings.set_span_seconds(span_started.elapsed().as_secs_f64());
-    Ok((
-        CompiledKoreArtifacts {
-            definition_kore,
-            syntax_definition_kore,
-            macros_kore,
-            diagnostics,
-            configuration_variables,
-            execution_definition,
-            execution_rewrite_order,
-            sentence_provenance,
-        },
-        std::mem::take(timings),
-    ))
+    Ok(CompiledKoreArtifacts {
+        definition_kore,
+        syntax_definition_kore,
+        macros_kore,
+        diagnostics,
+        configuration_variables,
+        execution_definition,
+        execution_rewrite_order,
+        sentence_provenance,
+    })
 }
 
 fn collect_sentence_provenance(
