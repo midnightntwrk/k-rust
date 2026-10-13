@@ -556,6 +556,10 @@ fn every_axiom_instance_holds_in_the_backends_evaluation() {
             (total.withheld_decided, "result decided without claims"),
             (total.reordered, "term evaluated in two axiom orders"),
             (total.generalizations, "generalization checked"),
+            (
+                total.valued_instances,
+                "instance over values asked for a token",
+            ),
         ] {
             if count == 0 {
                 failures.push(format!("no {what}"));
