@@ -1420,6 +1420,54 @@ fn a_discarded_division_over_variables_states_its_divisor_condition() {
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
+/// Claims whose conditional discards a hook over a ground map: a listing of two keys, whose
+/// order only an execution chooses, and lookups.
+const DISCARDED_COLLECTION_HOOK: &str = r#"
+module GH
+  imports INT
+  imports BOOL
+  imports MAP
+  imports LIST
+  imports K-EQUAL
+  syntax Exp ::= Int | l(Bool) [symbol(l)] | f(Bool) [symbol(f)] | g(Bool) [symbol(g)] | h(Bool) [symbol(h)]
+  configuration <k> $PGM:Exp </k>
+  rule <k> l(B) => #if B #then 7 #else size(keys_list(1 |-> 10 3 |-> 30)) #fi </k>
+  rule <k> f(B) => #if B #then 7 #else {keys_list(1 |-> 10 3 |-> 30)[0]}:>Int #fi </k>
+  rule <k> g(B) => #if B #then 7 #else {(1 |-> 10 3 |-> 30)[3]}:>Int #fi </k>
+  rule <k> h(B) => #if B #then 7 #else {(1 |-> 10 3 |-> 30)[2]}:>Int #fi </k>
+endmodule
+
+module GH-SPEC
+  imports GH
+  claim [listed]: <k> l(B) => 7 </k> requires B
+  claim [first]: <k> f(B) => 7 </k> requires B
+  claim [bound]: <k> g(B) => 7 </k> requires B
+  claim [unbound]: <k> h(B) => 7 </k> requires B
+endmodule
+"#;
+
+/// A discarded hook over a ground collection is decided by the hook on a proof route too, and a
+/// value only an execution chooses is not chosen there: `keys_list` of two bindings is defined
+/// whatever its order, so `listed` is proven without one, while `first`, whose discarded operand
+/// is defined only if the listing's first key is an `Int` the projection accepts, is not proven
+/// from k-rust's order. A lookup of a bound key is defined (`bound`), and one of a key the map
+/// does not bind makes the conditional `\bottom` (`unbound`).
+#[test]
+fn a_claim_through_a_discarded_hook_over_a_ground_collection_chooses_no_value() {
+    let wrong = unexpected_statuses(
+        DISCARDED_COLLECTION_HOOK,
+        "GH-SPEC",
+        "GH",
+        &[
+            ("listed", "proven"),
+            ("first", "failed"),
+            ("bound", "proven"),
+            ("unbound", "failed"),
+        ],
+    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
 /// A claim whose conditional discards a definedness that depends on a console read is never
 /// proven: its left-hand side or its destination meets the impure application, which is not
 /// performed (`a_discarded_conditional_operand_performs_no_console_effect` in cli.rs).
