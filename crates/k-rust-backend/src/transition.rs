@@ -176,6 +176,25 @@ pub struct DescriptorTranscriptEntry {
     pub bytes: Arc<[u8]>,
 }
 
+/// What a process observes of a branch's console: how many input bytes the branch consumed, and
+/// the bytes it wrote, in order, as runs to one descriptor.
+///
+/// A process reading the console sees each descriptor's byte stream and, where the streams share
+/// a terminal, how writes to different descriptors interleave; it does not see which hook wrote a
+/// byte, how the bytes were split into calls, or a call that wrote none. So `writes` is the
+/// transcript with empty writes dropped and each maximal run of adjacent writes to one descriptor
+/// joined into one entry, and two consoles over the same input are observably equal exactly when
+/// their observations are. The input is not part of an observation: it is one value shared by
+/// every branch of an execution.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub struct ConsoleObservation {
+    /// The number of input bytes read, the branch's cursor.
+    pub consumed: usize,
+    /// The bytes written, in order, as `(descriptor, bytes)`: no entry is empty, and adjacent
+    /// entries have different descriptors.
+    pub writes: Vec<(i32, Arc<[u8]>)>,
+}
+
 /// Buffered console state owned by one execution branch.
 ///
 /// Input is immutable and shared between forks. The cursor and transcript are values of the
@@ -210,6 +229,36 @@ impl ExecutionIoState {
 
     pub fn transcript(&self) -> &[DescriptorTranscriptEntry] {
         &self.transcript
+    }
+
+    /// This console as a process observes it (see [`ConsoleObservation`]). The transcript keeps
+    /// each write's hook and call boundaries for diagnostics; this is the form two consoles are
+    /// compared in.
+    pub fn observable(&self) -> ConsoleObservation {
+        let mut writes = Vec::<(i32, Arc<[u8]>)>::new();
+        let mut entries = self
+            .transcript
+            .iter()
+            .filter(|entry| !entry.bytes.is_empty())
+            .peekable();
+        while let Some(first) = entries.next() {
+            let descriptor = first.descriptor;
+            let same_descriptor =
+                |entry: &&DescriptorTranscriptEntry| entry.descriptor == descriptor;
+            if entries.peek().is_none_or(|next| !same_descriptor(next)) {
+                writes.push((descriptor, Arc::clone(&first.bytes)));
+                continue;
+            }
+            let mut bytes = first.bytes.to_vec();
+            while let Some(next) = entries.next_if(same_descriptor) {
+                bytes.extend_from_slice(&next.bytes);
+            }
+            writes.push((descriptor, bytes.into()));
+        }
+        ConsoleObservation {
+            consumed: self.cursor,
+            writes,
+        }
     }
 
     /// Fork a tentative evaluator state from this branch.
@@ -644,8 +693,8 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::{
-        DescriptorTranscriptEntry, EvaluationClass, ExecutionIoState, ObservationEvent,
-        ObservationOptions,
+        ConsoleObservation, DescriptorTranscriptEntry, EvaluationClass, ExecutionIoState,
+        ObservationEvent, ObservationOptions,
     };
     use crate::{
         definition::BackendDefinition,
@@ -799,6 +848,40 @@ mod tests {
                     bytes: Vec::from(&b"right-out"[..]).into(),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn console_observation_joins_writes_to_a_descriptor_and_drops_empty_ones() {
+        let state = ExecutionIoState::new(Vec::from(&b"input"[..]));
+        let mut evaluation = state.begin_evaluation();
+        assert_eq!(evaluation.read(2), b"in");
+        evaluation.append("IO.write", 1, Vec::from(&b"ab"[..]));
+        evaluation.append("IO.putc", 1, Vec::from(&b"c"[..]));
+        evaluation.append("IO.write", 2, Vec::new());
+        evaluation.append("IO.putc", 1, Vec::from(&b"d"[..]));
+        evaluation.append("IO.putc", 2, Vec::from(&b"e"[..]));
+        evaluation.append("IO.write", 1, Vec::from(&b"f"[..]));
+        evaluation.append("IO.write", 1, Vec::new());
+        let state = evaluation.commit();
+
+        let joined = |bytes: &[u8]| -> std::sync::Arc<[u8]> { bytes.into() };
+        assert_eq!(
+            state.observable(),
+            ConsoleObservation {
+                consumed: 2,
+                writes: vec![(1, joined(b"abcd")), (2, joined(b"e")), (1, joined(b"f"))],
+            }
+        );
+        assert_eq!(
+            ExecutionIoState::default().observable(),
+            ConsoleObservation::default()
+        );
+        let mut empty_only = ExecutionIoState::default().begin_evaluation();
+        empty_only.append("IO.write", 2, Vec::new());
+        assert_eq!(
+            empty_only.commit().observable(),
+            ConsoleObservation::default()
         );
     }
 }

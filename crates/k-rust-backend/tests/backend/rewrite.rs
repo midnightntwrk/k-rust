@@ -11463,6 +11463,165 @@ fn console_terminal_rule_commits_the_selected_transition_output() {
     assert_eq!(leaf.io.transcript()[0].bytes.as_ref(), b"terminal");
 }
 
+/// Two rules from `initial`, each writing its argument terms' console effects while its
+/// right-hand side is normalized, both ending in `pair(dotk, dotk)` (the definition has no
+/// `~>`, so a sequence of writes is the arguments of one constructor).
+fn console_two_writers_definition(left: &str, right: &str) -> BackendDefinition {
+    console_io_definition(&format!(
+        r#"
+            axiom{{}} \rewrites{{SortK{{}}}}(
+                \and{{SortK{{}}}}(initial{{}}(), \top{{SortK{{}}}}()),
+                {left}
+            ) [label{{}}("left")]
+            axiom{{}} \rewrites{{SortK{{}}}}(
+                \and{{SortK{{}}}}(initial{{}}(), \top{{SortK{{}}}}()),
+                {right}
+            ) [label{{}}("right")]
+        "#
+    ))
+}
+
+fn console_write(descriptor: i32, text: &str) -> String {
+    format!(r#"write{{}}(\dv{{SortInt{{}}}}("{descriptor}"), \dv{{SortString{{}}}}("{text}"))"#)
+}
+
+fn console_putc(descriptor: i32, byte: u8) -> String {
+    format!(r#"putc{{}}(\dv{{SortInt{{}}}}("{descriptor}"), \dv{{SortInt{{}}}}("{byte}"))"#)
+}
+
+fn execute_console_writers(
+    definition: &BackendDefinition,
+    result_modality: ResultModality,
+) -> ExecutionResult {
+    execute_with_io_state(
+        definition,
+        console_pattern(definition, "initial{}()"),
+        ExecutionOptions {
+            result_modality,
+            ..ExecutionOptions::default()
+        },
+        ExecutionIoState::default(),
+    )
+}
+
+/// The bytes each leaf wrote, as `(descriptor, bytes)` per transcript entry.
+fn console_leaf_writes(result: &ExecutionResult) -> Vec<Vec<(i32, Vec<u8>)>> {
+    result
+        .leaves
+        .iter()
+        .map(|leaf| {
+            leaf.io
+                .transcript()
+                .iter()
+                .map(|entry| (entry.descriptor, entry.bytes.to_vec()))
+                .collect()
+        })
+        .collect()
+}
+
+// A process observes a console as the input consumed and the byte streams written in order;
+// which hook wrote the bytes and how they were split into calls is not part of it, so the two
+// paths end in one state.
+#[test]
+fn state_set_merges_leaves_whose_console_writes_the_same_bytes_by_different_hooks() {
+    let definition = console_two_writers_definition(
+        &format!("pair{{}}({}, dotk{{}}())", console_write(1, "ab")),
+        &format!("pair{{}}({}, {})", console_putc(1, 97), console_putc(1, 98)),
+    );
+
+    let result = execute_console_writers(&definition, ResultModality::StateSet);
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one merged leaf: {result:#?}");
+    };
+    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    assert_eq!(
+        leaf.pattern,
+        console_pattern(&definition, "pair{}(dotk{}(), dotk{}())")
+    );
+    let written = leaf
+        .io
+        .transcript()
+        .iter()
+        .flat_map(|entry| {
+            assert_eq!(entry.descriptor, 1);
+            entry.bytes.iter().copied()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(written, b"ab");
+}
+
+#[test]
+fn state_set_merges_leaves_that_differ_only_by_an_empty_write() {
+    let definition = console_two_writers_definition(
+        &format!("pair{{}}({}, dotk{{}}())", console_write(1, "ab")),
+        &format!(
+            "pair{{}}({}, {})",
+            console_write(1, "ab"),
+            console_write(2, "")
+        ),
+    );
+
+    let result = execute_console_writers(&definition, ResultModality::StateSet);
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one merged leaf: {result:#?}");
+    };
+    assert_eq!(
+        leaf.pattern,
+        console_pattern(&definition, "pair{}(dotk{}(), dotk{}())")
+    );
+}
+
+// The interleaving of descriptors is observable (both streams may be one terminal), so writes
+// to different descriptors in a different order are different consoles.
+#[test]
+fn state_set_keeps_leaves_whose_interleaving_differs() {
+    let definition = console_two_writers_definition(
+        &format!(
+            "pair{{}}({}, {})",
+            console_write(1, "a"),
+            console_write(2, "b")
+        ),
+        &format!(
+            "pair{{}}({}, {})",
+            console_write(2, "b"),
+            console_write(1, "a")
+        ),
+    );
+
+    let result = execute_console_writers(&definition, ResultModality::StateSet);
+
+    assert_eq!(
+        console_leaf_writes(&result),
+        [
+            vec![(1, b"a".to_vec()), (2, b"b".to_vec())],
+            vec![(2, b"b".to_vec()), (1, b"a".to_vec())],
+        ],
+        "{result:#?}"
+    );
+}
+
+#[test]
+fn path_set_keeps_leaves_whose_console_writes_the_same_bytes_by_different_hooks() {
+    let definition = console_two_writers_definition(
+        &format!("pair{{}}({}, dotk{{}}())", console_write(1, "ab")),
+        &format!("pair{{}}({}, {})", console_putc(1, 97), console_putc(1, 98)),
+    );
+
+    let result = execute_console_writers(&definition, ResultModality::PathSet);
+
+    assert_eq!(result.modality, ResultModality::PathSet);
+    assert_eq!(
+        console_leaf_writes(&result),
+        [
+            vec![(1, b"ab".to_vec())],
+            vec![(1, b"a".to_vec()), (1, b"b".to_vec())],
+        ],
+        "{result:#?}"
+    );
+}
+
 #[test]
 fn breadth_bound_returns_the_live_execution_frontier() {
     let definition = unconditional_branch_definition();
