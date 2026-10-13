@@ -191,11 +191,41 @@ fn flex_name_keeps_classes_as_written() {
 }
 
 /// A Flex pattern as a pattern over bytes for Rust's regex engine: the Flex printer writes a
-/// class, `.` and every byte outside ASCII in a syntax both engines read alike.
+/// class, `.` and every byte outside ASCII in a syntax both engines read alike, but for the set
+/// operations of Rust's class syntax (see [`flex_text_as_rust_regex`]).
 fn flex_as_byte_regex(body: &regex::RegexBody) -> ::regex::bytes::Regex {
     let flex = body.to_flex_string();
-    ::regex::bytes::Regex::new(&format!(r"(?-u)\A(?:{flex})\z"))
-        .unwrap_or_else(|error| panic!("{flex:?}: {error}"))
+    let rust = flex_text_as_rust_regex(&flex);
+    ::regex::bytes::Regex::new(&format!(r"(?-u)\A(?:{rust})\z"))
+        .unwrap_or_else(|error| panic!("{flex:?} as {rust:?}: {error}"))
+}
+
+/// The Flex printer's text in Rust's regex syntax.
+///
+/// A Flex class has no set operations: an unescaped `&` or `~` in it is that character, where
+/// Rust reads a doubled `&&` or `~~` as an intersection or a symmetric difference, so each is
+/// escaped here; outside a class both are plain characters in either syntax, and the escape changes
+/// nothing. The printer escapes every other character Rust treats specially in a class (`[`, `]`,
+/// `\`, `^` and `-`, so an unescaped `-` is a range and never the start of a `--` difference), and
+/// each escape it writes (`\n`, `\r`, `\t`, `\xHH`, and `\` before punctuation or a space) means the
+/// same byte in both syntaxes; an escaped character is copied with its backslash.
+fn flex_text_as_rust_regex(flex: &str) -> String {
+    let mut rust = String::with_capacity(flex.len());
+    let mut characters = flex.chars();
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' => {
+                rust.push('\\');
+                rust.extend(characters.next());
+            }
+            '&' | '~' => {
+                rust.push('\\');
+                rust.push(character);
+            }
+            character => rust.push(character),
+        }
+    }
+    rust
 }
 
 fn rust_character_regex(body: &regex::RegexBody) -> RustRegex {
@@ -335,6 +365,56 @@ fn a_class_range_across_the_surrogate_gap_holds_exactly_its_characters() {
     }
 }
 
+/// Both printers' patterns for the class `negated`/`members` match exactly the characters it
+/// denotes among `probes`, each member's characters and their neighbours, and never a byte
+/// sequence that encodes no character.
+fn assert_class_denotes_its_characters(
+    negated: bool,
+    members: Vec<regex::CharClass>,
+    probes: impl IntoIterator<Item = char>,
+) -> Result<(), TestCaseError> {
+    let body = regex::RegexBody::CharClass {
+        negated,
+        members: members.clone(),
+    };
+    let bytes = flex_as_byte_regex(&body);
+    let characters = rust_character_regex(&body);
+    let probes = probes.into_iter().chain(members.iter().flat_map(|member| {
+        match *member {
+            regex::CharClass::Char(character) => vec![character],
+            regex::CharClass::Range { start, end } => [start as u32, end as u32]
+                .into_iter()
+                .flat_map(|point| [point.wrapping_sub(1), point, point + 1])
+                .filter_map(char::from_u32)
+                .collect(),
+        }
+    }));
+    for probe in probes {
+        let member = members.iter().any(|member| match *member {
+            regex::CharClass::Char(character) => character == probe,
+            regex::CharClass::Range { start, end } => (start..=end).contains(&probe),
+        });
+        prop_assert_eq!(
+            bytes.is_match(probe.to_string().as_bytes()),
+            member != negated,
+            "{:?} on {:?}",
+            body.to_flex_string(),
+            probe
+        );
+        prop_assert_eq!(
+            characters.is_match(&probe.to_string()),
+            member != negated,
+            "{:?} on {:?}",
+            body.to_rust_string(),
+            probe
+        );
+    }
+    for not_utf8 in NOT_UTF8 {
+        prop_assert!(!bytes.is_match(not_utf8));
+    }
+    Ok(())
+}
+
 proptest! {
     #[test]
     fn flex_printer_classes_denote_the_characters_of_the_class(
@@ -350,35 +430,39 @@ proptest! {
                 None => regex::CharClass::Char(start),
             })
             .collect::<Vec<_>>();
-        let body = regex::RegexBody::CharClass { negated, members: members.clone() };
-        let bytes = flex_as_byte_regex(&body);
-        let characters = rust_character_regex(&body);
-        let probes = probes.into_iter().chain(members.iter().flat_map(|member| match *member {
-            regex::CharClass::Char(character) => vec![character],
-            regex::CharClass::Range { start, end } => [start as u32, end as u32]
-                .into_iter()
-                .flat_map(|point| [point.wrapping_sub(1), point, point + 1])
-                .filter_map(char::from_u32)
-                .collect(),
-        }));
-        for probe in probes {
-            let member = members.iter().any(|member| match *member {
-                regex::CharClass::Char(character) => character == probe,
-                regex::CharClass::Range { start, end } => (start..=end).contains(&probe),
-            });
-            prop_assert_eq!(
-                bytes.is_match(probe.to_string().as_bytes()),
-                member != negated,
-                "{:?} on {:?}", body.to_flex_string(), probe
-            );
-            prop_assert_eq!(
-                characters.is_match(&probe.to_string()),
-                member != negated,
-                "{:?} on {:?}", body.to_rust_string(), probe
-            );
-        }
-        for not_utf8 in NOT_UTF8 {
-            prop_assert!(!bytes.is_match(not_utf8));
+        assert_class_denotes_its_characters(negated, members, probes)?;
+    }
+}
+
+/// A Flex class has no set operations, so a class that holds a character twice, or a range and
+/// one of its endpoints beside it, denotes each of those characters once, whichever character it
+/// is: `&`, `~` and `-`, which Rust's class syntax doubles into operators, `[` and `:`, which it
+/// reads as the start of a nested or named class, and the others it treats specially.
+#[test]
+fn flex_printer_class_with_a_repeated_character_denotes_that_character() {
+    use regex::CharClass::{Char, Range};
+    let range = |start, end| Range { start, end };
+    let ascii = || (0..=0x7F).filter_map(char::from_u32);
+    let mut classes = Vec::new();
+    for character in ascii() {
+        classes.push(vec![Char(character), Char(character)]);
+        classes.push(vec![Char(character), Char(character), Char(character)]);
+        classes.push(vec![Char('a'), Char(character), Char(character), Char('b')]);
+    }
+    classes.extend([
+        vec![range('%', '&'), Char('&')],
+        vec![Char('&'), range('&', '(')],
+        vec![range('}', '~'), Char('~')],
+        vec![Char('~'), range('~', '~')],
+        vec![range(',', '-'), Char('-')],
+        vec![Char('-'), range('-', '/')],
+        vec![Char('&'), Char('~'), Char('&'), Char('~')],
+        vec![Char('['), Char(':'), Char('a'), Char(':'), Char(']')],
+        vec![Char('['), Char('='), Char('a'), Char('='), Char(']')],
+    ]);
+    for members in classes {
+        for negated in [false, true] {
+            assert_class_denotes_its_characters(negated, members.clone(), ascii()).unwrap();
         }
     }
 }

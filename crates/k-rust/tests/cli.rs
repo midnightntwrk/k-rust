@@ -11570,6 +11570,43 @@ endmodule
     );
 }
 
+/// A K class is a set of characters with no set operations, so a class that holds `&` or `~`
+/// twice, or a range and its endpoint beside it, holds each of those characters, in the generated
+/// scanner as in the in-process one.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_reads_a_repeated_class_character_as_that_character() {
+    let definition = r#"
+module REPEATED-SYNTAX
+  syntax Doubled ::= r"q[&&~~]+q" [token]
+  syntax Ranged ::= r"r[%-&&]+r" [token]
+  syntax Pgm ::= "d" Doubled | "g" Ranged
+endmodule
+
+module REPEATED
+  imports REPEATED-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    let programs = [
+        ("d q&q", true),
+        ("d q~q", true),
+        ("d q&~&~q", true),
+        ("d qaq", false),
+        ("d q%q", false),
+        ("g r%r", true),
+        ("g r&%&r", true),
+        ("g r$r", false),
+        ("g r'r", false),
+    ];
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "REPEATED",
+        "REPEATED-SYNTAX",
+        &owned_programs(&programs),
+    );
+}
+
 /// U+0000 is a character like any other: a token whose text holds it is that whole text, in
 /// every kind of literal and in a token subsort's phrase, and its literal holds the character.
 /// A generated scanner keeps such a text whole whether it reads its input in chunks or, for an
