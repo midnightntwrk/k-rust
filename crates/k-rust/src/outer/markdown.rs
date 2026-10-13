@@ -21,7 +21,7 @@ use std::{collections::BTreeSet, fmt};
 
 use super::parser::is_whitespace;
 use crate::lines;
-use crate::provenance::{SourceOffsetMap, SourceOffsetSegment};
+use crate::provenance::SourceOffsetMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarkdownError {
@@ -72,7 +72,9 @@ impl Selector {
 
 /// Extract fenced code selected by K's Markdown selector language (`--md-selector`).
 ///
-/// Non-code text is reduced to its whitespace, preserving source line and column positions.
+/// Text outside the selected code keeps its whitespace and has every other character replaced by
+/// one space per byte, so the extracted text has the source's line ends and byte offsets, and the
+/// selected code keeps its lines and columns.
 pub fn extract_fenced_k_code(input: &str, selector: &str) -> Result<String, MarkdownError> {
     extract_fenced_k_code_with_map(input, selector).map(|extracted| extracted.text)
 }
@@ -113,13 +115,16 @@ pub fn extract_fenced_k_code_with_map(
         selected.push((content_start, input.len()));
     }
 
-    let mut output = String::new();
-    let mut segments = Vec::<SourceOffsetSegment>::new();
+    let mut output = String::with_capacity(input.len());
     let mut ranges = selected.into_iter().peekable();
-    // Prose and unselected blocks are not part of the definition: they keep only the definition
-    // text's whitespace, so every later location stays on its line and no prose character reaches
-    // the outer syntax as anything but layout.
-    // Invariant: `output` holds the characters of `input` before `index` that lie in a selected range or are whitespace of the definition text, `segments` maps them back to `input` with contiguous runs merged, and `ranges` has dropped every range ending at or before `index`; each iteration consumes one character and `ranges` only advances, so the pass is O(|input| + |selected|).
+    // Prose and unselected blocks are not part of the definition, so they contribute only layout,
+    // and they keep their place: a character of the definition text's whitespace stays itself, and
+    // every other prose character becomes one space per byte. No prose character reaches the outer
+    // syntax as anything but layout, every character of the output is at its offset in `input`,
+    // and the output has the line ends of `input`: a line end is decided by the characters on both
+    // sides of it, and a space is not part of one, so a prose `\r` is not joined with a later `\n`
+    // as it would be if the characters between them were dropped.
+    // Invariant: `output` is `input[..index]` with every character outside a selected range that is not whitespace of the definition text replaced by as many spaces as it has bytes, and `ranges` has dropped every range ending at or before `index`; each iteration consumes one character and `ranges` only advances, so the pass is O(|input| + |selected|).
     for (index, character) in input.char_indices() {
         while ranges.peek().is_some_and(|(_, end)| index >= *end) {
             ranges.next();
@@ -128,25 +133,15 @@ pub fn extract_fenced_k_code_with_map(
             .peek()
             .is_some_and(|(start, end)| index >= *start && index < *end);
         if keep || is_whitespace(character) {
-            let semantic_start = output.len();
             output.push(character);
-            let length = character.len_utf8();
-            if let Some(segment) = segments.last_mut()
-                && segment.semantic_start + segment.length == semantic_start
-                && segment.raw_start + segment.length == index
-            {
-                segment.length += length;
-            } else {
-                segments.push(SourceOffsetSegment {
-                    semantic_start,
-                    raw_start: index,
-                    length,
-                });
+        } else {
+            for _ in 0..character.len_utf8() {
+                output.push(' ');
             }
         }
     }
-    let offset_map = SourceOffsetMap::new(output.len(), input.len(), segments)
-        .expect("Markdown extraction constructs an ordered complete offset map");
+    debug_assert_eq!(output.len(), input.len());
+    let offset_map = SourceOffsetMap::identity(output.len());
     Ok(ExtractedKCode {
         text: output,
         offset_map,

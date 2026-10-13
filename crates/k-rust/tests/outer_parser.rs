@@ -359,13 +359,10 @@ fn lowering_preserves_bubble_content_offsets() {
         source.find("nested(a, b)").unwrap(),
     );
 
-    let markdown = "Prose is removed.\n```k\nmodule MAIN\n  rule md => value\nendmodule\n```\n";
+    // Prose is replaced in place, so the extracted bubble is at its offset in the Markdown file.
+    let markdown = "Prose is replaced.\n```k\nmodule MAIN\n  rule md => value\nendmodule\n```\n";
     let extracted = extract_fenced_k_code(markdown, "k").unwrap();
-    assert_ne!(
-        markdown.find("md => value"),
-        extracted.find("md => value"),
-        "markdown establishes the raw/extracted offset distinction",
-    );
+    assert_eq!(markdown.find("md => value"), extracted.find("md => value"));
     assert_eq!(
         content_start_offset("offsets.md", &extracted),
         extracted.find("md => value").unwrap(),
@@ -1661,9 +1658,9 @@ fn markdown_prose_contributes_only_layout() {
         let parsed = parse("prose.md", &extracted).unwrap();
         assert_eq!(parsed.modules[0].name, "MAIN", "{other:?}");
     }
-    // The space keeps a `\r` from meeting the `\n` after the dropped prose as one `\r\n`.
+    // Prose is replaced, not dropped, so a `\r` in it does not meet the `\n` after it as one `\r\n`.
     for terminator in LINE_TERMINATORS {
-        let markdown = format!("Prose{terminator} before.\n{block}");
+        let markdown = format!("Prose{terminator}before.\n{block}");
         let extracted = extract_fenced_k_code(&markdown, "k").unwrap();
         let parsed = parse("prose.md", &extracted).unwrap();
         let [Sentence::Syntax(syntax)] = parsed.modules[0].sentences.as_slice() else {
