@@ -860,3 +860,58 @@ fn an_existential_set_or_map_item_is_any_final_item_its_constraint_admits() {
         );
     }
 }
+
+/// Claims that `add` an integer `M` to the plain set `<s>` of [`AC_FRAMES_ELSEWHERE`] (its
+/// definition, with this spec module) holding symbolic integers, whose ranges either keep `M`
+/// apart from each of them (`-disjoint`, `set-two-sym`, `ex-sym`) or let it equal one
+/// (`-overlap`).
+const PAC_GUARDED_ADD_SPEC: &str = r#"
+module PACG-SPEC
+  imports PAC
+  claim [step-disjoint]: <k> add(M:Int) => .K </k> <s> SetItem(N:Int) => SetItem(N) SetItem(M) </s> <m> X:Map => ?Y:Map </m> requires N >Int 4 andBool N <Int 6 andBool M >Int 6 andBool M <Int 8
+  claim [step-two-disjoint]: <k> add(M:Int) => .K </k> <s> SetItem(N:Int) SetItem(L:Int) => SetItem(N) SetItem(L) SetItem(M) </s> <m> X:Map => ?Y:Map </m> requires N >Int 4 andBool N <Int 6 andBool L >Int 0 andBool L <Int 3 andBool M >Int 6 andBool M <Int 8
+  claim [set-two-sym]: <k> add(N:Int) ; add(M:Int) => .K </k> <s> .Set => ?A:Set SetItem(7) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 6 andBool M >Int 6 andBool M <Int 8
+  claim [ex-sym]: <k> add(N:Int) ; add(M:Int) => .K </k> <s> .Set => SetItem(?X:Int) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 6 andBool M >Int 0 andBool M <Int 2 ensures ?X >Int 3
+  claim [step-overlap]: <k> add(M:Int) => .K </k> <s> SetItem(N:Int) => SetItem(N) SetItem(M) </s> <m> X:Map => ?Y:Map </m> requires N >Int 4 andBool N <Int 7 andBool M >Int 5 andBool M <Int 8
+  claim [step-two-overlap]: <k> add(M:Int) => .K </k> <s> SetItem(N:Int) SetItem(L:Int) => SetItem(N) SetItem(L) SetItem(M) </s> <m> X:Map => ?Y:Map </m> requires N >Int 4 andBool N <Int 6 andBool L >Int 0 andBool L <Int 8 andBool M >Int 6 andBool M <Int 8
+  claim [set-two-sym-overlap]: <k> add(N:Int) ; add(M:Int) => .K </k> <s> .Set => ?A:Set SetItem(7) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 8 andBool M >Int 6 andBool M <Int 8
+  claim [ex-sym-overlap]: <k> add(N:Int) ; add(M:Int) => .K </k> <s> .Set => SetItem(?X:Int) ?C:Set </s> <m> .Map => ?M:Map </m> requires N >Int 4 andBool N <Int 6 andBool M >Int 0 andBool M <Int 6 ensures ?X >Int 3
+endmodule
+"#;
+
+/// `add(M)` rewrites where `M` is not in the set and is stuck where it is. Membership in a set
+/// whose elements are all known is equality with one of them, so where the ranges make `M`
+/// differ from every element, the stuck branch's condition is unsatisfiable, the branch denotes
+/// no state, and only the step remains. Where a range lets `M` equal an element (6, or 7 in
+/// `step-two-overlap`, 5 in `ex-sym-overlap`), that instance is stuck before `.K`, and the
+/// claim is not proven.
+#[test]
+fn a_guarded_add_has_no_stuck_branch_where_the_ranges_keep_its_item_out_of_the_set() {
+    let proven = [
+        "step-disjoint",
+        "step-two-disjoint",
+        "set-two-sym",
+        "ex-sym",
+    ];
+    let unproven = [
+        "step-overlap",
+        "step-two-overlap",
+        "set-two-sym-overlap",
+        "ex-sym-overlap",
+    ];
+    let statuses = pac_statuses(
+        PAC_GUARDED_ADD_SPEC,
+        "PACG-SPEC",
+        &[proven.as_slice(), unproven.as_slice()].concat(),
+    );
+    for (claim, status) in statuses {
+        if proven.contains(&claim.as_str()) {
+            assert_eq!(status, "proven", "{claim}");
+        } else {
+            assert!(
+                matches!(status.as_str(), "failed" | "disproved"),
+                "{claim}: {status}"
+            );
+        }
+    }
+}
