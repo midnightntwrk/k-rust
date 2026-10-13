@@ -5403,6 +5403,83 @@ fn a_lemma_binding_a_term_it_builds_from_an_operand_does_not_evaluate_it() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A predicate lemma over a conditional whose right-hand side drops the conditional's second
+/// operand.
+const PREDICATE_LEMMA_OVER_CONDITIONAL: &str = r#"
+module PEQBIND
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Exp ::= start(Int) [symbol(start)] | done(Int) [symbol(done)]
+  syntax Int ::= loopi() [function, symbol(loopi)]
+  rule loopi() => loopi() +Int 1
+  rule {#if B #then X:Int #else Y:Int #fi #Equals Z:Int} => {true #Equals B} #And {X #Equals Z} [simplification]
+  configuration <k> $PGM:Exp </k>
+  rule <k> start(N) => done(N) ...</k>
+endmodule
+"#;
+
+#[test]
+fn a_predicate_lemma_binding_a_discarded_operand_does_not_evaluate_it() {
+    // The state's constraint `{#if N >Int 0 #then 1 #else loopi() #fi #Equals 1}` is an instance
+    // of the lemma, whose match binds `Y` to `loopi()`, an operand the conditional does not
+    // evaluate while `N >Int 0` is undecided. The binding's definedness is a deferred
+    // obligation, so the lemma applies under it and the run ends instead of evaluating
+    // `loopi()`.
+    let (root, _) = fixture();
+    let lemma = compiled_for_execution(
+        &root,
+        "peqbind",
+        PREDICATE_LEMMA_OVER_CONDITIONAL,
+        "PEQBIND",
+        "PEQBIND",
+    );
+    let positive = r#"Lbl'Unds-GT-'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("0"))"#;
+    let pattern = format!(
+        r#"\and{{SortGeneratedTopCell{{}}}}({}, \equals{{SortInt{{}}, SortGeneratedTopCell{{}}}}(Lblite{{SortInt{{}}}}({positive}, \dv{{SortInt{{}}}}("1"), Lblloopi{{}}()), \dv{{SortInt{{}}}}("1")))"#,
+        top_with("inj{SortExp{}, SortKItem{}}(Lblstart{}(VarN:SortInt{}))")
+    );
+    let output = kore_exec_from(&root, &lemma, "PEQBIND", &pattern, 1);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(!stderr.contains("stack"), "{stderr}");
+    let expected = format!(
+        r#"\and{{SortGeneratedTopCell{{}}}}({}, \and{{SortGeneratedTopCell{{}}}}(\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(\dv{{SortBool{{}}}}("true"), {positive}), {}))"#,
+        top_with("inj{SortExp{}, SortKItem{}}(Lbldone{}(VarN:SortInt{}))"),
+        ceil_of("SortInt", "Lblloopi{}()"),
+    );
+    assert_eq!(squashed(&stdout), squashed(&expected), "{stdout}");
+
+    // `#Not` is not strict in its operand, so the lemma over the negated equality cannot be
+    // used under the open obligation of `Y`: the constraint is kept as it is, and `loopi()` is
+    // not evaluated to decide the obligation either.
+    let negated = PREDICATE_LEMMA_OVER_CONDITIONAL.replace(
+        "rule {#if B #then X:Int #else Y:Int #fi #Equals Z:Int} => {true #Equals B} #And {X #Equals Z} [simplification]",
+        "rule #Not({#if B #then X:Int #else Y:Int #fi #Equals Z:Int}) => {false #Equals B} [simplification]",
+    );
+    assert_ne!(negated, PREDICATE_LEMMA_OVER_CONDITIONAL);
+    let lemma = compiled_for_execution(&root, "peqnot", &negated, "PEQBIND", "PEQBIND");
+    let constraint = format!(
+        r#"\not{{SortGeneratedTopCell{{}}}}(\equals{{SortInt{{}}, SortGeneratedTopCell{{}}}}(Lblite{{SortInt{{}}}}({positive}, \dv{{SortInt{{}}}}("1"), Lblloopi{{}}()), \dv{{SortInt{{}}}}("1")))"#
+    );
+    let pattern = format!(
+        "\\and{{SortGeneratedTopCell{{}}}}({}, {constraint})",
+        top_with("inj{SortExp{}, SortKItem{}}(Lblstart{}(VarN:SortInt{}))")
+    );
+    let output = kore_exec_from(&root, &lemma, "PEQBIND", &pattern, 1);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(!stderr.contains("stack"), "{stderr}");
+    let expected = format!(
+        "\\and{{SortGeneratedTopCell{{}}}}({}, {constraint})",
+        top_with("inj{SortExp{}, SortKItem{}}(Lbldone{}(VarN:SortInt{}))")
+    );
+    assert_eq!(squashed(&stdout), squashed(&expected), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A conditional whose discarded operand's definedness depends on a console read.
 const IMPURE_OPERAND: &str = r#"
 requires "domains.md"
