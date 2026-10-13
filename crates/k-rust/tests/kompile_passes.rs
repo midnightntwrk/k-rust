@@ -4259,6 +4259,67 @@ fn leaves_an_undefined_constant_operation_unfolded() {
     );
 }
 
+/// A Float result whose token the fold cannot write (a 500,000-bit sum, whose text MPFR's
+/// formatting would make about 150,000 digits long, beyond the fold's 2^20-bit bound on a
+/// written value) leaves the application as written: the fold never aborts a compile.
+#[cfg(feature = "mpfr-folding")]
+#[test]
+fn leaves_a_float_result_it_cannot_write_unfolded() {
+    let float = || Term::Token {
+        token: "1.0p500000x20".into(),
+        sort: Sort::new("Float"),
+    };
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: Sort::new("Float"),
+                    attributes: attributes(&[("hook", json!("FLOAT.Float"))]),
+                },
+                Sentence::Production {
+                    label: Some(Label::new("plus")),
+                    parameters: Vec::new(),
+                    sort: Sort::new("Float"),
+                    items: vec![
+                        ProductionItem::NonTerminal {
+                            sort: Sort::new("Float"),
+                            name: None,
+                        },
+                        ProductionItem::NonTerminal {
+                            sort: Sort::new("Float"),
+                            name: None,
+                        },
+                    ],
+                    attributes: attributes(&[("hook", json!("FLOAT.add"))]),
+                },
+                rule(
+                    rewrite(
+                        application("result", Vec::new()),
+                        application("plus", vec![float(), float()]),
+                    ),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let transformed = constant_fold(&definition).unwrap();
+    let Sentence::Rule { body, .. } = &*transformed.main_module().unwrap().local_sentences[2]
+    else {
+        unreachable!()
+    };
+    let Term::Rewrite { right, .. } = body.unannotated() else {
+        unreachable!()
+    };
+    assert_eq!(
+        Printer::new().print_term(right),
+        r#"plus(#token("1.0p500000x20","Float"),#token("1.0p500000x20","Float"))"#
+    );
+}
+
 #[test]
 fn propagates_production_macro_kinds_except_to_simplification_rules() {
     let source = indoc! {r#"

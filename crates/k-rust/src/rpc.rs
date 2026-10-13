@@ -3464,11 +3464,13 @@ endmodule
         )
         .unwrap();
         let quotient = "5.0000000745058060e-02p53x11";
+        // The request's `0.1f` is loaded as the canonical text of its binary32 value.
+        let operand = "1.00000001e-01p24x8";
         let response = request(&mut service, 1, "execute", json!({ "state": state }));
         let result = response["result"]["state"].to_string();
         assert_eq!(response["result"]["reason"], "stuck", "{response}");
         assert!(
-            result.contains("Lblres") && result.contains("0.1f") && !result.contains(quotient),
+            result.contains("Lblres") && result.contains(operand) && !result.contains(quotient),
             "{response}"
         );
         let response = request(
@@ -3480,7 +3482,7 @@ endmodule
         let result = response["result"]["state"].to_string();
         assert_eq!(response["result"]["reason"], "stuck", "{response}");
         assert!(
-            result.contains("Lblres") && result.contains(quotient) && !result.contains("0.1f"),
+            result.contains("Lblres") && result.contains(quotient) && !result.contains(operand),
             "{response}"
         );
     }

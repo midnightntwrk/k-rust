@@ -310,6 +310,19 @@ fn evaluate_with_context(
         return Ok(BuiltinResult::NotApplicable);
     };
     let result_sort = term.sort();
+    // The `FLOAT` hooks read a domain value of `SortFloat` as a Float. It is one only where the
+    // definition gives that sort the `Float` kind: an unhooked `SortFloat` is a token sort, whose
+    // texts `1.0` and `1.00` are two values, so no Float hook reads them, whatever its result.
+    if let Some(definition) = definition
+        && hook.starts_with("FLOAT.")
+        && arguments.iter().any(|argument| {
+            matches!(argument.kind(), TermKind::DomainValue { sort, .. }
+                if sort.is_builtin(BuiltinSort::Float)
+                    && definition.domain_kind(sort) != Some(crate::term::DomainKind::Float))
+        })
+    {
+        return Ok(BuiltinResult::NotApplicable);
+    }
     // With a definition, every domain value the hook builds is recorded with the kind it is
     // built with, for the checks below.
     let built = definition.map(|_| BuiltDomainValues::record());
@@ -406,7 +419,10 @@ fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
 }
 
 pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
-pub use float::is_float_syntax;
+pub use float::{
+    FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, canonical_float_text,
+    float_canonical_bits_estimate, is_float_syntax,
+};
 
 /// Evaluate `hook` on `arguments` without an applied symbol, so without a declared result sort:
 /// a collection hook that transforms a collection argument builds its result in that argument's

@@ -2057,6 +2057,223 @@ fn krun_reads_a_string_to_token_value_by_the_hook_of_its_sort() {
     );
 }
 
+/// Rules that distinguish the binary64 value 1.0 and the p113x15 value 1.0 from every other value
+/// of their formats (repro `map-set-choice-difference-hooks/r2/fq.k`).
+const FLOAT_SPELLINGS: &str = r#"
+module FQ-SYNTAX
+  imports FLOAT-SYNTAX
+  syntax Pgm ::= step(Float) | stepq(Float) | done() | bad()
+endmodule
+module FQ
+  imports FQ-SYNTAX
+  imports DOMAINS
+  imports FLOAT
+  configuration <k> $PGM:Pgm </k>
+  rule <k> step(X) => bad() ... </k> requires X ==K 1.0
+  rule <k> step(X) => done() ... </k> requires notBool (X ==K 1.0)
+  rule <k> stepq(X) => bad() ... </k> requires X ==K 1.0p113x15
+  rule <k> stepq(X) => done() ... </k> requires notBool (X ==K 1.0p113x15)
+endmodule
+"#;
+
+/// `1.00` and `1.0` are one binary64 value, and `1.00p113x15` and `1.0p113x15` one p113x15 value,
+/// each one term: the rule on `1.0` applies to `1.00`, so the claims that `1.00` reaches `done()`
+/// are disproved at the `bad()` state.
+#[test]
+fn kprove_proves_nothing_through_two_spellings_of_one_float_value() {
+    for claim in ["step(1.00)", "stepq(1.00p113x15)"] {
+        let spec = format!(
+            "{FLOAT_SPELLINGS}module FQ-SPEC\n  imports FQ\n  claim <k> {claim} => done() ... </k>\nendmodule\n"
+        );
+        let (verdict, stdout) = kprove_single_claim(&spec, "FQ-SPEC", "FQ");
+        assert_eq!(verdict, "disproved", "{claim}: {stdout}");
+        assert!(
+            stdout.contains(r"Lblbad'LParRParUnds'FQ-SYNTAX'Unds'Pgm{}()"),
+            "{claim}: no bad() leaf in {stdout}"
+        );
+    }
+}
+
+/// Comparisons and a rule on a p11x5 value (repro `r2/wideeq.k`): `1.0001p11x5` rounds to the
+/// binary16 value 1, the value `1.0p11x5` names.
+const WIDE_FLOAT_EQUALITY: &str = r#"
+module WIDEEQ
+  imports FLOAT
+  imports BOOL
+  imports INT
+  imports K-EQUAL
+  syntax Exp ::= Float | Bool | Int
+               | "keq" "(" Float "," Float ")" [symbol(keq)]
+               | "isone" "(" Float ")" [symbol(isone)]
+  configuration <k> $PGM:Exp </k>
+  rule keq(X, Y) => X ==K Y
+  rule isone(1.0p11x5) => true
+  rule isone(_) => false [owise]
+endmodule
+"#;
+
+/// Two spellings of one p11x5 value are one term, so `==K` finds them equal and the rule on
+/// `1.0p11x5` applies to `1.0001p11x5`: both claims that they differ are disproved.
+#[test]
+fn kprove_proves_nothing_through_two_spellings_of_one_wide_float_value() {
+    for claim in ["keq(1.0p11x5, 1.0001p11x5)", "isone(1.0001p11x5)"] {
+        let spec = format!(
+            "{WIDE_FLOAT_EQUALITY}module WIDEEQ-SPEC\n  imports WIDEEQ\n  claim <k> {claim} => false </k>\nendmodule\n"
+        );
+        let (verdict, stdout) = kprove_single_claim(&spec, "WIDEEQ-SPEC", "WIDEEQ");
+        assert_eq!(verdict, "disproved", "{claim}: {stdout}");
+    }
+}
+
+/// A map and a set that hold one p11x5 value twice (repro `r3c/wide.k`), and the operations of
+/// a format the backend does not compute.
+const WIDE_FLOAT_KEYS: &str = r#"
+module WIDE-SYNTAX
+  imports FLOAT-SYNTAX
+  syntax Pgm ::= sz() | ssz() | dv(Float, Float) | ab(Float) | done() | bad()
+endmodule
+module WIDE
+  imports WIDE-SYNTAX
+  imports DOMAINS
+  imports FLOAT
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= r(K)
+  rule <k> sz() => r(size(1.0p11x5 |-> 1 1.0001p11x5 |-> 2)) ... </k>
+  rule <k> ssz() => r(size(SetItem(1.0p11x5) SetItem(1.0001p11x5))) ... </k>
+  rule <k> dv(X, Y) => r(X /Float Y) ... </k>
+  rule <k> ab(X) => r(absFloat(X)) ... </k>
+endmodule
+"#;
+
+/// `1.0p11x5 |-> 1 1.0001p11x5 |-> 2` binds one key twice, so the map, and the step to its size,
+/// is undefined, as is the set's concatenation of one element with itself: neither claim of size
+/// 2 is proven.
+#[test]
+fn kprove_does_not_count_one_wide_float_key_twice() {
+    for claim in ["sz()", "ssz()"] {
+        let spec = format!(
+            "{WIDE_FLOAT_KEYS}module WIDE-SPEC\n  imports WIDE\n  claim <k> {claim} => r(2) ... </k>\nendmodule\n"
+        );
+        let (verdict, stdout) = kprove_single_claim(&spec, "WIDE-SPEC", "WIDE");
+        assert_eq!(verdict, "failed", "{claim}: {stdout}");
+    }
+}
+
+/// The operations of a format the backend does not compute halt with the unsupported-hook
+/// error naming the format, on the canonical text of their operands as on the written one.
+#[test]
+fn krun_halts_on_an_operation_of_an_uncomputed_float_format() {
+    for program in ["dv(1.0p113x15, 3.0p113x15)", "ab(1.0p113x15)"] {
+        let output = krun_mint_program(WIDE_FLOAT_KEYS, "WIDE", program);
+        assert!(!output.status.success(), "{program}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(
+                "does not compute on floating-point numbers of precision 113 with 15 exponent bits"
+            ),
+            "{program}: {stderr}"
+        );
+    }
+}
+
+/// A sort named Float without the `FLOAT.Float` hook (repro `r3c/unhooked.k`): a token sort whose
+/// tokens `1.0` and `1.00` are two values.
+const UNHOOKED_FLOAT_TOKENS: &str = r#"
+module UNHOOKED-SYNTAX
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Float ::= r"[0-9]+[.][0-9]+" [token]
+  syntax Pgm ::= go() | gf()
+endmodule
+module UNHOOKED
+  imports UNHOOKED-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= g(Float) | matched()
+  rule <k> g(#token("1.0", "Float")) => matched() ... </k>
+endmodule
+module UNHOOKED-SPEC
+  imports UNHOOKED
+  claim <k> g(#token("1.00", "Float")) => matched() ... </k>
+endmodule
+"#;
+
+/// The tokens of an unhooked sort named Float keep their text: the rule on `1.0` does not apply
+/// to `1.00`, so the claim is disproved, never proven.
+#[test]
+fn kprove_keeps_the_tokens_of_an_unhooked_float_sort_distinct() {
+    let (verdict, stdout) = kprove_single_claim(UNHOOKED_FLOAT_TOKENS, "UNHOOKED-SPEC", "UNHOOKED");
+    assert_eq!(verdict, "disproved", "{stdout}");
+}
+
+/// Float programs over literals and over operands from the program (repro `fl.k`, `fl2.k`,
+/// `fl3.k`).
+const FLOAT_VALUES: &str = r#"
+module FLV-SYNTAX
+  imports FLOAT-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= add(Float, Float) | key(Float, Float) | prog(Int)
+endmodule
+module FLV
+  imports FLV-SYNTAX
+  imports DOMAINS
+  imports COLLECTIONS
+  imports FLOAT
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= r(K)
+  rule add(X, Y) => r(X +Float Y) ~> r((X +Float Y) ==K 2.0) ~> r((X +Float Y) ==Float 2.0)
+  rule key(X, Y) => r(size(X |-> 1 Y |-> 2))
+  rule prog(0) => r(size(1.0 |-> 1 1.00 |-> 2))
+  rule prog(1) => r(keys_list(2.0 |-> 1 1.5 |-> 2))
+  rule prog(2) => r(keys_list(0.2e1 |-> 1 1.5 |-> 2))
+  rule prog(3) => r(2.0 ==K 0.2e1)
+  rule prog(4) => r(1.0 ==K 1.00)
+endmodule
+"#;
+
+/// A Float value is one term whatever its spelling: `1.0 +Float 1.0` is the literal `2.0`
+/// (`==K` holds), `2.0 ==K 0.2e1` and `1.0 ==K 1.00` hold, the keys of two maps that bind one
+/// value under two spellings are listed alike, and a map that binds one value twice under two
+/// spellings is undefined.
+#[test]
+fn krun_compares_float_values_not_spellings() {
+    let run = |program: &str| -> String {
+        krun_sorted_program(FLOAT_VALUES, "FLV", "Op", program, &[])
+            .split_whitespace()
+            .collect()
+    };
+    let sum = run("add(1.0, 1.0)");
+    assert!(
+        sum.contains(r#"\dv{SortFloat{}}("2.0000000000000000e+00p53x11")"#)
+            && sum.matches(r#"\dv{SortBool{}}("true")"#).count() == 2
+            && !sum.contains(r#"\dv{SortBool{}}("false")"#),
+        "{sum}"
+    );
+    for program in ["prog(3)", "prog(4)"] {
+        let output = run(program);
+        assert!(
+            output.contains(r#"\dv{SortBool{}}("true")"#),
+            "{program}: {output}"
+        );
+    }
+    let keys = |program: &str| {
+        let output = run(program);
+        Regex::new(r#"\\dv\{SortFloat\{\}\}\("([^"]*)"\)"#)
+            .unwrap()
+            .captures_iter(&output)
+            .map(|found| found[1].to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(keys("prog(1)"), keys("prog(2)"));
+    assert_eq!(keys("prog(1)").len(), 2);
+    for program in ["prog(0)", "key(1.0, 1.00)"] {
+        let output = run(program);
+        assert!(
+            output.contains(r"\bottom{SortGeneratedTopCell{}}()")
+                && !output.contains(r#"\dv{SortInt{}}("2")"#),
+            "{program} counts one key twice: {output}"
+        );
+    }
+}
+
 /// `krun` of `program` (a `Pgm`) in the definition `source` with main module `module`.
 fn krun_mint_program(source: &str, module: &str, program: &str) -> Output {
     let (root, definition) = fixture();

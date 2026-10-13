@@ -11,7 +11,12 @@ use super::{
 };
 use crate::term::{DomainKind, Sort, Term, TermKind};
 
+mod canonical;
 mod root;
+
+pub use canonical::{
+    FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, canonical_float_text, float_canonical_bits_estimate,
+};
 
 #[derive(Clone, Copy, Debug)]
 enum KFloat {
@@ -548,12 +553,14 @@ fn read_float(hook: &str, term: &Term) -> HookResult<Option<KFloat>> {
     KFloat::parse(hook, value).map(Some)
 }
 
-/// A `Float` value of the hooks, at `SortFloat`. Its kind is the one the definition gives a sort
-/// hooked `FLOAT.Float`, `Token` until Float values have a kind of their own; the evaluation
-/// entry compares it with the kind the definition gives `SortFloat`.
+/// A `Float` value of the hooks, at `SortFloat`, with the `Float` kind of the `FLOAT` hooks'
+/// builtin: the evaluation entry compares it with the kind the definition gives `SortFloat`, so
+/// it is a value only where `SortFloat` is hooked `FLOAT.Float`. Its text, `canonical_f32` or
+/// `canonical_f64`, is the canonical text of its value by construction, so the canonicalizer is
+/// not run again.
 fn float_term(value: KFloat) -> Term {
-    Term::domain_value_of(
-        DomainKind::Token,
+    Term::domain_value_of_canonical(
+        DomainKind::Float,
         Sort::builtin(BuiltinSort::Float),
         value.token(),
     )

@@ -22,6 +22,10 @@ use std::{cmp::Ordering, collections::BTreeMap, fmt, str::FromStr};
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
+use k_rust_backend::builtin::{
+    FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, float_canonical_bits_estimate,
+};
+
 use crate::definition::AttributeKey;
 use crate::{
     definition::{
@@ -252,8 +256,13 @@ impl<'view, 'definition> Folder<'view, 'definition> {
                 "the value of hook {hook} has {bits} bits, more than {MAX_FOLDED_BITS}"
             )));
         }
+        let is_float = matches!(value, Value::Float(_));
+        let token = self.wrap(value, &result_sort)?;
+        if is_float {
+            loadable_float(hook, &token)?;
+        }
         Ok(Some(Term::Token {
-            token: self.wrap(value, &result_sort),
+            token,
             sort: result_sort,
         }))
     }
@@ -375,22 +384,24 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         }
     }
 
-    fn wrap(&self, value: Value, sort: &Sort) -> String {
+    /// The token of `value` at `sort`; `Err` when the fold cannot write it (a Float token
+    /// beyond `MAX_FOLDED_BITS`), so the application stays as written.
+    fn wrap(&self, value: Value, sort: &Sort) -> Result<String, Unfolded> {
         let string_sort = self
             .sorts
             .attributes_for(&SortHead::from(sort))
             .and_then(|attributes| attributes.string(AttributeKey::Hook))
             .is_some_and(|hook| matches!(hook, "STRING.String" | "BYTES.Bytes"));
-        match value {
+        Ok(match value {
             Value::Bool(value) => value.to_string(),
             Value::Int(value) => value.to_string(),
             Value::String(value) if string_sort => crate::kast::string::quote(&value),
             Value::String(value) => value,
             #[cfg(feature = "mpfr-folding")]
-            Value::Float(value) => value.token(),
+            Value::Float(value) => value.try_token()?,
             #[cfg(not(feature = "mpfr-folding"))]
             Value::Float(value) => value,
-        }
+        })
     }
 }
 
@@ -422,6 +433,26 @@ enum Unfolded {
 pub(crate) const MAX_FOLDED_BITS: u64 = 1 << 20;
 
 const _: () = assert!(MAX_FOLDED_BITS <= k_rust_backend::builtin::MAX_INT_RESULT_BITS);
+
+/// Whether the backend loads the folded Float token `token`: it reads a Float token as the
+/// canonical text of its value, the exact decimal outside binary32 and binary64, and refuses one
+/// whose canonical text is estimated beyond `MAX_FLOAT_CANONICAL_BITS`, so such a result of
+/// `hook` is left for execution.
+fn loadable_float(hook: &str, token: &str) -> Result<(), Unfolded> {
+    float_canonical_bits_estimate(token)
+        .map(|_| ())
+        .map_err(|refusal| match refusal {
+            FloatTextRefusal::BeyondBound { estimate_bits } => Unfolded::TooLarge(format!(
+                "the canonical text of the value of hook {hook} is estimated at {estimate_bits} \
+                 bits, more than {MAX_FLOAT_CANONICAL_BITS}"
+            )),
+            refusal @ (FloatTextRefusal::NotALiteral
+            | FloatTextRefusal::ZeroFormatField
+            | FloatTextRefusal::UncomputedFormat) => Unfolded::Unsupported(format!(
+                "the value of hook {hook} has no canonical Float text: {refusal:?}"
+            )),
+        })
+}
 
 /// The size of a value in the unit of `MAX_FOLDED_BITS`.
 fn value_bits(value: &Value) -> u64 {

@@ -424,3 +424,223 @@ fn a_string_pattern_is_validated_for_the_kind_of_sort_string() {
         "{refused}"
     );
 }
+
+/// A definition whose `SortFloat` and a user sort `SortMyFloat` are hooked `FLOAT.Float`, with
+/// `String2Token` functions into both (`total` and partial) and the Float addition.
+const FLOAT_DEFINITION: &str = indoc! {r#"
+    []
+    module MAIN
+        hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+        hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+        hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+        hooked-sort SortMyFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+        hooked-symbol LblString2Float{}(SortString{}) : SortFloat{}
+            [function{}(), total{}(), hook{}("STRING.string2token")]
+        hooked-symbol LblString2FloatPartial{}(SortString{}) : SortFloat{}
+            [function{}(), hook{}("STRING.string2token")]
+        hooked-symbol LblString2MyFloat{}(SortString{}) : SortMyFloat{}
+            [function{}(), total{}(), hook{}("STRING.string2token")]
+        hooked-symbol Lbl'Unds'plusFloat'Unds'{}(SortFloat{}, SortFloat{}) : SortFloat{}
+            [function{}(), total{}(), hook{}("FLOAT.add")]
+        hooked-symbol Lbl'UndsEqlsEqls'Float'Unds'{}(SortFloat{}, SortFloat{}) : SortBool{}
+            [function{}(), total{}(), hook{}("FLOAT.eq")]
+    endmodule []
+"#};
+
+/// The same declarations with `SortFloat` declared without its hook: a token sort.
+const UNHOOKED_FLOAT_DEFINITION: &str = indoc! {r#"
+    []
+    module MAIN
+        hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+        hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+        sort SortFloat{} [hasDomainValues{}()]
+        hooked-symbol LblString2Float{}(SortString{}) : SortFloat{}
+            [function{}(), total{}(), hook{}("STRING.string2token")]
+        hooked-symbol Lbl'Unds'plusFloat'Unds'{}(SortFloat{}, SortFloat{}) : SortFloat{}
+            [function{}(), total{}(), hook{}("FLOAT.add")]
+        hooked-symbol Lbl'UndsEqlsEqls'Float'Unds'{}(SortFloat{}, SortFloat{}) : SortBool{}
+            [function{}(), total{}(), hook{}("FLOAT.eq")]
+    endmodule []
+"#};
+
+fn float_text(definition: &BackendDefinition, sort: &str, text: &str) -> String {
+    value_text(&BuiltinResult::Value(term(
+        definition,
+        &format!(r#"\dv{{{sort}{{}}}}("{text}")"#),
+    )))
+}
+
+/// Internalization reads a Float literal by the hook of its sort, at `SortFloat` and at a user
+/// sort hooked `FLOAT.Float`: every spelling of one value is the canonical text of that value,
+/// in binary64 and in a format the hooks do not compute, and so is the library constructor's.
+#[test]
+fn float_literals_load_as_the_canonical_text_of_their_value() {
+    let definition = load(FLOAT_DEFINITION);
+    for sort in ["SortFloat", "SortMyFloat"] {
+        for text in [
+            "2.0",
+            "0.2e1",
+            "2.0d",
+            "2.0p53x11",
+            "2.0p053x011",
+            "2.00000000000000001",
+        ] {
+            assert_eq!(
+                float_text(&definition, sort, text),
+                "2.0000000000000000e+00p53x11",
+                "{sort} {text}"
+            );
+        }
+        for text in ["1.0p11x5", "1.0001p11x5"] {
+            assert_eq!(
+                float_text(&definition, sort, text),
+                "1e0p11x5",
+                "{sort} {text}"
+            );
+        }
+        assert_eq!(float_text(&definition, sort, "NaNd"), "NaNp53x11");
+        assert_ne!(
+            float_text(&definition, sort, "0.0"),
+            float_text(&definition, sort, "-0.0")
+        );
+        assert_ne!(
+            float_text(&definition, sort, "0.5"),
+            float_text(&definition, sort, "0.5f")
+        );
+    }
+    assert_eq!(
+        term(&definition, r#"\dv{SortFloat{}}("1.00")"#),
+        term(&definition, r#"\dv{SortFloat{}}("1.0")"#)
+    );
+    assert_eq!(
+        definition.domain_value(Sort::simple("SortFloat"), "0.2e1"),
+        Ok(term(&definition, r#"\dv{SortFloat{}}("2.0")"#))
+    );
+}
+
+/// A sort named `SortFloat` declared without the `FLOAT.Float` hook is a token sort: its texts
+/// `1.0` and `1.00` are two values, loaded as written.
+#[test]
+fn an_unhooked_sort_named_sort_float_keeps_its_tokens_text() {
+    let definition = load(UNHOOKED_FLOAT_DEFINITION);
+    assert_eq!(float_text(&definition, "SortFloat", "1.00"), "1.00");
+    assert_ne!(
+        term(&definition, r#"\dv{SortFloat{}}("1.00")"#),
+        term(&definition, r#"\dv{SortFloat{}}("1.0")"#)
+    );
+}
+
+fn load_error(definition: &BackendDefinition, pattern: &str) -> String {
+    definition
+        .internalize_term(&parse_pattern(pattern).unwrap(), &[])
+        .map(|term| format!("loaded {term:?}"))
+        .unwrap_or_else(|error| error.to_string())
+}
+
+/// A Float text that names no element (outside FLOAT-SYNTAX, or a format field of 0) is an
+/// invalid domain value; one that names a value k-rust does not build (a format field of 1, a
+/// canonical text beyond the bound) is the resource refusal.
+#[test]
+fn float_literals_that_name_no_element_or_exceed_a_bound_are_refused_at_load() {
+    let definition = load(FLOAT_DEFINITION);
+    for text in ["inf", "1.0p0x11", "-.5"] {
+        let error = load_error(&definition, &format!(r#"\dv{{SortFloat{{}}}}("{text}")"#));
+        assert!(error.starts_with("Invalid domain value"), "{text}: {error}");
+    }
+    for text in [
+        "1.0p1x8",
+        "1.0p8x1",
+        "0.1p99999999999x8",
+        "1e-1000000p53x32",
+    ] {
+        let error = load_error(&definition, &format!(r#"\dv{{SortMyFloat{{}}}}("{text}")"#));
+        assert!(
+            error.starts_with("Domain value") && error.contains("resource bound"),
+            "{text}: {error}"
+        );
+    }
+}
+
+/// `STRING.string2token` into a sort hooked `FLOAT.Float` builds the canonical text of the value
+/// its text names, the term the literal loads as.
+#[test]
+fn string_to_float_builds_the_canonical_text_of_its_value() {
+    let definition = load(FLOAT_DEFINITION);
+    assert_eq!(
+        evaluated(&definition, &string_to("LblString2Float", "0.2e1")),
+        BuiltinResult::Value(term(&definition, r#"\dv{SortFloat{}}("2.0")"#))
+    );
+    assert_eq!(
+        value_text(&evaluated(
+            &definition,
+            &string_to("LblString2MyFloat", "1.0001p11x5")
+        )),
+        "1e0p11x5"
+    );
+}
+
+/// A text that names no Float has no value the definition gives; one that names a value k-rust
+/// does not build is the resource refusal whatever the declaration's totality, never undefined.
+#[test]
+fn string_to_float_beyond_a_bound_is_too_large_whatever_its_totality() {
+    let definition = load(FLOAT_DEFINITION);
+    assert!(matches!(
+        evaluated(&definition, &string_to("LblString2Float", "inf")),
+        BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
+    ));
+    assert_eq!(
+        evaluated(
+            &definition,
+            &string_to("LblString2FloatPartial", "1.0p0x11")
+        ),
+        BuiltinResult::Bottom
+    );
+    for symbol in ["LblString2Float", "LblString2FloatPartial"] {
+        for text in ["0.1p99999999999x8", "1.0p1x8", "1.0p8x1"] {
+            let result = evaluated(&definition, &string_to(symbol, text));
+            assert!(
+                matches!(
+                    result,
+                    BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge { .. })
+                ),
+                "{symbol}({text}): {result:?}"
+            );
+        }
+    }
+}
+
+/// A Float hook's value is checked against the kind the definition gives its sort: at a
+/// `SortFloat` hooked `FLOAT.Float` the sum is the canonical value the literal `2.0` loads as;
+/// at an unhooked `SortFloat` (a token sort) the hook's value is no value of the sort, and the
+/// application is not evaluated.
+#[test]
+fn a_float_hook_result_is_checked_against_the_kind_of_its_sort() {
+    let sum = r#"Lbl'Unds'plusFloat'Unds'{}(\dv{SortFloat{}}("1.0"), \dv{SortFloat{}}("1.00"))"#;
+    let definition = load(FLOAT_DEFINITION);
+    assert_eq!(
+        evaluated(&definition, sum),
+        BuiltinResult::Value(term(&definition, r#"\dv{SortFloat{}}("2.0")"#))
+    );
+    assert_eq!(
+        evaluated(&load(UNHOOKED_FLOAT_DEFINITION), sum),
+        BuiltinResult::NotApplicable
+    );
+}
+
+/// The Float hooks read only Float values: at a `SortFloat` hooked `FLOAT.Float`, `1.0 ==Float
+/// 1.00` is `true`; at an unhooked `SortFloat`, whose tokens `1.0` and `1.00` are two values of a
+/// token sort, the comparison is not evaluated, although its result is a Boolean.
+#[test]
+fn float_hooks_read_no_token_of_an_unhooked_sort_float() {
+    let equal =
+        r#"Lbl'UndsEqlsEqls'Float'Unds'{}(\dv{SortFloat{}}("1.0"), \dv{SortFloat{}}("1.00"))"#;
+    let definition = load(FLOAT_DEFINITION);
+    assert_eq!(
+        evaluated(&definition, equal),
+        BuiltinResult::Value(term(&definition, r#"\dv{SortBool{}}("true")"#))
+    );
+    assert_eq!(
+        evaluated(&load(UNHOOKED_FLOAT_DEFINITION), equal),
+        BuiltinResult::NotApplicable
+    );
+}

@@ -141,11 +141,36 @@ fn round(format: Format, negative: bool, num: &BigUint, den: &BigUint) -> u64 {
         return sign;
     }
     let precision = format.precision();
+    let Some((mantissa, quantum)) = round_exact(precision, format.emin(), format.emax(), num, den)
+    else {
+        return sign | format.infinity();
+    };
+    let mantissa = mantissa.to_u64().expect("at most 53 bits");
+    let hidden = 1_u64 << (precision - 1);
+    if mantissa < hidden {
+        return sign | mantissa;
+    }
+    let exponent = quantum + precision - 1;
+    sign | ((exponent + format.emax()) as u64) << format.fraction_bits() | (mantissa - hidden)
+}
+
+/// The positive `num/den` rounded to nearest, ties to even, with `precision` significant bits
+/// (the implicit bit included) and the normal exponents `emin..=emax`, subnormals included:
+/// `Some((mantissa, quantum))` for the value `mantissa·2^quantum` (a zero mantissa when it rounds
+/// to zero), and `None` when it overflows to infinity. The arithmetic of [`round`] for any
+/// IEEE-like format, which the canonical text of Float literals is also checked against.
+pub(in crate::builtin) fn round_exact(
+    precision: i64,
+    emin: i64,
+    emax: i64,
+    num: &BigUint,
+    den: &BigUint,
+) -> Option<(BigUint, i64)> {
     let mut exponent = num.bits() as i64 - den.bits() as i64;
     if !at_least_power(num, den, exponent) {
         exponent -= 1;
     }
-    let mut quantum = exponent.max(format.emin()) - (precision - 1);
+    let mut quantum = exponent.max(emin) - (precision - 1);
     let (scaled_num, scaled_den) = if quantum <= 0 {
         (num << -quantum, den.clone())
     } else {
@@ -160,16 +185,10 @@ fn round(format: Format, negative: bool, num: &BigUint, den: &BigUint) -> u64 {
         mantissa >>= 1;
         quantum += 1;
     }
-    let mantissa = mantissa.to_u64().expect("at most 53 bits");
-    let hidden = 1_u64 << (precision - 1);
-    if mantissa < hidden {
-        return sign | mantissa;
+    if !mantissa.is_zero() && quantum + mantissa.bits() as i64 - 1 > emax {
+        return None;
     }
-    let exponent = quantum + precision - 1;
-    if exponent > format.emax() {
-        return sign | format.infinity();
-    }
-    sign | ((exponent + format.emax()) as u64) << format.fraction_bits() | (mantissa - hidden)
+    Some((mantissa, quantum))
 }
 
 /// `±n·2^e` rounded.
