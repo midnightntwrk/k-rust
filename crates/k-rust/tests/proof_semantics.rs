@@ -935,6 +935,8 @@ module PACU-SPEC
   claim [update-overridden]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <n> N[3 <- 5][3 <- 7] => 3 |-> 5 ?C:Map </n> requires notBool 2 in X
   claim [union-absent]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <u> S |Set SetItem(2) => SetItem(3) ?C:Set </u> requires notBool 2 in X
   claim [update-symbolic-keys]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <n> N[K:Int <- 1][L:Int <- 2] => K |-> 1 ?C:Map </n> requires notBool 2 in X
+  claim [union-symbolic-items]: <k> add(2) => .K </k> <s> X => ?S:Set </s> <m> M => ?M:Map </m> <u> (S |Set SetItem(K:Int)) |Set SetItem(L:Int) => SetItem(K) SetItem(L) ?C:Set </u> requires notBool 2 in X
+  claim [map-parts]: <k> add(2) => .K </k> <s> S => ?S:Set </s> <m> M => ?A:Map ?C:Map </m> requires notBool 2 in S
 endmodule
 "#;
 
@@ -946,7 +948,9 @@ endmodule
 /// both write a key) or of unions. A destination item with another value (`map-wrong-value`,
 /// `update-overridden`) or another key or element (`map-absent-key`, `union-absent`, which `M`
 /// or `S` may lack) is not proven, nor is the inner key of a chain whose keys may be equal
-/// (`update-symbolic-keys`: where `K` is `L`, `K` is bound to 2).
+/// (`update-symbolic-keys`: where `K` is `L`, `K` is bound to 2), nor are two items of a chain of
+/// unions that may be equal (`union-symbolic-items`: where `K` is `L`, the union adds one item).
+/// A destination of parts alone holds of such a collection as of any other (`map-parts`).
 #[test]
 fn a_destination_item_written_by_a_final_update_or_union_is_found_beside_the_rest() {
     let proven = [
@@ -958,6 +962,7 @@ fn a_destination_item_written_by_a_final_update_or_union_is_found_beside_the_res
         "union-one",
         "union-two",
         "union-chain",
+        "map-parts",
     ];
     let unproven = [
         "map-wrong-value",
@@ -965,6 +970,7 @@ fn a_destination_item_written_by_a_final_update_or_union_is_found_beside_the_res
         "update-overridden",
         "union-absent",
         "update-symbolic-keys",
+        "union-symbolic-items",
     ];
     let statuses = pac_statuses(
         PAC_UPDATE_SPEC,
