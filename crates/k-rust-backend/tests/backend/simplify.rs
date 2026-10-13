@@ -4599,7 +4599,7 @@ fn normalizes_boolean_k_disequality_conditions_to_native_predicates() {
     );
     let predicate = Predicate::Equals(
         condition,
-        Term::domain_value(Sort::simple("SortBool"), "true"),
+        Term::raw_domain_value(Sort::simple("SortBool"), "true"),
     );
 
     let result = simplify_predicate_with_solver(
@@ -4670,7 +4670,7 @@ fn aligns_singleton_k_equality_operands_at_their_declared_supersort() {
         &definition,
         &Predicate::Equals(
             condition,
-            Term::domain_value(Sort::simple("SortBool"), "true"),
+            Term::raw_domain_value(Sort::simple("SortBool"), "true"),
         ),
         &[],
         SimplificationOptions::default(),
@@ -4730,8 +4730,8 @@ fn normalizes_nested_boolean_term_negation_to_an_equality() {
 fn boolean_equalities_with_literals_normalize_to_term_predicates() {
     let definition = definition("");
     let condition = term(&definition, "B:SortBool{}");
-    let true_value = Term::domain_value(Sort::simple("SortBool"), "true");
-    let false_value = Term::domain_value(Sort::simple("SortBool"), "false");
+    let true_value = Term::raw_domain_value(Sort::simple("SortBool"), "true");
+    let false_value = Term::raw_domain_value(Sort::simple("SortBool"), "false");
 
     for (predicate, expected) in [
         (
@@ -4783,7 +4783,7 @@ fn normalizes_symbolic_integer_equality_and_keeps_operand_definedness() {
     let variable = term(&definition, "X:SortInt{}");
     let power = term(&definition, r#"pow{}(X:SortInt{}, \dv{SortInt{}}("256"))"#);
     let predicate = Predicate::Equals(
-        Term::domain_value(Sort::simple("SortBool"), "true"),
+        Term::raw_domain_value(Sort::simple("SortBool"), "true"),
         term(
             &definition,
             r#"eq{}(X:SortInt{}, pow{}(X:SortInt{}, \dv{SortInt{}}("256")))"#,
@@ -5174,7 +5174,7 @@ fn z3_disambiguates_symbolic_equation_requires() {
             &input,
             &[Predicate::Equals(
                 variable.clone(),
-                Term::domain_value(k_rust_backend::term::Sort::simple("SortInt"), value),
+                Term::raw_domain_value(k_rust_backend::term::Sort::simple("SortInt"), value),
             )],
             SimplificationOptions::default(),
             &solver,
@@ -5184,7 +5184,7 @@ fn z3_disambiguates_symbolic_equation_requires() {
 
     assert_eq!(
         run("5").term,
-        Term::domain_value(k_rust_backend::term::Sort::simple("SortInt"), "5")
+        Term::raw_domain_value(k_rust_backend::term::Sort::simple("SortInt"), "5")
     );
     assert_eq!(
         run("15").term,

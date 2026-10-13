@@ -1041,7 +1041,7 @@ fn checking_an_existential_chain_allocates_linearly_in_its_depth() {
         let sort = variables[0].sort.clone();
         let mut chain = Predicate::Equals(
             Term::variable(variables[0].clone()),
-            Term::domain_value(sort, "1"),
+            Term::raw_domain_value(sort, "1"),
         );
         for bound in &variables[1..] {
             chain = Predicate::Exists(bound.clone(), Box::new(chain));
@@ -1081,7 +1081,7 @@ fn selecting_linked_known_conjuncts_allocates_linearly_in_their_number() {
                 .collect::<Vec<_>>();
             let checked = Predicate::Equals(
                 Term::variable(variables[0].clone()),
-                Term::domain_value(sort, "1"),
+                Term::raw_domain_value(sort, "1"),
             );
             validity_check_bytes(&definition, &known, &[checked])
         },

@@ -820,10 +820,7 @@ pub(super) fn recover_boolean_matches(
         .filter(|(candidate, _)| *candidate != index)
         .map(|(_, pair)| pair.clone())
         .collect::<Vec<_>>();
-    let expected = Term::domain_value(
-        Sort::builtin(BuiltinSort::Bool),
-        if split.expected { "true" } else { "false" },
-    );
+    let expected = Term::bool(split.expected);
 
     if matches!(split.side, SplitSide::Pattern) {
         for operand in split.operands {
@@ -965,10 +962,7 @@ pub(super) fn recover_map_not_in_keys_matches(
             Term::application(split.symbol, split.sort_arguments, vec![key, rest.clone()]);
         extend_unique(
             &mut conditions,
-            [Predicate::Equals(
-                membership,
-                Term::domain_value(Sort::builtin(BuiltinSort::Bool), "false"),
-            )],
+            [Predicate::Equals(membership, Term::bool(false))],
         );
     }
     conditions.retain(|condition| {
@@ -1220,10 +1214,7 @@ pub(super) fn recover_ite_matches(
         };
         let mut substitution = compose(&found, &substitution);
         branch_remainder.extend(untouched.iter().cloned());
-        let value = Term::domain_value(
-            Sort::builtin(BuiltinSort::Bool),
-            if value { "true" } else { "false" },
-        );
+        let value = Term::bool(value);
         let mut condition = substitute(&condition, &substitution);
         let mut conditions = Vec::new();
         if matches!(side, SplitSide::Pattern) {

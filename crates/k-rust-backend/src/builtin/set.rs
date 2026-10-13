@@ -467,7 +467,7 @@ mod tests {
     }
 
     fn item(value: &str) -> Term {
-        Term::domain_value(Sort::simple("SortKItem"), value)
+        Term::raw_domain_value(Sort::simple("SortKItem"), value)
     }
 
     fn set(values: &[&str]) -> Term {
@@ -734,7 +734,7 @@ mod tests {
             )
         };
         let symbolic = |name| Term::variable(Variable::new(name, int.clone()));
-        let one = Term::domain_value(int.clone(), "1");
+        let one = Term::raw_domain_value(int.clone(), "1");
         let pool = [
             item("0"),
             item("1"),
@@ -838,7 +838,7 @@ mod tests {
         const ELEMENTS: u32 = 4096;
         let int = Sort::simple("SortInt");
         let ground = (0..ELEMENTS)
-            .map(|index| applied("c", Term::domain_value(int.clone(), index.to_string())));
+            .map(|index| applied("c", Term::raw_domain_value(int.clone(), index.to_string())));
         let symbolic = (0..3).map(|index| {
             applied(
                 "c",
@@ -849,7 +849,7 @@ mod tests {
         let TermKind::Set { elements, .. } = collection.kind() else {
             unreachable!("a set term")
         };
-        let probe = applied("d", Term::domain_value(int, "1"));
+        let probe = applied("d", Term::raw_domain_value(int, "1"));
         ELEMENT_COMPARISONS.with(|count| count.set(0));
         assert_eq!(membership(&probe, &collection), Some(false));
         let compared = ELEMENT_COMPARISONS.with(std::cell::Cell::get);
@@ -947,7 +947,7 @@ mod tests {
         } else {
             applied(
                 "c",
-                Term::domain_value(Sort::simple("SortInt"), n.to_string()),
+                Term::raw_domain_value(Sort::simple("SortInt"), n.to_string()),
             )
         }
     }

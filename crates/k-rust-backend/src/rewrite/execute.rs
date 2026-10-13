@@ -90,6 +90,7 @@ pub(super) fn execute_using(
     // Every evaluation of the run, its rule and equation conditions included, runs in the mode
     // the request asks for (`crate::evaluation`).
     let _evaluation = crate::evaluation::EvaluationScope::enter(options.evaluation);
+    let _domain = crate::term::domain::DomainScope::enter(definition);
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,

@@ -119,7 +119,7 @@ use crate::{
     stop::{self, Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{
-        FunctionType, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
+        FunctionType, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         head::{
             CertifiedOnly, Head, NormalFormCertificate, RootComparison, classify_value,
             compare_roots,
@@ -423,6 +423,7 @@ fn simplify_term_entry(
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
     let _apart = crate::rule::ApartScope::enter();
+    let _domain = crate::term::domain::DomainScope::enter(definition);
     let _span = measure::algorithm_span(Algorithm::BackendSimplifyTerm);
     measure::bump(Counter::SimplifyInvocations);
     let mut remaining = options.max_iterations;
@@ -1307,6 +1308,7 @@ fn simplify_predicates_with_budget(
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Vec<Predicate>> {
     let _apart = crate::rule::ApartScope::enter();
+    let _domain = crate::term::domain::DomainScope::enter(definition);
     let conjuncts = distinct_conjuncts(predicates);
     let known_index = KnownConjuncts::of(known_predicates);
     // Each conjunct is simplified under the known predicates and the other conjuncts as they
@@ -2100,6 +2102,7 @@ fn simplify_predicate_on_stack(
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     let _apart = crate::rule::ApartScope::enter();
+    let _domain = crate::term::domain::DomainScope::enter(definition);
     stop::check()?;
     match assumptions.truth(predicate) {
         Some(true) => return Ok(Predicate::True),
@@ -3740,10 +3743,7 @@ fn normalize_hooked_boolean_predicate(
     if let Predicate::Term(term) = &predicate {
         let normalized = normalize_hooked_boolean_predicate(
             definition,
-            Predicate::Equals(
-                term.clone(),
-                Term::domain_value(Sort::builtin(BuiltinSort::Bool), "true"),
-            ),
+            Predicate::Equals(term.clone(), Term::bool(true)),
         );
         return match &normalized {
             Predicate::Equals(left, right) if left == term && bool_value(right) == Some(true) => {
@@ -3773,13 +3773,7 @@ fn normalize_hooked_boolean_predicate(
         let bool_operand = |term: &Term, value| {
             normalize_hooked_boolean_predicate(
                 definition,
-                Predicate::Equals(
-                    term.clone(),
-                    Term::domain_value(
-                        Sort::builtin(BuiltinSort::Bool),
-                        if value { "true" } else { "false" },
-                    ),
-                ),
+                Predicate::Equals(term.clone(), Term::bool(value)),
             )
         };
         match (operator, arguments.as_slice()) {
@@ -6965,7 +6959,7 @@ mod tests {
     use super::*;
     use crate::{
         stop::{Stop, StopCause},
-        term::{CollectionSymbols, ListDefinition, MapDefinition},
+        term::{CollectionSymbols, ListDefinition, MapDefinition, Sort},
     };
 
     /// The inner layer of an entry point's result, for the tests that arm no stop: a stop is a
@@ -6999,8 +6993,8 @@ mod tests {
     #[test]
     fn path_condition_replacements_preserve_unaffected_term_identity() {
         let int = Sort::builtin(BuiltinSort::Int);
-        let one = Term::domain_value(int.clone(), "1");
-        let two = Term::domain_value(int.clone(), "2");
+        let one = Term::raw_domain_value(int.clone(), "1");
+        let two = Term::raw_domain_value(int.clone(), "2");
         let subject = Term::injection(int.clone(), Sort::simple("SortKItem"), one.clone());
 
         let empty = PathConditionReplacements {
@@ -7011,14 +7005,14 @@ mod tests {
 
         let unrelated = PathConditionReplacements {
             substitution: Substitution::new(),
-            replacements: vec![(two, Term::domain_value(int.clone(), "3"))],
+            replacements: vec![(two, Term::raw_domain_value(int.clone(), "3"))],
         };
         assert!(unrelated.apply(&subject).ptr_eq(&subject));
 
         let substitution = PathConditionReplacements {
             substitution: Substitution::from([(
                 Variable::new("X", int.clone()),
-                Term::domain_value(int, "4"),
+                Term::raw_domain_value(int, "4"),
             )]),
             replacements: Vec::new(),
         };
@@ -7028,9 +7022,9 @@ mod tests {
     #[test]
     fn path_condition_replacements_descend_through_injections_and_collections() {
         let int = Sort::builtin(BuiltinSort::Int);
-        let one = Term::domain_value(int.clone(), "1");
-        let two = Term::domain_value(int.clone(), "2");
-        let key = Term::domain_value(Sort::simple("SortKey"), "key");
+        let one = Term::raw_domain_value(int.clone(), "1");
+        let two = Term::raw_domain_value(int.clone(), "2");
+        let key = Term::raw_domain_value(Sort::simple("SortKey"), "key");
         let map_definition = Arc::new(MapDefinition {
             symbols: collection_symbols("map"),
             key_sort: Sort::simple("SortKey"),
@@ -8343,12 +8337,12 @@ mod tests {
         let int = Sort::builtin(BuiltinSort::Int);
         let bool_sort = Sort::builtin(BuiltinSort::Bool);
         let variable = |name: &str, sort: &Sort| Term::variable(Variable::new(name, sort.clone()));
-        let int_value = |value: &str| Term::domain_value(int.clone(), value);
+        let int_value = |value: &str| Term::raw_domain_value(int.clone(), value);
         match index {
             0 => Predicate::True,
             1 => Predicate::False,
-            2 => Predicate::Term(Term::domain_value(bool_sort.clone(), "true")),
-            3 => Predicate::Term(Term::domain_value(bool_sort.clone(), "false")),
+            2 => Predicate::Term(Term::raw_domain_value(bool_sort.clone(), "true")),
+            3 => Predicate::Term(Term::raw_domain_value(bool_sort.clone(), "false")),
             4 => Predicate::Term(variable("B", &bool_sort)),
             5 => Predicate::Equals(int_value("1"), int_value("1")),
             6 => Predicate::Equals(int_value("1"), int_value("2")),
@@ -8589,7 +8583,7 @@ mod tests {
         .expect("definition should internalize");
         let membership = |element: &str, set: &str, value: bool| {
             let membership = term(&definition, &format!("inSet{{}}({element}, {set})"));
-            let value = Term::domain_value(
+            let value = Term::raw_domain_value(
                 Sort::builtin(BuiltinSort::Bool),
                 if value { "true" } else { "false" },
             );

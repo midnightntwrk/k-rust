@@ -4124,7 +4124,7 @@ mod tests {
     /// 0); a result that is not an integer value has no exit code.
     #[test]
     fn exit_code_is_the_integer_result_modulo_256() {
-        let value = |value: &str| Term::domain_value(BackendSort::simple("SortInt"), value);
+        let value = |value: &str| Term::raw_domain_value(BackendSort::simple("SortInt"), value);
 
         assert_eq!(term_exit_code(&value("0")), Some(0));
         assert_eq!(term_exit_code(&value("7")), Some(7));
@@ -4144,7 +4144,7 @@ mod tests {
     fn disjuncts_are_printed_in_structural_order() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let state = |value: &str, constraints| Pattern {
-            term: Term::domain_value(sort.clone(), value),
+            term: Term::raw_domain_value(sort.clone(), value),
             constraints,
         };
         let output = |states| {
@@ -4196,7 +4196,7 @@ mod tests {
                 state("z", Vec::new()),
                 state(
                     "a",
-                    vec![Predicate::Ceil(Term::domain_value(sort.clone(), "x"))],
+                    vec![Predicate::Ceil(Term::raw_domain_value(sort.clone(), "x"))],
                 ),
                 state("a", vec![Predicate::False]),
             ]
@@ -5049,7 +5049,7 @@ mod tests {
     #[test]
     fn hidden_bindings_drop_a_one_use_generated_equality() {
         let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
-        let value = Term::domain_value(BackendSort::simple("SortInt"), "1");
+        let value = Term::raw_domain_value(BackendSort::simple("SortInt"), "1");
         let output = pattern01d_condition_output(
             Substitution::from([(variable.clone(), value)]),
             Vec::new(),
@@ -5068,7 +5068,7 @@ mod tests {
             let output = pattern01d_condition_output(
                 Substitution::from([(
                     variable,
-                    Term::domain_value(BackendSort::simple("SortInt"), "1"),
+                    Term::raw_domain_value(BackendSort::simple("SortInt"), "1"),
                 )]),
                 Vec::new(),
                 BTreeSet::new(),
@@ -5083,7 +5083,7 @@ mod tests {
         let output = pattern01d_condition_output(
             Substitution::from([(
                 variable.clone(),
-                Term::domain_value(BackendSort::simple("SortGeneratedTopCell"), "value"),
+                Term::raw_domain_value(BackendSort::simple("SortGeneratedTopCell"), "value"),
             )]),
             vec![Predicate::Term(Term::variable(variable.clone()))],
             BTreeSet::from([variable]),
@@ -5096,7 +5096,7 @@ mod tests {
     fn hidden_bindings_drop_only_eligible_function_equalities() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let variable = Variable::new("Var'Unds'Gen0", sort.clone());
-        let value = Term::domain_value(sort.clone(), "value");
+        let value = Term::raw_domain_value(sort.clone(), "value");
         let one_use = Predicate::Equals(
             test_function(vec![Term::variable(variable.clone())]),
             value.clone(),
@@ -5134,7 +5134,7 @@ mod tests {
 
         let functional_only = Predicate::Equals(
             test_function(Vec::new()),
-            Term::domain_value(BackendSort::simple("SortGeneratedTopCell"), "value"),
+            Term::raw_domain_value(BackendSort::simple("SortGeneratedTopCell"), "value"),
         );
         assert!(matches!(
             pattern01d_condition_output_with_functions(
@@ -5152,7 +5152,7 @@ mod tests {
         let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
         let equality = Predicate::Equals(
             Term::variable(variable.clone()),
-            Term::domain_value(BackendSort::simple("SortInt"), "1"),
+            Term::raw_domain_value(BackendSort::simple("SortInt"), "1"),
         );
         assert!(matches!(
             pattern01d_condition_output(
@@ -5178,7 +5178,7 @@ mod tests {
         let output = pattern01d_condition_output(
             Substitution::from([(
                 variable.clone(),
-                Term::domain_value(BackendSort::simple("SortInt"), "1"),
+                Term::raw_domain_value(BackendSort::simple("SortInt"), "1"),
             )]),
             vec![Predicate::Exists(
                 variable.clone(),
@@ -5211,7 +5211,7 @@ mod tests {
             Substitution::new(),
             vec![Predicate::Equals(
                 function,
-                Term::domain_value(sort, "true"),
+                Term::raw_domain_value(sort, "true"),
             )],
             BTreeSet::from([variable]),
         );
@@ -5232,7 +5232,7 @@ mod tests {
         let output = pattern01d_condition_output(
             Substitution::from([(
                 set.clone(),
-                Term::domain_value(BackendSort::simple("SortInt"), "1"),
+                Term::raw_domain_value(BackendSort::simple("SortInt"), "1"),
             )]),
             Vec::new(),
             BTreeSet::from([set]),
@@ -5286,7 +5286,7 @@ mod tests {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let first = Variable::new("Var'Unds'Gen0", sort.clone());
         let second = Variable::new("Var'Unds'Gen1", sort.clone());
-        let value = Term::domain_value(sort.clone(), "value");
+        let value = Term::raw_domain_value(sort.clone(), "value");
         let matches = [
             PatternMatch {
                 substitution: Substitution::from([(first.clone(), value.clone())]),
@@ -5314,13 +5314,13 @@ mod tests {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let variable = Variable::new("VarX", sort.clone());
         let generated = Variable::new("Var'Unds'Gen0", sort.clone());
-        let first_value = Term::domain_value(sort.clone(), "first");
-        let second_value = Term::domain_value(sort.clone(), "second");
+        let first_value = Term::raw_domain_value(sort.clone(), "first");
+        let second_value = Term::raw_domain_value(sort.clone(), "second");
         let first = Predicate::Equals(Term::variable(variable.clone()), first_value);
         let second = Predicate::Equals(Term::variable(variable), second_value);
         let generated_binding = Predicate::Equals(
             Term::variable(generated.clone()),
-            Term::domain_value(sort.clone(), "generated"),
+            Term::raw_domain_value(sort.clone(), "generated"),
         );
         let matches = [
             PatternMatch {
@@ -5727,7 +5727,7 @@ mod tests {
         let variable = Variable::new("X", BackendSort::simple("SortInt"));
         let substitution = Substitution::from([(
             variable,
-            Term::domain_value(BackendSort::simple("SortInt"), "42"),
+            Term::raw_domain_value(BackendSort::simple("SortInt"), "42"),
         )]);
 
         let sat = model_output(
@@ -5767,15 +5767,15 @@ mod tests {
         let substitution = Substitution::from([
             (
                 Variable::new("X", value_sort.clone()),
-                Term::domain_value(value_sort.clone(), "1"),
+                Term::raw_domain_value(value_sort.clone(), "1"),
             ),
             (
                 Variable::new("Y", value_sort.clone()),
-                Term::domain_value(value_sort.clone(), "2"),
+                Term::raw_domain_value(value_sort.clone(), "2"),
             ),
             (
                 Variable::new("Z", value_sort.clone()),
-                Term::domain_value(value_sort, "3"),
+                Term::raw_domain_value(value_sort, "3"),
             ),
         ]);
 

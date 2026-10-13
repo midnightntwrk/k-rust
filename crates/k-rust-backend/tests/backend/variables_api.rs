@@ -40,7 +40,7 @@ fn within(term: &Term, stable: Option<&BTreeSet<Variable>>) -> bool {
 #[test]
 fn a_term_s_variables_are_tested_against_an_owned_set() {
     let term = two_variables();
-    let ground = Term::domain_value(sort("SortInt"), "1");
+    let ground = Term::raw_domain_value(sort("SortInt"), "1");
 
     let both = BTreeSet::from([variable("X"), variable("Y"), variable("Z")]);
     let one = BTreeSet::from([variable("X")]);

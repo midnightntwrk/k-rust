@@ -485,7 +485,7 @@ pub(in crate::builtin) fn token_term(format: Format, bits: u64) -> Term {
 }
 
 fn float_term(text: String) -> Term {
-    Term::domain_value(Sort::builtin(BuiltinSort::Float), text)
+    Term::raw_domain_value(Sort::builtin(BuiltinSort::Float), text)
 }
 
 // ---------------------------------------------------------------------------------------------

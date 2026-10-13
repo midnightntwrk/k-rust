@@ -584,7 +584,7 @@ fn failed_recovery() -> BuiltinResult {
 }
 
 fn string_term(value: impl Into<String>) -> Term {
-    Term::domain_value(Sort::builtin(BuiltinSort::String), value.into())
+    Term::string(value.into())
 }
 
 #[cfg(test)]
@@ -865,7 +865,7 @@ mod tests {
             vec![],
         );
         let cases = [
-            Term::domain_value(Sort::simple("SortString"), "abc"),
+            Term::raw_domain_value(Sort::simple("SortString"), "abc"),
             non_domain,
         ];
 
@@ -1542,7 +1542,7 @@ mod tests {
             evaluate(
                 "KRYPTO.bn128ate",
                 &[
-                    point_list(vec![Term::domain_value(
+                    point_list(vec![Term::raw_domain_value(
                         Sort::simple("SortKItem"),
                         "malformed",
                     )]),

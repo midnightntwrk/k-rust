@@ -71,7 +71,7 @@ use crate::{
     rule::Predicate,
     stop::{self, PreludeFailure, PreludeSignal, Stop, Stoppable},
     substitution::Substitution,
-    term::{Term, Variable},
+    term::{DomainKind, Sort, Term, Variable},
 };
 
 #[cfg(feature = "measure")]
@@ -116,6 +116,9 @@ impl Default for Z3Options {
 pub struct Z3Solver {
     prelude: SmtPrelude,
     options: Z3Options,
+    /// The kinds the definition gives `SortInt` and `SortBool`, with which a model's values of
+    /// those sorts are built; a sort the definition gives no kind has no values to build.
+    model_kinds: ModelKinds,
     result_cache: Arc<Mutex<SolverResultCache>>,
     prelude_state: Arc<Mutex<PreludeState>>,
     prelude_signal: PreludeSignal,
@@ -220,6 +223,10 @@ impl Z3Solver {
                 None => SmtPrelude::from_definition(definition)?,
             },
             options,
+            model_kinds: ModelKinds {
+                int: definition.domain_kind(&Sort::builtin(BuiltinSort::Int)),
+                bool: definition.domain_kind(&Sort::builtin(BuiltinSort::Bool)),
+            },
             result_cache: Arc::new(Mutex::new(SolverResultCache::new(
                 RESULT_CACHE_ENTRY_LIMIT,
                 RESULT_CACHE_KEY_BYTE_LIMIT,
@@ -472,8 +479,13 @@ impl Z3Solver {
         let mut substitution = Substitution::new();
         for variable in variables {
             let term = Term::variable(variable.clone());
+            // The translation reads `SortInt` and `SortBool` by name as the integers and the
+            // Booleans; a model value is built with the kind the definition gives the sort, which
+            // is that one by name whenever the sort has domain values.
             let value = match &variable.sort {
-                sort if sort.is_builtin(BuiltinSort::Int) => {
+                sort if sort.is_builtin(BuiltinSort::Int)
+                    && self.model_kinds.int == Some(DomainKind::Int) =>
+                {
                     let name = mappings
                         .get(&term)
                         .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
@@ -486,9 +498,11 @@ impl Z3Solver {
                             value: value.to_string(),
                         }
                     })?;
-                    Term::domain_value(variable.sort.clone(), rendered)
+                    Term::domain_value_of(DomainKind::Int, variable.sort.clone(), rendered)
                 }
-                sort if sort.is_builtin(BuiltinSort::Bool) => {
+                sort if sort.is_builtin(BuiltinSort::Bool)
+                    && self.model_kinds.bool == Some(DomainKind::Bool) =>
+                {
                     let name = mappings
                         .get(&term)
                         .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
@@ -496,7 +510,11 @@ impl Z3Solver {
                         .eval(&Bool::new_const(name.clone()), true)
                         .and_then(|value| value.as_bool())
                         .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
-                    Term::domain_value(variable.sort.clone(), value.to_string())
+                    Term::domain_value_of(
+                        DomainKind::Bool,
+                        variable.sort.clone(),
+                        value.to_string(),
+                    )
                 }
                 _ => term,
             };
@@ -504,6 +522,13 @@ impl Z3Solver {
         }
         Ok(ModelResult::Sat(substitution))
     }
+}
+
+/// The kinds a definition gives the sorts the SMT translation reads by name.
+#[derive(Clone, Copy, Debug)]
+struct ModelKinds {
+    int: Option<DomainKind>,
+    bool: Option<DomainKind>,
 }
 
 fn normalize_integer(rendered: &str) -> Option<String> {
@@ -748,7 +773,7 @@ mod tests {
         let equals = |value: &str| {
             Predicate::Equals(
                 Term::variable(x()),
-                Term::domain_value(Sort::simple("SortInt"), value),
+                Term::raw_domain_value(Sort::simple("SortInt"), value),
             )
         };
         let constraints = [
@@ -773,7 +798,7 @@ mod tests {
             model,
             ModelResult::Sat(Substitution::from([(
                 x(),
-                Term::domain_value(Sort::simple("SortInt"), "7")
+                Term::raw_domain_value(Sort::simple("SortInt"), "7")
             )]))
         );
     }
@@ -788,7 +813,7 @@ mod tests {
         );
         let predicate = Predicate::Equals(
             bitwise.clone(),
-            Term::domain_value(Sort::simple("SortInt"), "2"),
+            Term::raw_domain_value(Sort::simple("SortInt"), "2"),
         );
         assert_eq!(
             solver.get_model(&ModelQuery::for_solver_tests(
@@ -809,9 +834,12 @@ mod tests {
                 &[
                     Predicate::Equals(
                         bitwise.clone(),
-                        Term::domain_value(Sort::simple("SortInt"), "1"),
+                        Term::raw_domain_value(Sort::simple("SortInt"), "1"),
                     ),
-                    Predicate::Equals(bitwise, Term::domain_value(Sort::simple("SortInt"), "2"),),
+                    Predicate::Equals(
+                        bitwise,
+                        Term::raw_domain_value(Sort::simple("SortInt"), "2"),
+                    ),
                 ],
                 &Substitution::new(),
             )),
@@ -1064,8 +1092,8 @@ mod tests {
         )
         .unwrap();
         let tautology = Predicate::Equals(
-            Term::domain_value(Sort::simple("SortInt"), "1"),
-            Term::domain_value(Sort::simple("SortInt"), "1"),
+            Term::raw_domain_value(Sort::simple("SortInt"), "1"),
+            Term::raw_domain_value(Sort::simple("SortInt"), "1"),
         );
         assert_eq!(
             cause(first_validity.check_predicates(&[], &Substitution::new(), &[tautology])),
@@ -1084,8 +1112,8 @@ mod tests {
         );
         assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 1);
         let impossible = Predicate::Equals(
-            Term::domain_value(Sort::simple("SortInt"), "1"),
-            Term::domain_value(Sort::simple("SortInt"), "2"),
+            Term::raw_domain_value(Sort::simple("SortInt"), "1"),
+            Term::raw_domain_value(Sort::simple("SortInt"), "2"),
         );
         assert_eq!(
             solver.is_sat(&[impossible], &Substitution::new()),
@@ -1151,7 +1179,7 @@ mod tests {
     fn x_is_one() -> [Predicate; 1] {
         [Predicate::Equals(
             Term::variable(x()),
-            Term::domain_value(Sort::simple("SortInt"), "1"),
+            Term::raw_domain_value(Sort::simple("SortInt"), "1"),
         )]
     }
 
@@ -1272,11 +1300,11 @@ mod tests {
         let predicates = [
             Predicate::Equals(
                 Term::variable(integer.clone()),
-                Term::domain_value(Sort::simple("SortInt"), expected_integer),
+                Term::raw_domain_value(Sort::simple("SortInt"), expected_integer),
             ),
             Predicate::Equals(
                 Term::variable(boolean.clone()),
-                Term::domain_value(Sort::simple("SortBool"), "true"),
+                Term::raw_domain_value(Sort::simple("SortBool"), "true"),
             ),
         ];
 
@@ -1291,15 +1319,61 @@ mod tests {
 
         assert_eq!(
             model.get(&integer),
-            Some(&Term::domain_value(
+            Some(&Term::raw_domain_value(
                 Sort::simple("SortInt"),
                 expected_integer
             ))
         );
         assert_eq!(
             model.get(&boolean),
-            Some(&Term::domain_value(Sort::simple("SortBool"), "true"))
+            Some(&Term::raw_domain_value(Sort::simple("SortBool"), "true"))
         );
+    }
+
+    /// The model reader builds a value with the kind the definition gives its sort: an integer
+    /// in canonical decimal (the solver's `(- 5)` is `-5`), the term `Term::int` builds; and at a
+    /// `SortInt` the definition declares without domain values, which has no value to build, the
+    /// variable is left as it is.
+    #[test]
+    fn model_values_are_built_with_the_kind_of_their_sort() {
+        let integer = Variable::new("X", Sort::simple("SortInt"));
+        let boolean = Variable::new("B", Sort::simple("SortBool"));
+        let predicates = [
+            Predicate::Equals(Term::variable(integer.clone()), Term::int(-5)),
+            Predicate::Equals(Term::variable(boolean.clone()), Term::bool(true)),
+        ];
+        let model = |definition: &BackendDefinition| {
+            let solver = Z3Solver::new(definition).unwrap();
+            let ModelResult::Sat(model) = cause(solver.get_model(&ModelQuery::for_solver_tests(
+                &predicates,
+                &Substitution::new(),
+            )))
+            .expect("the query should not stop")
+            .expect("model should be extracted") else {
+                panic!("constraints should be satisfiable")
+            };
+            model
+        };
+
+        let hooked = model(&definition());
+        assert_eq!(hooked.get(&integer), Some(&Term::int(-5)));
+        assert_eq!(hooked.get(&boolean), Some(&Term::bool(true)));
+
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} []
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let without_integers = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let unhooked = model(&without_integers);
+        assert_eq!(
+            unhooked.get(&integer),
+            Some(&Term::variable(integer.clone()))
+        );
+        assert_eq!(unhooked.get(&boolean), Some(&Term::bool(true)));
     }
 
     #[test]
@@ -1319,11 +1393,11 @@ mod tests {
                 &[
                     Predicate::Equals(
                         integer_term.clone(),
-                        Term::domain_value(Sort::simple("SortInt"), "1"),
+                        Term::raw_domain_value(Sort::simple("SortInt"), "1"),
                     ),
                     Predicate::Equals(
                         integer_term,
-                        Term::domain_value(Sort::simple("SortInt"), "2"),
+                        Term::raw_domain_value(Sort::simple("SortInt"), "2"),
                     ),
                 ],
                 &Substitution::new(),
@@ -1348,8 +1422,8 @@ mod tests {
         let solver = Z3Solver::new(&definition).unwrap();
         let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
         let x_term = Term::variable(x());
-        let one = Term::domain_value(Sort::simple("SortInt"), "1");
-        let two = Term::domain_value(Sort::simple("SortInt"), "2");
+        let one = Term::raw_domain_value(Sort::simple("SortInt"), "1");
+        let two = Term::raw_domain_value(Sort::simple("SortInt"), "2");
         let satisfiable = [Predicate::Equals(x_term.clone(), one.clone())];
         let unsatisfiable = [
             Predicate::Equals(x_term.clone(), one),
@@ -1383,7 +1457,7 @@ mod tests {
         let equals = |value| {
             [Predicate::Equals(
                 x_term.clone(),
-                Term::domain_value(Sort::simple("SortInt"), value),
+                Term::raw_domain_value(Sort::simple("SortInt"), value),
             )]
         };
 
@@ -1411,7 +1485,7 @@ mod tests {
         let solver = Z3Solver::new(&definition).unwrap();
         let predicates = [Predicate::Equals(
             Term::variable(x()),
-            Term::domain_value(Sort::simple("SortInt"), "1"),
+            Term::raw_domain_value(Sort::simple("SortInt"), "1"),
         )];
         assert_eq!(
             solver.is_sat(&predicates, &Substitution::new()),
@@ -1483,7 +1557,7 @@ mod tests {
         let solver = Z3Solver::new(&definition).unwrap();
         let predicates = [Predicate::Equals(
             Term::variable(x()),
-            Term::domain_value(Sort::simple("SortInt"), "1"),
+            Term::raw_domain_value(Sort::simple("SortInt"), "1"),
         )];
         assert_eq!(
             solver.is_sat(&predicates, &Substitution::new()),
@@ -1513,11 +1587,11 @@ mod tests {
         for (substitution, expected) in [
             (Substitution::new(), Validity::Contingent),
             (
-                Substitution::from([(x(), Term::domain_value(Sort::simple("SortInt"), "5"))]),
+                Substitution::from([(x(), Term::raw_domain_value(Sort::simple("SortInt"), "5"))]),
                 Validity::Valid,
             ),
             (
-                Substitution::from([(x(), Term::domain_value(Sort::simple("SortInt"), "15"))]),
+                Substitution::from([(x(), Term::raw_domain_value(Sort::simple("SortInt"), "15"))]),
                 Validity::Refuted,
             ),
         ] {
@@ -1693,7 +1767,7 @@ mod tests {
             r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
         ))];
         let substitution =
-            Substitution::from([(x(), Term::domain_value(Sort::simple("SortInt"), "15"))]);
+            Substitution::from([(x(), Term::raw_domain_value(Sort::simple("SortInt"), "15"))]);
         let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
 
         assert_eq!(
@@ -1744,7 +1818,7 @@ mod tests {
         let solver = Z3Solver::new(&definition).unwrap();
         let predicates = [Predicate::Equals(
             Term::variable(x()),
-            Term::domain_value(Sort::simple("SortInt"), "7"),
+            Term::raw_domain_value(Sort::simple("SortInt"), "7"),
         )];
         assert_eq!(
             solver.is_sat(&predicates, &Substitution::new()),
@@ -1758,7 +1832,7 @@ mod tests {
             )),
             Ok(Ok(ModelResult::Sat(Substitution::from([(
                 x(),
-                Term::domain_value(Sort::simple("SortInt"), "7")
+                Term::raw_domain_value(Sort::simple("SortInt"), "7")
             )]))))
         );
     }
@@ -1785,7 +1859,7 @@ mod tests {
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
         let solver = Z3Solver::new(&definition).unwrap();
-        let int = |value: &str| Term::domain_value(Sort::simple("SortInt"), value);
+        let int = |value: &str| Term::raw_domain_value(Sort::simple("SortInt"), value);
         let less = |left: &str, right: &str| {
             Predicate::Term(term(&definition, &format!("lt{{}}({left}, {right})")))
         };

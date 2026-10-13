@@ -1763,9 +1763,9 @@ mod captured_stdout_tests {
             vec![list(vec![
                 item(app(
                     "Lbl'Hash'ostream",
-                    vec![Term::domain_value(Sort::simple("SortInt"), "1")],
+                    vec![Term::raw_domain_value(Sort::simple("SortInt"), "1")],
                 )),
-                item(Term::domain_value(Sort::simple("SortString"), "off")),
+                item(Term::raw_domain_value(Sort::simple("SortString"), "off")),
                 item(buffer),
             ])],
         )
@@ -1780,7 +1780,7 @@ mod captured_stdout_tests {
 
     #[test]
     fn finds_only_well_shaped_stdout_cells_and_preserves_shared_occurrences() {
-        let output = stdout_cell(buffer(Term::domain_value(
+        let output = stdout_cell(buffer(Term::raw_domain_value(
             Sort::simple("SortString"),
             "\u{0}ok\u{ff}",
         )));
@@ -1793,7 +1793,7 @@ mod captured_stdout_tests {
 
         let missing = app("other", vec![]);
         let non_list = app("Lbl'-LT-'output'-GT-'", vec![app("other", vec![])]);
-        let non_string = stdout_cell(buffer(Term::domain_value(Sort::simple("SortInt"), "2")));
+        let non_string = stdout_cell(buffer(Term::raw_domain_value(Sort::simple("SortInt"), "2")));
         let non_buffer = stdout_cell(app("other", vec![]));
         for malformed in [missing, non_list, non_string, non_buffer] {
             assert!(stdout_stream_buffers(&malformed).is_empty());
@@ -1832,10 +1832,10 @@ mod captured_stdout_tests {
             vec![
                 app(
                     "Lbl'Hash'ostream",
-                    vec![Term::domain_value(Sort::simple("SortInt"), "1")],
+                    vec![Term::raw_domain_value(Sort::simple("SortInt"), "1")],
                 ),
-                Term::domain_value(Sort::simple("SortString"), "off"),
-                buffer(Term::domain_value(
+                Term::raw_domain_value(Sort::simple("SortString"), "off"),
+                buffer(Term::raw_domain_value(
                     Sort::simple("SortString"),
                     text.to_vec(),
                 )),
@@ -1849,7 +1849,7 @@ mod captured_stdout_tests {
     }
 
     fn int(value: u32) -> Term {
-        Term::domain_value(Sort::simple("SortInt"), value.to_string())
+        Term::raw_domain_value(Sort::simple("SortInt"), value.to_string())
     }
 
     fn sorted(buffers: Vec<Result<Vec<u8>, char>>) -> Vec<Vec<u8>> {

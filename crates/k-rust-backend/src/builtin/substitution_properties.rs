@@ -490,7 +490,7 @@ impl Signature {
                 list_sort: "SortSet".into(),
             }),
             facts: KVarSorts {
-                tokens: BTreeSet::from(["SortKVar".into()]),
+                tokens: BTreeMap::from([("SortKVar".into(), Some(DomainKind::Token))]),
                 kvar_free: BTreeSet::from(["SortInt".into()]),
             },
             graph,
@@ -498,7 +498,7 @@ impl Signature {
     }
 
     fn token(name: &str) -> Term {
-        Term::domain_value(kvar_sort(), name)
+        Term::raw_domain_value(kvar_sort(), name)
     }
 
     fn apply(symbol: &Arc<Symbol>, arguments: Vec<Term>) -> Term {

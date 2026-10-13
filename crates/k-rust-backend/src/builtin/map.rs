@@ -777,11 +777,11 @@ mod tests {
     }
 
     fn key(value: &str) -> Term {
-        Term::domain_value(Sort::simple("SortKey"), value)
+        Term::raw_domain_value(Sort::simple("SortKey"), value)
     }
 
     fn value(value: &str) -> Term {
-        Term::domain_value(Sort::simple("SortValue"), value)
+        Term::raw_domain_value(Sort::simple("SortValue"), value)
     }
 
     fn fu17_map_keys() -> (Term, Term, Term) {

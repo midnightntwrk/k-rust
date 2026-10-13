@@ -48,7 +48,7 @@ fn var(name: &str, sort: Sort) -> Term {
 }
 
 fn domain_value(sort: Sort, value: &str) -> Term {
-    Term::domain_value(sort, value)
+    Term::raw_domain_value(sort, value)
 }
 
 fn constructor() -> Arc<Symbol> {
@@ -524,9 +524,18 @@ fn rewrite_matching_binds_the_pattern_variable_to_the_subject() {
 
 #[test]
 fn signed_and_unsigned_int_literals_match_as_the_same_domain_value() {
+    // The definition reads both spellings by the kind of `SortInt`, so they are one term.
+    let syntax = parse_definition(
+        r#"[]
+        module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        endmodule []"#,
+    )
+    .unwrap();
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let int_sort = Sort::simple("SortInt");
-    let pattern = domain_value(int_sort.clone(), "3");
-    let subject = domain_value(int_sort, "+3");
+    let pattern = definition.domain_value(int_sort.clone(), "3").unwrap();
+    let subject = definition.domain_value(int_sort, "+3").unwrap();
 
     assert_eq!(
         match_terms(
@@ -853,7 +862,7 @@ fn lifts_a_direct_overload_across_a_sort_injection() {
         Vec::new(),
         vec![Term::variable(variable.clone())],
     );
-    let value = Term::domain_value(Sort::simple("SortSub"), "value");
+    let value = Term::raw_domain_value(Sort::simple("SortSub"), "value");
     let subject = Term::injection(
         Sort::simple("SortSub"),
         Sort::simple("SortTop"),
@@ -884,7 +893,7 @@ fn rejects_a_rigid_domain_value_outside_an_overload_family() {
     let subject = Term::injection(
         Sort::simple("SortSub"),
         Sort::simple("SortTop"),
-        Term::domain_value(Sort::simple("SortSub"), "value"),
+        Term::raw_domain_value(Sort::simple("SortSub"), "value"),
     );
 
     assert!(matches!(
@@ -1005,7 +1014,7 @@ fn lifts_a_direct_overload_in_the_pattern_orientation() {
             vec![Term::variable(variable.clone())],
         ),
     );
-    let value = Term::domain_value(Sort::simple("SortSub"), "value");
+    let value = Term::raw_domain_value(Sort::simple("SortSub"), "value");
     let subject = Term::application(
         definition.symbols()["upper"].clone(),
         Vec::new(),
@@ -1089,7 +1098,7 @@ fn lifts_incomparable_symbols_to_their_unique_common_overload() {
             )],
         ),
     );
-    let value = Term::domain_value(Sort::simple("SortSub"), "value");
+    let value = Term::raw_domain_value(Sort::simple("SortSub"), "value");
     let subject = Term::injection(
         Sort::simple("SortRight"),
         Sort::simple("SortTop"),

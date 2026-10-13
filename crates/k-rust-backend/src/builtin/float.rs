@@ -9,7 +9,7 @@ use super::{
     BuiltinError, BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity,
     int_term, read_int,
 };
-use crate::term::{Sort, Term, TermKind};
+use crate::term::{DomainKind, Sort, Term, TermKind};
 
 mod root;
 
@@ -548,8 +548,15 @@ fn read_float(hook: &str, term: &Term) -> HookResult<Option<KFloat>> {
     KFloat::parse(hook, value).map(Some)
 }
 
+/// A `Float` value of the hooks, at `SortFloat`. Its kind is the one the definition gives a sort
+/// hooked `FLOAT.Float`, `Token` until Float values have a kind of their own; the evaluation
+/// entry compares it with the kind the definition gives `SortFloat`.
 fn float_term(value: KFloat) -> Term {
-    Term::domain_value(Sort::builtin(BuiltinSort::Float), value.token())
+    Term::domain_value_of(
+        DomainKind::Token,
+        Sort::builtin(BuiltinSort::Float),
+        value.token(),
+    )
 }
 
 /// Whether `token` is in the lexical syntax of the `Float` sort (`domains.md`, FLOAT-SYNTAX):

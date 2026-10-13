@@ -36,7 +36,7 @@ fn on_small_thread(work: impl FnOnce() + Send + 'static) {
 /// and a set element), with a shared leaf beside the nested subterm at each level.
 fn mixed_deep_term() -> Term {
     let sort = Sort::simple("SortS");
-    let leaf = Term::domain_value(sort.clone(), "0");
+    let leaf = Term::raw_domain_value(sort.clone(), "0");
     let wrap = Arc::new(Symbol::constructor(
         "wrap",
         vec![sort.clone(), sort.clone()],
@@ -91,7 +91,7 @@ fn a_partly_shared_deep_term_drops_on_a_small_thread() {
             vec![sort.clone()],
             sort.clone(),
         ));
-        let mut term = Term::domain_value(sort, "0");
+        let mut term = Term::raw_domain_value(sort, "0");
         let mut kept = None;
         for level in 0..LEVELS {
             term = Term::application(wrap.clone(), Vec::new(), vec![term]);

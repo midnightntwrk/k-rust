@@ -43,7 +43,7 @@ fn term(definition: &BackendDefinition, source: &str) -> Term {
 }
 
 fn int(value: &str) -> Term {
-    Term::domain_value(Sort::simple("SortInt"), value)
+    Term::raw_domain_value(Sort::simple("SortInt"), value)
 }
 
 /// `X > 0 ∧ Y > 0 ∧ Z > 0 ∧ X·X·X + Y·Y·Y = Z·Z·Z`: unsatisfiable, and undecided by Z3.

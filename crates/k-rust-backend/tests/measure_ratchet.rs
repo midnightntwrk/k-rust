@@ -881,7 +881,7 @@ mod smt {
         let int = Sort::simple("SortInt");
         Predicate::Equals(
             Term::variable(Variable::new(name, int.clone())),
-            Term::domain_value(int, "1"),
+            Term::raw_domain_value(int, "1"),
         )
     }
 

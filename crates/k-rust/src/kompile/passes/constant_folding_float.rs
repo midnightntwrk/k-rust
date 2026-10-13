@@ -877,11 +877,11 @@ mod tests {
             let result = k_rust_backend::builtin::evaluate_hook(
                 "FLOAT.root",
                 &[
-                    k_rust_backend::term::Term::domain_value(
+                    k_rust_backend::term::Term::raw_domain_value(
                         k_rust_backend::term::Sort::builtin(BuiltinSort::Float),
                         token,
                     ),
-                    k_rust_backend::term::Term::domain_value(
+                    k_rust_backend::term::Term::raw_domain_value(
                         k_rust_backend::term::Sort::builtin(BuiltinSort::Int),
                         degree.to_string(),
                     ),
@@ -963,11 +963,11 @@ mod tests {
                 let backend = k_rust_backend::builtin::evaluate_hook(
                     "FLOAT.root",
                     &[
-                        k_rust_backend::term::Term::domain_value(
+                        k_rust_backend::term::Term::raw_domain_value(
                             k_rust_backend::term::Sort::builtin(BuiltinSort::Float),
                             token,
                         ),
-                        k_rust_backend::term::Term::domain_value(
+                        k_rust_backend::term::Term::raw_domain_value(
                             k_rust_backend::term::Sort::builtin(BuiltinSort::Int),
                             degree.to_string(),
                         ),

@@ -766,9 +766,9 @@ mod tests {
         let leaf = prop_oneof![
             variable().prop_map(Term::variable),
             prop_oneof![Just("1"), Just("2")]
-                .prop_map(|value| Term::domain_value(BackendSort::simple(RESULT_SORT), value)),
+                .prop_map(|value| Term::raw_domain_value(BackendSort::simple(RESULT_SORT), value)),
             prop_oneof![Just("true"), Just("false")]
-                .prop_map(|value| Term::domain_value(BackendSort::simple("SortBool"), value)),
+                .prop_map(|value| Term::raw_domain_value(BackendSort::simple("SortBool"), value)),
         ];
         leaf.prop_recursive(3, 16, 3, |inner| {
             (

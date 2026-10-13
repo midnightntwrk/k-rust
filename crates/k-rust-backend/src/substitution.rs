@@ -509,7 +509,7 @@ mod tests {
         symbol.attributes.hook = Some("INT.eq".into());
         Predicate::Equals(
             Term::application(Arc::new(symbol), Vec::new(), vec![left, right]),
-            Term::domain_value(bool_sort, "true"),
+            Term::raw_domain_value(bool_sort, "true"),
         )
     }
 
@@ -554,7 +554,7 @@ mod tests {
                 Vec::new(),
                 vec![k_sequence(left), k_sequence(right)],
             ),
-            Term::domain_value(bool_sort, expected.to_string()),
+            Term::raw_domain_value(bool_sort, expected.to_string()),
         )
     }
 
@@ -589,7 +589,7 @@ mod tests {
 
     #[test]
     fn extracts_and_saturates_acyclic_constraint_substitutions() {
-        let value = Term::domain_value(sort(), "value");
+        let value = Term::raw_domain_value(sort(), "value");
         let constraints = vec![
             Predicate::Equals(var("Y"), con1(var("X"))),
             Predicate::Equals(var("X"), value.clone()),
@@ -604,7 +604,7 @@ mod tests {
 
     #[test]
     fn extracts_substitutions_from_hooked_integer_equalities() {
-        let value = Term::domain_value(sort(), "value");
+        let value = Term::raw_domain_value(sort(), "value");
         let constraint = integer_equality(var("X"), value.clone());
 
         let (substitution, remaining) = extract_substitution(&[constraint], &SortGraph::default());
@@ -617,7 +617,7 @@ mod tests {
     fn extract_substitution_for_orients_toward_bindable_variables() {
         let x = variable("X");
         let z = variable("Z");
-        let value = Term::domain_value(sort(), "value");
+        let value = Term::raw_domain_value(sort(), "value");
         let injected_z =
             Term::injection(sort(), Sort::simple("SortKItem"), Term::variable(z.clone()));
         let injected_value = Term::injection(sort(), Sort::simple("SortKItem"), value.clone());
@@ -645,7 +645,7 @@ mod tests {
         );
         assert_eq!(
             substitution,
-            Substitution::from([(variable("Z"), Term::domain_value(sort(), "value"))])
+            Substitution::from([(variable("Z"), Term::raw_domain_value(sort(), "value"))])
         );
         assert!(remaining.is_empty());
     }
@@ -688,7 +688,7 @@ mod tests {
         let int_sort = Sort::simple("SortInt");
         let exp_sort = Sort::simple("SortExp");
         let variable = Variable::new("X", exp_sort.clone());
-        let value = Term::domain_value(int_sort.clone(), "5");
+        let value = Term::raw_domain_value(int_sort.clone(), "5");
         let constraint = k_equality(
             "KEQUAL.eq",
             true,
@@ -712,7 +712,7 @@ mod tests {
         let foo_sort = Sort::simple("SortFoo");
         let bar_sort = Sort::simple("SortBar");
         let variable = Variable::new("X", foo_sort.clone());
-        let value = Term::domain_value(bar_sort, "bar");
+        let value = Term::raw_domain_value(bar_sort, "bar");
         let constraint = k_equality("KEQUAL.eq", true, Term::variable(variable), value);
         let mut sorts = SortGraph::default();
         sorts.insert("SortFoo", std::iter::empty());
@@ -745,14 +745,14 @@ mod tests {
                 Term::injection(
                     int_sort.clone(),
                     exp_sort,
-                    Term::domain_value(int_sort, "5"),
+                    Term::raw_domain_value(int_sort, "5"),
                 ),
             ),
             (
                 Variable::new("LIST", list_sort),
                 Term::list(
                     list_definition,
-                    vec![Term::domain_value(element_sort, "item")],
+                    vec![Term::raw_domain_value(element_sort, "item")],
                     None,
                 ),
             ),

@@ -2106,7 +2106,7 @@ mod tests {
             Vec::new(),
             vec![
                 Term::and(
-                    Term::domain_value(sort.clone(), "value"),
+                    Term::raw_domain_value(sort.clone(), "value"),
                     Term::variable(alias.clone()),
                 ),
                 Term::variable(ordinary.clone()),

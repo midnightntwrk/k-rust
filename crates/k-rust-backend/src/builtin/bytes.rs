@@ -10,7 +10,7 @@ use super::{
     UnsupportedHookReason, describe_int, expect_arity, int_term, read_int,
 };
 use crate::allowance::Allowance;
-use crate::term::{Sort, Term, TermKind};
+use crate::term::{Term, TermKind};
 
 #[derive(Clone, Copy)]
 enum Endianness {
@@ -457,14 +457,11 @@ fn read_signedness(term: &Term) -> Option<Signedness> {
 
 pub(super) fn bytes_term(bytes: &[u8]) -> Term {
     // One copy, straight into the shared buffer the term holds.
-    Term::domain_value(
-        Sort::builtin(BuiltinSort::Bytes),
-        std::sync::Arc::<[u8]>::from(bytes),
-    )
+    Term::bytes(bytes)
 }
 
 fn string_term(value: impl Into<String>) -> Term {
-    Term::domain_value(Sort::builtin(BuiltinSort::String), value.into())
+    Term::string(value.into())
 }
 
 fn decode_8_bit(bytes: &[u8]) -> String {
@@ -527,7 +524,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::term::{Symbol, Variable};
+    use crate::term::{Sort, Symbol, Variable};
 
     fn constructor(name: &str, sort: &str) -> Term {
         Term::application(
@@ -1015,7 +1012,7 @@ mod tests {
         );
         // A payload that is not UTF-8 is no `String` value.
         assert_eq!(
-            string_to_bytes(&[Term::domain_value(
+            string_to_bytes(&[Term::raw_domain_value(
                 Sort::builtin(BuiltinSort::String),
                 vec![b'a', 0xe9, 0xff]
             )]),

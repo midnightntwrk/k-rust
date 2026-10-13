@@ -77,7 +77,7 @@ mod tests {
     }
 
     fn integer(value: &str) -> Term {
-        Term::domain_value(int(), value)
+        Term::raw_domain_value(int(), value)
     }
 
     fn variable(name: &str, sort: Sort) -> Term {

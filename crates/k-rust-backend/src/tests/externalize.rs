@@ -27,7 +27,7 @@ use crate::{
 /// that the orientation rule is exercised, and every connective and binder.
 fn predicate() -> impl Strategy<Value = Predicate> {
     let boolean = prop_oneof![Just("true"), Just("false")]
-        .prop_map(|value| Term::domain_value(Sort::builtin(BuiltinSort::Bool), value));
+        .prop_map(|value| Term::raw_domain_value(Sort::builtin(BuiltinSort::Bool), value));
     let operand = prop_oneof![3 => generators::term(), 1 => boolean];
     let leaf =
         prop_oneof![
@@ -175,7 +175,7 @@ proptest! {
         value in prop_oneof![
             generators::term(),
             prop_oneof![Just("true"), Just("false")]
-                .prop_map(|value| Term::domain_value(Sort::builtin(BuiltinSort::Bool), value)),
+                .prop_map(|value| Term::raw_domain_value(Sort::builtin(BuiltinSort::Bool), value)),
         ],
         set in any::<bool>(),
     ) {

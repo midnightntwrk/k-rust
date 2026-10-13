@@ -37,9 +37,14 @@ libc = "0.2"
 indoc.workspace = true
 insta.workspace = true
 # Test builds count work through `k_rust_kore::measure`, check every normal-form claim
-# (`check-normal-forms`) and may turn the simplifier's memoization off (`test-switches`);
-# `cargo build` stays feature-off.
-k-rust-backend = { path = ".", features = ["measure", "check-normal-forms", "test-switches"] }
+# (`check-normal-forms`), may turn the simplifier's memoization off (`test-switches`) and build
+# domain values without a definition (`raw-domain-values`); `cargo build` stays feature-off.
+k-rust-backend = { path = ".", features = [
+  "measure",
+  "check-normal-forms",
+  "test-switches",
+  "raw-domain-values",
+] }
 k-rust-kore = { workspace = true, features = ["measure"] }
 lean-conformance.workspace = true
 proptest.workspace = true
@@ -53,6 +58,10 @@ check-normal-forms = []
 # evaluations so that a test can compare the simplifier with and without it. For tests; off in
 # every normal build, where reuse is always on and the switch costs nothing.
 test-switches = []
+# Expose `Term::raw_domain_value`, which stores a domain value's text as given, without a kind,
+# so that the test suites of this crate and of its dependents build terms without a definition.
+# For tests; off in every normal build, where every domain value is built with its sort's kind.
+raw-domain-values = []
 measure = ["k-rust-kore/measure"]
 z3 = ["dep:z3"]
 z3-gh-release = ["z3", "z3/gh-release"]

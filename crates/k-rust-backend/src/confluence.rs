@@ -1801,6 +1801,7 @@ fn check_detached(
 ) -> ValueClaims {
     let _span = measure::algorithm_span(measure::Algorithm::BackendConfluenceCheck);
     let _apart = ApartScope::enter();
+    let _domain = crate::term::domain::DomainScope::enter(definition);
     let mut checked = Checked::default();
     let (groups, equations) = executable_equations(definition);
     checked.counts.equations = equations.len();

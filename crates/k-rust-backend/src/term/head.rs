@@ -1228,7 +1228,7 @@ mod tests {
         let terms = [
             var("X"),
             Term::and(var("X"), var("Y")),
-            Term::domain_value(sort(), "1"),
+            Term::raw_domain_value(sort(), "1"),
             Term::injection(Sort::simple("SortSub"), sort(), var("X")),
             apply(&constructor, vec![var("X")]),
             apply(&function("f", 1), vec![var("X")]),
@@ -1290,7 +1290,7 @@ mod tests {
             attributes: crate::term::SymbolAttributes::constructor().with_anywhere(true),
             ..Symbol::constructor("Lblwrap", vec![int.clone()], int.clone())
         });
-        let one = Term::domain_value(int.clone(), "1");
+        let one = Term::raw_domain_value(int.clone(), "1");
         let through_function = apply(
             &inc_pos,
             vec![apply(&minus, vec![Term::variable(x.clone()), one])],
@@ -1376,8 +1376,8 @@ mod tests {
         let definition = definition();
         let constructor = symbol("c", 1, |_| {});
         let other = symbol("d", 1, |_| {});
-        let one = Term::domain_value(sort(), "1");
-        let two = Term::domain_value(sort(), "2");
+        let one = Term::raw_domain_value(sort(), "1");
+        let two = Term::raw_domain_value(sort(), "2");
         let injection = Term::injection(Sort::simple("SortSub"), sort(), var("X"));
         let application = apply(&constructor, vec![one.clone()]);
         let nullary = apply(&constructor, Vec::new());
@@ -1458,8 +1458,8 @@ mod tests {
     /// The ground reading consumes the disjoint-denotation witness of two concrete values.
     #[test]
     fn concrete_apartness_mints_distinctness() {
-        let one = Term::domain_value(sort(), "1");
-        let two = Term::domain_value(sort(), "2");
+        let one = Term::raw_domain_value(sort(), "1");
+        let two = Term::raw_domain_value(sort(), "2");
         assert!(one.concrete_after_normalization() && two.concrete_after_normalization());
         let apart = Apart::of_domain_values(value(&one), value(&two))
             .expect("different domain values are apart");
@@ -1506,7 +1506,7 @@ mod tests {
             RootComparison::Distinct(_)
         ));
         assert!(matches!(
-            compare_roots(value(&list), value(&Term::domain_value(sort(), "1"))),
+            compare_roots(value(&list), value(&Term::raw_domain_value(sort(), "1"))),
             RootComparison::Distinct(_)
         ));
     }
@@ -1710,9 +1710,9 @@ mod tests {
             symbol.attributes = symbol.attributes.clone().with_anywhere(true);
         });
         let residual = symbol("m", 1, |symbol| symbol.attributes.macro_or_alias = true);
-        let one = Term::domain_value(sort(), "1");
-        let two = Term::domain_value(sort(), "2");
-        let other_sort = Term::domain_value(Sort::simple("SortT"), "1");
+        let one = Term::raw_domain_value(sort(), "1");
+        let two = Term::raw_domain_value(sort(), "2");
+        let other_sort = Term::raw_domain_value(Sort::simple("SortT"), "1");
         let nullary = apply(&n, Vec::new());
         let sub = Sort::simple("SortSub");
         let base = vec![
