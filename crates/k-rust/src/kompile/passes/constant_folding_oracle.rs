@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use k_rust_backend::{
-    builtin::{BuiltinError, BuiltinResult, UnsupportedHookReason, evaluate_hook},
+    builtin::{BuiltinResult, UnsupportedHookReason, evaluate_hook},
     term::{Sort as BackendSort, Term as BackendTerm, TermKind},
 };
 use k_rust_kore::names::BuiltinSort;
@@ -1032,10 +1032,6 @@ fn backend_expectation(
         )) => Ok(None),
         // Without a result sort the backend cannot name the token's sort.
         Ok(BuiltinResult::NotApplicable) if hook == "STRING.string2token" => Ok(None),
-        Err(
-            BuiltinError::UnsupportedFloatFormat { .. }
-            | BuiltinError::UnsupportedFloatFormatParameters { .. },
-        ) => Ok(None),
         other => Err(format!("unexpected backend outcome {other:?}")),
     }
 }

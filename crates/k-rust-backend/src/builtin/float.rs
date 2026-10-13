@@ -1,7 +1,9 @@
 //! Portable IEEE binary32/binary64 implementations of K's `FLOAT` hooks.
 
-use num_bigint::BigInt;
-use num_traits::{FromPrimitive, ToPrimitive};
+use std::fmt;
+
+use num_bigint::{BigInt, BigUint};
+use num_traits::{FromPrimitive, One, Signed, ToPrimitive, Zero};
 
 use k_rust_kore::names::BuiltinSort;
 
@@ -22,6 +24,162 @@ pub use canonical::{
 enum KFloat {
     Binary32(f32),
     Binary64(f64),
+}
+
+/// A Float format `pNxM`: `N` bits of precision and `M` exponent bits, both positive integers
+/// (`domains.md`, "Floating-point numbers"). The fields are compared as numbers, so `p053x011`
+/// is binary64. The backend computes binary32 (`p24x8`) and binary64 (`p53x11`); the definition
+/// gives values in every other format too, which this backend does not compute.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct FloatFormat {
+    pub(super) precision: BigUint,
+    pub(super) exponent_bits: BigUint,
+}
+
+impl FloatFormat {
+    /// The format of these fields; `None` when either is 0, which names no format.
+    fn new(precision: BigUint, exponent_bits: BigUint) -> Option<Self> {
+        (!precision.is_zero() && !exponent_bits.is_zero()).then_some(Self {
+            precision,
+            exponent_bits,
+        })
+    }
+
+    fn of(precision: u32, exponent_bits: u32) -> Self {
+        Self {
+            precision: precision.into(),
+            exponent_bits: exponent_bits.into(),
+        }
+    }
+
+    fn is(&self, precision: u32, exponent_bits: u32) -> bool {
+        self.precision == BigUint::from(precision)
+            && self.exponent_bits == BigUint::from(exponent_bits)
+    }
+
+    pub(super) fn is_binary32(&self) -> bool {
+        self.is(24, 8)
+    }
+
+    pub(super) fn is_binary64(&self) -> bool {
+        self.is(53, 11)
+    }
+
+    fn is_computed(&self) -> bool {
+        self.is_binary32() || self.is_binary64()
+    }
+
+    /// A field of 1: a format without IEEE-like parameters (no trailing significand bit, or
+    /// `emin > emax`), which this backend does not compute even from the suffix.
+    pub(super) fn has_a_field_of_one(&self) -> bool {
+        self.precision.is_one() || self.exponent_bits.is_one()
+    }
+
+    /// Whether every value of `other` is a value of this format: at least its precision and its
+    /// exponent range.
+    fn contains(&self, other: &Self) -> bool {
+        self.precision >= other.precision && self.exponent_bits >= other.exponent_bits
+    }
+}
+
+impl fmt::Display for FloatFormat {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "p{}x{} (precision {}, {} exponent bits)",
+            self.precision, self.exponent_bits, self.precision, self.exponent_bits
+        )
+    }
+}
+
+/// The body of `token`, a text in FLOAT-SYNTAX ([`is_float_syntax`]), and the format its suffix
+/// names: none, `d` or `D` is binary64, `f` or `F` binary32, and `pNxM` the format `pNxM`, its
+/// fields read as unbounded integers; `None` for the format when a field is 0, which names no
+/// format, so the token names no Float.
+pub(super) fn split_token(token: &str) -> (&str, Option<FloatFormat>) {
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    let explicit = token
+        .rsplit_once(['x', 'X'])
+        .and_then(|(rest, exponent_bits)| Some((rest.rsplit_once(['p', 'P'])?, exponent_bits)))
+        .filter(|((_, precision), exponent_bits)| digits(precision) && digits(exponent_bits));
+    match explicit {
+        Some(((body, precision), exponent_bits)) => (
+            body,
+            FloatFormat::new(
+                precision.parse().expect("decimal digits"),
+                exponent_bits.parse().expect("decimal digits"),
+            ),
+        ),
+        None => match token.strip_suffix(['f', 'F']) {
+            Some(body) => (body, Some(FloatFormat::of(24, 8))),
+            None => (
+                token.strip_suffix(['d', 'D']).unwrap_or(token),
+                Some(FloatFormat::of(53, 11)),
+            ),
+        },
+    }
+}
+
+/// A Float argument as the evaluator reads it.
+#[derive(Clone, Debug)]
+enum Operand<'a> {
+    /// A binary32 or binary64 value.
+    Computed(KFloat),
+    /// A value of another format, which this backend does not compute: the token's body in
+    /// FLOAT-SYNTAX (a sign and a magnitude, or `NaN`) and its format.
+    Uncomputed { body: &'a str, format: FloatFormat },
+}
+
+impl Operand<'_> {
+    fn format(&self) -> FloatFormat {
+        match self {
+            Self::Computed(value) => value.format(),
+            Self::Uncomputed { format, .. } => format.clone(),
+        }
+    }
+}
+
+/// What a pair of format arguments (`roundFloat`, `Int2Float`, `maxValueFloat`) names.
+enum FormatArguments {
+    /// A field of zero or below: no format, so the application is undefined.
+    NoFormat,
+    /// A field is not an integer value yet, and neither known field is zero or below.
+    Symbolic,
+    Format(FloatFormat),
+}
+
+/// The detail of the unsupported-hook outcome of `hook` applied to Floats of `formats`, the
+/// formats the backend does not compute: the definition gives the application a value, which
+/// this backend does not evaluate.
+fn uncomputed_operands(hook: &str, formats: &[&FloatFormat]) -> BuiltinResult {
+    let named = match formats {
+        [format] => format!("a Float of the format {format}"),
+        _ => format!(
+            "Floats of the formats {}",
+            formats
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" and ")
+        ),
+    };
+    out_of_range(format!(
+        "this backend does not evaluate {hook} on {named}; it evaluates {hook} on binary32 \
+         (p24x8) and binary64 (p53x11) Floats only"
+    ))
+}
+
+/// The detail of the unsupported-hook outcome of `hook` rounding to `format`, a format the
+/// backend does not compute.
+fn uncomputed_destination(hook: &str, format: &FloatFormat) -> BuiltinResult {
+    out_of_range(format!(
+        "this backend does not evaluate {hook} to the format {format}; it evaluates {hook} to \
+         binary32 (p24x8) and binary64 (p53x11) only"
+    ))
+}
+
+fn out_of_range(detail: String) -> BuiltinResult {
+    BuiltinResult::Unsupported(UnsupportedHookReason::ArgumentOutOfRange { detail })
 }
 
 #[derive(Clone, Copy)]
@@ -128,7 +286,9 @@ impl MixedPair {
 /// not named: they need no destination format.
 pub(crate) fn mixed_destination(hook: &str, arguments: &[Term]) -> Option<MixedPair> {
     BinaryOperation::of(hook)?;
-    let Ok(Some((left, right))) = read_operands(hook, arguments) else {
+    let Ok(Some((Operand::Computed(left), Operand::Computed(right)))) =
+        read_operands(hook, arguments)
+    else {
         return None;
     };
     MixedPair::of(left, right)
@@ -144,27 +304,30 @@ enum Comparison {
 }
 
 impl KFloat {
-    fn parse(hook: &str, token: &str) -> HookResult<Self> {
+    /// The Float `token` names: a binary32 or binary64 value, or the body and format of a
+    /// value of another format, which is never read as binary32 or binary64. A text outside
+    /// FLOAT-SYNTAX, or whose suffix has a field of 0, names no Float (`InvalidFloatToken`).
+    fn parse<'a>(hook: &str, token: &'a str) -> HookResult<Operand<'a>> {
         if !is_float_syntax(token) {
             return Err(invalid_token(hook, token).into());
         }
-        let (text, precision, exponent_bits) = parse_parts(hook, token)?;
-        match (precision, exponent_bits) {
-            (24, 8) => parse_f32(text)
-                .map(Self::Binary32)
-                .ok_or_else(|| invalid_token(hook, token))
-                .map_err(Into::into),
-            (53, 11) => parse_f64(text)
-                .map(Self::Binary64)
-                .ok_or_else(|| invalid_token(hook, token))
-                .map_err(Into::into),
-            _ => Err(BuiltinError::UnsupportedFloatFormat {
-                hook: hook.into(),
-                precision,
-                exponent_bits,
-            }
-            .into()),
-        }
+        let (body, Some(format)) = split_token(token) else {
+            return Err(invalid_token(hook, token).into());
+        };
+        let value = if format.is_binary32() {
+            parse_f32(body).map(Self::Binary32)
+        } else if format.is_binary64() {
+            parse_f64(body).map(Self::Binary64)
+        } else {
+            return Ok(Operand::Uncomputed { body, format });
+        };
+        value
+            .map(Operand::Computed)
+            .ok_or_else(|| invalid_token(hook, token).into())
+    }
+
+    fn format(self) -> FloatFormat {
+        FloatFormat::of(self.precision(), self.exponent_bits())
     }
 
     fn precision(self) -> u32 {
@@ -279,8 +442,8 @@ impl KFloat {
     /// root evaluation outside an execution withholds (`super::implementation_chosen`).
     ///
     /// A value is computed only when both operands are binary32 or binary64: an operand of any
-    /// other format is refused by `read_float` (`UnsupportedFloatFormat`) before this, and is never
-    /// read as binary32 or binary64.
+    /// other format is the unsupported-hook outcome (`binary`) before this, and is never read as
+    /// binary32 or binary64.
     fn binary(self, other: Self, operation: BinaryOperation) -> Self {
         match (self, other) {
             (Self::Binary32(left), Self::Binary32(right)) => {
@@ -324,14 +487,19 @@ impl KFloat {
         }
     }
 
-    fn round_to(self, precision: u32, exponent_bits: u32) -> Self {
-        match (precision, exponent_bits) {
-            (24, 8) => Self::Binary32(match self {
+    /// The value rounded to `format`, binary32 or binary64.
+    fn round_to(self, format: &FloatFormat) -> Self {
+        if format.is_binary32() {
+            Self::Binary32(match self {
                 Self::Binary32(value) => value,
                 Self::Binary64(value) => value as f32,
-            }),
-            (53, 11) => Self::Binary64(self.as_f64()),
-            _ => unreachable!("the requested Float format was validated"),
+            })
+        } else {
+            debug_assert!(
+                format.is_binary64(),
+                "the requested Float format was validated"
+            );
+            Self::Binary64(self.as_f64())
         }
     }
 
@@ -353,14 +521,32 @@ impl KFloat {
 
 pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     match hook {
-        "FLOAT.precision" => inspect(hook, arguments, |value| {
-            int_term(BigInt::from(value.precision()))
-        }),
-        "FLOAT.exponentBits" => inspect(hook, arguments, |value| {
-            int_term(BigInt::from(value.exponent_bits()))
-        }),
-        "FLOAT.sign" => inspect(hook, arguments, |value| bool_term(value.is_sign_negative())),
-        "FLOAT.isNaN" => inspect(hook, arguments, |value| bool_term(value.is_nan())),
+        "FLOAT.precision" => from_token(
+            hook,
+            arguments,
+            |value| int_term(BigInt::from(value.precision())),
+            |_, format| int_term(format.precision.clone().into()),
+        ),
+        "FLOAT.exponentBits" => from_token(
+            hook,
+            arguments,
+            |value| int_term(BigInt::from(value.exponent_bits())),
+            |_, format| int_term(format.exponent_bits.clone().into()),
+        ),
+        // Rounding to nearest never changes a sign (a negative literal that underflows is -0),
+        // and the only NaN literal is `NaN`, without a sign.
+        "FLOAT.sign" => from_token(
+            hook,
+            arguments,
+            |value| bool_term(value.is_sign_negative()),
+            |body, _| bool_term(body.starts_with('-')),
+        ),
+        "FLOAT.isNaN" => from_token(
+            hook,
+            arguments,
+            |value| bool_term(value.is_nan()),
+            |body, _| bool_term(body == "NaN"),
+        ),
         "FLOAT.neg" => inspect(hook, arguments, |value| float_term(value.neg())),
         "FLOAT.abs" => inspect(hook, arguments, |value| float_term(value.abs())),
         "FLOAT.floor" => inspect(hook, arguments, |value| float_term(value.floor())),
@@ -394,42 +580,64 @@ fn root(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(degree) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    let value = match value {
+        Operand::Computed(value) => value,
+        Operand::Uncomputed { format, .. } => return Ok(uncomputed_operands(hook, &[&format])),
+    };
     Ok(BuiltinResult::Value(float_term(value.root(&degree))))
 }
 
+/// `roundFloat(F, P, E)`. The format arguments are read first: where they name no format the
+/// application is undefined whatever `F` is.
 fn round(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 3)?;
+    let format = match read_format(&arguments[1], &arguments[2]) {
+        FormatArguments::NoFormat => return Ok(BuiltinResult::Bottom),
+        FormatArguments::Symbolic => None,
+        FormatArguments::Format(format) => Some(format),
+    };
     let Some(value) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some((precision, exponent_bits)) = read_format(hook, &arguments[1], &arguments[2])? else {
+    let Some(format) = format else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(BuiltinResult::Value(float_term(
-        value.round_to(precision, exponent_bits),
-    )))
+    let value = match value {
+        Operand::Computed(value) => value,
+        Operand::Uncomputed { format, .. } => return Ok(uncomputed_operands(hook, &[&format])),
+    };
+    if !format.is_computed() {
+        return Ok(uncomputed_destination(hook, &format));
+    }
+    Ok(BuiltinResult::Value(float_term(value.round_to(&format))))
 }
 
+/// `Int2Float(I, P, E)`. The format arguments are read first: where they name no format the
+/// application is undefined whatever `I` is.
 fn int_to_float(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 3)?;
+    let format = match read_format(&arguments[1], &arguments[2]) {
+        FormatArguments::NoFormat => return Ok(BuiltinResult::Bottom),
+        FormatArguments::Symbolic => return Ok(BuiltinResult::NotApplicable),
+        FormatArguments::Format(format) => format,
+    };
     let Some(integer) = read_int(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some((precision, exponent_bits)) = read_format(hook, &arguments[1], &arguments[2])? else {
-        return Ok(BuiltinResult::NotApplicable);
-    };
-    let value = match (precision, exponent_bits) {
-        (24, 8) => KFloat::Binary32(
+    let value = if format.is_binary32() {
+        KFloat::Binary32(
             integer
                 .to_f32()
                 .expect("num-bigint defines binary32 conversion for every BigInt"),
-        ),
-        (53, 11) => KFloat::Binary64(
+        )
+    } else if format.is_binary64() {
+        KFloat::Binary64(
             integer
                 .to_f64()
                 .expect("num-bigint defines binary64 conversion for every BigInt"),
-        ),
-        _ => unreachable!("the requested Float format was validated"),
+        )
+    } else {
+        return Ok(uncomputed_destination(hook, &format));
     };
     Ok(BuiltinResult::Value(float_term(value)))
 }
@@ -438,6 +646,10 @@ fn float_to_int(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 1)?;
     let Some(value) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
+    };
+    let value = match value {
+        Operand::Computed(value) => value,
+        Operand::Uncomputed { format, .. } => return Ok(uncomputed_operands(hook, &[&format])),
     };
     // `Float2Int` is total; NaN and the infinities have no nearest integer, so the definition
     // does not give its value there.
@@ -454,52 +666,48 @@ fn float_to_int(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
 
 fn maximum_value(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
-    let Some((precision, exponent_bits)) = read_format(hook, &arguments[0], &arguments[1])? else {
-        return Ok(BuiltinResult::NotApplicable);
+    let format = match read_format(&arguments[0], &arguments[1]) {
+        FormatArguments::NoFormat => return Ok(BuiltinResult::Bottom),
+        FormatArguments::Symbolic => return Ok(BuiltinResult::NotApplicable),
+        FormatArguments::Format(format) => format,
     };
-    let value = match (precision, exponent_bits) {
-        (24, 8) => KFloat::Binary32(f32::MAX),
-        (53, 11) => KFloat::Binary64(f64::MAX),
-        _ => unreachable!("the requested Float format was validated"),
+    let value = if format.is_binary32() {
+        KFloat::Binary32(f32::MAX)
+    } else if format.is_binary64() {
+        KFloat::Binary64(f64::MAX)
+    } else {
+        return Ok(uncomputed_destination(hook, &format));
     };
     Ok(BuiltinResult::Value(float_term(value)))
 }
 
-fn read_format(
-    hook: &str,
-    precision: &Term,
-    exponent_bits: &Term,
-) -> HookResult<Option<(u32, u32)>> {
-    let Some(precision) = read_int(precision) else {
-        return Ok(None);
-    };
-    let Some(exponent_bits) = read_int(exponent_bits) else {
-        return Ok(None);
-    };
-    let (Some(precision_u32), Some(exponent_bits_u32)) =
-        (precision.to_u32(), exponent_bits.to_u32())
-    else {
-        return Err(BuiltinError::UnsupportedFloatFormatParameters {
-            hook: hook.into(),
-            precision: precision.to_string(),
-            exponent_bits: exponent_bits.to_string(),
-        }
-        .into());
-    };
-    match (precision_u32, exponent_bits_u32) {
-        (24, 8) | (53, 11) => Ok(Some((precision_u32, exponent_bits_u32))),
-        _ => Err(BuiltinError::UnsupportedFloatFormat {
-            hook: hook.into(),
-            precision: precision_u32,
-            exponent_bits: exponent_bits_u32,
-        }
-        .into()),
+/// The format a precision and an exponent-bits argument name. A field of zero or below names
+/// no format (`domains.md` requires positive integers), whatever the other field is; any two
+/// positive fields name one, however large.
+fn read_format(precision: &Term, exponent_bits: &Term) -> FormatArguments {
+    let (precision, exponent_bits) = (read_int(precision), read_int(exponent_bits));
+    if [&precision, &exponent_bits]
+        .into_iter()
+        .flatten()
+        .any(|field| !field.is_positive())
+    {
+        return FormatArguments::NoFormat;
     }
+    let (Some(precision), Some(exponent_bits)) = (precision, exponent_bits) else {
+        return FormatArguments::Symbolic;
+    };
+    FormatArguments::Format(FloatFormat {
+        precision: precision.magnitude().clone(),
+        exponent_bits: exponent_bits.magnitude().clone(),
+    })
 }
 
 /// The two Float operands of a binary hook, as every binary Float evaluator and
 /// [`mixed_destination`] read them; `None` while either is not a Float domain value.
-fn read_operands(hook: &str, arguments: &[Term]) -> HookResult<Option<(KFloat, KFloat)>> {
+fn read_operands<'a>(
+    hook: &str,
+    arguments: &'a [Term],
+) -> HookResult<Option<(Operand<'a>, Operand<'a>)>> {
     expect_arity(hook, arguments, 2)?;
     let Some(left) = read_float(hook, &arguments[0])? else {
         return Ok(None);
@@ -510,21 +718,51 @@ fn read_operands(hook: &str, arguments: &[Term]) -> HookResult<Option<(KFloat, K
     Ok(Some((left, right)))
 }
 
+/// The unsupported-hook outcome of a binary operation over `left` and `right`, at least one of
+/// a format the backend does not compute. Over one format that format is the result's; over
+/// two, the result's format is the operand format that contains the other (the reading binary32
+/// and binary64 operands take, [`MixedPair`]), and an operand of a format the backend does not
+/// compute cannot be read even where the result's format is binary64. Where neither format
+/// contains the other no operand format is the result's.
+fn uncomputed_pair(hook: &str, left: &FloatFormat, right: &FloatFormat) -> BuiltinResult {
+    if left != right && !left.contains(right) && !right.contains(left) {
+        return out_of_range(format!(
+            "this backend does not evaluate {hook} on Floats of the formats {left} and {right}: \
+             neither format contains the other, so neither is the result's format; it evaluates \
+             {hook} on binary32 (p24x8) and binary64 (p53x11) Floats only"
+        ));
+    }
+    let mut formats = vec![left];
+    if right != left {
+        formats.push(right);
+    }
+    formats.retain(|format| !format.is_computed());
+    uncomputed_operands(hook, &formats)
+}
+
 fn binary(hook: &str, arguments: &[Term], operation: BinaryOperation) -> HookResult<BuiltinResult> {
     let Some((left, right)) = read_operands(hook, arguments)? else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    let (Operand::Computed(left), Operand::Computed(right)) = (&left, &right) else {
+        return Ok(uncomputed_pair(hook, &left.format(), &right.format()));
+    };
     Ok(BuiltinResult::Value(float_term(
-        left.binary(right, operation),
+        left.binary(*right, operation),
     )))
 }
 
+/// A comparison has a value over any two formats, so an operand of a format the backend does not
+/// compute is the unsupported-hook outcome naming it.
 fn compare(hook: &str, arguments: &[Term], comparison: Comparison) -> HookResult<BuiltinResult> {
     let Some((left, right)) = read_operands(hook, arguments)? else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    let (Operand::Computed(left), Operand::Computed(right)) = (&left, &right) else {
+        return Ok(uncomputed_pair(hook, &left.format(), &right.format()));
+    };
     Ok(BuiltinResult::Value(bool_term(
-        left.compare(right, comparison),
+        left.compare(*right, comparison),
     )))
 }
 
@@ -537,10 +775,38 @@ fn inspect(
     let Some(value) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(BuiltinResult::Value(operation(value)))
+    match value {
+        Operand::Computed(value) => Ok(BuiltinResult::Value(operation(value))),
+        Operand::Uncomputed { format, .. } => Ok(uncomputed_operands(hook, &[&format])),
+    }
 }
 
-fn read_float(hook: &str, term: &Term) -> HookResult<Option<KFloat>> {
+/// A hook whose value is read from the token alone, on every format: from a binary32 or binary64
+/// value by `computed`, and from the body and format of a value of another format by
+/// `uncomputed`, without reading its magnitude. A format with a field of 1 is not computed even
+/// here (`FloatFormat::has_a_field_of_one`).
+fn from_token(
+    hook: &str,
+    arguments: &[Term],
+    computed: impl FnOnce(KFloat) -> Term,
+    uncomputed: impl FnOnce(&str, &FloatFormat) -> Term,
+) -> HookResult<BuiltinResult> {
+    expect_arity(hook, arguments, 1)?;
+    let Some(value) = read_float(hook, &arguments[0])? else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    Ok(match value {
+        Operand::Computed(value) => BuiltinResult::Value(computed(value)),
+        Operand::Uncomputed { format, .. } if format.has_a_field_of_one() => out_of_range(format!(
+            "this backend does not evaluate {hook} on a Float of the format {format}, whose \
+                 precision or exponent-bits field is 1; it evaluates {hook} on every format whose \
+                 fields are at least 2"
+        )),
+        Operand::Uncomputed { body, format } => BuiltinResult::Value(uncomputed(body, &format)),
+    })
+}
+
+fn read_float<'a>(hook: &str, term: &'a Term) -> HookResult<Option<Operand<'a>>> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return Ok(None);
     };
@@ -604,21 +870,6 @@ pub fn is_float_syntax(token: &str) -> bool {
         }
     };
     mantissa_ok && exponent_ok
-}
-
-fn parse_parts<'a>(hook: &str, token: &'a str) -> HookResult<(&'a str, u32, u32)> {
-    if let Some((value_and_precision, exponent)) = token.rsplit_once(['x', 'X'])
-        && let Some((value, precision)) = value_and_precision.rsplit_once(['p', 'P'])
-    {
-        let precision = precision.parse().map_err(|_| invalid_token(hook, token))?;
-        let exponent_bits = exponent.parse().map_err(|_| invalid_token(hook, token))?;
-        return Ok((value, precision, exponent_bits));
-    }
-    if let Some(value) = token.strip_suffix(['f', 'F']) {
-        Ok((value, 24, 8))
-    } else {
-        Ok((token.strip_suffix(['d', 'D']).unwrap_or(token), 53, 11))
-    }
 }
 
 fn parse_f32(text: &str) -> Option<f32> {

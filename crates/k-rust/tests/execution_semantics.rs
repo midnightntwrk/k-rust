@@ -2148,6 +2148,31 @@ fn backend_execute_rounds_float_arithmetic_over_two_formats() {
     );
 }
 
+/// The facade's `execute` reports a Float operation of a format the backend does not compute
+/// (p113x15) as the capability gap it is, the unsupported-hook halt naming the hook and the
+/// format, not as a simplification error; so does an operation over binary64 and p113x15, whose
+/// destination format p113x15 contains binary64.
+#[test]
+fn backend_execute_reports_a_float_format_it_does_not_compute_as_an_unsupported_hook() {
+    for program in ["div(1.0p113x15, 3.0p113x15)", "div(1.0, 3.0p113x15)"] {
+        let compiled = compile(MIXED_FLOAT_FORMATS, "MIXED", "MIXED", "Pgm", program);
+        let result = execute(&compiled, "MIXED", Some(10));
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("{program}: {result:?}");
+        };
+        assert_eq!(
+            leaf.reason,
+            HaltReasonOutput::UnsupportedHook,
+            "{program}: {result:?}"
+        );
+        let detail = leaf.detail.as_deref().unwrap_or_default();
+        assert!(
+            detail.contains("unsupported hook 'FLOAT.div'") && detail.contains("p113x15"),
+            "{program}: {detail}"
+        );
+    }
+}
+
 /// The facade's `search_pattern` is an execution too: the condition over the mixed quotient is
 /// decided, so the search reaches `true` and nothing else.
 #[test]

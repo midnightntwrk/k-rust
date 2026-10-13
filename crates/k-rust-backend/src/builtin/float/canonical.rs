@@ -151,31 +151,23 @@ impl<'a> Literal<'a> {
         if !super::is_float_syntax(token) {
             return Err(FloatTextRefusal::NotALiteral);
         }
-        let digits =
-            |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
-        let explicit = token
-            .rsplit_once(['x', 'X'])
-            .and_then(|(rest, exponent_bits)| Some((rest.rsplit_once(['p', 'P'])?, exponent_bits)))
-            .filter(|((_, precision), exponent_bits)| digits(precision) && digits(exponent_bits));
-        let Some(((body, precision), exponent_bits)) = explicit else {
-            return Ok(match token.strip_suffix(['f', 'F']) {
-                Some(body) => Self::Binary32(body),
-                None => Self::Binary64(token.strip_suffix(['d', 'D']).unwrap_or(token)),
-            });
-        };
-        let precision: BigUint = precision.parse().expect("decimal digits");
-        let exponent_bits: BigUint = exponent_bits.parse().expect("decimal digits");
-        if precision.is_zero() || exponent_bits.is_zero() {
+        let (body, format) = super::split_token(token);
+        let Some(format) = format else {
             return Err(FloatTextRefusal::ZeroFormatField);
-        }
-        if precision.is_one() || exponent_bits.is_one() {
+        };
+        if format.has_a_field_of_one() {
             return Err(FloatTextRefusal::UncomputedFormat);
         }
-        match (precision.to_u32(), exponent_bits.to_u32()) {
-            (Some(24), Some(8)) => return Ok(Self::Binary32(body)),
-            (Some(53), Some(11)) => return Ok(Self::Binary64(body)),
-            _ => {}
+        if format.is_binary32() {
+            return Ok(Self::Binary32(body));
         }
+        if format.is_binary64() {
+            return Ok(Self::Binary64(body));
+        }
+        let super::FloatFormat {
+            precision,
+            exponent_bits,
+        } = format;
         let (negative, magnitude) = Magnitude::parse(body);
         Ok(Self::Other(Other {
             negative,

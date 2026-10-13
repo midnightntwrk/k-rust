@@ -441,13 +441,6 @@ export type BuiltinFailure =
   | { kind: 'alternative-sorts-differ'; thenSort: string; elseSort: string }
   | { kind: 'incompatible-map-sorts'; left: string; right: string }
   | { kind: 'invalid-float-token'; hook: string; token: string }
-  | { kind: 'unsupported-float-format'; hook: string; precision: number; exponentBits: number }
-  | {
-      kind: 'unsupported-float-format-parameters'
-      hook: string
-      precision: string
-      exponentBits: string
-    }
 
 export type TranslationFailure =
   | { kind: 'non-boolean-and'; term: Kore }

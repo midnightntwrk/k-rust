@@ -2159,21 +2159,59 @@ fn kprove_does_not_count_one_wide_float_key_twice() {
     }
 }
 
-/// The operations of a format the backend does not compute halt with the unsupported-hook
-/// error naming the format, on the canonical text of their operands as on the written one.
+/// A definition whose first step writes `absFloat` of its argument into a cell no later rule
+/// reads, and whose second step ends the program: the application stays in the final
+/// configuration.
+const WIDE_FLOAT_AT_THE_END: &str = r#"
+module WIDEEND-SYNTAX
+  imports FLOAT-SYNTAX
+  syntax Pgm ::= go(Float) | next() | done()
+endmodule
+module WIDEEND
+  imports WIDEEND-SYNTAX
+  imports DOMAINS
+  imports FLOAT
+  configuration <k> $PGM:Pgm </k> <out> 0.0 </out>
+  rule <k> go(X) => next() ... </k> <out> _ => absFloat(X) </out>
+  rule <k> next() => done() ... </k>
+endmodule
+"#;
+
+/// A Float of a format the backend does not compute (p113x15) has a value the definition
+/// gives: `/Float` of two such values halts with the unsupported-hook error naming the hook and
+/// the format, not a builtin error, on the canonical text of its operands as on the written one.
+/// `absFloat` is total, so its application is left unevaluated where it is computed and the run
+/// goes on (`next()` reaches `done()`); it is refused only at the end, where the final
+/// configuration holds it.
 #[test]
-fn krun_halts_on_an_operation_of_an_uncomputed_float_format() {
-    for program in ["dv(1.0p113x15, 3.0p113x15)", "ab(1.0p113x15)"] {
+fn krun_reports_a_float_format_it_does_not_compute_as_an_unsupported_hook() {
+    for (program, hook) in [
+        ("dv(1.0p113x15, 3.0p113x15)", "FLOAT.div"),
+        ("ab(1.0p113x15)", "FLOAT.abs"),
+    ] {
         let output = krun_mint_program(WIDE_FLOAT_KEYS, "WIDE", program);
         assert!(!output.status.success(), "{program}");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            stderr.contains(
-                "does not compute on floating-point numbers of precision 113 with 15 exponent bits"
-            ),
+            stderr.contains(&format!("unsupported hook '{hook}'")) && stderr.contains("p113x15"),
+            "{program}: {stderr}"
+        );
+        assert!(
+            !stderr.contains("does not compute on floating-point numbers"),
             "{program}: {stderr}"
         );
     }
+    let output = krun_mint_program(WIDE_FLOAT_AT_THE_END, "WIDEEND", "go(1.0p113x15)");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unsupported hook 'FLOAT.abs'") && stderr.contains("p113x15"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("halted at depth 2"),
+        "the run is refused at its end, after next() steps to done(): {stderr}"
+    );
 }
 
 /// A sort named Float without the `FLOAT.Float` hook (repro `r3c/unhooked.k`): a token sort whose

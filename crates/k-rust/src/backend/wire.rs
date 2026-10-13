@@ -410,16 +410,6 @@ pub enum BuiltinFailureOutput {
         hook: String,
         token: String,
     },
-    UnsupportedFloatFormat {
-        hook: String,
-        precision: u32,
-        exponent_bits: u32,
-    },
-    UnsupportedFloatFormatParameters {
-        hook: String,
-        precision: String,
-        exponent_bits: String,
-    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1188,24 +1178,6 @@ fn builtin_failure_output(error: BuiltinError) -> Result<BuiltinFailureOutput, B
         BuiltinError::InvalidFloatToken { hook, token } => {
             BuiltinFailureOutput::InvalidFloatToken { hook, token }
         }
-        BuiltinError::UnsupportedFloatFormat {
-            hook,
-            precision,
-            exponent_bits,
-        } => BuiltinFailureOutput::UnsupportedFloatFormat {
-            hook,
-            precision,
-            exponent_bits,
-        },
-        BuiltinError::UnsupportedFloatFormatParameters {
-            hook,
-            precision,
-            exponent_bits,
-        } => BuiltinFailureOutput::UnsupportedFloatFormatParameters {
-            hook,
-            precision,
-            exponent_bits,
-        },
     })
 }
 
@@ -2055,31 +2027,13 @@ mod tests {
 
     #[test]
     fn builtin_failure_field_names_match_both_typescript_declarations() {
-        let cases = [
-            (
-                BuiltinFailureOutput::AlternativeSortsDiffer {
-                    then_sort: "A".into(),
-                    else_sort: "B".into(),
-                },
-                serde_json::json!({"kind": "alternative-sorts-differ", "thenSort": "A", "elseSort": "B"}),
-            ),
-            (
-                BuiltinFailureOutput::UnsupportedFloatFormat {
-                    hook: "FLOAT".into(),
-                    precision: 53,
-                    exponent_bits: 11,
-                },
-                serde_json::json!({"kind": "unsupported-float-format", "hook": "FLOAT", "precision": 53, "exponentBits": 11}),
-            ),
-            (
-                BuiltinFailureOutput::UnsupportedFloatFormatParameters {
-                    hook: "FLOAT".into(),
-                    precision: "p".into(),
-                    exponent_bits: "e".into(),
-                },
-                serde_json::json!({"kind": "unsupported-float-format-parameters", "hook": "FLOAT", "precision": "p", "exponentBits": "e"}),
-            ),
-        ];
+        let cases = [(
+            BuiltinFailureOutput::AlternativeSortsDiffer {
+                then_sort: "A".into(),
+                else_sort: "B".into(),
+            },
+            serde_json::json!({"kind": "alternative-sorts-differ", "thenSort": "A", "elseSort": "B"}),
+        )];
         for (failure, expected) in cases {
             let value = serde_json::to_value(&failure).unwrap();
             assert_eq!(value, expected);

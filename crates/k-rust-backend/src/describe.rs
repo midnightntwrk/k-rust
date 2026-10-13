@@ -415,22 +415,6 @@ impl Display for BuiltinError {
                 formatter,
                 "hook {hook} cannot read {token} as a floating-point number"
             ),
-            Self::UnsupportedFloatFormat {
-                hook,
-                precision,
-                exponent_bits,
-            } => write!(
-                formatter,
-                "hook {hook} does not compute on floating-point numbers of precision {precision} with {exponent_bits} exponent bits"
-            ),
-            Self::UnsupportedFloatFormatParameters {
-                hook,
-                precision,
-                exponent_bits,
-            } => write!(
-                formatter,
-                "hook {hook} cannot read a floating-point format of precision {precision} with {exponent_bits} exponent bits"
-            ),
         }
     }
 }
