@@ -1543,8 +1543,10 @@ pub(crate) fn merge_free_parts(
 
 /// Expand the collection pairs of an implication remainder into a disjunction of ordinary term
 /// equations: a closed destination map against an open current map has one branch per entry
-/// assignment, and a destination list with two or more parts and an item against a current
-/// list one branch per position of its items (`list_implication_expansion`). The pairs of a
+/// assignment, a destination list with two or more parts and an item against a current
+/// list one branch per position of its items (`list_implication_expansion`), and a destination
+/// set or map with items against a current set or map of items alone one branch per placement
+/// of the destination's items on the current items (`item_subject_expansion`). The pairs of a
 /// remainder hold together, so the branches of two expanded pairs multiply. The implication
 /// layer simplifies and existentially quantifies each branch uniformly with its other
 /// obligations. `None` when no pair is expanded; an empty disjunction (`Some` of no branch)
@@ -1560,7 +1562,8 @@ pub(crate) fn expand_implication_remainders(
         let pattern = substitute(pattern, initial);
         let subject = substitute(subject, initial);
         let expansion = closed_map_expansion(&pattern, &subject)
-            .or_else(|| list_implication_expansion(definition, &pattern, &subject));
+            .or_else(|| list_implication_expansion(definition, &pattern, &subject))
+            .or_else(|| item_subject_expansion(definition, &pattern, &subject));
         let Some(expansion) = expansion else {
             for branch in &mut branches {
                 branch.push((pattern.clone(), subject.clone()));
@@ -1615,6 +1618,193 @@ fn closed_map_expansion(pattern: &Term, subject: &Term) -> Option<Vec<Vec<(Term,
             Some(solutions)
         }
         _ => None,
+    }
+}
+
+/// The placements of a destination set's or map's items on the items of a current set or map
+/// that has no opaque part, each as ordinary term equations.
+///
+/// The current collection is a subterm of the antecedent, which is defined on each of its
+/// instances (I7), so its items (a map's keys) are pairwise distinct there. The destination
+/// equals it on an instance exactly when each destination item equals a distinct current item
+/// (for a map, key and value) and the destination's part, if any, is the current items no
+/// destination item took, or, without a part, no current item is left: such a placement makes
+/// the destination's items pairwise distinct and disjoint from its part, so the destination is
+/// defined and equal to the current collection; conversely each item of an equal defined
+/// destination is one of the current items, distinct items are distinct ones, and its part
+/// holds the rest. The branches are therefore every placement, as a disjunction. A placement on
+/// a current item whose match fails is dropped, since no instance makes the two equal, and a
+/// destination item (a map key) syntactically identical to a current one is placed on that one
+/// alone, since it differs from every other current item. `None` for any other pair, and for
+/// a side that holds an item (a key) twice, which is undefined.
+fn item_subject_expansion(
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+) -> Option<Vec<Vec<(Term, Term)>>> {
+    let may_equal = |pattern: &Term, subject: &Term| {
+        !matches!(
+            match_terms_with_context(
+                MatchMode::Implies,
+                definition.sort_graph(),
+                Some(definition),
+                pattern,
+                subject,
+                // A collection element is never the root an equation is tried on.
+                false,
+            ),
+            MatchResult::Failed(reason) if !matches!(reason, FailReason::Subsorting(_))
+        )
+    };
+    let mut branches = Vec::new();
+    match (pattern.kind(), subject.kind()) {
+        (
+            TermKind::Map {
+                definition: pattern_definition,
+                entries: pattern_entries,
+                rest: pattern_rest,
+            },
+            TermKind::Map {
+                definition: subject_definition,
+                entries: subject_entries,
+                rest: None,
+            },
+        ) if pattern_definition == subject_definition && !pattern_entries.is_empty() => {
+            if [(pattern, pattern_entries), (subject, subject_entries)]
+                .into_iter()
+                .any(|(map, entries)| !binds_each_key_once(map) && repeats_a_key(entries))
+            {
+                return None;
+            }
+            let rest = pattern_rest.as_ref().map(|rest| {
+                |remaining| {
+                    (
+                        rest.clone(),
+                        Term::map_of_items(subject_definition.clone(), remaining, None),
+                    )
+                }
+            });
+            let identical = |(pattern_key, _): &(Term, Term), (subject_key, _): &(Term, Term)| {
+                pattern_key == subject_key
+            };
+            let equations =
+                |(pattern_key, pattern_value): &(Term, Term),
+                 (subject_key, subject_value): &(Term, Term)| {
+                    if !may_equal(pattern_key, subject_key)
+                        || !may_equal(pattern_value, subject_value)
+                    {
+                        return None;
+                    }
+                    let mut equations = Vec::new();
+                    if pattern_key != subject_key {
+                        equations.push((pattern_key.clone(), subject_key.clone()));
+                    }
+                    equations.push((pattern_value.clone(), subject_value.clone()));
+                    Some(equations)
+                };
+            ItemPlacement {
+                items: &pattern_entries.to_vec(),
+                identical: &identical,
+                equations: &equations,
+                rest: rest.as_ref().map(|rest| rest as &dyn Fn(_) -> _),
+            }
+            .place(0, subject_entries.clone(), Vec::new(), &mut branches);
+        }
+        (
+            TermKind::Set { .. },
+            TermKind::Set {
+                definition: subject_definition,
+                elements: subject_elements,
+                rest: None,
+            },
+        ) => {
+            let (pattern_definition, pattern_elements, pattern_rest) = set_parts(pattern)?;
+            if pattern_definition != *subject_definition || pattern_elements.is_empty() {
+                return None;
+            }
+            if pattern_elements.summary().collision || subject_elements.summary().collision {
+                return None;
+            }
+            let rest = pattern_rest.as_ref().map(|rest| {
+                |remaining| {
+                    (
+                        rest.clone(),
+                        Term::set_of_items(subject_definition.clone(), remaining, None),
+                    )
+                }
+            });
+            ItemPlacement {
+                items: &pattern_elements.to_vec(),
+                identical: &|pattern: &Term, subject: &Term| pattern == subject,
+                equations: &|pattern: &Term, subject: &Term| {
+                    may_equal(pattern, subject).then(|| {
+                        if pattern == subject {
+                            Vec::new()
+                        } else {
+                            vec![(pattern.clone(), subject.clone())]
+                        }
+                    })
+                },
+                rest: rest.as_ref().map(|rest| rest as &dyn Fn(_) -> _),
+            }
+            .place(0, subject_elements.clone(), Vec::new(), &mut branches);
+        }
+        _ => return None,
+    }
+    Some(branches)
+}
+
+/// The equations that make a destination item a current item, `None` when no instance does.
+type ItemEquations<'a, T> = dyn Fn(&T, &T) -> Option<Vec<(Term, Term)>> + 'a;
+
+/// The placement search of [`item_subject_expansion`] over the destination's `items`.
+struct ItemPlacement<'a, T: Item> {
+    items: &'a [T],
+    /// Whether a destination item is syntactically the current item (for a map, its key).
+    identical: &'a dyn Fn(&T, &T) -> bool,
+    /// The equations that make a destination item the current item, `None` when no instance
+    /// does.
+    equations: &'a ItemEquations<'a, T>,
+    /// The equation of the destination's part with the current items left, if it has a part.
+    rest: Option<&'a dyn Fn(Items<T>) -> (Term, Term)>,
+}
+
+impl<T: Item> ItemPlacement<'_, T> {
+    /// Place destination item `index` on each current item of `remaining` in turn. Each level
+    /// places one item, so the depth is the number of destination items. Invariant:
+    /// `equations` makes every earlier destination item the current item it was placed on, and
+    /// `remaining` holds the current items none was placed on.
+    fn place(
+        &self,
+        index: usize,
+        remaining: Items<T>,
+        equations: Vec<(Term, Term)>,
+        branches: &mut Vec<Vec<(Term, Term)>>,
+    ) {
+        let Some(item) = self.items.get(index) else {
+            let mut equations = equations;
+            match self.rest {
+                Some(rest) => equations.push(rest(remaining)),
+                None if remaining.is_empty() => {}
+                None => return,
+            }
+            branches.push(equations);
+            return;
+        };
+        let identical = remaining
+            .iter()
+            .position(|candidate| (self.identical)(item, candidate));
+        for (position, candidate) in remaining.iter().enumerate() {
+            if identical.is_some_and(|identical| identical != position) {
+                continue;
+            }
+            let Some(found) = (self.equations)(item, candidate) else {
+                continue;
+            };
+            let mut next = equations.clone();
+            next.extend(found);
+            self.place(index + 1, remaining.remove_at(position).0, next, branches);
+        }
     }
 }
 

@@ -1102,8 +1102,13 @@ fn establish_disjunction(
                 MatchResult::Success(substitution) => (substitution, Vec::new()),
             };
             matched = true;
-            let obligations = ConsequentMatch::new(substitution, destination.existentials())
-                .obligation_branches(definition, destination, remainder, &knowledge);
+            let (_, obligations, _) = consequent_obligations(
+                definition,
+                destination,
+                substitution,
+                remainder,
+                &knowledge,
+            );
             // A stop propagates before either fallback below sees the result: an obligation that
             // could not be prepared leaves the round open, but a stop is no answer to leave open.
             let obligations = match eliminate_and_quantify_obligation_branches(
@@ -1912,24 +1917,8 @@ fn discharge_consequent(
     // Every obligation is decided on the antecedent's instances, where its term is defined and its
     // constraints hold with their definedness stated (I7).
     let knowledge = pattern_knowledge(definition, antecedent);
-    let (substitution, remainder, solved_constraints) = solve_collection_remainder_pairs(
-        definition,
-        substitution,
-        remainder,
-        destination.existentials(),
-        &destination.pattern().constraints,
-    );
-    let origin = if remainder.is_empty() {
-        Origin::ConsequentCondition
-    } else {
-        Origin::MatchRemainder
-    };
-    let consequent_match = ConsequentMatch::new(substitution, destination.existentials());
-    let mut obligations =
-        consequent_match.obligation_branches(definition, destination, remainder, &knowledge);
-    for branch in &mut obligations {
-        branch.add_solved(&solved_constraints, &knowledge);
-    }
+    let (consequent_match, obligations, origin) =
+        consequent_obligations(definition, destination, substitution, remainder, &knowledge);
     // A stop propagates before either fallback below sees the result: obligations that could
     // not be prepared establish nothing, but a stop is no answer to establish nothing from.
     let obligations = match eliminate_and_quantify_obligation_branches(
@@ -2026,6 +2015,41 @@ fn discharge_consequent(
             obligations,
         },
     })
+}
+
+/// The obligation branches of `destination`'s match against an antecedent whose instances
+/// `knowledge` describes, the match `substitution` and `remainder` given: the remainder's
+/// collection pairs solved or merged (`solve_collection_remainder_pairs`), the rest expanded
+/// into branches (`ConsequentMatch::obligation_branches`), and the constraints the solve states
+/// added to each branch. The origin names what the obligations come from: the destination's
+/// condition alone when no remainder is left, the match remainder otherwise. A single
+/// destination and each disjunct of a disjunctive one are decided through this one prologue.
+fn consequent_obligations(
+    definition: &BackendDefinition,
+    destination: &Destination,
+    substitution: Substitution,
+    remainder: Vec<(crate::term::Term, crate::term::Term)>,
+    knowledge: &[Predicate],
+) -> (ConsequentMatch, Vec<ConsequentObligations>, Origin) {
+    let (substitution, remainder, solved_constraints) = solve_collection_remainder_pairs(
+        definition,
+        substitution,
+        remainder,
+        destination.existentials(),
+        &destination.pattern().constraints,
+    );
+    let origin = if remainder.is_empty() {
+        Origin::ConsequentCondition
+    } else {
+        Origin::MatchRemainder
+    };
+    let consequent_match = ConsequentMatch::new(substitution, destination.existentials());
+    let mut obligations =
+        consequent_match.obligation_branches(definition, destination, remainder, knowledge);
+    for branch in &mut obligations {
+        branch.add_solved(&solved_constraints, knowledge);
+    }
+    (consequent_match, obligations, origin)
 }
 
 /// Whether the antecedent's instances, described by `knowledge`, admit no counterexample to
@@ -2231,7 +2255,10 @@ fn combine_obligation_branches(mut branches: Vec<Obligations>) -> Obligations {
 /// of them, and any split of the leftover between them is a witness; the first takes it all and
 /// the others are empty.
 /// A solution is taken only when it is unique and binds destination existentials alone; any
-/// other outcome leaves the pairs as equality obligations.
+/// other outcome leaves the pairs as equality obligations, with the merge kept: it is an
+/// equivalence on its own (the merged pair, and the other merged parts bound to the empty
+/// collection), so a later expansion of the pairs (`expand_implication_remainders`) sees one
+/// part where the destination wrote several.
 fn solve_collection_remainder_pairs(
     definition: &BackendDefinition,
     substitution: Substitution,
@@ -2257,8 +2284,11 @@ fn solve_collection_remainder_pairs(
         .collect::<BTreeSet<_>>();
     let mut initial = substitution.clone();
     let mut pairs = Vec::with_capacity(collections.len());
+    // The remainder with each collection pair replaced by its merged form, in its order.
+    let mut merged_remainder = Vec::with_capacity(remainder.len());
     for (index, (pattern, subject)) in remainder.iter().enumerate() {
         if !is_collection_pair(pattern, subject) {
+            merged_remainder.push((pattern.clone(), subject.clone()));
             continue;
         }
         let free = |variable: &Variable| {
@@ -2277,16 +2307,25 @@ fn solve_collection_remainder_pairs(
                 if let crate::term::TermKind::Variable(part) = merged.kind() {
                     initial.insert(part.clone(), subject.clone());
                 } else {
-                    pairs.push((merged, subject.clone()));
+                    pairs.push((merged.clone(), subject.clone()));
+                    merged_remainder.push((merged, subject.clone()));
                 }
             }
-            None => pairs.push((pattern.clone(), subject.clone())),
+            None => {
+                pairs.push((pattern.clone(), subject.clone()));
+                merged_remainder.push((pattern.clone(), subject.clone()));
+            }
         }
     }
-    let solutions =
-        solve_collection_pairs_in_definition(MatchMode::Implies, definition, initial, &pairs, None);
+    let solutions = solve_collection_pairs_in_definition(
+        MatchMode::Implies,
+        definition,
+        initial.clone(),
+        &pairs,
+        None,
+    );
     let Some([solution]) = solutions.as_deref() else {
-        return (substitution, remainder, Vec::new());
+        return (initial, merged_remainder, Vec::new());
     };
     let binds_only_existentials = solution
         .matched
@@ -2295,7 +2334,7 @@ fn solve_collection_remainder_pairs(
         .filter(|variable| !substitution.contains_key(*variable))
         .all(|variable| existentials.contains(variable));
     if !binds_only_existentials {
-        return (substitution, remainder, Vec::new());
+        return (initial, merged_remainder, Vec::new());
     }
     let remainder = remainder
         .into_iter()

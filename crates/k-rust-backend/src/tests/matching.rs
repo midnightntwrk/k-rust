@@ -2565,6 +2565,106 @@ fn free_set_and_map_parts_merge_into_the_first() {
     );
 }
 
+/// A current set or map of items alone is defined on each instance, so its items are pairwise
+/// distinct: a destination item is one of them, each placement is one branch of term equations,
+/// and the destination's part holds the items no destination item took. A placement whose match
+/// fails (`b` on `c`) has no branch; with two undecided current items there are two.
+#[test]
+fn a_destination_item_against_current_items_alone_has_a_branch_per_placement() {
+    let definition = collection_definition();
+    let set = Sort::simple("SortSet");
+    let element = Sort::simple("SortElement");
+    let b = r#"setItem{}(\dv{SortElement{}}("b"))"#;
+    let c = r#"setItem{}(\dv{SortElement{}}("c"))"#;
+    let pattern = concat_set(&definition, &[b, "A:SortSet{}"]);
+    let a = var("A", set.clone());
+    let x = var("X", element.clone());
+    let y = var("Y", element.clone());
+
+    // One undecided current item: the destination item is `X`.
+    let subject = concat_set(&definition, &["setItem{}(X:SortElement{})", c]);
+    assert_eq!(
+        expand_implication_remainders(
+            &definition,
+            &Substitution::new(),
+            &[(pattern.clone(), subject)],
+        ),
+        Some(vec![vec![
+            (element_value("b"), x.clone()),
+            (a.clone(), concat_set(&definition, &[c])),
+        ]]),
+    );
+
+    // Two: `X` or `Y`, the other one left for the part.
+    let subject = concat_set(
+        &definition,
+        &["setItem{}(X:SortElement{})", "setItem{}(Y:SortElement{})"],
+    );
+    let mut expected = vec![
+        vec![
+            (element_value("b"), x.clone()),
+            (
+                a.clone(),
+                concat_set(&definition, &["setItem{}(Y:SortElement{})"]),
+            ),
+        ],
+        vec![
+            (element_value("b"), y.clone()),
+            (
+                a.clone(),
+                concat_set(&definition, &["setItem{}(X:SortElement{})"]),
+            ),
+        ],
+    ];
+    expected.sort();
+    assert_eq!(
+        expand_implication_remainders(&definition, &Substitution::new(), &[(pattern, subject)]),
+        Some(expected),
+    );
+
+    // A destination item identical to a current one is that one; without a part, no current
+    // item may be left, so a closed destination with fewer items has no branch.
+    let pattern = concat_set(&definition, &[b, "setItem{}(Z:SortElement{})"]);
+    let subject = concat_set(&definition, &[b, "setItem{}(X:SortElement{})"]);
+    assert_eq!(
+        expand_implication_remainders(&definition, &Substitution::new(), &[(pattern, subject)]),
+        Some(vec![vec![(var("Z", element.clone()), x.clone())]]),
+    );
+    let subject = concat_set(&definition, &["setItem{}(X:SortElement{})", c]);
+    assert_eq!(
+        expand_implication_remainders(
+            &definition,
+            &Substitution::new(),
+            &[(concat_set(&definition, &[b]), subject)],
+        ),
+        Some(Vec::new()),
+    );
+
+    // A map entry: its key and its value.
+    let pattern = internal_term(
+        &definition,
+        r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("k"), \dv{SortValue{}}("v")), M:SortMap{})"#,
+    );
+    let subject = internal_term(&definition, "mapItem{}(K:SortKey{}, V:SortValue{})");
+    assert_eq!(
+        expand_implication_remainders(&definition, &Substitution::new(), &[(pattern, subject)]),
+        Some(vec![vec![
+            (
+                domain_value(Sort::simple("SortKey"), "k"),
+                var("K", Sort::simple("SortKey")),
+            ),
+            (
+                domain_value(Sort::simple("SortValue"), "v"),
+                var("V", Sort::simple("SortValue")),
+            ),
+            (
+                var("M", Sort::simple("SortMap")),
+                internal_term(&definition, "mapUnit{}()"),
+            ),
+        ]]),
+    );
+}
+
 /// A part that the caller does not accept, that occurs twice, or that is no variable keeps its
 /// place, and fewer than two free parts merge nothing.
 #[test]
