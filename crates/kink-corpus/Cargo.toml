@@ -18,3 +18,7 @@ serde_json.workspace = true
 
 [features]
 z3 = ["kink-campaign/z3"]
+
+[[bin]]
+name = "kink-corpus"
+path = "src/main.rs"

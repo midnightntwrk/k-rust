@@ -1,6 +1,7 @@
 //! Root-relative corpus sources and concrete program inputs.
 
 pub mod admission;
+pub mod cli;
 pub mod input;
 pub mod manifest;
 pub mod resolver;
