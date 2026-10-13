@@ -243,15 +243,17 @@ enum ProgramSyntax {
 ///
 /// Its constructors build one of two grammars over the module:
 /// - [`Self::new`] and [`Self::from_resolved`] build the module's program grammar: the syntax
-///   visible from the module (its own and its imported productions, with the program variants
-///   of imported modules substituted), its named-projection productions, and `KItem ::= S` for
-///   each sort `S` that is not a user list; nothing else. A list sort gets no path to `KItem`
+///   visible from the module (its own productions, those of its direct imports and of the public
+///   imports below them, with the program variants of imported modules substituted), its
+///   named-projection productions, and `KItem ::= S` for each user-defined sort `S` that is not
+///   a list (kernel sorts such as `K`, `KItem` and `KList` get none); nothing else. A list sort gets no path to `KItem`
 ///   because each of its elements is also a one-element list, so the path would read every
 ///   element twice. This grammar has K sequence syntax (`.K`, `~>`) only when the module
 ///   declares it; it is the grammar of `$PGM` and of every K-declared `-c` value.
 /// - [`Self::for_ground_values`] builds the same grammar plus exactly `K ::= KItem`, `.K`,
 ///   `K ~> K` and an avoided K bracket: the way to parse a ground K value, such as a cell's
-///   content. Its limits, each detailed on the constructor: the K bracket only groups text the
+///   content. At any start sort, sequence syntax is also read inside every K-sorted argument.
+///   Its limits, each detailed on the constructor: the K bracket only groups text the
 ///   definition's own syntax does not read, and an item written with the definition's own
 ///   `avoid` `( .. )` production is an ambiguity at K; a production ending in K reads the outer
 ///   sequence; at K a `~>` is the sequence, and a definition's own `~>` production is read only
@@ -262,14 +264,14 @@ enum ProgramSyntax {
 ///   module when program tokens and layout live only in the former; a list-sorted value is
 ///   parsed only as a whole cell at its sort (unless the definition declares `KItem ::= L`
 ///   itself, which makes elements ambiguous); function symbols in a ground value are not
-///   evaluated; a module that sees `K-TOP-SORT` (`KSEQ`, `KSEQ-SYMBOLIC`, `K`, `K-TERM`,
-///   `K-SORT-LATTICE`) is refused.
+///   evaluated; a module whose program grammar sees `K-TOP-SORT` (`KSEQ`, `KSEQ-SYMBOLIC`, `K`,
+///   `K-TERM`, `K-SORT-LATTICE`) is refused.
 ///
 /// Importing `KSEQ` into a program module is not a substitute for the second grammar: `KSEQ`
 /// imports `K-TOP-SORT`, whose `syntax {Sort} KItem ::= Sort` gives list sorts the path to
 /// `KItem` the program grammar leaves out, so every element of a user list becomes ambiguous
 /// with its one-element list, in `$PGM`, `-c` values and `kast` alike. For the same reason
-/// [`Self::for_ground_values`] refuses a module that sees `K-TOP-SORT`.
+/// [`Self::for_ground_values`] refuses a module whose program grammar sees `K-TOP-SORT`.
 #[derive(Clone, Debug)]
 pub struct ProgramParser {
     module: String,
@@ -289,10 +291,10 @@ impl ProgramParser {
         Self::from_resolved(&resolved, module)
     }
 
-    /// A parser for the program grammar of `module`: the syntax visible from it (own and
-    /// imported productions, with the program variants of imported modules substituted), its
-    /// named-projection productions, and `KItem ::= S` for each sort that is not a user list;
-    /// nothing else.
+    /// A parser for the program grammar of `module`: the syntax visible from it (its own
+    /// productions, those of its direct imports and of the public imports below them, with the
+    /// program variants of imported modules substituted), its named-projection productions, and
+    /// `KItem ::= S` for each user-defined sort that is not a list; nothing else.
     ///
     /// A user list sort gets no `KItem` path, because each element is also a one-element list.
     /// The grammar has K sequence syntax only when the module declares it; parse a ground K
