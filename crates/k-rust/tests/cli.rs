@@ -7242,6 +7242,238 @@ fn krun_evaluates_equation_defined_hooks_through_their_equations() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A definition over `STRING-BUFFER`, whose appends are nested to the left so that the sentence
+/// has one reading whichever `+String` a frontend considers.
+const STRING_BUFFER_DEFINITION: &str = r#"
+module BUFFER2-SYNTAX
+  imports STRING-SYNTAX
+  syntax Prog ::= build(String, String, String)
+endmodule
+
+module BUFFER2
+  imports BUFFER2-SYNTAX
+  imports STRING
+  imports STRING-BUFFER
+  configuration <k> $PGM:Prog </k>
+  syntax KItem ::= out(String) | buf(StringBuffer)
+  rule build(A, B, C) => buf(((.StringBuffer +String A) +String B) +String C)
+  rule buf(SB) => out(StringBuffer2String(SB))
+endmodule
+"#;
+
+/// `STRING-BUFFER` imports a `[symbolic]` module that defines `StringBuffer` by equations over
+/// `String` and a `[concrete]` module that hooks it to a mutable buffer. The Rust backend leaves
+/// out `[concrete]` modules, so it compiles the first: an ordinary sort with `String` as a
+/// subsort and three unhooked functions, which `krun` evaluates by their equations. Importing the
+/// hooked module directly leaves `StringBuffer` undeclared, a user production hooked to
+/// `BUFFER.concat` compiles but has no evaluator, and the hooks of the hooked module, which LLVM
+/// KORE keeps, have no evaluator in `kore-simplify`.
+#[test]
+fn krun_runs_string_buffers_through_the_in_k_module() {
+    use k_rust::kore::ast::{Attributes, Sentence, Sort};
+    const IN_K_SYMBOLS: [&str; 3] = [
+        "Lbl'Stop'StringBuffer'Unds'STRING-BUFFER-IN-K'Unds'StringBuffer",
+        "Lbl'UndsPlus'String'UndsUnds'STRING-BUFFER-IN-K'Unds'StringBuffer'Unds'StringBuffer'Unds'String",
+        "LblStringBuffer2String'LParUndsRParUnds'STRING-BUFFER-IN-K'Unds'String'Unds'StringBuffer",
+    ];
+    let attribute_names = |attributes: &Attributes| {
+        attributes
+            .0
+            .iter()
+            .filter_map(|attribute| match attribute {
+                Pattern::Application { symbol, .. } => Some(symbol.name.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let (root, definition) = fixture();
+    fs::write(&definition, STRING_BUFFER_DEFINITION).unwrap();
+    let compiled = root.join("rust");
+    kcompile_for_krun(&definition, &["--main-module", "BUFFER2"], &compiled);
+    let kore =
+        parse_definition(&fs::read_to_string(compiled.join("definition.kore")).unwrap()).unwrap();
+    let sentences = kore
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .collect::<Vec<_>>();
+    let string_buffer_sorts = sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::SortDeclaration { hooked, name, .. } if name == "SortStringBuffer" => {
+                Some(*hooked)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        string_buffer_sorts,
+        [false],
+        "SortStringBuffer is declared once, as an ordinary sort"
+    );
+    assert!(
+        sentences.iter().any(|sentence| matches!(
+            sentence,
+            Sentence::Axiom { attributes, .. } if attributes.0.iter().any(|attribute| matches!(
+                attribute,
+                Pattern::Application { symbol, .. }
+                    if symbol.name == "subsort"
+                        && matches!(
+                            &symbol.sort_parameters[..],
+                            [
+                                Sort::Application { name: sub, arguments: sub_arguments },
+                                Sort::Application { name: sup, arguments: sup_arguments },
+                            ] if sub == "SortString"
+                                && sup == "SortStringBuffer"
+                                && sub_arguments.is_empty()
+                                && sup_arguments.is_empty()
+                        )
+            ))
+        )),
+        "the subsort axiom String < StringBuffer is emitted"
+    );
+    for name in IN_K_SYMBOLS {
+        let declarations = sentences
+            .iter()
+            .filter_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    hooked,
+                    symbol,
+                    attributes,
+                    ..
+                } if symbol.name == name => Some((*hooked, attribute_names(attributes))),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let [(hooked, attributes)] = &declarations[..] else {
+            panic!("{name} is declared once: {declarations:?}");
+        };
+        assert!(!hooked, "{name} is an ordinary symbol");
+        assert!(
+            attributes.iter().any(|attribute| attribute == "function")
+                && attributes.iter().any(|attribute| attribute == "total")
+                && !attributes.iter().any(|attribute| attribute == "hook"),
+            "{name} is a total function without a hook: {attributes:?}"
+        );
+    }
+    let run = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
+        .args([
+            "--sort",
+            "Prog",
+            "--expression",
+            r#"build("ab", "", "cd")"#,
+            "--io",
+            "off",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let stdout = String::from_utf8(run.stdout).unwrap();
+    assert!(
+        stdout.contains(
+            r#"Lblout'LParUndsRParUnds'BUFFER2'Unds'KItem'Unds'String{}(\dv{SortString{}}("abcd"))"#
+        ),
+        "{stdout}"
+    );
+
+    // Importing the [concrete] module directly: it is left out, so StringBuffer is undeclared.
+    let hooked_import = root.join("hooked-import.k");
+    fs::write(
+        &hooked_import,
+        STRING_BUFFER_DEFINITION
+            .replace("imports STRING-BUFFER\n", "imports STRING-BUFFER-HOOKED\n"),
+    )
+    .unwrap();
+    let refused = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&hooked_import)
+        .args(["--main-module", "BUFFER2", "--output-directory"])
+        .arg(root.join("hooked"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("Error[UndefinedSort]: Could not find sorts: [StringBuffer]"),
+        "{stderr}"
+    );
+
+    // A user production that declares a BUFFER hook compiles, and has no evaluator.
+    let user_hook = root.join("user-hook.k");
+    fs::write(
+        &user_hook,
+        r#"
+module USER-HOOK
+  imports STRING
+  syntax Prog ::= go(String, String)
+  syntax String ::= myconcat(String, String) [function, total, hook(BUFFER.concat)]
+  syntax KItem ::= out(String)
+  configuration <k> $PGM:Prog </k>
+  rule go(A, B) => out(myconcat(A, B))
+endmodule
+"#,
+    )
+    .unwrap();
+    let user_compiled = root.join("user");
+    kcompile_for_krun(&user_hook, &["--main-module", "USER-HOOK"], &user_compiled);
+    let user_run = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&user_compiled)
+        .args([
+            "--sort",
+            "Prog",
+            "--expression",
+            r#"go("a", "b")"#,
+            "--io",
+            "off",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&user_run.stderr);
+    assert!(
+        stderr.contains("unsupported hook 'BUFFER.concat' on constructor-like arguments"),
+        "{stderr}"
+    );
+
+    // LLVM KORE keeps the hooked module; its hooks have no evaluator in the kore-* entry points.
+    let llvm = root.join("llvm");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "BUFFER2", "--backend", "llvm"],
+        &llvm,
+    );
+    let pattern = root.join("hooked-pattern.kore");
+    fs::write(
+        &pattern,
+        r#"LblStringBuffer2String'LParUndsRParUnds'STRING-BUFFER-HOOKED'Unds'String'Unds'StringBuffer{}(Lbl'UndsPlus'String'UndsUnds'STRING-BUFFER-HOOKED'Unds'StringBuffer'Unds'StringBuffer'Unds'String{}(Lbl'Stop'StringBuffer'Unds'STRING-BUFFER-HOOKED'Unds'StringBuffer{}(), \dv{SortString{}}("ab")))"#,
+    )
+    .unwrap();
+    let simplified = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kore-simplify", "-m", "BUFFER2", "-p"])
+        .arg(&pattern)
+        .arg(llvm.join("definition.kore"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&simplified.stderr);
+    assert!(!simplified.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("unsupported hook 'BUFFER.empty' on constructor-like arguments"),
+        "{stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");

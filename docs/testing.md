@@ -238,7 +238,7 @@ KRUST_TYPE_INFERENCE_MODE=checked krust kcompile test.k --main-module TEST --bac
 ```
 
 and must run under the same memory guard as the gates.
-`--backend llvm` excludes modules attributed `symbolic` and `--backend rust` excludes modules attributed `concrete` (`CompilationBackend::excluded_module_attribute`), so a checked-inference verdict may differ between the two backends.
+`--backend llvm` excludes modules attributed `symbolic` and `--backend rust` excludes modules attributed `concrete` (`CompilationBackend::excluded_module_attribute`; [Backend scope](compatibility.md#backend-scope) states what this selection makes of `STRING-BUFFER`), so a checked-inference verdict may differ between the two backends.
 
 The symbolic and MIR execution gates pass the initial pattern to the comparator through `K_DIFFERENTIAL_INITIAL_PATTERN`; every result variable that is not free in it is treated as engine-named and renamed (N4).
 The conformance driver applies the same reading to kprint text: every `?Name:Sort` token is renamed by first occurrence per disjunct (C7) except the `?` variables the recipe's `--pattern` text names, and a step whose texts match only after that renaming records `renamed_existentials = true`.
