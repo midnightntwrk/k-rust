@@ -1439,10 +1439,10 @@ fn cell_production_error(
 }
 
 #[test]
-fn a_written_cell_production_that_the_configuration_reads_its_cell_as_is_rejected_at_it() {
-    // The written production's terminals are the cell's tags, so the configuration grammar reads
-    // `<k> 0 </k>` as that production: the configuration then declares no cell, and the
-    // error names the written production where it is written.
+fn a_written_cell_production_with_its_cells_tags_is_rejected_at_it() {
+    // The written production's terminals are the cell's tags. The configuration grammar holds no
+    // `cell` production, so `<k> 0 </k>` declares `<k>`, and the written production is a second
+    // cell production of the declared cell's sort, named where it is written.
     let cells = indoc! {r#"
         module CELLS
           syntax Int ::= r"[0-9]+" [token]
@@ -1457,7 +1457,11 @@ fn a_written_cell_production_that_the_configuration_reads_its_cell_as_is_rejecte
         endmodule
     "#};
     let (cell, text) = cell_production_error(cells, main);
-    assert_eq!(cell.reading, CellProductionReading::ReadAsTerm, "{text}");
+    assert_eq!(
+        cell.reading,
+        CellProductionReading::BesideDeclaredCell { cell: "k".into() },
+        "{text}"
+    );
     assert_eq!(cell.sort.to_string(), "KCell");
     assert_eq!(cell.production, r#"syntax KCell ::= "<k>" Int "</k>""#);
     assert_eq!(cell.source.as_deref(), Some("cells.k"));
@@ -1484,7 +1488,11 @@ fn a_written_cell_production_that_the_configuration_reads_its_cell_as_is_rejecte
         endmodule
     "#};
     let (cell, text) = cell_production_error("", main);
-    assert_eq!(cell.reading, CellProductionReading::ReadAsTerm, "{text}");
+    assert_eq!(
+        cell.reading,
+        CellProductionReading::BesideDeclaredCell { cell: "k".into() },
+        "{text}"
+    );
     assert_eq!(cell.production, r#"syntax KCell ::= "<k>" Int "</k>""#);
     assert_eq!(
         (
@@ -1494,6 +1502,145 @@ fn a_written_cell_production_that_the_configuration_reads_its_cell_as_is_rejecte
         (Some("main.k"), Some(3)),
         "{text}"
     );
+}
+
+#[test]
+fn a_written_cell_production_with_the_tags_of_a_cell_beside_others_is_rejected_at_it() {
+    // A configuration declaring `<t>` beside `<k>`: the written production's tags would scan as
+    // its own terminals, so a configuration grammar holding it could not read the declaration
+    // at all. Whether the cell is optional, holds a value, or the production writes no contents,
+    // the written production is named where it is written.
+    for (production, configuration) in [
+        (
+            r#"syntax TCell ::= "<t>" Int "</t>""#,
+            r#"<k> $PGM:K </k> <t multiplicity="?"> 0 </t>"#,
+        ),
+        (
+            r#"syntax TCell ::= "<t>" Int "</t>""#,
+            "<k> $PGM:K </k> <t> 0 </t>",
+        ),
+        (
+            r#"syntax TCell ::= "<t>" "</t>""#,
+            "<k> $PGM:K </k> <t> 0 </t>",
+        ),
+    ] {
+        let main = format!(
+            "module MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  {production} [cell]\n  configuration {configuration}\nendmodule\n"
+        );
+        let (cell, text) = cell_production_error("", &main);
+        assert_eq!(
+            cell.reading,
+            CellProductionReading::BesideDeclaredCell { cell: "t".into() },
+            "{configuration}: {text}"
+        );
+        assert_eq!(cell.sort.to_string(), "TCell", "{text}");
+        assert_eq!(cell.production, production, "{text}");
+        assert_eq!(
+            cell.location.map(|location| location.start_line),
+            Some(3),
+            "{text}"
+        );
+        assert!(text.starts_with("main.k:3:"), "{text}");
+        assert!(
+            text.contains(r#"the configuration of module "MAIN" at main.k:4:"#),
+            "{text}"
+        );
+        assert!(text.contains("declares <t>"), "{text}");
+    }
+}
+
+#[test]
+fn a_written_cell_production_under_its_cells_label_is_rejected_at_it() {
+    // The declaration is the one source of its cell's production: a written production under
+    // the generated production's label, whatever attributes it writes, would stand in for it
+    // without the declaration's attributes.
+    for (attributes, configuration) in [
+        ("cell, symbol(<t>)", "<k> $PGM:K </k> <t> 0 </t>"),
+        (
+            "cell, cellName(t), symbol(<t>)",
+            "<k> $PGM:K </k> <t> 0 </t>",
+        ),
+        (
+            "cell, cellName(t), symbol(<t>)",
+            r#"<k> $PGM:K </k> <ts> <t multiplicity="*" type="Set"> 0 </t> </ts>"#,
+        ),
+    ] {
+        let main = format!(
+            "module MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax TCell ::= \"<t>\" Int \"</t>\" [{attributes}]\n  configuration {configuration}\nendmodule\n"
+        );
+        let (cell, text) = cell_production_error("", &main);
+        assert_eq!(
+            cell.reading,
+            CellProductionReading::BesideDeclaredCell { cell: "t".into() },
+            "[{attributes}] {configuration}: {text}"
+        );
+        assert_eq!(cell.production, r#"syntax TCell ::= "<t>" Int "</t>""#);
+        assert!(text.starts_with("main.k:3:"), "{text}");
+    }
+
+    // The main cell's production likewise.
+    let main = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax KCell ::= "<k>" Int "</k>" [cell, symbol(<k>)]
+          configuration <k> 0 </k>
+        endmodule
+    "#};
+    let (cell, text) = cell_production_error("", main);
+    assert_eq!(
+        cell.reading,
+        CellProductionReading::BesideDeclaredCell { cell: "k".into() },
+        "{text}"
+    );
+    assert!(text.starts_with("main.k:3:"), "{text}");
+}
+
+#[test]
+fn a_configuration_term_of_a_cell_production_is_rejected_at_the_production() {
+    // A configuration parsed from source never holds a term of a `cell` production; one built
+    // by other means is rejected at the production, as declaring no cell where it is written.
+    let mut definition = parsed(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax KkCell ::= "<kk>" Int "</kk>" [cell, symbol(kk)]
+          configuration <k> 0 </k>
+        endmodule
+    "#});
+    let main = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap();
+    let configuration = main
+        .local_sentences
+        .iter_mut()
+        .find(|sentence| matches!(&***sentence, Sentence::Configuration { .. }))
+        .unwrap();
+    let Sentence::Configuration {
+        ensures,
+        attributes,
+        ..
+    } = &**configuration
+    else {
+        unreachable!()
+    };
+    *configuration = std::sync::Arc::new(Sentence::Configuration {
+        body: Term::apply(
+            "kk",
+            vec![Term::Token {
+                token: "0".into(),
+                sort: k_rust::kast::Sort::new("Int"),
+            }],
+        ),
+        ensures: ensures.clone(),
+        attributes: attributes.clone(),
+    });
+    let error = expand_configurations(&definition).unwrap_err();
+    let ConfigurationError::CellProduction(cell) = &error else {
+        panic!("expected a cell production error, got {error}: {error:?}");
+    };
+    assert_eq!(cell.reading, CellProductionReading::ReadAsTerm, "{error}");
+    assert_eq!(cell.production, r#"syntax KkCell ::= "<kk>" Int "</kk>""#);
 }
 
 #[test]

@@ -335,6 +335,16 @@ fn configuration_grammar(
     module: ModuleId,
 ) -> Result<Grammar, ParseError> {
     let mut visible = resolved.signature_sentences(module);
+    // A cell written in a configuration is the declaration of that cell, and the cell's
+    // production is what expanding that declaration generates, after parsing. A `cell` production
+    // visible here was therefore written beside the configuration (or imported from RULE-CELLS),
+    // and reading cell text through it would turn a declaration into a term, or, when its tags
+    // scan as its own terminals, make the configuration unparsable. Leaving every visible `cell`
+    // production out keeps each written cell a declaration; expansion then meets a written `cell`
+    // production of a declared cell's sort and reports it where it is written.
+    visible.retain(|sentence| {
+        !matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell))
+    });
     let signature = visible.len();
     add_implicit_ml_syntax(resolved, &mut visible);
     reject_kernel_position_contradiction(&visible)?;
