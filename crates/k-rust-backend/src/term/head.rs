@@ -39,6 +39,12 @@
 //! Syntactic shape (groundness, head kinds, `Term::concrete_after_normalization`, the declared
 //! `injective` attribute) is never evidence.
 //!
+//! The instance-normal scan's syntactic unification test reads an equation's left-hand side
+//! through `classify_value` too, with the oracle [`ScannedPatterns`]: it fixes an equation-head
+//! application written there at its own root where the load-time check admits that head, which
+//! is how a step of the normal-form model matches the pattern. That is evidence about the
+//! pattern, never about a value, and it has its own source.
+//!
 //! The decisive outcomes carry witnesses built here: [`HeadClash`] (two terms whose roots
 //! differ), `Apart` (two terms with disjoint denotations), `Distinct` (two ground terms that
 //! denote distinct values) and [`RigidCycle`] (a
@@ -51,9 +57,10 @@ use std::marker::PhantomData;
 
 use super::{HeadRole, InjectionComparison, Term, TermKind, Variable};
 use crate::{
+    confluence::{GateSite, UntaintedIndex},
     definition::{BackendDefinition, SelectionComplete},
     instance_normal::{InstanceNormal, NormalArguments},
-    rule::Predicate,
+    rule::{Predicate, term_index},
     simplify::scan::{FunctionTheory, NoOfferedEquationMatched, SimplificationTheory},
 };
 
@@ -66,7 +73,8 @@ pub(crate) enum PatternReading {
     /// An equation's left-hand side or an implication pattern: an equation-head subterm denotes
     /// the value of its normal form, which the pattern does not fix. (Equation matching reads one
     /// that denotes a ground term whose token the load recorded as that value instead:
-    /// [`RecordedPatterns`].)
+    /// [`RecordedPatterns`]; the instance-normal scan reads one whose head the check admits by
+    /// its root instead: [`ScannedPatterns`].)
     UpToEquations,
 }
 
@@ -149,6 +157,11 @@ enum Source {
     /// The root of the subject the instance-normal scan tries an equation on: the equation's
     /// left-hand side rewrites that root as it stands.
     ScannedSubject,
+    /// An equation-head application written in a left-hand side the instance-normal scan tries,
+    /// whose head the load-time check admits ([`ScannedPatterns`]): a step of the normal-form
+    /// model matches it against a normal form only through that root. Evidence about a pattern,
+    /// never about a value.
+    ScannedPattern,
     /// A settled equation-head application of the load-time critical-pair join
     /// (`confluence::join`): a normal form on every instance of the pair the join decides, because
     /// no left-hand side of an executable equation unifies with it, or because it is the value of
@@ -225,11 +238,19 @@ impl NormalEvidence {
         Self(Source::InstanceNormal)
     }
 
+    /// The root of an equation-head application written in a left-hand side the instance-normal
+    /// scan tries, whose index the load-time check leaves untainted; the witness is minted only
+    /// by the gate (`confluence::ValueClaims::admit_at`). One call site: [`ScannedPatterns`].
+    #[must_use]
+    pub(crate) fn scanned_pattern(_witness: UntaintedIndex) -> Self {
+        Self(Source::ScannedPattern)
+    }
+
     /// Whether this is evidence about the value the application denotes: every source but a
-    /// rewrite rule's left-hand side read as written.
+    /// left-hand side read as written or by its root in the instance-normal scan.
     #[must_use]
     pub(crate) fn of_a_value(self) -> bool {
-        self.0 != Source::AsWritten
+        !matches!(self.0, Source::AsWritten | Source::ScannedPattern)
     }
 }
 
@@ -279,7 +300,7 @@ impl NormalFormCertificate {
         _selection: SelectionComplete,
         _function_scan: NoOfferedEquationMatched<FunctionTheory>,
         _simplification_scan: NoOfferedEquationMatched<SimplificationTheory>,
-        untainted: Option<crate::confluence::UntaintedIndex>,
+        untainted: Option<UntaintedIndex>,
     ) -> Self {
         Self {
             values: untainted.is_some(),
@@ -359,6 +380,44 @@ impl NormalForms for RecordedPatterns<'_> {
             .value_claims()
             .pattern_token(application)
             .map(NormalEvidence::instance_normal)
+    }
+}
+
+/// The equation side of the instance-normal scan's syntactic unification test: an equation-head
+/// application written in the scanned equation's left-hand side is fixed at its own root when
+/// its symbol is not overloaded and the load-time check admits its index at the scan's gate site
+/// (`GateSite::EquationHead`), and is read up to equations otherwise.
+///
+/// The scan asks whether an equation the definition's normal-form model `M_NF` offers at the
+/// subject can match a normal-form instance of it. A step of `M_NF` matches the left-hand side
+/// modulo injection composition, the overload axioms and the collection axioms, not modulo the
+/// equations, so it matches an equation-head pattern `g(…)` against a normal form only through
+/// the root `g`. The equation's membership axiom also holds of values that only reduce to an
+/// instance of `g(…)`; whether `M_NF` satisfies the equation at those values is what the check's
+/// pairs at that argument position answer, and a pair there that does not join taints both
+/// equations and every symbol they mention. So where `g` is admitted, every equation that
+/// mentions it joined at its `g` positions and the root reading decides the `M_NF` question.
+/// The gate is asked at `g` itself, not only through the scanned head: the scan also reads
+/// `symbolic` equations and simplification lemmas, which the check's closure does not cover.
+/// An overloaded production is never fixed here: the overload axioms equate `g(inj(x))` with
+/// `inj(l(x))`, which a match modulo those axioms reaches through another root. While the check
+/// runs the gate admits nothing, so the check's own verdicts do not depend on this reading.
+pub(crate) struct ScannedPatterns<'d>(pub &'d BackendDefinition);
+
+impl NormalForms for ScannedPatterns<'_> {
+    fn evidence(&mut self, application: &Term) -> Option<NormalEvidence> {
+        let TermKind::Application { symbol, .. } = application.kind() else {
+            return None;
+        };
+        if self.0.overloads().is_overloaded(&symbol.name)
+            && !crate::confluence::switches::active().root_read_overloaded_patterns
+        {
+            return None;
+        }
+        self.0
+            .value_claims()
+            .admit_at(self.0, &term_index(application), GateSite::EquationHead)
+            .map(NormalEvidence::scanned_pattern)
     }
 }
 
@@ -457,7 +516,8 @@ pub(crate) fn classify_pattern(reading: PatternReading, term: &Term) -> Head<'_>
 }
 
 /// Classify a subject or operand as the value it denotes, or an equation's left-hand side read
-/// as the values it denotes with the oracle [`RecordedPatterns`]. Asks `normal` for evidence only
+/// as the values it denotes with the oracle [`RecordedPatterns`], or read by the roots the
+/// instance-normal scan fixes with the oracle [`ScannedPatterns`]. Asks `normal` for evidence only
 /// for an equation-head root, and only once. Evidence of a left-hand side's reading
 /// ([`PatternReading::AsWritten`]) says nothing about a value, so an oracle that hands it back
 /// leaves the root open.
@@ -1115,6 +1175,14 @@ mod tests {
             "the mark on a free constructor is structure, not a certificate"
         );
         assert_eq!(NormalEvidence::given(), NormalEvidence(Source::Given));
+        // The scan's equation side fixes an admitted head's root as the pattern writes it, also
+        // on an application an equation reaches, and that evidence is not about a value.
+        let pattern = Some(FixedRoot::EquationHead(NormalEvidence(
+            Source::ScannedPattern,
+        )));
+        assert_eq!(root(&redex, &mut ScannedPatterns(&definition)), pattern);
+        assert_eq!(root(&plain, &mut ScannedPatterns(&definition)), pattern);
+        assert!(!NormalEvidence(Source::ScannedPattern).of_a_value());
     }
 
     /// An oracle cannot turn a pattern's reading into evidence about a value.

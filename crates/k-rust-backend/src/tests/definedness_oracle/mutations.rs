@@ -281,7 +281,7 @@ fn the_overload_switches_withdraw_no_fewer_claims() {
 
 /// The harness's own acceptance: each switch below makes a claim false, or makes the check
 /// accept a definition that has no model or whose evaluation depends on its axioms' order, on
-/// one of the definitions the harness runs, and the harness sees it. That is 25 of the 31 defect
+/// one of the definitions the harness runs, and the harness sees it. That is 26 of the 32 defect
 /// switches of `confluence::switches` (`no_condition_memo` configures the load and seeds no
 /// defect). The other six it cannot see:
 ///
@@ -417,4 +417,13 @@ axiom_mutation!(
 axiom_mutation!(
     the_axiom_harness_sees_dropped_collection_edges,
     drop_collection_edges
+);
+// The scan reads an overloaded production written in an equation's argument pattern up to
+// equations, since the overload axioms equate `g(inj(x))` with `inj(l(x))`; read by its root
+// instead, it mints a token on an instance over values that the overload equation reaches
+// (`len(inj(nilN))` under `len(nilE) = mk(0)` in `generator::family`), which the token judge on
+// instances over values sees.
+axiom_mutation!(
+    the_axiom_harness_sees_overloaded_patterns_read_by_their_root,
+    root_read_overloaded_patterns
 );
