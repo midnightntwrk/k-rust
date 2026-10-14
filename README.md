@@ -24,7 +24,7 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
   None is complete; `semantics/coverage.toml` records what each covers, what is deferred, and every adapter boundary.
   Their gates execute 32 (KWasm), 240 (KEVM), and 184 (KMIR) pinned cases natively through `k-rust`.
 - **Toolchain pins.** `Krs.lock` pins K 7.1.337, the `k-rust` frontend commit, Z3 4.12.5, and the IR schema versions; every gate reads them from there.
-  The workspace MSRV is Rust 1.88.0; the gates also qualify native-frontend helpers on any stable Rust at or above it.
+  The workspace MSRV is Rust 1.95.0, the first release whose `if let` match guards the pinned `k-rust` uses; the gates also qualify native-frontend helpers on any stable Rust at or above it.
 - **Documentation.** `docs-plan/tour.toml` is the curriculum and feature-status ledger for a 17-chapter language tour, published by the Vocs site in `docs-site/`.
   `docs-plan/authoring-spec/` is the normative readable-authoring specification.
 - **Browser lessons.** `browser/` contains a Web Worker that expands and compiles lessons in the browser, together with its dependency pack and release tooling.
@@ -53,8 +53,8 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
 
 ### Prerequisites
 
-- Rust 1.88.0 and a current stable toolchain with Clippy and rustfmt.
-  The repository has no `rust-toolchain.toml`, so pass `+stable` or `+1.88.0` explicitly.
+- Rust 1.95.0 and a current stable toolchain with Clippy and rustfmt.
+  The repository has no `rust-toolchain.toml`, so pass `+stable` or `+1.95.0` explicitly.
 - The Z3 4.12.5 shared library on the link and load paths.
   `krs-k-rust` builds `k-rust` with the `z3-inference` feature and does not download a solver.
   Set `KRS_Z3_LIB` to the directory that contains `libz3.so`; the Python gates prepend it to both paths themselves, but Cargo needs it exported:
@@ -78,7 +78,7 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
 ```sh
 cargo +stable test --workspace --locked --offline
 cargo +stable clippy --workspace --all-targets --locked --offline -- -D warnings
-cargo +1.88.0 check --workspace --all-targets --locked --offline
+cargo +1.95.0 check --workspace --all-targets --locked --offline
 cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --workspace
 ```
 

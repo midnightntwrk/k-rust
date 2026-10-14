@@ -6,7 +6,7 @@ collector = 58
 kast_json = 4
 
 [cargo]
-msrv = "1.88.0"
+msrv = "1.95.0"
 
 [k]
 version = "7.1.337"

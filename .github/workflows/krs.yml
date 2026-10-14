@@ -37,7 +37,7 @@ jobs:
         uses: ./starstream-fv/krs/.github/actions/krs-inputs
 
       - name: Select Rust
-        uses: dtolnay/rust-toolchain@1.88.0
+        uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Select current stable Rust
         uses: dtolnay/rust-toolchain@stable
@@ -79,7 +79,7 @@ jobs:
           echo "LD_LIBRARY_PATH=$KRS_Z3_LIB" >> "$GITHUB_ENV"
 
       - name: Select the minimum supported Rust
-        uses: dtolnay/rust-toolchain@1.88.0
+        uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Select current stable Rust
         uses: dtolnay/rust-toolchain@stable
@@ -131,10 +131,10 @@ jobs:
         run: cargo +stable clippy --target wasm32-unknown-unknown -p krs-lesson-policy --locked --offline -- -D warnings
 
       - name: Check the workspace on the minimum supported Rust
-        run: cargo +1.88.0 check --workspace --all-targets --locked --offline
+        run: cargo +1.95.0 check --workspace --all-targets --locked --offline
 
       - name: Check KRS without default features on the minimum supported Rust
-        run: cargo +1.88.0 check -p krs --no-default-features --locked --offline
+        run: cargo +1.95.0 check -p krs --no-default-features --locked --offline
 
       - name: Test the semantics workspace
         run: cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --workspace

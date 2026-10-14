@@ -26,8 +26,8 @@ const STAGE_CACHE_VARIABLE: &str = "KRS_STAGE_CACHE_DIR";
 const LAYOUT: &str = "v1";
 /// The schema of an entry's header.
 const SCHEMA: u32 = 1;
-const MAX_UNUSED: Duration = Duration::from_secs(30 * 24 * 60 * 60);
-const PRUNE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+const MAX_UNUSED: Duration = Duration::from_hours(30 * 24);
+const PRUNE_INTERVAL: Duration = Duration::from_hours(24);
 /// The repository lock that pins k-rust; `krs` is always built from a KRS checkout.
 const LOCK: &str = include_str!("../../../../Krs.lock");
 

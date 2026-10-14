@@ -3,7 +3,7 @@ name = "krs-imp-expanded"
 description = "Replacement-crate validation for the reviewed KRS layer-2 IMP expansion"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 publish = false
 
 [lib]

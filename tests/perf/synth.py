@@ -197,7 +197,7 @@ name = "{PACKAGE}"
 description = "Synthetic KRS definition for compile-performance ladders (generated, scratch only)"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 publish = false
 
 [lib]
