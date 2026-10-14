@@ -18,7 +18,8 @@ use crate::support::{internal_term, unstopped::simplify_with_solver};
 /// `look(K, M)` is the amount of the record `M` holds at `K`, else 0 (`owise`); `lookv(K, M)`
 /// likewise, reading only a record that names `K` again, as an account cell holds its own
 /// identifier; `lookc(K, M)` is the amount `M` holds at `cat(K, 0)`, where `cat` is a commutative
-/// function without equations, so `cat(K, 0)` may equal `cat(B, 0)` for a `K` other than `B`.
+/// function without equations, so `cat(K, 0)` may equal `cat(B, 0)` for a `K` other than `B`;
+/// `h` is a function without equations.
 fn definition() -> BackendDefinition {
     let lookup = |head: &str, key: &str, value: &str| {
         format!(
@@ -58,6 +59,7 @@ fn definition() -> BackendDefinition {
             symbol look{{}}(SortInt{{}}, SortMap{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
             symbol lookv{{}}(SortInt{{}}, SortMap{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
             symbol lookc{{}}(SortInt{{}}, SortMap{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+            symbol h{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
             {}
             {}
             {}
@@ -267,4 +269,24 @@ fn equal_and_ground_keys_decide_the_match() {
             &format!("{head}-found"),
         );
     }
+}
+
+/// A record whose value names its own key under a function (`val(h(B), 8)` at `B`) matches
+/// `lookv(A, ..)` only where `A` equals `B` and `h(B)` equals `B`; the second equality is not
+/// one the path condition decides, so the application is kept, alone and beside a refuted
+/// sibling record.
+#[test]
+fn a_record_naming_its_key_under_a_function_keeps_the_application() {
+    let definition = definition();
+    let subject = format!(
+        "lookv{{}}(VarA:SortInt{{}}, mapItem{{}}(VarB:SortInt{{}}, val{{}}(h{{}}(VarB:SortInt{{}}), {})))",
+        int(8)
+    );
+    assert_kept(&definition, &subject, &[]);
+    let subject = format!(
+        "lookv{{}}(VarA:SortInt{{}}, mapConcat{{}}(mapItem{{}}(VarB:SortInt{{}}, val{{}}(h{{}}(VarB:SortInt{{}}), {})), mapItem{{}}(VarC:SortInt{{}}, val{{}}(VarC:SortInt{{}}, {}))))",
+        int(8),
+        int(9)
+    );
+    assert_kept(&definition, &subject, &[differ(&definition, "A", "C")]);
 }
