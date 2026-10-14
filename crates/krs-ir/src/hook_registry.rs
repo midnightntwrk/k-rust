@@ -4,13 +4,16 @@
 //! catalog ([`crate::HookOperation`]) does not cover. KRS cannot check its
 //! signature, but it checks that the name exists: this table is the union of
 //! the runtime and crypto hook classifications in k-rust's
-//! `crates/k-rust/tests/fixtures/hook-capabilities.toml` at the `Krs.lock`
-//! pin, without the structural sort hooks (`INT.Int`, ...), which never name
-//! a function. A sync test fails when that file changes.
+//! `crates/k-rust/tests/fixtures/hook-capabilities.toml` (manifest version 2)
+//! at the `Krs.lock` pin, without the structural hooks (`INT.Int`,
+//! `MINT.literal`, ...), which never name an evaluator call. A sync test fails
+//! when that file changes.
 //!
-//! The unsupported hooks are open upstream requests: upstream k-rust/mint-hooks,
-//! k-rust/buffer-hooks, k-rust/int-bitrange-hooks, and
-//! k-rust/map-set-choice-difference-hooks.
+//! A capability says whether k-rust has an evaluator, not whether a ground
+//! application evaluates natively: an `EquationDefined` hook evaluates through
+//! its prelude module's equations wherever that module is imported, and the
+//! `BUFFER.*` hooks are unreachable on native-rust, which compiles
+//! `STRING-BUFFER` as `STRING-BUFFER-IN-K` (upstream k-rust/buffer-hooks).
 
 /// What the in-process k-rust backend does with a hooked function.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -20,7 +23,12 @@ pub enum NativeHookCapability {
     /// k-rust evaluates the hook only during ordinary execution, with its
     /// console state (`IO.write`, ...; upstream k-rust/console-write-through-execute).
     ExecutionOnly,
-    /// k-rust accepts the declaration but cannot evaluate the hook.
+    /// k-rust has no evaluator for the hook, but the prelude module that
+    /// declares it defines it by equations, which apply wherever that module
+    /// is imported (`LIST.push`, `STRING.replace`, ...).
+    EquationDefined,
+    /// k-rust accepts the declaration, but neither an evaluator nor a prelude
+    /// equation evaluates the hook.
     Unsupported,
 }
 
@@ -31,6 +39,7 @@ impl NativeHookCapability {
         match self {
             Self::Implemented => "implemented",
             Self::ExecutionOnly => "execution-only",
+            Self::EquationDefined => "equation-defined",
             Self::Unsupported => "unsupported",
         }
     }
@@ -88,7 +97,7 @@ const fn hook(
 
 /// Every pinned hook name, sorted by name.
 pub const HOOK_REGISTRY: &[RegisteredHook] = {
-    use NativeHookCapability::{ExecutionOnly, Implemented, Unsupported};
+    use NativeHookCapability::{EquationDefined, ExecutionOnly, Implemented, Unsupported};
     &[
         hook("BOOL.and", Implemented, None),
         hook("BOOL.andThen", Implemented, None),
@@ -172,7 +181,7 @@ pub const HOOK_REGISTRY: &[RegisteredHook] = {
         hook("INT.abs", Implemented, None),
         hook("INT.add", Implemented, None),
         hook("INT.and", Implemented, None),
-        hook("INT.bitRange", Unsupported, None),
+        hook("INT.bitRange", Implemented, None),
         hook("INT.ediv", Implemented, None),
         hook("INT.emod", Implemented, None),
         hook("INT.eq", Implemented, None),
@@ -192,7 +201,7 @@ pub const HOOK_REGISTRY: &[RegisteredHook] = {
         hook("INT.rand", Unsupported, None),
         hook("INT.shl", Implemented, None),
         hook("INT.shr", Implemented, None),
-        hook("INT.signExtendBitRange", Unsupported, None),
+        hook("INT.signExtendBitRange", Implemented, None),
         hook("INT.srand", Unsupported, None),
         hook("INT.sub", Implemented, None),
         hook("INT.tdiv", Implemented, None),
@@ -276,7 +285,7 @@ pub const HOOK_REGISTRY: &[RegisteredHook] = {
         hook("LIST.getMInt", Unsupported, None),
         hook("LIST.in", Implemented, None),
         hook("LIST.make", Implemented, None),
-        hook("LIST.push", Unsupported, None),
+        hook("LIST.push", EquationDefined, None),
         hook("LIST.range", Implemented, None),
         hook("LIST.size", Implemented, None),
         hook("LIST.sizeMInt", Unsupported, None),
@@ -284,9 +293,9 @@ pub const HOOK_REGISTRY: &[RegisteredHook] = {
         hook("LIST.update", Implemented, None),
         hook("LIST.updateAll", Implemented, None),
         hook("LIST.updateMInt", Unsupported, None),
-        hook("MAP.choice", Unsupported, None),
+        hook("MAP.choice", Implemented, None),
         hook("MAP.concat", Implemented, None),
-        hook("MAP.difference", Unsupported, None),
+        hook("MAP.difference", Implemented, None),
         hook("MAP.element", Implemented, None),
         hook("MAP.in_keys", Implemented, None),
         hook("MAP.inclusion", Implemented, None),
@@ -302,44 +311,43 @@ pub const HOOK_REGISTRY: &[RegisteredHook] = {
         hook("MAP.updateAll", Implemented, None),
         hook("MAP.values", Implemented, None),
         hook("MINT.MInt2bytes", Unsupported, None),
-        hook("MINT.add", Unsupported, None),
-        hook("MINT.and", Unsupported, None),
-        hook("MINT.ashr", Unsupported, None),
-        hook("MINT.bitwidth", Unsupported, None),
+        hook("MINT.add", Implemented, None),
+        hook("MINT.and", Implemented, None),
+        hook("MINT.ashr", Implemented, None),
+        hook("MINT.bitwidth", Implemented, None),
         hook("MINT.bytes2MInt", Unsupported, None),
-        hook("MINT.eq", Unsupported, None),
-        hook("MINT.integer", Unsupported, None),
-        hook("MINT.literal", Unsupported, None),
-        hook("MINT.lshr", Unsupported, None),
-        hook("MINT.mul", Unsupported, None),
-        hook("MINT.ne", Unsupported, None),
-        hook("MINT.neg", Unsupported, None),
-        hook("MINT.not", Unsupported, None),
-        hook("MINT.or", Unsupported, None),
+        hook("MINT.eq", Implemented, None),
+        hook("MINT.integer", Implemented, None),
+        hook("MINT.lshr", Implemented, None),
+        hook("MINT.mul", Implemented, None),
+        hook("MINT.ne", Implemented, None),
+        hook("MINT.neg", Implemented, None),
+        hook("MINT.not", Implemented, None),
+        hook("MINT.or", Implemented, None),
         hook("MINT.pow", Unsupported, None),
         hook("MINT.round", Unsupported, None),
-        hook("MINT.sdiv", Unsupported, None),
+        hook("MINT.sdiv", Implemented, None),
         hook("MINT.sext", Unsupported, None),
-        hook("MINT.sge", Unsupported, None),
-        hook("MINT.sgt", Unsupported, None),
-        hook("MINT.shl", Unsupported, None),
-        hook("MINT.sle", Unsupported, None),
-        hook("MINT.slt", Unsupported, None),
+        hook("MINT.sge", Implemented, None),
+        hook("MINT.sgt", Implemented, None),
+        hook("MINT.shl", Implemented, None),
+        hook("MINT.sle", Implemented, None),
+        hook("MINT.slt", Implemented, None),
         hook("MINT.smax", Unsupported, None),
         hook("MINT.smin", Unsupported, None),
-        hook("MINT.srem", Unsupported, None),
-        hook("MINT.sub", Unsupported, None),
-        hook("MINT.svalue", Unsupported, None),
-        hook("MINT.udiv", Unsupported, None),
-        hook("MINT.uge", Unsupported, None),
-        hook("MINT.ugt", Unsupported, None),
-        hook("MINT.ule", Unsupported, None),
-        hook("MINT.ult", Unsupported, None),
+        hook("MINT.srem", Implemented, None),
+        hook("MINT.sub", Implemented, None),
+        hook("MINT.svalue", Implemented, None),
+        hook("MINT.udiv", Implemented, None),
+        hook("MINT.uge", Implemented, None),
+        hook("MINT.ugt", Implemented, None),
+        hook("MINT.ule", Implemented, None),
+        hook("MINT.ult", Implemented, None),
         hook("MINT.umax", Unsupported, None),
         hook("MINT.umin", Unsupported, None),
-        hook("MINT.urem", Unsupported, None),
-        hook("MINT.uvalue", Unsupported, None),
-        hook("MINT.xor", Unsupported, None),
+        hook("MINT.urem", Implemented, None),
+        hook("MINT.uvalue", Implemented, None),
+        hook("MINT.xor", Implemented, None),
         hook("RANGEMAP.choice", Unsupported, None),
         hook("RANGEMAP.concat", Unsupported, None),
         hook("RANGEMAP.difference", Unsupported, None),
@@ -359,7 +367,7 @@ pub const HOOK_REGISTRY: &[RegisteredHook] = {
         hook("RANGEMAP.updateRng", Unsupported, None),
         hook("RANGEMAP.values", Unsupported, None),
         hook("SECP256K1.ecdsaRecover", Implemented, Some(4)),
-        hook("SET.choice", Unsupported, None),
+        hook("SET.choice", Implemented, None),
         hook("SET.concat", Implemented, None),
         hook("SET.difference", Implemented, None),
         hook("SET.element", Implemented, None),
@@ -379,7 +387,7 @@ pub const HOOK_REGISTRY: &[RegisteredHook] = {
         hook("STRING.directionality", Unsupported, None),
         hook("STRING.eq", Implemented, None),
         hook("STRING.find", Implemented, None),
-        hook("STRING.findChar", Unsupported, None),
+        hook("STRING.findChar", EquationDefined, None),
         hook("STRING.float2string", Unsupported, None),
         hook("STRING.floatFormat", Unsupported, None),
         hook("STRING.ge", Implemented, None),
@@ -390,11 +398,11 @@ pub const HOOK_REGISTRY: &[RegisteredHook] = {
         hook("STRING.lt", Implemented, None),
         hook("STRING.ne", Implemented, None),
         hook("STRING.ord", Implemented, None),
-        hook("STRING.replace", Unsupported, None),
+        hook("STRING.replace", EquationDefined, None),
         hook("STRING.replaceAll", Implemented, None),
-        hook("STRING.replaceFirst", Unsupported, None),
+        hook("STRING.replaceFirst", EquationDefined, None),
         hook("STRING.rfind", Implemented, None),
-        hook("STRING.rfindChar", Unsupported, None),
+        hook("STRING.rfindChar", EquationDefined, None),
         hook("STRING.string2base", Implemented, None),
         hook("STRING.string2float", Unsupported, None),
         hook("STRING.string2int", Implemented, None),

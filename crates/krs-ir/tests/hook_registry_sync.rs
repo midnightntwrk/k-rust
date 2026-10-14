@@ -15,18 +15,12 @@ fn names(item: &toml_edit::Item) -> Vec<String> {
         .collect()
 }
 
-fn unsupported(item: Option<&toml_edit::Item>) -> Vec<String> {
+fn grouped(item: Option<&toml_edit::Item>) -> Vec<String> {
     item.and_then(toml_edit::Item::as_array_of_tables)
         .map(|tables| {
             tables
                 .iter()
-                .flat_map(|table| {
-                    names(
-                        table
-                            .get("hooks")
-                            .expect("an unsupported group lists hooks"),
-                    )
-                })
+                .flat_map(|table| names(table.get("hooks").expect("a hook group lists hooks")))
                 .collect()
         })
         .unwrap_or_default()
@@ -42,6 +36,11 @@ fn registry_matches_pinned_k_rust_hook_capabilities() {
     let document: toml_edit::Document<String> =
         toml_edit::Document::parse(text).expect("hook-capabilities.toml parses");
     let root = document.as_table();
+    assert_eq!(
+        root.get("version").and_then(toml_edit::Item::as_integer),
+        Some(2),
+        "the registry mirrors manifest version 2"
+    );
     let crypto = root
         .get("crypto")
         .and_then(toml_edit::Item::as_table)
@@ -63,7 +62,10 @@ fn registry_matches_pinned_k_rust_hook_capabilities() {
     for name in names(&root["execution_only"]) {
         add(name, NativeHookCapability::ExecutionOnly, None);
     }
-    for name in unsupported(root.get("unsupported")) {
+    for name in grouped(root.get("equation_defined")) {
+        add(name, NativeHookCapability::EquationDefined, None);
+    }
+    for name in grouped(root.get("unsupported")) {
         add(name, NativeHookCapability::Unsupported, None);
     }
     let arity = |name: &str| {
@@ -77,7 +79,7 @@ fn registry_matches_pinned_k_rust_hook_capabilities() {
         let arity = arity(&name);
         add(name, NativeHookCapability::Implemented, arity);
     }
-    for name in unsupported(crypto.get("unsupported")) {
+    for name in grouped(crypto.get("unsupported")) {
         let arity = arity(&name);
         add(name, NativeHookCapability::Unsupported, arity);
     }

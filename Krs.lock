@@ -16,7 +16,7 @@ llvm_backend_version = "0.1.140"
 
 [k_rust]
 version = "0.6.0"
-commit = "d86f2c10a8aad795f7149c0ec45f04f8ff0a5578"
+commit = "bbd05fd319f21c7d3a588808698533f4f4455d1f"
 backend_version = "0.3.0"
 kore_version = "0.4.0"
 
