@@ -2729,3 +2729,52 @@ fn only_free_variable_parts_that_occur_once_merge() {
         None
     );
 }
+
+/// A list pair matched by decomposing an application of a commutative function binds its
+/// arguments as written, which only suffices: `[cat(K, J)]` against `[cat(1, 2)]` binds `J` to 2,
+/// but `cat(1, 2)` is `cat(2, 1)` as well. A later pair `[J]` against `[1]` fails only under the
+/// written order, so the problem is undecided, not without solutions.
+#[test]
+fn a_pair_failing_under_a_list_binding_that_only_suffices_is_undecided() {
+    let syntax = parse_definition(
+        r#"[]
+        module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortList{}
+                [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+            hooked-symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+            hooked-symbol listItem{}(SortInt{}) : SortList{} [function{}(), total{}(), hook{}("LIST.element")]
+            hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{} [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+            symbol cat{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), comm{}()]
+        endmodule []"#,
+    )
+    .expect("list definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("list definition should internalize");
+    let pair = |pattern: &str, subject: &str| {
+        (
+            internal_term(&definition, pattern),
+            internal_term(&definition, subject),
+        )
+    };
+    let pairs = [
+        pair(
+            "listItem{}(cat{}(K:SortInt{}, J:SortInt{}))",
+            r#"listItem{}(cat{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2")))"#,
+        ),
+        pair(
+            "listItem{}(J:SortInt{})",
+            r#"listItem{}(\dv{SortInt{}}("1"))"#,
+        ),
+    ];
+    assert_eq!(
+        solve_collection_pairs_in_definition(
+            MatchMode::Evaluate,
+            &definition,
+            Substitution::new(),
+            &pairs,
+            None,
+        ),
+        None
+    );
+}

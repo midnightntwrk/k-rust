@@ -49,6 +49,8 @@ mod stuck_instances;
 mod subject_key_equalities;
 #[path = "backend/support.rs"]
 mod support;
+#[path = "backend/tentative_bindings.rs"]
+mod tentative_bindings;
 #[path = "backend/term_order.rs"]
 mod term_order;
 #[path = "backend/unification.rs"]

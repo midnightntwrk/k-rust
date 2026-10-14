@@ -2191,3 +2191,67 @@ fn an_owise_equation_applies_where_every_nested_store_entry_is_refuted() {
     );
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+const CONCATENATION_OVER_OWISE: &str = r#"
+module CONCAT-SYNTAX
+endmodule
+
+module CONCAT
+  imports CONCAT-SYNTAX
+  imports INT
+  imports MAP
+  imports SET
+  imports LIST
+  imports BOOL
+
+  configuration <k> $PGM:K </k>
+  syntax KItem ::= run(Int)
+
+  syntax Int ::= m2(Map) [function, total]
+  rule m2(M1:Map M2:Map) => 1 requires size(M1) ==Int 1
+  rule m2(_) => 0 [owise]
+
+  syntax Int ::= s2(Set) [function, total]
+  rule s2(S1:Set S2:Set) => 1 requires size(S1) ==Int 1
+  rule s2(_) => 0 [owise]
+
+  syntax Int ::= l2(List) [function, total]
+  rule l2(L1:List L2:List) => 1 requires size(L1) ==Int 1
+  rule l2(_) => 0 [owise]
+endmodule
+
+module CONCAT-SPEC
+  imports CONCAT
+
+  claim [m2-zero]: <k> run(m2(A B)) => run(0) </k> requires size(A) ==Int 2 andBool size(B) ==Int 1
+  claim [m2-one]: <k> run(m2(A _B)) => run(1) </k> requires size(A) ==Int 1
+  claim [s2-zero]: <k> run(s2(A B)) => run(0) </k> requires size(A) ==Int 2 andBool size(B) ==Int 1
+  claim [s2-one]: <k> run(s2(A _B)) => run(1) </k> requires size(A) ==Int 1
+  claim [l2-zero]: <k> run(l2(A B)) => run(0) </k> requires size(A) ==Int 2 andBool size(B) ==Int 1
+  claim [l2-one]: <k> run(l2(A _B)) => run(1) </k> requires size(A) ==Int 1
+endmodule
+"#;
+
+/// A concatenation of two collection variables below an equation's root is matched against the
+/// subject's concatenation `A B` as written, `M1 := A`, `M2 := B`; but concatenation is
+/// associative and commutative, so `M1 := B` matches as well (and for a list, `L1 :=` the first
+/// item of `A`). Where the `requires` fails only under the written split (`size(A) = 2`,
+/// `size(B) = 1`), the equation is not refuted, so the `owise` value is not proven (`*-zero`);
+/// where it holds under that split, the first equation applies (`*-one`).
+#[test]
+fn an_owise_equation_does_not_apply_where_only_the_written_split_of_a_concatenation_fails() {
+    let wrong = statuses_breaking(
+        CONCATENATION_OVER_OWISE,
+        "CONCAT-SPEC",
+        "CONCAT",
+        &[
+            ("m2-zero", false, "proven"),
+            ("m2-one", true, "proven"),
+            ("s2-zero", false, "proven"),
+            ("s2-one", true, "proven"),
+            ("l2-zero", false, "proven"),
+            ("l2-one", true, "proven"),
+        ],
+    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
