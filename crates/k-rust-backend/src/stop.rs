@@ -474,7 +474,7 @@ static PROCESS_SEGMENTS: std::sync::atomic::AtomicUsize = std::sync::atomic::Ato
 #[cfg(not(target_family = "wasm"))]
 fn reserve_segment(total: &std::sync::atomic::AtomicUsize, segment: usize, budget: usize) -> bool {
     total
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
             held.checked_add(segment)
                 .filter(|holding| *holding <= budget)
         })

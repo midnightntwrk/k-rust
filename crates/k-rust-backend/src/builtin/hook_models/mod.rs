@@ -684,7 +684,7 @@ pub(super) fn check(
         let _ = write!(report, "model: {spec:?}");
         TestCaseError::fail(report)
     };
-    let concrete = evaluate(case.hook, &concrete_arguments).map_err(&fail)?;
+    let concrete = evaluate(case.hook, &concrete_arguments).map_err(fail)?;
     if matches!(spec.expect, Expect::Unspecified)
         && !matches!(
             concrete,
@@ -695,7 +695,7 @@ pub(super) fn check(
             "the hook gives {concrete:?} where its value is unspecified"
         )));
     }
-    let concrete_value = outcome(&concrete, &Env::new()).map_err(&fail)?;
+    let concrete_value = outcome(&concrete, &Env::new()).map_err(fail)?;
     match &concrete_value {
         None if !spec.may_decline => {
             return Err(fail(format!(
@@ -713,8 +713,8 @@ pub(super) fn check(
     if !has_variables(&case.arguments) {
         return Ok(());
     }
-    let symbolic = evaluate(case.hook, &case.arguments).map_err(&fail)?;
-    let Some(symbolic_value) = outcome(&symbolic, &case.env).map_err(&fail)? else {
+    let symbolic = evaluate(case.hook, &case.arguments).map_err(fail)?;
+    let Some(symbolic_value) = outcome(&symbolic, &case.env).map_err(fail)? else {
         tally.symbolic_declined += 1;
         return Ok(());
     };

@@ -60,15 +60,15 @@ jobs:
       z3-acquisition: ${{ needs.changes.outputs.z3-acquisition == 'true' }}
 
   msrv:
-    name: Rust 1.88 MSRV
+    name: Rust 1.99 MSRV
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Install Rust 1.88
-        uses: dtolnay/rust-toolchain@1.88.0
+      - name: Install Rust 1.99
+        uses: dtolnay/rust-toolchain@1.99.0
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2

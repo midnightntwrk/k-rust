@@ -2942,7 +2942,7 @@ mod tests {
         let portable = grammar.infer_ambiguous_sorts_portable(&forest, &start_sort, false, &lower);
         let z3 = grammar
             .infer_packed_sorts_z3(std::rc::Rc::clone(&forest), &start_sort, false)
-            .and_then(&lower);
+            .and_then(lower);
         assert_eq!(portable, z3);
     }
 
