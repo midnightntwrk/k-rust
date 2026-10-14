@@ -43,6 +43,8 @@ mod simplify;
 mod structural_distinctness;
 #[path = "backend/stuck_instances.rs"]
 mod stuck_instances;
+#[path = "backend/subject_key_equalities.rs"]
+mod subject_key_equalities;
 #[path = "backend/support.rs"]
 mod support;
 #[path = "backend/term_order.rs"]

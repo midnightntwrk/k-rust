@@ -1736,3 +1736,128 @@ fn an_owise_equation_applies_below_a_set_aside_equation_whose_requires_is_refute
     );
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+/// `total_balance` from k-distribution's regression `unification-lemmas2`: a configuration-context
+/// equation (`[[ ]]`) reads the balance of the account its argument names, and an `owise`
+/// equation gives 0. The first equation's left-hand side binds `WHO` to the argument and reads
+/// it again as the key of an account-map entry, so on a subject whose map holds an account under
+/// another symbolic key the instance matches exactly where the two keys are equal.
+const ACCOUNT_BALANCE_OVER_OWISE: &str = r#"
+module BALANCE-SYNTAX
+endmodule
+
+module BALANCE
+  imports BALANCE-SYNTAX
+  imports INT
+  imports COLLECTIONS
+  imports K-EQUAL
+
+  configuration
+    <set-balance>
+      <k> $PGM:KItem </k>
+      <accounts>
+        <account multiplicity="*" type="Map">
+          <accountID> .AccountId:AccountId </accountID>
+          <freeBalance> 0 </freeBalance>
+        </account>
+      </accounts>
+    </set-balance>
+
+  syntax KItem ::= Int
+  syntax AccountId ::= ".AccountId" | Int
+
+  syntax Int ::= "total_balance" "(" AccountId ")" [function, total]
+  rule total_balance(_WHO) => 0 [owise]
+  rule [[ total_balance(WHO) => FREE_BALANCE ]]
+    <account>
+      <accountID> WHO </accountID>
+      <freeBalance> FREE_BALANCE </freeBalance>
+    </account>
+
+  syntax KItem ::= "a" "(" AccountId ")"
+  rule a(AID) => total_balance(AID)
+endmodule
+
+module BALANCE-SPEC
+  imports BALANCE
+  imports BOOL
+
+  claim [distinct-zero]: <k> a(AID) => 0 </k>
+    <accounts>
+      <account> <accountID> BID </accountID> <freeBalance> 30 </freeBalance> </account>
+    </accounts>
+    requires AID =/=K BID
+
+  claim [unconstrained-zero]: <k> a(_AID) => 0 </k>
+    <accounts>
+      <account> <accountID> _BID </accountID> <freeBalance> 30 </freeBalance> </account>
+    </accounts>
+
+  claim [equal-zero]: <k> a(AID) => 0 </k>
+    <accounts>
+      <account> <accountID> BID </accountID> <freeBalance> 30 </freeBalance> </account>
+    </accounts>
+    requires AID ==K BID
+
+  claim [equal-balance]: <k> a(AID) => 30 </k>
+    <accounts>
+      <account> <accountID> BID </accountID> <freeBalance> 30 </freeBalance> </account>
+    </accounts>
+    requires AID ==K BID
+
+  claim [two-one-distinct-zero]: <k> a(AID) => 0 </k>
+    <accounts>
+      <account> <accountID> B1 </accountID> <freeBalance> 30 </freeBalance> </account>
+      <account> <accountID> B2 </accountID> <freeBalance> 40 </freeBalance> </account>
+    </accounts>
+    requires AID =/=K B1
+
+  claim [two-unconstrained-zero]: <k> a(_AID) => 0 </k>
+    <accounts>
+      <account> <accountID> _B1 </accountID> <freeBalance> 30 </freeBalance> </account>
+      <account> <accountID> _B2 </accountID> <freeBalance> 40 </freeBalance> </account>
+    </accounts>
+
+  claim [two-both-distinct-zero]: <k> a(AID) => 0 </k>
+    <accounts>
+      <account> <accountID> B1 </accountID> <freeBalance> 30 </freeBalance> </account>
+      <account> <accountID> B2 </accountID> <freeBalance> 40 </freeBalance> </account>
+    </accounts>
+    requires (AID =/=K B1) andBool (AID =/=K B2)
+
+  claim [frame-distinct-zero]: <k> a(AID) => 0 </k>
+    <accounts>
+      <account> <accountID> BID </accountID> <freeBalance> 30 </freeBalance> </account>
+      _REST
+    </accounts>
+    requires AID =/=K BID
+endmodule
+"#;
+
+/// The `owise` premise negates the first equation's left-hand side, which matches the subject
+/// exactly where its account key equals the subject's. Where the claim's condition refutes every
+/// such key equality, the `owise` value is proven (`distinct-zero`, `two-both-distinct-zero`);
+/// where one key equality may hold, or holds, the application stays, so the `owise` value is not
+/// proven (`unconstrained-zero`, `equal-zero`, `two-one-distinct-zero`,
+/// `two-unconstrained-zero`), and where the key equality holds the first equation's value is
+/// (`equal-balance`). An account map with a frame may hold the argument's account in the frame,
+/// which no key disequality refutes (`frame-distinct-zero`).
+#[test]
+fn an_owise_equation_applies_where_the_path_condition_refutes_every_key_a_match_needs() {
+    let wrong = statuses_breaking(
+        ACCOUNT_BALANCE_OVER_OWISE,
+        "BALANCE-SPEC",
+        "BALANCE",
+        &[
+            ("distinct-zero", true, "proven"),
+            ("unconstrained-zero", false, "proven"),
+            ("equal-zero", false, "proven"),
+            ("equal-balance", true, "proven"),
+            ("two-one-distinct-zero", false, "proven"),
+            ("two-unconstrained-zero", false, "proven"),
+            ("two-both-distinct-zero", true, "proven"),
+            ("frame-distinct-zero", false, "proven"),
+        ],
+    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

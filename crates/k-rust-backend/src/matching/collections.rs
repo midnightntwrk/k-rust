@@ -64,7 +64,10 @@ use crate::{
     unification::{MatchUnification, unify_from},
 };
 
-use super::{FailReason, MatchFailed, MatchMode, MatchResult, match_terms_with_context};
+use super::{
+    Bindings, FailReason, MatchFailed, MatchMode, MatchResult, match_terms_with_context,
+    match_terms_with_context_reporting_bindings,
+};
 /// One solution for a set of deferred collection pairs.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct CollectionSolution {
@@ -73,6 +76,9 @@ pub(crate) struct CollectionSolution {
     pub matched: MatchSolution,
     /// Fresh collection remainders introduced while narrowing a subject frame.
     pub fresh: BTreeSet<Variable>,
+    /// Whether every binding is forced by the subject, or some only suffices
+    /// ([`Bindings::Sufficient`]).
+    pub bindings: Bindings,
 }
 
 /// Rewrite-side support for narrowing subject collection frames.
@@ -105,6 +111,7 @@ pub(crate) fn solve_collection_pairs_in_definition(
     let initial = CollectionSolution {
         matched: MatchSolution::new(initial),
         fresh: BTreeSet::new(),
+        bindings: Bindings::Forced,
     };
     let mut solutions =
         solve_collection_pairs_from_solution(mode, definition, initial, pairs, &mut narrowing, 0)?;
@@ -112,7 +119,14 @@ pub(crate) fn solve_collection_pairs_in_definition(
         solution.matched.sort_conditions();
     }
     solutions.sort();
-    solutions.dedup();
+    // One solution reached both ways keeps the weaker reading of its bindings.
+    solutions.dedup_by(|later, earlier| {
+        let same = later.matched == earlier.matched && later.fresh == earlier.fresh;
+        if same {
+            earlier.bindings = earlier.bindings.max(later.bindings);
+        }
+        same
+    });
     Some(solutions)
 }
 
@@ -216,7 +230,7 @@ fn solve_term_pair(
 ) -> PairSolution {
     let pattern = substitute(pattern, solution.matched.substitution());
     let subject = substitute(subject, solution.matched.substitution());
-    match match_terms_with_context(
+    let (matched, bindings) = match match_terms_with_context_reporting_bindings(
         mode,
         definition.sort_graph(),
         Some(definition),
@@ -225,8 +239,17 @@ fn solve_term_pair(
         // A collection element is never the root an equation is tried on.
         false,
     ) {
+        (MatchResult::Failed(FailReason::SharedVariables(shared)), _)
+            if mode == MatchMode::Evaluate =>
+        {
+            match_sharing_subject_variables(definition, &pattern, &subject, &shared)
+        }
+        outcome => outcome,
+    };
+    match matched {
         MatchResult::Success(found) => {
             solution.matched.bind(&found);
+            solution.bindings = solution.bindings.max(bindings);
             PairSolution::Solved(vec![solution])
         }
         MatchResult::Failed(_) => PairSolution::NoSolution,
@@ -285,6 +308,7 @@ fn solve_term_pair(
                         unified_solutions.push(CollectionSolution {
                             matched,
                             fresh: solution.fresh,
+                            bindings: solution.bindings,
                         });
                     }
                     MatchUnification::Bottom(_) => {}
@@ -299,6 +323,87 @@ fn solve_term_pair(
         }
         MatchResult::Indeterminate { .. } => PairSolution::Indeterminate,
     }
+}
+
+/// Match `pattern` against `subject` in `Evaluate` mode where both mention the variables in
+/// `shared`.
+///
+/// Such a variable is the subject's: an earlier pair of the problem bound a pattern variable to a
+/// subject term that mentions it, or bound the subject variable itself, and substituting that
+/// binding brought it into `pattern`. It is one variable on both sides, which matching does not
+/// bind, so the pair is matched with each of its occurrences in `pattern` renamed apart, and the
+/// result is read back. Where the renamed variable is bound to the shared variable itself, the
+/// occurrences agree. Where it is bound to another term `t`, the pair holds exactly where the
+/// shared variable equals `t`, which is kept as a binding of the subject variable, the reading
+/// the match of an equation's left-hand side gives such a binding
+/// (`simplify::Instance::Conditional`). A failed match refutes the pair: the renamed pattern
+/// ranges over every value of the shared variables, the subject's among them.
+fn match_sharing_subject_variables(
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    shared: &BTreeSet<Variable>,
+) -> (MatchResult, Bindings) {
+    let undecided = || {
+        (
+            MatchResult::Indeterminate {
+                substitution: Substitution::new(),
+                remainder: vec![(pattern.clone(), subject.clone())],
+            },
+            Bindings::Forced,
+        )
+    };
+    let taken = |name: &str| {
+        [pattern, subject].iter().any(|side| {
+            side.attributes()
+                .variables
+                .iter()
+                .any(|variable| &*variable.name == name)
+        })
+    };
+    let renamed = shared
+        .iter()
+        .map(|variable| {
+            let name = (0..)
+                .map(|index| format!("{}'Shared{index}", variable.name))
+                .find(|name| !taken(name))
+                .expect("some name is free");
+            let mut apart = variable.clone();
+            apart.name = name.into();
+            (variable.clone(), apart)
+        })
+        .collect::<Vec<_>>();
+    let renaming = renamed
+        .iter()
+        .map(|(variable, apart)| (variable.clone(), Term::variable(apart.clone())))
+        .collect::<Substitution>();
+    let (matched, bindings) = match_terms_with_context_reporting_bindings(
+        MatchMode::Evaluate,
+        definition.sort_graph(),
+        Some(definition),
+        &substitute(pattern, &renaming),
+        subject,
+        // A collection element is never the root an equation is tried on.
+        false,
+    );
+    let mut found = match matched {
+        MatchResult::Success(found) => found,
+        MatchResult::Failed(reason) => return (MatchResult::Failed(reason), Bindings::Forced),
+        MatchResult::Indeterminate { .. } => return undecided(),
+    };
+    for (variable, apart) in renamed {
+        let Some(value) = found.remove(&apart) else {
+            return undecided();
+        };
+        if value.attributes().variables.contains(&variable) {
+            if value != Term::variable(variable) {
+                return undecided();
+            }
+        } else {
+            found.insert(variable, value);
+        }
+    }
+    (MatchResult::Success(found), bindings)
 }
 
 /// Re-run each residual AC-candidate pair in rewrite mode before symbolic unification.
@@ -1293,8 +1398,9 @@ impl SetCollectionProblem<'_> {
 
 /// The complete collection matches of the deferred pairs of an ordinary match.
 pub(crate) enum CollectionMatches {
-    /// Every solution, in the solver's stable sorted order; never empty.
-    Solutions(Vec<Substitution>),
+    /// Every solution, in the solver's stable sorted order, with how its bindings relate to the
+    /// subject; never empty.
+    Solutions(Vec<(Substitution, Bindings)>),
     /// The pairs have no solution: the match failed.
     NoSolution(MatchFailed),
     /// The solver could not decide the pairs.
@@ -1326,7 +1432,7 @@ pub(crate) fn match_collection_remainders_all_in_definition(
                         conditions.is_empty(),
                         "without narrowing the solver keeps no equation"
                     );
-                    substitution
+                    (substitution, solution.bindings)
                 })
                 .collect(),
         ),

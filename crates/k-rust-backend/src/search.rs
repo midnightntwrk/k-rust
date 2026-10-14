@@ -2539,7 +2539,11 @@ fn match_pattern_with_variables(
             substitution.clone(),
             &remainder,
         ) {
-            CollectionMatches::Solutions(solutions) => solutions,
+            // Implication reads every solution as a witness, which a sufficient one is.
+            CollectionMatches::Solutions(solutions) => solutions
+                .into_iter()
+                .map(|(substitution, _bindings)| substitution)
+                .collect(),
             CollectionMatches::NoSolution(_) => return Ok(Ok(Vec::new())),
             CollectionMatches::Undecided => {
                 return Ok(Err(PatternMatchError::Indeterminate {

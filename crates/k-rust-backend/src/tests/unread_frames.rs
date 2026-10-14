@@ -135,7 +135,7 @@ fn an_unread_frame_is_bound_only_where_the_subject_has_obligations() {
         &definition,
         &format!("lookup{{}}({}, {key})", map(&[int(1), int(2), int(3)])),
     );
-    let elided = match_equation_in_definition(&definition, &rule.lhs, &ground, frames);
+    let (elided, _) = match_equation_in_definition(&definition, &rule.lhs, &ground, frames);
     let bound = match_terms_in_definition(MatchMode::Evaluate, &definition, &rule.lhs, &ground);
     assert!(!binds_a_map(&elided));
     assert!(binds_a_map(&bound));
@@ -155,7 +155,7 @@ fn an_unread_frame_is_bound_only_where_the_subject_has_obligations() {
     let symbolic_map = map(&["VarX:SortInt{}".to_owned(), int(2)]);
     assert!(!term(&definition, &symbolic_map).attributes().ceil_free());
     let symbolic = term(&definition, &format!("lookup{{}}({symbolic_map}, {key})"));
-    let kept = match_equation_in_definition(&definition, &rule.lhs, &symbolic, frames);
+    let (kept, _) = match_equation_in_definition(&definition, &rule.lhs, &symbolic, frames);
     assert!(binds_a_map(&kept));
 }
 
@@ -174,6 +174,6 @@ fn an_unread_frame_does_not_hide_a_missing_key() {
     );
     assert!(matches!(
         match_equation_in_definition(&definition, &rule.lhs, &absent, frames),
-        MatchResult::Failed(_)
+        (MatchResult::Failed(_), _)
     ));
 }

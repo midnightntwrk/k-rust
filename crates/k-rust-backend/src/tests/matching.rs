@@ -189,6 +189,7 @@ fn symmetrically_unifies_a_closed_list_with_an_open_list() {
                 ),
             ])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         }])
     );
 }
@@ -218,6 +219,7 @@ fn symmetrically_enumerates_set_selections_from_a_closed_set() {
                 ),
             ])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         },
         CollectionSolution {
             matched: MatchSolution::new(Substitution::from([
@@ -228,6 +230,7 @@ fn symmetrically_enumerates_set_selections_from_a_closed_set() {
                 ),
             ])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         },
     ];
     expected.sort();
@@ -272,6 +275,7 @@ fn symmetrically_enumerates_map_selections_from_a_closed_map() {
                 ),
             ])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         },
         CollectionSolution {
             matched: MatchSolution::new(Substitution::from([
@@ -286,6 +290,7 @@ fn symmetrically_enumerates_map_selections_from_a_closed_map() {
                 ),
             ])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         },
     ];
     expected.sort();
@@ -452,6 +457,7 @@ fn cancels_common_opaque_set_chunks_before_solving_the_residual_frame() {
                 ),
             ])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         }])
     );
 }
@@ -486,6 +492,7 @@ fn cancels_common_opaque_map_chunks_before_solving_the_residual_frame() {
                 ),
             ])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         }])
     );
 }
@@ -776,6 +783,7 @@ fn solves_a_closed_map_pattern_into_a_variable_frame() {
                 internal_term(&definition, "mapUnit{}()"),
             )])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         }])
     );
 
@@ -789,6 +797,7 @@ fn solves_a_closed_map_pattern_into_a_variable_frame() {
                 symbolic_entry,
             )])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         }])
     );
 
@@ -823,6 +832,7 @@ fn solves_a_closed_list_pattern_into_a_variable_frame() {
                 internal_term(&definition, "listUnit{}()"),
             )])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         }])
     );
 
@@ -846,6 +856,7 @@ fn solves_a_closed_list_pattern_into_a_variable_frame() {
                 internal_term(&definition, &format!("listItem{{}}({second})")),
             )])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         }])
     );
 
@@ -896,6 +907,7 @@ fn solves_one_sided_residuals_between_variable_list_frames() {
                 ),
             )])),
             fresh: BTreeSet::new(),
+            bindings: Bindings::Forced,
         }])
     );
 
