@@ -7,7 +7,9 @@
 //!
 //! - `size`: `O(1)`, the root summary's count; `element`, `unit`: `O(1)`.
 //! - `in`: one search, `O(log n)`; an element the search does not find is decided absent as a map
-//!   key is (`MAP` hooks): `O(s log n)` for a constructor-like element, `O(n)` otherwise.
+//!   key is (`MAP` hooks): `O(s log n)` for a constructor-like element, `O(n)` otherwise. An
+//!   element declared at a sort above the element sort that is no injected element is compared
+//!   with each element injected into its sort, `O(n)` (`collection_item`).
 //! - `concat`: the union of the two trees, `O(m log(n/m + 1))`, a repeated element read from the
 //!   union's summary.
 //! - `union`, `difference`, `intersection`: one search (and a path copy, or one item of a
@@ -21,8 +23,9 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 
 use super::{
-    BuiltinResult, HookResult, ResultCollection, UnsupportedHookReason, bool_term, expect_arity,
-    int_term, values_differ,
+    BuiltinResult, HookResult, ResultCollection, UnsupportedHookReason, bool_term,
+    collection_item::{self, Operand},
+    expect_arity, int_term, values_differ,
 };
 use crate::{
     matching::SortGraph,
@@ -171,17 +174,38 @@ fn unit(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<T
         .and_then(|into| into.build(Vec::new(), None)))
 }
 
+/// `E in S`, the element `E` read as an element of `S`'s element sort (`collection_item`).
 fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
     expect_arity("SET.in", arguments, 2)?;
     let [element, set] = arguments else {
         unreachable!()
     };
-    let TermKind::Set { elements, rest, .. } = set.kind() else {
+    let TermKind::Set {
+        definition,
+        elements,
+        rest,
+    } = set.kind()
+    else {
         return Ok(None);
     };
-    if place_of(elements, element).is_ok() {
+    let element = match collection_item::read(sorts, element, &definition.element_sort) {
+        Operand::Element(element) => element,
+        Operand::Wider { item, sort } => {
+            return Ok((rest.is_none()
+                && collection_item::absent_above(
+                    sorts,
+                    item,
+                    &sort,
+                    &definition.element_sort,
+                    elements.iter(),
+                ))
+            .then(|| bool_term(false)));
+        }
+        Operand::Unrelated => return Ok(None),
+    };
+    if place_of(elements, &element).is_ok() {
         Ok(Some(bool_term(true)))
-    } else if absent(sorts, element, elements, rest) {
+    } else if absent(sorts, &element, elements, rest) {
         Ok(Some(bool_term(false)))
     } else {
         Ok(None)

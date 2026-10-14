@@ -141,7 +141,9 @@ fn convert_all<'e>(
     })
 }
 
-fn below(sorts: Option<&SortGraph>, sub: &Sort, sup: &Sort) -> bool {
+/// Whether `sub` is known to be a subsort of `sup`: `false` without a sort graph or when the
+/// relation is not decided (a sort variable).
+pub(super) fn below(sorts: Option<&SortGraph>, sub: &Sort, sup: &Sort) -> bool {
     sorts.is_some_and(|sorts| matches!(sorts.check_subsort(sub, sup), Ok(true)))
 }
 

@@ -20,8 +20,9 @@ use num_traits::ToPrimitive;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinResult, HookResult, ResultCollection, UnsupportedHookReason, bool_term, describe_int,
-    expect_arity, expect_sort, int_term, read_int, values_differ,
+    BuiltinResult, HookResult, ResultCollection, UnsupportedHookReason, bool_term,
+    collection_item::{self, Operand},
+    describe_int, expect_arity, expect_sort, int_term, read_int, values_differ,
 };
 use crate::{
     matching::SortGraph,
@@ -214,27 +215,49 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
 /// `E in L`: `true` when `E` is syntactically one of `L`'s known elements, which every instance
 /// of `L` holds (the heads and, of an open list, the tails around its opaque middle); `false` only
 /// for a closed list whose every element is apart from `E`, since an open list's middle may hold
-/// any element; unevaluated otherwise.
+/// any element; unevaluated otherwise. `E` is read as an element of `L`'s element sort
+/// (`collection_item`).
 fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
     expect_arity("LIST.in", arguments, 2)?;
     let [element, list] = arguments else {
         unreachable!()
     };
-    let TermKind::List { heads, rest, .. } = list.kind() else {
+    let TermKind::List {
+        definition,
+        heads,
+        rest,
+    } = list.kind()
+    else {
         return Ok(None);
+    };
+    let element = match collection_item::read(sorts, element, &definition.element_sort) {
+        Operand::Element(element) => element,
+        Operand::Wider { item, sort } => {
+            return Ok((rest.is_none()
+                && collection_item::absent_above(
+                    sorts,
+                    item,
+                    &sort,
+                    &definition.element_sort,
+                    heads.iter(),
+                ))
+            .then(|| bool_term(false)));
+        }
+        Operand::Unrelated => return Ok(None),
     };
     let tails = rest.as_ref().map(|(_, tails)| tails.iter());
     if heads
         .iter()
         .chain(tails.into_iter().flatten())
-        .any(|item| item == element)
+        .any(|item| *item == *element)
     {
         return Ok(Some(bool_term(true)));
     }
-    Ok(
-        (rest.is_none() && heads.iter().all(|head| values_differ(sorts, element, head)))
-            .then(|| bool_term(false)),
-    )
+    Ok((rest.is_none()
+        && heads
+            .iter()
+            .all(|head| values_differ(sorts, &element, head)))
+    .then(|| bool_term(false)))
 }
 
 /// `makeList(N, V)`: `N` copies of `V`, built in `O(log² N)` nodes ([`Items::repeat`]): one node

@@ -3,6 +3,8 @@
 
 #[path = "backend/anywhere_matching.rs"]
 mod anywhere_matching;
+#[path = "backend/collection_item_sorts.rs"]
+mod collection_item_sorts;
 #[path = "backend/deferred_definedness.rs"]
 mod deferred_definedness;
 #[path = "backend/definedness_classes.rs"]

@@ -9,7 +9,9 @@
 //! - `size`: `O(1)`, the root summary's count; `element`, `unit`: `O(1)`.
 //! - `lookup`, `lookupOrDefault`, `in_keys`: one search, `O(log n)`. A key the search does not find
 //!   is decided absent by `absent`: a constructor-like key is compared with the `s` other keys
-//!   only, `O(s log n)`; a key that is not constructor-like with every entry, `O(n)`.
+//!   only, `O(s log n)`; a key that is not constructor-like with every entry, `O(n)`. A key
+//!   declared at a sort above the key sort that is no injected key is compared with each key
+//!   injected into its sort, `O(n)` (`collection_item`).
 //! - `update`, `remove`: one search and one path copy, `O(log n)`.
 //! - `updateAll`, `removeAll`: one search and one path copy per item of the second argument,
 //!   `O(m log n)`; `inclusion`: one search in the right map per entry of the left, `O(m log n)`.
@@ -27,7 +29,10 @@ use num_bigint::BigInt;
 
 use super::{
     BuiltinError, BuiltinResult, HookResult, ResultCollection, UnsupportedHookReason, bool_term,
-    expect_arity, expect_sort, int_term, result_collection::MapResult, values_differ,
+    collection_item::{self, Operand},
+    expect_arity, expect_sort, int_term,
+    result_collection::MapResult,
+    values_differ,
 };
 use crate::{
     matching::SortGraph,
@@ -520,23 +525,74 @@ fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
     Ok(Some(int_term(BigInt::from(entries.len()))))
 }
 
+/// What a map binds to a key operand read as a key of the map (`collection_item`).
+enum Binding<'a> {
+    /// The value bound to the key.
+    Bound(&'a Term),
+    /// The map binds no such key.
+    Unbound,
+    /// Not decided: a symbolic key or an opaque rest may bind it, or no injection is known to
+    /// relate the key operand to the map's keys.
+    Undecided,
+}
+
+/// The binding of `key` in the map whose `definition`, `entries` and `rest` are given: the key is
+/// read as a key of the map's key sort, searched among the entries, and decided absent by
+/// `absent` (`absent_above` for a key of a wider sort that is no injected key).
+fn binding<'a>(
+    sorts: Option<&SortGraph>,
+    key: &Term,
+    definition: &MapDefinition,
+    entries: &'a Items<(Term, Term)>,
+    rest: &Option<Term>,
+) -> Binding<'a> {
+    let key = match collection_item::read(sorts, key, &definition.key_sort) {
+        Operand::Element(key) => key,
+        Operand::Wider { item, sort } => {
+            return if rest.is_none()
+                && collection_item::absent_above(
+                    sorts,
+                    item,
+                    &sort,
+                    &definition.key_sort,
+                    entries.iter().map(|(key, _)| key),
+                ) {
+                Binding::Unbound
+            } else {
+                Binding::Undecided
+            };
+        }
+        Operand::Unrelated => return Binding::Undecided,
+    };
+    if let Some(index) = bound_at(entries, &*key) {
+        let (_, value) = entries.get(index).expect("a bound key's entry");
+        return Binding::Bound(value);
+    }
+    if absent(sorts, &key, entries, rest) {
+        Binding::Unbound
+    } else {
+        Binding::Undecided
+    }
+}
+
 fn lookup(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<BuiltinResult> {
     expect_arity("MAP.lookup", arguments, 2)?;
     let [map, key] = arguments else {
         unreachable!()
     };
-    let TermKind::Map { entries, rest, .. } = map.kind() else {
+    let TermKind::Map {
+        definition,
+        entries,
+        rest,
+    } = map.kind()
+    else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if let Some(index) = bound_at(entries, key) {
-        let (_, value) = entries.get(index).expect("a bound key's entry");
-        return Ok(BuiltinResult::Value(value.clone()));
-    }
-    if rest.is_none() && (entries.is_empty() || absent(sorts, key, entries, rest)) {
-        Ok(BuiltinResult::Bottom)
-    } else {
-        Ok(BuiltinResult::NotApplicable)
-    }
+    Ok(match binding(sorts, key, definition, entries, rest) {
+        Binding::Bound(value) => BuiltinResult::Value(value.clone()),
+        Binding::Unbound => BuiltinResult::Bottom,
+        Binding::Undecided => BuiltinResult::NotApplicable,
+    })
 }
 
 fn lookup_or_default(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
@@ -544,18 +600,19 @@ fn lookup_or_default(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResul
     let [map, key, default] = arguments else {
         unreachable!()
     };
-    let TermKind::Map { entries, rest, .. } = map.kind() else {
+    let TermKind::Map {
+        definition,
+        entries,
+        rest,
+    } = map.kind()
+    else {
         return Ok(None);
     };
-    if let Some(index) = bound_at(entries, key) {
-        let (_, value) = entries.get(index).expect("a bound key's entry");
-        return Ok(Some(value.clone()));
-    }
-    if !absent(sorts, key, entries, rest) {
-        Ok(None)
-    } else {
-        Ok(Some(default.clone()))
-    }
+    Ok(match binding(sorts, key, definition, entries, rest) {
+        Binding::Bound(value) => Some(value.clone()),
+        Binding::Unbound => Some(default.clone()),
+        Binding::Undecided => None,
+    })
 }
 
 fn in_keys(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
@@ -563,17 +620,19 @@ fn in_keys(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<T
     let [key, map] = arguments else {
         unreachable!()
     };
-    let TermKind::Map { entries, rest, .. } = map.kind() else {
+    let TermKind::Map {
+        definition,
+        entries,
+        rest,
+    } = map.kind()
+    else {
         return Ok(None);
     };
-    if bound_at(entries, key).is_some() {
-        return Ok(Some(bool_term(true)));
-    }
-    if absent(sorts, key, entries, rest) {
-        Ok(Some(bool_term(false)))
-    } else {
-        Ok(None)
-    }
+    Ok(match binding(sorts, key, definition, entries, rest) {
+        Binding::Bound(_) => Some(bool_term(true)),
+        Binding::Unbound => Some(bool_term(false)),
+        Binding::Undecided => None,
+    })
 }
 
 /// The entries of a closed map whose keys are all constructor-like, in key order.
