@@ -12162,12 +12162,19 @@ fn kprove_reports_closed_stdout_as_io_error() {
     // Exercise trusted reporting, an executed proof, and an unproven result. Each child reaches
     // its first report line, where the closed pipe surfaces, after loading the compiled
     // definition; nothing is compiled behind the dead stdout.
+    //
+    // The child's stdout is a pipe whose read end is closed before the child starts, so every
+    // write to it fails, the first one included. Closing the read end after the spawn instead
+    // would race: a first report line written into the pipe's buffer before the close succeeds,
+    // and a child that writes nothing else exits 0.
     for options in [
         ["--trusted", "reaches-b-or-c"],
         ["--depth", "10"],
         ["--depth", "0"],
     ] {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_krust"))
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let child = Command::new(env!("CARGO_BIN_EXE_krust"))
             .args([
                 "kprove",
                 "--compiled-definition",
@@ -12175,13 +12182,12 @@ fn kprove_reports_closed_stdout_as_io_error() {
             ])
             .args(["--main-module", "MAIN", "--claim", "reaches-b-or-c"])
             .args(options)
-            .stdout(Stdio::piped())
+            .stdout(Stdio::from(writer))
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        drop(child.stdout.take().unwrap());
 
-        // The child holds no pipe it could block on: stdout is closed and stderr is drained
+        // The child holds no pipe it could block on: stdout has no reader and stderr is drained
         // here, so the wait has no deadline.
         let output = child.wait_with_output().unwrap();
         let stderr = String::from_utf8(output.stderr).unwrap();
