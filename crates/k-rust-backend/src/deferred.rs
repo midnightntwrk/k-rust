@@ -1431,8 +1431,9 @@ mod tests {
         rewrite::{ExecutionOptions, Pattern, execute},
         smt::NoSolver,
         stop::{CancellationToken, StopCause},
-        term::Term,
+        term::{Sort, Symbol, Term, TermKind},
     };
+    use std::sync::Arc;
 
     thread_local! {
         /// Test builds: the evaluator calls [`super::evaluate_pure_hook`] made on this thread.
@@ -1460,6 +1461,10 @@ mod tests {
                 hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 hooked-symbol choice{}(SortMap{}) : SortInt{} [function{}(), hook{}("MAP.choice")]
+                hooked-symbol sizeMap{}(SortMap{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("MAP.size")]
+                hooked-symbol iteP{S}(SortBool{}, S, S) : S
+                    [function{}(), total{}(), hook{}("KEQUAL.ite")]
                 hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), total{}(), hook{}("INT.sub"), smt-hook{}("-")]
                 hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
@@ -1645,5 +1650,70 @@ mod tests {
         );
         assert_eq!(reads(&definition, &applications[1], 1), [0]);
         assert_eq!(reads(&definition, &applications[0], 1), [1]);
+    }
+
+    /// The evaluator calls of one read of `application`, whatever its result.
+    fn one_read(definition: &BackendDefinition, application: &Term) -> usize {
+        let before = hook_evaluations();
+        let _ = evaluate_pure_hook(definition, application).expect("no stop is armed");
+        hook_evaluations() - before
+    }
+
+    /// `application`'s symbol, sort arguments and argument nodes.
+    fn parts(application: &Term) -> (Arc<Symbol>, Vec<Sort>, Vec<Term>) {
+        let TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } = application.kind()
+        else {
+            panic!("{application:?} is no application");
+        };
+        (symbol.clone(), sort_arguments.clone(), arguments.clone())
+    }
+
+    #[test]
+    fn another_hook_on_the_same_argument_nodes_takes_its_own_value() {
+        // `choice(M)` is kept; `size(M)` on the very same map node is another application and
+        // is evaluated: its value is the map's size, not the kept choice.
+        let definition = definition();
+        let chosen = choice(&definition);
+        let (_, _, map) = parts(&chosen);
+        let (size, _, _) = parts(&term(&definition, r#"sizeMap{}(mapUnit{}())"#));
+        let sized = Term::application(size, Vec::new(), map);
+        let _scope = HookValueScope::enter(&definition);
+        assert_eq!(reads(&definition, &chosen, 3), [1, 1, 0]);
+        assert_eq!(
+            evaluations(&definition, &sized),
+            (
+                1,
+                BuiltinResult::Value(term(&definition, r#"\dv{SortInt{}}("2")"#))
+            )
+        );
+    }
+
+    #[test]
+    fn the_same_symbol_at_other_sort_arguments_is_another_application() {
+        // `iteP{SortMap}(true, M, M)` is kept; the application of `iteP` at `SortState` to the
+        // very same argument nodes differs in its sort arguments only, which fix its result
+        // sort, and is evaluated.
+        let definition = definition();
+        let map = r#"mapConcat{}(mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("10")), mapItem{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("20")))"#;
+        let at_map = term(
+            &definition,
+            &format!(r#"iteP{{SortMap{{}}}}(\dv{{SortBool{{}}}}("true"), {map}, {map})"#),
+        );
+        let (ite, _, arguments) = parts(&at_map);
+        let at_state = Term::application(ite, vec![Sort::simple("SortState")], arguments);
+        let _scope = HookValueScope::enter(&definition);
+        assert_eq!(
+            [
+                one_read(&definition, &at_map),
+                one_read(&definition, &at_map),
+                one_read(&definition, &at_map)
+            ],
+            [1, 1, 0]
+        );
+        assert_eq!(one_read(&definition, &at_state), 1);
     }
 }
