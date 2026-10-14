@@ -883,3 +883,74 @@ fn a_left_shift_at_a_width_beyond_u64_keeps_the_bits_below_the_width() {
         "{result:?}"
     );
 }
+
+/// A hook result is the value its own text names: the term built from the result's residue is the
+/// term the kinded constructor builds from the result's text, at widths below and above 128,
+/// beyond `u64`, and at `MInt{0}`, for results that wrap and results that do not.
+#[test]
+fn a_hook_result_is_the_value_its_text_names() {
+    let beyond_u64 = "18446744073709551616";
+    let wide = (1_u64 << 20).to_string();
+    for width in [
+        "0",
+        "1",
+        "8",
+        "64",
+        "65",
+        "128",
+        "200",
+        wide.as_str(),
+        beyond_u64,
+    ] {
+        let word = |value: &str| mint_term(width, &format!("{value}p{width}"));
+        for (hook, arguments) in [
+            ("MINT.not", vec![word("0")]),
+            ("MINT.neg", vec![word("1")]),
+            ("MINT.add", vec![word("1"), word("1")]),
+            ("MINT.sub", vec![word("0"), word("1")]),
+            ("MINT.mul", vec![word("3"), word("5")]),
+            ("MINT.xor", vec![word("6"), word("3")]),
+        ] {
+            let result = match evaluate(hook, &arguments) {
+                Ok(BuiltinResult::Value(result)) => result,
+                // A wrapped result at a width beyond the result bound is not built.
+                Ok(BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
+                    ..
+                })) if width == beyond_u64 => {
+                    continue;
+                }
+                other => panic!("{hook} at width {width}: {other:?}"),
+            };
+            let crate::term::TermKind::DomainValue { sort, value } = result.kind() else {
+                panic!("{hook} at width {width}: {result:?}");
+            };
+            let width_kind = mint_width(sort).expect("a machine-integer sort");
+            let parsed =
+                Term::domain_value_of(DomainKind::MInt(width_kind), sort.clone(), value.clone());
+            assert_eq!(result, parsed, "{hook} at width {width}");
+        }
+    }
+}
+
+/// A hook result is written from its residue: building it parses no decimal text, so its cost
+/// is not quadratic in its length. `~MInt` of 0 at a width of `2^20` is a decimal of 315,653
+/// digits whose parse alone used to dominate the hook (at `2^24`, about 15 of 17 seconds).
+#[test]
+fn a_hook_result_is_built_without_parsing_its_text() {
+    let width = 1_u64 << 20;
+    let zero = mint_term(width, &format!("0p{width}"));
+    let one = mint_term(width, &format!("1p{width}"));
+    let before = crate::term::mint_text_parses();
+    for (hook, arguments) in [
+        ("MINT.not", vec![zero.clone()]),
+        ("MINT.neg", vec![one.clone()]),
+        ("MINT.sub", vec![zero, one]),
+    ] {
+        let result = evaluate(hook, &arguments);
+        assert!(
+            matches!(result, Ok(BuiltinResult::Value(_))),
+            "{hook}: {result:?}"
+        );
+    }
+    assert_eq!(crate::term::mint_text_parses(), before);
+}

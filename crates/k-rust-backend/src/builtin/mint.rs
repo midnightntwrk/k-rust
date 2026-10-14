@@ -20,7 +20,7 @@
 //!
 //! A domain value of `MInt{W}` holds its canonical text `<u>p<D>`, `D` the digits of the sort's
 //! width argument (`Term::domain_value_of`), so the hooks read the residue from that text and
-//! write their results in it.
+//! write their results in it, from the residue itself (`Term::mint_of_residue`).
 
 use std::cmp::Ordering;
 
@@ -31,7 +31,7 @@ use super::{
     BuiltinError, BuiltinResult, HookResult, MAX_INT_RESULT_BITS, UnsupportedHookReason, bool_term,
     describe_int, expect_arity, int_term, read_int, result_size_limit,
 };
-use crate::term::{DomainKind, MIntWidth, Sort, Term, TermKind, mint_width, mint_width_digits};
+use crate::term::{MIntWidth, Sort, Term, TermKind, mint_width, mint_width_digits};
 
 /// `total`: the application's symbol is declared `total`, which the conversions read at a sort
 /// that names no width ([`no_width`]).
@@ -167,13 +167,7 @@ fn read_pair(hook: &str, arguments: &[Term]) -> HookResult<Option<(Word, Word)>>
 
 /// The literal of `sort` whose residue is `residue`, in canonical text.
 fn word_term(sort: &Sort, residue: &BigUint) -> Term {
-    let width = mint_width(sort).expect("a literal's sort has a width");
-    let digits = mint_width_digits(sort).expect("a literal's sort has width digits");
-    Term::domain_value_of(
-        DomainKind::MInt(width),
-        sort.clone(),
-        format!("{residue}p{digits}"),
-    )
+    Term::mint_of_residue(sort.clone(), residue)
 }
 
 /// The residue of `value` modulo `2^width` (no `width`: beyond `u64`), or `None` when computing

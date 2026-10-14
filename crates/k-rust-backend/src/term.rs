@@ -1238,6 +1238,28 @@ impl Term {
         term
     }
 
+    /// The domain value of the machine-integer sort `sort` whose unsigned residue is `residue`,
+    /// in `[0, 2^W)` for the width `W` the sort names, as the `MINT` hooks write their results.
+    /// Its text is written from the integer in the canonical form `<residue>p<D>`, `D` the digits
+    /// of the sort's width argument as written, so the canonicalizer, which would parse that
+    /// decimal back (a cost quadratic in its length), is not run.
+    pub(crate) fn mint_of_residue(sort: Sort, residue: &BigUint) -> Self {
+        let width = mint_width(&sort).expect("a machine-integer sort of a numeral width");
+        let digits = mint_width_digits(&sort).expect("a machine-integer sort of a numeral width");
+        debug_assert!(
+            match width {
+                MIntWidth::Bits(bits) => residue.bits() <= bits,
+                MIntWidth::Unrepresentable => true,
+                MIntWidth::NoWidth => false,
+            },
+            "{residue} is no residue of {sort:?}"
+        );
+        let value = format!("{residue}p{digits}").into();
+        let term = Self::new_domain_value(sort, value);
+        domain::note_construction(&term, DomainKind::MInt(width));
+        term
+    }
+
     /// The `Int` domain value of `value`, at the sort `SortInt`, which has the `Int` kind by its
     /// name whether or not a definition hooks it (`shared_domain_value_contract` C2).
     pub fn int(value: impl Into<BigInt>) -> Self {
@@ -2959,6 +2981,18 @@ pub(crate) fn mint_width_beyond_bound(width: MIntWidth) -> bool {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The machine-integer literals whose decimal magnitude this thread's canonicalizer parsed.
+    static MINT_TEXT_PARSES: Cell<usize> = const { Cell::new(0) };
+}
+
+/// The machine-integer literals whose decimal magnitude this thread's canonicalizer has parsed.
+#[cfg(test)]
+pub(crate) fn mint_text_parses() -> usize {
+    MINT_TEXT_PARSES.get()
+}
+
 /// `value` in the canonical text of `kind` at `sort`, keeping its allocation when it is already
 /// canonical or names no element.
 fn canonical_text(kind: DomainKind, sort: &Sort, value: KoreString) -> KoreString {
@@ -3011,6 +3045,8 @@ fn canonical_mint_text(width: MIntWidth, sort: &Sort, value: KoreString) -> Kore
     if negative && mint_width_beyond_bound(width) {
         return value;
     }
+    #[cfg(test)]
+    MINT_TEXT_PARSES.set(MINT_TEXT_PARSES.get() + 1);
     let magnitude: BigUint = literal
         .magnitude
         .parse()
