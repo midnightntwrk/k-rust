@@ -445,8 +445,8 @@ def main() -> int:
 
     target = checkout_scratch() / "patterns-functions-target"
     environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target), "CARGO_TERM_COLOR": "never"}
-    krs = build(environment, target=target)
-    gate = krs_gate.configured_or_build(target)
+    krs = build(environment)
+    gate = krs_gate.configured_or_build()
     check_packages("patterns-functions", krs=krs, env=environment, target_dir=target)
 
     with tempfile.TemporaryDirectory(prefix="krs-patterns-functions-") as temporary:

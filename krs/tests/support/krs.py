@@ -17,26 +17,21 @@ from support.hashing import sha256_file
 def build(
     environment: Mapping[str, str] | None = None,
     *,
-    target: Path | None = None,
     timeout: float | None = 600,
 ) -> Path:
     """Build the locked CLI and require Cargo to produce its debug binary.
 
-    The target directory is `target` when given, then `CARGO_TARGET_DIR` from
-    `environment`, then the workspace default of `tools.workspace_debug_binary`.
+    It builds in the shared tool target directory (`tools.tool_target`), whatever
+    `CARGO_TARGET_DIR` the caller's `environment` sets for the packages it compiles.
     `--offline` is not implied; a caller that needs it sets `CARGO_NET_OFFLINE`.
     """
 
-    env = {**tools.z3_environment(), **(environment or {})}
-    if target is None and "CARGO_TARGET_DIR" in env:
-        target = Path(env["CARGO_TARGET_DIR"])
-        if not target.is_absolute():
-            target = ROOT / target
-    if target is None:
-        binary = tools.workspace_debug_binary("krs")
-    else:
-        env["CARGO_TARGET_DIR"] = os.fspath(target)
-        binary = target / "debug" / "krs"
+    binary = tools.workspace_debug_binary("krs")
+    env = {
+        **tools.z3_environment(),
+        **(environment or {}),
+        "CARGO_TARGET_DIR": os.fspath(binary.parents[1]),
+    }
     process.run(
         ["cargo", "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"],
         cwd=ROOT,

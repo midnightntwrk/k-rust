@@ -132,6 +132,14 @@ class Context:
     """The qualified live Java K toolchain, located once when a snapshot first runs live."""
     behavior_evidence: Mapping[str, Any] | None = None
     """The normalized Java evidence of IMP.6's actual route, which IMP.9 compares `krs run` with."""
+    built_gate: Path | None = None
+    """The release `krs-gate` IMP.2 builds in the shared tool target directory."""
+
+    @property
+    def gate(self) -> Path:
+        if self.built_gate is None:
+            raise GateError("IMP.2 has not built the krs-gate binary")
+        return self.built_gate
 
     def upstream(self) -> dict[str, str]:
         """The upstream revision every IMP.4-IMP.8 snapshot reads."""
@@ -397,8 +405,8 @@ def phase_rust(context: Context) -> RustBuild:
     ):
         run([sys.executable, suite], timeout=300, environment=env)
 
-    krs = build(env, target=context.target, timeout=600)
-    krs_gate.build(context.target, environment=env)
+    krs = build(env, timeout=600)
+    context.built_gate = krs_gate.build(environment=env)
     check_packages("imp", krs=krs, env=env, target_dir=context.target)
     # These live LSP probes select authored tokens. A mere rust-analyzer
     # --version check is deliberately insufficient evidence.
@@ -498,8 +506,8 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
         "emit-k", "--backend", "haskell", "--output", replacement,
         timeout=300, environment=env,
     )
-    _verify_replacement_parity(emit_a, replacement, context.target / "release/krs-gate", env)
-    emitted_names = emitted_files(emit_a, context.target / "release/krs-gate", environment=env)
+    _verify_replacement_parity(emit_a, replacement, context.gate, env)
+    emitted_names = emitted_files(emit_a, context.gate, environment=env)
     for name, digest in exact_directory(emit_a, emit_b, emitted_names).items():
         # The ownership marker is the same file `krs build` writes natively.
         table_name = "native_artifact_sha256" if name == ".krs-artifacts" else "artifact_sha256"
@@ -527,9 +535,9 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
 
 
 def compile_source_definitions(context: Context, artifacts: Artifacts) -> SourceDefinitions:
-    labels, _ = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT, gate=context.target / "release/krs-gate", environment=context.environment)
+    labels, _ = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT, gate=context.gate, environment=context.environment)
     krs_gate.require_route(
-        context.target / "release/krs-gate", artifacts.paths, "java-haskell-reference",
+        context.gate, artifacts.paths, "java-haskell-reference",
         environment=context.environment,
     )
     actual_source = context.workspace / "actual-execution.k"
@@ -625,7 +633,7 @@ def phase_source_definition(context: Context, artifacts: Artifacts) -> SourceDef
     if set(files) != {"parsed.json", "compiled.json"}:
         raise GateError("source-definition policies must cover parsed.json and compiled.json")
     comparison = {}
-    with krs_gate.Session(context.target / "release/krs-gate", environment=context.environment) as session:
+    with krs_gate.Session(context.gate, environment=context.environment) as session:
         for filename in ("parsed.json", "compiled.json"):
             file_policy = table(files[filename], f"source_definition.files.{filename}")
             if set(file_policy) != {
@@ -674,7 +682,7 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
     native_kore = artifacts.native_build / "definition.kore"
     reference_kore = definitions.actual / "definition.kore"
-    comparator = [context.target / "release/krs-gate", "kore-compare", reference_kore, native_kore, MODULE]
+    comparator = [context.gate, "kore-compare", reference_kore, native_kore, MODULE]
     native_policy = table(context.pins.get("native_comparison"), "pins.native_comparison")
     expected_native_policy_fields = {"status", "label_map", "reference_claims_module"}
     if set(native_policy) != expected_native_policy_fields or native_policy.get("status") != "ready":
@@ -685,7 +693,7 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
     # require the comparator to merge only that one-import/claims-only KORE
     # module.
     execution_source = definitions.actual_execution_k
-    labels, claim_source = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT, gate=context.target / "release/krs-gate", environment=context.environment)
+    labels, claim_source = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT, gate=context.gate, environment=context.environment)
     if labels != context.pins.get("claim_labels"):
         raise GateError("native supplemental claim order differs")
     spec_module = str(native_policy.get("reference_claims_module"))
@@ -769,7 +777,7 @@ def phase_behavior(context: Context, definitions: SourceDefinitions) -> str:
     )
     summary = behavior.compare_behavior(
         k=k, workspace=context.workspace / "behavior",
-        gate=context.target / "release/krs-gate",
+        gate=context.gate,
         reference=behavior.Route(
             definitions.reference,
             reference_policy,
@@ -831,7 +839,7 @@ def phase_native_run(context: Context, rust_build: RustBuild, artifacts: Artifac
     import behavior
     _, actual_policy = behavior.term_policies(context.pins["behavior"])
     plan = behavior.plan_from_manifest(ROOT, context.corpus, context.pins["behavior"])
-    gate = context.target / "release/krs-gate"
+    gate = context.gate
     definition_ir = artifacts.paths / "definition-ir.json"
     run_divergences = table(context.pins.get("native_run_divergences", {}), "pins.native_run_divergences")
     summary = behavior.compare_native(
@@ -931,7 +939,7 @@ def phase_proofs(context: Context, rust_build: RustBuild) -> str:
         environment={
             **context.environment,
             "CARGO_TARGET_DIR": os.fspath(context.target),
-            "KRS_GATE_BIN": os.fspath(context.target / "release/krs-gate"),
+            "KRS_GATE_BIN": os.fspath(context.gate),
         },
     )
     expected_summary = (
@@ -946,7 +954,7 @@ def phase_compatibility(context: Context, rust_build: RustBuild, artifacts: Arti
     env = {
         **context.environment,
         "CARGO_TARGET_DIR": os.fspath(context.target),
-        "KRS_GATE_BIN": os.fspath(context.target / "release/krs-gate"),
+        "KRS_GATE_BIN": os.fspath(context.gate),
         "KRS_IMP_PROBE_TARGET_ROOT": os.fspath(context.target / "probes"),
     }
     commands = [

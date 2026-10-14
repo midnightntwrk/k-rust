@@ -102,7 +102,7 @@ def main() -> None:
     target = checkout_scratch() / "tour-imp-root-target"
     env = {**cli_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = build(env)
-    gate = krs_gate.build(target, environment=env)
+    gate = krs_gate.build(environment=env)
     check_packages("tour-imp", krs=binary, env=env, target_dir=target)
 
     # The chapter slices lie outside every target's source directory, so they are named explicitly.

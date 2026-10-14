@@ -45,7 +45,7 @@ FIXTURE_PACKAGES = {
 
 
 def move_evidence(krs: Path) -> dict[str, object]:
-    gate = krs_gate.configured_or_build(checkout_scratch() / "imp-gate-root-target")
+    gate = krs_gate.configured_or_build()
     with tempfile.TemporaryDirectory(prefix="krs-imp-stable-") as temporary:
         temporary = Path(temporary)
         details = {}

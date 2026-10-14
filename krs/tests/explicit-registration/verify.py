@@ -31,7 +31,7 @@ from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import checkout_scratch, executable, z3_environment  # noqa: E402
+from support.tools import executable, z3_environment  # noqa: E402
 
 
 FIXTURE = ROOT / "tests" / "tour-minimal"
@@ -439,7 +439,7 @@ def main() -> int:
 
     environment = cli_environment()
     binary = production_binary(arguments.krs, environment)
-    gate = krs_gate.configured_or_build(checkout_scratch() / "explicit-registration-root-target")
+    gate = krs_gate.configured_or_build()
 
     with tempfile.TemporaryDirectory(prefix="krs-explicit-registration-") as temporary:
         workspace = Path(temporary)

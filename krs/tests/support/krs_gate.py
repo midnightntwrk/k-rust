@@ -17,16 +17,17 @@ from typing import Any, Mapping, Sequence
 
 from support import GateError, ROOT
 from support import process
-from support.tools import z3_environment
+from support.tools import tool_target, z3_environment
 
 
 SESSION_EXIT_TIMEOUT_SECONDS = 30
 REQUEST_TIMEOUT_SECONDS = 900
 
 
-def build(target: Path, *, environment: Mapping[str, str] | None = None) -> Path:
-    """Build the locked release gate in a caller-owned Cargo target directory."""
+def build(*, environment: Mapping[str, str] | None = None) -> Path:
+    """Build the locked release gate in the shared tool target directory (`tools.tool_target`)."""
 
+    target = tool_target()
     binary = target / "release" / "krs-gate"
     process.run(
         ["cargo", "+stable", "build", "--locked", "--offline", "--release", "-p", "krs-gate", "--bins"],
@@ -43,8 +44,8 @@ def build(target: Path, *, environment: Mapping[str, str] | None = None) -> Path
     return binary
 
 
-def configured_or_build(default_target: Path) -> Path:
-    """Use the gate binary named by ``KRS_GATE_BIN``, or build it in ``default_target``.
+def configured_or_build() -> Path:
+    """Use the gate binary named by ``KRS_GATE_BIN``, or build it.
 
     A caller that already built the gate passes it on through ``KRS_GATE_BIN``,
     so a standalone run and a nested run share one release build.
@@ -52,7 +53,7 @@ def configured_or_build(default_target: Path) -> Path:
 
     configured = os.environ.get("KRS_GATE_BIN")
     if configured is None:
-        return build(default_target)
+        return build()
     binary = Path(configured)
     if not binary.is_file():
         raise GateError(f"KRS_GATE_BIN names no gate binary: {binary}")

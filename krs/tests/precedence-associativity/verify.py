@@ -74,7 +74,7 @@ def main() -> int:
         workspace = Path(temporary)
         target = workspace / "target"
         environment = {**z3_environment(), "CARGO_TARGET_DIR": str(target)}
-        binary = build(environment, target=target)
+        binary = build(environment)
         check_packages(
             "precedence-associativity", krs=binary, env=environment, target_dir=target
         )
@@ -85,7 +85,7 @@ def main() -> int:
 
         check_native_parses(invocation, environment)
 
-        gate = krs_gate.build(target, environment=environment)
+        gate = krs_gate.build(environment=environment)
         rows = krs_gate.ir_query(gate, emitted, {"kind": "sentences", "sentence_kind": "associativity"}, environment=environment)["rows"]
         if sum(row["associativity"] == "non_associative" for row in rows) != 1:
             raise GateError("emitted definition must contain one explicit non-assoc sentence")

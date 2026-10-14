@@ -38,7 +38,7 @@ from support.reference import (  # noqa: E402
     Key, Output, Snapshot, add_child_arguments, add_refresh_argument, indented_json,
     json_without_members, reduce_kore_exec_log, reduce_kprove_temp, repository_inputs,
 )
-from support.tools import checkout_scratch, k_executable, k_tool, z3_environment  # noqa: E402
+from support.tools import k_executable, k_tool, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -365,11 +365,7 @@ def dry_run_spec(
 def build_support() -> Path:
     """Use the root gate built by IMP, or build it for a standalone proof run."""
 
-    raw_target = os.environ.get("CARGO_TARGET_DIR")
-    target = Path(raw_target) if raw_target else checkout_scratch() / "imp-gate-root-target"
-    if not target.is_absolute():
-        target = ROOT / target
-    return krs_gate.configured_or_build(target)
+    return krs_gate.configured_or_build()
 
 
 def build_native(

@@ -13,58 +13,48 @@ from support import krs
 
 
 class BuildTests(unittest.TestCase):
-    def test_default_target_and_environment(self) -> None:
-        binary = ROOT / "target/debug/krs"
+    def test_builds_in_the_tool_target_whatever_the_caller_target(self) -> None:
+        binary = Path("/tools/debug/krs")
         with (
             patch.object(krs.tools, "z3_environment", return_value={"LIBRARY_PATH": "z3"}),
             patch.object(krs.tools, "workspace_debug_binary", return_value=binary),
             patch.object(krs.process, "run") as runner,
             patch.object(Path, "is_file", return_value=True),
         ):
-            self.assertEqual(krs.build({"CARGO_NET_OFFLINE": "true"}), binary)
+            self.assertEqual(krs.build({"CARGO_NET_OFFLINE": "true", "CARGO_TARGET_DIR": "/gate/fixtures"}), binary)
         runner.assert_called_once_with(
             ["cargo", "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"],
             cwd=ROOT,
-            environment={"LIBRARY_PATH": "z3", "CARGO_NET_OFFLINE": "true"},
+            environment={"LIBRARY_PATH": "z3", "CARGO_NET_OFFLINE": "true", "CARGO_TARGET_DIR": "/tools"},
             timeout=600,
         )
 
-    def test_explicit_target_wins_and_missing_binary_fails(self) -> None:
-        target = Path("/temporary/cli-target")
+    def test_caller_environment_layers_over_z3_and_missing_binary_fails(self) -> None:
         with (
             patch.object(krs.tools, "z3_environment", return_value={"LIBRARY_PATH": "z3"}),
+            patch.object(krs.tools, "workspace_debug_binary", return_value=Path("/tools/debug/krs")),
             patch.object(krs.process, "run") as runner,
-            patch.object(Path, "is_file", side_effect=(True, False)),
+            patch.object(Path, "is_file", return_value=False),
         ):
-            self.assertEqual(krs.build(target=target), target / "debug/krs")
             with self.assertRaisesRegex(GateError, "did not produce"):
-                krs.build({"LIBRARY_PATH": "caller", "CARGO_TARGET_DIR": "ignored"}, target=target, timeout=27)
+                krs.build({"LIBRARY_PATH": "caller"}, timeout=27)
         self.assertEqual(
             runner.call_args.kwargs["environment"],
-            {"LIBRARY_PATH": "caller", "CARGO_TARGET_DIR": str(target)},
+            {"LIBRARY_PATH": "caller", "CARGO_TARGET_DIR": "/tools"},
         )
         self.assertEqual(runner.call_args.kwargs["timeout"], 27)
 
-    def test_caller_target_directory_is_honored(self) -> None:
-        with (
-            patch.object(krs.tools, "z3_environment", return_value={}),
-            patch.object(krs.process, "run") as runner,
-            patch.object(Path, "is_file", return_value=True),
-        ):
-            self.assertEqual(
-                krs.build({"CARGO_TARGET_DIR": "/temporary/caller"}),
-                Path("/temporary/caller/debug/krs"),
-            )
-        self.assertEqual(runner.call_args.kwargs["environment"], {"CARGO_TARGET_DIR": "/temporary/caller"})
 
-    def test_explicit_target_returns_its_debug_binary(self) -> None:
-        target = Path("/temporary/cli-target")
-        with (
-            patch.object(krs.tools, "z3_environment", return_value={}),
-            patch.object(krs.process, "run"),
-            patch.object(Path, "is_file", return_value=True),
-        ):
-            self.assertEqual(krs.build(target=target), target / "debug/krs")
+class ToolTargetTests(unittest.TestCase):
+    def test_tool_target_prefers_krs_tool_target_then_cargo_target_dir(self) -> None:
+        from support import REPOSITORY, tools
+
+        with patch.dict(krs.os.environ, {}, clear=True):
+            self.assertEqual(tools.tool_target(), REPOSITORY / "target")
+        with patch.dict(krs.os.environ, {"CARGO_TARGET_DIR": "/shared"}, clear=True):
+            self.assertEqual(tools.tool_target(), Path("/shared"))
+        with patch.dict(krs.os.environ, {"CARGO_TARGET_DIR": "/shared", "KRS_TOOL_TARGET": "/tools"}, clear=True):
+            self.assertEqual(tools.tool_target(), Path("/tools"))
 
 
 class InvocationTests(unittest.TestCase):

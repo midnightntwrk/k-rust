@@ -23,7 +23,7 @@ from support.kdefinition import emitted_claims  # noqa: E402
 from support.reference import (  # noqa: E402
     Key, Snapshot, add_child_arguments, add_refresh_argument,
 )
-from support.tools import checkout_scratch, z3_environment  # noqa: E402
+from support.tools import z3_environment  # noqa: E402
 
 
 LOCATION = re.compile(r"Location\((\d+),(\d+),(\d+),(\d+)\)")
@@ -66,7 +66,7 @@ def main() -> int:
     add_child_arguments(parser)
     arguments = parser.parse_args()
     spec = arguments.spec.read_bytes()
-    gate = krs_gate.configured_or_build(checkout_scratch() / "imp-gate-root-target")
+    gate = krs_gate.configured_or_build()
     if arguments.sources.resolve() != arguments.spec.with_name("sources.json").resolve():
         raise GateError("--sources must name the emitted spec's sources.json")
     origin, generated = exact_mapping(

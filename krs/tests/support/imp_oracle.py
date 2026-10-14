@@ -22,7 +22,7 @@ from support.reference import (
     Key, Output, Pin, Snapshot, add_refresh_argument, json_sorted_lists, json_without_members, repository_inputs,
 )
 from support.report import Results
-from support.tools import checkout_scratch, find_k_tool, install_k_advice, k_version_matches, z3_environment
+from support.tools import find_k_tool, install_k_advice, k_version_matches, z3_environment
 
 
 TOOLS = ("kompile", "kast", "kparse", "krun")
@@ -655,7 +655,7 @@ def main(spec: Spec, kast: KAST) -> int:
     arguments = parser.parse_args()
     results = Results()
     pins = Ledger(spec.pins_path, record=arguments.record)
-    binary = krs_gate.configured_or_build(checkout_scratch() / f"{spec.here.name}-root-target")
+    binary = krs_gate.configured_or_build()
     verify_pins(spec, results, pins)
     with krs_gate.Session(binary, environment=z3_environment()) as session:
         with tempfile.TemporaryDirectory(prefix=f"krs-{spec.here.name}-oracle-") as temporary:

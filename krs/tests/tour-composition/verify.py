@@ -73,7 +73,7 @@ def main() -> None:
     target = checkout_scratch() / "tour-composition-root-target"
     env = {**environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = build(env)
-    gate = krs_gate.configured_or_build(target)
+    gate = krs_gate.configured_or_build()
     check_packages("tour-composition", krs=binary, env=env, target_dir=target)
     run(command(binary, "check"), environment=env)
     first_expansion = run(command(binary, "expand"), environment=env).stdout

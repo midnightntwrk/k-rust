@@ -169,8 +169,8 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path]:
 
     root_target = port.target("root")
     root_env = {**environment, "CARGO_TARGET_DIR": os.fspath(root_target)}
-    krs = build(root_env, target=root_target)
-    gate = krs_gate.build(root_target, environment=root_env)
+    krs = build(root_env)
+    gate = krs_gate.build(environment=root_env)
     common = ["--manifest-path", port.manifest, "--locked", "--offline"]
     fixture_env = {**environment, "CARGO_TARGET_DIR": os.fspath(port.target("fixture"))}
     run(["cargo", "+stable", "check", *common, "--all-targets"], environment=fixture_env)

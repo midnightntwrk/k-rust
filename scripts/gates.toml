@@ -105,6 +105,14 @@ inference = [
   '^crates/k-rust/src/(kompile/compile|kast/sort_role|backend/(mod|simplification))\.rs$',
   '^crates/k-rust/Cargo\.toml$',
 ]
+# KRS (krs/README.md): its crates, gates, and ports, and the lock of the K, Z3, and schema versions
+# its gates read. KRS lowers through krust's sources, so its entries also take [path-set.krust].
+krs = [
+  '^krs/crates/',
+  '^krs/tests/',
+  '^krs/semantics/',
+  '^krs/Krs\.lock$',
+]
 
 [[gate]]
 name = "compile-light"
@@ -359,3 +367,39 @@ command = "scripts/reference-proof-differential.sh mini-proof"
 name = "weekly-rpc"
 run = "weekly"
 command = "scripts/reference-rpc-differential.sh bounded-search"
+
+# KRS's gates (krs/tests/gates.sh). They compare KRS's emitted K and its native route through these
+# crates with Java K results that a per-user reference cache replays; a cold cache runs K 7.1.337.
+[[gate]]
+name = "krs-light"
+run = "certification"
+command = "krs/tests/gates.sh light"
+paths = ["@krust", "@krs"]
+
+[[gate]]
+name = "krs-imp"
+run = "heavy"
+host = "human-uid"
+command = "krs/tests/gates.sh imp"
+paths = ["@krust", "@krs"]
+
+[[gate]]
+name = "krs-kevm"
+run = "heavy"
+host = "human-uid"
+command = "krs/tests/gates.sh kevm"
+paths = ["@krust", "@krs"]
+
+[[gate]]
+name = "krs-kmir"
+run = "heavy"
+host = "human-uid"
+command = "krs/tests/gates.sh kmir"
+paths = ["@krust", "@krs"]
+
+[[gate]]
+name = "krs-kwasm"
+run = "heavy"
+host = "human-uid"
+command = "krs/tests/gates.sh kwasm"
+paths = ["@krust", "@krs"]

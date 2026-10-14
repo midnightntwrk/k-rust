@@ -24,7 +24,7 @@ from support.reference import (  # noqa: E402
     Key, Output, Pin, Snapshot, add_refresh_argument, reduce_kprove_temp, sorted_kore_claims,
 )
 from support.report import Results  # noqa: E402
-from support.tools import executable, workspace_debug_binary, z3_environment  # noqa: E402
+from support.tools import executable, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -88,6 +88,7 @@ def cli_command(
         command, "--message-format=json", *extras, *extra
     )
     environment = {
+        **z3_environment(),
         "CARGO_TARGET_DIR": str(target),
         "CARGO_NET_OFFLINE": "true",
         "CARGO_TERM_COLOR": "never",
@@ -398,6 +399,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
         Invocation(binary, broken_manifest, PACKAGE, "main").argv("check"),
         cwd=workspace,
         environment={
+            **z3_environment(),
             "CARGO_TARGET_DIR": str(workspace / "broken-target"),
             "CARGO_NET_OFFLINE": "true",
             "CARGO_TERM_COLOR": "never",
@@ -474,7 +476,7 @@ def reference_execution(
     definition_ir = workspace / "definition-ir.json"
     definition_ir.write_bytes(artifacts["definition-ir.json"])
     try:
-        gate = krs_gate.configured_or_build(workspace_debug_binary("krs").parents[1])
+        gate = krs_gate.configured_or_build()
     except (GateError, OSError) as error:
         results.add("reference_execution", "FAIL", str(error))
         return None
@@ -741,7 +743,7 @@ def main() -> int:
     binary = build_cli(results)
     if binary is None:
         return 1
-    gate = krs_gate.configured_or_build(workspace_debug_binary("krs").parents[1])
+    gate = krs_gate.configured_or_build()
     snapshots: list[Snapshot] = []
     with tempfile.TemporaryDirectory(prefix="krs-cli-oracle-a-") as first_raw, tempfile.TemporaryDirectory(prefix="krs-cli-oracle-relocated-b-") as second_raw:
         first_root = Path(first_raw)

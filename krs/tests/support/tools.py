@@ -49,14 +49,29 @@ def executable(name: str) -> str:
     return found
 
 
-def workspace_debug_binary(name: str) -> Path:
-    """Locate a workspace binary under Cargo's configured target directory."""
+def tool_target() -> Path:
+    """The Cargo target directory every gate builds its tools (`krs`, `krs-gate`) in.
 
-    target = Path(os.environ.get("CARGO_TARGET_DIR", REPOSITORY / "target"))
-    if not target.is_absolute():
-        target = ROOT / target
+    The tools are the only gate builds that link k-rust, so one shared directory
+    rebuilds them once after a k-rust change rather than once per gate; each gate
+    keeps its own target directory for the packages it compiles, which do not
+    link k-rust. It is `KRS_TOOL_TARGET`, else the caller's `CARGO_TARGET_DIR`,
+    else the repository's `target/`, where `cargo build` and `cargo test` put the
+    same crates.
+    """
+
+    configured = os.environ.get("KRS_TOOL_TARGET") or os.environ.get("CARGO_TARGET_DIR")
+    if not configured:
+        return REPOSITORY / "target"
+    target = Path(configured)
+    return target if target.is_absolute() else ROOT / target
+
+
+def workspace_debug_binary(name: str) -> Path:
+    """Locate a workspace debug binary in the shared tool target directory."""
+
     suffix = ".exe" if os.name == "nt" else ""
-    return target / "debug" / f"{name}{suffix}"
+    return tool_target() / "debug" / f"{name}{suffix}"
 
 
 def z3_library_dir() -> Path:

@@ -164,7 +164,7 @@ def main() -> int:
     target = checkout_scratch() / "tour-minimal-root-target"
     environment = {**cli_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = production_binary(arguments.krs, environment)
-    gate = krs_gate.configured_or_build(target)
+    gate = krs_gate.configured_or_build()
 
     before = SOURCE.read_bytes()
     run(

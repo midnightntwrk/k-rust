@@ -20,7 +20,7 @@ from support.reference import (  # noqa: E402
     PIN_TABLE, Key, Output, Pin, Snapshot, add_refresh_argument, json_without_members, live_tools,
     reduce_kore_exec_log, repository_inputs,
 )
-from support.tools import checkout_scratch, z3_environment  # noqa: E402
+from support.tools import z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -234,7 +234,7 @@ def main() -> int:
         inputs=repository_inputs(list(corpus_paths().values())),
     )
 
-    gate = krs_gate.configured_or_build(checkout_scratch() / "imp-static-semantics-root-target")
+    gate = krs_gate.configured_or_build()
     with (
         krs_gate.Session(gate, environment=z3_environment()) as session,
         tempfile.TemporaryDirectory(prefix="krs-imp-static-reconstructed-") as temporary,

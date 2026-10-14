@@ -157,7 +157,7 @@ KAST_SPEC = KAST(
 def main() -> int:
     target = checkout_scratch() / "imp-state-root-target"
     environment = z3_environment()
-    check_packages("imp-state", krs=build(environment, target=target), env=environment, target_dir=target)
+    check_packages("imp-state", krs=build(environment), env=environment, target_dir=target)
     return run_oracle(SPEC, KAST_SPEC)
 
 

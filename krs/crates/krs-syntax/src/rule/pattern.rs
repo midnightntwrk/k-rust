@@ -110,12 +110,9 @@ fn collect_negative_literals(
 
 /// Supported subject-pattern shell.
 #[derive(Clone, Debug)]
-#[cfg_attr(
-    target_pointer_width = "64",
-    expect(
-        clippy::large_enum_variant,
-        reason = "Public variant field types are a compatibility contract. The size imbalance is specific to 64-bit targets."
-    )
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Public variant field types are a compatibility contract."
 )]
 pub enum RulePattern {
     /// Ordinary Rust named constructor pattern.
