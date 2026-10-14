@@ -741,7 +741,9 @@ pub(crate) enum Bindings {
     Forced,
     /// Some binding comes from decomposing an application of a function that an algebraic axiom
     /// lets equal an application with other arguments: the bindings make the pattern equal the
-    /// subject, but another assignment may as well ([`Matcher::tentative_arguments`]).
+    /// subject, but another assignment may as well ([`Matcher::tentative_arguments`]). So nothing
+    /// that fails under them is refuted: neither a later pair of the collection solver nor an
+    /// equation's `requires`.
     Sufficient,
 }
 

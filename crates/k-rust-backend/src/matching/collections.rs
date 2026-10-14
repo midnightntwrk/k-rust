@@ -310,8 +310,34 @@ fn continue_solutions(
     solved
 }
 
+/// Solve one collection pair from `solution`. Where `solution` rests on a binding that only
+/// suffices ([`Bindings::Sufficient`]), a pair without solutions refutes only those bindings,
+/// not the other assignments that make the earlier pairs hold, so it is undecided.
 #[allow(clippy::too_many_arguments)]
 fn solve_collection_pair(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    solution: CollectionSolution,
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+    decided: DecidedSolutions,
+    depth: usize,
+) -> Solved {
+    let sufficient = solution.bindings == Bindings::Sufficient;
+    let solved = solve_collection_pair_as_bound(
+        mode, definition, pattern, subject, solution, narrowing, decided, depth,
+    );
+    if sufficient && solved.complete && solved.found.is_empty() {
+        Solved::undecided()
+    } else {
+        solved
+    }
+}
+
+/// [`solve_collection_pair`] under the bindings of `solution` as they stand.
+#[allow(clippy::too_many_arguments)]
+fn solve_collection_pair_as_bound(
     mode: MatchMode,
     definition: &BackendDefinition,
     pattern: &Term,
@@ -354,7 +380,29 @@ fn solve_collection_pair(
     }
 }
 
+/// Solve one term pair from `solution`. Where `solution` rests on a binding that only suffices
+/// ([`Bindings::Sufficient`]), a failure refutes only those bindings: another assignment that
+/// makes the earlier pairs hold may make this one hold too, so the pair is undecided.
 fn solve_term_pair(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    solution: CollectionSolution,
+    pattern: &Term,
+    subject: &Term,
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+    depth: usize,
+) -> PairSolution {
+    let sufficient = solution.bindings == Bindings::Sufficient;
+    match solve_term_pair_as_bound(
+        mode, definition, solution, pattern, subject, narrowing, depth,
+    ) {
+        PairSolution::NoSolution if sufficient => PairSolution::Indeterminate,
+        solved => solved,
+    }
+}
+
+/// [`solve_term_pair`] under the bindings of `solution` as they stand.
+fn solve_term_pair_as_bound(
     mode: MatchMode,
     definition: &BackendDefinition,
     mut solution: CollectionSolution,
@@ -593,7 +641,7 @@ fn solve_list_pair(
     depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
     measure::bump(Counter::MatchingCollectionProblems);
-    match match_terms_with_context(
+    let (matched, bindings) = match_terms_with_context_reporting_bindings(
         mode,
         definition.sort_graph(),
         Some(definition),
@@ -601,9 +649,11 @@ fn solve_list_pair(
         subject,
         // A collection element is never the root an equation is tried on.
         false,
-    ) {
+    );
+    match matched {
         MatchResult::Success(found) => {
             solution.matched.bind(&found);
+            solution.bindings = solution.bindings.max(bindings);
             return Some(vec![solution]);
         }
         MatchResult::Failed(_) => return Some(Vec::new()),

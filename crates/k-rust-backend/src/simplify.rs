@@ -7001,8 +7001,9 @@ pub(crate) enum EquationInstances {
     /// matches the subject.
     Undecided,
     /// The instances in the matcher's order; never empty. When matching modulo the map and set
-    /// axioms decided some matchings but not every one, the decided instances come first and
-    /// the last one is [`Instance::Undecided`].
+    /// axioms decided some matchings but not every one, or some matching rests on a binding that
+    /// only suffices ([`Bindings::Sufficient`]), the decided instances come first and the last
+    /// one is [`Instance::Undecided`].
     Matched(Vec<Instance>),
 }
 
@@ -7076,7 +7077,11 @@ impl Instance {
 /// whichever the matcher enumerates first. A match without a collection remainder has one
 /// instance. Where the matcher decides some decompositions but not all, each decided one is
 /// still an instance, whatever the others turn out to be, and an [`Instance::Undecided`] after
-/// them stands for the rest, so that the equation is never refuted while one may hold.
+/// them stands for the rest, so that the equation is never refuted while one may hold. A matching
+/// whose bindings only suffice ([`Bindings::Sufficient`]: the arguments of an application of a
+/// function with algebraic axioms, bound as written) is an instance too, but other bindings may
+/// match the same subject, so the marker follows it as well: a `requires` refuted under the
+/// written bindings refutes nothing about the others.
 pub(crate) fn equation_instances<'r>(
     definition: &BackendDefinition,
     rule: &'r RewriteRule,
@@ -7126,6 +7131,10 @@ pub(crate) fn equation_instances<'r>(
         },
         MatchResult::Success(substitution) => vec![(substitution, bindings)],
     };
+    let undecided = undecided
+        || substitutions.iter().any(|(_, collection_bindings)| {
+            bindings.max(*collection_bindings) == Bindings::Sufficient
+        });
     let instances = substitutions
         .into_iter()
         .map(|(substitution, collection_bindings)| {
