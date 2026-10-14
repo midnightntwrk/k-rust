@@ -1701,7 +1701,10 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
         rustdocs(&machine.fields.iter().next().unwrap().attrs),
         ["K's computation cell: the continuation, head-first."]
     );
-    assert!(rustdocs(&machine.fields.iter().nth(1).unwrap().attrs).is_empty());
+    assert_eq!(
+        rustdocs(&machine.fields.iter().nth(1).unwrap().attrs),
+        Vec::<String>::new()
+    );
     let machine = machine.to_token_stream().to_string();
     assert!(machine.contains("k :: configuration :: KCell < KSequence >"));
     assert!(machine.contains("k :: configuration :: Cell < Map < Id , Value > >"));
