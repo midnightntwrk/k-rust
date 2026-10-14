@@ -1,0 +1,3 @@
+// Division by zero is stuck: the final configuration keeps 1 / 0 at the top of <k>.
+int a;
+a = 1 / 0;

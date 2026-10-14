@@ -1,0 +1,49 @@
+# kink-flow corpus for IMP (K tutorial, pl-tutorial/1_k/2_imp/lesson_4); see README.md.
+
+[spec]
+entry = "imp.k"
+main_module = "IMP"
+syntax_module = "IMP-SYNTAX"
+
+[budget]
+# The default bounds, written out. A mutant that loops where the baseline ends
+# also multiplies its paths and its memory (see README.md), so the time bound
+# is kept small.
+time_ms = 10000
+max_depth = 100000
+
+# The lesson's three programs, with the loop bounds reduced so that a run ends.
+
+[[program]]
+id = "sum"
+file = "programs/sum.imp"
+
+[[program]]
+id = "primes"
+file = "programs/primes.imp"
+
+# collatz takes about 36 s on the baseline even with m = 3, so it is `timeout` under
+# this budget and cannot kill a mutant; it stays as evidence of the cost (README.md).
+[[program]]
+id = "collatz"
+file = "programs/collatz.imp"
+
+# Programs written for the survivors of the first run (README.md):
+# `arith` kills div-becomes-mul, add-becomes-sub and neg-drops-sign; `and` kills the two && mutations;
+# `divzero` kills div-guard-dropped; `redeclare` kills decl-allows-redeclaration.
+
+[[program]]
+id = "arith"
+file = "programs/arith.imp"
+
+[[program]]
+id = "and"
+file = "programs/and.imp"
+
+[[program]]
+id = "divzero"
+file = "programs/divzero.imp"
+
+[[program]]
+id = "redeclare"
+file = "programs/redeclare.imp"

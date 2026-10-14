@@ -345,6 +345,12 @@ Every other row also carries:
 The specification digest covers every source file the specification loads, so editing the specification reruns every program;
 the program digest covers a program's text, start sort and variables, so editing a program reruns only that program.
 
+### A larger example: IMP
+
+[`examples/imp`](examples/imp) runs the loop on the K tutorial's IMP (`pl-tutorial/1_k/2_imp/lesson_4`):
+a corpus of seven programs that covers every rule, 21 mutations (three of them correlated), and the results of the runs.
+Its README also says what IMP's `strict` operators cost and why a run needs a small `time_ms` and a memory limit.
+
 ## SemanticInput, manifests, reports and replay
 
 A baseline's `SemanticInput` v1 is exactly k-rust's compact `KRUST-PROVENANCE` v7 document of the loaded definition and its source table; its digest is the SHA-256 of those bytes.

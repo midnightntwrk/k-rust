@@ -1,0 +1,4 @@
+// && with true and with false on the left, each with the other value on the right.
+int a, b;
+if (1 <= 2 && 2 <= 1) { a = 1; } else { a = 2; }
+if (2 <= 1 && 1 <= 2) { b = 1; } else { b = 2; }
