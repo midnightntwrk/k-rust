@@ -613,8 +613,8 @@ fn a_collection_hook_whose_declaration_gives_no_value_of_its_result_sort_is_reje
 
 /// The hooks that read collections into a `Bool` or an `Int` load where each collection argument
 /// is a collection of the hook's kind, of any element sort, and the result is `SortBool` or
-/// `SortInt`; the item whose membership is tested is only read, so its sort decides nothing.
-/// Their applications evaluate.
+/// `SortInt`; the sort of the item whose membership is tested is not checked (an `Int` is no
+/// `Val`, so it is in no set of `Val`). Their applications evaluate.
 #[test]
 fn a_collection_reading_hook_declared_on_collections_of_its_kind_loads_and_evaluates() {
     let source = with_declarations(

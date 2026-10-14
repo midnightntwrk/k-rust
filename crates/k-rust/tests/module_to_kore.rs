@@ -3437,9 +3437,8 @@ fn collection_hooks_that_give_a_value_of_their_result_sort_compile_and_load() {
 }
 
 /// Membership, size and inclusion declared on collections of their hook's kind compile and load,
-/// whatever the collection's element sort and the sort of the item whose membership is tested
-/// (a list of a user sort, as WASM's `ListInt` of `WrappedInt` is, and an `Int` tested against a
-/// set of `KItem`).
+/// whatever the collection's element sort (a list of a user sort, as WASM's `ListInt` of
+/// `WrappedInt` is).
 #[test]
 fn collection_reading_hooks_on_collections_of_their_kind_compile_and_load() {
     assert_compiles_and_loads(
@@ -3457,7 +3456,7 @@ fn collection_reading_hooks_on_collections_of_their_kind_compile_and_load() {
               syntax Ws ::= wItem(Wrapped) [function, total, hook(LIST.element), symbol(wItem)]
               syntax Bool ::= Wrapped "inWs" Ws [function, total, symbol(uInWs), hook(LIST.in)]
               syntax Int ::= uSizeWs(Ws) [function, total, symbol(uSizeWs), hook(LIST.size)]
-              syntax Bool ::= Int "inSet" Set [function, total, symbol(uInSet), hook(SET.in)]
+              syntax Bool ::= KItem "inSet" Set [function, total, symbol(uInSet), hook(SET.in)]
               syntax Int ::= uSizeSet(Set) [function, total, symbol(uSizeSet), hook(SET.size)]
               syntax Bool ::= Set "<=S" Set [function, total, symbol(uInclSet), hook(SET.inclusion)]
               syntax Bool ::= KItem "inKeys" Map [function, total, symbol(uInKeys), hook(MAP.in_keys)]

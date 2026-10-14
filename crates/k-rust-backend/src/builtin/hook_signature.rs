@@ -24,9 +24,9 @@
 //! argument, which only a collection of the hook's kind has, so a declaration taking anything
 //! else there has no model in which the hook computes it.
 //!
-//! An argument that is only read (an index, a key looked up or removed, an item whose
-//! membership is tested) is not moved into the result, so its sort decides nothing here, except
-//! where the hook reads the argument's items.
+//! An argument that is only read (an index, a key looked up or removed) is not moved into the
+//! result, so its sort decides nothing here, except where the hook reads the argument's items.
+//! The item whose membership a membership hook tests is not checked either.
 //! The second operand of a set or map difference or of a set intersection is a collection of the
 //! first operand's kind, whose items the hook compares with the first operand's, and the second
 //! operand of `MAP.removeAll` is a set, whose elements are the keys the hook removes. Only a
