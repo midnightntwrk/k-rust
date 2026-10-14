@@ -517,6 +517,77 @@ fn a_collection_hook_whose_declaration_gives_no_value_of_its_result_sort_is_reje
             "an element of argument 1 of SET.choice, of sort SortKItem, is the result, but \
              SortKItem is not SortVal",
         ),
+        // The hooks that read collections into a `Bool` or an `Int` read the items of their
+        // collection arguments, which only a collection of the hook's kind has, and give a value
+        // of `SortBool` or `SortInt`.
+        (
+            "inOfInt{}(SortVal{}, SortInt{}) : SortBool{} \
+             [function{}(), total{}(), hook{}(\"LIST.in\")]",
+            "argument 2 of LIST.in, of sort SortInt, is no list sort",
+        ),
+        (
+            "inValsAsInt{}(SortVal{}, SortVals{}) : SortInt{} \
+             [function{}(), total{}(), hook{}(\"LIST.in\")]",
+            "LIST.in gives a value of sort SortBool, but the result sort SortInt is not SortBool \
+             or a sort above it",
+        ),
+        (
+            "sizeOfValSet{}(SortValSet{}) : SortInt{} \
+             [function{}(), total{}(), hook{}(\"LIST.size\")]",
+            "argument 1 of LIST.size, of sort SortValSet, is no list sort",
+        ),
+        (
+            "sizeValsAsBool{}(SortVals{}) : SortBool{} \
+             [function{}(), total{}(), hook{}(\"LIST.size\")]",
+            "LIST.size gives a value of sort SortInt, but the result sort SortBool is not SortInt \
+             or a sort above it",
+        ),
+        (
+            "inValSetOfVals{}(SortVal{}, SortVals{}) : SortBool{} \
+             [function{}(), total{}(), hook{}(\"SET.in\")]",
+            "argument 2 of SET.in, of sort SortVals, is no set sort",
+        ),
+        (
+            "sizeSetOfValMap{}(SortValMap{}) : SortInt{} \
+             [function{}(), total{}(), hook{}(\"SET.size\")]",
+            "argument 1 of SET.size, of sort SortValMap, is no set sort",
+        ),
+        (
+            "inclusionOfVals{}(SortValSet{}, SortVals{}) : SortBool{} \
+             [function{}(), total{}(), hook{}(\"SET.inclusion\")]",
+            "argument 2 of SET.inclusion, of sort SortVals, is no set sort",
+        ),
+        (
+            "inclusionValSetAsVal{}(SortValSet{}, SortValSet{}) : SortVal{} \
+             [function{}(), total{}(), hook{}(\"SET.inclusion\")]",
+            "SET.inclusion gives a value of sort SortBool, but the result sort SortVal is not \
+             SortBool or a sort above it",
+        ),
+        (
+            "inKeysOfValSet{}(SortVal{}, SortValSet{}) : SortBool{} \
+             [function{}(), total{}(), hook{}(\"MAP.in_keys\")]",
+            "argument 2 of MAP.in_keys, of sort SortValSet, is no map sort",
+        ),
+        (
+            "sizeMapOfInt{}(SortInt{}) : SortInt{} [function{}(), total{}(), hook{}(\"MAP.size\")]",
+            "argument 1 of MAP.size, of sort SortInt, is no map sort",
+        ),
+        (
+            "sizeValMapAsVal{}(SortValMap{}) : SortVal{} \
+             [function{}(), total{}(), hook{}(\"MAP.size\")]",
+            "MAP.size gives a value of sort SortInt, but the result sort SortVal is not SortInt \
+             or a sort above it",
+        ),
+        (
+            "inclusionOfValSetMap{}(SortValMap{}, SortValSet{}) : SortBool{} \
+             [function{}(), total{}(), hook{}(\"MAP.inclusion\")]",
+            "argument 2 of MAP.inclusion, of sort SortValSet, is no map sort",
+        ),
+        (
+            "inclusionThreeMaps{}(SortValMap{}, SortValMap{}, SortValMap{}) : SortBool{} \
+             [function{}(), total{}(), hook{}(\"MAP.inclusion\")]",
+            "MAP.inclusion takes 2 arguments, the symbol 3",
+        ),
     ];
     let unexpected = cases
         .iter()
@@ -538,6 +609,75 @@ fn a_collection_hook_whose_declaration_gives_no_value_of_its_result_sort_is_reje
         "an ill-fitting collection hook declaration was not rejected as expected:\n{}",
         unexpected.join("\n")
     );
+}
+
+/// The hooks that read collections into a `Bool` or an `Int` load where each collection argument
+/// is a collection of the hook's kind, of any element sort, and the result is `SortBool` or
+/// `SortInt`; the sort of the item whose membership is tested is not checked (an `Int` is no
+/// `Val`, so it is in no set of `Val`). Their applications evaluate.
+#[test]
+fn a_collection_reading_hook_declared_on_collections_of_its_kind_loads_and_evaluates() {
+    let source = with_declarations(
+        r#"  hooked-symbol inVals{}(SortVal{}, SortVals{}) : SortBool{}
+    [function{}(), total{}(), hook{}("LIST.in")]
+  hooked-symbol inList{}(SortKItem{}, SortList{}) : SortBool{}
+    [function{}(), total{}(), hook{}("LIST.in")]
+  hooked-symbol sizeVals{}(SortVals{}) : SortInt{} [function{}(), total{}(), hook{}("LIST.size")]
+  hooked-symbol inValSet{}(SortVal{}, SortValSet{}) : SortBool{}
+    [function{}(), total{}(), hook{}("SET.in")]
+  hooked-symbol inSetOfInt{}(SortInt{}, SortValSet{}) : SortBool{}
+    [function{}(), total{}(), hook{}("SET.in")]
+  hooked-symbol sizeValSet{}(SortValSet{}) : SortInt{}
+    [function{}(), total{}(), hook{}("SET.size")]
+  hooked-symbol inclusionValSet{}(SortValSet{}, SortValSet{}) : SortBool{}
+    [function{}(), total{}(), hook{}("SET.inclusion")]
+  hooked-symbol inKeysValMap{}(SortVal{}, SortValMap{}) : SortBool{}
+    [function{}(), total{}(), hook{}("MAP.in_keys")]
+  hooked-symbol sizeValMap{}(SortValMap{}) : SortInt{}
+    [function{}(), total{}(), hook{}("MAP.size")]
+  hooked-symbol inclusionValMap{}(SortValMap{}, SortValMap{}) : SortBool{}
+    [function{}(), total{}(), hook{}("MAP.inclusion")]"#,
+    );
+    let syntax = parse_definition(&source).expect("the declarations should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("the declarations should load");
+    for (application, expected) in [
+        (
+            "inVals{}(v{}(), valsItem{}(v{}()))",
+            r#"\dv{SortBool{}}("true")"#,
+        ),
+        ("sizeVals{}(valsItem{}(w{}()))", r#"\dv{SortInt{}}("1")"#),
+        (
+            "inValSet{}(w{}(), valSetItem{}(v{}()))",
+            r#"\dv{SortBool{}}("false")"#,
+        ),
+        (
+            "sizeValSet{}(valSetItem{}(v{}()))",
+            r#"\dv{SortInt{}}("1")"#,
+        ),
+        (
+            "inclusionValSet{}(dotValSet{}(), valSetItem{}(v{}()))",
+            r#"\dv{SortBool{}}("true")"#,
+        ),
+        (
+            "inKeysValMap{}(v{}(), valMapItem{}(v{}(), w{}()))",
+            r#"\dv{SortBool{}}("true")"#,
+        ),
+        (
+            "sizeValMap{}(valMapItem{}(v{}(), w{}()))",
+            r#"\dv{SortInt{}}("1")"#,
+        ),
+        (
+            "inclusionValMap{}(valMapItem{}(v{}(), w{}()), dotValMap{}())",
+            r#"\dv{SortBool{}}("false")"#,
+        ),
+    ] {
+        assert_eq!(
+            simplified(&definition, application),
+            simplified(&definition, expected),
+            "{application}"
+        );
+    }
 }
 
 /// The rejection names where the symbol is written.

@@ -3309,6 +3309,48 @@ case_tests! {
             "MAP.keys_list",
             "a key of argument 1 of MAP.keys_list, of sort KItem, is an element of the result, but KItem is not K or a subsort of it",
         ),
+        // Membership, size and inclusion read the items of their collection arguments, which only
+        // a collection of the hook's kind has, and give a `Bool` or an `Int`.
+        list_in_collection_operand: (
+            "syntax Bool ::= KItem \"inI\" Int [function, total, symbol(ini), hook(LIST.in)]",
+            "LIST.in",
+            "argument 2 of LIST.in, of sort Int, is no list sort",
+        ),
+        list_size_result: (
+            "syntax Bool ::= sizeB(List) [function, total, symbol(sizeb), hook(LIST.size)]",
+            "LIST.size",
+            "LIST.size gives a value of sort Int, but the result sort Bool is not Int or a sort above it",
+        ),
+        set_in_collection_operand: (
+            "syntax Bool ::= KItem \"inL\" List [function, total, symbol(inl), hook(SET.in)]",
+            "SET.in",
+            "argument 2 of SET.in, of sort List, is no set sort",
+        ),
+        set_size_collection_operand: (
+            "syntax Int ::= sizeS(Map) [function, total, symbol(sizes), hook(SET.size)]",
+            "SET.size",
+            "argument 1 of SET.size, of sort Map, is no set sort",
+        ),
+        set_inclusion_second_operand: (
+            "syntax Bool ::= Set \"<=I\" Int [function, total, symbol(sinci), hook(SET.inclusion)]",
+            "SET.inclusion",
+            "argument 2 of SET.inclusion, of sort Int, is no set sort",
+        ),
+        map_in_keys_collection_operand: (
+            "syntax Bool ::= KItem \"inS\" Set [function, total, symbol(ins), hook(MAP.in_keys)]",
+            "MAP.in_keys",
+            "argument 2 of MAP.in_keys, of sort Set, is no map sort",
+        ),
+        map_size_result: (
+            "syntax Map ::= sizeM(Map) [function, total, symbol(sizem), hook(MAP.size)]",
+            "MAP.size",
+            "MAP.size gives a value of sort Int, but the result sort Map is not Int or a sort above it",
+        ),
+        map_inclusion_second_operand: (
+            "syntax Bool ::= Map \"<=L\" List [function, total, symbol(mincl), hook(MAP.inclusion)]",
+            "MAP.inclusion",
+            "argument 2 of MAP.inclusion, of sort List, is no map sort",
+        ),
     }
 }
 
@@ -3388,6 +3430,38 @@ fn collection_hooks_that_give_a_value_of_their_result_sort_compile_and_load() {
               syntax KItem ::= List "<" Int ">" [function, symbol(at), hook(LIST.get)]
               syntax Map ::= bind(Int, Int) [function, symbol(bind), hook(MAP.element)]
               syntax KItem ::= Map "<" KItem "," Int ">" [function, symbol(lookup), hook(MAP.lookupOrDefault)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+}
+
+/// Membership, size and inclusion declared on collections of their hook's kind compile and load,
+/// whatever the collection's element sort (a list of a user sort, as WASM's `ListInt` of
+/// `WrappedInt` is).
+#[test]
+fn collection_reading_hooks_on_collections_of_their_kind_compile_and_load() {
+    assert_compiles_and_loads(
+        indoc! {r#"
+            module MAIN
+              imports MAP
+              imports SET
+              imports LIST
+              imports INT
+              imports BOOL
+              syntax Wrapped ::= wrap(Int) [symbol(wrap)]
+              syntax Ws [hook(LIST.List)]
+              syntax Ws ::= Ws Ws [left, function, total, hook(LIST.concat), symbol(_Ws_), assoc, unit(.Ws), element(wItem)]
+              syntax Ws ::= ".Ws" [function, total, hook(LIST.unit), symbol(.Ws)]
+              syntax Ws ::= wItem(Wrapped) [function, total, hook(LIST.element), symbol(wItem)]
+              syntax Bool ::= Wrapped "inWs" Ws [function, total, symbol(uInWs), hook(LIST.in)]
+              syntax Int ::= uSizeWs(Ws) [function, total, symbol(uSizeWs), hook(LIST.size)]
+              syntax Bool ::= KItem "inSet" Set [function, total, symbol(uInSet), hook(SET.in)]
+              syntax Int ::= uSizeSet(Set) [function, total, symbol(uSizeSet), hook(SET.size)]
+              syntax Bool ::= Set "<=S" Set [function, total, symbol(uInclSet), hook(SET.inclusion)]
+              syntax Bool ::= KItem "inKeys" Map [function, total, symbol(uInKeys), hook(MAP.in_keys)]
+              syntax Int ::= uSizeMap(Map) [function, total, symbol(uSizeMap), hook(MAP.size)]
+              syntax Bool ::= Map "<=M" Map [function, total, symbol(uInclMap), hook(MAP.inclusion)]
             endmodule
         "#},
         "MAIN",
