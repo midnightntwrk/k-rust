@@ -130,6 +130,43 @@ fn an_undecided_query_is_retried_with_doubled_timeouts_and_answers_unknown_uncac
     }
 }
 
+/// An attempt ends even when Z3's clock does not stop it. Z3 can lose the one cancellation its
+/// timer raises (a cancellation that arrives just before Z3 enters a resource scope is reset on
+/// entry), and a check that is never cancelled runs until it decides its query, which for this
+/// one is never; the suite saw that as a test running for an hour at full CPU. Every attempt also
+/// carries a resource limit, which Z3's search counts itself, so the attempts here, which no
+/// clock stops at all, still end `Unknown`: the query answers within a bounded time, at most a
+/// small multiple of its timeouts.
+#[test]
+fn an_attempt_the_clock_does_not_stop_ends_at_its_resource_limit() {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let definition = definition();
+        let predicates = undecided(&definition);
+        let solver = Z3Solver::with_options(
+            &definition,
+            Z3Options {
+                timeout_ms: 1,
+                retry_limit: 2,
+            },
+        )
+        .unwrap()
+        .without_clock();
+        let answer = cause(solver.is_sat(&predicates, &Substitution::new()));
+        let _ = sender.send((answer, solver.attempt_timeouts()));
+    });
+    // Each attempt takes about ten milliseconds; a minute is far beyond any of them, and a check
+    // that no limit stops would never send.
+    let (answer, timeouts) = receiver
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("an attempt that no clock stops should end at its resource limit");
+    assert!(
+        matches!(&answer, Ok(Ok(Satisfiability::Unknown(reason))) if !reason.is_empty()),
+        "{answer:?}"
+    );
+    assert_eq!(timeouts, doubling(1, 2));
+}
+
 /// A model query undecided by every attempt is retried like a satisfiability query and answers
 /// `ModelResult::Unknown`, not a model and not a failure.
 #[test]

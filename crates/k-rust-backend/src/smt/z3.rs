@@ -127,6 +127,37 @@ pub struct Z3Solver {
     /// The timeout of every Z3 check this solver (and its clones) ran, in order.
     #[cfg(test)]
     attempt_timeouts: Arc<Mutex<Vec<u32>>>,
+    /// Whether attempts run without Z3's wall-clock timeout, the state of a check whose timer's
+    /// cancellation Z3 has lost (see `RESOURCE_UNITS_PER_MS`).
+    #[cfg(test)]
+    without_clock: bool,
+}
+
+/// Z3 resource-limit units granted to an attempt per millisecond of its timeout.
+///
+/// The timeout alone does not bound an attempt. Z3's timer raises one cancellation, and Z3 can
+/// lose it: entering a resource scope resets the cancellation flag, and a scope opened for a
+/// subsolver does not inherit a cancellation raised before it opened. A check whose cancellation
+/// is lost runs until it decides its query, which for a query outside its decision procedures
+/// (nonlinear integer arithmetic, say) is never. A resource limit is counted by the search
+/// itself and handed down to every subsolver scope, so it cannot be lost that way, and every
+/// attempt also carries one.
+///
+/// The rate is well above the rate at which Z3 consumes units on this backend's queries (about
+/// 10,000 per millisecond on nonlinear arithmetic, and no more than about 25,000 on any query
+/// of the backend's tests), so the clock still ends an attempt first and the limit binds only
+/// once the clock has failed, ending such a check after a small multiple of its timeout.
+const RESOURCE_UNITS_PER_MS: u32 = 100_000;
+
+/// The resource limit of an attempt with the given timeout: proportional to it, saturating at
+/// Z3's largest limit, and none for a timeout of `u32::MAX`, which is Z3's own value for no
+/// timeout (a limit of 0 is Z3's value for no limit).
+fn resource_limit(timeout_ms: u32) -> u32 {
+    if timeout_ms == u32::MAX {
+        0
+    } else {
+        timeout_ms.saturating_mul(RESOURCE_UNITS_PER_MS)
+    }
 }
 
 const RESULT_CACHE_ENTRY_LIMIT: usize = 256;
@@ -237,6 +268,8 @@ impl Z3Solver {
             uncached_solve_count: Arc::new(AtomicUsize::new(0)),
             #[cfg(test)]
             attempt_timeouts: Arc::new(Mutex::new(Vec::new())),
+            #[cfg(test)]
+            without_clock: false,
         };
         Ok(solver)
     }
@@ -247,6 +280,28 @@ impl Z3Solver {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .push(timeout);
+    }
+
+    /// This solver with attempts that Z3's clock never stops, as when Z3 loses the cancellation
+    /// its timer raises.
+    #[cfg(test)]
+    pub(crate) fn without_clock(mut self) -> Self {
+        self.without_clock = true;
+        self
+    }
+
+    /// The parameters of one attempt with the given timeout: the timeout and its resource limit.
+    fn attempt_parameters(&self, timeout: u32) -> Params {
+        let mut parameters = Params::new();
+        parameters.set_u32("rlimit", resource_limit(timeout));
+        #[cfg(test)]
+        let clocked = !self.without_clock;
+        #[cfg(not(test))]
+        let clocked = true;
+        if clocked {
+            parameters.set_u32("timeout", timeout);
+        }
+        parameters
     }
 
     /// The timeouts of the Z3 checks run so far, in order, one per attempt.
@@ -376,9 +431,7 @@ impl Z3Solver {
         for attempt in 0..=self.options.retry_limit {
             stop::check()?;
             let solver = Solver::new();
-            let mut parameters = Params::new();
-            parameters.set_u32("timeout", timeout);
-            solver.set_params(&parameters);
+            solver.set_params(&self.attempt_parameters(timeout));
             #[cfg(test)]
             self.record_attempt(timeout);
             solver.from_string(script);
@@ -431,9 +484,7 @@ impl Z3Solver {
             stop::check()?;
             measure::bump(Counter::SmtSolverRuns);
             let solver = Solver::new();
-            let mut parameters = Params::new();
-            parameters.set_u32("timeout", timeout);
-            solver.set_params(&parameters);
+            solver.set_params(&self.attempt_parameters(timeout));
             #[cfg(test)]
             self.record_attempt(timeout);
             solver.from_string(query.base());
@@ -665,6 +716,17 @@ mod tests {
     }
 
     const INCONSISTENT: StopCause = StopCause::SolverPrelude(PreludeFailure::Inconsistent);
+
+    /// An attempt's resource limit grows with its timeout, saturates at Z3's largest limit
+    /// rather than wrapping to a small one, and is absent only when the timeout is.
+    #[test]
+    fn an_attempts_resource_limit_is_proportional_to_its_timeout() {
+        assert_eq!(resource_limit(1), RESOURCE_UNITS_PER_MS);
+        assert_eq!(resource_limit(125), 125 * RESOURCE_UNITS_PER_MS);
+        assert_eq!(resource_limit(1_000_000), u32::MAX);
+        assert_eq!(resource_limit(u32::MAX - 1), u32::MAX);
+        assert_eq!(resource_limit(u32::MAX), 0);
+    }
 
     fn definition() -> BackendDefinition {
         let syntax = parse_definition(
