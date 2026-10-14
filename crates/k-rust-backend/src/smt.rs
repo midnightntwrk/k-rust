@@ -1124,8 +1124,8 @@ pub enum Satisfiability {
     Sat,
     /// The predicates have no K valuation.
     Unsat,
-    /// The solver ran within its own per-query bounds (its timeout, resource limit and retries) and did not
-    /// decide the query; the payload is its reason. Never a stop: a query that stopped (a
+    /// The solver ran within its own per-query bounds (its timeout, resource limit and retries)
+    /// and did not decide the query; the payload is its reason. Never a stop: a query that stopped (a
     /// cancelled request, a passed step deadline, a failed prelude) returns the stop on the outer
     /// layer of [`SmtSolver::is_sat`] instead.
     Unknown(String),

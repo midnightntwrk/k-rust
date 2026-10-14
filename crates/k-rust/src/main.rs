@@ -580,7 +580,8 @@ impl ExecutionTimeoutArgs {
 
 #[derive(Clone, Copy, Debug, Args)]
 struct SmtArgs {
-    /// Limit each Z3 query to this many milliseconds before retrying.
+    /// Limit each Z3 query to this many milliseconds before retrying, and to 100,000 Z3
+    /// resource units per millisecond (at most 2^32 - 1, reached at about 43 seconds).
     #[arg(
         long = "smt-timeout",
         default_value = "125",

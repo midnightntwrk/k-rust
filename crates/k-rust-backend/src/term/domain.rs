@@ -256,12 +256,8 @@ mod tests {
         // `Term::int`, `Term::bool`, `Term::string`, `Term::bytes`: the constant kind of their
         // builtin-named sort (`SortInt` and `SortBool` by name, `SortString` and `SortBytes` the
         // builtin hook's own sort). `domain_value_of` and `domain_value_of_canonical` (for a text
-        // already canonical, with the same kind) allocate the node; `mint_of_residue`, the
-        // `MINT` hooks' results (`word_term` in `builtin/mint.rs`), allocates it with the `MInt`
-        // kind of the width its machine-integer sort names, the kind `domain_kind` gives a sort
-        // hooked `MINT.MInt`, writing the canonical text from the residue itself (the evaluation
-        // entry's record of the hook's constructions leaves the application unevaluated where
-        // the definition gives that sort another kind); the raw test constructor, the test-only
+        // already canonical, with the same kind) and `mint_of_residue` (an `MInt` value written
+        // from its residue) allocate the node; the raw test constructor, the test-only
         // `unshared_copy` (a copy of a node already built) and the drop sentinel (no value of any
         // sort) allocate one without a kind.
         ("term.rs", 4, 6),
@@ -276,6 +272,11 @@ mod tests {
         // entry's record leaves the application unevaluated where the definition gives
         // `SortFloat` another kind.
         ("builtin/float.rs", 1, 0),
+        // The `MINT` hooks' results (`word_term`, through `mint_of_residue`): the `MInt` kind of
+        // the width their machine-integer sort names, the kind `domain_kind` gives a sort hooked
+        // `MINT.MInt`. The evaluation entry's record of the hook's constructions leaves the
+        // application unevaluated where the definition gives that sort another kind.
+        ("builtin/mint.rs", 1, 0),
         // KVar renaming: `domain_kind` of the token's sort, read with the definition's KVar
         // sorts (`KVarSorts`).
         ("builtin/substitution.rs", 1, 0),
@@ -301,7 +302,8 @@ mod tests {
     }
 
     /// The routes of the non-test source of `text`, outside comment lines: the calls of
-    /// `domain_value_of(` and `domain_value_of_canonical(` (the kinded constructors), and of
+    /// `domain_value_of(`, `domain_value_of_canonical(` and `mint_of_residue(` (the kinded
+    /// constructors), and of
     /// `new_domain_value(`, the one function that allocates a domain-value node (`Term::new`
     /// refuses one in debug builds).
     fn route_counts(text: &str) -> (usize, usize) {
@@ -314,7 +316,9 @@ mod tests {
             code.matches(&format!("{name}(")).count() - code.matches(&format!("fn {name}(")).count()
         };
         (
-            calls("domain_value_of") + calls("domain_value_of_canonical"),
+            calls("domain_value_of")
+                + calls("domain_value_of_canonical")
+                + calls("mint_of_residue"),
             calls("new_domain_value"),
         )
     }
