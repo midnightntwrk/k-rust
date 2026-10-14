@@ -27,10 +27,9 @@ fn grouped(item: Option<&toml_edit::Item>) -> Vec<String> {
 }
 
 #[test]
-fn registry_matches_pinned_k_rust_hook_capabilities() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust/tests/fixtures/hook-capabilities.toml",
-    );
+fn registry_matches_k_rust_hook_capabilities() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../crates/k-rust/tests/fixtures/hook-capabilities.toml");
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
     let document: toml_edit::Document<String> =

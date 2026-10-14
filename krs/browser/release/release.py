@@ -320,11 +320,11 @@ def licenses(args: argparse.Namespace) -> int:
 
     # --- identity: the checkout and the fork are the ones the pack was built from
     tree = {i["name"]: i.get("git_tree") for i in manifest["input"] if i["kind"] == "git-tree"}
-    head_crates, head_pack = git(repo, "rev-parse", "HEAD:crates"), git(repo, "rev-parse", "HEAD:browser/pack")
+    head_crates, head_pack = git(repo, "rev-parse", "HEAD:./crates"), git(repo, "rev-parse", "HEAD:./browser/pack")
     if tree.get("KRS crates/ tree") != head_crates or tree.get("KRS browser/pack/ tree") != head_pack:
         die(f"the checkout (crates {head_crates}, browser/pack {head_pack}) is not the pack's source "
             f"(crates {tree.get('KRS crates/ tree')}, browser/pack {tree.get('KRS browser/pack/ tree')})")
-    if git(repo, "status", "--porcelain", "--", "crates", "browser/pack", "Cargo.lock"):
+    if git(repo, "status", "--porcelain", "--", "crates", "browser/pack", "../Cargo.lock"):
         die("crates/, browser/pack, or Cargo.lock has uncommitted changes")
     if pack_json["modules"]["crates_tree"] != head_crates:
         die(f"staged modules were built from crates tree {pack_json['modules']['crates_tree']}, not {head_crates}")
@@ -662,8 +662,7 @@ def assemble(args: argparse.Namespace) -> int:
     pack_json = json.loads((staged / "pack.json").read_text())
     lic = tomllib.loads((staged / "licenses/licenses.toml").read_text())
     oracle = tomllib.loads(args.oracle.read_text())
-    krs_lock = tomllib.loads((repo / "Krs.lock").read_text())
-    head_crates = git(repo, "rev-parse", "HEAD:crates")
+    head_crates = git(repo, "rev-parse", "HEAD:./crates")
     for label, value in (("pack.json crates_tree", pack_json["crates_tree"]), ("modules crates_tree", pack_json["modules"]["crates_tree"]),
                          ("oracle validity.crates_tree", oracle["validity"]["crates_tree"])):
         if value != head_crates:
@@ -705,7 +704,6 @@ def assemble(args: argparse.Namespace) -> int:
             "revision": git(repo, "rev-parse", "HEAD"),
             "crates_tree": head_crates,
             "pack_producer_revision": manifest["producer"]["krs_revision"],
-            "krs_lock_k_rust_commit": krs_lock["k_rust"]["commit"],
             "descriptor_protocol_version": oracle["oracle"]["protocol_version"],
         },
         "oracle": {
@@ -721,7 +719,7 @@ def assemble(args: argparse.Namespace) -> int:
             "krs-expander": {"status": "present", "path": "C (G1)", "assets": ids("krs-expander"), "protocol": "krs-expand-wasm JSON protocol schema 1 (crates/krs-expand-wasm/src/protocol.rs)"},
             "lesson-policy": {"status": "present", "assets": ids("lesson-policy")},
             "collector-template": {"status": "in-worker-bundle", "source": "browser/worker/src/collector-template.ts",
-                                   "source_git_blob": git(repo, "rev-parse", "HEAD:browser/worker/src/collector-template.ts") if collector_template.is_file() else None},
+                                   "source_git_blob": git(repo, "rev-parse", "HEAD:./browser/worker/src/collector-template.ts") if collector_template.is_file() else None},
             "direct-rustc-arguments": {"status": "present", "assets": ["pack/pack-manifest.toml", "pack.json"], "table": "[direct_rustc] of pack-manifest.toml; direct_rustc of pack.json"},
             "runtime-wasm": {"status": "absent", "reason": "krs-lower-wasm and k-rust do not exist as Wasm modules yet; lowering runs natively"},
             "source-map-protocol": {"status": "present", "assets": ids("krs-expander"), "protocol": "krs-expand source map inside the expander response; krs_expand_lookup ABI"},

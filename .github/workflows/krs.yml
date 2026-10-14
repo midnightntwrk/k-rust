@@ -1,18 +1,20 @@
 name: KRS
 
+# The CI workflow already builds, lints, formats, and tests every workspace crate, KRS's
+# (krs/crates/*) included, on the declared minimum and current Rust. This workflow adds the
+# checks KRS owns: its tour verifiers, gate support tests, repository hygiene, the feature and
+# target variants of its crates, its documentation, the separate semantics workspace, and the
+# browser worker.
+
 on:
   pull_request:
     paths:
-      - ".github/actions/**"
+      - ".github/actions/krs-z3/**"
       - ".github/workflows/krs.yml"
-      - "browser/**"
       - "Cargo.lock"
       - "Cargo.toml"
-      - "Krs.lock"
       - "crates/**"
-      - "docs-site/src/pages/**"
-      - "semantics/**"
-      - "tests/**"
+      - "krs/**"
   push:
     branches: [main]
   workflow_dispatch:
@@ -26,15 +28,13 @@ jobs:
     timeout-minutes: 45
     defaults:
       run:
-        working-directory: starstream-fv/krs
+        working-directory: krs
     steps:
-      - name: Check out KRS in its workspace layout
+      - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          path: starstream-fv/krs
 
-      - name: Provide the pinned k-rust checkout and solver library
-        uses: ./starstream-fv/krs/.github/actions/krs-inputs
+      - name: Provide the pinned solver library
+        uses: ./.github/actions/krs-z3
 
       - name: Select Rust
         uses: dtolnay/rust-toolchain@1.99.0
@@ -58,20 +58,18 @@ jobs:
           cargo check --locked --offline --manifest-path crates/krs-macros/tests/fixtures/positive/Cargo.toml
           cargo check --locked --offline --manifest-path semantics/Cargo.toml -p krs-kevm-semantics
 
-  workspace:
+  checks:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
       run:
-        working-directory: starstream-fv/krs
+        working-directory: krs
     steps:
-      - name: Check out KRS in its workspace layout
+      - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          path: starstream-fv/krs
 
-      - name: Provide the pinned k-rust checkout and solver library
-        uses: ./starstream-fv/krs/.github/actions/krs-inputs
+      - name: Provide the pinned solver library
+        uses: ./.github/actions/krs-z3
 
       - name: Put the solver library on the link and load paths
         run: |
@@ -96,7 +94,7 @@ jobs:
         run: python3 tests/repo-hygiene/verify.py
 
       - name: Test the gate support package
-        working-directory: starstream-fv/krs/tests
+        working-directory: krs/tests
         run: python3 -m unittest discover support
 
       - name: Check the compile-performance harness matrix without measuring
@@ -104,17 +102,8 @@ jobs:
           python3 -m unittest discover -s tests/perf -t tests
           python3 tests/perf/bench.py --dry-run
 
-      - name: Test the workspace
-        run: cargo +stable test --workspace --locked --offline
-
-      - name: Lint the workspace
-        run: cargo +stable clippy --workspace --all-targets --locked --offline -- -D warnings
-
-      - name: Check workspace formatting
-        run: cargo +stable fmt --all --check
-
-      - name: Check workspace documentation
-        run: cargo +stable doc --workspace --no-deps --locked --offline
+      - name: Check KRS documentation
+        run: cargo +stable doc -p 'krs*' --no-deps --locked --offline
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -130,9 +119,6 @@ jobs:
       - name: Lint lesson policy for WebAssembly
         run: cargo +stable clippy --target wasm32-unknown-unknown -p krs-lesson-policy --locked --offline -- -D warnings
 
-      - name: Check the workspace on the minimum supported Rust
-        run: cargo +1.99.0 check --workspace --all-targets --locked --offline
-
       - name: Check KRS without default features on the minimum supported Rust
         run: cargo +1.99.0 check -p krs --no-default-features --locked --offline
 
@@ -144,12 +130,10 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: starstream-fv/krs/browser/worker
+        working-directory: krs/browser/worker
     steps:
-      - name: Check out KRS in its workspace layout
+      - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          path: starstream-fv/krs
 
       - name: Select Bun
         uses: oven-sh/setup-bun@v2

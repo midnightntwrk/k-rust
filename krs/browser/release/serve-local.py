@@ -42,7 +42,12 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SITE = ROOT / "docs-site"
-RELEASE_INPUTS = ["crates", "browser", "tests/tour-minimal", "Cargo.toml", "Cargo.lock"]
+# The directory holding the reference checkouts, as tests/support locates it.
+EXTERNAL_ROOT = Path(os.environ["KRS_EXTERNAL_ROOT"]) if os.environ.get("KRS_EXTERNAL_ROOT") else next(
+    (directory for directory in ROOT.parents if (directory / "inspirations" / "runtimeverification").is_dir()),
+    ROOT.parents[1],
+)
+RELEASE_INPUTS = ["crates", "browser", "tests/tour-minimal", "../Cargo.toml", "../Cargo.lock"]
 SITE_INPUTS = ["docs-site", "browser/worker", "tests/tour-minimal"]
 NICE = ["nice", "-n", "19", "ionice", "-c3"]
 
@@ -57,7 +62,7 @@ def git(*args: str, cwd: Path = ROOT) -> str:
 
 def inputs_key(paths: list[str]) -> dict[str, str]:
     """The committed trees of PATHS plus a digest of their uncommitted changes (tracked diff and untracked files)."""
-    trees = {p: git("rev-parse", f"HEAD:{p}") for p in paths}
+    trees = {p: git("rev-parse", f"HEAD:./{p}") for p in paths}
     h = hashlib.sha256()
     h.update(subprocess.run(["git", "-C", str(ROOT), "diff", "HEAD", "--binary", "--", *paths], check=True, capture_output=True).stdout)
     for name in sorted(filter(None, git("ls-files", "--others", "--exclude-standard", "-z", "--", *paths).split("\0"))):
@@ -92,7 +97,7 @@ def pack_mismatch(pack: Path, fork_rev: str) -> str | None:
     except OSError:
         return f"{pack}/pack-manifest.toml is missing"
     trees = {i["name"]: i.get("git_tree") for i in manifest.get("input", [])}
-    want = {"KRS crates/ tree": git("rev-parse", "HEAD:crates"), "KRS browser/pack/ tree": git("rev-parse", "HEAD:browser/pack")}
+    want = {"KRS crates/ tree": git("rev-parse", "HEAD:./crates"), "KRS browser/pack/ tree": git("rev-parse", "HEAD:./browser/pack")}
     for name, tree in want.items():
         if trees.get(name) != tree:
             return f"{name} is {trees.get(name)}, the checkout has {tree}"
@@ -118,7 +123,7 @@ def wait_http(url: str, proc: subprocess.Popen, what: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--fork-build", type=Path, default=Path("/var/tmp/krs-browser-fork/R-22"))
-    parser.add_argument("--fork-source", type=Path, default=ROOT.parent / "inspirations/AngelOnFira/rust-22")
+    parser.add_argument("--fork-source", type=Path, default=EXTERNAL_ROOT / "inspirations/AngelOnFira/rust-22")
     parser.add_argument("--pack", type=Path, default=Path("/var/tmp/krs-browser-release/packbuild/pack"), help="pack to reuse when it matches")
     parser.add_argument("--state", type=Path, default=None, help="default /var/tmp/krs-local-site-<checkout name>")
     parser.add_argument("--cargo-target-root", type=Path, default=None)
@@ -147,14 +152,14 @@ def main() -> int:
     pack = args.pack.resolve()
     reason = pack_mismatch(pack, fork_rev)
     if reason:
-        built = state / f"pack-{git('rev-parse', 'HEAD:crates')[:8]}-{git('rev-parse', 'HEAD:browser/pack')[:8]}-{fork_rev[:9]}"
+        built = state / f"pack-{git('rev-parse', 'HEAD:./crates')[:8]}-{git('rev-parse', 'HEAD:./browser/pack')[:8]}-{fork_rev[:9]}"
         if pack_mismatch(built / "pack", fork_rev) is None:
             log(f"{pack} does not match ({reason}); reusing {built / 'pack'}")
         else:
             log(f"{pack} does not match ({reason}); building a pack into {built}")
             if built.exists() and any(built.iterdir()):
                 sys.exit(f"serve-local: {built} holds an incomplete pack build; remove it and retry")
-            if git("status", "--porcelain", "--", "crates", "browser/pack", "Cargo.lock"):
+            if git("status", "--porcelain", "--", "crates", "browser/pack", "../Cargo.lock"):
                 sys.exit("serve-local: crates/, browser/pack, or Cargo.lock has uncommitted changes; the pack is built from HEAD")
             run(NICE + ["bash", ROOT / "browser/pack/build.sh", fork_build, built], env={"FORK_SOURCE": str(fork_source)})
         pack = built / "pack"

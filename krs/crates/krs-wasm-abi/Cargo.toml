@@ -1,10 +1,11 @@
 [package]
 name = "krs-wasm-abi"
 description = "JSON-over-linear-memory Wasm ABI shared by the KRS browser modules"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 proc-macro2 = { workspace = true, features = ["span-locations"] }

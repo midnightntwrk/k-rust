@@ -1,10 +1,11 @@
 [package]
 name = "krs-ir-levels"
 description = "Semantic IR and Definition IR: the target-neutral IR levels KRS lowers a descriptor bundle through"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
 
 [features]
 test-support = ["krs-ir/test-support"]

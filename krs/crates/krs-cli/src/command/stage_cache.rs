@@ -1,7 +1,7 @@
 //! The per-user cache of compiled stages for `krs parse`, `run`, `search`, and `prove`.
 //!
 //! Each of those commands compiles its Definition IR through the native frontend before it does anything else, and that compilation dominates a short run.
-//! The compiled stage ([`krs_exec::CompiledStage`]) is stored under a key that digests the Definition IR's canonical JSON, the pinned k-rust commit, the stage format, and the identity of the running `krs` executable, so a changed definition, k-rust pin, or `krs` build misses.
+//! The compiled stage ([`krs_exec::CompiledStage`]) is stored under a key that digests the Definition IR's canonical JSON, the stage format, and the identity of the running `krs` executable, which links k-rust, so a changed definition or `krs` build (k-rust included) misses.
 //! `krs prove --spec-module NAME` also compiles that author spec module's proof definition ([`krs_exec::SpecStage`]); it is stored under the same key plus the module name, and the Definition IR digest covers the spec module's content.
 //! Results are never cached: a run still runs.
 //!
@@ -28,8 +28,6 @@ const LAYOUT: &str = "v1";
 const SCHEMA: u32 = 1;
 const MAX_UNUSED: Duration = Duration::from_hours(30 * 24);
 const PRUNE_INTERVAL: Duration = Duration::from_hours(24);
-/// The repository lock that pins k-rust; `krs` is always built from a KRS checkout.
-const LOCK: &str = include_str!("../../../../Krs.lock");
 
 /// What the key digests.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -37,7 +35,6 @@ const LOCK: &str = include_str!("../../../../Krs.lock");
 struct Key {
     stage_format: String,
     krs_version: String,
-    k_rust_commit: Option<String>,
     krs: Executable,
     definition_ir_sha256: String,
     /// The author spec module of a [`SpecStage`]; absent for the definition's [`CompiledStage`].
@@ -106,7 +103,6 @@ impl StageCache {
         let key = Key {
             stage_format: STAGE_FORMAT.to_owned(),
             krs_version: env!("CARGO_PKG_VERSION").to_owned(),
-            k_rust_commit: k_rust_commit(),
             krs,
             definition_ir_sha256: sha256(ir.as_bytes()),
             spec_module: None,
@@ -315,15 +311,6 @@ fn nearest_canonical(path: &Path) -> PathBuf {
     }
 }
 
-/// `[k_rust] commit` of the repository lock this `krs` was built with.
-fn k_rust_commit() -> Option<String> {
-    let lock = LOCK.parse::<toml_edit::DocumentMut>().ok()?;
-    lock.get("k_rust")?
-        .get("commit")?
-        .as_str()
-        .map(str::to_owned)
-}
-
 fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -331,16 +318,6 @@ fn sha256(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_lock_names_the_k_rust_commit() {
-        let commit = k_rust_commit().expect("Krs.lock pins a k-rust commit");
-        assert_eq!(commit.len(), 40, "{commit}");
-        assert!(
-            commit.bytes().all(|byte| byte.is_ascii_hexdigit()),
-            "{commit}"
-        );
-    }
 
     #[test]
     fn an_explicit_store_is_used_outside_the_workspace_and_refused_inside_it() {

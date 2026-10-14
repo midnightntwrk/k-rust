@@ -41,7 +41,7 @@ Further qualification must target genuinely unsupported language-scale dimension
 ## Acceptance oracles
 
 - **Expansion fidelity**: `krs expand` on the IMP `imp.rs` produces `tests/imp/goldens/imp.expanded.rs` byte-for-byte, and the resolved IR / emitted `.k` matches the reference route.
-  The emitted `.k` is checked mechanically against `../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/{expr,calc,imp}.k` for all 27 rules, labels, strictness, formats, bracket, and both precedence chains.
+  The emitted `.k` is checked mechanically against `inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/{expr,calc,imp}.k` for all 27 rules, labels, strictness, formats, bracket, and both precedence chains.
   The recorded deliberate divergence is that the 18 eval clauses acquire labels `[eval-neg]`… that K's `expr.k` lacks.
 - **The four method gates** (F3): LSP goldens, byte-exact provenance
   re-parse, frozen `ProvenanceRole` seam, stable identities.

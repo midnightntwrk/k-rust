@@ -8,7 +8,7 @@ import sys
 from typing import Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, semantics, entry  # noqa: E402
+from support import INSPIRATIONS, semantics, entry  # noqa: E402
 from support.lock import k_version, krs_ir_schema  # noqa: E402
 from kevm import native  # noqa: E402
 
@@ -56,7 +56,7 @@ PROBES = (
 PORT = semantics.Port(
     label="KEVM",
     key="kevm",
-    checkout=ROOT.parent / "inspirations/runtimeverification/evm-semantics",
+    checkout=INSPIRATIONS / "runtimeverification/evm-semantics",
     descriptors=1100,
     clippy_allow=("clippy::too_many_arguments",),
     hook_namespaces=("KRYPTO",),

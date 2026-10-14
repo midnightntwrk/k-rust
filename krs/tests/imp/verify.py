@@ -21,7 +21,7 @@ import tempfile
 from typing import Any, Callable, Mapping, TypeVar, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, entry  # noqa: E402
+from support import INSPIRATIONS, ROOT, GateError, entry  # noqa: E402
 from support import krs_gate, lock  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import (  # noqa: E402
@@ -35,7 +35,7 @@ from support.kdefinition import emitted_claims, emitted_files  # noqa: E402
 from support.krs import Invocation, build, fresh_deterministic_emissions  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
 from support.packages import check_packages  # noqa: E402
-from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
+from support.pins import Ledger, load_json, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.imp_oracle import reduce_stored_definition  # noqa: E402
 from support.reference import (  # noqa: E402
@@ -68,7 +68,7 @@ SNAPSHOTS = ("kompile-tests", "source-definitions", "native-claims", "behavior",
 ARTIFACT_SNAPSHOTS = ("kompile-tests",)
 """The snapshots of IMP.1-IMP.3, the only ones `--artifacts-only` opens."""
 KOMPILE_TEST_COUNT = 2
-UPSTREAM_IMP = ROOT.parent / "inspirations/runtimeverification/imp-semantics"
+UPSTREAM_IMP = INSPIRATIONS / "runtimeverification/imp-semantics"
 UPSTREAM_DEFINITION = UPSTREAM_IMP / "src/kimp/kdist/imp-semantics"
 REFERENCE_SOURCE = ROOT / "tests/imp_static_semantics/fixtures/static-adjunct.k"
 EMITTED_DEFINITION_INPUT = "emitted/definition.k"
@@ -156,7 +156,7 @@ class Context:
 
         if self.java is None:
             # The K source checkout qualifies only the live toolchain.
-            verify_checkout(ROOT.parent / "inspirations/runtimeverification/k", lock.k_commit(), label="k")
+            verify_checkout(INSPIRATIONS / "runtimeverification/k", lock.k_commit(), label="k")
             tools = {name: k_executable(name) for name in K_TOOLS}
             tools.update({name: executable(name) for name in SOLVER_TOOLS})
             verify_java_tools(tools)
@@ -270,24 +270,10 @@ def phase_preflight(context: Context) -> str:
             if sha256_file(path.parent / relative) != expected:
                 raise GateError(f"{name} corpus hash differs: {relative}")
 
-    checkouts = {
-        "imp": UPSTREAM_IMP,
-        "k_rust": ROOT.parent / "inspirations/midnightntwrk/k-rust-krs-main",
-    }
-    expected = {
-        "imp": table(table(pins.get("revisions"), "pins.revisions").get("imp"), "revisions.imp").get("commit"),
-        "k_rust": str(lock.value("k_rust", "commit")),
-    }
     # A clean checkout at the pinned commit fixes every input file; the gate
-    # does not digest external files separately.
-    for name, path in checkouts.items():
-        verify_checkout(path, str(expected[name]), label=name)
-    for crate, key in (
-        ("k-rust", "version"), ("k-rust-backend", "backend_version"), ("k-rust-kore", "kore_version")
-    ):
-        manifest = load_toml(checkouts["k_rust"] / "crates" / crate / "Cargo.toml")
-        if table(manifest.get("package"), f"{crate} package").get("version") != lock.value("k_rust", key):
-            raise GateError(f"{crate} version differs from Krs.lock [k_rust] {key}")
+    # does not digest external files separately. k-rust is the repository KRS lives in.
+    imp_commit = table(table(pins.get("revisions"), "pins.revisions").get("imp"), "revisions.imp").get("commit")
+    verify_checkout(UPSTREAM_IMP, str(imp_commit), label="imp")
 
     context.tools = {name: executable(name) for name in required_tools()}
     live = context.live_snapshots()
@@ -1150,10 +1136,6 @@ def main() -> int:
     summary = {
         "krs_schema": lock.krs_ir_schema(),
         "k": {"version": lock.k_version(), "commit": lock.k_commit()},
-        "k_rust": {
-            "version": lock.value("k_rust", "version"),
-            "commit": lock.value("k_rust", "commit"),
-        },
         "proof_bounds": pins["proof_policy"],
         "artifacts": cast(Artifacts, artifacts).hashes,
         "compatibility_policy": pins["compatibility"]["policy_version"],

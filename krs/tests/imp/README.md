@@ -18,8 +18,8 @@ Every authored source file is rustc-valid Rust.
 
 The authored and independently expanded IMP packages and the artifact probe are checked on the `Krs.lock` MSRV, Rust 1.99.0, by IMP.2's package checks.
 Native/frontend helpers are additionally qualified on the current stable Rust, which must be at or above that MSRV.
-Workspace-wide formatting, Clippy, tests, documentation, and the workspace MSRV check belong to the standard checks that CI's workspace job runs.
-The complete nine-phase IMP gate passed against clean k-rust `bbd05fd319f21c7d3a588808698533f4f4455d1f` on 2026-10-14 JST.
+Workspace-wide formatting, Clippy, tests, and the MSRV check belong to the repository CI's Rust jobs, which cover KRS's crates with k-rust's.
+The complete nine-phase IMP gate last passed on 2026-10-14 JST, against k-rust `bbd05fd319f21c7d3a588808698533f4f4455d1f`, before KRS joined the k-rust repository.
 
 ## Evidence layers
 
@@ -110,7 +110,7 @@ the IMP state, IMP control flow, and IMP static semantics ledgers, IMP checks th
 `pins.json` holds three kinds of values:
 
 - inputs IMP does not control: the IMP revision and the corpus digest.
-  The K and k-rust revisions, the K, kore-exec, LLVM backend, and Z3
+  The K revision, the K, kore-exec, LLVM backend, and Z3
   versions, the MSRV, and the schema versions come from `Krs.lock`.
   Each external checkout must be clean at its pinned revision, which fixes every
   external file, so no external file is digested separately;
@@ -239,7 +239,7 @@ PYTHONDONTWRITEBYTECODE=1 \
 python3 tests/imp/verify.py
 ```
 
-The final PASS summary prints the KRS schema version, K and `k-rust` pins,
+The final PASS summary prints the KRS schema version, the K pin,
 proof-bound policy, artifact hashes, and compatibility-policy version.
 
 `--artifacts-only` runs IMP.1-IMP.3 (preflight, the Rust checks, and the

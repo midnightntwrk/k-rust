@@ -1,9 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+# krs/ holds KRS, the Rust-shaped K authoring language built on k-rust (krs/README.md).
+members = ["crates/*", "krs/crates/*"]
 
 [workspace.dependencies]
 clap = { version = "4.5", features = ["derive"] }
+expect-test = "1.5.1"
 gmp-mpfr-sys = { version = "1.7.1", default-features = false, features = [
   "mpfr",
 ] }
@@ -21,7 +23,10 @@ napi-derive = "3.3.0"
 num-bigint = "0.4.8"
 num-traits = "0.2.19"
 petgraph = { version = "0.8.3", default-features = false, features = ["std"] }
+prettyplease = "0.2.37"
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 proptest = "1.11.0"
+quote = "1.0.47"
 regex = { version = "1.11.1", default-features = false, features = [
   "std",
   "unicode",
@@ -47,13 +52,30 @@ sha3 = "0.12.0"
 socket2 = { version = "0.6.5", features = ["all"] }
 stacker = "0.1.21"
 substrate-bn = "0.6.0"
+syn = "2.0.119"
 toml = "0.8.23"
+toml_edit = { version = "0.25.13", default-features = false }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-chrome = "0.7.2"
 tracing-subscriber = { version = "0.3.20", default-features = false, features = ["registry"] }
 web-time = "1.1.0"
 wasm-bindgen = "0.2.127"
 z3 = { version = "0.20.2", default-features = false }
+
+
+# KRS's crates opt in with `[lints] workspace = true`; k-rust's crates set no lint table.
+[workspace.lints.rust]
+missing_docs = "warn"
+# `deny`, not `forbid`: the Wasm ABI exports allow the lint locally.
+# krs/tests/repo-hygiene/verify.py confines that allowance to krs/crates/krs-wasm-abi.
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+allow_attributes = "warn"
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Its suggested `assert_eq!(v, [] as [T; 0])` reads worse than `assert!(v.is_empty())`.
+assert_is_empty = "allow"
 
 # The default build is mostly the test suite, whose compile-heavy tests run the kompile pipeline
 # over the embedded prelude; unoptimized, that work dominates the suite's time. Debug assertions

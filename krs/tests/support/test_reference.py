@@ -15,7 +15,7 @@ import tomllib
 import unittest
 from unittest.mock import patch
 
-from support import ROOT, GateError, reference
+from support import EXTERNAL_ROOT, ROOT, GateError, reference
 from support.hashing import sha256_bytes
 from support.lock import k_version
 from support.pins import Ledger
@@ -610,7 +610,7 @@ class FormatTests(unittest.TestCase):
 
     def test_placeholders_round_trip_and_reject_collisions(self) -> None:
         placeholders = Placeholders(Path("/nonexistent/work"))
-        text = f"{ROOT}/tests/x.k and {ROOT.parent}/inspirations and /nonexistent/work/y"
+        text = f"{ROOT}/tests/x.k and {EXTERNAL_ROOT}/inspirations and /nonexistent/work/y"
         stored = placeholders.store(text)
         self.assertEqual(stored, "{{root}}/tests/x.k and {{external}}/inspirations and {{work}}/y")
         self.assertEqual(placeholders.restore(stored), text)

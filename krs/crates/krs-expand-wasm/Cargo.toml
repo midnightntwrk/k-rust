@@ -1,10 +1,11 @@
 [package]
 name = "krs-expand-wasm"
 description = "Browser-lesson KRS expander: whole-file expansion behind a JSON Wasm ABI"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -19,7 +20,7 @@ krs-lesson-policy = { path = "../krs-lesson-policy", default-features = false }
 krs-wasm-abi = { path = "../krs-wasm-abi" }
 serde.workspace = true
 serde_json.workspace = true
-sha2 = { workspace = true }
+sha2 = "0.10.9"
 syn = { workspace = true, features = ["full", "parsing"] }
 
 [lints]

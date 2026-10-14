@@ -11,7 +11,7 @@ import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, entry, krs_gate  # noqa: E402
+from support import INSPIRATIONS, GateError, entry, krs_gate  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.lock import k_commit  # noqa: E402
 from support.hashing import json_sha256, sha256_file, sha256_text  # noqa: E402
@@ -24,9 +24,8 @@ from support.tools import checkout_scratch, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
-WORKSPACE_ROOT = ROOT.parent
-IMP = WORKSPACE_ROOT / "inspirations/runtimeverification/imp-semantics"
-K = WORKSPACE_ROOT / "inspirations/runtimeverification/k"
+IMP = INSPIRATIONS / "runtimeverification/imp-semantics"
+K = INSPIRATIONS / "runtimeverification/k"
 IMP_DEFINITION = IMP / "src/kimp/kdist/imp-semantics"
 IMP_SPECS = IMP / "examples/specs"
 FIXTURE = HERE / "fixtures/static-adjunct.k"

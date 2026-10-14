@@ -26,7 +26,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import proofs  # noqa: E402
-from support import ROOT, GateError, entry, krs_gate, lock  # noqa: E402
+from support import INSPIRATIONS, ROOT, GateError, entry, krs_gate, lock  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
@@ -42,8 +42,8 @@ from support.tools import checkout_scratch, k_executable, k_tool, z3_environment
 
 
 HERE = Path(__file__).resolve().parent
-IMP = ROOT.parent / "inspirations/runtimeverification/imp-semantics"
-K = ROOT.parent / "inspirations/runtimeverification/k"
+IMP = INSPIRATIONS / "runtimeverification/imp-semantics"
+K = INSPIRATIONS / "runtimeverification/k"
 IMP_DEFINITION = IMP / "src/kimp/kdist/imp-semantics"
 IMP_SPECS = IMP / "examples/specs"
 REFERENCE_SOURCE = ROOT / "tests/imp_static_semantics/fixtures/static-adjunct.k"

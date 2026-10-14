@@ -9,7 +9,7 @@ import sys
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, entry  # noqa: E402
+from support import INSPIRATIONS, entry  # noqa: E402
 from support.imp_oracle import (  # noqa: E402
     KAST,
     BoundedSearch,
@@ -30,7 +30,7 @@ SYNTAX_REJECTED = HERE / "corpus" / "rejected" / "syntax"
 SEMANTIC_REJECTED = HERE / "corpus" / "rejected" / "semantic"
 PINS = HERE / "pins.json"
 IMP_STATE = HERE.parent / "imp-state" / "fixtures"
-UPSTREAM = ROOT.parent / "inspirations" / "runtimeverification" / "imp-semantics"
+UPSTREAM = INSPIRATIONS / "runtimeverification" / "imp-semantics"
 
 MODULE = "KRS-IMP-CONTROL-FLOW-IMP"
 SYNTAX_MODULE = "KRS-IMP-CONTROL-FLOW-IMP-SYNTAX"

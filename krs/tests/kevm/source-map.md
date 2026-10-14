@@ -5,7 +5,7 @@ Status: nonempty-code and address-1 through address-6 precompile STATICCALL qual
 ## Pinned authority
 
 The external acceptance corpus is the clean sibling checkout at
-`../inspirations/runtimeverification/evm-semantics`, relative to the repository root:
+`inspirations/runtimeverification/evm-semantics` in the reference checkouts directory (README, Prerequisites):
 
 - commit `d818397e9b7ffa213d687e64418dc8f5293e1ce2`;
 - K release `7.1.337` from `deps/k_release`, exactly matching KRS;
@@ -189,7 +189,7 @@ Six focused definition/hover probes pass with zero rust-analyzer diagnostics.
 
 The K-Rust backend executes all 240 cases through persistent worker processes.
 The K-Rust frontend compiles Definition IR directly to KORE, so ordinary qualification invokes no Java process.
-The pinned k-rust revision includes `KRYPTO` in its default backend hook metadata and accepts already-complete fixed-arity nested cells such as the 15-child `CallState`, so KRS needs no workaround for either.
+k-rust includes `KRYPTO` in its default backend hook metadata and accepts already-complete fixed-arity nested cells such as the 15-child `CallState`, so KRS needs no workaround for either.
 The eight Java/K proofs are deliberately deferred during ordinary development and must run at a signed milestone or final validation point.
 The `--java-reference` route kompiles the claim-free definition with `--hook-namespaces KRYPTO`, because the Java frontend otherwise drops the KRYPTO hooks, and passes every configuration variable except `$PGM` to `krun` as the same KORE value the K-Rust route builds.
 The pinned Haskell backend cannot concretely execute 22 corpus cases: it implements no `KRYPTO.sha256raw`, `KRYPTO.ripemd160raw`, `KRYPTO.bn128valid`, or `KRYPTO.bn128ate` hook, its `KRYPTO.keccak256raw` result is rejected by `BYTES.length`, and its `KRYPTO.ecdsaRecover` fails an internal assertion on an invalid signature.

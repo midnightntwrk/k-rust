@@ -40,13 +40,9 @@ pub use error::{
 };
 pub use provenance::{Author, EmittedProvenance, ProvenanceError, SentenceProvenance};
 
-/// Metadata for the source and builtin revisions forming the native frontend.
+/// The K builtin sources the native frontend embeds.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrontendPin {
-    /// Cargo package version of the pinned `k-rust` crate.
-    pub crate_version: &'static str,
-    /// Exact `k-rust` source revision inspected by KRS.
-    pub source_revision: &'static str,
     /// K release whose builtin sources are embedded by `k-rust`.
     pub k_version: &'static str,
     /// Exact upstream K source revision embedded by `k-rust`.
@@ -55,8 +51,6 @@ pub struct FrontendPin {
 
 /// The native frontend compatibility unit verified by this adapter.
 pub const FRONTEND_PIN: FrontendPin = FrontendPin {
-    crate_version: "0.6.0",
-    source_revision: "017713945e88329ed4b1ac915002fcd4904afd11",
     k_version: "7.1.337",
     k_source_revision: "4a46d1231473b599c699160132fd6e76a5c46406",
 };
@@ -208,29 +202,29 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
     RouteCapability {
         feature: "GroundFloatFolding",
         unavailable_on: &[Route::NativeRust, Route::NativeLlvm, Route::Browser],
-        reason: "the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal",
-        evidence: "KRS builds k-rust without the mpfr-folding feature (FRONTEND_CAPABILITIES.mpfr_folding); k-rust 01771394's constant fold then leaves a ground FLOAT application as written for execution to evaluate (kompile/passes/constant_folding.rs; docs/compatibility.md, Constant folding), so this row is conservative until a native run of one is gated",
+        reason: "the native frontend folds ground Float applications only with MPFR; bind a variable or write the folded literal",
+        evidence: "KRS's own crates request k-rust without the mpfr-folding feature, though a workspace build may unify it in (k_rust::MPFR_FOLDING, FRONTEND_CAPABILITIES.mpfr_folding); without it k-rust's constant fold leaves a ground FLOAT application as written for execution to evaluate (crates/k-rust/src/kompile/passes/constant_folding.rs; docs/compatibility.md, Constant folding), so this row is conservative until a native run of one is gated",
     },
     // upstream k-rust/float-beyond-binary64
     RouteCapability {
         feature: "FloatPrecisionBeyondBinary64",
         unavailable_on: &[Route::NativeRust, Route::NativeLlvm, Route::Browser],
         reason: "k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
-        evidence: "k-rust 01771394 k-rust-backend builtin/float.rs computes only binary32 and binary64: a Float of another format, a program literal or a run-time format argument included, ends the run with the unsupported-hook outcome naming the hook and the format (docs/compatibility.md, Backend scope)",
+        evidence: "k-rust k-rust-backend builtin/float.rs computes only binary32 and binary64: a Float of another format, a program literal or a run-time format argument included, ends the run with the unsupported-hook outcome naming the hook and the format (docs/compatibility.md, Backend scope)",
     },
     // upstream k-rust/console-write-through-execute: the backend API performs no host IO.
     RouteCapability {
         feature: "ConsoleIO",
         unavailable_on: &[Route::Browser],
         reason: "the browser route has no standard input or output; run it with `krs run` or Java K's krun",
-        evidence: "the browser lesson runtime executes requests through the k-rust backend API, which performs no host IO (k-rust 01771394 docs/compatibility.md, Backend scope: RPC does not perform host IO)",
+        evidence: "the browser lesson runtime executes requests through the k-rust backend API, which performs no host IO (k-rust docs/compatibility.md, Backend scope: RPC does not perform host IO)",
     },
     // upstream k/llvm-no-existentials (reviewed, not a request: concrete execution by design).
     RouteCapability {
         feature: "RuleExistential",
         unavailable_on: &[Route::NativeLlvm, Route::JavaLlvmReference],
         reason: "concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell",
-        evidence: "Java kompile --backend llvm rejects a rule with a `?X` right-hand-side variable (K tutorial lesson 1.21); the Haskell backend and k-rust execute it symbolically (k-rust 01771394 docs/compatibility.md, Frontend policy: existential right-hand-side variables follow K's Haskell policy)",
+        evidence: "Java kompile --backend llvm rejects a rule with a `?X` right-hand-side variable (K tutorial lesson 1.21); the Haskell backend and k-rust execute it symbolically (k-rust docs/compatibility.md, Frontend policy: existential right-hand-side variables follow K's Haskell policy)",
     },
     // upstream k/llvm-kompile-parametric-function-segfault
     RouteCapability {
@@ -252,14 +246,14 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
         feature: "UserAlgebraicMatching",
         unavailable_on: &Route::ALL,
         reason: "no pinned backend matches modulo user-declared `assoc`, `comm`, `idem`, or `unit` axioms; use the builtin List, Set, or Map sorts, whose hooks implement them",
-        evidence: "reserved for KF-019, which KRS does not implement: on `syntax Bag ::= Bag \"&\" Bag [assoc, comm, unit(bagNil)]` Java K 7.1.337's LLVM backend matches the symbol as a free constructor (the axioms are silently weakened), kore-exec rejects function equations over it, and k-rust 01771394 emits the axioms but neither matches nor refutes modulo them, so a variable-free run halts as uninstantiated (docs/compatibility.md, User productions with `assoc`, `comm`, `idem` or `unit`)",
+        evidence: "reserved for KF-019, which KRS does not implement: on `syntax Bag ::= Bag \"&\" Bag [assoc, comm, unit(bagNil)]` Java K 7.1.337's LLVM backend matches the symbol as a free constructor (the axioms are silently weakened), kore-exec rejects function equations over it, and k-rust emits the axioms but neither matches nor refutes modulo them, so a variable-free run halts as uninstantiated (docs/compatibility.md, User productions with `assoc`, `comm`, `idem` or `unit`)",
     },
     // upstream k-rust/console-write-through-execute
     RouteCapability {
         feature: "ConsoleWriteHook",
         unavailable_on: &[Route::NativeRust, Route::Browser],
         reason: "the in-process k-rust backend gives `#write` and `#putc` no console state, so they cannot run; append to a `stream = \"stdout\"` cell instead, or run the emitted K with Java K's krun or build with --backend llvm",
-        evidence: "k-rust 01771394 docs/compatibility.md (Backend scope, console IO): only ordinary committed execution performs IO.write and IO.putc, pure simplification gets no console state, and RPC performs no host IO; at k-rust 195a7718 `krs run` stopped with `unsupported-hook` after rewriting to `#write(1, \"hi\\n\")` (probe, 2026-10-10). llvm-kompile 7.1.337 on the same definition's native LLVM KORE built an interpreter that printed `hi` and `A`, as Java K's krun does, so native-llvm keeps them",
+        evidence: "k-rust docs/compatibility.md (Backend scope, console IO): only ordinary committed execution performs IO.write and IO.putc, pure simplification gets no console state, and RPC performs no host IO; at k-rust 195a7718 `krs run` stopped with `unsupported-hook` after rewriting to `#write(1, \"hi\\n\")` (probe, 2026-10-10). llvm-kompile 7.1.337 on the same definition's native LLVM KORE built an interpreter that printed `hi` and `A`, as Java K's krun does, so native-llvm keeps them",
     },
 ];
 
@@ -276,17 +270,19 @@ pub fn route_capability(feature: &str, route: Route) -> CapabilityAvailability {
 
 const SUPPORTED_BACKENDS: &[Backend] = &[Backend::Llvm, Backend::Haskell];
 
-/// Capabilities compiled into the pinned frontend and supplied by this adapter.
+/// Capabilities compiled into the k-rust frontend and supplied by this adapter.
 pub const FRONTEND_CAPABILITIES: FrontendCapabilities = FrontendCapabilities {
     backends: SUPPORTED_BACKENDS,
-    z3_inference: if cfg!(feature = "z3-inference") {
+    z3_inference: if k_rust::Z3_INFERENCE {
         CapabilityAvailability::Available
     } else {
-        CapabilityAvailability::Unavailable("the z3-inference feature is disabled")
+        CapabilityAvailability::Unavailable("k-rust is built without the z3-inference feature")
     },
-    mpfr_folding: CapabilityAvailability::Unavailable(
-        "the pinned k-rust dependency is built without mpfr-folding",
-    ),
+    mpfr_folding: if k_rust::MPFR_FOLDING {
+        CapabilityAvailability::Available
+    } else {
+        CapabilityAvailability::Unavailable("k-rust is built without the mpfr-folding feature")
+    },
     structured_definition_preparation: CapabilityAvailability::Available,
 };
 

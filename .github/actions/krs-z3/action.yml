@@ -1,0 +1,14 @@
+name: KRS solver library
+description: >-
+  Install the Z3 4.12.5 shared library that KRS's Krs.lock pins and export
+  KRS_Z3_LIB, which the KRS gates and tour verifiers read.
+
+runs:
+  using: composite
+  steps:
+    - name: Install the pinned solver library
+      shell: bash
+      run: |
+        python3 -m venv "$RUNNER_TEMP/krs-z3"
+        "$RUNNER_TEMP/krs-z3/bin/pip" install --disable-pip-version-check z3-solver==4.12.5.0
+        "$RUNNER_TEMP/krs-z3/bin/python" -c 'import pathlib,z3; print("KRS_Z3_LIB=" + str(pathlib.Path(z3.__file__).parent / "lib"))' >> "$GITHUB_ENV"

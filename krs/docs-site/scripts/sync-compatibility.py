@@ -11,6 +11,7 @@ import tomllib
 SITE = Path(__file__).resolve().parent.parent
 ROOT = SITE.parent
 LOCK = ROOT / "Krs.lock"
+K_RUST = ROOT.parent / "crates/k-rust/Cargo.toml"
 OUTPUT = SITE / "src" / "pages" / "index.mdx"
 START = "{/* generated:compatibility:start */}"
 END = "{/* generated:compatibility:end */}"
@@ -25,8 +26,7 @@ def render() -> str:
         "msrv": lock.get("cargo", {}).get("msrv"),
         "k": lock.get("k", {}).get("version"),
         "k_commit": lock.get("k", {}).get("commit"),
-        "k_rust": lock.get("k_rust", {}).get("version"),
-        "k_rust_commit": lock.get("k_rust", {}).get("commit"),
+        "k_rust": tomllib.loads(K_RUST.read_text()).get("package", {}).get("version"),
         "solver": lock.get("solver", {}).get("version"),
     }
     missing = [name for name, value in required.items() if value in (None, "")]
@@ -40,7 +40,7 @@ def render() -> str:
             "",
             ":::info Current checked baseline",
             f"This tour targets KRS schema **{required['krs_ir']}**, K **{required['k']}**, and k-rust **{required['k_rust']}**.",
-            "The values are generated from `Krs.lock`; examples outside this baseline are not silently treated as equivalent.",
+            "The values are generated from `Krs.lock` and k-rust's manifest; examples outside this baseline are not silently treated as equivalent.",
             ":::",
             "",
             "| Boundary | Checked compatibility |",
@@ -48,7 +48,7 @@ def render() -> str:
             f"| Authoring toolchain | Rust {required['msrv']} or newer within the repository's qualified range |",
             f"| Descriptor bundle, Semantic IR, Definition IR | Schema {required['krs_ir']} |",
             f"| K toolchain | {required['k']} at `{required['k_commit']}` |",
-            f"| Native frontend | k-rust {required['k_rust']} at `{required['k_rust_commit']}` |",
+            f"| Native frontend | k-rust {required['k_rust']}, built from the same commit |",
             f"| Solver profile | Z3 {required['solver']} |",
             "",
             END,

@@ -92,8 +92,8 @@ const oracle = Bun.TOML.parse(readFileSync(oracleToml, "utf8")) as unknown as Or
 const lessonPath = join(repo, "tests/tour-minimal/src/lib.rs");
 const lessonText = readFileSync(lessonPath, "utf8");
 const current = {
-  crates_tree: git("rev-parse", "HEAD:crates"),
-  tour_minimal_tree: git("rev-parse", "HEAD:tests/tour-minimal"),
+  crates_tree: git("rev-parse", "HEAD:./crates"),
+  tour_minimal_tree: git("rev-parse", "HEAD:./tests/tour-minimal"),
   cargo_lock_blob: git("rev-parse", "HEAD:Cargo.lock"),
   krs_lib_rs_sha256: sha256(readFileSync(join(repo, "crates/krs/src/lib.rs"))),
   lesson_source_sha256: sha256(lessonText),
@@ -102,7 +102,7 @@ const problems: string[] = [];
 for (const [key, value] of Object.entries(current)) {
   if (oracle.validity[key] !== value) problems.push(`oracle.toml validity.${key} = ${String(oracle.validity[key])}, checkout has ${value}`);
 }
-if (git("status", "--porcelain", "--", "crates", "tests/tour-minimal", "Cargo.lock") !== "") problems.push("crates/, tests/tour-minimal, or Cargo.lock has uncommitted changes");
+if (git("status", "--porcelain", "--", "crates", "tests/tour-minimal", "../Cargo.lock") !== "") problems.push("crates/, tests/tour-minimal, or Cargo.lock has uncommitted changes");
 const patchPath = join(here, "edit-e1.patch");
 if (sha256(readFileSync(patchPath)) !== oracle.oracle_e1.edit_patch_sha256) problems.push("edit-e1.patch differs from the one the E1 oracle was generated with");
 const oracleBytes = { base: new Uint8Array(readFileSync(oracle.oracle.bundle)), e1: new Uint8Array(readFileSync(oracle.oracle_e1.bundle)) };

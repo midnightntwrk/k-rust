@@ -105,7 +105,7 @@ import time
 import tomllib
 from typing import Any, Callable, Mapping, Sequence
 
-from support import ROOT, GateError
+from support import EXTERNAL_ROOT, ROOT, GateError
 from support.hashing import sha256_bytes, sha256_file, sha256_text
 from support.lock import k_version
 from support.pins import Ledger
@@ -537,7 +537,7 @@ class Placeholders:
         pairs = [
             ("{{work}}", os.fspath(workspace.resolve())),
             ("{{root}}", os.fspath(ROOT)),
-            ("{{external}}", os.fspath(ROOT.parent)),
+            ("{{external}}", os.fspath(EXTERNAL_ROOT)),
         ]
         # The longest path is replaced first, so a path inside another keeps
         # its more specific placeholder.

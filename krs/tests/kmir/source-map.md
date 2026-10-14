@@ -4,7 +4,7 @@ Status: typed locals, aggregate and active-union fields, indexed ranges and subs
 
 ## Pinned authority
 
-The external acceptance corpus is the clean sibling checkout at `../inspirations/runtimeverification/mir-semantics`, relative to the repository root:
+The external acceptance corpus is the clean sibling checkout at `inspirations/runtimeverification/mir-semantics` in the reference checkouts directory (README, Prerequisites):
 
 - commit `4d793252bcd77091ee759ca6cd1629db41ed5496`;
 - K release `7.1.337` from `deps/k_release`, exactly matching KRS;

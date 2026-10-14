@@ -93,18 +93,17 @@ fn prepared_with_structured_injection_for_test(
 #[test]
 fn pin_and_portable_capabilities_are_explicit() {
     let capabilities = std::hint::black_box(FRONTEND_CAPABILITIES);
-    assert_eq!(FRONTEND_PIN.crate_version, "0.6.0");
     assert_eq!(FRONTEND_PIN.k_version, "7.1.337");
     assert!(capabilities.supports_backend(Backend::Llvm));
     assert!(capabilities.supports_backend(Backend::Haskell));
-    assert!(matches!(
-        capabilities.z3_inference,
-        CapabilityAvailability::Available
-    ));
-    assert!(matches!(
-        capabilities.mpfr_folding,
-        CapabilityAvailability::Unavailable(_)
-    ));
+    assert_eq!(
+        matches!(capabilities.z3_inference, CapabilityAvailability::Available),
+        k_rust::Z3_INFERENCE
+    );
+    assert_eq!(
+        matches!(capabilities.mpfr_folding, CapabilityAvailability::Available),
+        k_rust::MPFR_FOLDING
+    );
     assert!(matches!(
         capabilities.structured_definition_preparation,
         CapabilityAvailability::Available

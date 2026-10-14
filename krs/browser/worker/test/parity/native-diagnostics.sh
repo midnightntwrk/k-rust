@@ -50,7 +50,7 @@ low() { nice -n 19 ionice -c3 "$@"; }
 record_exit() { echo "$2" >"$1/exit"; }
 
 # The oracle directory must describe this checkout (regenerate-oracle.sh at this revision).
-grep -q "crates_tree = \"$(git -C "$REPO" rev-parse HEAD:crates)\"" "$ORACLE_DIR/oracle.toml" \
+grep -q "crates_tree = \"$(git -C "$REPO" rev-parse HEAD:./crates)\"" "$ORACLE_DIR/oracle.toml" \
   || { echo "$ORACLE_DIR/oracle.toml is not for this crates/ tree; run regenerate-oracle.sh first" >&2; exit 2; }
 COLLECTOR=$(find "$ORACLE_DIR/target-native/x86_64-unknown-linux-gnu/debug" -maxdepth 1 -type f -name 'krs-generated-collector-*' ! -name '*.d' -perm -u+x | head -1)
 [[ -x $COLLECTOR ]] || { echo "no native collector binary under $ORACLE_DIR" >&2; exit 2; }
@@ -59,7 +59,7 @@ rm -rf "$OUT"
 mkdir -p "$CASES" "$OUT/lower-shim"
 {
   echo "repo_head = $(git -C "$REPO" rev-parse HEAD)"
-  echo "crates_tree = $(git -C "$REPO" rev-parse HEAD:crates)"
+  echo "crates_tree = $(git -C "$REPO" rev-parse HEAD:./crates)"
   echo "krs_bin_sha256 = $(sha256sum "$KRS_BIN" | cut -d' ' -f1)"
   echo "rustc = $(rustc +stable -V)"
   echo "twin = $("$TWIN" -V)"

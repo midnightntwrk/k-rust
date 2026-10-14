@@ -47,12 +47,37 @@ Its unit tests run with
 from __future__ import annotations
 
 from collections.abc import Callable
+import os
 from pathlib import Path
 import sys
 
 
 ROOT = Path(__file__).resolve().parents[2]
-"""The repository root."""
+"""The KRS root (`krs/` in the k-rust repository)."""
+
+REPOSITORY = ROOT.parent
+"""The k-rust repository root, whose `crates/` KRS builds against."""
+
+
+def _external_root() -> Path:
+    override = os.environ.get("KRS_EXTERNAL_ROOT")
+    if override:
+        return Path(override).resolve()
+    for directory in ROOT.parents:
+        if (directory / "inspirations" / "runtimeverification").is_dir():
+            return directory
+    return REPOSITORY.parent
+
+
+EXTERNAL_ROOT = _external_root()
+"""The directory holding `inspirations/`, the pinned reference checkouts.
+
+`KRS_EXTERNAL_ROOT` names it; otherwise it is the nearest ancestor of the KRS
+root with an `inspirations/runtimeverification` directory.
+"""
+
+INSPIRATIONS = EXTERNAL_ROOT / "inspirations"
+"""The pinned reference checkouts (`runtimeverification/k`, `imp-semantics`, ...)."""
 
 
 class GateError(RuntimeError):

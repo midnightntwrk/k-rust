@@ -186,8 +186,8 @@ exec 9>&-
 
 producer=(
   --set "krs_revision=$KRS_REV"
-  --set "krs_crates_tree=$(git -C "$KRS_REPO" rev-parse "$KRS_REV:crates")"
-  --set "krs_pack_tree=$(git -C "$KRS_REPO" rev-parse "$KRS_REV:browser/pack")"
+  --set "krs_crates_tree=$(git -C "$KRS_REPO" rev-parse "$KRS_REV:./crates")"
+  --set "krs_pack_tree=$(git -C "$KRS_REPO" rev-parse "$KRS_REV:./browser/pack")"
   --set "cargo_version=$("$CARGO" -V)"
   --set "fork_repository=$FORK_REPOSITORY"
   --set "registry_index=$REGISTRY_INDEX"

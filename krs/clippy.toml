@@ -1,0 +1,2 @@
+# KRS writes pretty JSON with serde_json, whose layouts its gates pin byte for byte, so the
+# repository clippy.toml's ban on serde_json's pretty printers stops at krs/.

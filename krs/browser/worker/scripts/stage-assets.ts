@@ -56,7 +56,7 @@ function git(...args: string[]): Uint8Array {
 }
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 const KRS_REV = text(git("rev-parse", "--verify", `${values["krs-rev"]!}^{commit}`)).trim();
-const gitShow = (path: string) => git("show", `${KRS_REV}:${path}`);
+const gitShow = (path: string) => git("show", `${KRS_REV}:./${path}`);
 function collectorProtocolVersion(): number {
   const lock = Bun.TOML.parse(text(gitShow("Krs.lock"))) as { schemas?: { collector?: unknown } };
   const version = lock.schemas?.collector;
@@ -101,7 +101,7 @@ const pack = await packFromManifest(source, {
   policy: await placeFile("modules/krs_lesson_policy.wasm", inputs.policy),
   expander: await placeFile("modules/krs_expand_wasm.wasm", inputs.expander),
   modulesKrsRevision: KRS_REV,
-  modulesCratesTree: text(git("rev-parse", `${KRS_REV}:crates`)).trim(),
+  modulesCratesTree: text(git("rev-parse", `${KRS_REV}:./crates`)).trim(),
   protocolVersion: collectorProtocolVersion(),
 });
 writeFileSync(join(OUT, "pack.json"), `${JSON.stringify(pack, null, 1)}\n`);

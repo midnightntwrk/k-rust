@@ -11,7 +11,7 @@
 (browser/worker/scripts/stage-assets.ts output, or `release.py fetch` output):
   * pack/: every [[artifact]] byte count and SHA-256, no extra file, pack_id (browser/pack/manifest.py verify);
   * pack.json: pack_id, every PackAsset's bytes and SHA-256, the recomputed pack_id, and one crates/
-    tree for pack, modules, and (unless --no-checkout) the checkout's HEAD:crates;
+    tree for pack, modules, and (unless --no-checkout) the checkout's HEAD:./crates;
   * licenses/licenses.toml: covers exactly the release assets with their current hashes, every component has an
     SPDX expression, every notice file exists with its hash and no notice file is unreferenced, and status
     agrees with the recorded gaps;
@@ -112,7 +112,7 @@ def check_pack_json(staged: Path, manifest: dict[str, Any], require_checkout: bo
     trees = {i["name"]: i.get("git_tree") for i in manifest["input"] if i["kind"] == "git-tree"}
     crates = {"pack-manifest.toml": trees.get("KRS crates/ tree"), "pack.json": pack["crates_tree"], "modules": pack["modules"]["crates_tree"]}
     if require_checkout:
-        crates["checkout HEAD"] = git(ROOT, "rev-parse", "HEAD:crates")
+        crates["checkout HEAD"] = git(ROOT, "rev-parse", "HEAD:./crates")
         if git(ROOT, "status", "--porcelain", "--", "crates", "Cargo.lock"):
             problems.append("crates/ or Cargo.lock has uncommitted changes")
     if len(set(crates.values())) != 1:
@@ -183,8 +183,8 @@ def check_licenses(staged: Path, manifest: dict[str, Any]) -> tuple[list[str], d
 def check_oracle(oracle_path: Path, require_checkout: bool) -> tuple[list[str], dict[str, Any]]:
     problems = []
     oracle = tomllib.loads(oracle_path.read_text())
-    if require_checkout and oracle["validity"]["crates_tree"] != git(ROOT, "rev-parse", "HEAD:crates"):
-        problems.append(f"oracle.toml is for crates tree {oracle['validity']['crates_tree']}, the checkout has {git(ROOT, 'rev-parse', 'HEAD:crates')}")
+    if require_checkout and oracle["validity"]["crates_tree"] != git(ROOT, "rev-parse", "HEAD:./crates"):
+        problems.append(f"oracle.toml is for crates tree {oracle['validity']['crates_tree']}, the checkout has {git(ROOT, 'rev-parse', 'HEAD:./crates')}")
     for key in ("oracle", "oracle_e1"):
         rec = oracle[key]
         f = Path(rec["bundle"])
@@ -237,7 +237,7 @@ def check_publish(publish: Path, staged: Path, oracle: dict[str, Any] | None, re
     for role, entry in release["roles"].items():
         if entry.get("status") == "present" and not entry.get("assets"):
             problems.append(f"role {role} is present without assets")
-    if require_checkout and release["krs"]["crates_tree"] != git(ROOT, "rev-parse", "HEAD:crates"):
+    if require_checkout and release["krs"]["crates_tree"] != git(ROOT, "rev-parse", "HEAD:./crates"):
         problems.append("release crates_tree differs from the checkout")
     if oracle is not None and (release["oracle"]["bundle_sha256"] != oracle["oracle"]["bundle_sha256"]
                                or release["oracle"]["e1_bundle_sha256"] != oracle["oracle_e1"]["bundle_sha256"]):

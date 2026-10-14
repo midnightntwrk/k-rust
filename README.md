@@ -9,6 +9,11 @@ and per-run process-tree peak memory with toolchain and machine metadata.
 definitions and programs, runs the frontend checking and lowering pipeline, emits KORE artifacts,
 and includes an in-process symbolic backend.
 
+[`krs/`](krs/README.md) holds KRS, a Rust-shaped language for authoring K semantic definitions
+that lowers natively through these crates. Its crates are members of this workspace, so a change
+to `k-rust` builds, lints, and tests KRS with it, and updates KRS in the same commit when it
+affects KRS.
+
 ## Running examples
 
 Exercise Z3-backed parametric sort inference with the installed CLI:
@@ -807,3 +812,7 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 
 `k-rust` is distributed under the BSD 3-Clause License. The bundled K Framework builtin sources
 retain their original copyright notices; see [NOTICE](NOTICE).
+
+KRS, everything under [`krs/`](krs/), is licensed under either of the Apache License, Version 2.0
+([`krs/LICENSE-APACHE`](krs/LICENSE-APACHE)) or the MIT license
+([`krs/LICENSE-MIT`](krs/LICENSE-MIT)), at your option.

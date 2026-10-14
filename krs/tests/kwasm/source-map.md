@@ -4,7 +4,7 @@ Status: integer arithmetic and division/trap slices qualified; IMP regression gr
 
 ## Pinned authority
 
-The external acceptance corpus is the clean sibling checkout at `../inspirations/runtimeverification/wasm-semantics`, relative to the repository root:
+The external acceptance corpus is the clean sibling checkout at `inspirations/runtimeverification/wasm-semantics` in the reference checkouts directory (README, Prerequisites):
 
 - commit `212271bd434bd402e27c42f6416854342733386d`;
 - K release `7.1.329` from `deps/k_release`;

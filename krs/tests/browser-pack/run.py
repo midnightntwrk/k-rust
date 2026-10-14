@@ -294,8 +294,8 @@ def main() -> int:
         if git_revision(args.fork_source) != fork_rev:
             parser.error(f"--fork-source HEAD is not the pack's fork revision {fork_rev}")
         crates = next(i["git_tree"] for i in manifest["input"] if i["name"] == "KRS crates/ tree")
-        if crates != git(ROOT, "rev-parse", "HEAD:crates"):
-            parser.error(f"the pack was built from crates tree {crates}; this checkout has {git(ROOT, 'rev-parse', 'HEAD:crates')} (rebuild the pack with browser/pack/build.sh)")
+        if crates != git(ROOT, "rev-parse", "HEAD:./crates"):
+            parser.error(f"the pack was built from crates tree {crates}; this checkout has {git(ROOT, 'rev-parse', 'HEAD:./crates')} (rebuild the pack with browser/pack/build.sh)")
     steps = HOSTED_STEPS if hosted else LOCAL_STEPS + (["rebuild"] if args.rebuild else [])
     if args.steps:
         wanted = args.steps.split(",")
@@ -308,7 +308,7 @@ def main() -> int:
         runner.release_sha = json.loads((runner.publish / "index.json").read_text())["active"]["sha256"]
     started = time.monotonic()
     header = {"date": datetime.datetime.now().isoformat(timespec="seconds"), "krs_revision": git_revision(ROOT),
-              "crates_tree": git(ROOT, "rev-parse", "HEAD:crates"), "mode": "hosted" if hosted else "local",
+              "crates_tree": git(ROOT, "rev-parse", "HEAD:./crates"), "mode": "hosted" if hosted else "local",
               "pack": str(args.pack) if args.pack else None, "fork_build": str(args.fork_build) if args.fork_build else None,
               "fork_source": str(args.fork_source) if args.fork_source else None, "base_url": args.base_url,
               "uptime": run(["uptime"], check=False).stdout.strip(), "steps": steps}

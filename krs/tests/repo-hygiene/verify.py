@@ -19,7 +19,7 @@ The workspace denies `unsafe_code` rather than forbidding it, because the Wasm
 exports that `krs_wasm_abi::export!` declares carry `#[unsafe(no_mangle)]` and
 must allow the lint locally. The forbid guarantee is kept here instead: only
 `crates/krs-wasm-abi/src/lib.rs` may allow or expect `unsafe_code`, and no
-root or crate manifest may lower the lint below `deny`.
+crate manifest, nor the repository workspace manifest (`../Cargo.toml`), may lower the lint below `deny`.
 
 Every tracked `Cargo.toml` that declares `rust-version` must match
 `Krs.lock` `[cargo] msrv` at major.minor or inherit the workspace value, so
@@ -52,12 +52,13 @@ import sys
 import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, entry  # noqa: E402
+from support import REPOSITORY, ROOT, entry  # noqa: E402
 from support.packages import PACKAGES  # noqa: E402
 from support.process import run  # noqa: E402
 
 
 SELF = Path(__file__).resolve().relative_to(ROOT).as_posix()
+WORKSPACE_MANIFEST = "../Cargo.toml"
 
 # A `draft/` path segment (not, for example, the npm scope `@open-draft/`),
 # or a quoted "draft" component joined into a path in code.
@@ -219,12 +220,12 @@ def manifest_problems(relative: str, text: str, msrv: tuple[int, int]) -> list[s
         elif tuple(map(int, version.split(".")[:2])) != msrv:
             problems.append(f"{relative}: [{section}] rust-version {version} differs from Krs.lock cargo.msrv {msrv[0]}.{msrv[1]}")
 
-    if relative == "Cargo.toml" or relative.startswith("crates/"):
+    if relative == WORKSPACE_MANIFEST or relative.startswith("crates/"):
         lint = manifest.get("workspace", {}).get("lints", {}).get("rust", {}).get("unsafe_code")
         lint = manifest.get("lints", {}).get("rust", {}).get("unsafe_code", lint)
         if isinstance(lint, dict):
             lint = lint.get("level")
-        if relative == "Cargo.toml" and lint != "deny":
+        if relative == WORKSPACE_MANIFEST and lint != "deny":
             problems.append(f"{relative}: workspace unsafe_code lint must be deny, which the Wasm ABI exports need")
         elif lint in ("allow", "warn"):
             problems.append(f"{relative}: unsafe_code lint must be deny or forbid")
@@ -274,6 +275,9 @@ def main() -> int:
     msrv = tuple(map(int, lock["cargo"]["msrv"].split(".")[:2]))
     problems.extend(standalone_package_problems(files))
     problems.extend(reference_output_problems(files))
+    # KRS's crates are members of the k-rust repository's workspace, whose manifest holds their lints.
+    workspace = (REPOSITORY / "Cargo.toml").read_text(encoding="utf-8")
+    problems.extend(manifest_problems(WORKSPACE_MANIFEST, workspace, msrv))
     for relative in files:
         if relative == "draft" or relative.startswith("draft/"):
             problems.append(f"{relative}: tracked file under draft/")
@@ -292,7 +296,7 @@ def main() -> int:
                 if relative != UNSAFE_EXCEPTION:
                     number = text.count("\n", 0, match.start()) + 1
                     problems.append(f"{relative}:{number}: allows or expects unsafe_code outside the Wasm ABI macro")
-        if relative == "Cargo.toml" or relative.endswith("/Cargo.toml"):
+        if relative.endswith("/Cargo.toml"):
             problems.extend(manifest_problems(relative, text, msrv))
         for number, line in enumerate(text.splitlines(), start=1):
             for pattern, what in (

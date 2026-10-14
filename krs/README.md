@@ -8,7 +8,7 @@ It does not give ordinary Rust programs K semantics, and it is not a new rewrite
 
 A KRS definition is an ordinary Cargo crate that depends on the `krs` facade, conventionally renamed to `k`.
 Its declarations are rustc-valid Rust; K-specific patterns and logic live in explicit macro islands such as `k::rules!`.
-The `krs` command collects the crate's descriptors, resolves one Semantic IR and one Definition IR, and then either emits inspectable `.k` files or lowers the Definition IR natively through the pinned [`k-rust`](https://github.com/midnightntwrk/k-rust) frontend to KORE.
+The `krs` command collects the crate's descriptors, resolves one Semantic IR and one Definition IR, and then either emits inspectable `.k` files or lowers the Definition IR natively to KORE through the `k-rust` frontend, whose crates are the rest of this repository (`../crates/`).
 `krs expand` projects the readable (layer-1) surface to a deterministic, explicit (layer-2) Rust reference surface, and `krs fmt` is the canonical formatter for both.
 
 `krs parse`, `run`, `search`, and `prove` play the roles of K's `kast`, `krun`, `krun --search`, and `kprove`: they compile the same Definition IR in-process through `krs-exec` and the `k-rust` symbolic backend, and `--output json` prints a `krs-exec/1` report.
@@ -23,8 +23,9 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
 - **Language-scale ports.** Incremental KWasm, KEVM, and KMIR ports live in `semantics/`.
   None is complete; `semantics/coverage.toml` records what each covers, what is deferred, and every adapter boundary.
   Their gates execute 32 (KWasm), 240 (KEVM), and 184 (KMIR) pinned cases natively through `k-rust`.
-- **Toolchain pins.** `Krs.lock` pins K 7.1.337, the `k-rust` frontend commit, Z3 4.12.5, and the IR schema versions; every gate reads them from there.
-  The workspace MSRV is Rust 1.99.0, the `rust-version` every pinned `k-rust` crate declares; the gates also qualify native-frontend helpers on any stable Rust at or above it.
+- **Toolchain pins.** `Krs.lock` pins K 7.1.337, Z3 4.12.5, and the IR schema versions; every gate reads them from there.
+  KRS builds against the `k-rust` crates of the same commit, so there is no `k-rust` pin to move: a `k-rust` change that affects KRS updates KRS in the same commit.
+  The MSRV is Rust 1.99.0, the `rust-version` every `k-rust` crate declares; the gates also qualify native-frontend helpers on any stable Rust at or above it.
 - **Documentation.** `docs-plan/tour.toml` is the curriculum and feature-status ledger for a 17-chapter language tour, published by the Vocs site in `docs-site/`.
   `docs-plan/authoring-spec/` is the normative readable-authoring specification.
 - **Browser lessons.** `browser/` contains a Web Worker that expands and compiles lessons in the browser, together with its dependency pack and release tooling.
@@ -38,7 +39,7 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
 | `crates/krs-collector` | Deterministic host descriptor collection |
 | `crates/krs-compiler`, `crates/krs-ir`, `crates/krs-ir-levels` | Semantic analysis, `.k` emission, descriptor contracts, and the Semantic and Definition IR levels |
 | `crates/krs-diagnostic` | Located diagnostic model and code registry shared by producers |
-| `crates/krs-k-rust` | Adapter from Definition IR to the pinned `k-rust` frontend |
+| `crates/krs-k-rust` | Adapter from Definition IR to the `k-rust` frontend |
 | `crates/krs-exec` | Filesystem-free parse, run, search, and prove over Definition IR through the `k-rust` backend |
 | `crates/krs-cli` | The `krs` command: `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, and `fmt` |
 | `crates/krs-fmt` | Canonical formatter |
@@ -54,9 +55,9 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
 ### Prerequisites
 
 - Rust 1.99.0 and a current stable toolchain with Clippy and rustfmt.
-  The repository has no `rust-toolchain.toml`, so pass `+stable` or `+1.99.0` explicitly.
+  KRS has no `rust-toolchain.toml`, so pass `+stable` or `+1.99.0` explicitly.
 - The Z3 4.12.5 shared library on the link and load paths.
-  `krs-k-rust` builds `k-rust` with the `z3-inference` feature and does not download a solver.
+  `krs-k-rust` builds `k-rust` with the `z3-inference` feature and does not download a solver unless a workspace-wide build unifies `k-rust`'s defaults in.
   Set `KRS_Z3_LIB` to the directory that contains `libz3.so`; the Python gates prepend it to both paths themselves, but Cargo needs it exported:
 
   ```sh
@@ -64,23 +65,27 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
   export LD_LIBRARY_PATH=$KRS_Z3_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
   ```
 
-- Pinned sibling checkouts, relative to the repository root, at the revisions that `Krs.lock`, `semantics/README.md`, and each gate's pins name.
-  The gates fail closed on a revision mismatch or a dirty checkout.
-  - `../inspirations/midnightntwrk/k-rust-krs-main` (`k-rust`, a Cargo path dependency of `krs-k-rust`);
-  - `../inspirations/runtimeverification/{wasm-semantics,evm-semantics,mir-semantics,imp-semantics}` (port and IMP authorities);
-  - `../inspirations/runtimeverification/k` (K 7.1.337, for gates that need the K toolchain).
+- The pinned reference checkouts, in a directory named `inspirations/`, at the revisions that `Krs.lock`, `semantics/README.md`, and each gate's pins name.
+  The gates look for it in the nearest ancestor of `krs/` that holds `inspirations/runtimeverification`, or under the directory `KRS_EXTERNAL_ROOT` names, and fail closed on a revision mismatch or a dirty checkout.
+  - `inspirations/runtimeverification/{wasm-semantics,evm-semantics,mir-semantics,imp-semantics}` (port and IMP authorities);
+  - `inspirations/runtimeverification/k` (K 7.1.337, for gates that need the K toolchain).
 - K 7.1.337 (`kompile`, `krun`, `kprove`, `kore-exec`, `llvm-kompile`) on `PATH`, or in the directory `KRS_K_BIN` names, for the Java reference runs and every reference-cache miss.
   The complete IMP, IMP state, IMP control flow, IMP static semantics, precedence/associativity, and CLI gates replay K results from the per-user reference cache and need no K tool once it holds them.
   The KWasm, KEVM, and KMIR gates need it only with `--java-reference`.
 
 ### Workspace
 
+KRS's crates (`crates/*`) are members of the repository's Cargo workspace, beside `k-rust`'s, so `cargo test --workspace`, `cargo clippy --workspace`, and the repository's CI build and test KRS with every `k-rust` change.
+To run KRS's crates alone:
+
 ```sh
-cargo +stable test --workspace --locked --offline
-cargo +stable clippy --workspace --all-targets --locked --offline -- -D warnings
-cargo +1.99.0 check --workspace --all-targets --locked --offline
+cargo +stable test -p 'krs*' --locked --offline
+cargo +stable clippy -p 'krs*' --all-targets --locked --offline -- -D warnings
+cargo +1.99.0 check -p 'krs*' --all-targets --locked --offline
 cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --workspace
 ```
+
+A workspace-wide build unifies `k-rust`'s default features (MPFR folding, a downloaded Z3) into the `k-rust` that KRS links, while `-p 'krs*'` builds it with only the features KRS requests; KRS reads which ones it got from `k_rust::MPFR_FOLDING` and `k_rust::Z3_INFERENCE`, and its tests pass either way.
 
 Set `UPDATE_EXPECT=1` for a workspace test run to re-record Rust test snapshots after an intended output change.
 Review the resulting golden files and inline expectations before running the tests again without it.
@@ -140,4 +145,5 @@ The build runs the tour verifiers and several `cargo check` invocations, so it n
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
+KRS (everything under `krs/`) is licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
+The rest of the repository, `k-rust`, is licensed under the BSD 3-Clause license (`../LICENSE`).

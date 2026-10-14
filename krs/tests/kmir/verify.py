@@ -8,7 +8,7 @@ from typing import Mapping
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, semantics, entry  # noqa: E402
+from support import INSPIRATIONS, semantics, entry  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import native  # noqa: E402
@@ -57,7 +57,7 @@ PROBES = (
 PORT = semantics.Port(
     label="KMIR",
     key="kmir",
-    checkout=ROOT.parent / "inspirations/runtimeverification/mir-semantics",
+    checkout=INSPIRATIONS / "runtimeverification/mir-semantics",
     descriptors=1222,
     lsp_probes=PROBES,
     lsp_diagnostic_timeout=600,

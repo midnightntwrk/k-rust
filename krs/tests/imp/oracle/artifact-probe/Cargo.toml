@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 k = { package = "krs", path = "../../../../crates/krs" }
-k-rust = { version = "=0.6.0", path = "../../../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false, features = ["z3-inference"] }
+k-rust = { version = "=0.6.0", path = "../../../../../crates/k-rust", default-features = false, features = ["z3-inference"] }
 krs-collector = { path = "../../../../crates/krs-collector" }
 krs-compiler = { path = "../../../../crates/krs-compiler" }
 krs-ir = { path = "../../../../crates/krs-ir" }

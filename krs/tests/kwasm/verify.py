@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, semantics, entry  # noqa: E402
+from support import INSPIRATIONS, semantics, entry  # noqa: E402
 from kwasm import native  # noqa: E402
 
 
@@ -54,7 +54,7 @@ PROBES = (
 PORT = semantics.Port(
     label="KWasm",
     key="kwasm",
-    checkout=ROOT.parent / "inspirations/runtimeverification/wasm-semantics",
+    checkout=INSPIRATIONS / "runtimeverification/wasm-semantics",
     descriptors=60,
     lsp_probes=PROBES,
     lsp_diagnostic_timeout=90,

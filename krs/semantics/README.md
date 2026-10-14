@@ -9,9 +9,9 @@ A port may be described as complete only after its ledger covers the pinned sour
 
 The external Runtime Verification checkouts remain read-only authorities:
 
-- KWasm: `../../inspirations/runtimeverification/wasm-semantics` at `212271bd434bd402e27c42f6416854342733386d`;
-- KEVM: `../../inspirations/runtimeverification/evm-semantics` at `d818397e9b7ffa213d687e64418dc8f5293e1ce2`;
-- KMIR: `../../inspirations/runtimeverification/mir-semantics` at `4d793252bcd77091ee759ca6cd1629db41ed5496`.
+- KWasm: `inspirations/runtimeverification/wasm-semantics` at `212271bd434bd402e27c42f6416854342733386d`;
+- KEVM: `inspirations/runtimeverification/evm-semantics` at `d818397e9b7ffa213d687e64418dc8f5293e1ce2`;
+- KMIR: `inspirations/runtimeverification/mir-semantics` at `4d793252bcd77091ee759ca6cd1629db41ed5496`.
 
 KRS qualifies all three packages under K 7.1.337.
 The KEVM and KMIR authorities use the same release; the pinned KWasm authority uses K 7.1.329.

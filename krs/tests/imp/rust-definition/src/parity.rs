@@ -21,7 +21,7 @@ mod prior {
     use crate::{Expr, Machine, Op, Stmt, StmtSyntax, Value};
 
     // These 18 bare term rewrites preserve the actual pre-migration boundary
-    // from `git show HEAD:tests/imp/rust-definition/src/imp.rs`. Constructor
+    // from `git show HEAD:./tests/imp/rust-definition/src/imp.rs`. Constructor
     // paths changed from standalone structs to enum variants, but the rule
     // shape and symbolic bodies are unchanged.
     #[k::rule]

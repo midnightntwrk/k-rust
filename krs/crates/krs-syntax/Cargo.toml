@@ -1,10 +1,11 @@
 [package]
 name = "krs-syntax"
 description = "Span-preserving parsers for KRS attribute and macro islands"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 krs-diagnostic = { path = "../krs-diagnostic", features = ["proc-macro2"] }
