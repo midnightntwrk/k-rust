@@ -281,6 +281,37 @@ fn an_item_of_a_supersort_of_the_element_sort_is_read_as_the_element_it_injects(
             format!("inValSetOfItem{{}}(X:SortKItem{{}}, {VSET})"),
             UNEVALUATED,
         ),
+        // An opaque rest may hold any element, so absence is not decided.
+        (
+            format!("inValSetOfItem{{}}({ITWO}, valSetConcat{{}}({VSET}, R:SortValSet{{}}))"),
+            UNEVALUATED,
+        ),
+        (
+            format!("inValsOfItem{{}}({ITWO}, valsConcat{{}}({VALS}, R:SortVals{{}}))"),
+            UNEVALUATED,
+        ),
+        (
+            format!("inValKeysOfItem{{}}({ITWO}, valMapConcat{{}}({VMAP}, R:SortValMap{{}}))"),
+            UNEVALUATED,
+        ),
+        (
+            format!(
+                "lookupOrDefaultValMapOfItem{{}}(valMapConcat{{}}({VMAP}, R:SortValMap{{}}), \
+                 {ITWO}, v{{}}())"
+            ),
+            UNEVALUATED,
+        ),
+        // A symbolic element: `inj{Val, KItem}(X)` and `inj{Int, KItem}(2)` are apart (`Val`
+        // and `Int` share no subsort), so the `Int` item is no element; the `Small` item injects
+        // a `Val`, which `X` may be.
+        (
+            format!("inValSetOfItem{{}}({ITWO}, valSetItem{{}}(X:SortVal{{}}))"),
+            FALSE,
+        ),
+        (
+            format!("inValSetOfItem{{}}({IS}, valSetItem{{}}(X:SortVal{{}}))"),
+            UNEVALUATED,
+        ),
     ];
     let unexpected = unexpected(&definition, &cases);
     assert!(

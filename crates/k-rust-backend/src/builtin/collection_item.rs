@@ -29,7 +29,7 @@
 
 use std::borrow::Cow;
 
-use super::values_differ;
+use super::{result_collection::below, values_differ};
 use crate::{
     matching::SortGraph,
     term::{Sort, Term, TermKind},
@@ -102,8 +102,4 @@ pub(super) fn absent_above<'e>(
             &Term::injection(element_sort.clone(), sort.clone(), element.clone()),
         )
     })
-}
-
-fn below(sorts: Option<&SortGraph>, sub: &Sort, sup: &Sort) -> bool {
-    sorts.is_some_and(|sorts| matches!(sorts.check_subsort(sub, sup), Ok(true)))
 }
