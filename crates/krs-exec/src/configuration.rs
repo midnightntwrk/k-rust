@@ -1,18 +1,15 @@
 //! Parse configuration and cell-expectation text through k-rust's program pipeline.
 //! [`k_rust::kompile::ConfigurationAssembler`] owns krun's `-c` assembly of `initGeneratedTopCell`; this module adds the per-value surface parsing that cell expectations and the Java route's per-variable KORE need.
-//! `ProgramParser` uses visible program productions and adds `KItem` subsorts, but does not add the implicit `KSEQ` productions `K ::= ".K"` and `K ::= K "~>" K`.
-//! `BASIC-K` supplies the subsort path for a single item at `K`, but supplies neither sequence production.
-//! Cell expectations must therefore split top-level sequence delimiters outside quoted strings, parse each item at `KItem`, and assemble `Term::sequence`.
-//! upstream k-rust/configuration-assembly-api: the split goes once `ProgramParser` supplies the `KSEQ` productions, which the test `program_grammar_does_not_supply_implicit_kseq_productions` detects.
+//! A program parser has no K sequence syntax, so a `K`-sorted cell expectation (`trap ~> .Instrs`) is read by a ground K-value parser ([`ProgramParser::for_ground_values`]): the main module's program grammar plus exactly `.K`, `K ~> K`, and a K bracket.
 
 use k_rust::{
     definition::{Definition, Sentence},
-    inner::{ParsedProgram, PresentedProgram, ProgramParser},
-    kast::{Sort as KastSort, Term},
+    inner::{PresentedProgram, ProgramParser},
+    kast::Sort as KastSort,
     kompile::{
         ConfigurationAssembler, ConfigurationError, MacroExpansionDefinition, ProgramGrammar,
         SortInjector, encode_kore_sort, initial_configuration::parser_modules,
-        term_to_kore_from_resolved_with_token_module,
+        program_start_position, term_to_kore_from_resolved_with_token_module,
     },
     kore::ast::{Pattern, Sort, Symbol},
     names::BuiltinSort,
@@ -39,61 +36,8 @@ pub struct Configuration {
     assembler: ConfigurationAssembler<'static>,
     parser_modules: BTreeMap<String, String>,
     parsers: BTreeMap<String, ProgramParser>,
+    ground_value_parser: Option<ProgramParser>,
     macro_definition: MacroExpansionDefinition,
-}
-
-// upstream k-rust/configuration-assembly-api: `ProgramParser` has no implicit `KSEQ` productions.
-fn split_k_sequence(source: &str) -> Result<Option<Vec<&str>>, String> {
-    let mut items = Vec::new();
-    let mut start = 0;
-    let mut depth = 0_u32;
-    let mut quoted = false;
-    let mut escaped = false;
-    let mut chars = source.char_indices().peekable();
-    while let Some((index, character)) = chars.next() {
-        if quoted {
-            if escaped {
-                escaped = false;
-            } else if character == '\\' {
-                escaped = true;
-            } else if character == '"' {
-                quoted = false;
-            }
-            continue;
-        }
-        match character {
-            '"' => quoted = true,
-            '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' => {
-                depth = depth
-                    .checked_sub(1)
-                    .ok_or("unbalanced K sequence delimiters")?;
-            }
-            '~' if depth == 0 && chars.peek().is_some_and(|(_, next)| *next == '>') => {
-                chars.next();
-                let item = source[start..index].trim();
-                if item.is_empty() {
-                    return Err("empty K sequence item".into());
-                }
-                items.push(item);
-                start = index + 2;
-            }
-            _ => {}
-        }
-    }
-    if quoted || depth != 0 {
-        return Err("unbalanced K sequence delimiters".into());
-    }
-    if items.is_empty() {
-        Ok(None)
-    } else {
-        let item = source[start..].trim();
-        if item.is_empty() {
-            return Err("empty K sequence item".into());
-        }
-        items.push(item);
-        Ok(Some(items))
-    }
 }
 
 impl Configuration {
@@ -130,6 +74,7 @@ impl Configuration {
             assembler,
             parser_modules,
             parsers: BTreeMap::new(),
+            ground_value_parser: None,
             macro_definition,
         })
     }
@@ -148,38 +93,26 @@ impl Configuration {
         } else {
             sort.clone()
         };
-        let parser = self
-            .parsers
-            .get(parser_module)
-            .expect("parser was inserted above");
-        let item_sort = KastSort::builtin(BuiltinSort::KItem);
-        // upstream k-rust/configuration-assembly-api: a `K` value is assembled item by item.
-        let value = if sort.is_builtin(BuiltinSort::K) && !k_item {
-            if source.trim() == ".K" {
-                ParsedProgram::from_term(Term::sequence(Vec::new()))
-            } else if let Some(items) = split_k_sequence(source)? {
-                let items = items
-                    .into_iter()
-                    .filter(|item| *item != ".K")
-                    .map(|item| {
-                        parser
-                            .parse(&item_sort, item)
-                            .map(|parsed| parsed.typed_term().clone())
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                ParsedProgram::from_term(Term::sequence(items))
-            } else {
-                parser.parse(&item_sort, source)?
-            }
+        // A `K` cell holds a sequence, which only the ground K-value grammar reads; the value is injected at `K`, where a lone item is the one-item sequence the cell stores.
+        let k_value = sort.is_builtin(BuiltinSort::K) && !k_item;
+        let value = if k_value {
+            self.ground_value_parser()?.parse(sort, source)?
         } else {
-            parser.parse(&parse_sort, source)?
+            self.parsers
+                .get(parser_module)
+                .expect("parser was inserted above")
+                .parse(&parse_sort, source)?
         };
         let value = self
             .macro_definition
             .expand_program(&self.main_module, value, &parse_sort)?;
         // Type the expanded value at the position it was expanded at, as the assembler does for a configuration value.
         let injector = SortInjector::new(resolved, &self.main_module)?;
-        let value_sort = injector.term_sort(value.term(), Some(value.position()))?;
+        let value_sort = if k_value {
+            sort.clone()
+        } else {
+            injector.term_sort(value.term(), Some(value.position()))?
+        };
         let value = injector.inject(value.term(), &value_sort)?;
         let value = term_to_kore_from_resolved_with_token_module(
             resolved,
@@ -288,7 +221,8 @@ impl Configuration {
                     .variables
                     .get(name)
                     .ok_or("definition has no configuration variable `$PGM`")?;
-                self.assembler.program(&program_start_sort(sort), source)?;
+                self.assembler
+                    .program(&program_start_position(sort), source)?;
             } else {
                 self.assembler.bind(name, source)?;
             }
@@ -345,11 +279,10 @@ impl Configuration {
         stdin: Option<&[u8]>,
     ) -> Result<Pattern, ConfigurationError> {
         if let Some(source) = program {
-            let start_sort = self
-                .grammar
-                .variables
-                .get("PGM")
-                .map_or_else(|| KastSort::builtin(BuiltinSort::KItem), program_start_sort);
+            let start_sort = self.grammar.variables.get("PGM").map_or_else(
+                || KastSort::builtin(BuiltinSort::KItem),
+                program_start_position,
+            );
             self.assembler.program(&start_sort, source)?;
         }
         for (name, source) in variables {
@@ -451,52 +384,39 @@ impl Configuration {
             .get(parser_module)
             .expect("parser was inserted above"))
     }
-}
 
-/// The sort `$PGM` is parsed at: its declared sort, or `KItem` when it is declared `K`.
-///
-/// upstream k-rust/program-start-sort (reviewed, not a request): k-rust parses at the
-/// sort its caller passes, and KRS passes `KItem` as K's generated program parser does.
-fn program_start_sort(declared: &KastSort) -> KastSort {
-    if declared.is_builtin(BuiltinSort::K) {
-        KastSort::builtin(BuiltinSort::KItem)
-    } else {
-        declared.clone()
+    /// The ground K-value parser of the main module, built on first use.
+    fn ground_value_parser(&mut self) -> Result<&ProgramParser, Box<dyn Error>> {
+        if self.ground_value_parser.is_none() {
+            self.ground_value_parser = Some(ProgramParser::for_ground_values(
+                self.grammar.program.resolved(),
+                &self.main_module,
+            )?);
+        }
+        Ok(self
+            .ground_value_parser
+            .as_ref()
+            .expect("parser was built above"))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Configuration, split_k_sequence};
-    use k_rust::{inner::ProgramParser, kast::Sort, names::BuiltinSort};
+    use super::Configuration;
+    use k_rust::{kast::Sort, names::BuiltinSort};
     use serde_json::json;
     use std::collections::BTreeMap;
 
     #[test]
-    fn splits_only_top_level_k_sequence_delimiters() {
-        assert_eq!(
-            split_k_sequence("trap ~> .Instrs").unwrap(),
-            Some(vec!["trap", ".Instrs"])
-        );
-        assert_eq!(
-            split_k_sequence("f(\"~>\") ~> g(1)").unwrap(),
-            Some(vec!["f(\"~>\")", "g(1)"])
-        );
-        assert_eq!(split_k_sequence(r#""~>""#).unwrap(), None);
-        assert_eq!(split_k_sequence(r#"f("~>")"#).unwrap(), None);
-        assert_eq!(split_k_sequence(r#""\"~>""#).unwrap(), None);
-        assert!(split_k_sequence("a ~> ").is_err());
-    }
-
-    // upstream k-rust/configuration-assembly-api: removal trigger for `split_k_sequence`.
-    #[test]
-    fn program_grammar_does_not_supply_implicit_kseq_productions() {
+    fn k_cell_expectations_read_sequences_with_the_ground_value_grammar() {
         let parsed = k_rust::outer::parse(
             "sequence.k",
             r#"
 module MAIN
   imports BASIC-K
-  syntax Item ::= "a" [symbol(a)] | "b" [symbol(b)]
+  imports STRING-SYNTAX
+  syntax Item ::= "a" [symbol(a)] | "b" [symbol(b)] | f(String) [symbol(f)]
+  configuration <k> $PGM:K </k>
 endmodule
 "#,
         )
@@ -504,12 +424,33 @@ endmodule
         let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
         let loaded =
             krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
-        let parser = ProgramParser::new(loaded.definition(), "MAIN").unwrap();
-        let sort = Sort::builtin(BuiltinSort::K);
-        assert!(parser.parse(&sort, "a").is_ok());
-        for source in [".K", "a ~> b", "a ~> .K"] {
-            assert!(parser.parse(&sort, source).is_err(), "{source}");
-        }
+        let mut configuration = Configuration::new(
+            loaded.definition(),
+            BTreeMap::from([("PGM".to_owned(), Sort::builtin(BuiltinSort::K))]),
+        )
+        .unwrap();
+        let k = Sort::builtin(BuiltinSort::K);
+        let mut cell = |source| {
+            configuration
+                .parse_cell("k", &k, source)
+                .unwrap()
+                .to_string()
+        };
+        let a = "kseq{}(inj{SortItem{}, SortKItem{}}(Lbla{}()), dotk{}())";
+        assert_eq!(cell("a"), a);
+        assert_eq!(cell("a ~> .K"), a);
+        assert_eq!(cell(".K"), "dotk{}()");
+        assert_eq!(
+            cell("a ~> b"),
+            "kseq{}(inj{SortItem{}, SortKItem{}}(Lbla{}()), kseq{}(inj{SortItem{}, SortKItem{}}(Lblb{}()), dotk{}()))"
+        );
+        // A `~>` inside a string token is not a sequence delimiter.
+        assert_eq!(
+            cell(r#"f("~>") ~> a"#),
+            format!(
+                r#"kseq{{}}(inj{{SortItem{{}}, SortKItem{{}}}}(Lblf{{}}(\dv{{SortString{{}}}}("~>"))), {a})"#
+            )
+        );
     }
 
     #[test]
