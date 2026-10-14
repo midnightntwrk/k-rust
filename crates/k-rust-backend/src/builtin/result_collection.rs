@@ -122,6 +122,15 @@ fn convert(sorts: Option<&SortGraph>, element: Term, from: &Sort, into: &Sort) -
     below(sorts, from, into).then(|| Term::injection(from.clone(), into.clone(), element))
 }
 
+/// `term` read at the element (key, value) sort `into` of a collection, as the collection stores
+/// it: itself when its sort is `into`, its injection when its sort is a strict subsort of `into`,
+/// and `None` when its sort is any other or the relation is not known. A hook that writes an
+/// element into a collection writes this term ([`MapResult::key`], [`MapResult::value`]).
+pub(crate) fn stored_at(sorts: Option<&SortGraph>, term: &Term, into: &Sort) -> Option<Term> {
+    let from = term.sort();
+    convert(sorts, term.clone(), &from, into)
+}
+
 /// `elements`, all of sort `from`, as terms of sort `into`: borrowed when the sorts are equal,
 /// so that a hook transforming a collection of the result sort copies nothing for it.
 fn convert_all<'e>(

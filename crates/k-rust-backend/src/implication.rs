@@ -2414,18 +2414,27 @@ fn is_collection_pair(left: &crate::term::Term, right: &crate::term::Term) -> bo
 /// `subject` written as the collection term it equals, when `pattern` is a map or set
 /// collection term and `subject` is, for that collection, a chain of `MAP.update` applications
 /// or of `SET.union` applications with a set of items, and the definition declares the
-/// collection's `MAP.remove` (`SET.difference`) function; `None` otherwise.
+/// collection's `MAP.remove` (`SET.difference`) function on a map of the collection's sort and
+/// a key of its key sort (on two sets of its sort); `None` otherwise.
 ///
 /// `M[K <- V]` binds `K` to `V` and every other key of `M` to its value in `M`, so it is the map
 /// `K |-> V` beside `M` without `K`: that concatenation is defined, since `K` is no key of the
-/// removal, and binds the same keys to the same values. Along a chain `M[K1 <- V1][K2 <- V2]`
-/// the outer update wins for a key both write, so a key identical to one already taken is
-/// skipped, and the chain is followed only while each new key is identical to every key taken
-/// or certainly differs from each (two constructor-like keys that differ syntactically denote
-/// different values), so the items taken have distinct keys and the removal of all of them
-/// from the inner map is disjoint from them. Likewise `A |Set B`, with `B` a set of items (its
-/// elements pairwise distinct, as an operand of the defined subject), is `B` beside `A -Set B`,
-/// and so on along a chain of such unions whose items are identical or certainly differ.
+/// removal, and binds the same keys to the same values. Every key and value is read at the
+/// collection's key and value sort as the update stores it (`builtin::stored_at`): an update
+/// declared with a key (value) operand of a strict subsort writes its injection, so `v()` and
+/// `inj{Val, KItem}(v())` written into a map of `KItem` keys are one key. An update whose key or
+/// value has no such reading, or whose inner map is not of the collection's sort (the removal
+/// applies to it), ends the chain, and stays an opaque part of the rest. Along a chain
+/// `M[K1 <- V1][K2 <- V2]` the outer update wins for a key both write, so a key identical to one
+/// already taken is skipped, and the chain is followed only while each new key is identical to
+/// every key taken or certainly differs from each (two constructor-like terms of one sort that
+/// differ syntactically denote different values, and every key read is of the key sort), so the
+/// items taken have distinct keys and the removal of all of them from the inner map is disjoint
+/// from them. Likewise `A |Set B`, with `B` a set of items of the collection's own definition
+/// (its elements pairwise distinct, as an operand of the defined subject, and of the element
+/// sort), is `B` beside `A -Set B`, and so on along a chain of such unions whose items are
+/// identical or certainly differ; a union with a set of another definition, or whose other
+/// operand is not of the collection's sort, ends the chain.
 ///
 /// The equation holds on every instance where the subject is defined (both functions are
 /// total on defined operands), so a pair with the subject replaced states the same equality;
@@ -2435,7 +2444,11 @@ fn subject_collection_form(
     pattern: &crate::term::Term,
     subject: &crate::term::Term,
 ) -> Option<crate::term::Term> {
-    use crate::term::{CollectionMetadata, Term, TermKind};
+    use crate::{
+        builtin::stored_at,
+        term::{CollectionMetadata, Sort, Term, TermKind},
+    };
+    let sorts = Some(definition.sort_graph());
     let collection = if let TermKind::Map { definition, .. } = pattern.kind() {
         CollectionMetadata::Map(definition.clone())
     } else if let TermKind::Set { definition, .. } = pattern.kind() {
@@ -2458,14 +2471,16 @@ fn subject_collection_form(
             && symbol.attributes.result_collection.as_ref() == Some(&collection))
         .then(|| (symbol.clone(), arguments.clone()))
     };
-    // Each new item is identical to every item taken, or certainly differs from each.
+    // Each new item is identical to every item taken, or certainly differs from each: every
+    // item is read at the collection's key (element) sort, where two constructor-like terms
+    // that differ syntactically denote different values.
     let fits = |taken: &[Term], item: &Term| {
         taken.iter().all(|other| {
             other == item
                 || (other.attributes().constructor_like && item.attributes().constructor_like)
         })
     };
-    let declared = |hook: &str, argument_sorts: &[crate::term::Sort]| {
+    let declared = |hook: &str, argument_sorts: &[Sort]| {
         definition
             .symbols()
             .values()
@@ -2479,8 +2494,9 @@ fn subject_collection_form(
     };
     match &collection {
         CollectionMetadata::Map(map) => {
-            let (update, _) = hooked(subject, "MAP.update")?;
-            let remove = declared("MAP.remove", update.argument_sorts.get(..2)?)?;
+            hooked(subject, "MAP.update")?;
+            let map_sort = Sort::simple(map.map_sort.clone());
+            let remove = declared("MAP.remove", &[map_sort.clone(), map.key_sort.clone()])?;
             let mut keys = Vec::new();
             let mut entries = Vec::new();
             let mut base = subject.clone();
@@ -2488,12 +2504,21 @@ fn subject_collection_form(
                 let [inner, key, value] = arguments.as_slice() else {
                     break;
                 };
-                if !fits(&keys, key) {
+                if inner.sort() != map_sort {
                     break;
                 }
-                if !keys.contains(key) {
+                let (Some(key), Some(value)) = (
+                    stored_at(sorts, key, &map.key_sort),
+                    stored_at(sorts, value, &map.value_sort),
+                ) else {
+                    break;
+                };
+                if !fits(&keys, &key) {
+                    break;
+                }
+                if !keys.contains(&key) {
                     keys.push(key.clone());
-                    entries.push((key.clone(), value.clone()));
+                    entries.push((key, value));
                 }
                 base = inner.clone();
             }
@@ -2506,18 +2531,20 @@ fn subject_collection_form(
             Some(Term::map(map.clone(), entries, Some(rest)))
         }
         CollectionMetadata::Set(set) => {
-            let (union, _) = hooked(subject, "SET.union")?;
-            let difference = declared("SET.difference", &union.argument_sorts)?;
+            hooked(subject, "SET.union")?;
+            let set_sort = Sort::simple(set.list_sort.clone());
+            let difference = declared("SET.difference", &[set_sort.clone(), set_sort.clone()])?;
+            // The items of a set of this definition, which are of its element sort.
             let items = |term: &Term| {
                 let TermKind::Set {
+                    definition,
                     elements,
                     rest: None,
-                    ..
                 } = term.kind()
                 else {
                     return None;
                 };
-                (!elements.is_empty()).then(|| elements.to_vec())
+                (definition == set && !elements.is_empty()).then(|| elements.to_vec())
             };
             let mut elements: Vec<Term> = Vec::new();
             let mut base = subject.clone();
@@ -2531,6 +2558,9 @@ fn subject_collection_form(
                 else {
                     break;
                 };
+                if inner.sort() != set_sort {
+                    break;
+                }
                 // The items of one operand are distinct already.
                 if !added.iter().all(|element| fits(&elements, element)) {
                     break;
