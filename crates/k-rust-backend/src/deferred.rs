@@ -28,11 +28,15 @@
 //! must never hold an impure application: [`deferred_obligations`] returns that case as a
 //! [`DeferredOutcome`], which its callers turn into the step's unsupported-hook stop.
 
+use std::{cell::RefCell, marker::PhantomData};
+
 use k_rust_kore::names::{BuiltinSort, OWISE_RULE_PRIORITY};
+use rustc_hash::FxHashMap;
 
 use crate::{
     builtin::{
-        BuiltinResult, UnsupportedHookReason, evaluate_in_definition, implementation_chosen,
+        BuiltinError, BuiltinResult, UnsupportedHookReason, evaluate_in_definition,
+        implementation_chosen,
     },
     definition::BackendDefinition,
     evaluation::EvaluationMode,
@@ -361,10 +365,12 @@ pub(crate) enum Folded {
 /// `term` with every application of a pure builtin hook whose arguments fold to ground
 /// constructor-like terms (domain values, constructor applications, closed collections of such
 /// items; [`pure_hook_on_values`]) replaced by its value, innermost first: no function or
-/// simplification equation, no `impure` or `IO.` hook, no `evaluated` mark and no cache entry. A
-/// hook that is undefined on its arguments makes the whole term undefined ([`Folded::Bottom`]),
-/// since every application is strict. The walk enters applications and injections only, so a
-/// collection is read as it stands: a hook inside one of its items is not folded.
+/// simplification equation, no `impure` or `IO.` hook, no `evaluated` mark and no entry in the
+/// simplifier's caches. A hook's result is read from and kept in the open [`HookValueScope`]
+/// ([`evaluate_pure_hook`]). A hook that is undefined on its arguments makes the whole term
+/// undefined ([`Folded::Bottom`]), since every application is strict. The walk enters
+/// applications and injections only, so a collection is read as it stands: a hook inside one of
+/// its items is not folded.
 ///
 /// A value only an execution chooses is not computed outside one, as in term simplification
 /// (`crate::evaluation`). A builtin failure leaves its application as it is.
@@ -445,7 +451,7 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
         if !pure_hook_on_values(definition, &node) {
             return Ok(Folded::Term(node));
         }
-        Ok(match evaluate_in_definition(&node, definition)? {
+        Ok(match evaluate_pure_hook(definition, &node)? {
             Ok(BuiltinResult::Value(_))
                 if crate::evaluation::current() == EvaluationMode::Proof
                     && implementation_chosen(&node).is_some() =>
@@ -504,10 +510,127 @@ fn defined_without_value(definition: &BackendDefinition, term: &Term) -> Stoppab
         return Ok(false);
     }
     Ok(matches!(
-        evaluate_in_definition(term, definition)?,
+        evaluate_pure_hook(definition, term)?,
         Ok(BuiltinResult::Value(_)
             | BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { defined: true, .. }))
     ))
+}
+
+/// The evaluator's result on `application`, a pure builtin hook application on ground
+/// constructor-like arguments ([`pure_hook_on_values`]), read from the open [`HookValueScope`]
+/// of `definition` when that scope already holds it.
+///
+/// Such an evaluator reads its arguments only, so its result is a function of the application,
+/// the definition (the sorts and kinds it checks its constructions against) and the evaluation
+/// mode, which together are the key: no path condition, console, step or other state enters it.
+/// An application whose arguments are all domain values is evaluated each time, since its
+/// evaluation costs no more than the lookup would; one with a collection or constructor argument
+/// is the work that grows with its argument and is kept. A stop is never kept.
+fn evaluate_pure_hook(
+    definition: &BackendDefinition,
+    application: &Term,
+) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
+    let TermKind::Application { arguments, .. } = application.kind() else {
+        return evaluate_in_definition(application, definition);
+    };
+    let kept = !arguments
+        .iter()
+        .all(|argument| matches!(argument.kind(), TermKind::DomainValue { .. }));
+    let key = kept.then(|| (crate::evaluation::current(), application.clone()));
+    if let Some(key) = &key
+        && let Some(result) = HOOK_VALUES.with_borrow(|values| {
+            values
+                .as_ref()
+                .filter(|values| std::ptr::eq(values.definition, definition))
+                .and_then(|values| values.results.get(key).cloned())
+        })
+    {
+        return Ok(result);
+    }
+    #[cfg(test)]
+    tests::HOOK_EVALUATIONS.with(|count| count.set(count.get() + 1));
+    let result = evaluate_in_definition(application, definition)?;
+    if let Some(key) = key {
+        HOOK_VALUES.with_borrow_mut(|values| {
+            if let Some(values) = values
+                .as_mut()
+                .filter(|values| std::ptr::eq(values.definition, definition))
+            {
+                if values.results.len() >= HOOK_VALUES_CAPACITY {
+                    values.results.clear();
+                }
+                values.results.insert(key, result.clone());
+            }
+        });
+    }
+    Ok(result)
+}
+
+/// How many results a [`HookValueScope`] keeps; it forgets them all when it would keep more,
+/// which bounds the terms it holds alive.
+const HOOK_VALUES_CAPACITY: usize = 64;
+
+/// The results [`evaluate_pure_hook`] computed under the innermost open [`HookValueScope`].
+struct HookValues {
+    /// The scope's definition, which the scope borrows, so it is alive and unmoved while these
+    /// results are reachable.
+    definition: *const BackendDefinition,
+    results: FxHashMap<(EvaluationMode, Term), Result<BuiltinResult, BuiltinError>>,
+}
+
+thread_local! {
+    /// The results of the innermost open [`HookValueScope`] on this thread.
+    static HOOK_VALUES: RefCell<Option<HookValues>> = const { RefCell::new(None) };
+}
+
+/// A backend entry point's scope for the results of pure builtin hooks that the deferred
+/// definedness steps evaluate ([`evaluate_pure_hook`]): within it, the same application under
+/// the same definition and evaluation mode is evaluated once, however many steps, hook sites,
+/// constraint simplifications and atom decisions read it. Opened beside
+/// `term::domain::DomainScope` by the simplification, rewrite-step, execution and proof entry
+/// points.
+///
+/// A scope entered with the definition of the innermost open scope shares that scope's results,
+/// so a proof's or an execution's simplifications share its results; one entered with another
+/// definition holds its own until it closes, and the enclosing results come back then. Scopes
+/// close innermost first, as local guards do; the guard is not `Send`.
+#[must_use = "the results are kept only while the scope is alive"]
+pub(crate) struct HookValueScope<'a> {
+    /// The enclosing results this scope replaced, restored when it closes; `None` when it
+    /// shares them.
+    replaced: Option<Option<HookValues>>,
+    _definition: PhantomData<&'a BackendDefinition>,
+    /// Not `Send` or `Sync`: the scope restores this thread's results.
+    _thread: PhantomData<*const ()>,
+}
+
+impl<'a> HookValueScope<'a> {
+    pub(crate) fn enter(definition: &'a BackendDefinition) -> Self {
+        let shares = HOOK_VALUES.with_borrow(|values| {
+            values
+                .as_ref()
+                .is_some_and(|values| std::ptr::eq(values.definition, definition))
+        });
+        let replaced = (!shares).then(|| {
+            HOOK_VALUES.replace(Some(HookValues {
+                definition,
+                results: FxHashMap::default(),
+            }))
+        });
+        Self {
+            replaced,
+            _definition: PhantomData,
+            _thread: PhantomData,
+        }
+    }
+}
+
+impl Drop for HookValueScope<'_> {
+    fn drop(&mut self) {
+        if let Some(previous) = self.replaced.take() {
+            HOOK_VALUES.set(previous);
+        }
+    }
 }
 
 /// The value of `application`, a ground application with literal arguments, by its one equation
@@ -1200,5 +1323,144 @@ impl EvaluatedOperands {
             }
             _ => term.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+    use crate::{
+        definition::BackendDefinition,
+        evaluation::EvaluationMode,
+        proof::{ProofOptions, ProofStatus, prove_claim},
+        rewrite::{ExecutionOptions, Pattern, execute},
+        smt::NoSolver,
+        term::Term,
+    };
+
+    thread_local! {
+        /// Test builds: the evaluator calls [`super::evaluate_pure_hook`] made on this thread.
+        pub(super) static HOOK_EVALUATIONS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn hook_evaluations() -> usize {
+        HOOK_EVALUATIONS.with(Cell::get)
+    }
+
+    /// `loop(I, M, _) => loop(I -Int 1, M, #if true #then I #else choice(M) #fi)` while `I > 0`,
+    /// and `loop(0, _, _) => done()`; the claim runs it three steps from a two-binding map, so
+    /// every step discards the same `choice(M)`, whose value only an execution chooses.
+    fn definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortInt{}, SortInt{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                hooked-symbol choice{}(SortMap{}) : SortInt{} [function{}(), hook{}("MAP.choice")]
+                hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.sub"), smt-hook{}("-")]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                hooked-symbol ite{}(SortBool{}, SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ite")]
+                sort SortState{} []
+                symbol loop{}(SortInt{}, SortMap{}, SortInt{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        loop{}(I:SortInt{}, M:SortMap{}, X:SortInt{}),
+                        \equals{SortBool{}, SortState{}}(
+                            gtInt{}(I:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    loop{}(
+                        subInt{}(I:SortInt{}, \dv{SortInt{}}("1")),
+                        M:SortMap{},
+                        ite{}(\dv{SortBool{}}("true"), I:SortInt{}, choice{}(M:SortMap{}))
+                    )
+                ) [label{}("step")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        loop{}(\dv{SortInt{}}("0"), M:SortMap{}, X:SortInt{}),
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("stop")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(
+                        loop{}(
+                            \dv{SortInt{}}("3"),
+                            mapConcat{}(
+                                mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("10")),
+                                mapItem{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("20"))
+                            ),
+                            \dv{SortInt{}}("0")
+                        ),
+                        \top{SortState{}}()
+                    ),
+                    weakAlwaysFinally{SortState{}}(done{}())
+                ) [label{}("loop")]
+            endmodule []"#,
+        )
+        .expect("the definition parses");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
+    }
+
+    fn term(definition: &BackendDefinition, source: &str) -> Term {
+        let syntax = parse_pattern(source).expect("the term parses");
+        definition
+            .internalize_term(&syntax, &[])
+            .expect("the term internalizes")
+    }
+
+    #[test]
+    fn a_discarded_operand_is_evaluated_once_whatever_the_steps_and_sites_that_read_it() {
+        // Three steps each discard `choice(M)` over the same ground map. Its evaluator's result
+        // depends on the application, the definition and the evaluation mode alone, so it is
+        // computed once: on the proof route the hook site, the state's constraints and the
+        // undefined-step check each read it, and on the execution route each step's hook site.
+        let definition = definition();
+        let claim = &definition.reachability_claims()[0];
+        let before = hook_evaluations();
+        let proof = prove_claim(&definition, claim, &[], ProofOptions::default(), &NoSolver)
+            .expect("the proof runs");
+        assert_eq!(proof.status, ProofStatus::Proven, "{proof:#?}");
+        let proof_route = hook_evaluations() - before;
+
+        let before = hook_evaluations();
+        let result = execute(
+            &definition,
+            Pattern {
+                term: claim.lhs.term.clone(),
+                constraints: Vec::new(),
+            },
+            ExecutionOptions {
+                evaluation: EvaluationMode::Execution,
+                ..ExecutionOptions::default()
+            },
+        );
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("{:?}", result.leaves);
+        };
+        assert_eq!(leaf.pattern.term, term(&definition, "done{}()"));
+        let execution_route = hook_evaluations() - before;
+        assert_eq!(
+            (proof_route, execution_route),
+            (1, 1),
+            "evaluations of the discarded choice(M) on the proof and execution routes"
+        );
     }
 }

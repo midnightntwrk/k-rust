@@ -256,6 +256,7 @@ pub fn prove_claim(
 ) -> Result<ProofResult, ProofError> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
+    let _hook_values = crate::deferred::HookValueScope::enter(definition);
     let _span = measure::algorithm_span(Algorithm::BackendProofSearch);
     if options.max_counterexamples == 0 {
         return Err(ProofError::ZeroCounterexampleLimit);

@@ -428,6 +428,7 @@ fn simplify_term_entry(
 ) -> SimplifyResult<Simplification> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
+    let _hook_values = crate::deferred::HookValueScope::enter(definition);
     let _span = measure::algorithm_span(Algorithm::BackendSimplifyTerm);
     measure::bump(Counter::SimplifyInvocations);
     let mut remaining = options.max_iterations;
@@ -1320,6 +1321,7 @@ fn simplify_predicates_with_budget(
 ) -> SimplifyResult<Vec<Predicate>> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
+    let _hook_values = crate::deferred::HookValueScope::enter(definition);
     let conjuncts = distinct_conjuncts(predicates);
     let known_index = KnownConjuncts::of(known_predicates);
     // Each conjunct is simplified under the known predicates and the other conjuncts as they
@@ -2128,6 +2130,7 @@ fn simplify_predicate_on_stack(
 ) -> SimplifyResult<Predicate> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
+    let _hook_values = crate::deferred::HookValueScope::enter(definition);
     stop::check()?;
     // `deferred_obligations` never states an atom over an impure application; one built
     // otherwise (a library caller's predicate) is the unsupported-hook outcome before any known

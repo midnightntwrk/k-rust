@@ -91,6 +91,7 @@ pub(super) fn execute_using(
     // the request asks for (`crate::evaluation`).
     let _evaluation = crate::evaluation::EvaluationScope::enter(options.evaluation);
     let _domain = crate::term::domain::DomainScope::enter(definition);
+    let _hook_values = crate::deferred::HookValueScope::enter(definition);
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,
