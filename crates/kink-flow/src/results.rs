@@ -346,7 +346,7 @@ impl<'a> BaselineRunner<'a> {
     }
 }
 
-fn kebab(name: &str) -> String {
+pub(crate) fn kebab(name: &str) -> String {
     let mut out = String::new();
     for (index, c) in name.chars().enumerate() {
         if index > 0 && c.is_uppercase() {
@@ -467,71 +467,144 @@ pub struct ResultsOptions {
 }
 
 /// One program's row of the results document, with its record when it has one.
-struct ProgramRow {
-    row: Value,
-    record: Option<Value>,
-    failed: bool,
+pub struct ProgramRow {
+    /// The program's row of the results document.
+    pub row: Value,
+    /// The program's current record (stored or just written), if it has one.
+    pub record: Option<Value>,
+    /// The program was refused, its run failed or its record could not be written.
+    pub failed: bool,
+    /// The program's digest, when its text could be read.
+    pub digest: Option<Sha256Digest>,
+    /// The program's text exactly as its digest was computed from it.
+    pub text: Option<String>,
+    /// The program's admitted test case (no oracles), when this command assembled it.
+    pub test: Option<TestCase>,
 }
 
-/// `kink-flow results`: the results document and whether the command found no corpus or
-/// infrastructure error (the caller's exit status).
-pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, bool) {
-    let (record, admitted) = admit_spec(manifest);
-    let Some((spec, mut inputs)) = admitted else {
-        return (
-            document(&record, None, Vec::new(), Vec::new(), Vec::new()),
-            false,
-        );
-    };
+impl ProgramRow {
+    /// The record's class, when the program has a record.
+    pub fn class(&self) -> Option<&str> {
+        self.record
+            .as_ref()
+            .and_then(|record| record["class"].as_str())
+    }
+}
+
+/// The result cache brought up to date for one admitted specification (`results` without
+/// the document): one row per manifest program, in manifest order.
+pub struct ResultsUpdate {
+    pub spec_digest: Sha256Digest,
+    pub rows: Vec<ProgramRow>,
+    pub mismatches: Vec<Value>,
+}
+
+impl ResultsUpdate {
+    /// No program was refused or failed and `--verify` found no mismatch.
+    pub fn ok(&self) -> bool {
+        self.rows.iter().all(|row| !row.failed) && self.mismatches.is_empty()
+    }
+}
+
+/// The cache directory of a manifest: `options.cache`, else `.kink-flow` next to it.
+pub fn cache_directory(manifest: &FlowManifest, cache: Option<&Path>) -> PathBuf {
+    cache.map_or_else(
+        || manifest.directory.join(CACHE_DIRECTORY),
+        Path::to_path_buf,
+    )
+}
+
+/// The refusal of a specification whose baseline runner cannot be built.
+pub fn runner_refusal(detail: String) -> kink_corpus::admission::AdmissionRefusal {
+    kink_corpus::admission::AdmissionRefusal {
+        stage: "baseline".into(),
+        reason: "invalid-declaration".into(),
+        detail,
+    }
+}
+
+/// Bring the result cache of `spec` up to date (README 5.3) with `runner`, whose validator
+/// is the specification's, so every program shares one baseline compile.
+pub fn update_results(
+    spec: &AdmittedSpec,
+    manifest: &FlowManifest,
+    inputs: &mut ProgramInputs,
+    runner: &BaselineRunner<'_>,
+    cache: &Path,
+    verify: bool,
+) -> ResultsUpdate {
     let spec_digest = spec_digest(manifest, &spec.loaded.files);
-    let cache = options
-        .cache
-        .clone()
-        .unwrap_or_else(|| manifest.directory.join(CACHE_DIRECTORY));
-    let store = Store::new(&cache);
+    let store = Store::new(cache);
     let directory = cache.join("results").join(spec_digest.to_string());
-    let runner = match BaselineRunner::new(&spec, manifest) {
-        Ok(runner) => runner,
-        Err(e) => {
-            let mut record = record;
-            record.refusal = Some(kink_corpus::admission::AdmissionRefusal {
-                stage: "baseline".into(),
-                reason: "invalid-declaration".into(),
-                detail: e,
-            });
-            return (
-                document(&record, None, Vec::new(), Vec::new(), Vec::new()),
-                false,
-            );
-        }
-    };
     let mut mismatches = Vec::new();
     let rows = manifest
         .programs
         .iter()
         .map(|program| {
             program_row(
-                &spec,
+                spec,
                 manifest,
-                &mut inputs,
-                &runner,
+                inputs,
+                runner,
                 &ProgramContext {
                     spec_digest,
                     directory: &directory,
-                    cache: &cache,
+                    cache,
                     store: &store,
-                    verify: options.verify,
+                    verify,
                 },
                 program,
                 &mut mismatches,
             )
         })
         .collect::<Vec<_>>();
-    let ok = rows.iter().all(|row| !row.failed) && mismatches.is_empty();
-    let rules = rules(&spec, manifest, &rows);
-    let programs = rows.into_iter().map(|row| row.row).collect();
+    ResultsUpdate {
+        spec_digest,
+        rows,
+        mismatches,
+    }
+}
+
+/// `kink-flow results`: the results document and whether the command found no corpus or
+/// infrastructure error (the caller's exit status).
+pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, bool) {
+    let (mut record, admitted) = admit_spec(manifest);
+    let Some((spec, mut inputs)) = admitted else {
+        return (
+            document(&record, None, Vec::new(), Vec::new(), Vec::new()),
+            false,
+        );
+    };
+    let cache = cache_directory(manifest, options.cache.as_deref());
+    let runner = match BaselineRunner::new(&spec, manifest) {
+        Ok(runner) => runner,
+        Err(e) => {
+            record.refusal = Some(runner_refusal(e));
+            return (
+                document(&record, None, Vec::new(), Vec::new(), Vec::new()),
+                false,
+            );
+        }
+    };
+    let update = update_results(
+        &spec,
+        manifest,
+        &mut inputs,
+        &runner,
+        &cache,
+        options.verify,
+    );
+    let ok = update.ok();
+    let rules = rules(&spec, manifest, &update.rows);
+    let programs = update.rows.into_iter().map(|row| row.row).collect();
     (
-        document(&record, Some(spec_digest), programs, rules, mismatches),
+        document(
+            &record,
+            Some(update.spec_digest),
+            programs,
+            rules,
+            update.mismatches,
+        ),
         ok,
     )
 }
@@ -578,6 +651,9 @@ fn program_row(
             ),
             record: None,
             failed: true,
+            digest,
+            text: None,
+            test: None,
         }
     };
     let text = match inputs.text(program) {
@@ -599,13 +675,16 @@ fn program_row(
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: stored,
+            digest: Some(digest),
+            text: Some(text),
+            test: None,
         };
     }
-    let test = match inputs.test_case(spec, program, text) {
+    let test = match inputs.test_case(spec, program, text.clone()) {
         Ok(test) => test,
         Err(refusal) => return refused(Some(digest), refusal),
     };
-    let result = runner.run(test);
+    let result = runner.run(test.clone());
     if let Some(record) = stored {
         let differences = verify_record(&record, &result);
         let relative = path
@@ -631,6 +710,9 @@ fn program_row(
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: Some(record),
+            digest: Some(digest),
+            text: Some(text),
+            test: Some(test),
         };
     }
     let record = record_value(spec, &key, &program.id, &result);
@@ -650,6 +732,9 @@ fn program_row(
         row,
         record: Some(record),
         failed,
+        digest: Some(digest),
+        text: Some(text),
+        test: Some(test),
     }
 }
 

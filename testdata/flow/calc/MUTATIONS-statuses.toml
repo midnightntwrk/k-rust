@@ -1,0 +1,57 @@
+# kink-flow mutation list for the calc fixture (flow F-05): one mutation per status the
+# kill search can report, after a mutation that does not resolve (which must not stop the
+# others).
+
+[[mutation]]
+id = "no-such-rule"
+note = "invalid-mutation: no rule has this label"
+
+  [[mutation.edit]]
+  rule = "div"
+  find = "I1 /Int I2"
+  replace = "I1 *Int I2"
+
+[[mutation]]
+id = "add-becomes-sub"
+note = "killed: 1 + 2 is 3, not -1"
+
+  [[mutation.edit]]
+  rule = "add"
+  find = "I1 +Int I2"
+  replace = "I1 -Int I2"
+
+[[mutation]]
+id = "add-commutes"
+note = "survived: integer addition is commutative, so no program can tell"
+
+  [[mutation.edit]]
+  rule = "add"
+  find = "I1 +Int I2"
+  replace = "I2 +Int I1"
+
+[[mutation]]
+id = "add-in-a-group"
+note = "equivalent: the group attribute does not reach the compiled definition"
+
+  [[mutation.edit]]
+  rule = "add"
+  find = "I1 +Int I2"
+  replace = "I1 +Int I2 [group(arith)]"
+
+[[mutation]]
+id = "add-unbound"
+note = "invalid: I3 is bound nowhere, so the mutant does not compile"
+
+  [[mutation.edit]]
+  rule = "add"
+  find = "I1 +Int I2"
+  replace = "I1 +Int I3"
+
+[[mutation]]
+id = "add-ill-sorted"
+note = "invalid-mutation: true is not an Int, so the edited rule does not load"
+
+  [[mutation.edit]]
+  rule = "add"
+  find = "I1 +Int I2"
+  replace = "I1 +Int true"

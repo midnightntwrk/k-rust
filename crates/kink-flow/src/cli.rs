@@ -7,7 +7,9 @@
 use crate::{
     admit::{FlowAdmission, admit},
     manifest::{FlowManifest, ManifestError},
+    mutation::MutationList,
     results::ResultsOptions,
+    search::{RunOptions, mutation_list_refused},
 };
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
@@ -22,8 +24,9 @@ pub const EXIT_OK: u8 = 0;
 pub const EXIT_CORPUS: u8 = 1;
 pub const EXIT_USAGE: u8 = 2;
 
-pub const USAGE: &str =
-    "usage: kink-flow check FLOW.toml | kink-flow results FLOW.toml [--verify] [--cache DIR]";
+pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FLOW.toml \
+                         [--verify] [--cache DIR] | kink-flow run FLOW.toml MUTATIONS.toml \
+                         [--only ID]... [--cache DIR]";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -58,6 +61,34 @@ pub fn execute(args: Vec<OsString>) -> u8 {
                 Some(result) => result,
                 None => {
                     eprintln!("kink-flow: the results thread panicked");
+                    return EXIT_CORPUS;
+                }
+            }
+        }
+        Ok([command, manifest, mutations, rest @ ..]) if command == "run" => {
+            let manifest = PathBuf::from(manifest);
+            let mutations = PathBuf::from(mutations);
+            for file in [&manifest, &mutations] {
+                if !file.is_file() {
+                    return usage(&format!("{} is not a file", file.display()));
+                }
+            }
+            let options = match run_options(rest) {
+                Ok(options) => options,
+                Err(message) => return usage(&message),
+            };
+            if let Ok(list) = MutationList::read(&mutations)
+                && let Some(id) = options
+                    .only
+                    .iter()
+                    .find(|id| !list.mutations.iter().any(|m| &m.id == *id))
+            {
+                return usage(&format!("--only {id}: no mutation has this id"));
+            }
+            match on_stack(move || run(&manifest, &mutations, &options)) {
+                Some(result) => result,
+                None => {
+                    eprintln!("kink-flow: the run thread panicked");
                     return EXIT_CORPUS;
                 }
             }
@@ -105,6 +136,50 @@ fn results_options(args: &[String]) -> Result<ResultsOptions, String> {
         }
     }
     Ok(options)
+}
+
+fn run_options(args: &[String]) -> Result<RunOptions, String> {
+    let mut options = RunOptions::default();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--only" => {
+                let id = args.next().ok_or("--only needs a mutation id")?;
+                if !options.only.contains(id) {
+                    options.only.push(id.clone());
+                }
+            }
+            "--cache" if options.cache.is_none() => {
+                let directory = args.next().ok_or("--cache needs a directory")?;
+                options.cache = Some(PathBuf::from(directory));
+            }
+            _ => return Err(format!("unexpected argument {arg:?}")),
+        }
+    }
+    Ok(options)
+}
+
+/// `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--cache DIR]`: the run document
+/// (README 5.6) and the exit status: [`EXIT_OK`] when every selected mutation got its status
+/// (survivors, timeouts and invalid mutations included); [`EXIT_CORPUS`] when the manifest,
+/// the mutation list, the specification or a program is refused, a run failed, a cache file
+/// could not be written, no program is comparable, or a baseline run no longer matches its
+/// cached result (the run then stops).
+pub fn run(manifest: &Path, mutations: &Path, options: &RunOptions) -> (Value, u8) {
+    let manifest = match FlowManifest::read(manifest) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            let mut document = manifest_refused(&error);
+            document["schema"] = json!("kink-flow-run");
+            return (document, EXIT_CORPUS);
+        }
+    };
+    let list = match MutationList::read(mutations) {
+        Ok(list) => list,
+        Err(error) => return (mutation_list_refused(&error.to_string()), EXIT_CORPUS),
+    };
+    let (document, ok) = crate::search::run(&manifest, &list, options);
+    (document, if ok { EXIT_OK } else { EXIT_CORPUS })
 }
 
 /// `kink-flow results FLOW.toml [--verify] [--cache DIR]`: the results document (README 5.3)

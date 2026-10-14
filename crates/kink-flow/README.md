@@ -6,7 +6,8 @@ and, in later packets, cached results, a mutation list, a kill search and a surv
 
 This crate currently provides the corpus manifest and the `check` command (flow F-02),
 the result cache with the `results` command (flow F-03),
-and the mutation list with its resolution into patches (flow F-04; the `run` command that uses it is F-05).
+the mutation list with its resolution into patches (flow F-04),
+and the kill search with its killer cache, the `run` command (flow F-05).
 
 ## `FLOW.toml`
 
@@ -172,3 +173,56 @@ a reason and a detail; it is never compiled. Reasons:
 | `label-changed` | The edit changes the rule's label. |
 | `no-change` | The edited rule equals the original up to formatting. |
 | `no-usable-span`, `patch-rejected` | Defensive; not expected on rules written in `.k` sources. |
+
+## `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--cache DIR]`
+
+Runs the kill search: for each mutation of the list (in file order; with `--only`, only the named ones),
+is there a program of the corpus whose result the mutation changes?
+
+1. The result cache is brought up to date first (`results` without `--verify`).
+   Only `comparable` programs can kill; the others are never run.
+2. The mutation is resolved into one patch (see `MUTATIONS.toml`); an `invalid-mutation` stops there.
+3. The programs are ordered: those whose cached coverage reaches an edited rule first, then the rest, each group in the manifest's order.
+4. If the killer cache names a program that killed this mutation before, and that program is still comparable with the same digest,
+   the mutant runs on that program alone. If it kills, that is the verdict.
+   Otherwise the entry is removed and the mutant runs on every program in the order of step 3,
+   exactly as without the entry: a wrong or stale entry costs one more run, never a different status.
+5. Every status is the one kink-campaign's runner derives for the mutant (schedule first-kill: the mutant stops at its first killing program).
+   kink-flow compares no terms; only a proved difference of the exit stop or the whole final configuration kills.
+6. After every runner call, each program's baseline run is checked against its cached result (`run_sha256`).
+   A difference is a corpus error: the mutation gets status `error` with reason `baseline-mismatch:<program id>`,
+   nothing is written to the killer cache for it, and the run stops (exit 1). Run `results --verify`.
+7. A `killed` mutation's first killing program becomes its cached killer; any other status removes the entry.
+   The killer cache and the run document are written after every mutation, so an interrupted run keeps its finished work.
+
+| Status | Meaning | What to do |
+| --- | --- | --- |
+| `killed` | A program's result differs on the mutant; `killer` names the first such program. | Nothing. |
+| `survived` | Every program ran to a comparable result and agreed. | Write a program that reaches the edited rule and whose result the edit changes (`reaching` lists the programs that reach it now). |
+| `equivalent` | The mutant compiles to the baseline's executable definition. | Nothing can kill it; drop or change the mutation. |
+| `invalid` | The mutant does not compile (`reason` is the runner's failure, for example `rejected`). | Fix the mutation. |
+| `timeout` | No program killed it, and a program did not finish on the mutant within `budget.time_ms`. | Write a program that terminates under the mutant and shows a different result. |
+| `unknown` | No program killed it, and a program's result on the mutant is not comparable. | Write a program whose result on the mutant kink can compare. |
+| `error` | The runner failed for the mutant, or a corpus error (`reason`: `baseline-mismatch:<id>`, `campaign-refused`, `program-refused:<id>`, `no-comparable-program`). | Report it, or fix the corpus. |
+| `invalid-mutation` | The mutation does not resolve (`reason`, `edit`, `detail`; see the table above). | Fix the mutation. |
+
+A kill folds above every inconclusive outcome: a mutation that one program kills is `killed` even if an earlier program timed out on it.
+
+The document is `{schema: "kink-flow-run", version: 1, k_rust_revision, profile, result_schema_version, spec, programs, mutations, counts, stopped}`:
+`programs` are the `results` rows; `stopped` is `null` or `{mutation, reason}` of the corpus error that stopped the run;
+`counts` counts every status. Each mutation row is
+`{id, note, digest, status, reason, killer, killer_from_cache, reaching, executed, calls}`:
+`digest` is the patch digest (null for an `invalid-mutation`, which also has `edit` and `detail`),
+`executed` lists `{program, outcome, slots | failure}` for every program the mutant ran on, in the runner's order
+(`outcome` is `distinguish`, `agree`, `timeout`, `unknown`, `incomparable` or `error`; `slots` gives the exit-stop and whole-term outcomes),
+and `calls` lists the programs of each runner call (`[[killer]]` with a warm cache, `[[killer], [all]]` when the cached killer no longer kills).
+A row may also carry `stale_killer` (an entry naming a program that is gone, changed or no longer comparable; it was removed) and `cache_error`.
+
+The cache directory gains `killers/<spec digest>.json`,
+`{schema: "kink-flow-killers", version: 1, spec, killers: {<mutation digest>: {mutation_id, program_id, program_digest}}}`,
+and `report.json`, the last run document.
+A killer entry is a scheduling hint only; a file that does not parse is treated as empty.
+
+Exit status: 0 when every selected mutation got its status (survivors, timeouts and invalid mutations included);
+1 when the manifest, the mutation list, the specification or a program is refused, a run failed, a cache file could not be written,
+no program is comparable, or a corpus error stopped the run; 2 on a usage error (including an `--only` id that names no mutation).
