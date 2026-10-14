@@ -1,0 +1,39 @@
+schema = 1
+id = "B02-init-funcs-absent"
+behavior = "inventory-style `.init_array` registration from a library crate, plus the registration crate's object inspected for a WASM_INIT_FUNCS subsection."
+basis = "the init-array backend control and the original inventory-based collector ab; rustc.wasm objects carried no init functions and inventory registration gave zero descriptors"
+# Recorded limitation up to eb8eda040: clif2wasm dropped .init_array, so rustc.wasm gave zero
+# registrations and an object without init functions. Commit 2544ad0 of the fork branch
+# krs/ir-22-init-funcs emits WASM_INIT_FUNCS; from that revision on the case equals the twin
+# (2 init functions, both registrations).
+expected_status = "pass"
+fork_status = { "195111dff60e2ce0c6d71f7302401cc4c07b0365" = "limitation", "0ce51e9339ee538c16580fea01ca98dd89f6d7a0" = "limitation", "eb8eda0400b8015a0751e48597eb0969dbbd7b36" = "limitation" }
+gap = { class = "backend", summary = "clif2wasm emits no WASM_INIT_FUNCS for .init_array statics; riwl's __wasm_call_ctors therefore calls nothing from browser-compiled code", root_cause = "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (the registration crate's object has no init functions)", fixed_in = "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826" }
+
+[[crate]]
+name = "b02_registry"
+src = "registry.rs"
+type = "rlib"
+
+[[crate]]
+name = "b02_registrations"
+src = "registrations.rs"
+type = "rlib"
+externs = ["b02_registry"]
+
+[[crate]]
+name = "b02_registrations_object"
+src = "registrations.rs"
+type = "obj"
+externs = ["b02_registry"]
+inspect = "init-funcs"
+
+[[crate]]
+name = "b02_collector"
+src = "main.rs"
+type = "bin"
+externs = ["b02_registry", "b02_registrations"]
+
+[[run]]
+name = "default"
+bin = "b02_collector"

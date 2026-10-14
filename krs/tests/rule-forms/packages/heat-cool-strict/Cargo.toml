@@ -1,0 +1,21 @@
+[package]
+name = "krs-rule-forms-heat-cool-strict"
+description = "Heat and cool fixture: K tutorial lesson 14-D, the same evaluation order from seqstrict"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_rule_forms_heat_cool_strict"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-HEAT-COOL-STRICT"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

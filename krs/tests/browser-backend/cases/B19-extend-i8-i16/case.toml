@@ -1,0 +1,18 @@
+schema = 1
+id = "B19-extend-i8-i16"
+behavior = "i8 -> i16 sextend and u8 -> u16 uextend."
+basis = "found by the backend suite (B06 inverse extensions)"
+gap = { class = "backend", summary = "clif2wasm: `lowering sextend.i16 / uextend.i16: extend to i16 unimplemented` at opt-levels 0 and 2; also hit by i8 checked_mul, i8 `a * b` at opt-level 0, and i16::signum", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff Uextend/Sextend arm (lines 884-922): a narrow source with dst_ty i16 falls through to `extend to {other} unimplemented`; only dst i32/i64/i128 are handled", fixed_in = "eb8eda0400b8015a0751e48597eb0969dbbd7b36" }
+# Fixed in fork eb8eda040 (commit d83ced0 of krs/ir-27-clif2wasm-gaps): passes from that
+# revision on and is the recorded known gap of 195111dff (R-k) and 0ce51e933 (R-26).
+expected_status = "pass"
+fork_status = { "195111dff60e2ce0c6d71f7302401cc4c07b0365" = "known-gap", "0ce51e9339ee538c16580fea01ca98dd89f6d7a0" = "known-gap" }
+
+[[crate]]
+name = "b19_repro"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b19_repro"

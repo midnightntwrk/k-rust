@@ -1,0 +1,354 @@
+# Required and forbidden constructs of the operational corpus.
+
+[[check]]
+message = "emitted KMIR definition does not import pinned LIST"
+required.imports = ["LIST"]
+
+[[check]]
+message = "emitted KMIR definition retained the recursive block adapter"
+forbidden.sorts = ["BlockProgram"]
+forbidden.production_symbols = ["BlockProgram"]
+forbidden.terminals = ["BlockProgram"]
+forbidden.cell_names = ["blocks"]
+
+[[check]]
+message = "emitted KMIR definition does not initialize typed List locals"
+[[check.cells]]
+name = "locals"
+configuration_variable = "LOCALS"
+sort = "List"
+
+[[check]]
+message = "emitted KMIR definition omits move invalidation"
+[[check.applications]]
+operation = "list.update"
+arguments = [{  }, {  }, { symbol = "typedValue", arguments = [{ symbol = "moved" }, {  }, {  }] }]
+
+[[check]]
+message = "emitted KMIR definition omits aggregate field projection"
+required.terminals = ["projectionElemField", "Aggregate"]
+
+[[check]]
+message = "emitted KMIR definition omits local-indexed range projection"
+required.terminals = ["projectionElemIndex", "Range", "expectUsize"]
+
+[[check]]
+message = "emitted KMIR definition omits guarded constant-index projection"
+required.terminals = ["projectionElemConstantIndex"]
+[[check.applied_operations]]
+operation = "list.size"
+
+[[check]]
+message = "emitted KMIR definition omits same-frame reference traversal"
+required.terminals = ["rvalueRef", "Reference", "projectionElemDeref"]
+
+[[check]]
+message = "emitted KMIR definition omits frozen reference-place reconstruction"
+required.terminals = ["freezeProjections", "appendProjections"]
+
+[[check]]
+message = "emitted KMIR definition omits traversal-based reference creation"
+required.terminals = ["referenceProjection", "projectionsFor", "projectionMetadataSize"]
+required.rule_labels = ["traverse-projection-reference-allocation-done", "traverse-projection-allocation-reference-reborrow"]
+
+[[check]]
+message = "emitted KMIR definition omits recursive projection traversal"
+required.terminals = ["readProjection", "writeProjection"]
+
+[[check]]
+message = "emitted KMIR definition omits shared projection traversal"
+required.terminals = ["traverseProjection", "buildProjectionUpdate"]
+
+[[check]]
+message = "emitted KMIR definition omits cross-frame projected moves"
+required.terminals = ["moveProjection", "toStack"]
+
+[[check]]
+message = "emitted KMIR definition omits projected move invalidation"
+required.terminals = ["readMovedProjectedLocal"]
+
+[[check]]
+message = "emitted KMIR definition omits source-shaped subslice projection"
+required.terminals = ["projectionElemSubslice"]
+
+[[check]]
+message = "emitted KMIR definition omits pointer-offset projection"
+required.terminals = ["PointerOffset", "originSize"]
+
+[[check]]
+message = "emitted KMIR definition omits dereference metadata truncation"
+required.terminals = ["derefTruncate", "dynamicSize"]
+
+[[check]]
+message = "emitted KMIR definition omits raw local pointer creation"
+required.terminals = ["rvalueAddressOf", "PtrLocal"]
+
+[[check]]
+message = "emitted KMIR definition omits pointer resolution or frame adjustment"
+required.terminals = ["addressOf", "adjustRef"]
+
+[[check]]
+message = "emitted KMIR definition omits raw-pointer identity comparison"
+required.rule_labels = ["finish-pointer-eq-same", "finish-pointer-ne-different"]
+
+[[check]]
+message = "emitted KMIR definition omits pointer metadata extraction"
+required.terminals = ["unOpPtrMetadata"]
+required.rule_labels = ["finish-pointer-metadata"]
+
+[[check]]
+message = "emitted KMIR definition omits bounded pointer arithmetic"
+required.terminals = ["binOpOffset"]
+required.rule_labels = ["finish-pointer-offset-dynamic"]
+
+[[check]]
+message = "emitted KMIR definition omits source-shaped pointer coercion"
+required.terminals = ["rvalueCast", "castKindPointerCoercion"]
+
+[[check]]
+message = "emitted KMIR definition omits raw-pointer unsizing"
+required.terminals = ["pointerCoercionUnsize"]
+required.rule_labels = ["finish-pointer-unsize"]
+
+[[check]]
+message = "emitted KMIR definition omits concrete pointer type metadata"
+required.terminals = ["typeInfoPtrType", "typeInfoRefType"]
+[[check.cells]]
+name = "types"
+configuration_variable = "TYPES"
+sort = "Map"
+
+[[check]]
+message = "emitted KMIR definition omits allocation-reference memory traversal"
+required.terminals = ["AllocRef", "allocId", "toAlloc"]
+required.rule_labels = ["finish-allocation-reference-unsize", "finish-allocation-reference-metadata"]
+[[check.cells]]
+name = "memory"
+configuration_variable = "MEMORY"
+sort = "Map"
+
+[[check]]
+message = "emitted KMIR definition omits allocated-reference constant decoding"
+required.terminals = ["constantKindAllocated", "provenanceMapEntry", "decodeAllocatedReference"]
+required.rule_labels = ["eval-allocated-reference-constant"]
+
+[[check]]
+message = "emitted KMIR definition omits allocated scalar constant decoding"
+required.terminals = ["primTypeBool", "primTypeInt", "primTypeUint", "decodeAllocatedValue"]
+required.rule_labels = ["eval-allocated-value-constant"]
+
+[[check]]
+message = "emitted KMIR definition omits recursive array allocation decoding"
+required.terminals = ["decodeArrayAllocation", "decodeArrayElements", "decodeSliceAllocation", "elementSize"]
+[[check.applied_operations]]
+operation = "bytes_substring"
+
+[[check]]
+message = "emitted KMIR definition omits layout-aware struct allocation decoding"
+required.terminals = ["decodeFieldsWithOffsets", "neededBytesForOffsets", "fieldsShapeArbitrary", "machineSize"]
+
+[[check]]
+message = "emitted KMIR definition omits empty or layout-aware tuple decoding"
+required.terminals = ["typeInfoTupleType"]
+[[check.applications]]
+symbol = "tupleType"
+arguments = [{ symbol = "tysEmpty" }, {  }]
+
+[[check]]
+message = "emitted KMIR definition omits fieldless enum discriminant decoding"
+required.terminals = ["typeInfoEnumType", "noFields", "findVariantIdx", "findVariantIdxAux"]
+
+[[check]]
+message = "emitted KMIR definition omits direct-tag enum field decoding"
+required.terminals = ["variantsShapeMultiple", "tagEncodingDirect", "integerLengthI128", "decodeEnumDirectFields", "decodeEnumDirectTag", "nthTys", "nthVariantOffsets"]
+
+[[check]]
+message = "emitted KMIR definition omits niche-pointer None decoding"
+required.terminals = ["primitivePointer", "addressSpace", "tagEncodingNiche"]
+[[check.applications]]
+symbol = "wrappingRange"
+arguments = [{ token = "1", sort = "Int" }, { token = "0", sort = "Int" }]
+
+[[check]]
+message = "emitted KMIR definition omits zero-sized constant materialization"
+required.terminals = ["constantKindZeroSized", "typeInfoFunType", "decodeZeroSizedConstant"]
+required.rule_labels = ["eval-zero-sized-constant"]
+
+[[check]]
+message = "emitted KMIR definition omits ordinary aggregate construction"
+required.terminals = ["rvalueAggregate", "aggregateKindAdt", "aggregateKindArray", "aggregateKindTuple", "aggregateKindClosure", "mkAggregate"]
+required.rule_labels = ["eval-aggregate-empty", "continue-aggregate-next"]
+
+[[check]]
+message = "emitted KMIR definition omits same-pointee pointer casts"
+required.terminals = ["castKindPtrToPtr"]
+required.rule_labels = ["finish-same-pointee-ptr-cast", "finish-same-pointee-ref-to-ptr-ptr-cast"]
+
+[[check]]
+message = "emitted KMIR definition omits array or primitive type metadata"
+required.terminals = ["typeInfoArrayType", "typeInfoPrimitiveType"]
+
+[[check]]
+message = "emitted KMIR definition omits source-shaped fixed-array lengths"
+required.terminals = ["someTyConst", "tyConstKindValue"]
+
+[[check]]
+message = "emitted KMIR definition omits fixed-array metadata decoding"
+required.terminals = ["readTyConstInt", "staticSize"]
+
+[[check]]
+message = "emitted KMIR definition omits zero-sized pointee classification"
+required.terminals = ["typeInfoVoidType", "zeroSizedType"]
+
+[[check]]
+message = "emitted KMIR definition omits transparent struct metadata"
+required.terminals = ["typeInfoStructType", "zeroFieldOffset"]
+
+[[check]]
+message = "emitted KMIR definition omits transparent-wrapper traversal"
+required.terminals = ["projectionElemWrapStruct", "CtxWrapStruct"]
+
+[[check]]
+message = "emitted KMIR definition omits zero-sized pointer-cast projections"
+required.terminals = ["projectionElemToZST", "projectionElemFromZST"]
+
+[[check]]
+message = "emitted KMIR definition omits pointer-cast projections or cancellation"
+required.terminals = ["projectionElemSingletonArray", "appendCastProjections"]
+
+[[check]]
+message = "emitted KMIR definition omits recursive source-first pointer casts"
+required.terminals = ["resolvePtrCast"]
+required.rule_labels = ["resolve-ptr-cast-source-array"]
+
+[[check]]
+message = "emitted KMIR definition omits pointer-cast metadata conversion"
+required.terminals = ["convertPointerMetadata"]
+
+[[check]]
+message = "emitted KMIR definition omits same-representation pointer transmutation"
+required.terminals = ["castKindTransmute"]
+required.rule_labels = ["finish-reference-transmute-identity", "finish-pointer-transmute-identity", "finish-allocation-reference-transmute-identity"]
+
+[[check]]
+message = "emitted KMIR definition omits source-shaped downcast projection"
+required.terminals = ["projectionElemDowncast"]
+
+[[check]]
+message = "emitted KMIR definition omits builtin List subslice extraction"
+[[check.applied_operations]]
+operation = "list.range"
+
+[[check]]
+message = "emitted KMIR definition omits builtin List subslice replacement"
+[[check.applied_operations]]
+operation = "list.update_all"
+
+[[check]]
+message = "emitted KMIR definition omits Repeat or Len array rvalues"
+required.terminals = ["rvalueRepeat", "rvalueLen"]
+[[check.applied_operations]]
+operation = "list.make"
+
+[[check]]
+message = "emitted KMIR definition omits projected type derivation"
+required.terminals = ["getTyOf", "TyUnknown", "lookupMaybeTy"]
+[[check.subsorts]]
+sort = "MaybeTy"
+subsort = "Ty"
+
+[[check]]
+message = "emitted KMIR definition omits nullary type reification"
+required.terminals = ["rvalueNullaryOp", "nullOpSizeOf", "nullOpAlignOf", "nullOpUbChecks", "sizeOf", "alignOf", "typeInfoUnionType", "primTypeFloat"]
+
+[[check]]
+message = "emitted KMIR definition omits staged binary operations"
+required.terminals = ["rvalueBinaryOp", "finishBinary"]
+
+[[check]]
+message = "emitted KMIR definition omits checked width-aware arithmetic"
+required.terminals = ["rvalueCheckedBinaryOp", "truncateInteger"]
+
+[[check]]
+message = "emitted KMIR definition omits unchecked arithmetic constructors"
+required.terminals = ["binOpAddUnchecked", "binOpMulUnchecked"]
+
+[[check]]
+message = "emitted KMIR definition omits source-shaped Assert evaluation"
+required.terminals = ["assertMessageOverflow", "expect"]
+
+[[check]]
+message = "emitted KMIR definition omits terminal assertion errors"
+required.terminals = ["ProgramError", "AssertError"]
+
+[[check]]
+message = "emitted KMIR definition omits Drop or Unreachable control effects"
+required.terminals = ["terminatorKindDrop", "ReachedUnreachable"]
+
+[[check]]
+message = "emitted KMIR definition omits nested call-frame state"
+[[check.cells]]
+name = "currentFrame"
+[[check.cells]]
+name = "stack"
+[[check.cells]]
+name = "functions"
+
+[[check]]
+message = "emitted KMIR definition omits function-call or stack-frame syntax"
+required.terminals = ["terminatorKindCall", "StackFrame"]
+
+[[check]]
+message = "emitted KMIR definition omits call-argument transfer"
+required.terminals = ["setArgsFromStack", "setArgFromStack"]
+
+[[check]]
+message = "emitted KMIR definition omits function-body activation"
+required.terminals = ["functionBlocks", "functionLocals"]
+
+[[check]]
+message = "emitted KMIR definition omits cross-frame reference adjustment"
+required.terminals = ["adjustRef", "localFromFrame"]
+
+[[check]]
+message = "emitted KMIR definition omits cross-frame reference writes"
+required.terminals = ["updateProjectedStackLocal", "writeProjectedEntry"]
+
+[[check]]
+message = "emitted KMIR definition omits integer comparison"
+required.terminals = ["binOpGt"]
+[[check.applied_operations]]
+operation = "int_greater"
+
+[[check]]
+message = "emitted KMIR definition omits integer bitwise operations"
+required.terminals = ["binOpBitXor"]
+[[check.applied_operations]]
+operation = "int_bit_xor"
+
+[[check]]
+message = "emitted KMIR definition omits integer shifts"
+required.terminals = ["binOpShlUnchecked"]
+[[check.applied_operations]]
+operation = "int_shift_left"
+
+[[check]]
+message = "emitted KMIR definition omits unary operations"
+required.terminals = ["rvalueUnaryOp", "unOpNeg"]
+
+[[check]]
+message = "emitted KMIR definition omits integer division"
+required.terminals = ["binOpDiv"]
+[[check.applied_operations]]
+operation = "int_t_div"
+
+[[check]]
+message = "emitted KMIR definition omits ordered SwitchInt targets"
+required.terminals = ["switchTargets", "selectBlock"]
+
+[[check]]
+message = "emitted KMIR definition omits typed builtin-list lookup"
+[[check.applied_operations]]
+operation = "list.get"
+result_sort = "BasicBlock"
+argument_sorts = ["List", "Int"]

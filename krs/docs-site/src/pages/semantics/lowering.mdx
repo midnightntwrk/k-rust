@@ -1,0 +1,97 @@
+---
+title: Inspect what KRS builds
+description: Follow readable Rust through explicit expansion, semantic IR, emitted K, source maps, and backend artifacts.
+---
+
+# Inspect what KRS builds
+
+{/* tour-concepts: two-surfaces build-commands artifacts */}
+
+KRS keeps authoring pleasant while making every compilation boundary inspectable.
+The representations form a one-way pipeline:
+
+```text
+readable Rust → explicit Rust → descriptors → semantic IR → Definition IR → K → KORE
+```
+
+## Readable and explicit Rust
+
+Readable layer 1 is the surface used throughout the IMP chapters: open-sort blocks, constructor families, declarative configurations, and rule tables.
+`krs expand` produces deterministic explicit layer 2, where those conveniences become ordinary attributed Rust items.
+
+Layer 2 is an audit and escape-hatch representation, not a second tutorial dialect.
+The executable complete IMP fixture and its parity tests decide whether readable and explicit forms preserve the same theory.
+
+## Follow one rule through the pipeline
+
+The readable IMP rule says that adding two integer results rewrites to the symbolic integer-add operation:
+
+```rust [tests/tour-imp/generated/eval-add-readable.txt]
+// [!include ~/snippets/eval-add-readable.rs]
+```
+
+This is a focused excerpt from the checked `k::rules!` table, not a freestanding second fixture.
+Expansion makes the implicit computation-cell match, tail frame, and whole-configuration result explicit:
+
+```rust [tests/tour-imp/generated/eval-add-expanded.txt]
+// [!include ~/snippets/eval-add-expanded.rs]
+```
+
+Collection records the same rule as structured data.
+The checked projection below keeps the identity-bearing fields while omitting source-map frames and protocol bookkeeping:
+
+```json [tests/tour-imp/generated/eval-add-descriptor.json]
+// [!include ~/snippets/eval-add-descriptor.json]
+```
+
+After semantic and Definition IR lowering, K emission produces the backend-facing sentence:
+
+```text [tests/tour-imp/generated/eval-add.k]
+// [!include ~/snippets/eval-add.k]
+```
+
+`int::add` did not execute as Rust along the way.
+It remained the symbolic builtin application `int_add`, which the emitter spells as `+Int`.
+Each variable in emitted K takes its authored binder name in K's capitalized form (`lhs` becomes `Lhs`), made unique within its sentence; the native route spells it identically, and `sources.json` carries its authored range back to the readable rule.
+
+`tests/tour-imp/verify.py` regenerates all four views from one source, checks deterministic expansion and emission, and fails if any published view is stale.
+
+## Semantic artifacts
+
+`krs emit-k` writes an owned artifact directory containing:
+
+- `descriptor-bundle.json`, the collected host declarations;
+- `semantic-ir.json`, the resolved symbolic theory;
+- `definition-ir.json`, the backend-neutral definition;
+- `definition.k`, emitted K source for the semantics;
+- `spec.k`, the definition's claims, when it has any;
+- `symbols.json`, stable-to-emitted identity mappings; and
+- `sources.json`, generated ranges traced through authored macro and transformation frames.
+
+Use an explicit output directory:
+
+```sh
+krs emit-k \
+  --manifest-path tests/tour-imp/Cargo.toml \
+  --package krs-tour-imp \
+  --definition main \
+  --output /tmp/krs-imp-emitted
+```
+
+K accepts claims only outside an executable definition, so `definition.k` holds no claims.
+`spec.k` wraps them in a `<MAIN>-SPEC` module that `requires "definition.k"` and imports the main module: kompile `definition.k` once, then pass `spec.k` to `kprove` against that kompiled definition.
+
+`krs build` continues from Definition IR to selected LLVM or Haskell KORE artifacts.
+The Haskell target carries the claims for proving; LLVM executes but does not prove, so its build omits the claims and reports how many.
+It does not execute the object program, and KRS currently has no `run` command.
+
+## Identity and diagnostics
+
+Rust paths and generated declaration identities remain distinct from emitted K symbols.
+`#[k::symbol]` can pin the public symbol of a sort or standalone constructor where external compatibility requires it; inferred identities are preferred elsewhere.
+
+Source maps preserve authored ranges through generated artifacts.
+A failure should be reported at the stage that discovered it: Rust expansion, KRS analysis, the K frontend, or the native definition checks.
+Not every stage currently has the same structured diagnostic fidelity, so the workflow and boundaries pages name the gaps.
+
+Next, [static semantics](/semantics/static-semantics) adds equations, aliases, contexts, and simplification lemmas that are not transition rules.

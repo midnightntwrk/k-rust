@@ -1,0 +1,17 @@
+<generatedTop>[0m
+  <k>[0m
+    .K
+  </k>[0m
+  <env>[0m
+    x1 |->[0m 9
+    x2 |->[0m 2
+    x10 |->[0m 10
+    y |->[0m 100
+  </env>[0m
+  <seen>[0m
+    SetItem[0m ([0m 2 )[0m
+    SetItem[0m ([0m 9 )[0m
+    SetItem[0m ([0m 10 )[0m
+    SetItem[0m ([0m 100 )[0m
+  </seen>[0m
+</generatedTop>[0m

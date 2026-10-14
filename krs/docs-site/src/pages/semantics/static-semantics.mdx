@@ -1,0 +1,76 @@
+---
+title: Functions and static semantics
+description: Define total and partial functions, equations, priority, aliases, named contexts, and simplifications.
+---
+
+# Functions and static semantics
+
+{/* tour-concepts: context-aliases functions equations aliases simplifications */}
+
+Static clauses simplify symbolic terms and define derived syntax without adding ordinary machine transitions.
+The checked static-semantics fixture exercises the current function, equation, alias, and context surfaces:
+
+```rust
+// [!include ~/snippets/static-semantics.rs]
+```
+
+## Total and partial functions
+
+`#[k::function]` declares a function symbol with a result sort and concrete syntax.
+A total function promises a defined result over its intended domain.
+A partial function may be undefined, which denotes semantic bottom—not `Option::None` and not a host panic.
+This is not Rust `Option`; undefinedness belongs to the symbolic theory.
+
+Function structs describe symbolic applications.
+Their Rust fields are operands, not values consumed by executing Rust function bodies.
+
+### An undefined partial application
+
+The fixture's partial function has exactly one equation, guarded by `0 <=Int value`.
+The positive claim `partial-equation` checks the defined case `#nonnegativeIdentity(7) => 7` through the pinned Haskell proof route.
+Now consider the other side of that same guard:
+
+```text
+#nonnegativeIdentity(-1)
+```
+
+The head is well sorted, so this is not an authoring error.
+Its only equation is inapplicable, and because `NonnegativeIdentity` was declared `partial`, the application has no denotation: semantic bottom.
+There is no `None` constructor to inspect and no Rust call that returns a value.
+Bottom is also not an authored `trap` term or a complete normal form; if a transition needs this result, it cannot obtain one.
+
+The focused tour evidence gate checks the partial declaration, its sole guarded equation, the negative ground input, and the pinned proved positive case together.
+This example is a static-semantics consequence, not a claimed `krun` trace: bottom is the absence of a result in the theory.
+
+## Equations and priority
+
+Equations define function results by matching symbolic terms.
+They may carry object-Boolean `requires` conditions and a priority, `#[k::equation(priority = N)]` or `#[k::equation(owise)]` (priority 200).
+An equation is tried only after every equation of the function with a lower priority failed; the default is 50.
+
+The explicit-priority example distinguishes the zero case from a wildcard fallback.
+Equation source order is not the priority value.
+
+## Aliases and named contexts
+
+A static alias is a reversible static clause associated with alias syntax.
+It is distinct from an equation subtype and from a transition.
+
+`#[k::context_alias]` names a reusable evaluation context with one distinguished `here` site.
+The `Double` constructor selects that named context through `seqstrict(using = operand_eval)`.
+The context describes where evaluation occurs inside a framed configuration; calling the Rust-shaped function is not the model.
+
+## Simplification lemmas
+
+Verification also contributes unprioritized simplification lemmas:
+
+```rust
+// [!include ~/snippets/simplifications.rs]
+```
+
+Simplifications normalize logically equivalent symbolic forms for reasoning.
+The parser and lowering accept `simplification(priority = N)`, but numeric simplification priority remains unqualified because the repository has no positive authored macro specimen for it.
+
+Unknown function heads, ill-sorted equation results, invalid alias/context shapes, and conflicting static clauses fail their respective parsing or analysis stages.
+
+Next, [reachability claims](/verification/reachability-claims) state properties over the transition system without turning proof specifications into executable rules.

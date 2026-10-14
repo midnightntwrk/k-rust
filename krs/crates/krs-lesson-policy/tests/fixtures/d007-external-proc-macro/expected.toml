@@ -1,0 +1,5 @@
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 9
+end = 25
+text = "serde::Serialize"

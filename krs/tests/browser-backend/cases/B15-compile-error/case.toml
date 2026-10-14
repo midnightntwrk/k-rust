@@ -1,0 +1,14 @@
+schema = 1
+id = "B15-compile-error"
+behavior = "An error exit reports its diagnostics (E0425, value-position E0433), then rustc's `aborting due to` summary, and exits with status 1 without a trap."
+basis = "rustc.wasm before 0ce51e933 trapped after the diagnostics of every error exit; the worker's trap_after_error classification rule"
+# Error-exit behaviour: passes from 0ce51e933 on; at 195111dff the
+# diagnostics are printed but rustc.wasm then traps with no summary line.
+expected_status = "pass"
+fork_status = { "195111dff60e2ce0c6d71f7302401cc4c07b0365" = "known-gap" }
+gap = { class = "backend", summary = "at 195111dff rustc.wasm prints the diagnostics, then traps (RuntimeError: unreachable) with no `aborting due to` summary and no exit status", root_cause = "panic=abort host: FatalError::raise aborts before finish_diagnostics; fixed by 0ce51e933", fixed_in = "0ce51e9339ee538c16580fea01ca98dd89f6d7a0" }
+
+[[crate]]
+name = "b15_compile_error"
+src = "lib.rs"
+type = "rlib"

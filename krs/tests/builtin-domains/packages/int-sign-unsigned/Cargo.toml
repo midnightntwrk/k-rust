@@ -1,0 +1,22 @@
+[package]
+name = "krs-builtin-int-sign-unsigned"
+description = "A rule literal -1 in a package with unsigned program literals"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_builtin_int_sign_unsigned"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-INT-SIGN-UNSIGNED"
+int-literals = "unsigned"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

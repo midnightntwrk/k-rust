@@ -1,0 +1,28 @@
+# KRS browser dependency pack.
+#
+# This package roots the dependency closure of the generated lesson collector
+# (`__krs_host_runtime = krs`, `__krs_collector_runtime = krs-collector`,
+# browser/worker/src/collector-template.ts) for wasm32-wasip1.
+# It is its own workspace, so the closure and its features do not depend on
+# the KRS workspace members; build.sh builds it inside a mount namespace where
+# the KRS source tree is at the virtual root /krs.
+#
+# `krs` is built without default features: explicit descriptor registration
+# (link-time constructors do not run in browser-compiled code) and no
+# `inventory` or `rustversion` edge. build.sh fails if feature unification
+# enables `inventory`.
+[package]
+name = "krs-browser-pack"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+krs = { path = "../../crates/krs", default-features = false }
+krs-collector = { path = "../../crates/krs-collector" }
+
+[workspace]

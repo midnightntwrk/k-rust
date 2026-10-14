@@ -1,0 +1,26 @@
+[package]
+name = "krs-ir"
+description = "Stable descriptor and intermediate-representation contracts for KRS"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+test-support = []
+proc-macro2 = ["dep:proc-macro2"]
+
+[dependencies]
+proc-macro2 = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+expect-test = { workspace = true }
+krs-ir = { path = ".", features = ["test-support"] }
+krs-test-support = { path = "../krs-test-support" }
+static_assertions = "1.1.0"
+toml_edit = { workspace = true, features = ["parse"] }
+
+[lints]
+workspace = true

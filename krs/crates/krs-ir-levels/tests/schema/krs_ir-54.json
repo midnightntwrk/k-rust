@@ -1,0 +1,1964 @@
+{
+  "BuiltinOperation": {
+    "ENUM": {
+      "0": {
+        "int_add": "UNIT"
+      },
+      "1": {
+        "int_sub": "UNIT"
+      },
+      "2": {
+        "int_mul": "UNIT"
+      },
+      "3": {
+        "int_t_div": "UNIT"
+      },
+      "4": {
+        "int_mod": "UNIT"
+      },
+      "5": {
+        "int_pow_mod": "UNIT"
+      },
+      "6": {
+        "int_log2": "UNIT"
+      },
+      "7": {
+        "int_shift_right": "UNIT"
+      },
+      "8": {
+        "int_shift_left": "UNIT"
+      },
+      "9": {
+        "int_bit_and": "UNIT"
+      },
+      "10": {
+        "int_bit_xor": "UNIT"
+      },
+      "11": {
+        "int_bit_or": "UNIT"
+      },
+      "12": {
+        "int_greater_equal": "UNIT"
+      },
+      "13": {
+        "int_greater": "UNIT"
+      },
+      "14": {
+        "int_less_equal": "UNIT"
+      },
+      "15": {
+        "int_less": "UNIT"
+      },
+      "16": {
+        "int_equal": "UNIT"
+      },
+      "17": {
+        "int_not_equal": "UNIT"
+      },
+      "18": {
+        "bool_not": "UNIT"
+      },
+      "19": {
+        "bool_equal": "UNIT"
+      },
+      "20": {
+        "bool_not_equal": "UNIT"
+      },
+      "21": {
+        "bool_and": "UNIT"
+      },
+      "22": {
+        "bool_or": "UNIT"
+      },
+      "23": {
+        "bytes_length": "UNIT"
+      },
+      "24": {
+        "bytes_get": "UNIT"
+      },
+      "25": {
+        "bytes_empty": "UNIT"
+      },
+      "26": {
+        "bytes_update": "UNIT"
+      },
+      "27": {
+        "bytes_pad_right": "UNIT"
+      },
+      "28": {
+        "bytes_substring": "UNIT"
+      },
+      "29": {
+        "int_t_mod": "UNIT"
+      },
+      "30": {
+        "int_e_div": "UNIT"
+      },
+      "31": {
+        "int_pow": "UNIT"
+      },
+      "32": {
+        "int_bit_not": "UNIT"
+      },
+      "33": {
+        "int_min": "UNIT"
+      },
+      "34": {
+        "int_max": "UNIT"
+      },
+      "35": {
+        "int_abs": "UNIT"
+      },
+      "36": {
+        "int_divides": "UNIT"
+      },
+      "37": {
+        "int_bit_range": "UNIT"
+      },
+      "38": {
+        "int_sign_extend_bit_range": "UNIT"
+      },
+      "39": {
+        "bool_xor": "UNIT"
+      },
+      "40": {
+        "bool_implies": "UNIT"
+      },
+      "41": {
+        "bool_and_then": "UNIT"
+      },
+      "42": {
+        "bool_or_else": "UNIT"
+      },
+      "43": {
+        "bytes_concat": "UNIT"
+      },
+      "44": {
+        "bytes_pad_left": "UNIT"
+      },
+      "45": {
+        "bytes_reverse": "UNIT"
+      },
+      "46": {
+        "bytes_replace_at": "UNIT"
+      },
+      "47": {
+        "bytes_from_int": "UNIT"
+      },
+      "48": {
+        "bytes_from_int_no_len": "UNIT"
+      },
+      "49": {
+        "bytes_to_int": "UNIT"
+      },
+      "50": {
+        "bytes_little_endian": "UNIT"
+      },
+      "51": {
+        "bytes_big_endian": "UNIT"
+      },
+      "52": {
+        "bytes_signed": "UNIT"
+      },
+      "53": {
+        "bytes_unsigned": "UNIT"
+      },
+      "54": {
+        "string_concat": "UNIT"
+      },
+      "55": {
+        "string_equal": "UNIT"
+      },
+      "56": {
+        "string_not_equal": "UNIT"
+      },
+      "57": {
+        "string_less": "UNIT"
+      },
+      "58": {
+        "string_less_equal": "UNIT"
+      },
+      "59": {
+        "string_greater": "UNIT"
+      },
+      "60": {
+        "string_greater_equal": "UNIT"
+      },
+      "61": {
+        "string_length": "UNIT"
+      },
+      "62": {
+        "string_substring": "UNIT"
+      },
+      "63": {
+        "string_find": "UNIT"
+      },
+      "64": {
+        "string_chr": "UNIT"
+      },
+      "65": {
+        "string_ord": "UNIT"
+      },
+      "66": {
+        "string_from_int": "UNIT"
+      },
+      "67": {
+        "string_to_int": "UNIT"
+      },
+      "68": {
+        "string_from_bool": "UNIT"
+      },
+      "69": {
+        "string_to_bool": "UNIT"
+      },
+      "70": {
+        "bytes_from_string": "UNIT"
+      },
+      "71": {
+        "bytes_to_string": "UNIT"
+      },
+      "72": {
+        "k_equal_eq": "UNIT"
+      },
+      "73": {
+        "k_equal_ne": "UNIT"
+      },
+      "74": {
+        "k_equal_ite": "UNIT"
+      },
+      "75": {
+        "float_add": "UNIT"
+      },
+      "76": {
+        "float_sub": "UNIT"
+      },
+      "77": {
+        "float_mul": "UNIT"
+      },
+      "78": {
+        "float_div": "UNIT"
+      },
+      "79": {
+        "float_neg": "UNIT"
+      },
+      "80": {
+        "float_equal": "UNIT"
+      },
+      "81": {
+        "float_not_equal": "UNIT"
+      },
+      "82": {
+        "float_less": "UNIT"
+      },
+      "83": {
+        "float_less_equal": "UNIT"
+      },
+      "84": {
+        "float_greater": "UNIT"
+      },
+      "85": {
+        "float_greater_equal": "UNIT"
+      },
+      "86": {
+        "float_abs": "UNIT"
+      },
+      "87": {
+        "float_floor": "UNIT"
+      },
+      "88": {
+        "float_ceil": "UNIT"
+      },
+      "89": {
+        "float_trunc": "UNIT"
+      },
+      "90": {
+        "float_round": "UNIT"
+      },
+      "91": {
+        "float_root": "UNIT"
+      },
+      "92": {
+        "float_sqrt": "UNIT"
+      },
+      "93": {
+        "float_min": "UNIT"
+      },
+      "94": {
+        "float_max": "UNIT"
+      },
+      "95": {
+        "float_is_nan": "UNIT"
+      },
+      "96": {
+        "float_is_infinite": "UNIT"
+      },
+      "97": {
+        "float_sign": "UNIT"
+      },
+      "98": {
+        "float_precision": "UNIT"
+      },
+      "99": {
+        "float_exponent_bits": "UNIT"
+      },
+      "100": {
+        "float_max_value": "UNIT"
+      },
+      "101": {
+        "float_from_int": "UNIT"
+      },
+      "102": {
+        "float_to_int": "UNIT"
+      },
+      "103": {
+        "io_write": "UNIT"
+      },
+      "104": {
+        "io_putc": "UNIT"
+      },
+      "105": {
+        "io_log": "UNIT"
+      }
+    }
+  },
+  "BuiltinSort": {
+    "ENUM": {
+      "0": {
+        "k_sequence": "UNIT"
+      },
+      "1": {
+        "int": "UNIT"
+      },
+      "2": {
+        "bool": "UNIT"
+      },
+      "3": {
+        "map": "UNIT"
+      },
+      "4": {
+        "id": "UNIT"
+      },
+      "5": {
+        "bytes": "UNIT"
+      },
+      "6": {
+        "string": "UNIT"
+      },
+      "7": {
+        "list": "UNIT"
+      },
+      "8": {
+        "set": "UNIT"
+      },
+      "9": {
+        "endianness": "UNIT"
+      },
+      "10": {
+        "signedness": "UNIT"
+      },
+      "11": {
+        "float": "UNIT"
+      }
+    }
+  },
+  "CellClauseKind": {
+    "ENUM": {
+      "0": {
+        "content": "UNIT"
+      },
+      "1": {
+        "whole": "UNIT"
+      }
+    }
+  },
+  "CellCollectionType": {
+    "ENUM": {
+      "0": {
+        "bag": "UNIT"
+      },
+      "1": {
+        "list": "UNIT"
+      },
+      "2": {
+        "map": "UNIT"
+      },
+      "3": {
+        "set": "UNIT"
+      }
+    }
+  },
+  "CellMultiplicity": {
+    "ENUM": {
+      "0": {
+        "star": "UNIT"
+      }
+    }
+  },
+  "CellStream": {
+    "ENUM": {
+      "0": {
+        "stdin": "UNIT"
+      },
+      "1": {
+        "stdout": "UNIT"
+      }
+    }
+  },
+  "CellWrapper": {
+    "ENUM": {
+      "0": {
+        "cell": "UNIT"
+      },
+      "1": {
+        "k_cell": "UNIT"
+      }
+    }
+  },
+  "ClaimBinder": {
+    "STRUCT": [
+      {
+        "declaration_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      },
+      {
+        "sort": {
+          "TYPENAME": "WireSortReference"
+        }
+      }
+    ]
+  },
+  "ClaimModality": {
+    "ENUM": {
+      "0": {
+        "all_paths": "UNIT"
+      },
+      "1": {
+        "one_path": "UNIT"
+      }
+    }
+  },
+  "CollectorMeasureDocument": {
+    "STRUCT": [
+      {
+        "schema": "STR"
+      },
+      {
+        "started_unix_seconds": "F64"
+      },
+      {
+        "spans": {
+          "SEQ": {
+            "TYPENAME": "Span"
+          }
+        }
+      },
+      {
+        "counters": {
+          "MAP": {
+            "KEY": "STR",
+            "VALUE": "U64"
+          }
+        }
+      }
+    ]
+  },
+  "CollectorPathProbe": {
+    "STRUCT": [
+      {
+        "path": "STR"
+      },
+      {
+        "canonical": {
+          "OPTION": "STR"
+        }
+      },
+      {
+        "is_file": "BOOL"
+      }
+    ]
+  },
+  "CollectorReadSet": {
+    "STRUCT": [
+      {
+        "files": {
+          "SEQ": {
+            "TUPLEARRAY": {
+              "CONTENT": "STR",
+              "SIZE": 2
+            }
+          }
+        }
+      },
+      {
+        "probes": {
+          "SEQ": {
+            "TYPENAME": "CollectorPathProbe"
+          }
+        }
+      }
+    ]
+  },
+  "CountersDocument": {
+    "STRUCT": [
+      {
+        "schema": "STR"
+      },
+      {
+        "command": "STR"
+      },
+      {
+        "status": "STR"
+      },
+      {
+        "counters": {
+          "MAP": {
+            "KEY": "STR",
+            "VALUE": "U64"
+          }
+        }
+      }
+    ]
+  },
+  "DescriptorApplicationHeadClass": {
+    "ENUM": {
+      "0": {
+        "applied": "UNIT"
+      },
+      "1": {
+        "bare_reference": "UNIT"
+      }
+    }
+  },
+  "DescriptorAssociativitySentence": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "associativity": {
+          "TYPENAME": "GroupAssociativity"
+        }
+      },
+      {
+        "groups": {
+          "SEQ": {
+            "TYPENAME": "DescriptorGroupReference"
+          }
+        }
+      }
+    ]
+  },
+  "DescriptorCellColor": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "STR"
+      }
+    ]
+  },
+  "DescriptorCellDeclarationReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "declaration": {
+          "TYPENAME": "StableItemIdWire"
+        }
+      }
+    ]
+  },
+  "DescriptorCellExit": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      }
+    ]
+  },
+  "DescriptorCellIdentity": {
+    "STRUCT": [
+      {
+        "owner": {
+          "TYPENAME": "StableItemIdWire"
+        }
+      },
+      {
+        "field": "STR"
+      }
+    ]
+  },
+  "DescriptorCellMultiplicity": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "STR"
+      }
+    ]
+  },
+  "DescriptorCellName": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "STR"
+      }
+    ]
+  },
+  "DescriptorCellReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "cell": {
+          "TYPENAME": "DescriptorCellIdentity"
+        }
+      }
+    ]
+  },
+  "DescriptorCellStream": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": {
+          "TYPENAME": "CellStream"
+        }
+      }
+    ]
+  },
+  "DescriptorCellType": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "STR"
+      }
+    ]
+  },
+  "DescriptorColorEntry": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "STR"
+      }
+    ]
+  },
+  "DescriptorConfigurationReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "configuration": {
+          "TYPENAME": "StableItemIdWire"
+        }
+      }
+    ]
+  },
+  "DescriptorContextAliasReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "alias": {
+          "TYPENAME": "StableItemIdWire"
+        }
+      }
+    ]
+  },
+  "DescriptorEquationAttributes": {
+    "STRUCT": [
+      {
+        "restriction": {
+          "TYPENAME": "DescriptorMatchRestriction"
+        }
+      }
+    ]
+  },
+  "DescriptorFieldReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "field": "STR"
+      }
+    ]
+  },
+  "DescriptorGroupReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "group": "STR"
+      }
+    ]
+  },
+  "DescriptorKSequenceNotation": {
+    "ENUM": {
+      "0": {
+        "comma": "UNIT"
+      },
+      "1": {
+        "operator": "UNIT"
+      },
+      "2": {
+        "dot_k": "UNIT"
+      }
+    }
+  },
+  "DescriptorLayoutRegex": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "regex": "STR"
+      }
+    ]
+  },
+  "DescriptorLexical": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      },
+      {
+        "regex_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "regex": "STR"
+      }
+    ]
+  },
+  "DescriptorLexicalPrecedence": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "U32"
+      }
+    ]
+  },
+  "DescriptorMatchRestriction": {
+    "STRUCT": [
+      {
+        "concrete": {
+          "OPTION": {
+            "TYPENAME": "DescriptorRestriction"
+          }
+        }
+      },
+      {
+        "symbolic": {
+          "OPTION": {
+            "TYPENAME": "DescriptorRestriction"
+          }
+        }
+      },
+      {
+        "smt_lemma": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      }
+    ]
+  },
+  "DescriptorModuleImport": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "path": "STR"
+      }
+    ]
+  },
+  "DescriptorNondetGroup": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      }
+    ]
+  },
+  "DescriptorPrecedenceChain": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "groups": {
+          "SEQ": {
+            "TYPENAME": "DescriptorGroupReference"
+          }
+        }
+      }
+    ]
+  },
+  "DescriptorRestriction": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "variables": {
+          "SEQ": {
+            "TYPENAME": "DescriptorRestrictionVariable"
+          }
+        }
+      }
+    ]
+  },
+  "DescriptorRestrictionVariable": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      }
+    ]
+  },
+  "DescriptorRuleLabel": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      }
+    ]
+  },
+  "DescriptorRulePriority": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "U32"
+      }
+    ]
+  },
+  "DescriptorSimplification": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "priority": {
+          "OPTION": {
+            "TYPENAME": "DescriptorSimplificationPriority"
+          }
+        }
+      },
+      {
+        "restriction": {
+          "OPTION": {
+            "TYPENAME": "DescriptorMatchRestriction"
+          }
+        }
+      }
+    ]
+  },
+  "DescriptorSimplificationPriority": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "U32"
+      }
+    ]
+  },
+  "DescriptorSpecModuleName": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "STR"
+      }
+    ]
+  },
+  "DescriptorUnboundVariable": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      }
+    ]
+  },
+  "DescriptorUnboundVariables": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "variables": {
+          "SEQ": {
+            "TYPENAME": "DescriptorUnboundVariable"
+          }
+        }
+      }
+    ]
+  },
+  "EvaluationKind": {
+    "ENUM": {
+      "0": {
+        "heat": "UNIT"
+      },
+      "1": {
+        "cool": "UNIT"
+      },
+      "2": {
+        "context": "UNIT"
+      }
+    }
+  },
+  "EvaluationStep": {
+    "STRUCT": [
+      {
+        "kind": {
+          "TYPENAME": "EvaluationKind"
+        }
+      },
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "hole_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "hole": "STR"
+      },
+      {
+        "result": {
+          "OPTION": {
+            "TYPENAME": "WireSortReference"
+          }
+        }
+      }
+    ]
+  },
+  "GroupAssociativity": {
+    "ENUM": {
+      "0": {
+        "left": "UNIT"
+      },
+      "1": {
+        "right": "UNIT"
+      },
+      "2": {
+        "non_associative": "UNIT"
+      }
+    }
+  },
+  "HookOperation": {
+    "ENUM": {
+      "0": {
+        "krypto_keccak256_raw": "UNIT"
+      },
+      "1": {
+        "krypto_sha256_raw": "UNIT"
+      },
+      "2": {
+        "krypto_ripemd160_raw": "UNIT"
+      },
+      "3": {
+        "krypto_ecdsa_recover": "UNIT"
+      },
+      "4": {
+        "krypto_bn128_valid": "UNIT"
+      },
+      "5": {
+        "krypto_bn128_add": "UNIT"
+      },
+      "6": {
+        "krypto_bn128_mul": "UNIT"
+      },
+      "7": {
+        "krypto_bn128_g2_valid": "UNIT"
+      },
+      "8": {
+        "krypto_bn128_ate": "UNIT"
+      }
+    }
+  },
+  "IntLiterals": {
+    "ENUM": {
+      "0": {
+        "signed": "UNIT"
+      },
+      "1": {
+        "unsigned": "UNIT"
+      }
+    }
+  },
+  "ItemKind": {
+    "ENUM": {
+      "0": {
+        "sort": "UNIT"
+      },
+      "1": {
+        "constructor": "UNIT"
+      },
+      "2": {
+        "grammar": "UNIT"
+      },
+      "3": {
+        "configuration": "UNIT"
+      },
+      "4": {
+        "cell": "UNIT"
+      },
+      "5": {
+        "rule": "UNIT"
+      },
+      "6": {
+        "equation": "UNIT"
+      },
+      "7": {
+        "simplification": "UNIT"
+      },
+      "8": {
+        "alias": "UNIT"
+      },
+      "9": {
+        "context_alias": "UNIT"
+      },
+      "10": {
+        "claim": "UNIT"
+      },
+      "11": {
+        "desugar": "UNIT"
+      },
+      "12": {
+        "context": "UNIT"
+      }
+    }
+  },
+  "LabelIdentity": {
+    "STRUCT": [
+      {
+        "id": "STR"
+      },
+      {
+        "emitted_name": "STR"
+      }
+    ]
+  },
+  "ListOperation": {
+    "ENUM": {
+      "0": {
+        "empty": "UNIT"
+      },
+      "1": {
+        "item": "UNIT"
+      },
+      "2": {
+        "concat": "UNIT"
+      },
+      "3": {
+        "get": "UNIT"
+      },
+      "4": {
+        "update": "UNIT"
+      },
+      "5": {
+        "size": "UNIT"
+      },
+      "6": {
+        "make": "UNIT"
+      },
+      "7": {
+        "range": "UNIT"
+      },
+      "8": {
+        "update_all": "UNIT"
+      },
+      "9": {
+        "contains": "UNIT"
+      }
+    }
+  },
+  "MapOperation": {
+    "ENUM": {
+      "0": {
+        "empty": "UNIT"
+      },
+      "1": {
+        "item": "UNIT"
+      },
+      "2": {
+        "update": "UNIT"
+      },
+      "3": {
+        "get": "UNIT"
+      },
+      "4": {
+        "in_keys": "UNIT"
+      },
+      "5": {
+        "remove": "UNIT"
+      },
+      "6": {
+        "remove_all": "UNIT"
+      },
+      "7": {
+        "keys": "UNIT"
+      },
+      "8": {
+        "keys_list": "UNIT"
+      },
+      "9": {
+        "values": "UNIT"
+      },
+      "10": {
+        "size": "UNIT"
+      },
+      "11": {
+        "update_all": "UNIT"
+      },
+      "12": {
+        "get_or_default": "UNIT"
+      }
+    }
+  },
+  "MlConnective": {
+    "ENUM": {
+      "0": {
+        "top": "UNIT"
+      },
+      "1": {
+        "bottom": "UNIT"
+      },
+      "2": {
+        "not": "UNIT"
+      },
+      "3": {
+        "and": "UNIT"
+      },
+      "4": {
+        "or": "UNIT"
+      },
+      "5": {
+        "implies": "UNIT"
+      },
+      "6": {
+        "equals": "UNIT"
+      },
+      "7": {
+        "ceil": "UNIT"
+      },
+      "8": {
+        "exists": "UNIT"
+      }
+    }
+  },
+  "ModuleRole": {
+    "ENUM": {
+      "0": {
+        "program_syntax": "UNIT"
+      },
+      "1": {
+        "semantics": "UNIT"
+      },
+      "2": {
+        "spec": "UNIT"
+      }
+    }
+  },
+  "PackageIdWire": {
+    "STRUCT": [
+      {
+        "k_namespace": "STR"
+      },
+      {
+        "cargo_name": "STR"
+      },
+      {
+        "cargo_version": "STR"
+      },
+      {
+        "cargo_source": "STR"
+      }
+    ]
+  },
+  "PackageSettings": {
+    "STRUCT": [
+      {
+        "package": {
+          "TYPENAME": "PackageIdWire"
+        }
+      },
+      {
+        "int_literals": {
+          "TYPENAME": "IntLiterals"
+        }
+      },
+      {
+        "allow_raw_k": "BOOL"
+      },
+      {
+        "profile": {
+          "TYPENAME": "RawKProfile"
+        }
+      }
+    ]
+  },
+  "ProtocolCellDeclaration": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "fields": {
+          "SEQ": "STR"
+        }
+      }
+    ]
+  },
+  "ProtocolConfigurationInitializer": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "owner_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "owner": "STR"
+      },
+      {
+        "variables": {
+          "SEQ": "STR"
+        }
+      },
+      {
+        "body_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "cells": {
+          "SEQ": "STR"
+        }
+      }
+    ]
+  },
+  "ProtocolConfigurationVariable": {
+    "STRUCT": [
+      {
+        "binding_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "binding": "STR"
+      },
+      {
+        "external_name_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "external_name": "STR"
+      },
+      {
+        "sort": "STR"
+      },
+      {
+        "main_key": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      }
+    ]
+  },
+  "ProtocolHeadRuleBinding": {
+    "STRUCT": [
+      {
+        "name": "STR"
+      },
+      {
+        "refinement": {
+          "OPTION": "STR"
+        }
+      }
+    ]
+  },
+  "ProtocolInitializerTerm": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "term": "STR"
+      }
+    ]
+  },
+  "ProtocolKSequence": {
+    "STRUCT": [
+      {
+        "payload_key": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      },
+      {
+        "dot_k_key": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      },
+      {
+        "notation": {
+          "TYPENAME": "DescriptorKSequenceNotation"
+        }
+      },
+      {
+        "items": {
+          "SEQ": {
+            "TYPENAME": "ProtocolKSequenceItem"
+          }
+        }
+      }
+    ]
+  },
+  "ProtocolKSequenceItem": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": {
+          "TYPENAME": "ProtocolInitializerTerm"
+        }
+      }
+    ]
+  },
+  "ProtocolMapItem": {
+    "STRUCT": [
+      {
+        "key_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "key": {
+          "TYPENAME": "ProtocolInitializerTerm"
+        }
+      },
+      {
+        "value_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": {
+          "TYPENAME": "ProtocolInitializerTerm"
+        }
+      }
+    ]
+  },
+  "ProtocolRuleKSequenceItem": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "STR"
+      }
+    ]
+  },
+  "ProtocolRuleMapItem": {
+    "STRUCT": [
+      {
+        "key_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "key": "STR"
+      },
+      {
+        "value_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": "STR"
+      }
+    ]
+  },
+  "ProtocolTypedBinding": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      },
+      {
+        "sort": "STR"
+      }
+    ]
+  },
+  "ProvenanceKeyWire": {
+    "STRUCT": [
+      {
+        "role": "STR"
+      },
+      {
+        "ordinal": "U32"
+      }
+    ]
+  },
+  "RangedOriginKind": {
+    "ENUM": {
+      "0": {
+        "authored": "UNIT"
+      },
+      "1": {
+        "macro_invocation": "UNIT"
+      },
+      "2": {
+        "generated_artifact": "UNIT"
+      },
+      "3": {
+        "frontend_diagnostic": "UNIT"
+      }
+    }
+  },
+  "RawKProfile": {
+    "ENUM": {
+      "0": {
+        "standard": "UNIT"
+      },
+      "1": {
+        "strict": "UNIT"
+      }
+    }
+  },
+  "RawSentenceKind": {
+    "ENUM": {
+      "0": {
+        "rule": "UNIT"
+      },
+      "1": {
+        "claim": "UNIT"
+      },
+      "2": {
+        "context": "UNIT"
+      }
+    }
+  },
+  "SentenceKind": {
+    "ENUM": {
+      "0": {
+        "transition": "UNIT"
+      },
+      "1": {
+        "equation": "UNIT"
+      },
+      "2": {
+        "simplification": "UNIT"
+      },
+      "3": {
+        "alias": "UNIT"
+      },
+      "4": {
+        "claim": "UNIT"
+      },
+      "5": {
+        "desugar": "UNIT"
+      },
+      "6": {
+        "context": "UNIT"
+      }
+    }
+  },
+  "SetOperation": {
+    "ENUM": {
+      "0": {
+        "empty": "UNIT"
+      },
+      "1": {
+        "item": "UNIT"
+      },
+      "2": {
+        "concat": "UNIT"
+      },
+      "3": {
+        "union": "UNIT"
+      },
+      "4": {
+        "contains": "UNIT"
+      },
+      "5": {
+        "difference": "UNIT"
+      },
+      "6": {
+        "intersect": "UNIT"
+      },
+      "7": {
+        "size": "UNIT"
+      },
+      "8": {
+        "is_subset": "UNIT"
+      },
+      "9": {
+        "to_list": "UNIT"
+      },
+      "10": {
+        "from_list": "UNIT"
+      }
+    }
+  },
+  "SortDescriptor": {
+    "STRUCT": [
+      {
+        "parents": {
+          "SEQ": {
+            "TYPENAME": "StableItemIdWire"
+          }
+        }
+      }
+    ]
+  },
+  "SortTestKind": {
+    "ENUM": {
+      "0": {
+        "predicate": "UNIT"
+      },
+      "1": {
+        "projection": "UNIT"
+      }
+    }
+  },
+  "SourceFileIdWire": {
+    "STRUCT": [
+      {
+        "package": {
+          "TYPENAME": "PackageIdWire"
+        }
+      },
+      {
+        "package_relative_path": "STR"
+      },
+      {
+        "content_sha256": "STR"
+      }
+    ]
+  },
+  "SourceRange": {
+    "STRUCT": [
+      {
+        "file": {
+          "TYPENAME": "SourceFileIdWire"
+        }
+      },
+      {
+        "start_byte": "U32"
+      },
+      {
+        "end_byte": "U32"
+      }
+    ]
+  },
+  "Span": {
+    "STRUCT": [
+      {
+        "id": "STR"
+      },
+      {
+        "seconds": "F64"
+      },
+      {
+        "depth": "U8"
+      }
+    ]
+  },
+  "StableItemIdWire": {
+    "STRUCT": [
+      {
+        "package": {
+          "TYPENAME": "PackageIdWire"
+        }
+      },
+      {
+        "module_path": {
+          "SEQ": "STR"
+        }
+      },
+      {
+        "item_name": "STR"
+      },
+      {
+        "item_kind": {
+          "TYPENAME": "ItemKind"
+        }
+      },
+      {
+        "disambiguator": "STR"
+      }
+    ]
+  },
+  "StrictnessKind": {
+    "ENUM": {
+      "0": {
+        "strict": "UNIT"
+      },
+      "1": {
+        "seq_strict": "UNIT"
+      }
+    }
+  },
+  "SymbolIdentity": {
+    "STRUCT": [
+      {
+        "id": "STR"
+      },
+      {
+        "emitted_name": "STR"
+      },
+      {
+        "kind": {
+          "TYPENAME": "SymbolKind"
+        }
+      }
+    ]
+  },
+  "SymbolKind": {
+    "ENUM": {
+      "0": {
+        "sort": "UNIT"
+      },
+      "1": {
+        "production": "UNIT"
+      },
+      "2": {
+        "cell": "UNIT"
+      }
+    }
+  },
+  "TimingsDocument": {
+    "STRUCT": [
+      {
+        "schema": "STR"
+      },
+      {
+        "command": "STR"
+      },
+      {
+        "status": "STR"
+      },
+      {
+        "failed_span": {
+          "OPTION": "STR"
+        }
+      },
+      {
+        "total_wall_seconds": "F64"
+      },
+      {
+        "attributed_seconds": "F64"
+      },
+      {
+        "unattributed_seconds": "F64"
+      },
+      {
+        "spans": {
+          "SEQ": {
+            "TYPENAME": "Span"
+          }
+        }
+      }
+    ]
+  },
+  "TransformationOriginKind": {
+    "ENUM": {
+      "0": {
+        "generated_descriptor": "UNIT"
+      },
+      "1": {
+        "semantic_ir": "UNIT"
+      },
+      "2": {
+        "definition_ir": "UNIT"
+      }
+    }
+  },
+  "WireApplicationReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "target": "U64"
+      },
+      {
+        "authored_path": "STR"
+      }
+    ]
+  },
+  "WireCellDeclarationReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "declaration": {
+          "TYPENAME": "WireTypeReference"
+        }
+      }
+    ]
+  },
+  "WireCellIdentity": {
+    "STRUCT": [
+      {
+        "owner": "U64"
+      },
+      {
+        "field": "U64"
+      }
+    ]
+  },
+  "WireCellReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "cell": {
+          "TYPENAME": "WireCellIdentity"
+        }
+      }
+    ]
+  },
+  "WireConfigurationReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "configuration": {
+          "TYPENAME": "WireTypeReference"
+        }
+      }
+    ]
+  },
+  "WireConstructorDescriptor": {
+    "STRUCT": [
+      {
+        "sort": {
+          "TYPENAME": "WireSortReference"
+        }
+      },
+      {
+        "fields": {
+          "SEQ": {
+            "TYPENAME": "WireConstructorFieldDescriptor"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "SEQ": {
+            "TYPENAME": "WireSortReference"
+          }
+        }
+      }
+    ]
+  },
+  "WireConstructorFieldDescriptor": {
+    "STRUCT": [
+      {
+        "name": "STR"
+      },
+      {
+        "sort": {
+          "TYPENAME": "WireTypeReference"
+        }
+      }
+    ]
+  },
+  "WireContextAliasReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "slot": "U64"
+      }
+    ]
+  },
+  "WireHeadRuleCellReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      }
+    ]
+  },
+  "WireSortDescriptor": {
+    "STRUCT": [
+      {
+        "parents": {
+          "SEQ": {
+            "TYPENAME": "WireTypeReference"
+          }
+        }
+      }
+    ]
+  },
+  "WireSortReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "target": {
+          "TYPENAME": "WireTypeReference"
+        }
+      }
+    ]
+  },
+  "WireTypeReference": {
+    "STRUCT": [
+      {
+        "slot": "U64"
+      },
+      {
+        "authored_path": "STR"
+      }
+    ]
+  }
+}

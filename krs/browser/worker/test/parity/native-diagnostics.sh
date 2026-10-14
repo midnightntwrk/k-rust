@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+# Native diagnostic baseline for the diagnostic parity gate, and native-twin controls.
+#
+#   native-diagnostics.sh [OUT]      (default SCRATCH/krs-diagnostics-native)
+#
+# Writes OUT/cases/<ID>/ for every case in cases.ts:
+#   D001, D002+D004, D007   cargo +stable check --message-format=json of the diagnostic bins (cargo.jsonl, exit)
+#   D003, D008              krs check of the diagnostic packages (stderr, exit) with the collector's stdout
+#                           teed to native-bundle.json by the collector wrapper (lower-shim/collector)
+#   D005, D006              the anchor-probe (anchor-probe.json), and the lesson-level faults the
+#                           browser injects: the native tour-minimal collector binary run over an export
+#                           whose src/lib.rs is the E1 text (stale) or absent (missing) (stderr, exit)
+#   X1, X2                  cargo +stable check of tour-minimal variants (cargo.jsonl, exit)
+#   twin-*                  native-twin controls for the rustc cases: the worker's expansion of the case
+#                           (expand-case.ts, same expander module as the staged assets) compiled by the
+#                           x86_64 twin of rustc.wasm (same fork commit) against the pack, mapped with
+#                           the worker's lookup (twin.stderr, twin-mapped.json)
+#
+# Environment: KRS_GATE_SCRATCH (the scratch root SCRATCH, default /var/tmp), REPO (default: this
+# checkout), KRS_BIN, ORACLE_DIR (regenerate-oracle.sh output at this revision: collector binary and
+# exports), ASSETS (staged worker assets: expander module, pack), FORK_BUILD (the fork build of the
+# pack's fork commit, default /var/tmp/krs-browser-fork/R-22) or TWIN (its native rustc), KRS_Z3_LIB,
+# LOAD_MAX (default 40).
+set -euo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+WORKER=$(cd "$HERE/../.." && pwd)
+REPO=${REPO:-$(git -C "$HERE" rev-parse --show-toplevel)}
+SCRATCH=${KRS_GATE_SCRATCH:-/var/tmp}
+OUT=${1:-$SCRATCH/krs-diagnostics-native}
+KRS_BIN=${KRS_BIN:-$SCRATCH/krs-parity-cli-target/debug/krs}
+ORACLE_DIR=${ORACLE_DIR:-$SCRATCH/krs-parity-oracle}
+ASSETS=${ASSETS:-$SCRATCH/krs-diagnostics-assets}
+FORK_BUILD=${FORK_BUILD:-/var/tmp/krs-browser-fork/R-22}
+TWIN=${TWIN:-$FORK_BUILD/build/x86_64-unknown-linux-gnu/stage1/bin/rustc}
+LOAD_MAX=${LOAD_MAX:-40}
+Z3=${KRS_Z3_LIB:-$(find /nix/store -maxdepth 1 -name '*-z3-4.12.5-lib' -type d | head -1)/lib}
+REAL_CARGO=$(command -v cargo)
+FIXTURES=$WORKER/test/fixtures
+CASES=$OUT/cases
+
+wait_for_load() {
+  local load
+  while load=$(cut -d' ' -f1 /proc/loadavg) && awk -v l="$load" -v m="$LOAD_MAX" 'BEGIN { exit !(l > m) }'; do
+    echo "load $load > $LOAD_MAX, waiting 60 s" >&2
+    sleep 60
+  done
+}
+low() { nice -n 19 ionice -c3 "$@"; }
+record_exit() { echo "$2" >"$1/exit"; }
+
+# The oracle directory must describe this checkout (regenerate-oracle.sh at this revision).
+grep -q "crates_tree = \"$(git -C "$REPO" rev-parse HEAD:crates)\"" "$ORACLE_DIR/oracle.toml" \
+  || { echo "$ORACLE_DIR/oracle.toml is not for this crates/ tree; run regenerate-oracle.sh first" >&2; exit 2; }
+COLLECTOR=$(find "$ORACLE_DIR/target-native/x86_64-unknown-linux-gnu/debug" -maxdepth 1 -type f -name 'krs-generated-collector-*' ! -name '*.d' -perm -u+x | head -1)
+[[ -x $COLLECTOR ]] || { echo "no native collector binary under $ORACLE_DIR" >&2; exit 2; }
+
+rm -rf "$OUT"
+mkdir -p "$CASES" "$OUT/lower-shim"
+{
+  echo "repo_head = $(git -C "$REPO" rev-parse HEAD)"
+  echo "crates_tree = $(git -C "$REPO" rev-parse HEAD:crates)"
+  echo "krs_bin_sha256 = $(sha256sum "$KRS_BIN" | cut -d' ' -f1)"
+  echo "rustc = $(rustc +stable -V)"
+  echo "twin = $("$TWIN" -V)"
+  echo "collector = $COLLECTOR"
+} >"$OUT/provenance.txt"
+
+# ---------------------------------------------------------------- diagnostic workspace
+
+# Rebuild the diagnostic workspace from its byte-identical fixtures; point the path
+# dependencies at this checkout's crates.
+for pair in Cargo.toml:workspace.Cargo.toml anchor-probe/Cargo.toml:anchor-probe.Cargo.toml anchor-probe/src/main.rs:anchor_probe.rs \
+  overlap/Cargo.toml:overlap.Cargo.toml overlap/src/lib.rs:overlap.rs rust-expansion/Cargo.toml:rust-expansion.Cargo.toml \
+  rust-expansion/src/bin/malformed_macro.rs:malformed_macro.rs rust-expansion/src/bin/unresolved_constructor.rs:unresolved_constructor.rs \
+  rust-expansion/src/bin/external_proc_macro.rs:external_proc_macro.rs wrong-result/Cargo.toml:wrong-result.Cargo.toml \
+  wrong-result/src/lib.rs:wrong_result.rs; do
+  mkdir -p "$(dirname "$OUT/workspace/${pair%%:*}")"
+  cp "$FIXTURES/diagnostics/${pair##*:}" "$OUT/workspace/${pair%%:*}"
+done
+sed -i "s|\"../../../../crates/|\"$REPO/crates/|" "$OUT/workspace/Cargo.toml"
+(cd "$OUT/workspace" && sha256sum rust-expansion/src/bin/*.rs wrong-result/src/lib.rs overlap/src/lib.rs anchor-probe/src/main.rs) >"$OUT/fixtures.sha256"
+
+cargo_check_bin() { # ID BIN
+  local dir=$CASES/$1
+  mkdir -p "$dir"
+  wait_for_load
+  set +e
+  (cd "$OUT/workspace" && low cargo +stable check --offline -j 4 --bin "$2" --message-format=json \
+    --target-dir "$OUT/target-check" >"$dir/cargo.jsonl" 2>"$dir/cargo.stderr")
+  record_exit "$dir" $?
+  set -e
+}
+cargo_check_bin D001 malformed_macro
+cargo_check_bin D002-D004 unresolved_constructor
+cargo_check_bin D007 external_proc_macro
+
+# ---------------------------------------------------------------- krs check (lowering)
+
+# The cargo shim rewrites the collector executable path in Cargo's build message to a wrapper.
+# The wrapper tees collector stdout (native bundle) or replaces it with a browser bundle.
+# Every other Cargo invocation is forwarded unchanged.
+export KRS_DIAGNOSTICS_REAL_CARGO=$REAL_CARGO
+cat >"$OUT/lower-shim/cargo" <<'EOF'
+#!/usr/bin/env bash
+if [[ ${1:-} != build || -z ${KRS_DIAGNOSTICS_WRAPPER:-} ]]; then
+  exec "$KRS_DIAGNOSTICS_REAL_CARGO" "$@"
+fi
+message_file=$(mktemp)
+"$KRS_DIAGNOSTICS_REAL_CARGO" "$@" >"$message_file"
+status=$?
+if [[ $status -ne 0 ]]; then cat "$message_file"; rm -f "$message_file"; exit "$status"; fi
+python3 - "$message_file" "$KRS_DIAGNOSTICS_WRAPPER" <<'PY' || { status=$?; rm -f "$message_file"; exit "$status"; }
+import json
+import os
+import shlex
+import sys
+
+messages, wrapper = sys.argv[1:]
+with open(messages, encoding="utf-8") as source:
+    for line in source:
+        message = json.loads(line)
+        executable = message.get("executable")
+        if (message.get("reason") == "compiler-artifact"
+                and "bin" in message.get("target", {}).get("kind", []) and executable):
+            command = shlex.quote(executable)
+            with open(wrapper, "w", encoding="utf-8") as target:
+                target.write("#!/usr/bin/env bash\n")
+                target.write('if [[ -n ${KRS_DIAGNOSTICS_BUNDLE:-} ]]; then cat "$KRS_DIAGNOSTICS_BUNDLE"; exit 0; fi\n')
+                target.write(f'if [[ -n ${{KRS_DIAGNOSTICS_TEE:-}} ]]; then {command} "$@" >"$KRS_DIAGNOSTICS_TEE"; status=$?; cat "$KRS_DIAGNOSTICS_TEE"; exit $status; fi\n')
+                target.write(f'exec {command} "$@"\n')
+            os.chmod(wrapper, 0o755)
+            message["executable"] = wrapper
+            line = json.dumps(message) + "\n"
+        sys.stdout.write(line)
+PY
+rm -f "$message_file"
+EOF
+chmod +x "$OUT/lower-shim/cargo"
+
+krs_check() { # ID PACKAGE-DIR PACKAGE
+  local dir=$CASES/$1
+  mkdir -p "$dir"
+  wait_for_load
+  set +e
+  low env PATH="$OUT/lower-shim:$PATH" KRS_DIAGNOSTICS_WRAPPER="$OUT/lower-shim/collector" \
+    KRS_DIAGNOSTICS_TEE="$dir/native-bundle.json" LD_LIBRARY_PATH="$Z3" \
+    CARGO_TARGET_DIR="$OUT/target-krs" CARGO_BUILD_JOBS=4 \
+    "$KRS_BIN" check --message-format=json --manifest-path "$OUT/workspace/$2/Cargo.toml" --package "$3" --definition main \
+    >"$dir/stdout" 2>"$dir/stderr"
+  record_exit "$dir" $?
+  set -e
+}
+krs_check D003 wrong-result diagnostic-wrong-result
+krs_check D008 overlap diagnostic-overlap
+
+# ---------------------------------------------------------------- collection faults
+
+mkdir -p "$CASES/D005" "$CASES/D006"
+wait_for_load
+(cd "$OUT/workspace" && low cargo +stable build --offline -j 4 -p diagnostic-anchor-probe --target-dir "$OUT/target-check" -q)
+for probe in stale:D005 missing:D006; do
+  set +e
+  "$OUT/target-check/debug/diagnostic-anchor-probe" "${probe%%:*}" >"$CASES/${probe##*:}/anchor-probe.json" 2>"$CASES/${probe##*:}/anchor-probe.stderr"
+  echo $? >"$CASES/${probe##*:}/anchor-probe.exit"
+  set -e
+done
+
+in_export() { # EXPORT CMD...: CMD with EXPORT mounted read-only over the checkout path
+  local export=$1; shift
+  local args=(--die-with-parent --tmpfs / --dev /dev --proc /proc)
+  local entry
+  for entry in /*; do
+    case $entry in
+      /dev | /proc) ;;
+      *) if [[ -L $entry ]]; then args+=(--symlink "$(readlink "$entry")" "$entry"); else args+=(--bind "$entry" "$entry"); fi ;;
+    esac
+  done
+  args+=(--ro-bind "$export" "$REPO" --chdir /)
+  # An external compiler-cache server would read the unmounted host checkout.
+  env -u RUSTC_WRAPPER bwrap "${args[@]}" -- "$@"
+}
+cp -a "$ORACLE_DIR/src-base" "$OUT/src-missing"
+rm "$OUT/src-missing/tests/tour-minimal/src/lib.rs"
+cmp "$ORACLE_DIR/src-e1/tests/tour-minimal/src/lib.rs" "$FIXTURES/tour-minimal-e1.rs"
+mkdir -p "$CASES/collector-control"
+for run in collector-control:src-base D005:src-e1 D006:missing; do
+  id=${run%%:*} export=${run##*:}
+  [[ $export == missing ]] && export=$OUT/src-missing || export=$ORACLE_DIR/$export
+  set +e
+  in_export "$export" "$COLLECTOR" >"$CASES/$id/collector.stdout" 2>"$CASES/$id/collector.stderr"
+  echo $? >"$CASES/$id/collector.exit"
+  set -e
+done
+cmp "$CASES/collector-control/collector.stdout" "$ORACLE_DIR/native/collector-stdout.json"
+
+# ---------------------------------------------------------------- tour-minimal rustc variants
+
+tour_variant() { # ID FIXTURE
+  local dir=$CASES/$1 pkg=$OUT/variants/$1
+  mkdir -p "$dir" "$pkg/src"
+  sed "s|path = \"../../crates/krs\"|path = \"$REPO/crates/krs\"|" "$REPO/tests/tour-minimal/Cargo.toml" >"$pkg/Cargo.toml"
+  cp "$REPO/tests/tour-minimal/Cargo.lock" "$pkg/"
+  cp "$FIXTURES/$2" "$pkg/src/lib.rs"
+  wait_for_load
+  set +e
+  (cd "$pkg" && low cargo +stable check --offline -j 4 --message-format=json --target-dir "$OUT/target-variants" \
+    >"$dir/cargo.jsonl" 2>"$dir/cargo.stderr")
+  record_exit "$dir" $?
+  set -e
+}
+tour_variant X1 rustc-unresolved-variant.rs
+tour_variant X2 rustc-rule-head-missing-constructor.rs
+
+# ---------------------------------------------------------------- native-twin controls
+
+EXPANDER=$ASSETS/modules/krs_expand_wasm.wasm
+PACK=$ASSETS/pack
+KRS_RLIB=$(find "$PACK/deps" -name 'libkrs-*.rlib' | head -1)
+(cd "$WORKER" && bun test/parity/cases.ts write-lessons "$ASSETS" "$OUT/lessons")
+twin_control() { # ID LESSON FIXTURE [FAULT]
+  local id=$1 lesson=$OUT/lessons/$2.json fixture=$FIXTURES/$3 fault=${4:-}
+  local dir=$CASES/$id/twin
+  mkdir -p "$dir"
+  (cd "$WORKER" && bun test/parity/expand-case.ts expand --expander "$EXPANDER" --lesson "$lesson" --source "$fixture" \
+    --out "$dir" ${fault:+--fault "$fault"}) >"$dir/expand.json"
+  [[ -f $dir/expanded.rs ]] || return 0
+  local crate name version dir_ flags
+  crate=$(jq -r .package.crate_name "$lesson")
+  name=$(jq -r .package.cargo_name "$lesson")
+  version=$(jq -r .package.cargo_version "$lesson")
+  dir_=$(jq -r .package.manifest_dir "$lesson")
+  mapfile -t flags < <(jq -r '.rustc_lint_flags[]' "$lesson")
+  set +e
+  low env CARGO_PKG_NAME="$name" CARGO_PKG_VERSION="$version" CARGO_MANIFEST_DIR="$dir_" CARGO_CRATE_NAME="$crate" \
+    "$TWIN" "$dir/expanded.rs" --crate-name "$crate" --crate-type rlib --edition 2024 --target wasm32-wasip1 \
+    -C panic=abort -Zproc-macro-metadata-only -L "dependency=$PACK/deps" -L "dependency=$PACK/proc-macro-meta" \
+    --extern "k=$KRS_RLIB" --error-format=json "${flags[@]}" -A non_camel_case_types -A non_snake_case \
+    --emit=metadata -o "$dir/out.rmeta" 2>"$dir/twin.stderr"
+  echo $? >"$dir/exit"
+  set -e
+  (cd "$WORKER" && bun test/parity/expand-case.ts map --expander "$EXPANDER" --dir "$dir" --source "$fixture" \
+    --stderr "$dir/twin.stderr") >"$dir/twin-mapped.json"
+}
+twin_control D002-D004 diagnostic-rust-expansion diagnostics/unresolved_constructor.rs
+twin_control D009 tour-minimal tour-minimal.rs registration-table-missing-factory
+twin_control X1 tour-minimal rustc-unresolved-variant.rs
+twin_control X2 tour-minimal rustc-rule-head-missing-constructor.rs
+
+(cd "$CASES" && find . -type f -not -name '*.rmeta' | sort | xargs sha256sum) >"$OUT/cases.sha256"
+echo "native baseline in $OUT"

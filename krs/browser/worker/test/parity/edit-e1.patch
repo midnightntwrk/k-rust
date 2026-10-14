@@ -1,0 +1,11 @@
+--- a/tests/tour-minimal/src/lib.rs
++++ b/tests/tour-minimal/src/lib.rs
+@@ -40,7 +40,7 @@
+     use Object::*;
+ 
+     // [!region orientation-rule]
+-    foo_to_bar: Foo() => Bar();
++    foo_to_baz: Foo() => Bar();
+     // [!endregion orientation-rule]
+ }
+ // [!endregion definition]

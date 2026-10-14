@@ -1,0 +1,32 @@
+schema = 1
+
+[schemas]
+krs_ir = 56
+collector = 58
+kast_json = 4
+
+[cargo]
+msrv = "1.99.0"
+
+[k]
+version = "7.1.337"
+commit = "4a46d1231473b599c699160132fd6e76a5c46406"
+kore_exec_version = "0.1.155"
+llvm_backend_version = "0.1.140"
+
+[k_rust]
+version = "0.6.0"
+commit = "017713945e88329ed4b1ac915002fcd4904afd11"
+backend_version = "0.3.0"
+kore_version = "0.4.0"
+
+[builtin_registry]
+sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "String", "List", "Set", "Endianness", "Signedness", "Float"]
+
+[solver]
+profile = "z3-inference"
+version = "4.12.5"
+
+[backend_policy]
+haskell = "exact-kore-comparison"
+llvm_claims = "omitted"

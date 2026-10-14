@@ -1,0 +1,62 @@
+---
+title: Compile tour-minimal in your browser
+description: Edit the tour-minimal definition and compile it to a DescriptorBundle entirely in the browser, with diagnostics mapped to your source.
+---
+
+import { BrowserLesson } from '../../components/BrowserLesson'
+
+# Compile tour-minimal in your browser
+
+This lesson compiles the `tour-minimal` fixture from [What KRS defines](/start/what-krs-defines) on your own machine.
+The editor starts from the checked fixture source, byte for byte.
+Change it, press **Compile**, and KRS produces the definition's DescriptorBundle: the canonical, versioned record of every sort, constructor, configuration, and rule that the collector found.
+The collector sends compact canonical JSON with one trailing newline to the worker, which hashes those exact bytes.
+For the unedited source, those bytes are identical to the native collector's stdout; `krs emit-k` writes the same bundle as a pretty `descriptor-bundle.json` artifact for inspection.
+
+<BrowserLesson />
+
+## What runs on your machine
+
+Nothing you type is uploaded.
+After the one-time compiler download, every stage below runs inside a Web Worker in this page:
+
+| Stage | What it does |
+| --- | --- |
+| Lesson policy | Rejects constructs a browser lesson cannot build, such as external procedural macros. |
+| Macro expansion | Expands the KRS attribute and function-like macros to ordinary Rust, recording a source map back to your text. |
+| rustc | Compiles the expanded crate with a WebAssembly build of the Rust compiler. |
+| Link collector | Compiles and links the descriptor collector against your crate. |
+| Collect | Runs the collector, which reads your source and writes compact canonical DescriptorBundle JSON. |
+| Bundle | Checks the bundle's protocol version and computes its SHA-256. |
+
+The compiler files are verified against their SHA-256 digests before use and are kept in the browser's cache, so later visits do not download them again.
+Compiling needs up to about 2 GB of memory; a compile after the first usually takes one to two seconds.
+
+## Things to try
+
+- Rename the rule `foo_to_bar` to `foo_to_baz`.
+  The definition still compiles, and the bundle's hash changes because the rule's stable identity changed.
+- Change the initial configuration to `k::k![Object::Missing()]`.
+  rustc reports that `Object` has no variant `Missing`, and the editor highlights the `Missing` you typed.
+- Add `#[derive(serde::Serialize)]` on the line directly above `pub enum Object`.
+  The lesson policy rejects it before rustc runs, because a browser lesson cannot run external procedural macros.
+
+## Reading diagnostics
+
+A failed compile first shows one line naming the stage and the outcome, for example `rustc: 1 error`.
+**Show diagnostics** lists each diagnostic with its code, message, and where it points:
+
+- an **exact source range** is highlighted in the editor;
+- a **macro call site** means the error is inside code a KRS macro generated, and the highlight covers the macro invocation you wrote;
+- **generated code only** means the error lies in code the lesson generates around your source, so there is nothing of yours to highlight;
+- **no source location** means the stage reports no position.
+
+**Raw record** shows the worker's full failure record.
+rustc's own rendered text in that record refers to the expanded file, not to your source.
+
+Problems with the environment, such as an unsupported browser, a failed download, a file that fails its integrity check, or the compiler running out of memory, are labeled **Environment** so that you can tell them apart from errors in the definition.
+
+## Not here yet
+
+The native tour goes one step further: the emitted K contains `rule [foo-to-bar]: <k> foo => bar ... </k>`, and executing the initial configuration rewrites `foo` to `bar`.
+Lowering, compiling to KORE, and executing with k-rust do not run in the browser yet, so this lesson stops at the DescriptorBundle and shows no execution result.

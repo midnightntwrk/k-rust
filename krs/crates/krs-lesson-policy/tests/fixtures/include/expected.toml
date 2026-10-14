@@ -1,0 +1,23 @@
+[[diagnostic]]
+code = "krs::policy::include"
+start = 23
+end = 49
+text = "include_str!(\"secret.txt\")"
+
+[[diagnostic]]
+code = "krs::policy::include"
+start = 77
+end = 111
+text = "::core::include_bytes!(\"blob.bin\")"
+
+[[diagnostic]]
+code = "krs::policy::include"
+start = 114
+end = 133
+text = "include!(\"more.rs\")"
+
+[[diagnostic]]
+code = "krs::policy::include"
+start = 144
+end = 166
+text = "include_str!(\"doc.md\")"

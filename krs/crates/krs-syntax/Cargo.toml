@@ -1,0 +1,21 @@
+[package]
+name = "krs-syntax"
+description = "Span-preserving parsers for KRS attribute and macro islands"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+krs-diagnostic = { path = "../krs-diagnostic", features = ["proc-macro2"] }
+krs-ir = { path = "../krs-ir", features = ["proc-macro2"] }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+quote = { workspace = true }
+syn = { workspace = true, features = ["extra-traits", "full", "parsing", "printing", "visit"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+expect-test = { workspace = true }
+krs-test-support = { path = "../krs-test-support" }

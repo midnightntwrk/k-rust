@@ -1,0 +1,1 @@
+error[krs::syntax::unsupported-sort-declaration] 3:10-3:20: unsupported sort declaration: the marker trait of the sort alias `Expr` is named `ExprSort`, so that `dyn ExprSort` names the sort

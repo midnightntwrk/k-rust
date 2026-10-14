@@ -1,0 +1,17 @@
+[package]
+name = "krs-imp-stable-public-move"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[dependencies]
+k = { package = "krs", path = "../../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-IMP-STABLE-NAMES"
+
+[package.metadata.krs.definitions.main]
+
+[workspace]
+resolver = "3"

@@ -1,0 +1,676 @@
+{
+ "schema": 2,
+ "case": "B29-simd-fma",
+ "revisions": {
+  "0ce51e9339ee538c16580fea01ca98dd89f6d7a0": {
+   "status": "known-gap",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (0ce51e933 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 0ce51e9339ee538c16580fea01ca98dd89f6d7a0",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:afc69b11dde8f12e4282c42501715b043f177a45a2dafe71c77f402af692466d",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "f32x4 [3.25, -0.75, 0.26, -2.75]\nf64x2 [5.551115123125783e-17, inf]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "f32x4 [3.25, -0.75, 0.26, -2.75]\nf64x2 [5.551115123125783e-17, inf]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0554",
+         "message": "`#![feature]` may not be used on the stable release channel"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0554",
+         "message": "`#![feature]` may not be used on the stable release channel"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "stable_differs": [
+    "/O0/compile[0]/errors: unexpected",
+    "/O0/compile[0]/exit: unexpected",
+    "/O0/compile[0]/outcome: expected \"ok\", got \"error\"",
+    "/O0/compile[0]/summary: unexpected",
+    "/O0/runs/default/exit_code: missing",
+    "/O0/runs/default/status: expected \"exit\", got \"not-run\"",
+    "/O0/runs/default/stderr: missing",
+    "/O0/runs/default/stdout: missing",
+    "/O2/compile[0]/errors: unexpected",
+    "/O2/compile[0]/exit: unexpected",
+    "/O2/compile[0]/outcome: expected \"ok\", got \"error\"",
+    "/O2/compile[0]/summary: unexpected",
+    "/O2/runs/default/exit_code: missing",
+    "/O2/runs/default/status: expected \"exit\", got \"not-run\"",
+    "/O2/runs/default/stderr: missing",
+    "/O2/runs/default/stdout: missing"
+   ],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvYINtNtNtCsdV8jk5tKLlX_4core9core_simd6vector4SimddKj2_ENtNtCscpU9NIicw2_3std9std_float8StdFloat7mul_addCs1TGBKOnhjjg_12b29_simd_fma`: lowering `v7 = fma.f64 v4, v5, v6`: unimplemented opcode fma"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvCs1TGBKOnhjjg_12b29_simd_fma4main`: lowering `v121 = fma.f32 v118, v119, v120`: unimplemented opcode fma"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "clif2wasm: `lowering fma.f32: unimplemented opcode fma` (and fma.f64) at opt-levels 0 and 2; std::simd mul_add and simd_relaxed_fma fail to compile",
+    "root_cause": "compiler/rustc_codegen_cranelift/src/intrinsics/simd.rs (simd_fma, simd_relaxed_fma), intrinsics/llvm.rs (llvm.fma.v*), and codegen_f16_f128.rs (fma_f16) emitted the fma instruction on wasm32; 32d4fc1 only routed the scalar f32/f64 intrinsics to fma/fmaf",
+    "fixed_in": "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826"
+   }
+  },
+  "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
+   "status": "known-gap",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (195111dff 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 195111dff60e2ce0c6d71f7302401cc4c07b0365",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "f32x4 [3.25, -0.75, 0.26, -2.75]\nf64x2 [5.551115123125783e-17, inf]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "f32x4 [3.25, -0.75, 0.26, -2.75]\nf64x2 [5.551115123125783e-17, inf]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0554",
+         "message": "`#![feature]` may not be used on the stable release channel"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0554",
+         "message": "`#![feature]` may not be used on the stable release channel"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "stable_differs": [
+    "/O0/compile[0]/errors: unexpected",
+    "/O0/compile[0]/exit: unexpected",
+    "/O0/compile[0]/outcome: expected \"ok\", got \"error\"",
+    "/O0/compile[0]/summary: unexpected",
+    "/O0/runs/default/exit_code: missing",
+    "/O0/runs/default/status: expected \"exit\", got \"not-run\"",
+    "/O0/runs/default/stderr: missing",
+    "/O0/runs/default/stdout: missing",
+    "/O2/compile[0]/errors: unexpected",
+    "/O2/compile[0]/exit: unexpected",
+    "/O2/compile[0]/outcome: expected \"ok\", got \"error\"",
+    "/O2/compile[0]/summary: unexpected",
+    "/O2/runs/default/exit_code: missing",
+    "/O2/runs/default/status: expected \"exit\", got \"not-run\"",
+    "/O2/runs/default/stderr: missing",
+    "/O2/runs/default/stdout: missing"
+   ],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": "trap",
+       "summary": false,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvYINtNtNtCsgYNL0BNe6V5_4core9core_simd6vector4SimddKj2_ENtNtCs6k3UHuDe2eE_3std9std_float8StdFloat7mul_addCsaHo9yuFzT7f_12b29_simd_fma`: lowering `v7 = fma.f64 v4, v5, v6`: unimplemented opcode fma"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": "trap",
+       "summary": false,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvCsaHo9yuFzT7f_12b29_simd_fma4main`: lowering `v121 = fma.f32 v118, v119, v120`: unimplemented opcode fma"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "clif2wasm: `lowering fma.f32: unimplemented opcode fma` (and fma.f64) at opt-levels 0 and 2; std::simd mul_add and simd_relaxed_fma fail to compile",
+    "root_cause": "compiler/rustc_codegen_cranelift/src/intrinsics/simd.rs (simd_fma, simd_relaxed_fma), intrinsics/llvm.rs (llvm.fma.v*), and codegen_f16_f128.rs (fma_f16) emitted the fma instruction on wasm32; 32d4fc1 only routed the scalar f32/f64 intrinsics to fma/fmaf",
+    "fixed_in": "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826"
+   }
+  },
+  "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (8bf3c69b3 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:f5eb664bc8972b5e1245a353515ea77dcb5d4b16a0ead8b1c823b3eb365c4335",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "f32x4 [3.25, -0.75, 0.26, -2.75]\nf64x2 [5.551115123125783e-17, inf]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "f32x4 [3.25, -0.75, 0.26, -2.75]\nf64x2 [5.551115123125783e-17, inf]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0554",
+         "message": "`#![feature]` may not be used on the stable release channel"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0554",
+         "message": "`#![feature]` may not be used on the stable release channel"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "stable_differs": [
+    "/O0/compile[0]/errors: unexpected",
+    "/O0/compile[0]/exit: unexpected",
+    "/O0/compile[0]/outcome: expected \"ok\", got \"error\"",
+    "/O0/compile[0]/summary: unexpected",
+    "/O0/runs/default/exit_code: missing",
+    "/O0/runs/default/status: expected \"exit\", got \"not-run\"",
+    "/O0/runs/default/stderr: missing",
+    "/O0/runs/default/stdout: missing",
+    "/O2/compile[0]/errors: unexpected",
+    "/O2/compile[0]/exit: unexpected",
+    "/O2/compile[0]/outcome: expected \"ok\", got \"error\"",
+    "/O2/compile[0]/summary: unexpected",
+    "/O2/runs/default/exit_code: missing",
+    "/O2/runs/default/status: expected \"exit\", got \"not-run\"",
+    "/O2/runs/default/stderr: missing",
+    "/O2/runs/default/stdout: missing"
+   ]
+  },
+  "eb8eda0400b8015a0751e48597eb0969dbbd7b36": {
+   "status": "known-gap",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (eb8eda040 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: eb8eda0400b8015a0751e48597eb0969dbbd7b36",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:d45edf965fcf1cc7a4466ee7c75330c2b7386103822506f6d949c2ea4cd5b36d",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "f32x4 [3.25, -0.75, 0.26, -2.75]\nf64x2 [5.551115123125783e-17, inf]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "f32x4 [3.25, -0.75, 0.26, -2.75]\nf64x2 [5.551115123125783e-17, inf]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0554",
+         "message": "`#![feature]` may not be used on the stable release channel"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0554",
+         "message": "`#![feature]` may not be used on the stable release channel"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "stable_differs": [
+    "/O0/compile[0]/errors: unexpected",
+    "/O0/compile[0]/exit: unexpected",
+    "/O0/compile[0]/outcome: expected \"ok\", got \"error\"",
+    "/O0/compile[0]/summary: unexpected",
+    "/O0/runs/default/exit_code: missing",
+    "/O0/runs/default/status: expected \"exit\", got \"not-run\"",
+    "/O0/runs/default/stderr: missing",
+    "/O0/runs/default/stdout: missing",
+    "/O2/compile[0]/errors: unexpected",
+    "/O2/compile[0]/exit: unexpected",
+    "/O2/compile[0]/outcome: expected \"ok\", got \"error\"",
+    "/O2/compile[0]/summary: unexpected",
+    "/O2/runs/default/exit_code: missing",
+    "/O2/runs/default/status: expected \"exit\", got \"not-run\"",
+    "/O2/runs/default/stderr: missing",
+    "/O2/runs/default/stdout: missing"
+   ],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvYINtNtNtCshQ7nagSm1hW_4core9core_simd6vector4SimddKj2_ENtNtCs4Jqb3idDeic_3std9std_float8StdFloat7mul_addCs65kBqyv5OzC_12b29_simd_fma`: lowering `v7 = fma.f64 v4, v5, v6`: unimplemented opcode fma"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b29_simd_fma",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvCs65kBqyv5OzC_12b29_simd_fma4main`: lowering `v121 = fma.f32 v118, v119, v120`: unimplemented opcode fma"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "clif2wasm: `lowering fma.f32: unimplemented opcode fma` (and fma.f64) at opt-levels 0 and 2; std::simd mul_add and simd_relaxed_fma fail to compile",
+    "root_cause": "compiler/rustc_codegen_cranelift/src/intrinsics/simd.rs (simd_fma, simd_relaxed_fma), intrinsics/llvm.rs (llvm.fma.v*), and codegen_f16_f128.rs (fma_f16) emitted the fma instruction on wasm32; 32d4fc1 only routed the scalar f32/f64 intrinsics to fma/fmaf",
+    "fixed_in": "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826"
+   }
+  }
+ }
+}

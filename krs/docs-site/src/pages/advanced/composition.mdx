@@ -1,0 +1,99 @@
+---
+title: Compose definitions
+description: Select named facets across Cargo packages, cfg values, stable identities, and a backend.
+---
+
+# Compose definitions
+
+{/* tour-concepts: facets-composition facet-cfg-selection stable-identity backend-selection */}
+
+A larger semantics can be split into ordinary Cargo packages and assembled explicitly at collection time.
+Composition chooses definition facets; it does not merge source trees or make imports implicit.
+
+## Declare facets in Cargo metadata
+
+The dependency package exposes a facet named `base`:
+
+```toml [tests/tour-composition/packages/base-semantics/Cargo.toml]
+// [!include ~/snippets/composition-base.Cargo.toml]
+```
+
+The root package exposes `main` and renames two dependencies:
+
+```toml [tests/tour-composition/packages/root-semantics/Cargo.toml]
+// [!include ~/snippets/composition-root.Cargo.toml]
+```
+
+A facet table needs no keys: every package emits a program-syntax module `<NS>-SYNTAX` and a semantics module `<NS>`, and each production chooses its module through its Rust visibility and `internal` flag.
+When a dependency's rules need the root's configuration, the root also emits `<NS>-CONFIGURATION`, so the dependency can import the configuration without importing the root ([program syntax and the module pair](/reference/language#program-syntax-and-the-module-pair)).
+The package-level `k-namespace` keeps emitted K names explicit.
+The package-level `int-literals` key selects the module that supplies integer literals to the package's program syntax: `"signed"` (the default, `INT-SYNTAX`) or `"unsigned"` (`UNSIGNED-INT-SYNTAX`).
+An unsigned package cannot compose a signed dependency whose program syntax uses integers, because K imports are unions and the signed literals would leak into programs.
+The package-level `allow-raw-k` key (default `false`) admits the package's quoted hooks and `k::raw_k!` sentences, KRS's escapes from its no-strings rule, and the `profile` key, `"standard"` (the default) or `"strict"`, decides whether they warn or fail; `krs --profile strict` overrides every package, so CI can refuse raw K that a package allows ([raw K escapes](/reference/language#raw-k-escapes)).
+Each package's keys govern only its own sentences.
+
+Cargo package names, Rust crate names, and local dependency aliases are different identities here.
+The root imports package `base-semantics` as `semantic-base`, which Rust exposes as `semantic_base` in paths:
+
+```rust [tests/tour-composition/packages/root-semantics/src/lib.rs]
+// [!include ~/snippets/composition-rule.rs]
+```
+
+That cross-package rule retains the base declaration's identity.
+KRS does not resolve a constructor by comparing the text `Same`; ordinary Rust path resolution identifies it before collection.
+
+Rust privacy is K privacy.
+A production whose Rust item is not `pub`, including `pub(crate)` and `pub(in ..)`, is emitted with K's `private` attribute, so only its own package's rules can use it.
+A dependent that names it is rejected by rustc (E0603), and K's private syntax is invisible to every importing module, programs and proof modules included.
+KRS keeps K imports public on purpose: imports follow references, and a claim may name a dependency's `pub` production.
+A production that rules everywhere need but programs must not contain is `pub` and `internal`.
+
+## Select the composition
+
+The command shape is:
+
+```console
+krs check \
+  --manifest-path tests/tour-composition/Cargo.toml \
+  --package root-semantics \
+  --definition main \
+  --dependency base-semantics:base \
+  --cfg tour_mode=extended
+```
+
+`--dependency PACKAGE:FACET` is repeatable and always names both halves.
+`--cfg KEY` and `--cfg KEY=VALUE` are repeatable KRS compiler inputs; they are not Cargo features.
+In the teaching fixture, `tour_mode=extended` includes the `extended-root` constructor; the release gate emits the definition both with and without that value and checks that only the configured artifact contains the production.
+An ambiguous root package name can be replaced by the exact `--package-id` selected from Cargo metadata.
+Dependency selectors currently accept package names only, so an ambiguous dependency package cannot be disambiguated with `--package-id`.
+
+Missing packages, missing facets, and ambiguous package selections fail during planning before the collector is built.
+Selection order has no semantic meaning: the planner canonicalizes the same set to the same composition.
+
+## Stable public symbols
+
+Default declaration identities follow their Rust-resolved owning items and therefore change when public declarations move.
+`#[k::symbol("public::Name")]`, immediately before the KRS declaration attribute, can pin a public symbol while preserving the new source provenance.
+It delegates only to a sort or standalone constructor declaration; it is not a general renaming attribute.
+
+The composition fixture uses explicit identities where both packages deliberately reuse the Rust names `Common` and `Same`:
+
+```rust [tests/tour-composition/packages/root-semantics/src/lib.rs]
+// [!include ~/snippets/composition-symbol.rs]
+```
+
+The final path component becomes the readable emitted K name, while the complete `tour::…` path remains the stable logical identity.
+
+Aliases, same-named crates, and renamed facade dependencies are supported because the collector uses exact package and Rust type identities rather than spelling heuristics.
+Duplicate stable public identities are an authoring error.
+
+## Choose a backend
+
+`--backend llvm` is the default; `--backend haskell` selects the other native target dialect.
+Only the Haskell target keeps claims; an LLVM build omits them because that backend executes but does not prove.
+Backend choice is an explicit build input and may change capability diagnostics, but it must not change authored symbol identity.
+`emit-k` and `build` require `--output`; backend failures are distinct from Rust expansion, KRS semantic analysis, and K frontend diagnostics.
+
+Run `python3 tests/tour-composition/verify.py` from the repository root to check both packages, canonical formatting, deterministic expansion, dual cfg-value emission, the dependency import, stable emitted names, and the cross-package rule.
+
+Next, the [daily workflow](/reference/workflow) follows those stages and artifacts from the edit loop through a native build.

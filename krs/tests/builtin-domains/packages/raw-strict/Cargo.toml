@@ -1,0 +1,23 @@
+[package]
+name = "krs-builtin-raw-strict"
+description = "Raw K under the strict profile"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_builtin_raw_strict"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-RAW-STRICT"
+allow-raw-k = true
+profile = "strict"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

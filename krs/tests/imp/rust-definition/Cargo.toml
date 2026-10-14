@@ -1,0 +1,40 @@
+[package]
+name = "krs-imp-definition"
+description = "Complete ordinary Rust-authored IMP definition for the complete IMP gate"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[lib]
+name = "krs_imp_definition"
+path = "src/lib.rs"
+
+[dependencies]
+k = { package = "krs", path = "../../../crates/krs" }
+
+[dev-dependencies]
+krs-collector = { path = "../../../crates/krs-collector" }
+krs-compiler = { path = "../../../crates/krs-compiler" }
+krs-ir = { path = "../../../crates/krs-ir" }
+quote = "1.0.47"
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+syn = { version = "2.0.119", features = ["full"] }
+
+[package.metadata.krs]
+k-namespace = "KRS-IMP"
+# Upstream EXPR-SYNTAX imports UNSIGNED-INT-SYNTAX: `-1` in a program is `Neg(1)`.
+int-literals = "unsigned"
+
+[package.metadata.krs.definitions.main]
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

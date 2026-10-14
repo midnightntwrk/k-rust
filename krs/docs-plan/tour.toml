@@ -1,0 +1,894 @@
+schema = 1
+title = "KRS language tour"
+audience = "Semantics authors who know Rust but need not know K"
+
+[status]
+current = "Implemented and evidenced by production tests or a canonical semantics port"
+qualified = "Implemented for a bounded shape; the page must state the boundary"
+reference = "Implemented explicit/reference surface; not the preferred first spelling"
+unqualified = "Accepted by some parser or API surface but lacks a positive end-to-end specimen"
+open = "A current design question; do not resolve silently"
+unsupported = "Not a current public language feature"
+
+[coverage]
+spine = "Required in the linear narrative"
+advanced = "Required after the IMP spine"
+reference = "Required in the feature index or API reference"
+limitation = "Required in the limitations and capability material"
+
+[surface_review]
+cli_commands = ["fmt", "check", "expand", "emit-k", "build", "parse", "run", "search", "prove"]
+metadata_keys = ["k-namespace", "int-literals", "allow-raw-k", "profile"]
+macro_exports = ["alias", "anonymous", "associativity", "bracket", "bytes", "cell", "cells", "claim", "configuration", "constructor", "constructors", "context", "context_alias", "desugar", "ensures", "equation", "exists", "fragment", "fresh", "function", "id", "init", "is", "k", "layout", "lexeme", "lexical", "map", "matches", "or_bool", "precedence", "priority", "project", "raw_k", "requires", "rewrite", "rule", "rules", "seqstrict", "simplification", "sort", "sorts", "spec_module", "strict", "subsort", "symbol", "syntax_list", "term", "token"]
+builtin_operations = ["abs", "add", "and", "and_then", "big_endian", "bit_and", "bit_not", "bit_or", "bit_range", "bit_xor", "ceil", "chr", "concat", "contains", "difference", "div", "div_euclid", "divides", "empty", "eq", "exponent_bits", "find", "floor", "from_bool", "from_int", "from_int_no_len", "from_list", "from_string", "ge", "get", "get_or_default", "gt", "implies", "in_keys", "intersect", "is_infinite", "is_nan", "is_subset", "ite", "item", "keys", "keys_list", "le", "length", "little_endian", "log", "log2", "lt", "make", "max", "max_value", "min", "mul", "ne", "neg", "not", "or", "or_else", "ord", "pad_left", "pad_right", "pow", "pow_mod", "precision", "putc", "range", "rem", "rem_euclid", "remove", "remove_all", "replace_at", "reverse", "root", "round", "shift_left", "shift_right", "sign", "sign_extend_bit_range", "signed", "size", "sqrt", "sub", "substr", "to_bool", "to_int", "to_list", "to_string", "trunc", "union", "unsigned", "update", "update_all", "values", "write", "xor"]
+concept_status_sha256 = "d5c8f2e29aa3c5a3ae4480fe1eb1548b9024a94f8687d86f6c664f9f6a075b78"
+
+# Browser lessons: pages that compile a checked fixture in the reader's browser.
+# `seed` is the docs-site mirror the editor starts from; sync-snippets.mjs keeps
+# it byte-identical to `fixture`. A published lesson is in the primary sidebar;
+# a deferred one must stay out of it.
+[[lesson]]
+id = "tour-minimal-browser"
+route = "/lessons/tour-minimal"
+status = "published"
+fixture = "tests/tour-minimal/src/lib.rs"
+seed = "docs-site/src/snippets/tour-minimal.rs"
+
+[[synthesis]]
+id = "five-minute-theory"
+route = "/start/five-minute-theory"
+status = "published"
+requires = [
+    "host-object-split",
+    "symbolic-terms",
+    "declarative-relational-rules",
+    "open-sorts",
+    "subsort-membership",
+    "framework-sorts",
+    "core-builtins",
+    "constructor-families",
+    "syntax-templates",
+    "precedence-associativity",
+    "fixed-configurations",
+    "configuration-init",
+    "single-item-sequence",
+    "rule-tables",
+]
+note = "Publish only after every required concept has a canonical destination and the page's hover/focus glosses and links are generated from this ledger rather than maintained as a second glossary."
+
+[[chapter]]
+id = "orientation"
+owner = "KRS language and documentation maintainers"
+order = 0
+route = "/start/what-krs-defines"
+title = "What KRS defines"
+outcome = "Distinguish host Rust, symbolic object-language terms, and declarative semantic sentences."
+specimen = "tests/tour-minimal/src/lib.rs and its emitted foo-to-bar projection"
+
+[[chapter]]
+id = "project"
+owner = "KRS language and documentation maintainers"
+order = 1
+route = "/start/definition-package"
+title = "A definition is a Cargo package"
+outcome = "Create a definition facet, run the formatter and checker, and understand modules and imports."
+specimen = "new tour fixture"
+
+[[chapter]]
+id = "imp-sorts"
+owner = "KRS language and documentation maintainers"
+order = 2
+route = "/imp/sorts-and-values"
+title = "IMP expressions: sorts and values"
+outcome = "Declare open sorts, membership, framework result membership, and builtin values."
+specimen = "tests/imp/rust-definition/src/imp.rs"
+
+[[chapter]]
+id = "imp-grammar"
+owner = "KRS language and documentation maintainers"
+order = 3
+route = "/imp/concrete-grammar"
+title = "IMP expressions: concrete grammar"
+outcome = "Declare constructor families, syntax templates, grouping brackets, formatting, precedence, and associativity."
+specimen = "tests/imp/rust-definition/src/imp.rs"
+
+[[chapter]]
+id = "imp-evaluation"
+owner = "KRS language and documentation maintainers"
+order = 4
+route = "/imp/evaluation"
+title = "IMP expressions: evaluation"
+outcome = "Define strict and sequential evaluation, symbolic builtin applications, and expression rules."
+specimen = "tests/imp/rust-definition/src/imp.rs"
+
+[[chapter]]
+id = "imp-state"
+owner = "KRS language and documentation maintainers"
+order = 5
+route = "/imp/configuration-and-state"
+title = "IMP state: configurations and initialization"
+outcome = "Add statement syntax, a computation cell, an environment cell, and a declarative initializer."
+specimen = "tests/imp/rust-definition/src/imp.rs"
+
+[[chapter]]
+id = "imp-machine-rules"
+owner = "KRS language and documentation maintainers"
+order = 6
+route = "/imp/machine-rules"
+title = "IMP state: sequences, maps, and framing"
+outcome = "Read and write multi-cell rules using sequence tails, map patterns, persistent updates, and implicit frames."
+specimen = "tests/imp/rust-definition/src/imp.rs"
+
+[[chapter]]
+id = "imp-control"
+owner = "KRS language and documentation maintainers"
+order = 7
+route = "/imp/control-flow"
+title = "IMP control flow"
+outcome = "Complete IMP with conditionals, loops, blocks, splice, erase, and deliberately non-strict constructs."
+specimen = "tests/imp/rust-definition/src/imp.rs"
+
+[[chapter]]
+id = "applicability"
+owner = "KRS language and documentation maintainers"
+order = 8
+route = "/semantics/applicability-and-failure"
+title = "Applicability, fallback, and failure"
+outcome = "Distinguish guards, overlap, fallback, stuck states, traps, authoring errors, and backend hook errors."
+specimen = "the IMP static adjunct and current positive fixtures"
+
+[[chapter]]
+id = "lowering"
+owner = "KRS language and documentation maintainers"
+order = 9
+route = "/semantics/lowering"
+title = "Inspect what KRS builds"
+outcome = "Follow one rule through readable Rust, expanded Rust, Definition IR, emitted K, and backend artifacts."
+specimen = "docs-plan/authoring-spec/imp.rs and tests/imp/goldens/imp.expanded.rs"
+
+[[chapter]]
+id = "static-semantics"
+owner = "KRS language and documentation maintainers"
+order = 10
+route = "/semantics/static-semantics"
+title = "Functions and static semantics"
+outcome = "Define total and partial functions, equations, equation priority, aliases, contexts, and simplifiers."
+specimen = "tests/imp/rust-definition/src/static_adjunct.rs and verification.rs"
+
+[[chapter]]
+id = "verification"
+owner = "KRS language and documentation maintainers"
+order = 11
+route = "/verification/reachability-claims"
+title = "All-path reachability claims"
+outcome = "State all-path claims with conditions, existential results, postconditions, anonymous values, and circularity."
+specimen = "tests/imp/rust-definition/src/claims.rs"
+
+[[chapter]]
+id = "scale"
+owner = "KRS language and documentation maintainers"
+order = 12
+route = "/advanced/language-scale"
+title = "Language-scale state and builtins"
+outcome = "Use nested and repeated cells, fragments, Bytes, List, Set, and the bounded hook catalog."
+specimen = "semantics/kwasm, semantics/kmir, and semantics/kevm"
+
+[[chapter]]
+id = "composition"
+owner = "KRS language and documentation maintainers"
+order = 13
+route = "/advanced/composition"
+title = "Compose definitions"
+outcome = "Use multiple packages, named facets, dependency facets, cfg values, stable symbols, and backend selection."
+specimen = "new multi-package tour fixture"
+
+[[chapter]]
+id = "workflow"
+owner = "KRS language and documentation maintainers"
+order = 14
+route = "/reference/workflow"
+title = "Daily workflow"
+outcome = "Use fmt, check, expand, emit-k, build, source maps, diagnostics, and rust-analyzer within their supported boundaries."
+specimen = "crates/krs-cli tests and IMP LSP probes"
+
+[[chapter]]
+id = "reference"
+owner = "KRS language and documentation maintainers"
+order = 15
+route = "/reference/language"
+title = "Feature and builtin reference"
+outcome = "Find every current macro, attribute, builtin sort, builtin operation, and explicit surface form."
+specimen = "crates/krs-macros/src/lib.rs and crates/krs/src/lib.rs"
+
+[[chapter]]
+id = "limits"
+owner = "KRS language and documentation maintainers"
+order = 16
+route = "/reference/boundaries"
+title = "Current boundaries and open questions"
+outcome = "Recognize intentional restrictions, qualified subsets, open decisions, and syntax that does not exist yet."
+specimen = "docs-plan/authoring-spec/open-questions.md and negative tests"
+
+[[concept]]
+id = "host-object-split"
+title = "Host Rust versus object language"
+status = "current"
+coverage = "spine"
+chapter = "orientation"
+prerequisites = []
+evidence = ["crates/krs/src/lib.rs", "docs-plan/authoring-spec/decisions.md"]
+note = "KRS declarations and symbolic terms are not host computations."
+gloss = "Rust organizes and checks the definition; KRS declarations describe the object language rather than executing it."
+
+[[concept]]
+id = "declarative-relational-rules"
+title = "Declarative, unordered, relational rules"
+status = "current"
+coverage = "spine"
+chapter = "orientation"
+prerequisites = ["host-object-split", "symbolic-terms"]
+evidence = ["docs-plan/authoring-spec/decisions.md", "tests/imp/rust-definition/src/imp.rs"]
+note = "Source order is not a tie-breaker."
+gloss = "A rule states a possible symbolic rewrite. Rules are unordered, so moving one does not give it priority."
+
+[[concept]]
+id = "two-surfaces"
+title = "Readable and explicit surfaces"
+status = "current"
+coverage = "spine"
+chapter = "lowering"
+prerequisites = ["host-object-split"]
+evidence = [
+    "docs-plan/authoring-spec/README.md",
+    "tests/imp/expanded-definition",
+    "tests/imp/goldens/imp.expanded.rs",
+    "tests/imp/rust-definition/src/parity.rs",
+]
+note = "Layer 1 is idiomatic authoring; layer 2 is deterministic audit and escape-hatch output."
+
+[[concept]]
+id = "cargo-package"
+title = "Cargo package and definition metadata"
+status = "current"
+coverage = "spine"
+chapter = "project"
+prerequisites = ["host-object-split"]
+evidence = ["tests/imp/rust-definition/Cargo.toml", "crates/krs-cli/src/plan.rs"]
+
+[[concept]]
+id = "rust-names"
+title = "Modules, visibility, imports, aliases, and paths"
+status = "current"
+coverage = "spine"
+chapter = "project"
+prerequisites = ["cargo-package"]
+evidence = ["crates/krs-macros/tests/fixtures/positive/src/main.rs", "crates/krs/src/lib.rs"]
+
+[[concept]]
+id = "facets-composition"
+title = "Named facets and dependency-facet composition"
+status = "current"
+coverage = "advanced"
+chapter = "composition"
+prerequisites = ["cargo-package", "rust-names"]
+evidence = [
+    "crates/krs-cli/src/main.rs",
+    "crates/krs-cli/src/plan.rs",
+    "tests/collector-planning",
+    "tests/tour-composition",
+]
+note = "A dedicated positive multi-package teaching fixture is required."
+
+[[concept]]
+id = "facet-cfg-selection"
+title = "Cargo roots, syntax roots, cfg values, and CLI facet selection"
+status = "current"
+coverage = "advanced"
+chapter = "composition"
+prerequisites = ["facets-composition"]
+evidence = [
+    "tests/imp/rust-definition/Cargo.toml",
+    "crates/krs-cli/src/main.rs",
+    "crates/krs-cli/src/plan.rs",
+    "tests/collector-planning",
+    "tests/tour-composition",
+]
+
+[[concept]]
+id = "stable-identity"
+title = "Stable item identity and pinned public symbols"
+status = "current"
+coverage = "advanced"
+chapter = "composition"
+prerequisites = ["rust-names"]
+evidence = ["crates/krs-macros/src/lib.rs", "tests/imp/compatibility/stable-names"]
+note = "Stable identities are general; the public symbol attribute delegates only to a sort or standalone constructor declaration."
+
+[[concept]]
+id = "symbolic-terms"
+title = "Symbolic terms, applications, and literals"
+status = "current"
+coverage = "spine"
+chapter = "orientation"
+prerequisites = ["host-object-split"]
+evidence = ["crates/krs-syntax/src/term.rs", "crates/krs-syntax/tests/terms.rs"]
+gloss = "Constructors and literals denote object-language terms; Rust-shaped calls build symbolic applications."
+
+[[concept]]
+id = "open-sorts"
+title = "Open sorts and generated term aliases"
+status = "current"
+coverage = "spine"
+chapter = "imp-sorts"
+prerequisites = ["symbolic-terms"]
+evidence = ["docs-plan/authoring-spec/decisions.md", "tests/imp/rust-definition/src/imp.rs"]
+gloss = "A sort is an extensible symbolic category. Other modules or packages may add members and constructors later."
+
+[[concept]]
+id = "subsort-membership"
+title = "Subsort membership and transitive diamonds"
+status = "current"
+coverage = "spine"
+chapter = "imp-sorts"
+prerequisites = ["open-sorts"]
+evidence = ["crates/krs-macros/tests/fixtures/positive/src/main.rs"]
+gloss = "A subsort edge says every term in one sort also belongs to another; KRS computes transitive membership."
+
+[[concept]]
+id = "framework-sorts"
+title = "KItem, KResult, and evaluated values"
+status = "current"
+coverage = "spine"
+chapter = "imp-sorts"
+prerequisites = ["open-sorts"]
+evidence = ["docs-plan/authoring-spec/decisions.md", "tests/imp/rust-definition/src/imp.rs"]
+gloss = "KItem contains computation items; KResult marks terms that strict evaluation may treat as finished."
+
+[[concept]]
+id = "core-builtins"
+title = "KSequence, Int, Bool, Map, and Id"
+status = "current"
+coverage = "spine"
+chapter = "imp-sorts"
+prerequisites = ["symbolic-terms"]
+evidence = ["Krs.lock", "crates/krs/src/lib.rs"]
+note = "Builtin calls construct symbolic terms; they do not execute Rust functions."
+gloss = "KSequence is symbolic computation order; Int, Bool, Map, and Id are builtin object-language sorts, not Rust containers."
+
+[[concept]]
+id = "extended-builtins"
+title = "Bytes, List, Set, and the complete operation catalog"
+status = "current"
+coverage = "advanced"
+chapter = "scale"
+prerequisites = ["core-builtins"]
+evidence = ["Krs.lock", "crates/krs/src/lib.rs", "semantics/kevm/src/lib.rs", "semantics/kmir/src/lib.rs"]
+
+[[concept]]
+id = "constructor-families"
+title = "Closed constructor families on open sorts"
+status = "current"
+coverage = "spine"
+chapter = "imp-grammar"
+prerequisites = ["open-sorts"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-macros/src/lib.rs"]
+gloss = "A constructor enum is a closed family of term shapes attached to an open result sort."
+
+[[concept]]
+id = "standalone-constructors"
+title = "Standalone constructor structs"
+status = "current"
+coverage = "reference"
+chapter = "reference"
+prerequisites = ["constructor-families"]
+evidence = ["crates/krs-macros/src/lib.rs", "crates/krs-syntax/src/item.rs"]
+
+[[concept]]
+id = "syntax-templates"
+title = "Concrete syntax templates and named placeholders"
+status = "current"
+coverage = "spine"
+chapter = "imp-grammar"
+prerequisites = ["constructor-families"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/grammar.rs"]
+gloss = "A syntax template maps constructor fields to concrete program text using checked named placeholders."
+
+[[concept]]
+id = "format-avoid-docs"
+title = "Formatting, avoid, and production documentation"
+status = "current"
+coverage = "spine"
+chapter = "imp-grammar"
+prerequisites = ["syntax-templates"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
+
+[[concept]]
+id = "tokens"
+title = "Token sorts, stacked regex and terminal tokens, and lexemes"
+status = "current"
+coverage = "advanced"
+chapter = "scale"
+prerequisites = ["syntax-templates"]
+evidence = ["crates/krs-macros/src/lib.rs", "tests/grammar-lexing/packages/tokens/src/lib.rs", "tests/grammar-lexing/packages/token-id/src/lib.rs", "tests/grammar-lexing/verify.py"]
+note = "IMP imports Id, so the tour needs a separate authored-token example."
+
+[[concept]]
+id = "brackets"
+title = "Grouping brackets without AST nodes"
+status = "current"
+coverage = "spine"
+chapter = "imp-grammar"
+prerequisites = ["open-sorts", "syntax-templates"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
+
+[[concept]]
+id = "precedence-associativity"
+title = "Precedence groups and associativity"
+status = "current"
+coverage = "spine"
+chapter = "imp-grammar"
+prerequisites = ["syntax-templates"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-macros/src/lib.rs"]
+note = "Bare groups impose no associativity constraint; non_assoc is explicit."
+gloss = "An explicit tier chain decides binding strength; left, right, and non_assoc decide same-tier nesting."
+
+[[concept]]
+id = "cross-family-grammar"
+title = "Cross-family precedence and associativity"
+status = "reference"
+coverage = "reference"
+chapter = "reference"
+prerequisites = ["precedence-associativity"]
+evidence = ["crates/krs-macros/src/lib.rs", "crates/krs-macros/tests/fixtures/positive/src/main.rs"]
+
+[[concept]]
+id = "strictness"
+title = "Strict and sequential evaluation"
+status = "current"
+coverage = "spine"
+chapter = "imp-evaluation"
+prerequisites = ["framework-sorts", "constructor-families"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
+
+[[concept]]
+id = "context-aliases"
+title = "Named evaluation contexts"
+status = "current"
+coverage = "advanced"
+chapter = "static-semantics"
+prerequisites = ["strictness", "fixed-configurations", "machine-rules"]
+evidence = ["tests/imp/rust-definition/src/static_adjunct.rs"]
+
+[[concept]]
+id = "rule-tables"
+title = "Readable term-rule tables"
+status = "current"
+coverage = "spine"
+chapter = "imp-evaluation"
+prerequisites = ["constructor-families", "symbolic-terms"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/src/rule/block.rs"]
+gloss = "A readable rule table turns each named pattern-to-result row into an independent semantic sentence."
+
+[[concept]]
+id = "rule-patterns"
+title = "Patterns, binders, wildcards, nonlinear equality, and narrowing"
+status = "current"
+coverage = "spine"
+chapter = "imp-evaluation"
+prerequisites = ["rule-tables", "subsort-membership"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/rule_blocks.rs"]
+
+[[concept]]
+id = "explicit-rule-functions"
+title = "Explicit rule-function surface"
+status = "reference"
+coverage = "reference"
+chapter = "reference"
+prerequisites = ["rule-tables"]
+evidence = ["crates/krs-macros/src/lib.rs", "tests/imp/goldens/imp.expanded.rs"]
+
+[[concept]]
+id = "k-sequences"
+title = "Computation sequences, tails, splice, and erase"
+status = "current"
+coverage = "spine"
+chapter = "imp-machine-rules"
+prerequisites = ["single-item-sequence", "rule-tables"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/fixed_state.rs"]
+
+[[concept]]
+id = "fixed-configurations"
+title = "Fixed configurations and leaf cells"
+status = "current"
+coverage = "spine"
+chapter = "imp-state"
+prerequisites = ["open-sorts", "core-builtins"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/configurations.rs"]
+gloss = "A configuration declares the fixed symbolic machine-state shape and its leaf cells."
+
+[[concept]]
+id = "configuration-root-and-leaf-metadata"
+title = "Configuration root and leaf-cell name and color"
+status = "current"
+coverage = "advanced"
+chapter = "imp-state"
+prerequisites = ["fixed-configurations"]
+evidence = ["crates/krs-syntax/tests/configurations.rs", "crates/krs-macros/tests/fixtures/positive/src/main.rs"]
+note = "A named root overrides the generated top-cell name; name and color customize leaf cells."
+
+[[concept]]
+id = "configuration-init"
+title = "Declarative initializers and configuration variables"
+status = "current"
+coverage = "spine"
+chapter = "imp-state"
+prerequisites = ["fixed-configurations"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/initializers.rs"]
+gloss = "An initializer declaratively maps configuration inputs to initial symbolic cell contents; collection does not run it."
+
+[[concept]]
+id = "single-item-sequence"
+title = "Single-item computation sequence initialization"
+status = "current"
+coverage = "spine"
+chapter = "imp-state"
+prerequisites = ["configuration-init"]
+evidence = ["tests/imp/rust-definition/src/imp.rs"]
+note = "Teach k![pgm] with the initializer before sequence tails, splice, and erase."
+gloss = "k![item] places one symbolic computation at the head of the initial K sequence."
+
+[[concept]]
+id = "machine-rules"
+title = "Simultaneous multi-cell rules and framing"
+status = "current"
+coverage = "spine"
+chapter = "imp-machine-rules"
+prerequisites = ["fixed-configurations", "rule-patterns", "k-sequences"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
+
+[[concept]]
+id = "map-patterns"
+title = "Map patterns, frames, lookup, and persistent updates"
+status = "current"
+coverage = "spine"
+chapter = "imp-machine-rules"
+prerequisites = ["machine-rules", "core-builtins"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/fixed_state.rs"]
+
+[[concept]]
+id = "nested-cells"
+title = "Nominal nested cell groups and fragments"
+status = "current"
+coverage = "advanced"
+chapter = "scale"
+prerequisites = ["fixed-configurations", "machine-rules"]
+evidence = ["crates/krs-macros/tests/fixtures/positive/src/main.rs", "semantics/kevm/src/lib.rs", "tests/configuration-cells/packages/groups/src/lib.rs"]
+
+[[concept]]
+id = "nested-cell-field-metadata"
+title = "Nested-cell field metadata"
+status = "current"
+coverage = "advanced"
+chapter = "scale"
+prerequisites = ["nested-cells"]
+evidence = [
+    "crates/krs-syntax/src/attribute/state.rs",
+    "crates/krs-macros/tests/fixtures/positive/src/main.rs",
+    "semantics/kevm/src/lib.rs",
+]
+note = "The nested marker declares a nominal child-cell group; multiplicity and cell_type belong to repeated cells."
+
+[[concept]]
+id = "repeated-cells"
+title = "Optional cells and cell collections"
+status = "qualified"
+coverage = "advanced"
+chapter = "scale"
+prerequisites = ["nested-cells"]
+evidence = [
+    "crates/krs-syntax/src/attribute/state.rs",
+    "semantics/kevm/src/lib.rs",
+    "tests/configuration-cells/packages/optional/src/lib.rs",
+    "tests/configuration-cells/packages/threads/src/lib.rs",
+    "tests/configuration-cells/packages/objects/src/lib.rs",
+    "tests/configuration-cells/packages/queue/src/lib.rs",
+]
+note = "Optional cells are Option fields with multiplicity ?, and multiplicity * declares a Set, Map, or List collection that is its parent's only child; all agree natively and in Java K on the configuration-cells fixtures, and only Map has language-scale evidence. A List rule changes either its front or its back."
+
+[[concept]]
+id = "requires"
+title = "Object-language Boolean applicability conditions"
+status = "current"
+coverage = "spine"
+chapter = "applicability"
+prerequisites = ["rule-tables", "core-builtins"]
+evidence = ["tests/imp/rust-definition/src/static_adjunct.rs", "crates/krs-syntax/tests/rules.rs"]
+
+[[concept]]
+id = "overlap"
+title = "Static overlap checking"
+status = "current"
+coverage = "spine"
+chapter = "applicability"
+prerequisites = ["rule-patterns", "requires"]
+evidence = ["crates/krs-compiler/src/overlap.rs", "docs-plan/authoring-spec/decisions.md"]
+
+[[concept]]
+id = "owise"
+title = "Explicit fallback with owise"
+status = "current"
+coverage = "advanced"
+chapter = "applicability"
+prerequisites = ["declarative-relational-rules", "requires"]
+evidence = ["crates/krs-macros/tests/fixtures/positive/src/main.rs"]
+note = "owise is priority 200; transitions and equations also take priority = N (0..=254). Never imply that source order is a priority."
+
+[[concept]]
+id = "outcomes"
+title = "Normal forms, stuck states, and traps"
+status = "current"
+coverage = "spine"
+chapter = "applicability"
+prerequisites = ["requires", "declarative-relational-rules"]
+evidence = [
+    "tests/imp-state/README.md",
+    "tests/imp/compatibility/BLOCKERS.md",
+    "semantics/kwasm",
+    "tests/kwasm",
+]
+note = "A trap is an ordinary object-language state authored with constructors and rules, not a special KRS trap construct; keep it distinct from backend hook errors."
+
+[[concept]]
+id = "term-islands"
+title = "term, id, bytes, anonymous, or_bool, fragment, k, map, and cells islands"
+status = "current"
+coverage = "reference"
+chapter = "reference"
+prerequisites = ["symbolic-terms"]
+evidence = ["crates/krs-macros/src/lib.rs", "crates/krs-syntax/src/term.rs"]
+
+[[concept]]
+id = "functions"
+title = "Total and partial function symbols"
+status = "current"
+coverage = "advanced"
+chapter = "static-semantics"
+prerequisites = ["symbolic-terms", "constructor-families"]
+evidence = ["tests/imp/rust-definition/src/static_adjunct.rs"]
+note = "Undefined partial functions denote bottom, not Option::None."
+
+[[concept]]
+id = "equations"
+title = "Equations, equation guards, and numeric priority"
+status = "current"
+coverage = "advanced"
+chapter = "static-semantics"
+prerequisites = ["functions", "requires"]
+evidence = ["tests/imp/rust-definition/src/static_adjunct.rs", "crates/krs-macros/src/lib.rs"]
+
+[[concept]]
+id = "aliases"
+title = "Static reversible aliases"
+status = "current"
+coverage = "advanced"
+chapter = "static-semantics"
+prerequisites = ["constructor-families"]
+evidence = ["tests/imp/rust-definition/src/static_adjunct.rs"]
+
+[[concept]]
+id = "simplifications"
+title = "Simplification lemmas"
+status = "current"
+coverage = "advanced"
+chapter = "static-semantics"
+prerequisites = ["equations"]
+evidence = ["tests/imp/rust-definition/src/verification.rs"]
+
+[[concept]]
+id = "simplification-priority"
+title = "Numeric simplification priority"
+status = "unqualified"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["simplifications"]
+evidence = ["crates/krs-syntax/src/attribute/sort.rs", "crates/krs-compiler/tests/control_flow_lowering.rs"]
+note = "The parser and lowering accept simplification(priority = N), but no positive authored macro fixture was found during review."
+
+[[concept]]
+id = "claims"
+title = "All-path reachability claims"
+status = "current"
+coverage = "advanced"
+chapter = "verification"
+prerequisites = ["machine-rules", "requires"]
+evidence = ["tests/imp/rust-definition/src/claims.rs", "crates/krs-syntax/tests/claims.rs"]
+
+[[concept]]
+id = "one-path-claims"
+title = "One-path reachability"
+status = "unqualified"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["claims"]
+evidence = ["crates/krs-syntax/tests/claims.rs"]
+note = "The grammar accepts the modality, but no positive end-to-end specimen was found during scouting."
+
+[[concept]]
+id = "claim-binders"
+title = "Existential results, postconditions, anonymous values, and circularity"
+status = "current"
+coverage = "advanced"
+chapter = "verification"
+prerequisites = ["claims"]
+evidence = ["tests/imp/rust-definition/src/claims.rs"]
+
+[[concept]]
+id = "typed-hooks"
+title = "Bounded typed function-hook catalog"
+status = "qualified"
+coverage = "advanced"
+chapter = "scale"
+prerequisites = ["functions", "extended-builtins"]
+evidence = ["semantics/kevm/src/lib.rs", "crates/krs-macros/tests/fixtures.rs"]
+note = "Catalog paths are checked. A quoted hook (`hook = \"NS.name\"`) and `k::raw_k!` are unchecked escapes that need `allow-raw-k = true`; do not imply a general raw-attribute escape hatch."
+
+[[concept]]
+id = "fmt-check"
+title = "Format and check"
+status = "current"
+coverage = "spine"
+chapter = "project"
+prerequisites = ["cargo-package"]
+evidence = ["crates/krs-cli/src/main.rs", "crates/krs-cli/tests/cli_commands.rs"]
+note = "This is the early edit loop."
+
+[[concept]]
+id = "build-commands"
+title = "Expand, emit K, and build"
+status = "current"
+coverage = "spine"
+chapter = "lowering"
+prerequisites = ["fmt-check", "two-surfaces"]
+evidence = ["crates/krs-cli/src/main.rs", "crates/krs-cli/tests/cli_commands.rs"]
+note = "Running, searching, and proving are krs run, krs search, and krs prove (crates/krs-cli/tests/exec_commands.rs)."
+
+[[concept]]
+id = "artifacts"
+title = "Descriptor, semantic, definition, K, symbol, source, and KORE artifacts"
+status = "current"
+coverage = "advanced"
+chapter = "lowering"
+prerequisites = ["build-commands"]
+evidence = ["crates/krs-cli/tests/cli_commands.rs"]
+
+[[concept]]
+id = "diagnostics-lsp"
+title = "Diagnostics, source maps, rust-analyzer, and macro-island boundaries"
+status = "current"
+coverage = "spine"
+chapter = "workflow"
+prerequisites = ["build-commands"]
+evidence = ["tests/imp/compatibility/BLOCKERS.md", "tests/imp/rust-definition/tools/lsp_probe.py"]
+
+[[concept]]
+id = "formatter-comments"
+title = "Canonical formatting and DSL comment restrictions"
+status = "current"
+coverage = "spine"
+chapter = "workflow"
+prerequisites = ["fmt-check"]
+evidence = ["crates/krs-fmt", "docs-plan/authoring-spec/decisions.md"]
+note = "Non-doc block comments are rejected inside DSL macro bodies."
+
+[[concept]]
+id = "backend-selection"
+title = "LLVM and Haskell selection and capability diagnostics"
+status = "current"
+coverage = "advanced"
+chapter = "composition"
+prerequisites = ["build-commands"]
+evidence = ["crates/krs-cli/src/main.rs", "tests/imp/compatibility/BLOCKERS.md"]
+
+[[concept]]
+id = "incremental-semantics"
+title = "KWasm, KMIR, and KEVM as incomplete qualification ports"
+status = "qualified"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["nested-cells", "typed-hooks"]
+evidence = ["semantics/README.md", "semantics/coverage.toml"]
+note = "Use extracts as scale evidence, never claim complete ports."
+
+[[concept]]
+id = "open-cell-questions"
+title = "Open cell-pattern questions"
+status = "open"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["machine-rules"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
+
+[[concept]]
+id = "open-grammar-style"
+title = "Open cross-family group-naming style"
+status = "open"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["cross-family-grammar"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
+
+[[concept]]
+id = "open-initialization"
+title = "Open const-initializer alternative"
+status = "open"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["configuration-init"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
+
+[[concept]]
+id = "open-formatter-style"
+title = "Open trailing-comment column style"
+status = "open"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["formatter-comments"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
+note = "Aligned is provisional; the tour must not present it as a frozen language decision."
+
+[[concept]]
+id = "deferred-term-format-sugar"
+title = "Deferred method-call sugar and exact percent-space formatting"
+status = "unsupported"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["symbolic-terms", "format-avoid-docs"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
+
+[[concept]]
+id = "open-rule-doc-style"
+title = "Open rule-clause documentation style"
+status = "open"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["rule-tables"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
+
+[[concept]]
+id = "unsupported-logic"
+title = "Matching logic beyond k::ml, and strict casts"
+status = "unsupported"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["claims"]
+evidence = ["crates/krs-macros/src/lib.rs"]
+note = "These are design-checklist concepts, not current public syntax; k::ml covers #Top, #Bottom, #Not, #And, #Or, #Implies, #Equals, #Ceil, and #Exists, not #Floor, #In, or set variables."
+
+[[concept]]
+id = "unsupported-grammar"
+title = "General raw grammar"
+status = "unsupported"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["tokens", "precedence-associativity"]
+evidence = ["crates/krs-macros/src/lib.rs"]
+
+[[concept]]
+id = "unsupported-cells"
+title = "Cell bags and unsupported collection shapes"
+status = "unsupported"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["repeated-cells"]
+evidence = ["crates/krs-syntax/src/attribute/state.rs", "tests/configuration-cells/verify.py"]
+note = "Cell bags, a collection that shares its parent with other cells, and List rules that change both ends or reorder instances are refused with a diagnostic."
+
+[[concept]]
+id = "restricted-rust"
+title = "Restricted term, rule-body, and initializer Rust"
+status = "current"
+coverage = "limitation"
+chapter = "limits"
+prerequisites = ["host-object-split", "symbolic-terms"]
+evidence = ["crates/krs-syntax/src/term.rs", "crates/krs-syntax/tests/initializers.rs", "crates/krs-syntax/tests/rules.rs"]
+note = "Arbitrary operators, methods, closures, host control flow, and generic constructor shapes other than K sort parameters (`S: ?Sized`) are intentionally unavailable."

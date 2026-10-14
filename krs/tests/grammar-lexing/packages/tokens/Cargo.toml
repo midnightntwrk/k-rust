@@ -1,0 +1,21 @@
+[package]
+name = "krs-grammar-tokens"
+description = "Token fixture: user token sorts, stacked terminal and regex tokens, and k::lexeme!"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_grammar_tokens"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-TOKENS"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

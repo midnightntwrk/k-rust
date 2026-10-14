@@ -1,0 +1,48 @@
+---
+title: IMP expressions—evaluation
+description: Define evaluation contexts, readable rule tables, symbolic builtins, patterns, and narrowing.
+---
+
+# IMP expressions: evaluation
+
+{/* tour-concepts: strictness rule-tables rule-patterns */}
+
+Evaluation rules give each expression constructor symbolic meaning after strict evaluation has brought its arguments to results.
+
+```rust [tests/tour-imp/chapters/03-evaluation.rs]
+// [!include ~/snippets/imp-evaluation.rs]
+```
+
+## Anchor rules at the computation head
+
+`for Expr;` constrains every clause to an expression at the head of the computation cell.
+KRS completes that cell context and frames the remaining K sequence.
+The block-local `use Op::*` makes constructor patterns readable without changing their Rust identities.
+
+Each named clause becomes an independent unordered transition rule.
+The aligned table is presentation: moving `eval_add` above or below `eval_mul` does not create priority.
+
+## Symbolic builtin applications
+
+`int::add(lhs, rhs)` and `bool::not(value)` construct builtin applications in the object language.
+They are typed by Rust-visible marker shapes, but K evaluates them through the selected semantic backend—not by calling a Rust function during collection.
+
+## Patterns and narrowing
+
+Unadorned names such as `lhs` and `rhs` bind symbolic subterms.
+Literals such as `true` match object-language values, and `..` discards unneeded fields.
+A name repeated within one pattern is one binder and therefore imposes nonlinear symbolic equality; it does not bind two unrelated values.
+
+The equality constructors accept both integers and Booleans.
+Their clauses would overlap without the `where lhs: Bool` or `where lhs: Int` narrowing constraints, which refine binder sorts using the symbolic sort graph.
+
+Strictness determines where evaluation may occur; rules determine what an evaluated redex becomes.
+If no rule and no derived context applies, the term is stuck rather than implicitly delegated to Rust.
+
+Misspelled constructors and impossible builtin operands fail through Rust shape checking.
+Unbound variables, inconsistent binder sorts, or overlapping semantic heads fail during KRS parsing or analysis.
+
+Run `python3 tests/tour-imp/verify.py` from the repository root to check this exact evaluation slice, the complete capstone, canonical formatting, deterministic expansion and K emission, and authored source maps.
+The [language reference](/reference/language) indexes readable and explicit rule forms.
+
+Next, [configuration and state](/imp/configuration-and-state) adds statements, a computation sequence, and an environment map.

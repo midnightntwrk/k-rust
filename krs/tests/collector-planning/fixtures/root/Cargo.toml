@@ -1,0 +1,22 @@
+[package]
+name = "fixture-root"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "custom_semantics_root"
+
+[features]
+root-feature = []
+
+[dependencies]
+same-a = { package = "same-name", path = "../same-dash" }
+same-b = { package = "same-name", path = "../same-underscore" }
+mock-collector = { path = "../mock-collector" }
+
+[package.metadata.krs]
+k-namespace = "ORG-EXAMPLE-ROOT"
+
+[package.metadata.krs.definitions.main]
+
+[workspace]

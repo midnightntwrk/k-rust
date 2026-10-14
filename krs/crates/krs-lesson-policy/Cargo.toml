@@ -1,0 +1,31 @@
+[package]
+name = "krs-lesson-policy"
+description = "Syntactic pre-pass that bounds the editable surface of KRS browser lessons"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["abi"]
+# Exports the `krs_lesson_policy_{alloc,run,dealloc}` Wasm ABI. Crates that
+# link the policy as an rlib (the path-C expander) disable it.
+abi = ["dep:krs-wasm-abi"]
+
+[dependencies]
+krs-diagnostic = { path = "../krs-diagnostic" }
+krs-syntax = { path = "../krs-syntax" }
+krs-wasm-abi = { path = "../krs-wasm-abi", optional = true }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+serde.workspace = true
+serde_json.workspace = true
+syn = { workspace = true, features = ["full", "parsing", "visit"] }
+
+[dev-dependencies]
+toml_edit = { workspace = true, features = ["parse"] }
+
+[lints]
+workspace = true

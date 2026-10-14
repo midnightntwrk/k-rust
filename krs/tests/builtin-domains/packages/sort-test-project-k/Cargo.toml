@@ -1,0 +1,21 @@
+[package]
+name = "krs-builtin-sort-test-project-k"
+description = "KF-013 diagnostic: sort-test-project-k"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_builtin_sort_test_project_k"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-SORT-TEST-PROJECT-K-FIXTURE"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

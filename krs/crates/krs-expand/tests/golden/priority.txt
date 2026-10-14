@@ -1,0 +1,1 @@
+error[krs::syntax::retired-attribute] 2:14-2:16: `#[k::priority(..)]` is retired; write `#[k::equation(priority = 40)]`

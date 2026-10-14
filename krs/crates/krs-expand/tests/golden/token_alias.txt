@@ -1,0 +1,79 @@
+pub type DollarId = k::builtin::Id;
+#[doc(hidden)]
+fn __krs_token_type_a4db976ae6eb0510() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<DollarId>()
+}
+#[doc(hidden)]
+fn __krs_token_grammar_descriptor_a4db976ae6eb0510() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_token_DollarId",
+                ::k::ItemKind::Grammar,
+                "token",
+            )
+            .expect("Cargo and Rust macro context form a valid token-grammar identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"tokens\",\"grammar\":{\"productions\":[{\"key\":{\"role\":\"token_regex\",\"ordinal\":0},\"template_key\":null,\"owner\":{\"production_owner\":\"token_sort\",\"sort\":{\"key\":{\"role\":\"token_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"DollarId\"}}},\"result_sort\":{\"key\":{\"role\":\"token_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"DollarId\"}},\"items\":[{\"item_kind\":\"regex_terminal\",\"key\":{\"role\":\"token_regex\",\"ordinal\":0},\"precede_regex\":null,\"regex\":\"\\\\$[a-zA-Z0-9_]+\",\"follow_regex\":null}],\"attributes\":[{\"attribute_kind\":\"token\",\"key\":{\"role\":\"token_regex\",\"ordinal\":0},\"lexical_precedence\":null}]}]}}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_token_type_a4db976ae6eb0510)],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::TokenRegex,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (2u32, 20u32),
+                            (2u32, 38u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::TokenDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 10u32),
+                            (3u32, 18u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (2u32, 40u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_token_grammar_descriptor_a4db976ae6eb0510);

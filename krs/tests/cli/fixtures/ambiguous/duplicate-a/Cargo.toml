@@ -1,0 +1,13 @@
+[package]
+name = "duplicated-semantics"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[package.metadata.krs]
+k-namespace = "ORG-KRS-CLI-DUPLICATE-A"
+
+[package.metadata.krs.definitions.main]
+
+[workspace]
+

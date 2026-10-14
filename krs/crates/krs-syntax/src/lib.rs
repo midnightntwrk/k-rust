@@ -1,0 +1,103 @@
+//! Shared, span-preserving parsers for compiler-owned KRS syntax islands.
+//!
+//! This is an ordinary library rather than a procedural-macro crate.
+//! The macro facade and the collector's source-reparsing provenance pass use these
+//! ASTs, validation rules, and [`ProvenanceRole`] values. Global Rust/K name
+//! resolution and semantic IR construction deliberately live elsewhere.
+
+mod attribute;
+mod configuration;
+mod enum_constructor;
+mod error;
+mod grammar;
+mod initializer;
+mod item;
+pub mod keyword;
+mod lexical;
+pub mod parse;
+mod path;
+mod provenance;
+mod range;
+mod rule;
+mod sorts;
+mod state_macro;
+mod state_rule;
+pub mod surface;
+mod syntax_list;
+mod term;
+mod term_sort;
+pub mod trivia;
+
+pub use attribute::{
+    ANYWHERE_NOT_TERM_SHAPED, AliasAttribute, CellAttributePayload, ClaimAttribute, ClaimBinder,
+    ClaimModality, ConfigurationAttribute, ConstructorAttribute, ConstructorsAttribute,
+    ContextAliasAttribute, ContextAttribute, DesugarAttribute, EquationAttribute, ExistsAttribute,
+    FunctionAttribute, FunctionHook, FunctionSmt, FunctionTotality, InitAttribute,
+    MatchRestriction, PlacementFlag, PriorityAttribute, RECURSIVE_ON_CLAUSE,
+    REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute, SimplificationAttribute,
+    SortAttribute, SpecModuleAttribute, SpecModuleItem, StaticMode, StaticProductionAttribute,
+    SubsortAttribute, SymbolAttribute, UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable,
+    UnboundVariables, VariantSyntaxAttribute, validate_spec_module_name,
+};
+pub use configuration::{
+    ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
+    option_content,
+};
+pub use enum_constructor::{
+    EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceDescriptor,
+    EnumPrecedenceGroup,
+};
+pub use error::{SyntaxError, SyntaxErrorKind};
+pub use grammar::{
+    AssociativityDeclaration, AssociativitySentence, BracketAttribute, GroupAssociativity,
+    PrecedenceChain, PrecedenceDeclaration, PrecedenceEdge, SmtTemplate, SmtTemplateFragment,
+    StrictnessAttribute, StrictnessKind, StructuredFormat, StructuredFormatFragment,
+    SubsortDeclaration, SyntaxTemplate, SyntaxTemplateItem, TokenAttribute, TokenCarrier,
+    TokenContent, TokenDeclaration, TokenStack, parse_seqstrict_attribute, parse_strict_attribute,
+};
+pub use initializer::{
+    ComputationCellInitializer, ConfigurationVariable, ConfigurationVariableAttribute,
+    FixedCellInitializer, InitializerCellContent, InitializerFunction,
+};
+pub use item::{
+    ConstructorDeclaration, ConstructorField, ProductionDocumentation, RawKItem, SortDeclaration,
+};
+pub use lexical::{LayoutDeclaration, LexicalDeclaration, LexicalEntry, regex_references};
+pub use parse::{KrsSyntax, ReferenceCandidate};
+pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_tokens};
+pub use range::TokenRange;
+pub use rule::{
+    BINDER_LIST_CONTRACT, BracketAlternative, ReadableStateCounters, RuleBinder, RuleBlock,
+    RuleClause, RuleClauseLayout, RuleCondition, RuleExistentials, RuleExtra, RuleHeadResult,
+    RuleImport, RuleItem, RuleMapUpdate, RuleNarrowing, RuleParameter, RulePattern,
+    parse_rule_block_source_with_trivia,
+};
+pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
+pub use state_macro::{
+    CellsEntry, CellsExpression, InstanceField, InstanceItem, InstanceList, InstanceListDelimiter,
+    InstanceRest, KSequence, KSequenceNotation, MapBody, MapExpression, MapItem, StateMacroContext,
+    StateMacroRemainder, StateTerm, parse_cells_expression,
+    parse_cells_expression_source_with_trivia, parse_cells_pattern,
+    parse_cells_pattern_source_with_trivia, parse_k_sequence_expression, parse_k_sequence_pattern,
+    parse_map_expression, parse_map_expression_source_with_trivia, parse_map_pattern,
+    parse_map_pattern_source_with_trivia,
+};
+pub use state_rule::{
+    ClaimEnsures, ClaimSortCandidate, FUNCTION_CONTEXT_ONLY_ON_EQUATIONS,
+    FUNCTION_CONTEXT_REMAINDER, FUNCTION_CONTEXT_SHAPE, FunctionContext, StateClaimItem,
+    StateContextAliasItem, StateRuleBinding, StateRuleBindingKind, StateRuleItem,
+    StateRuleReferenceKind, is_cells_parameter, parse_state_context_alias_item,
+};
+pub use syntax_list::{
+    SyntaxListAttribute, SyntaxListCons, SyntaxListDeclaration, SyntaxListTerminator,
+};
+pub use term::{
+    CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermLiteral,
+    TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
+    parse_lexeme_arguments, parse_matches_arguments, parse_sort_test_arguments,
+};
+pub use term_sort::TermSort;
+pub use trivia::{
+    BlockCommentTrivia, DocCommentStyle, LineCommentTrivia, SourceRange, Trivia, TriviaAttachment,
+    TriviaKind, TriviaTable, WhitespaceTrivia, lex_gaps,
+};

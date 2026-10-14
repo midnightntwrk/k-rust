@@ -1,0 +1,62 @@
+---
+title: IMP expressions—sorts and values
+description: Declare open symbolic categories, membership, framework results, and builtin values.
+---
+
+import { SortsExample } from '../../components/SortsExample'
+
+# IMP expressions: sorts and values
+
+{/* tour-concepts: open-sorts subsort-membership framework-sorts core-builtins */}
+
+In Rust, traits are used to specify what behavior a value implements.
+In KRS, a similar concept called `sorts` (very loosely) specifies what behavior a symbolic term implements.
+
+That is to say, for sorts `Value`, `Int`, `Bool`: `impl Value for Int, Bool` means that both `Int` and `Bool` can behave as `Value` symbolic term.
+
+More concretely, `sorts` are like marker traits in Rust (they don't define a set of methods that are applicable).
+Rather, sorts specify which rules/semantics may apply to the symbolic term.
+
+Hover or keyboard-focus either highlighted line to see what it declares.
+
+<SortsExample
+  declaration="Value: Expr + KResult;"
+  membership="impl Value for Int, Bool;"
+/>
+
+## Open sorts
+
+Each entry in `k::sorts!` declares an open sort.
+Other declarations may add constructors or existing types to that sort later, including from another Rust module or composed package.
+
+`Value: Expr + KResult` declares two membership edges.
+Every `Value` is therefore both an `Expr` and a framework result.
+`KResult` is KRS's built-in stopping category for evaluated terms; it is imported from the facade rather than redeclared by the language.
+
+This resembles Rust [supertraits](https://doc.rust-lang.org/rust-by-example/trait/supertraits.html) syntactically, but the result is a symbolic subsort graph.
+It does not give `Value` host methods or cause Rust values to be evaluated.
+
+## Existing builtin members
+
+An `impl` line adds an existing type to an open sort:
+
+- `Id` is admitted directly to `Expr`;
+- `Int` and `Bool` are admitted to `Value`;
+- membership is transitive, so integers and Booleans are expressions and results as well.
+
+These builtin names are zero-sized authoring markers for K sorts.
+Operations such as integer addition later construct symbolic applications; they do not call host arithmetic functions.
+
+## Grouping without an AST node
+
+`#[k::bracket("(", ")")]` declares expression grouping syntax.
+Parsing `(e)` produces the same term as `e`; parentheses affect parsing but do not introduce an `Expr` constructor.
+
+Declaration order is presentation, not precedence or semantic priority.
+The Rust names supply inferred identities here; no public symbol spelling is pinned.
+Unknown parent sorts, duplicate declarations, or an invalid membership graph fail during expansion or semantic checking at the authored declaration.
+
+Run `python3 tests/tour-imp/verify.py` from the repository root to check the complete chapter behind this focused example, the complete capstone, canonical formatting, deterministic expansion and K emission, and authored source maps.
+The [language reference](/reference/language) indexes the explicit sort and membership forms after this narrative introduction.
+
+Next, [concrete grammar](/imp/concrete-grammar) adds a closed expression-constructor family to the open `Expr` sort.

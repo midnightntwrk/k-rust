@@ -1,0 +1,2771 @@
+{
+  "schema_version": 56,
+  "main_module": "EXPR",
+  "modules": [
+    {
+      "origin": {
+        "key": "module.main",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "file": {
+                "package": {
+                  "k_namespace": "ORG-EXAMPLE-EXPR",
+                  "cargo_name": "expr-semantics",
+                  "cargo_version": "0.1.0",
+                  "cargo_source": "workspace"
+                },
+                "package_relative_path": "src/expr.rs",
+                "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+              },
+              "start_byte": 0,
+              "end_byte": 7
+            }
+          }
+        ]
+      },
+      "id": "EXPR",
+      "imports": [
+        "EXPR-SYNTAX"
+      ],
+      "production_groups": [],
+      "sentences": [
+        {
+          "sentence_kind": "configuration",
+          "sentence": {
+            "origin": {
+              "key": "configuration.expr",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "id": "machine",
+            "root": {
+              "root_kind": "generated_top"
+            },
+            "cells": [
+              {
+                "origin": {
+                  "key": "cell.k",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "id": "cell.k",
+                "name": "k",
+                "attributes": [],
+                "content": {
+                  "content_kind": "term",
+                  "sort": {
+                    "sort_source": "builtin",
+                    "sort": "k_sequence"
+                  }
+                }
+              }
+            ],
+            "initializer_origin": {
+              "key": "initializer.expr",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "initializer_id": "machine.init",
+            "variables": [
+              {
+                "origin": {
+                  "key": "configuration.variable.pgm",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "id": "pgm",
+                "external_name": "PGM",
+                "sort": {
+                  "sort_source": "declared",
+                  "sort": "sort.expr"
+                },
+                "main": true
+              }
+            ],
+            "initializer": [
+              {
+                "origin": {
+                  "key": "initializer.k",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "cell": "cell.k",
+                "content": {
+                  "content_kind": "term",
+                  "term": {
+                    "origin": {
+                      "key": "term.init.sequence",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "sort": {
+                      "sort_source": "builtin",
+                      "sort": "k_sequence"
+                    },
+                    "term_kind": "k_sequence",
+                    "item_sort": {
+                      "sort_source": "declared",
+                      "sort": "sort.kitem"
+                    },
+                    "items": [
+                      {
+                        "origin": {
+                          "key": "term.init.pgm",
+                          "origin": [
+                            {
+                              "frame_type": "ranged",
+                              "kind": "authored",
+                              "range": {
+                                "file": {
+                                  "package": {
+                                    "k_namespace": "ORG-EXAMPLE-EXPR",
+                                    "cargo_name": "expr-semantics",
+                                    "cargo_version": "0.1.0",
+                                    "cargo_source": "workspace"
+                                  },
+                                  "package_relative_path": "src/expr.rs",
+                                  "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                                },
+                                "start_byte": 0,
+                                "end_byte": 7
+                              }
+                            }
+                          ]
+                        },
+                        "sort": {
+                          "sort_source": "declared",
+                          "sort": "sort.expr"
+                        },
+                        "term_kind": "variable",
+                        "variable": "pgm"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "sentence_kind": "rule",
+          "sentence": {
+            "origin": {
+              "key": "rule.add",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "label": {
+              "id": "rule.add",
+              "emitted_name": "expr.add"
+            },
+            "kind": "transition",
+            "variables": [
+              {
+                "id": "y",
+                "sort": {
+                  "sort_source": "builtin",
+                  "sort": "int"
+                }
+              },
+              {
+                "id": "x",
+                "sort": {
+                  "sort_source": "builtin",
+                  "sort": "int"
+                }
+              }
+            ],
+            "body": {
+              "origin": {
+                "key": "term.add.rewrite",
+                "origin": [
+                  {
+                    "frame_type": "ranged",
+                    "kind": "authored",
+                    "range": {
+                      "file": {
+                        "package": {
+                          "k_namespace": "ORG-EXAMPLE-EXPR",
+                          "cargo_name": "expr-semantics",
+                          "cargo_version": "0.1.0",
+                          "cargo_source": "workspace"
+                        },
+                        "package_relative_path": "src/expr.rs",
+                        "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                      },
+                      "start_byte": 0,
+                      "end_byte": 7
+                    }
+                  }
+                ]
+              },
+              "sort": {
+                "sort_source": "declared",
+                "sort": "sort.expr"
+              },
+              "term_kind": "rewrite",
+              "from": {
+                "origin": {
+                  "key": "term.add.lhs",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "sort": {
+                  "sort_source": "declared",
+                  "sort": "sort.expr"
+                },
+                "term_kind": "application",
+                "application": {
+                  "application_source": "declared",
+                  "application": "production.add"
+                },
+                "arguments": [
+                  {
+                    "origin": {
+                      "key": "term.add.x.lhs",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "sort": {
+                      "sort_source": "builtin",
+                      "sort": "int"
+                    },
+                    "term_kind": "variable",
+                    "variable": "x"
+                  },
+                  {
+                    "origin": {
+                      "key": "term.add.y.lhs",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "sort": {
+                      "sort_source": "builtin",
+                      "sort": "int"
+                    },
+                    "term_kind": "variable",
+                    "variable": "y"
+                  }
+                ]
+              },
+              "to": {
+                "origin": {
+                  "key": "term.add.rhs",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "sort": {
+                  "sort_source": "builtin",
+                  "sort": "int"
+                },
+                "term_kind": "application",
+                "application": {
+                  "application_source": "builtin",
+                  "application": "int_add"
+                },
+                "arguments": [
+                  {
+                    "origin": {
+                      "key": "term.add.x.rhs",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "sort": {
+                      "sort_source": "builtin",
+                      "sort": "int"
+                    },
+                    "term_kind": "variable",
+                    "variable": "x"
+                  },
+                  {
+                    "origin": {
+                      "key": "term.add.y.rhs",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "sort": {
+                      "sort_source": "builtin",
+                      "sort": "int"
+                    },
+                    "term_kind": "variable",
+                    "variable": "y"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "sentence_kind": "rule",
+          "sentence": {
+            "origin": {
+              "key": "rule.and-true",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "label": {
+              "id": "rule.and-true",
+              "emitted_name": "expr.and-true"
+            },
+            "kind": "transition",
+            "variables": [
+              {
+                "id": "b",
+                "sort": {
+                  "sort_source": "builtin",
+                  "sort": "bool"
+                }
+              }
+            ],
+            "body": {
+              "origin": {
+                "key": "term.and.rewrite",
+                "origin": [
+                  {
+                    "frame_type": "ranged",
+                    "kind": "authored",
+                    "range": {
+                      "file": {
+                        "package": {
+                          "k_namespace": "ORG-EXAMPLE-EXPR",
+                          "cargo_name": "expr-semantics",
+                          "cargo_version": "0.1.0",
+                          "cargo_source": "workspace"
+                        },
+                        "package_relative_path": "src/expr.rs",
+                        "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                      },
+                      "start_byte": 0,
+                      "end_byte": 7
+                    }
+                  }
+                ]
+              },
+              "sort": {
+                "sort_source": "declared",
+                "sort": "sort.expr"
+              },
+              "term_kind": "rewrite",
+              "from": {
+                "origin": {
+                  "key": "term.and.lhs",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "sort": {
+                  "sort_source": "declared",
+                  "sort": "sort.expr"
+                },
+                "term_kind": "application",
+                "application": {
+                  "application_source": "declared",
+                  "application": "production.and"
+                },
+                "arguments": [
+                  {
+                    "origin": {
+                      "key": "term.and.true",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "sort": {
+                      "sort_source": "builtin",
+                      "sort": "bool"
+                    },
+                    "term_kind": "token",
+                    "value": "true"
+                  },
+                  {
+                    "origin": {
+                      "key": "term.and.b.lhs",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "sort": {
+                      "sort_source": "builtin",
+                      "sort": "bool"
+                    },
+                    "term_kind": "variable",
+                    "variable": "b"
+                  }
+                ]
+              },
+              "to": {
+                "origin": {
+                  "key": "term.and.b.rhs",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "sort": {
+                  "sort_source": "builtin",
+                  "sort": "bool"
+                },
+                "term_kind": "variable",
+                "variable": "b"
+              }
+            }
+          }
+        },
+        {
+          "sentence_kind": "rule",
+          "sentence": {
+            "origin": {
+              "key": "rule.neg",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "label": {
+              "id": "rule.neg",
+              "emitted_name": "expr.neg"
+            },
+            "kind": "transition",
+            "variables": [
+              {
+                "id": "x",
+                "sort": {
+                  "sort_source": "builtin",
+                  "sort": "int"
+                }
+              }
+            ],
+            "body": {
+              "origin": {
+                "key": "term.neg.rewrite",
+                "origin": [
+                  {
+                    "frame_type": "ranged",
+                    "kind": "authored",
+                    "range": {
+                      "file": {
+                        "package": {
+                          "k_namespace": "ORG-EXAMPLE-EXPR",
+                          "cargo_name": "expr-semantics",
+                          "cargo_version": "0.1.0",
+                          "cargo_source": "workspace"
+                        },
+                        "package_relative_path": "src/expr.rs",
+                        "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                      },
+                      "start_byte": 0,
+                      "end_byte": 7
+                    }
+                  }
+                ]
+              },
+              "sort": {
+                "sort_source": "declared",
+                "sort": "sort.expr"
+              },
+              "term_kind": "rewrite",
+              "from": {
+                "origin": {
+                  "key": "term.neg.lhs",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "sort": {
+                  "sort_source": "declared",
+                  "sort": "sort.expr"
+                },
+                "term_kind": "application",
+                "application": {
+                  "application_source": "declared",
+                  "application": "production.neg"
+                },
+                "arguments": [
+                  {
+                    "origin": {
+                      "key": "term.neg.x.lhs",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "sort": {
+                      "sort_source": "builtin",
+                      "sort": "int"
+                    },
+                    "term_kind": "variable",
+                    "variable": "x"
+                  }
+                ]
+              },
+              "to": {
+                "origin": {
+                  "key": "term.neg.rhs",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "sort": {
+                  "sort_source": "builtin",
+                  "sort": "int"
+                },
+                "term_kind": "application",
+                "application": {
+                  "application_source": "builtin",
+                  "application": "int_sub"
+                },
+                "arguments": [
+                  {
+                    "origin": {
+                      "key": "term.neg.zero",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "sort": {
+                      "sort_source": "builtin",
+                      "sort": "int"
+                    },
+                    "term_kind": "token",
+                    "value": "0"
+                  },
+                  {
+                    "origin": {
+                      "key": "term.neg.x.rhs",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "sort": {
+                      "sort_source": "builtin",
+                      "sort": "int"
+                    },
+                    "term_kind": "variable",
+                    "variable": "x"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "origin": {
+        "key": "module.syntax",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "file": {
+                "package": {
+                  "k_namespace": "ORG-EXAMPLE-EXPR",
+                  "cargo_name": "expr-semantics",
+                  "cargo_version": "0.1.0",
+                  "cargo_source": "workspace"
+                },
+                "package_relative_path": "src/expr.rs",
+                "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+              },
+              "start_byte": 0,
+              "end_byte": 7
+            }
+          }
+        ]
+      },
+      "id": "EXPR-SYNTAX",
+      "imports": [],
+      "production_groups": [
+        {
+          "origin": {
+            "key": "group.additive",
+            "origin": [
+              {
+                "frame_type": "ranged",
+                "kind": "authored",
+                "range": {
+                  "file": {
+                    "package": {
+                      "k_namespace": "ORG-EXAMPLE-EXPR",
+                      "cargo_name": "expr-semantics",
+                      "cargo_version": "0.1.0",
+                      "cargo_source": "workspace"
+                    },
+                    "package_relative_path": "src/expr.rs",
+                    "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                  },
+                  "start_byte": 0,
+                  "end_byte": 7
+                }
+              }
+            ]
+          },
+          "id": "additive",
+          "emitted_name": "exprAdditive"
+        },
+        {
+          "origin": {
+            "key": "group.conjunction",
+            "origin": [
+              {
+                "frame_type": "ranged",
+                "kind": "authored",
+                "range": {
+                  "file": {
+                    "package": {
+                      "k_namespace": "ORG-EXAMPLE-EXPR",
+                      "cargo_name": "expr-semantics",
+                      "cargo_version": "0.1.0",
+                      "cargo_source": "workspace"
+                    },
+                    "package_relative_path": "src/expr.rs",
+                    "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                  },
+                  "start_byte": 0,
+                  "end_byte": 7
+                }
+              }
+            ]
+          },
+          "id": "conjunction",
+          "emitted_name": "exprConjunction"
+        },
+        {
+          "origin": {
+            "key": "group.prefix",
+            "origin": [
+              {
+                "frame_type": "ranged",
+                "kind": "authored",
+                "range": {
+                  "file": {
+                    "package": {
+                      "k_namespace": "ORG-EXAMPLE-EXPR",
+                      "cargo_name": "expr-semantics",
+                      "cargo_version": "0.1.0",
+                      "cargo_source": "workspace"
+                    },
+                    "package_relative_path": "src/expr.rs",
+                    "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                  },
+                  "start_byte": 0,
+                  "end_byte": 7
+                }
+              }
+            ]
+          },
+          "id": "prefix",
+          "emitted_name": "exprPrefix"
+        }
+      ],
+      "sentences": [
+        {
+          "sentence_kind": "associativity",
+          "sentence": {
+            "origin": {
+              "key": "associativity.left",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "associativity": "left",
+            "groups": [
+              "additive",
+              "conjunction"
+            ]
+          }
+        },
+        {
+          "sentence_kind": "precedence",
+          "sentence": {
+            "origin": {
+              "key": "precedence.additive-conjunction",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "higher": [
+              "additive"
+            ],
+            "lower": [
+              "conjunction"
+            ]
+          }
+        },
+        {
+          "sentence_kind": "precedence",
+          "sentence": {
+            "origin": {
+              "key": "precedence.prefix-additive",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "higher": [
+              "prefix"
+            ],
+            "lower": [
+              "additive"
+            ]
+          }
+        },
+        {
+          "sentence_kind": "production",
+          "sentence": {
+            "origin": {
+              "key": "production.add",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "symbol": {
+              "id": "production.add",
+              "emitted_name": "LblAdd",
+              "kind": "production"
+            },
+            "result_sort": {
+              "sort_source": "declared",
+              "sort": "sort.expr"
+            },
+            "items": [
+              {
+                "origin": {
+                  "key": "production.add.lhs",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "non_terminal",
+                "field": "lhs",
+                "sort": {
+                  "sort_source": "declared",
+                  "sort": "sort.expr"
+                }
+              },
+              {
+                "origin": {
+                  "key": "production.add.plus",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "terminal",
+                "text": "+"
+              },
+              {
+                "origin": {
+                  "key": "production.add.rhs",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "non_terminal",
+                "field": "rhs",
+                "sort": {
+                  "sort_source": "declared",
+                  "sort": "sort.expr"
+                }
+              }
+            ],
+            "attributes": [
+              {
+                "attribute_kind": "group",
+                "origin": {
+                  "key": "production.add.group",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "group": "additive"
+              },
+              {
+                "attribute_kind": "format",
+                "origin": {
+                  "key": "production.add.format",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "fragments": [
+                  {
+                    "format_kind": "item",
+                    "value": 1
+                  },
+                  {
+                    "format_kind": "literal",
+                    "value": " "
+                  },
+                  {
+                    "format_kind": "item",
+                    "value": 2
+                  },
+                  {
+                    "format_kind": "literal",
+                    "value": " "
+                  },
+                  {
+                    "format_kind": "item",
+                    "value": 3
+                  }
+                ]
+              },
+              {
+                "attribute_kind": "strictness",
+                "origin": {
+                  "key": "production.add.seqstrict",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "kind": "seq_strict",
+                "fields": [
+                  {
+                    "origin": {
+                      "key": "production.add.seqstrict.lhs",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "field": "lhs"
+                  },
+                  {
+                    "origin": {
+                      "key": "production.add.seqstrict.rhs",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "field": "rhs"
+                  }
+                ],
+                "result_sort": {
+                  "origin": {
+                    "key": "production.add.seqstrict.result-sort",
+                    "origin": [
+                      {
+                        "frame_type": "ranged",
+                        "kind": "authored",
+                        "range": {
+                          "file": {
+                            "package": {
+                              "k_namespace": "ORG-EXAMPLE-EXPR",
+                              "cargo_name": "expr-semantics",
+                              "cargo_version": "0.1.0",
+                              "cargo_source": "workspace"
+                            },
+                            "package_relative_path": "src/expr.rs",
+                            "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                          },
+                          "start_byte": 0,
+                          "end_byte": 7
+                        }
+                      }
+                    ]
+                  },
+                  "sort": {
+                    "sort_source": "declared",
+                    "sort": "sort.kresult"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "sentence_kind": "production",
+          "sentence": {
+            "origin": {
+              "key": "production.and",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "symbol": {
+              "id": "production.and",
+              "emitted_name": "LblAnd",
+              "kind": "production"
+            },
+            "result_sort": {
+              "sort_source": "declared",
+              "sort": "sort.expr"
+            },
+            "items": [
+              {
+                "origin": {
+                  "key": "production.and.lhs",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "non_terminal",
+                "field": "lhs",
+                "sort": {
+                  "sort_source": "declared",
+                  "sort": "sort.expr"
+                }
+              },
+              {
+                "origin": {
+                  "key": "production.and.operator",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "terminal",
+                "text": "&&"
+              },
+              {
+                "origin": {
+                  "key": "production.and.rhs",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "non_terminal",
+                "field": "rhs",
+                "sort": {
+                  "sort_source": "declared",
+                  "sort": "sort.expr"
+                }
+              }
+            ],
+            "attributes": [
+              {
+                "attribute_kind": "group",
+                "origin": {
+                  "key": "production.and.group",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "group": "conjunction"
+              },
+              {
+                "attribute_kind": "format",
+                "origin": {
+                  "key": "production.and.format",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "fragments": [
+                  {
+                    "format_kind": "item",
+                    "value": 1
+                  },
+                  {
+                    "format_kind": "literal",
+                    "value": " "
+                  },
+                  {
+                    "format_kind": "item",
+                    "value": 2
+                  },
+                  {
+                    "format_kind": "literal",
+                    "value": " "
+                  },
+                  {
+                    "format_kind": "item",
+                    "value": 3
+                  }
+                ]
+              },
+              {
+                "attribute_kind": "strictness",
+                "origin": {
+                  "key": "production.and.strict",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "kind": "strict",
+                "fields": [
+                  {
+                    "origin": {
+                      "key": "production.and.strict.lhs",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "field": "lhs"
+                  }
+                ],
+                "result_sort": {
+                  "origin": {
+                    "key": "production.and.strict.result-sort",
+                    "origin": [
+                      {
+                        "frame_type": "ranged",
+                        "kind": "authored",
+                        "range": {
+                          "file": {
+                            "package": {
+                              "k_namespace": "ORG-EXAMPLE-EXPR",
+                              "cargo_name": "expr-semantics",
+                              "cargo_version": "0.1.0",
+                              "cargo_source": "workspace"
+                            },
+                            "package_relative_path": "src/expr.rs",
+                            "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                          },
+                          "start_byte": 0,
+                          "end_byte": 7
+                        }
+                      }
+                    ]
+                  },
+                  "sort": {
+                    "sort_source": "declared",
+                    "sort": "sort.kresult"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "sentence_kind": "production",
+          "sentence": {
+            "origin": {
+              "key": "production.id",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "symbol": {
+              "id": "production.id",
+              "emitted_name": "LblId",
+              "kind": "production"
+            },
+            "result_sort": {
+              "sort_source": "declared",
+              "sort": "sort.id"
+            },
+            "items": [
+              {
+                "origin": {
+                  "key": "production.id.regex",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "regex_terminal",
+                "precede_regex": "[A-Za-z0-9_]",
+                "regex": "[A-Za-z][A-Za-z0-9_]*",
+                "follow_regex": "[A-Za-z0-9_]"
+              }
+            ],
+            "attributes": [
+              {
+                "attribute_kind": "token",
+                "origin": {
+                  "key": "production.id.token",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "lexical_precedence": 2
+              },
+              {
+                "attribute_kind": "avoid",
+                "origin": {
+                  "key": "production.id.avoid",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "sentence_kind": "production",
+          "sentence": {
+            "origin": {
+              "key": "production.neg",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "symbol": {
+              "id": "production.neg",
+              "emitted_name": "LblNeg",
+              "kind": "production"
+            },
+            "result_sort": {
+              "sort_source": "declared",
+              "sort": "sort.expr"
+            },
+            "items": [
+              {
+                "origin": {
+                  "key": "production.neg.minus",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "terminal",
+                "text": "-"
+              },
+              {
+                "origin": {
+                  "key": "production.neg.operand",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "non_terminal",
+                "field": "operand",
+                "sort": {
+                  "sort_source": "declared",
+                  "sort": "sort.expr"
+                }
+              }
+            ],
+            "attributes": [
+              {
+                "attribute_kind": "group",
+                "origin": {
+                  "key": "production.neg.group",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "group": "prefix"
+              },
+              {
+                "attribute_kind": "format",
+                "origin": {
+                  "key": "production.neg.format",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "fragments": [
+                  {
+                    "format_kind": "item",
+                    "value": 1
+                  },
+                  {
+                    "format_kind": "item",
+                    "value": 2
+                  }
+                ]
+              },
+              {
+                "attribute_kind": "strictness",
+                "origin": {
+                  "key": "production.neg.strict",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "kind": "strict",
+                "fields": [
+                  {
+                    "origin": {
+                      "key": "production.neg.strict.operand",
+                      "origin": [
+                        {
+                          "frame_type": "ranged",
+                          "kind": "authored",
+                          "range": {
+                            "file": {
+                              "package": {
+                                "k_namespace": "ORG-EXAMPLE-EXPR",
+                                "cargo_name": "expr-semantics",
+                                "cargo_version": "0.1.0",
+                                "cargo_source": "workspace"
+                              },
+                              "package_relative_path": "src/expr.rs",
+                              "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                            },
+                            "start_byte": 0,
+                            "end_byte": 7
+                          }
+                        }
+                      ]
+                    },
+                    "field": "operand"
+                  }
+                ],
+                "result_sort": {
+                  "origin": {
+                    "key": "production.neg.strict.result-sort",
+                    "origin": [
+                      {
+                        "frame_type": "ranged",
+                        "kind": "authored",
+                        "range": {
+                          "file": {
+                            "package": {
+                              "k_namespace": "ORG-EXAMPLE-EXPR",
+                              "cargo_name": "expr-semantics",
+                              "cargo_version": "0.1.0",
+                              "cargo_source": "workspace"
+                            },
+                            "package_relative_path": "src/expr.rs",
+                            "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                          },
+                          "start_byte": 0,
+                          "end_byte": 7
+                        }
+                      }
+                    ]
+                  },
+                  "sort": {
+                    "sort_source": "declared",
+                    "sort": "sort.kresult"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "sentence_kind": "production",
+          "sentence": {
+            "origin": {
+              "key": "production.paren",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "symbol": {
+              "id": "production.paren",
+              "emitted_name": "LblParens",
+              "kind": "production"
+            },
+            "result_sort": {
+              "sort_source": "declared",
+              "sort": "sort.expr"
+            },
+            "items": [
+              {
+                "origin": {
+                  "key": "production.paren.open",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "terminal",
+                "text": "("
+              },
+              {
+                "origin": {
+                  "key": "production.paren.value",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "non_terminal",
+                "field": "value",
+                "sort": {
+                  "sort_source": "declared",
+                  "sort": "sort.expr"
+                }
+              },
+              {
+                "origin": {
+                  "key": "production.paren.close",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "item_kind": "terminal",
+                "text": ")"
+              }
+            ],
+            "attributes": [
+              {
+                "attribute_kind": "bracket",
+                "origin": {
+                  "key": "production.paren.bracket",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "attribute_kind": "format",
+                "origin": {
+                  "key": "production.paren.format",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "fragments": [
+                  {
+                    "format_kind": "item",
+                    "value": 1
+                  },
+                  {
+                    "format_kind": "item",
+                    "value": 2
+                  },
+                  {
+                    "format_kind": "item",
+                    "value": 3
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "sentence_kind": "syntax_sort",
+          "sentence": {
+            "origin": {
+              "key": "sort.expr",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "symbol": {
+              "id": "sort.expr",
+              "emitted_name": "Expr",
+              "kind": "sort"
+            }
+          }
+        },
+        {
+          "sentence_kind": "syntax_sort",
+          "sentence": {
+            "origin": {
+              "key": "sort.id",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "symbol": {
+              "id": "sort.id",
+              "emitted_name": "Id",
+              "kind": "sort"
+            }
+          }
+        },
+        {
+          "sentence_kind": "syntax_sort",
+          "sentence": {
+            "origin": {
+              "key": "sort.kitem",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "symbol": {
+              "id": "sort.kitem",
+              "emitted_name": "KItem",
+              "kind": "sort"
+            }
+          }
+        },
+        {
+          "sentence_kind": "syntax_sort",
+          "sentence": {
+            "origin": {
+              "key": "sort.kresult",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "symbol": {
+              "id": "sort.kresult",
+              "emitted_name": "KResult",
+              "kind": "sort"
+            }
+          }
+        },
+        {
+          "sentence_kind": "syntax_sort",
+          "sentence": {
+            "origin": {
+              "key": "sort.value",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "symbol": {
+              "id": "sort.value",
+              "emitted_name": "Value",
+              "kind": "sort"
+            }
+          }
+        },
+        {
+          "sentence_kind": "subsort",
+          "sentence": {
+            "origin": {
+              "key": "subsort.bool-value",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "subsort": {
+              "sort_source": "builtin",
+              "sort": "bool"
+            },
+            "supersort": {
+              "sort_source": "declared",
+              "sort": "sort.value"
+            }
+          }
+        },
+        {
+          "sentence_kind": "subsort",
+          "sentence": {
+            "origin": {
+              "key": "subsort.expr-kitem",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "subsort": {
+              "sort_source": "declared",
+              "sort": "sort.expr"
+            },
+            "supersort": {
+              "sort_source": "declared",
+              "sort": "sort.kitem"
+            }
+          }
+        },
+        {
+          "sentence_kind": "subsort",
+          "sentence": {
+            "origin": {
+              "key": "subsort.id-expr",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "subsort": {
+              "sort_source": "declared",
+              "sort": "sort.id"
+            },
+            "supersort": {
+              "sort_source": "declared",
+              "sort": "sort.expr"
+            }
+          }
+        },
+        {
+          "sentence_kind": "subsort",
+          "sentence": {
+            "origin": {
+              "key": "subsort.int-value",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "subsort": {
+              "sort_source": "builtin",
+              "sort": "int"
+            },
+            "supersort": {
+              "sort_source": "declared",
+              "sort": "sort.value"
+            }
+          }
+        },
+        {
+          "sentence_kind": "subsort",
+          "sentence": {
+            "origin": {
+              "key": "subsort.kresult-kitem",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "subsort": {
+              "sort_source": "declared",
+              "sort": "sort.kresult"
+            },
+            "supersort": {
+              "sort_source": "declared",
+              "sort": "sort.kitem"
+            }
+          }
+        },
+        {
+          "sentence_kind": "subsort",
+          "sentence": {
+            "origin": {
+              "key": "subsort.value-expr",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "subsort": {
+              "sort_source": "declared",
+              "sort": "sort.value"
+            },
+            "supersort": {
+              "sort_source": "declared",
+              "sort": "sort.expr"
+            }
+          }
+        },
+        {
+          "sentence_kind": "subsort",
+          "sentence": {
+            "origin": {
+              "key": "subsort.value-kresult",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "subsort": {
+              "sort_source": "declared",
+              "sort": "sort.value"
+            },
+            "supersort": {
+              "sort_source": "declared",
+              "sort": "sort.kresult"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

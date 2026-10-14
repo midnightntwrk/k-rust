@@ -1,0 +1,4 @@
+// The collector reads these exact authored bytes through an absolute guest path.
+module LESSON
+    syntax Value ::= "ready"
+endmodule

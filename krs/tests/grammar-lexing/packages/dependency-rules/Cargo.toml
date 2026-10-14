@@ -1,0 +1,22 @@
+[package]
+name = "krs-grammar-dependency-rules"
+description = "The configured package over a dependency with rules but no configuration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_grammar_dependency_rules"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+base = { package = "krs-grammar-dependency-rules-base", path = "../dependency-rules-base" }
+
+[package.metadata.krs]
+k-namespace = "KRS-DEPENDENCY-RULES"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

@@ -1,0 +1,20 @@
+schema = 1
+id = "B03-typeid"
+behavior = "TypeId::of equality and inequality within one instance, across crates, and through stored fn() -> TypeId; the TypeId values themselves."
+basis = "collector-runner type_id_equal/type_id_unequal; krs-ir HostTypeKey (crates/krs-ir/src/host.rs)"
+expected_status = "pass"
+
+[[crate]]
+name = "b03_types"
+src = "types.rs"
+type = "rlib"
+
+[[crate]]
+name = "b03_typeid"
+src = "main.rs"
+type = "bin"
+externs = ["b03_types"]
+
+[[run]]
+name = "default"
+bin = "b03_typeid"

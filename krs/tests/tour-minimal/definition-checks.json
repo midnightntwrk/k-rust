@@ -1,0 +1,110 @@
+{
+  "descriptor_item_counts": {
+    "sort": 3,
+    "constructor": 2,
+    "grammar": 2,
+    "configuration": 1,
+    "rule": 1
+  },
+  "modules": [
+    "KRS-FRAMEWORK",
+    "KRS-TOUR-MINIMAL",
+    "KRS-TOUR-MINIMAL-SYNTAX"
+  ],
+  "semantic_modules": [
+    "KRS-FRAMEWORK",
+    "KRS-TOUR-MINIMAL"
+  ],
+  "productions": [
+    {
+      "symbol": "bar",
+      "terminals": [
+        "bar"
+      ]
+    },
+    {
+      "symbol": "foo",
+      "terminals": [
+        "foo"
+      ]
+    }
+  ],
+  "labels": [
+    "foo-to-bar"
+  ],
+  "imports": [
+    "KRS-FRAMEWORK",
+    "KRS-TOUR-MINIMAL-SYNTAX"
+  ],
+  "subsorts": [
+    {
+      "sort": "KItem",
+      "subsort": "KResult"
+    },
+    {
+      "sort": "KResult",
+      "subsort": "ObjectTerm"
+    }
+  ],
+  "attributed_kinds": [
+    "syntax_sort",
+    "production",
+    "configuration",
+    "initializer",
+    "rule",
+    "term"
+  ],
+  "initializer": [
+    {
+      "cell": "k",
+      "term": {
+        "kind": "k_sequence",
+        "sort": "K",
+        "arguments": [
+          {
+            "kind": "application",
+            "sort": "ObjectTerm",
+            "symbol": "foo",
+            "arguments": []
+          }
+        ]
+      }
+    }
+  ],
+  "rule_body": {
+    "kind": "configuration_rewrite",
+    "clauses": [
+      {
+        "cell": "k",
+        "from": {
+          "kind": "k_sequence",
+          "sort": "K",
+          "arguments": [
+            {
+              "kind": "application",
+              "sort": "ObjectTerm",
+              "symbol": "foo",
+              "arguments": []
+            }
+          ]
+        },
+        "to": {
+          "kind": "k_sequence",
+          "sort": "K",
+          "arguments": [
+            {
+              "kind": "application",
+              "sort": "ObjectTerm",
+              "symbol": "bar",
+              "arguments": []
+            }
+          ]
+        },
+        "frame": {
+          "kind": "k_sequence_tail",
+          "binding": null
+        }
+      }
+    ]
+  }
+}

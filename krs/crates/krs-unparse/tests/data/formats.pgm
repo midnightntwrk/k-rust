@@ -1,0 +1,1 @@
+{ say 1 ; { pct 2 ; } } sp 3 ; note 4 ; tint 5 ; list 6 , 7 , 8 ;

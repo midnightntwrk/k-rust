@@ -1,0 +1,610 @@
+pub enum Object {
+    Foo(),
+    Bar(),
+}
+#[doc(hidden)]
+fn __krs_enum_type_b069f7e9deaef2f1() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Object>()
+}
+#[doc(hidden)]
+fn __krs_enum_family_sort_b069f7e9deaef2f1() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<ObjectTerm>()
+}
+#[doc(hidden)]
+struct __KrsEnumVariant_b069f7e9deaef2f1_0;
+#[doc(hidden)]
+fn __krs_enum_variant_b069f7e9deaef2f1_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<__KrsEnumVariant_b069f7e9deaef2f1_0>()
+}
+#[doc(hidden)]
+struct __KrsEnumVariant_b069f7e9deaef2f1_1;
+#[doc(hidden)]
+fn __krs_enum_variant_b069f7e9deaef2f1_1() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<__KrsEnumVariant_b069f7e9deaef2f1_1>()
+}
+impl Object {
+    #[doc(hidden)]
+    #[allow(non_snake_case)]
+    pub fn __krs_variant_type_id_Foo() -> ::core::any::TypeId {
+        ::core::any::TypeId::of::<__KrsEnumVariant_b069f7e9deaef2f1_0>()
+    }
+    #[doc(hidden)]
+    #[allow(non_snake_case)]
+    pub fn __krs_variant_type_id_Bar() -> ::core::any::TypeId {
+        ::core::any::TypeId::of::<__KrsEnumVariant_b069f7e9deaef2f1_1>()
+    }
+}
+impl ::k::__KrsRuleApplication<17490737515057045975u64> for Object {
+    fn __krs_rule_application(_authored_path: &str) -> ::k::HostApplicationTarget {
+        ::k::HostApplicationTarget::EnumVariant(
+            ::k::HostEnumVariantReference::new(
+                    ::k::HostTypeReference {
+                        key: ::k::HostTypeKey(__krs_enum_type_b069f7e9deaef2f1),
+                        authored_path: "Object".to_owned(),
+                    },
+                    ::k::HostTypeKey(__krs_enum_variant_b069f7e9deaef2f1_0),
+                    "Object::Foo",
+                )
+                .expect("generated enum variants retain their owning enum path"),
+        )
+    }
+}
+impl ::k::__KrsRuleApplication<1603655411640082298u64> for Object {
+    fn __krs_rule_application(_authored_path: &str) -> ::k::HostApplicationTarget {
+        ::k::HostApplicationTarget::EnumVariant(
+            ::k::HostEnumVariantReference::new(
+                    ::k::HostTypeReference {
+                        key: ::k::HostTypeKey(__krs_enum_type_b069f7e9deaef2f1),
+                        authored_path: "Object".to_owned(),
+                    },
+                    ::k::HostTypeKey(__krs_enum_variant_b069f7e9deaef2f1_1),
+                    "Object::Bar",
+                )
+                .expect("generated enum variants retain their owning enum path"),
+        )
+    }
+}
+#[doc(hidden)]
+fn __krs_enum_constructor_b069f7e9deaef2f1_0() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "Foo",
+                ::k::ItemKind::Constructor,
+                "enum:Object",
+            )
+            .expect("Cargo and Rust macro context form a valid enum-variant identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::EnumVariant(
+                ::k::HostEnumVariantKey::new(
+                    ::k::HostTypeKey(__krs_enum_type_b069f7e9deaef2f1),
+                    ::k::HostTypeKey(__krs_enum_variant_b069f7e9deaef2f1_0),
+                ),
+            ),
+        ),
+        payload: ::k::__krs_host_payload(
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"fields\":[]}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1)],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::ConstructorSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (2u32, 26u32),
+                            (2u32, 36u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorSyntax,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 17u32),
+                            (5u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorSyntaxItem,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 17u32),
+                            (5u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormat,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 17u32),
+                            (5u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 17u32),
+                            (5u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (6u32, 5u32),
+                            (6u32, 8u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorGroup,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 21u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (2u32, 56u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_enum_constructor_b069f7e9deaef2f1_0);
+#[doc(hidden)]
+fn __krs_enum_grammar_b069f7e9deaef2f1_0() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_Object_Foo",
+                ::k::ItemKind::Grammar,
+                "enum:Object",
+            )
+            .expect(
+                "Cargo and Rust macro context form a valid variant-grammar identity",
+            ),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Object::Foo\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"foo\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"object_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}}]}]}}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1)],
+                items: &[],
+                targets: &[
+                    ::k::__KrsTargetSlot::Variant {
+                        owner: ::k::HostTypeKey(__krs_enum_type_b069f7e9deaef2f1),
+                        marker: ::k::HostTypeKey(__krs_enum_variant_b069f7e9deaef2f1_0),
+                    },
+                ],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::ConstructorSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (2u32, 26u32),
+                            (2u32, 36u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorSyntax,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 17u32),
+                            (5u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorSyntaxItem,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 17u32),
+                            (5u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormat,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 17u32),
+                            (5u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 17u32),
+                            (5u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (6u32, 5u32),
+                            (6u32, 8u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorGroup,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 21u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (2u32, 56u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_enum_grammar_b069f7e9deaef2f1_0);
+#[doc(hidden)]
+fn __krs_enum_constructor_b069f7e9deaef2f1_1() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "Bar",
+                ::k::ItemKind::Constructor,
+                "enum:Object",
+            )
+            .expect("Cargo and Rust macro context form a valid enum-variant identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::EnumVariant(
+                ::k::HostEnumVariantKey::new(
+                    ::k::HostTypeKey(__krs_enum_type_b069f7e9deaef2f1),
+                    ::k::HostTypeKey(__krs_enum_variant_b069f7e9deaef2f1_1),
+                ),
+            ),
+        ),
+        payload: ::k::__krs_host_payload(
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"fields\":[]}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1)],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::ConstructorSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (2u32, 26u32),
+                            (2u32, 36u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorSyntax,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 17u32),
+                            (7u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorSyntaxItem,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 17u32),
+                            (7u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormat,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 17u32),
+                            (7u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 17u32),
+                            (7u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 5u32),
+                            (8u32, 8u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorGroup,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 23u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (2u32, 56u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_enum_constructor_b069f7e9deaef2f1_1);
+#[doc(hidden)]
+fn __krs_enum_grammar_b069f7e9deaef2f1_1() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_Object_Bar",
+                ::k::ItemKind::Grammar,
+                "enum:Object",
+            )
+            .expect(
+                "Cargo and Rust macro context form a valid variant-grammar identity",
+            ),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Object::Bar\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"bar\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"object_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}}]}]}}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1)],
+                items: &[],
+                targets: &[
+                    ::k::__KrsTargetSlot::Variant {
+                        owner: ::k::HostTypeKey(__krs_enum_type_b069f7e9deaef2f1),
+                        marker: ::k::HostTypeKey(__krs_enum_variant_b069f7e9deaef2f1_1),
+                    },
+                ],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::ConstructorSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (2u32, 26u32),
+                            (2u32, 36u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorSyntax,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 17u32),
+                            (7u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorSyntaxItem,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 17u32),
+                            (7u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormat,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 17u32),
+                            (7u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 17u32),
+                            (7u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 5u32),
+                            (8u32, 8u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorGroup,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 23u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (2u32, 56u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_enum_grammar_b069f7e9deaef2f1_1);

@@ -1,0 +1,62 @@
+---
+title: A definition is a Cargo package
+description: Configure a KRS definition facet and establish the format-and-check edit loop.
+---
+
+# A definition is a Cargo package
+
+{/* tour-concepts: cargo-package rust-names fmt-check */}
+
+A KRS definition lives in an ordinary Cargo package.
+Cargo resolves the Rust modules and dependencies; package metadata tells KRS which semantic definition to collect.
+
+The minimal tour fixture uses this complete manifest:
+
+```toml [tests/tour-minimal/Cargo.toml]
+// [!include ~/snippets/tour-minimal.Cargo.toml]
+```
+
+## The KRS dependency
+
+The dependency entry renames package `krs` to the local Rust name `k`.
+That rename is ordinary Cargo behavior.
+It is why authored paths use `k::sorts!`, `k::configuration`, and `k::builtin` even though the published package is named `krs`.
+KRS follows rustc-resolved identities, so modules, imports, aliases, visibility, and renamed dependencies keep their Rust meanings.
+
+## Package identity and definition facets
+
+`[package.metadata.krs]` assigns the package the K namespace `KRS-TOUR-MINIMAL`.
+The namespace separates emitted semantic identities from Rust crate names.
+Treat it as durable definition identity rather than presentation text.
+
+The `package.metadata.krs.definitions.main` table declares one definition facet; it takes no keys.
+K decides what a program may contain with the main syntax module and what rules may use with the main module, so KRS emits a pair for each package: `KRS-TOUR-MINIMAL-SYNTAX` holds the grammar programs may use, and `KRS-TOUR-MINIMAL` imports it and adds the configuration and the rules.
+A `pub` production is program syntax; `internal` keeps machinery out of programs, and a production that is not `pub` is private to the package's rules.
+Composition later shows why larger definitions may select facets explicitly and combine dependency facets.
+
+## Establish the edit loop
+
+From the repository root, format and check the package with the selected manifest:
+
+```sh
+krs fmt --check --manifest-path tests/tour-minimal/Cargo.toml
+krs check \
+  --manifest-path tests/tour-minimal/Cargo.toml \
+  --package krs-tour-minimal \
+  --definition main
+```
+
+Formatting operates on authored Rust files and reports when they are not at the canonical KRS/rustfmt fixed point.
+Checking first lets rustc validate host-language structure, then collects and validates the semantic definition.
+Neither command executes an object-language program.
+
+The checked documentation gate runs the same package through Cargo, KRS formatting, collection, deterministic expansion, and deterministic K emission:
+
+```sh
+python3 tests/tour-minimal/verify.py
+```
+
+An unknown package or facet fails during definition planning.
+Invalid Rust paths fail through rustc, while invalid KRS declarations report their authored semantic stage and source range where the current diagnostic supports it.
+
+Next, we begin IMP with its symbolic sorts and builtin values.

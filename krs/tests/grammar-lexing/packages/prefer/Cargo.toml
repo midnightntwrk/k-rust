@@ -1,0 +1,21 @@
+[package]
+name = "krs-grammar-prefer"
+description = "Prefer fixture: the dangling else resolved by the parser preference `prefer`"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_grammar_prefer"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-PREFER"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

@@ -1,0 +1,1009 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e",
+    "krs-rule-forms-nondet": "506052cf9063b348f0bd8a0b10cb92416c94e5a5dccb61583f9da8dded2c1c77",
+    "krs-rule-forms-anywhere": "f71bf961706e9c2102f3ee2c6044b41f9885608c49610eb5978f8f7424f2febf",
+    "krs-rule-forms-casts": "3b3fd4ca305f6599d34a0fc02b9098fd1a12cc238301a8a125592c00d157cdb6",
+    "krs-rule-forms-fresh": "bec7452965097741b27a12e94bd541e6288002e30c841ec1e6aa97a45906f5d2",
+    "krs-rule-forms-macros": "056ff86c9326630a574c5ce271f41314771334d138e8faa3f6b31a45148059a0",
+    "krs-rule-forms-local-rewrite": "9a662ec82271a9cf2020f8a89cd380e6a931d7d1766ace7f7be26fb6e701142b",
+    "krs-rule-forms-local-term": "2bfd40690b28c39fdc54258115f4753260a04db8cf9c8751984d9906db56b690",
+    "krs-rule-forms-heat-cool": "783bed83efcfb03409d6c847cd274b3a87354aa60552b3b48911811e2762b9bf",
+    "krs-rule-forms-contexts": "c50732ffc14df3fd201ab48fbabcdaa173ce6af2d081c5b3b80aa525df10120b",
+    "krs-rule-forms-contexts-lvalue": "6f20ce814890248a7332fe96b0acfd6980fe9f636f226ec810093164e636993b",
+    "krs-rule-forms-contexts-evaluate": "c51b0810811f7210229793b1923a31663894c37f24038b70cf65fc3b30bc6c42"
+  },
+  "emitted": {
+    "krs-rule-forms-priority": {
+      "definition.k": "ae24e87b44019cb73f8d92516fffd48264ab29642fdfce613935e6ccd310f840"
+    },
+    "krs-rule-forms-nondet": {
+      "definition.k": "5af41292fbeeca999cb0f3f24fb4f7a7bd82ea05651506a86f31a9ec635a8111"
+    },
+    "krs-rule-forms-anywhere": {
+      "definition.k": "b01afd6c438255b1e85927785b4496d27a68630b788f81885434359597a92d04"
+    },
+    "krs-rule-forms-casts": {
+      "definition.k": "6b7c1e0d35a507e879059c1404b65f5111cf7c53efa147a5f01f26032ee6fcb6"
+    },
+    "krs-rule-forms-fresh": {
+      "definition.k": "d231d7982f6ffa3c5bc774e9d203c19225339840941a2af068193999ea3fd86a"
+    },
+    "krs-rule-forms-macros": {
+      "definition.k": "e42cc5364c8f0464c56ba3bd9d33fbc0776d71196b3140640d0bec20e0bce64e"
+    },
+    "krs-rule-forms-local-rewrite": {
+      "definition.k": "6cdbfb4d1d01ccfc598df821c20e451336c03ebb44fc14b94d1c4bd4e1b9d701"
+    },
+    "krs-rule-forms-restating-imp": {
+      "definition.k": "1bc6e7bf824dd37458459b5cf6ebc71327d77796b90f6e87dbebde851fa9a976"
+    },
+    "krs-rule-forms-local-term": {
+      "definition.k": "0073384173b989249120d644328e3b2f279fea3ed8ab0f2bda1970fbab92b6d3"
+    },
+    "krs-rule-forms-heat-cool": {
+      "definition.k": "83d2418a7ba5ef08b53beb8a4cbd66f9d3c7e45cf1d4da3a9fcb6b90ea4f043a"
+    },
+    "krs-rule-forms-heat-cool-strict": {
+      "definition.k": "886d36d213505e9a24149e46484f8a49aa3f445b05594049e4c16a8c4638a017"
+    },
+    "krs-rule-forms-contexts": {
+      "definition.k": "c41a76d044639f2c3915470240fdc641cc864b90e46117a631b1e64337f5f3f1"
+    },
+    "krs-rule-forms-contexts-lvalue": {
+      "definition.k": "f4a5f9826441dfe99e6b2023e1c82100852acc89c98e15909e87a8a57318d272"
+    },
+    "krs-rule-forms-contexts-evaluate": {
+      "definition.k": "ff97369b241de1a13d5cc2157d493da4fbd42844230443f2f9303277897344cd"
+    }
+  },
+  "reference_sha256": {
+    "krs-rule-forms-priority": "0202e94e00b86f71a5cee3eb585419499d433ba39d3dc400261934b2fdc63789",
+    "krs-rule-forms-nondet": "0d02da019bf4780642dbd96320b10d6215548a8faf2ad04d9706e1918b6a65a5",
+    "krs-rule-forms-anywhere": "aa123df748e232b1331bd8dcb81eb2bebad3cef80b7d96306f82302b8dd3c61a",
+    "krs-rule-forms-casts": "a3e8ce5d2ffa1f5b9c720cdc62b29ee5e90563761553e290f8b3d1b6a8f136a0",
+    "krs-rule-forms-fresh": "3f27187918954b99620f5821f2c332297e96e6d3ff4fb3ac235ac19507c9edad",
+    "krs-rule-forms-macros": "5d046f98abd1d9d698845850df164ba22ca537c37c8e532242757705c7bca979",
+    "krs-rule-forms-local-rewrite": "68758ed2ebe5cf015b74354fc444ef5189d9680c1b15d3deab3eaaadd65bef0c",
+    "krs-rule-forms-restating-imp": "97f1597562a5a56008ace0607393e5dca16e1ac3bbfaa474e3b731eb9b486cc6",
+    "krs-rule-forms-local-term": "6d994189b28396badbbb9bc0251ca43157f562e6cce6253c6065343e9ad0c2ee",
+    "krs-rule-forms-heat-cool": "406f0db83692929c4621492ef19ef3bd5f6ce871b3a399477f3398eb636de28b",
+    "krs-rule-forms-heat-cool-strict": "d68989ac4fa0be529d2b4ffa21b44047e00b168752892048a943c448486b9345",
+    "krs-rule-forms-contexts": "7c40b35aba35d6259eafe8413c1d5f4f849cb50bd7f4a4c96eb325a59a679f30",
+    "krs-rule-forms-contexts-lvalue": "bf4b1b44099e47523e2a660caa79dc55cd7632844e5a1f13809f1b7b9fe62285",
+    "krs-rule-forms-contexts-evaluate": "c25dd19fa75fea71e4b94b4d5e42b54863161bba2ab58ad9b5dd5e2e6300e8a8"
+  },
+  "outcomes": {
+    "krs-rule-forms-priority": {
+      "toss": {
+        "parse": "accepted",
+        "run": "heads",
+        "search": [
+          "heads"
+        ]
+      },
+      "flip": {
+        "parse": "accepted",
+        "run": "high",
+        "search": [
+          "high"
+        ]
+      },
+      "grade-95": {
+        "parse": "accepted",
+        "run": "letterA"
+      },
+      "grade-85": {
+        "parse": "accepted",
+        "run": "letterB"
+      },
+      "grade-75": {
+        "parse": "accepted",
+        "run": "letterC"
+      },
+      "grade-65": {
+        "parse": "accepted",
+        "run": "letterD"
+      },
+      "grade-10": {
+        "parse": "accepted",
+        "run": "letterF"
+      },
+      "grade-owise-95": {
+        "parse": "accepted",
+        "run": "letterA"
+      },
+      "grade-owise-85": {
+        "parse": "accepted",
+        "run": "letterB"
+      },
+      "grade-owise-75": {
+        "parse": "accepted",
+        "run": "letterC"
+      },
+      "grade-owise-65": {
+        "parse": "accepted",
+        "run": "letterD"
+      },
+      "grade-owise-10": {
+        "parse": "accepted",
+        "run": "letterF"
+      }
+    },
+    "krs-rule-forms-nondet": {
+      "toss": {
+        "parse": "accepted",
+        "run": null,
+        "search": [
+          "heads",
+          "tails"
+        ]
+      },
+      "strict-order": {
+        "parse": "accepted",
+        "run": null,
+        "search": [
+          "3",
+          "4"
+        ]
+      },
+      "div": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "div-zero": {
+        "parse": "accepted",
+        "run": "divByZero"
+      }
+    },
+    "krs-rule-forms-anywhere": {
+      "drop": {
+        "parse": "accepted",
+        "run": "b"
+      },
+      "drop-nested": {
+        "parse": "accepted",
+        "run": "wrap(b)"
+      },
+      "drop-repeated": {
+        "parse": "accepted",
+        "run": "c"
+      },
+      "reassociate": {
+        "native": {
+          "parse": "accepted",
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}()))), actual=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}()))"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "b ; c ; d"
+        }
+      },
+      "reassociate-nested": {
+        "native": {
+          "parse": "accepted",
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}())))), actual=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}())))"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "wrap(b ; c ; d)"
+        }
+      }
+    },
+    "krs-rule-forms-casts": {
+      "is-expression-int": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "is-expression-add": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "is-expression-block": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "is-expression-bool": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "bar": {
+        "parse": "accepted",
+        "run": "bar(3)"
+      },
+      "bar-not-int": {
+        "parse": "accepted",
+        "run": "bar(1 + 2)"
+      },
+      "baz": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "baz-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      }
+    },
+    "krs-rule-forms-fresh": {
+      "alloc-tx": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "a |-> loc(0) b |-> loc(2)",
+          "store": "loc(0) |-> 0 loc(2) |-> 0",
+          "txs": "1 |-> 1 3 |-> 1"
+        }
+      }
+    },
+    "krs-rule-forms-macros": {
+      "unless-false": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1"
+        }
+      },
+      "unless-true": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": ".Map"
+        }
+      },
+      "if-else": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1"
+        }
+      },
+      "int-recursive": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 0 y |-> 0 z |-> 0"
+        }
+      },
+      "decl-one-step": {
+        "native": {
+          "parse": "accepted",
+          "run": "refused: invalid executable state: invalid executable input: macro or alias symbol 'LbldeclareOnce' survived expansion"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "decl y , z , .Ids;"
+        }
+      },
+      "nest": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> nest(1 , 2 , .Ints)"
+        }
+      },
+      "twin-match": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "a |-> 1"
+        }
+      },
+      "twin-mismatch": {
+        "parse": "accepted",
+        "run": "twin a = pair(3, pair(4, 7));"
+      },
+      "ispair-match": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "b |-> 1"
+        }
+      },
+      "ispair-int": {
+        "parse": "accepted",
+        "run": "ispair b = 5;"
+      }
+    },
+    "krs-rule-forms-local-rewrite": {
+      "arithmetic-precedence": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 7"
+        }
+      },
+      "boolean-precedence": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> true"
+        }
+      },
+      "comparison-equality": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> true"
+        }
+      },
+      "division-left": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 1"
+        }
+      },
+      "division-parenthesized": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 4"
+        }
+      },
+      "parentheses-override": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 9"
+        }
+      },
+      "short-circuit-precedence": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> true"
+        }
+      },
+      "subtraction-left": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 3"
+        }
+      },
+      "unary-binding": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 1"
+        }
+      },
+      "iterated-unary": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> true"
+        }
+      },
+      "initial-environment": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 41 y |-> 42"
+        }
+      },
+      "lookup-evaluation-order": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 2 y |-> 8"
+        }
+      },
+      "right-associated-sequence": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1 y |-> 2 z |-> 3"
+        }
+      },
+      "single-assignment": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1"
+        }
+      },
+      "update-existing": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 5"
+        }
+      },
+      "block-sequence": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1 y |-> 2 z |-> 3"
+        }
+      },
+      "dangling-else": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1 y |-> 0"
+        }
+      },
+      "empty-block": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": ".Map"
+        }
+      },
+      "explicit-else": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 2"
+        }
+      },
+      "if-false": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 0"
+        }
+      },
+      "if-true": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1"
+        }
+      },
+      "nested-control": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 0"
+        }
+      },
+      "while-followed": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 0 y |-> 1"
+        }
+      },
+      "undeclared-assignment": {
+        "parse": "accepted",
+        "run": "x = 1;",
+        "cells": {
+          "env": ".Map"
+        }
+      }
+    },
+    "krs-rule-forms-restating-imp": {
+      "arithmetic-precedence": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 7"
+        }
+      },
+      "boolean-precedence": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> true"
+        }
+      },
+      "comparison-equality": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> true"
+        }
+      },
+      "division-left": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 1"
+        }
+      },
+      "division-parenthesized": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 4"
+        }
+      },
+      "parentheses-override": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 9"
+        }
+      },
+      "short-circuit-precedence": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> true"
+        }
+      },
+      "subtraction-left": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 3"
+        }
+      },
+      "unary-binding": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> 1"
+        }
+      },
+      "iterated-unary": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "result |-> true"
+        }
+      },
+      "initial-environment": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 41 y |-> 42"
+        }
+      },
+      "lookup-evaluation-order": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 2 y |-> 8"
+        }
+      },
+      "right-associated-sequence": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1 y |-> 2 z |-> 3"
+        }
+      },
+      "single-assignment": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1"
+        }
+      },
+      "update-existing": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 5"
+        }
+      },
+      "block-sequence": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1 y |-> 2 z |-> 3"
+        }
+      },
+      "dangling-else": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1 y |-> 0"
+        }
+      },
+      "empty-block": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": ".Map"
+        }
+      },
+      "explicit-else": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 2"
+        }
+      },
+      "if-false": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 0"
+        }
+      },
+      "if-true": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1"
+        }
+      },
+      "nested-control": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 0"
+        }
+      },
+      "while-followed": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 0 y |-> 1"
+        }
+      },
+      "undeclared-assignment": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1"
+        }
+      }
+    },
+    "krs-rule-forms-local-term": {
+      "unmark": {
+        "parse": "accepted",
+        "run": "pair(1, 2)"
+      },
+      "unmark-twice": {
+        "parse": "accepted",
+        "run": "pair(3, marked(4))"
+      },
+      "unmarked": {
+        "parse": "accepted",
+        "run": "pair(1, 2)"
+      }
+    },
+    "krs-rule-forms-heat-cool": {
+      "add-left": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "add-right": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "and": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-left": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-right": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "stuck": {
+        "parse": "accepted",
+        "run": "1 + true"
+      }
+    },
+    "krs-rule-forms-heat-cool-strict": {
+      "add-left": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "add-right": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "and": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-left": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-right": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "stuck": {
+        "parse": "accepted",
+        "run": "1 + true"
+      }
+    },
+    "krs-rule-forms-contexts": {
+      "add-left": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "add-right": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "and": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-left": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-right": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "stuck": {
+        "parse": "accepted",
+        "run": "1 + true"
+      }
+    },
+    "krs-rule-forms-contexts-lvalue": {
+      "increment": {
+        "parse": "accepted",
+        "run": "2",
+        "cells": {
+          "store": "x |-> 2"
+        }
+      },
+      "increment-other": {
+        "parse": "accepted",
+        "run": "6",
+        "cells": {
+          "store": "x |-> 1 y |-> 6"
+        }
+      }
+    },
+    "krs-rule-forms-contexts-evaluate": {
+      "twice-name-run": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "twice-name-translate": {
+        "parse": "accepted",
+        "run": "x + x"
+      },
+      "twice-sum-run": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "twice-sum-translate": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "assign-run": {
+        "parse": "accepted",
+        "run": "1 + 2 = x"
+      },
+      "assign-translate": {
+        "parse": "accepted",
+        "run": "3 = x"
+      }
+    }
+  },
+  "diagnostics": {
+    "owise-with-priority": [
+      "error[krs::syntax::invalid-rule-key]: owise is priority 200; write one of them"
+    ],
+    "priority-out-of-range": [
+      "error[krs::syntax::invalid-rule-key]: k-rust ranks rule priorities 0..=254"
+    ],
+    "retired-priority": [
+      "error[krs::syntax::retired-attribute]: `#[k::priority(..)]` is retired; write `#[k::equation(priority = 60)]`"
+    ],
+    "owise-simplification": [
+      "error[krs::syntax::invalid-rule-key]: a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there"
+    ],
+    "priority-alias": [
+      "error[krs::syntax::invalid-rule-key]: static rules have no priority"
+    ],
+    "unannotated-overlap": [
+      "error[krs::analysis::overlapping-rule-heads]: rules `heads` and `tails` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
+    ],
+    "single-member-group": [
+      "error[krs::analysis::nondet-group]: nondet group `toss` has only one rule"
+    ],
+    "stale-member": [
+      "error[krs::analysis::nondet-group]: rule `flip` is in nondet group `toss` but overlaps no other rule of the group"
+    ],
+    "mixed-priorities": [
+      "error[krs::analysis::nondet-group]: nondet group `toss` mixes priorities 50 and 200; rules at different priorities never compete"
+    ],
+    "nondet-equation": [
+      "error[krs::syntax::invalid-rule-key]: functions are deterministic in K; overlapping equations make the function ill-defined"
+    ],
+    "anywhere-readable": [
+      "error[krs::syntax::invalid-rule-key]: an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn"
+    ],
+    "anywhere-cells": [
+      "error[krs::syntax::invalid-rule-key]: an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn"
+    ],
+    "anywhere-priority": [
+      "error[krs::syntax::invalid-rule-key]: an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`"
+    ],
+    "binder-unused": [
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: binder `extra` is declared but does not occur in the subject"
+    ],
+    "binder-partial": [
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a term sentence declares no binders or all of them, here `left, right`"
+    ],
+    "binder-misordered": [
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a term sentence declares no binders or all of them, here `left, right`"
+    ],
+    "binder-incompatible": [
+      "error[krs::analysis::incompatible-binder]: binder `value` is declared `Bool` but this occurrence needs `Exp`"
+    ],
+    "fresh-no-generator": [
+      "error[krs::analysis::no-fresh-generator]: fresh binder `l` has sort `Loc`, which has no generator; declare `#[k::function(total, fresh_generator, sort = Loc, syntax = \"..\")]` with one Int field (Int and Id have K's own)"
+    ],
+    "fresh-two-generators": [
+      "error[krs::analysis::duplicate-fresh-generator]: sort `Loc` has two `fresh_generator` functions, `FreshLoc` and `OtherLoc`; K draws its fresh values from exactly one"
+    ],
+    "fresh-partial-generator": [
+      "error[krs::analysis::invalid-fresh-generator]: `FreshLoc` is a `fresh_generator`, so it must be `total`: K calls it on every counter value"
+    ],
+    "desugar-mode-mismatch": [
+      "error[krs::analysis::invalid-static-clause]: desugar clause `flip` expands `Static::Flip`, which is marked `#[k::alias]`: a clause takes its production's mode, so write `#[k::alias]` on the clause, or `#[k::desugar]` on the production"
+    ],
+    "desugar-without-clause": [
+      "error[krs::analysis::invalid-static-clause]: `Static::Flip` is marked `#[k::desugar]` but no `#[k::desugar]` clause expands it, so nothing expands it; add a `#[k::desugar] fn` whose pattern is headed by `Static::Flip`"
+    ],
+    "desugar-requires": [
+      "error[krs::syntax::invalid-rule-key]: a desugar clause has no `#[k::requires]`: K rewrites the definition and the program with it once, before anything runs, so there is nothing to test a condition against"
+    ],
+    "desugar-clause-payload": [
+      "error[krs::syntax::invalid-rule-key]: recursion is a property of the production: write `recursive` on the production's `#[k::alias]` or `#[k::desugar]` marker, and a plain marker on its clauses"
+    ],
+    "local-rewrite-nested": [
+      "error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` cannot occur inside another rewrite; K rewrites do not nest"
+    ],
+    "local-rewrite-unbound": [
+      "error[krs::syntax::invalid-local-rewrite]: `other` on the right of `k::rewrite!` is not bound by the rule's left image (its subject with each rewrite replaced by its left side); bind it in the pattern, or qualify a unit constructor"
+    ],
+    "local-rewrite-outside": [
+      "error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn (one that returns `()`) or of a `#[k::context]` fn"
+    ],
+    "local-rewrite-with-result": [
+      "error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state"
+    ],
+    "local-rewrite-unchanged": [
+      "error[krs::syntax::invalid-local-rewrite]: a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result"
+    ],
+    "heat-cool-hole-not-left": [
+      "error[krs::analysis::invalid-heat-cool]: a heat rule must match its hole on the left side; K adds 'requires notBool isKResult(HOLE)', a condition on that subterm, and `x` does not occur there"
+    ],
+    "heat-cool-hole-twice": [
+      "error[krs::analysis::invalid-heat-cool]: the hole `h` of a heat rule names one subterm, but the left side binds it 2 times; bind the other occurrences with another name"
+    ],
+    "context-hole-outside-k": [
+      "error[krs::analysis::invalid-context]: the context's hole `h` lies in the `focus` cell, but heating moves the hole to the front of k; constrain other cells, but put the hole in k"
+    ],
+    "context-bad-rewrite": [
+      "error[krs::analysis::invalid-context]: a context may rewrite only its hole, to a term that contains it: K requires HOLE => term-containing-HOLE, here `k::rewrite!(h => f(h))`"
+    ],
+    "context-hole-absent": [
+      "error[krs::analysis::invalid-context]: a context names the subterm K evaluates with `hole = x`, but `x` does not occur in its pattern; K requires exactly one HOLE"
+    ],
+    "alias-without-clause": [
+      "error[krs::analysis::invalid-static-clause]: `Static::Flip` is marked `#[k::alias]` but no `#[k::alias]` clause expands it, so nothing expands it; add a `#[k::alias] fn` whose pattern is headed by `Static::Flip`"
+    ]
+  },
+  "known_divergences": {
+    "krs-rule-forms-anywhere": {
+      "reassociate": {
+        "native": {
+          "parse": "accepted",
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}()))), actual=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}()))"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "b ; c ; d"
+        }
+      },
+      "reassociate-nested": {
+        "native": {
+          "parse": "accepted",
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}())))), actual=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}())))"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "wrap(b ; c ; d)"
+        }
+      }
+    },
+    "krs-rule-forms-casts": {
+      "baz-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      }
+    },
+    "krs-rule-forms-macros": {
+      "decl-one-step": {
+        "native": {
+          "parse": "accepted",
+          "run": "refused: invalid executable state: invalid executable input: macro or alias symbol 'LbldeclareOnce' survived expansion"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "decl y , z , .Ids;"
+        }
+      }
+    }
+  },
+  "capability_refusals": {
+    "java-haskell-reference": "error[krs::capability::unavailable]: definition contains anywhere rules [drop-a, reassociate]; K 7.1.337's Haskell backend rejects them (and --allow-anywhere-haskell would drop them); run this on the LLVM or k-rust route"
+  },
+  "definition_divergences": {
+    "local-rewrite": {
+      "undeclared-assignment": {
+        "local-rewrite": {
+          "parse": "accepted",
+          "run": "x = 1;",
+          "cells": {
+            "env": ".Map"
+          }
+        },
+        "restating-imp": {
+          "parse": "accepted",
+          "run": ".K",
+          "cells": {
+            "env": "x |-> 1"
+          }
+        }
+      }
+    }
+  },
+  "trace_shapes": {
+    "heat-cool": {
+      "add-left": [
+        "heat",
+        "add",
+        "cool",
+        "add"
+      ],
+      "add-right": [
+        "heat",
+        "add",
+        "cool",
+        "add"
+      ],
+      "and": [
+        "and"
+      ],
+      "and-left": [
+        "heat",
+        "and",
+        "cool",
+        "and"
+      ],
+      "and-right": [
+        "heat",
+        "and",
+        "cool",
+        "and"
+      ],
+      "stuck": []
+    }
+  },
+  "trace_labels": {
+    "contexts": {
+      "add-left": [
+        "KRS-CONTEXTS.add-lhs-heat",
+        "KRS-CONTEXTS.add",
+        "KRS-CONTEXTS.add-lhs-cool",
+        "KRS-CONTEXTS.add"
+      ]
+    }
+  }
+}

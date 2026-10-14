@@ -1,0 +1,522 @@
+//! Stage reference checks and the recursive validator for transport terms.
+
+use std::collections::BTreeSet;
+
+use super::detail::StateTermReason;
+use crate::{
+    BuiltinSort, DescriptorStage, HostStage, ItemKind, ProductionFieldId, ProvenanceKey, Stage,
+};
+
+use super::configuration::StateTransportError;
+use super::grammar::{
+    CellTermField, DescriptorApplicationHeadClass, DescriptorLiteral, GrammarTransportError,
+    SortTestKind, Term,
+};
+
+/// Host references carry Rust type keys without stable item kinds or field text.
+/// Collector output must pass `Descriptor::new` after resolution, which runs the descriptor-stage contracts.
+pub(crate) trait ValidationStage: Stage {
+    /// Reads sort provenance from an unresolved host occurrence or a resolved descriptor occurrence.
+    fn sort_key(sort: &Self::Sort) -> &ProvenanceKey;
+    /// Reads application provenance from an unresolved host occurrence or a resolved descriptor occurrence.
+    fn application_key(application: &Self::Application) -> &ProvenanceKey;
+    /// Host sort kinds must be checked by `DescriptorStage::validate_sort` after resolution.
+    fn validate_sort(sort: &Self::Sort) -> Result<(), GrammarTransportError>;
+    /// Host application kinds and catalogs must be checked by `DescriptorStage::validate_application` after resolution.
+    fn validate_application(application: &Self::Application) -> Result<(), GrammarTransportError>;
+    /// Host fragments require children with their host error; `DescriptorStage::validate_fragment` must also check the resolved Cell kind.
+    fn validate_fragment(
+        declaration: &Self::Nominal,
+        empty: bool,
+    ) -> Result<(), StateTransportError>;
+}
+
+impl ValidationStage for HostStage {
+    fn sort_key(sort: &Self::Sort) -> &ProvenanceKey {
+        &sort.key
+    }
+
+    fn application_key(application: &Self::Application) -> &ProvenanceKey {
+        &application.key
+    }
+
+    fn validate_sort(_: &Self::Sort) -> Result<(), GrammarTransportError> {
+        Ok(())
+    }
+
+    fn validate_application(_: &Self::Application) -> Result<(), GrammarTransportError> {
+        Ok(())
+    }
+
+    fn validate_fragment(_: &Self::Nominal, empty: bool) -> Result<(), StateTransportError> {
+        if empty {
+            Err(StateTransportError::InvalidTerm(
+                StateTermReason::EmptyFragment,
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl ValidationStage for DescriptorStage {
+    fn sort_key(sort: &Self::Sort) -> &ProvenanceKey {
+        &sort.key
+    }
+
+    fn application_key(application: &Self::Application) -> &ProvenanceKey {
+        &application.key
+    }
+
+    fn validate_sort(sort: &Self::Sort) -> Result<(), GrammarTransportError> {
+        sort.sort.validate()
+    }
+
+    fn validate_application(application: &Self::Application) -> Result<(), GrammarTransportError> {
+        application.application.validate()
+    }
+
+    fn validate_fragment(
+        declaration: &Self::Nominal,
+        empty: bool,
+    ) -> Result<(), StateTransportError> {
+        if declaration.item_kind() != ItemKind::Cell || empty {
+            Err(StateTransportError::InvalidTerm(
+                StateTermReason::EmptyOrNonNominalFragment,
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Nonrecursive checks for one term context.
+/// Each hook must finish the node's checks before the shared traversal visits its children.
+pub(crate) trait TermValidation<S: ValidationStage> {
+    type Error;
+
+    fn variable(
+        &mut self,
+        key: &ProvenanceKey,
+        path_key: &ProvenanceKey,
+        name: &str,
+    ) -> Result<(), Self::Error>;
+
+    fn application(
+        &mut self,
+        head_class: DescriptorApplicationHeadClass,
+        reference: &S::Application,
+        path_key: &ProvenanceKey,
+        arguments: &crate::Arguments<S>,
+    ) -> Result<(), Self::Error>;
+
+    fn literal(
+        &mut self,
+        key: &ProvenanceKey,
+        literal: &DescriptorLiteral,
+    ) -> Result<(), Self::Error>;
+
+    fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error>;
+
+    fn builtin_token(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: BuiltinSort,
+        value: &str,
+    ) -> Result<(), Self::Error>;
+
+    fn anonymous(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &S::Sort,
+        spelling: &str,
+    ) -> Result<(), Self::Error>;
+
+    fn or_bool(
+        &mut self,
+        key: &ProvenanceKey,
+        _arguments: &crate::AtLeastTwo<Term<S>>,
+    ) -> Result<(), Self::Error>;
+
+    fn lexeme(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &S::Sort,
+        text: &str,
+    ) -> Result<(), Self::Error>;
+
+    fn cell(
+        &mut self,
+        key: &ProvenanceKey,
+        declaration: &S::Nominal,
+        fields: &[CellTermField<S>],
+    ) -> Result<(), Self::Error>;
+
+    fn sort_test(
+        &mut self,
+        key: &ProvenanceKey,
+        kind: SortTestKind,
+        sort: &S::Sort,
+    ) -> Result<(), Self::Error>;
+
+    /// One turbofish sort argument of a parametric application head (KF-027).
+    fn application_instance(&mut self, sort: &S::Sort) -> Result<(), Self::Error>;
+
+    /// `name @ pattern` (K's `#as`), admitted only in left-hand sides.
+    fn pattern_as(
+        &mut self,
+        key: &ProvenanceKey,
+        binding_key: &ProvenanceKey,
+        name: &str,
+    ) -> Result<(), Self::Error>;
+
+    /// `A | B | ..` (K's `#Or`), admitted only in left-hand sides and in
+    /// the pattern of a `k::matches!`.
+    fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error>;
+
+    /// `k::matches!(subject, pattern)` (K's `:=K`), admitted only outside
+    /// left-hand sides and never inside another `k::matches!` pattern.
+    fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error>;
+
+    /// Enters (`true`) or leaves (`false`) the pattern of a `k::matches!`,
+    /// where wildcards, `name @ pattern`, `A | B`, and local binders are
+    /// admitted.
+    fn matches_pattern(&mut self, inside: bool);
+
+    /// One `let pattern = value;` statement (K's `#let`), admitted only
+    /// outside left-hand sides and patterns; `sort` is the ascription of
+    /// `let name: Sort = value;`.
+    fn let_binding(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: Option<&S::Sort>,
+    ) -> Result<(), Self::Error>;
+
+    /// Enters (`true`) or leaves (`false`) the pattern of a `let` statement,
+    /// where wildcards and local binders are admitted.
+    fn let_pattern(&mut self, inside: bool);
+
+    /// The closure `|name: sort| body` of an `ml::exists` (KF-039), admitted
+    /// only outside left-hand sides and patterns. Its body is validated
+    /// next, inside a [`Self::let_body`] scope that binds `name`.
+    fn closure(
+        &mut self,
+        key: &ProvenanceKey,
+        binder_key: &ProvenanceKey,
+        sort: &S::Sort,
+    ) -> Result<(), Self::Error>;
+
+    /// Enters (`Some`) or leaves (`None`) the body of a `let` statement, in
+    /// which the pattern's names are local binders.
+    fn let_body(&mut self, names: Option<&BTreeSet<String>>);
+
+    /// `k::rewrite!(from => to)` (K's local `=>`, KF-011), admitted only in
+    /// the subject of a single-body rule; `nested` says a side holds another
+    /// rewrite.
+    fn rewrite(
+        &mut self,
+        key: &ProvenanceKey,
+        from_key: &ProvenanceKey,
+        to_key: &ProvenanceKey,
+        nested: bool,
+    ) -> Result<(), Self::Error>;
+
+    /// Enters (`true`) or leaves (`false`) the right side of a
+    /// `k::rewrite!`, whose names use the subject's bindings and which
+    /// admits no wildcard.
+    fn rewrite_right(&mut self, inside: bool);
+
+    fn argument(
+        &mut self,
+        argument: crate::TermArgumentRef<'_, S>,
+        fields: &mut BTreeSet<ProductionFieldId>,
+    ) -> Result<(), Self::Error>;
+
+    fn cell_field(
+        &mut self,
+        field: &CellTermField<S>,
+        names: &mut BTreeSet<ProductionFieldId>,
+    ) -> Result<(), Self::Error>;
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "One exhaustive match validates every transport term variant."
+)]
+pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
+    term: &Term<S>,
+    context: &mut C,
+) -> Result<(), C::Error> {
+    match term {
+        Term::Variable {
+            key,
+            path_key,
+            name,
+        } => context.variable(key, path_key, name),
+        Term::Application {
+            head_class,
+            reference,
+            path_key,
+            arguments,
+            instance,
+        } => {
+            context.application(*head_class, reference, path_key, arguments)?;
+            for sort in instance {
+                context.application_instance(sort)?;
+            }
+            validate_arguments(arguments, context)
+        }
+        Term::Literal { key, literal } => context.literal(key, literal),
+        Term::Wildcard { key } => context.wildcard(key),
+        Term::BuiltinToken { key, sort, value } => context.builtin_token(key, *sort, value),
+        Term::Anonymous {
+            key,
+            sort,
+            spelling,
+        } => context.anonymous(key, sort, spelling),
+        Term::OrBool { key, arguments } => {
+            context.or_bool(key, arguments)?;
+            for argument in arguments.iter() {
+                validate_term(argument, context)?;
+            }
+            Ok(())
+        }
+        Term::Lexeme { key, sort, text } => context.lexeme(key, sort, text),
+        Term::Cell {
+            key,
+            declaration,
+            fields,
+        } => {
+            context.cell(key, declaration, fields)?;
+            let mut names = BTreeSet::new();
+            for field in fields {
+                context.cell_field(field, &mut names)?;
+                validate_term(&field.value, context)?;
+            }
+            Ok(())
+        }
+        Term::SortTest {
+            key,
+            kind,
+            sort,
+            operand,
+        } => {
+            context.sort_test(key, *kind, sort)?;
+            validate_term(operand, context)
+        }
+        Term::As {
+            key,
+            binding_key,
+            name,
+            pattern,
+        } => {
+            context.pattern_as(key, binding_key, name)?;
+            validate_term(pattern, context)
+        }
+        Term::Or { key, alternatives } => {
+            context.pattern_or(key)?;
+            for alternative in alternatives.iter() {
+                validate_term(alternative, context)?;
+            }
+            Ok(())
+        }
+        Term::Matches {
+            key,
+            subject,
+            pattern,
+        } => {
+            context.matches(key)?;
+            validate_term(subject, context)?;
+            context.matches_pattern(true);
+            let validated = validate_term(pattern, context);
+            context.matches_pattern(false);
+            validated
+        }
+        Term::Let {
+            key,
+            pattern,
+            sort,
+            value,
+            body,
+        } => validate_let(key, pattern, sort.as_ref(), value, body, context),
+        Term::Closure {
+            key,
+            binder_key,
+            name,
+            sort,
+            body,
+        } => {
+            context.closure(key, binder_key, sort)?;
+            context.let_body(Some(&BTreeSet::from([name.clone()])));
+            let validated = validate_term(body, context);
+            context.let_body(None);
+            validated
+        }
+        Term::Rewrite {
+            key,
+            from_key,
+            to_key,
+            from,
+            to,
+        } => {
+            let nested = contains_rewrite(from) || to.as_deref().is_some_and(contains_rewrite);
+            context.rewrite(key, from_key, to_key, nested)?;
+            validate_term(from, context)?;
+            let Some(to) = to else {
+                return Ok(());
+            };
+            context.rewrite_right(true);
+            let validated = validate_term(to, context);
+            context.rewrite_right(false);
+            validated
+        }
+    }
+}
+
+/// Validates one `let` statement in source order: the pattern, the value,
+/// then the body, in which the pattern's names are local binders.
+fn validate_let<S: ValidationStage, C: TermValidation<S>>(
+    key: &ProvenanceKey,
+    pattern: &Term<S>,
+    sort: Option<&S::Sort>,
+    value: &Term<S>,
+    body: &Term<S>,
+    context: &mut C,
+) -> Result<(), C::Error> {
+    context.let_binding(key, sort)?;
+    context.let_pattern(true);
+    let validated = validate_term(pattern, context);
+    context.let_pattern(false);
+    validated?;
+    validate_term(value, context)?;
+    let mut names = BTreeSet::new();
+    let_pattern_names(pattern, &mut names);
+    context.let_body(Some(&names));
+    let validated = validate_term(body, context);
+    context.let_body(None);
+    validated
+}
+
+/// The names a `let` pattern binds: its variables and `name @ ..` aliases.
+pub(crate) fn let_pattern_names<S: ValidationStage>(term: &Term<S>, names: &mut BTreeSet<String>) {
+    match term {
+        Term::Variable { name, .. } => {
+            names.insert(name.clone());
+        }
+        Term::As { name, pattern, .. } => {
+            names.insert(name.clone());
+            let_pattern_names(pattern, names);
+        }
+        Term::Application { arguments, .. } => {
+            for argument in arguments {
+                let (crate::TermArgumentRef::Positional { value }
+                | crate::TermArgumentRef::Named { value, .. }) = argument.clone();
+                let_pattern_names(value, names);
+            }
+        }
+        Term::Or { alternatives, .. } => {
+            for alternative in alternatives.iter() {
+                let_pattern_names(alternative, names);
+            }
+        }
+        Term::OrBool { arguments, .. } => {
+            for argument in arguments.iter() {
+                let_pattern_names(argument, names);
+            }
+        }
+        Term::Cell { fields, .. } => {
+            for field in fields {
+                let_pattern_names(&field.value, names);
+            }
+        }
+        Term::SortTest { operand, .. } => let_pattern_names(operand, names),
+        Term::Rewrite { from, .. } => let_pattern_names(from, names),
+        Term::Matches { .. }
+        | Term::Let { .. }
+        | Term::Closure { .. }
+        | Term::Literal { .. }
+        | Term::Wildcard { .. }
+        | Term::BuiltinToken { .. }
+        | Term::Anonymous { .. }
+        | Term::Lexeme { .. } => {}
+    }
+}
+
+/// The direct subterms of `term`, in source order.
+pub(crate) fn term_children<S: Stage>(term: &Term<S>) -> Vec<&Term<S>> {
+    match term {
+        Term::Application { arguments, .. } => arguments
+            .into_iter()
+            .map(|argument| match argument {
+                crate::TermArgumentRef::Positional { value }
+                | crate::TermArgumentRef::Named { value, .. } => value,
+            })
+            .collect(),
+        Term::OrBool { arguments, .. } => arguments.iter().collect(),
+        Term::Or { alternatives, .. } => alternatives.iter().collect(),
+        Term::Cell { fields, .. } => fields.iter().map(|field| &*field.value).collect(),
+        Term::SortTest { operand, .. } => vec![&**operand],
+        Term::As { pattern, .. } => vec![&**pattern],
+        Term::Matches {
+            subject, pattern, ..
+        } => vec![&**subject, &**pattern],
+        Term::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => vec![&**pattern, &**value, &**body],
+        Term::Closure { body, .. } => vec![&**body],
+        Term::Rewrite { from, to, .. } => std::iter::once(&**from)
+            .chain(to.as_ref().map(|to| &**to))
+            .collect(),
+        Term::Variable { .. }
+        | Term::Literal { .. }
+        | Term::Wildcard { .. }
+        | Term::BuiltinToken { .. }
+        | Term::Anonymous { .. }
+        | Term::Lexeme { .. } => Vec::new(),
+    }
+}
+
+/// Whether `term` contains a `k::rewrite!` (KF-011).
+pub(crate) fn contains_rewrite<S: Stage>(term: &Term<S>) -> bool {
+    matches!(term, Term::Rewrite { .. }) || term_children(term).into_iter().any(contains_rewrite)
+}
+
+/// The number of `k::rewrite!` nodes at or below `term` (a context allows
+/// at most one, KF-021).
+pub(crate) fn count_rewrites<S: Stage>(term: &Term<S>) -> usize {
+    usize::from(matches!(term, Term::Rewrite { .. }))
+        + term_children(term)
+            .into_iter()
+            .map(count_rewrites)
+            .sum::<usize>()
+}
+
+/// Whether a `k::rewrite!` whose right side is `()` (`.K`) occurs anywhere
+/// but at the root of `term` (a whole K-sequence item when `root_allowed`).
+pub(crate) fn misplaced_empty_rewrite<S: Stage>(term: &Term<S>, root_allowed: bool) -> bool {
+    if let Term::Rewrite { to: None, .. } = term
+        && !root_allowed
+    {
+        return true;
+    }
+    term_children(term)
+        .into_iter()
+        .any(|child| misplaced_empty_rewrite(child, false))
+}
+
+fn validate_arguments<S: ValidationStage, C: TermValidation<S>>(
+    arguments: &crate::Arguments<S>,
+    context: &mut C,
+) -> Result<(), C::Error> {
+    let mut fields = BTreeSet::new();
+    for argument in arguments {
+        context.argument(argument.clone(), &mut fields)?;
+        let (crate::TermArgumentRef::Positional { value }
+        | crate::TermArgumentRef::Named { value, .. }) = argument;
+        validate_term(value, context)?;
+    }
+    Ok(())
+}

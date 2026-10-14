@@ -1,0 +1,133 @@
+pub struct Machine {
+    pub k: ::k::configuration::KCell<KSequence>,
+}
+impl Machine {
+    #[doc(hidden)]
+    pub fn __krs_configuration_type_key() -> ::core::any::TypeId {
+        ::core::any::TypeId::of::<Self>()
+    }
+    #[doc(hidden)]
+    pub fn __krs_cell_field_type_id_k() -> ::core::any::TypeId {
+        struct __KrsCellFieldMarker;
+        ::core::any::TypeId::of::<__KrsCellFieldMarker>()
+    }
+    #[doc(hidden)]
+    pub fn __krs_configuration_sort___krs_configuration_type_820e5d57a698d25c_0() -> ::core::any::TypeId {
+        ::core::any::TypeId::of::<KSequence>()
+    }
+}
+#[doc(hidden)]
+fn __krs_configuration_type_820e5d57a698d25c() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Machine>()
+}
+#[doc(hidden)]
+fn __krs_configuration_descriptor_820e5d57a698d25c() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    let (initializer, initializer_slots, initializer_provenance) = Machine::__krs_initializer_payload()?;
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "Machine",
+                ::k::ItemKind::Configuration,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_configuration_type_820e5d57a698d25c),
+            ),
+        ),
+        payload: (::k::__KrsSlots {
+            types: &[
+                ::k::HostTypeKey(
+                    Machine::__krs_configuration_sort___krs_configuration_type_820e5d57a698d25c_0,
+                ),
+                ::k::HostTypeKey(__krs_configuration_type_820e5d57a698d25c),
+                ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k),
+            ],
+            items: &[],
+            targets: &[],
+        })
+            .__krs_fixed_configuration(
+                "[{\"root_kind\":\"generated_top\"},{\"key\":{\"role\":\"configuration_declaration\",\"ordinal\":0},\"fields\":[{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":0},\"cell\":{\"owner\":1,\"field\":2}},\"rust_field\":\"k\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":0},\"wrapper\":\"k_cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"KSequence\"}}}}]}]",
+                initializer,
+                initializer_slots,
+            ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+                "",
+                const {
+                    const __KRS_AUTHORED: &[(
+                        ::k::ProvenanceRole,
+                        u32,
+                        ::k::__KrsRawAnchor,
+                    )] = &[
+                        (
+                            ::k::ProvenanceRole::ConfigurationDeclaration,
+                            0u32,
+                            ::k::__KrsRawAnchor::new(
+                                0usize,
+                                false,
+                                (3u32, 12u32),
+                                (3u32, 19u32),
+                                true,
+                            ),
+                        ),
+                        (
+                            ::k::ProvenanceRole::ConfigurationField,
+                            0u32,
+                            ::k::__KrsRawAnchor::new(
+                                0usize,
+                                false,
+                                (5u32, 9u32),
+                                (5u32, 10u32),
+                                true,
+                            ),
+                        ),
+                        (
+                            ::k::ProvenanceRole::ConfigurationCellWrapper,
+                            0u32,
+                            ::k::__KrsRawAnchor::new(
+                                0usize,
+                                false,
+                                (5u32, 12u32),
+                                (5u32, 21u32),
+                                true,
+                            ),
+                        ),
+                        (
+                            ::k::ProvenanceRole::ConfigurationCellContent,
+                            0u32,
+                            ::k::__KrsRawAnchor::new(
+                                0usize,
+                                false,
+                                (5u32, 12u32),
+                                (5u32, 21u32),
+                                true,
+                            ),
+                        ),
+                    ];
+                    &::k::__KrsRawProvenance::new(
+                        &["src/lib.rs"],
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (2u32, 1u32),
+                            (2u32, 20u32),
+                            true,
+                        ),
+                        __KRS_AUTHORED,
+                    )
+                },
+            )?
+            .merge(initializer_provenance)
+            .expect("configuration and initializer provenance keys are disjoint"),
+    })
+}
+::k::__register_host_descriptor!(__krs_configuration_descriptor_820e5d57a698d25c);

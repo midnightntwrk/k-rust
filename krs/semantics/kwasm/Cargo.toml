@@ -1,0 +1,35 @@
+[package]
+name = "krs-kwasm-semantics"
+description = "Incremental KRS port of KWasm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "krs_kwasm_semantics"
+path = "src/lib.rs"
+
+[dependencies]
+k = { package = "krs", path = "../../crates/krs" }
+
+[dev-dependencies]
+krs-collector = { path = "../../crates/krs-collector" }
+krs-compiler = { path = "../../crates/krs-compiler" }
+krs-ir = { path = "../../crates/krs-ir" }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+syn = { version = "2.0.119", features = ["full"] }
+
+[package.metadata.krs]
+k-namespace = "KRS-KWASM"
+
+[package.metadata.krs.definitions.main]
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

@@ -1,0 +1,414 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-grammar-partition": "91351b472852bc451f64a4cdc2c4ca8451ae07171a247ced7a096eeb65259282",
+    "krs-grammar-format": "e7e75d0ac707631752b351fb0dfaf3d51af2141018a18c6efbb88b95ce6b68f4",
+    "krs-grammar-prefer": "12aa841c355d010c8f5db122211ac01d24eae64f440da105064650f14a508151",
+    "krs-grammar-overload": "ee127ee1258546bd786e2485a8818073c76dcf0d75881eb794da312d3716408d",
+    "krs-grammar-overload-ambiguous": "914c8e1bc684ca6d0438fc2996f5d2ec6e9f1a3ec553dcd8c554c3a8987f9799",
+    "krs-grammar-visibility": "ff411851741b7f03e512aa4eb0be8a290c3e316c958cd23268d718748a073cce",
+    "krs-grammar-memo": "f9f98147d5603d1462625f8cd37abb7244a5f70ebd1e75c9957b4164cfbb2a70",
+    "krs-grammar-tokens": "d77547a86c535387135e586f5f855dcdaba28164242dab0b1aa085a234307f5a",
+    "krs-grammar-token-id": "47d8d9c0f113d3c06c4f65cb40d36e181ccca7b8d6f5a339d3ce9dfcd7087558",
+    "krs-grammar-layout": "984b2fc390e4084fb729c5917aecffa19784ff0ace6e8af59c48cc6f25fc6236",
+    "krs-grammar-lists": "e83ca5e8e6a372a473a72c86764cb910f895077a1904e558dbad7d208853ba7c",
+    "krs-grammar-strict-lists": "9b38521170a171b37d811a33b0fa3ae43c7a0dcd721eb3eae07ab4f5482e47d7"
+  },
+  "emitted": {
+    "krs-grammar-partition": {
+      "definition.k": "d2757fa0391949a2303d451509c9c339238bfe06cb0a0f28151eea765230d348"
+    },
+    "krs-grammar-kevm-case": {
+      "definition.k": "c90297c46dcabba85e8c57961c34ec3072b0f9545f680fd3c311ba26753c9bf9"
+    },
+    "krs-grammar-format": {
+      "definition.k": "c7c532a70e9b597e36ca2428459ec156fac752e9c71339f00d5c444fa47ccc52"
+    },
+    "krs-grammar-prefer": {
+      "definition.k": "67edfbe87cfcc6c657016bb16f8ddeed61c6f3e2c9e11e0668daadd77ba85966"
+    },
+    "krs-grammar-overload": {
+      "definition.k": "ec483c5c9101ee634d97080ee5437ba75b6dffdb5ecd860f15f7088289afbb60"
+    },
+    "krs-grammar-overload-ambiguous": {
+      "definition.k": "0ebae8d6d1e443b1646a924402f0a5264b23cf043639d6d1c2c501c363b6ba3a"
+    },
+    "krs-grammar-visibility": {
+      "definition.k": "6f80127fe9961ab5505f8259da4fbda130ebe1fdac0883958524f53b48a7f36a"
+    },
+    "krs-grammar-memo": {
+      "definition.k": "8a221b36b665da6ca887e2d2b28f531530bb67e0dbb25f56f2d8a58d3ef1a2e6"
+    },
+    "krs-grammar-tokens": {
+      "definition.k": "1e94b58acb97fc5a22575b09fe8840d98db29f106d4e1fe34362cb674268f388"
+    },
+    "krs-grammar-token-id": {
+      "definition.k": "9239c886bb626a77fa248bc8060eb70ba180bf71636541ac2091fc61144dbe78"
+    },
+    "krs-grammar-layout": {
+      "definition.k": "a4e0dc19387556de0c0cdc8945827567ceb0ec1b1f013b678fcf17be13f3e69f"
+    },
+    "krs-grammar-lists": {
+      "definition.k": "18defbcf9dc5ff3d43483e21f65969699debe1244a44e76902a9ff857ed2a4c0"
+    },
+    "krs-grammar-strict-lists": {
+      "definition.k": "4c50755c07c019cd83e1df1b193302af3b32e869944edacf6c4c23557127654a"
+    },
+    "krs-grammar-dependency-rules": {
+      "definition.k": "48849548976a93dbc6e5300f571b75147d33f85d0a4ec945dcd6e4bbaf29ed3b"
+    }
+  },
+  "partition": {
+    "krs-grammar-partition": "KRS-PART-SYNTAX (program syntax)\n  sort Exp\n  sort Value\n  subsort Value ::= Int\n  subsort Exp ::= Value\n  subsort Value ::= Bool\n  production ExpSyntax::And\n  production ExpSyntax::Neg\nKRS-PART (pub productions that are not program syntax)\n  (none)\n",
+    "krs-grammar-kevm-case": "KRS-EVM-SYNTAX (program syntax)\n  sort Command\n  sort LogEntry\n  production Commands::Done\n  production Commands::Emit\nKRS-EVM (pub productions that are not program syntax)\n  production BlockHashLookup: argument `hashes: List`: K has no LIST-SYNTAX module\n  production LogRecord::Entry: argument `topics: List`: K has no LIST-SYNTAX module\n",
+    "krs-grammar-program-warning": "KRS-PROGRAM-WARNING-SYNTAX (program syntax)\n  sort LogEntry\nKRS-PROGRAM-WARNING (pub productions that are not program syntax)\n  production LogRecord::Entry: argument `topics: List`: K has no LIST-SYNTAX module\n"
+  },
+  "partition_warnings": {
+    "krs-grammar-partition": [],
+    "krs-grammar-kevm-case": [],
+    "krs-grammar-program-warning": [
+      "warning[krs::partition::not-program-syntax]: `LogRecord::Entry` is marked `program` but its field `topics: List` needs K's LIST module, which has no -SYNTAX variant; it is placed in KRS-PROGRAM-WARNING and programs cannot contain it"
+    ]
+  },
+  "reference_sha256": {
+    "krs-grammar-partition": "b5efe564c517d4efa254ef508c6ae714bbc9ad77f899e512bce5bd4b6fe54bdb",
+    "krs-grammar-kevm-case": "cd3b6a00d3e958f904a49796b8d252b6ec46ded60fdea007d54bfe7b8245f0ab",
+    "krs-grammar-format": "f579f9fbe1cfa7110ca96492451bb829b78f9369883b8e64d8f67d401e558961",
+    "krs-grammar-prefer": "39f07f13a344cae9b693afdf630972b3f0c7abbe6ab1eac56fbfcba9d2c071c0",
+    "krs-grammar-overload": "9ee345597e98a86fe7dbaa301c7b382edf9c88144af2895bbc3a56540f2ab11d",
+    "krs-grammar-overload-ambiguous": "2aaf7e7034a69124bfb346ba66d29c9ac51d4815c2d7cf5a84cf9424da451679",
+    "krs-grammar-visibility": "bb5f2b50211ff0e96e03b6feaf4f9ebc2635773e2082a31700bb8a09e34ffc80",
+    "visibility-induced": "5a303ef0dbc2a7c973c9a5a29e4d420ed2739cf1286b34c3ba0f80b209d76b8f",
+    "krs-grammar-memo": "2ff051ad1d3385c224da52f74d6b8f89e912159bba792a4bf10b9415df55fe73",
+    "krs-grammar-tokens": "ec27c996aaf89289c55b607d15717390145bf97113ddbf225c5ca3294058410f",
+    "krs-grammar-token-id": "fd1ce5f47f678ce5a92ddf5c3101322a5cd1093905a74e8b3b3b2529e6398410",
+    "krs-grammar-layout": "22e5d15bbb07a613871dc86454cdef557993ef88233ab807a01acdefcf944324",
+    "krs-grammar-lists": "80798e106ac55d6a7fad01a51153dd1ce0f051e2ff744e813e1ad4cf6ecf483d",
+    "krs-grammar-strict-lists": "438aad1f171bc1501c8cc0f88c72b20d0708973307ee5a496a0588c985d7c9ec",
+    "krs-grammar-dependency-rules": "fb70fb17733c54033c7bd6954bd58f5ca0dedb81faad1a0d3d30e4602d3bd29a"
+  },
+  "outcomes": {
+    "krs-grammar-partition": {
+      "and": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-bool-operator": {
+        "parse": "rejected",
+        "run": null
+      },
+      "internal-inc": {
+        "parse": "rejected",
+        "run": null
+      },
+      "int-operator": {
+        "parse": "rejected",
+        "run": null
+      },
+      "unsigned-literal": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "spaced-negation": {
+        "parse": "accepted",
+        "run": "0"
+      }
+    },
+    "krs-grammar-kevm-case": {
+      "emit": {
+        "parse": "accepted",
+        "run": "done"
+      },
+      "log-entry": {
+        "parse": "rejected",
+        "run": null
+      },
+      "block-hash": {
+        "parse": "rejected",
+        "run": null
+      }
+    },
+    "krs-grammar-prefer": {
+      "dangling-else": {
+        "parse": "accepted",
+        "run": "second"
+      },
+      "if-then-else": {
+        "parse": "accepted",
+        "run": "first"
+      },
+      "if-then": {
+        "parse": "accepted",
+        "run": "skip"
+      }
+    },
+    "krs-grammar-overload": {
+      "lval-access": {
+        "parse": "accepted",
+        "run": "lvalue"
+      },
+      "value-access": {
+        "parse": "accepted",
+        "run": "value"
+      }
+    },
+    "krs-grammar-overload-ambiguous": {
+      "lval-access": {
+        "parse": "rejected",
+        "run": null
+      },
+      "value-access": {
+        "parse": "accepted",
+        "run": "value"
+      }
+    },
+    "krs-grammar-visibility": {
+      "inc": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "helper": {
+        "parse": "rejected",
+        "run": null
+      },
+      "goto": {
+        "parse": "accepted",
+        "run": "7"
+      },
+      "goto-hidden": {
+        "parse": "rejected",
+        "run": null
+      }
+    },
+    "krs-grammar-memo": {
+      "compute": {
+        "parse": "accepted",
+        "run": "9"
+      }
+    },
+    "krs-grammar-tokens": {
+      "call-main": {
+        "parse": "accepted",
+        "run": "halt"
+      },
+      "call-foo": {
+        "parse": "accepted",
+        "run": "other"
+      },
+      "call-bar": {
+        "parse": "accepted",
+        "run": "call bar"
+      },
+      "call-while": {
+        "parse": "rejected",
+        "run": null
+      },
+      "call-dollar": {
+        "parse": "accepted",
+        "run": "call $x"
+      },
+      "say-hi": {
+        "parse": "accepted",
+        "run": "halt"
+      }
+    },
+    "krs-grammar-token-id": {
+      "jump-label": {
+        "parse": "accepted",
+        "run": "halt"
+      },
+      "jump-id": {
+        "parse": "accepted",
+        "run": "halt"
+      },
+      "jump-number": {
+        "parse": "rejected",
+        "run": null
+      }
+    },
+    "krs-grammar-layout": {
+      "comment": {
+        "parse": "accepted",
+        "run": "halt"
+      },
+      "multiline": {
+        "parse": "accepted",
+        "run": "other"
+      },
+      "double-slash": {
+        "parse": "rejected",
+        "run": null
+      }
+    },
+    "krs-grammar-lists": {
+      "sum-three": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "sum-one": {
+        "parse": "accepted",
+        "run": "7"
+      },
+      "sum-terminator": {
+        "parse": "rejected",
+        "run": null
+      },
+      "sum-record": {
+        "parse": "rejected",
+        "run": null
+      },
+      "count-three": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "count-empty": {
+        "parse": "rejected",
+        "run": null
+      }
+    },
+    "krs-grammar-strict-lists": {
+      "left-to-right": {
+        "parse": "accepted",
+        "run": "123"
+      },
+      "mixed": {
+        "parse": "accepted",
+        "run": "517"
+      },
+      "values": {
+        "parse": "accepted",
+        "run": "12"
+      },
+      "empty": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "nested": {
+        "parse": "accepted",
+        "run": "122"
+      },
+      "terminator": {
+        "parse": "rejected",
+        "run": null
+      }
+    },
+    "krs-grammar-dependency-rules": {
+      "double": {
+        "parse": "accepted",
+        "run": "42"
+      }
+    }
+  },
+  "diagnostics": {
+    "removed-root": [
+      "error[krs::plan::removed-facet-key]: could not plan collector: package `krs-grammar-removed-root` definition `main` sets `root`: the key was removed; program syntax is now `pub` minus `internal`"
+    ],
+    "removed-syntax-root": [
+      "error[krs::plan::removed-facet-key]: could not plan collector: package `krs-grammar-removed-syntax-root` definition `main` sets `syntax-root`: the key was removed; program syntax is now `pub` minus `internal`"
+    ],
+    "invalid-int-literals": [
+      "error[krs::plan::invalid-int-literals]: could not plan collector: package `krs-grammar-invalid-int-literals` sets `int-literals = \"natural\"`; expected \"signed\" (the default, INT-SYNTAX) or \"unsigned\" (UNSIGNED-INT-SYNTAX)"
+    ],
+    "internal-not-pub": [
+      "error[krs::expand::invalid-placement-flag]: `internal` applies only to a `pub` production; non-pub productions are already private"
+    ],
+    "mixed-group": [
+      "error[krs::partition::mixed-group]: group `ops_tier0` mixes `internal` production `Ops::Hidden` with program-syntax production `Ops::Visible`; K priorities and associativity apply per module, so mark both `internal` or neither"
+    ],
+    "signed-leak": [
+      "error[krs::partition::signed-integer-leak]: `KRS-UNSIGNED-ROOT-SYNTAX` uses `int-literals = \"unsigned\"` but imports `KRS-SIGNED-BASE-SYNTAX`, whose signed INT-SYNTAX literals would leak into programs (K imports are unions)"
+    ],
+    "colors-mismatch": [
+      "error[krs::syntax::invalid-color]: invalid production colours: `colors` needs one colour per terminal of the syntax template plus one per `%c`"
+    ],
+    "prefer-avoid": [
+      "error[krs::syntax::invalid-argument-value]: `prefer` must be omitted: a production is either preferred or avoided, not both"
+    ],
+    "overload-arity": [
+      "error[krs::analysis::invalid-overload]: invalid `overload`: `LValSyntax::LvalField` takes 1 argument but its target `ExpSyntax::Dot` takes 2 arguments; an overload has the target's arity"
+    ],
+    "overload-not-subsort": [
+      "error[krs::analysis::invalid-overload]: invalid `overload`: `LValSyntax::LvalDot` does not specialise `ExpSyntax::Dot`: its sort `Id` is not a subsort of `Int`"
+    ],
+    "overload-cycle": [
+      "error[krs::analysis::invalid-overload]: invalid `overload`: the overload targets form a cycle: `ExpSyntax::Dot` -> `LValSyntax::LvalDot` -> `ExpSyntax::Dot`"
+    ],
+    "visibility-dependent": [
+      "error[E0603]: enum `Helper` is private"
+    ],
+    "visibility-claim": [
+      "error[krs::analysis::private-production-in-spec]: `Helper::Wrap` is private to KRS-VISIBILITY-CLAIM; K's private syntax is invisible to proof modules. Make it `pub` and mark it `internal`"
+    ],
+    "token-constructor": [
+      "error[krs::analysis::invalid-token-sort]: `NameSyntax::Anonymous` is a constructor of `Name`, a token sort: a sort with domain values has no constructors; give the constructor another sort, or use a function"
+    ],
+    "lexeme-not-token": [
+      "error[krs::analysis::invalid-token-sort]: `k::lexeme!(Stmt, \"halt\")` names `Stmt`, which is not a token sort; declare its tokens with `#[k::token(..)]` on a `struct Stmt(String);`"
+    ],
+    "lexeme-builtin": [
+      "error[krs::analysis::invalid-token-sort]: `k::lexeme!` names the builtin sort `Int`; write a builtin token as a literal, `k::id!(\"$name\")`, or `k::bytes!(b\"..\")`"
+    ],
+    "token-duplicate": [
+      "error[krs::analysis::invalid-token-sort]: the token terminal \"main\" is declared twice on sort `Name`; each token production of a sort is declared once"
+    ],
+    "token-alias-builtin": [
+      "error[krs::analysis::invalid-token-sort]: a `#[k::token]` type alias adds token productions to a user sort or to builtin `Id`; `Int` has its own domain values, written as literals"
+    ],
+    "lexical-duplicate": [
+      "error[krs::analysis::duplicate-lexical]: the lexical `Alpha` is declared more than once; K names lexicals in one namespace per definition, so rename one"
+    ],
+    "lexical-undefined": [
+      "error[krs::analysis::undefined-lexical]: the token regex \"{Alpha}{Digit}*\" refers to `{Digit}`, which no `k::lexical!` declares; declare it with `k::lexical! { Digit = r\"..\"; }` or escape the brace as `\\{`"
+    ],
+    "lexical-recursive": [
+      "error[krs::analysis::recursive-lexical]: lexicals refer to each other in a cycle (`Tail` -> `Word` -> `Tail`); K expands `{Name}` references inline, so a lexical cannot reach itself"
+    ],
+    "list-collision": [
+      "error[krs::analysis::symbol-name-collision]: syntactic list `Ints` derives the symbols `intsCons`/`intsNil`, which collide with `IntsCons`; rename the enum or the other production"
+    ],
+    "list-constructor": [
+      "error[krs::analysis::invalid-syntax-list]: `IntsSyntax::Empty` constructs `Ints`, a syntactic list: a `#[k::syntax_list]` enum is the whole definition of its sort, so the list has no other constructors; give the constructor another sort, or use a function"
+    ],
+    "overload-overlap": [
+      "error[krs::analysis::overlapping-rule-heads]: rules `general` and `specific` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
+    ],
+    "list-value-not-strict": [
+      "error[krs::analysis::invalid-syntax-list]: `Vals` is declared a subsort of `Exps`, a syntactic list that is not strict: only a strict list admits a subsort, its value list"
+    ],
+    "list-value-result": [
+      "error[krs::analysis::invalid-syntax-list]: `Vals` is the value list of `Exps`, but `Vals` is not a subsort of `KResult`, the strictness result of `Exps`: declare it in `k::sorts!`, as in `impl KResult for Vals;`"
+    ],
+    "token-private-field": [
+      "error[krs::analysis::invalid-token-sort]: `StmtSyntax::Call` is program syntax, but every token production of `Name`, the sort of its field `target`, is private, so no program can contain it. Make the `#[k::token]` carrier of `Name` `pub`, or take `StmtSyntax::Call` out of program syntax: make it non-`pub`, or mark it `internal`"
+    ],
+    "token-k-regex": [
+      "error[krs::analysis::token-collision]: the token regex r\"[a-z][a-zA-Z0-9]*\" at `prec(0)` is the regex of K's own `#LowerId` token, which K declares at `prec(2)`; K keys a regex token by its text, so Java K and k-rust both reject the definition. Use a different regex, or `prec = 2`"
+    ],
+    "token-cell-name": [
+      "error[krs::analysis::token-collision]: the token regex r\"[a-z][a-z0-9_]*\" at `prec(2)` lexes `k`, the name of the configuration cell `<k>`, at least as strongly as K's own `#LowerId` token (`prec(2)`), so Java K cannot parse the emitted configuration. Lower its `prec` below 2, or change the regex so it does not match `k`"
+    ],
+    "configuration-visibility": [
+      "error[krs::partition::configuration-visibility]: the rules of `KRS-CONFIGURATION-VISIBILITY-BASE` need the configuration, so it is emitted in `KRS-CONFIGURATION-VISIBILITY-CONFIGURATION`, which cannot import the configured package's semantics module or any module that imports it; the configuration names `ready`, which is declared outside the modules `KRS-CONFIGURATION-VISIBILITY-CONFIGURATION` imports, so make `ready` program syntax (`pub`, not `internal`) or move the rules of `KRS-CONFIGURATION-VISIBILITY-BASE` into the configured package"
+    ]
+  },
+  "format": {
+    "kore_attributes": "while colors='magenta,magenta,magenta' format='%cwhile%r %c(%r%1%c)%r %2'\nblock colors='blue,blue' format='%c{%r%i%n%1%d%n%c}%r'\nassignX colors='green,red,red,red' format='%c// assign%r%n%cx%r %c=%r %1%c;%r'\nskip format='%cskip%r'\n",
+    "krun_color": "<k>\u001b[0m\n  \u001b[38;5;201mwhile\u001b[0m \u001b[38;5;201m(\u001b[0m1\u001b[38;5;201m)\u001b[0m \u001b[38;5;21m{\u001b[0m\n    \u001b[38;5;46m// assign\u001b[0m\n    \u001b[38;5;196mx\u001b[0m \u001b[38;5;196m=\u001b[0m 2\u001b[38;5;196m;\u001b[0m\n  \u001b[38;5;21m}\u001b[0m ~> .K\n</k>\u001b[0m\n",
+    "krs_parse_program": "while (1) {\n  c// assignr\n  x = 2;\n}\n"
+  },
+  "kore_attributes": {
+    "krs-grammar-prefer": "ifThen \nifThenElse \n",
+    "krs-grammar-overload": "expSyntaxDot \nlValSyntaxDot \noverload LblexpSyntaxDot LbllValSyntaxDot\n",
+    "krs-grammar-overload-ambiguous": "expSyntaxDot \nlValSyntaxDot \n",
+    "krs-grammar-visibility": "inc \nwrap \n",
+    "krs-grammar-memo": "square memo=''\n",
+    "krs-grammar-strict-lists": "expsCons \nexpsNil \nvalsCons \nvalsNil \noverload LblexpsCons LblvalsCons\noverload LblexpsNil LblvalsNil\n",
+    "krs-grammar-lists": "sum format='%csum%r %c(%r %1 %c)%r'\ncount format='%ccount%r %c(%r %1 %c)%r'\n"
+  },
+  "induced_rejections": {
+    "visibility": {
+      "java": "[Error] Inner Parser: Could not find any suitable productions for label helper",
+      "native": "{{work}}/induced.k:9:3: could not parse rule in module \"KRS-VISIBILITY-INDUCED\": could not find a production for K label \"helper\" with arity 1"
+    }
+  }
+}

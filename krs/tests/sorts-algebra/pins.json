@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-sorts-algebra-functions": "d27f8f4086bdc94f316459c3a86b41adba62c4a022e3b136e6be0ed3524722a3",
+    "krs-sorts-algebra-constructors": "1af386b0c6e766455f634e8f6521ad3efaceb1e426b9645c42fbef67d945024d"
+  },
+  "emitted": {
+    "krs-sorts-algebra-functions": {
+      "definition.k": "7a53f9b5f6a8a346eacc4e354e1ef6f5c8388526a44f6d2d335ffa0930d3cb38"
+    },
+    "krs-sorts-algebra-constructors": {
+      "definition.k": "f7455d1d974767aab55c87cbdb7d409fa4ae538c12f8739e9895a72feb5822f6"
+    }
+  },
+  "reference_sha256": {
+    "krs-sorts-algebra-functions-haskell": "a6e3e65f693dda924943044ffe4b22c324e4065620b2c06a97c1b097fe5857cb",
+    "krs-sorts-algebra-constructors": "cf325ef2b7e030bbccc35dc21df9d4be2373aa9b2032876a5675f8d74de62a86"
+  },
+  "outcomes": {
+    "krs-sorts-algebra-functions": {
+      "go-true": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "n": "7",
+          "bit": "false"
+        }
+      },
+      "go-false": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "n": "0",
+          "bit": "true"
+        }
+      },
+      "pick-true": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "pick-false": {
+        "parse": "accepted",
+        "run": "2"
+      }
+    },
+    "krs-sorts-algebra-constructors": {
+      "go": {
+        "parse": "accepted",
+        "run": "v(-8)"
+      },
+      "fin": {
+        "parse": "accepted",
+        "run": "done(7)"
+      }
+    }
+  },
+  "kore_instances": {
+    "krs-sorts-algebra-functions": "Bool\nExp\nInt\n"
+  },
+  "diagnostics": {
+    "functions-llvm": [
+      "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains equations of parametric functions [choose]; backend llvm cannot compile equations of a parametric function (K 7.1.337's llvm-kompile crashes on them, from Java K's KORE and from k-rust's alike); build with --backend haskell"
+    ],
+    "lifetime-parameter": [
+      "error[krs::syntax::invalid-sort-parameter]: a production struct cannot have lifetime parameters: its generic parameters are K sort parameters `S: ?Sized`"
+    ],
+    "const-parameter": [
+      "error[krs::syntax::invalid-sort-parameter]: a production struct cannot have const parameters: const generics are reserved for machine-integer widths (KF-034); its generic parameters are K sort parameters `S: ?Sized`"
+    ],
+    "missing-unsized": [
+      "error[krs::syntax::invalid-sort-parameter]: sort markers like `dyn ExprSort` are unsized, and a K sort parameter has no other bound; write `S: ?Sized`"
+    ],
+    "parameter-bound": [
+      "error[krs::syntax::invalid-sort-parameter]: sort markers like `dyn ExprSort` are unsized, and a K sort parameter has no other bound; write `S: ?Sized`"
+    ],
+    "parameter-default": [
+      "error[krs::syntax::invalid-sort-parameter]: a sort parameter cannot have a default: K instantiates it from each term's arguments"
+    ],
+    "where-clause": [
+      "error[krs::syntax::invalid-sort-parameter]: a production struct cannot have a where clause; a K sort parameter is declared as `S: ?Sized` in the parameter list"
+    ],
+    "unused-parameter": [
+      "error[krs::syntax::invalid-sort-parameter]: sort parameter `T` is used by no field: a K sort parameter must be the sort of an argument, such as `pub value: k::Term<T>` (rustc also reports E0392)"
+    ],
+    "enum-generics": [
+      "error[krs::syntax::unsupported-enum-constructor-declaration]: unsupported enum constructor declaration: enum constructor families cannot have generic parameters: a K sort parameter belongs to one production, so declare a parametric production as a struct (`#[k::constructor] struct Wrap<S: ?Sized>` or `#[k::function] struct Choose<S: ?Sized>`)"
+    ],
+    "sort-generics": [
+      "error[krs::syntax::unsupported-sort-declaration]: unsupported sort declaration: sort traits cannot have generic parameters: K 7.1.337 and k-rust support no user parametric sorts; a sort parameter belongs to one production struct (`struct Choose<S: ?Sized>`)"
+    ],
+    "generic-equation": [
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: K rules never quantify over sorts; write one equation per instance with a turbofish, such as `Choose::<k::builtin::Int> { .. }`"
+    ],
+    "turbofish-lifetime": [
+      "error[krs::syntax::invalid-turbofish]: a turbofish on a term head lists sort markers only, the types that go inside `k::Term<..>`: `k::builtin::Int`, or a user sort's `dyn ExpSort`; lifetimes and consts are not sorts"
+    ],
+    "turbofish-arity": [
+      "error[E0107]: struct takes at most 1 generic argument but 2 generic arguments were supplied"
+    ],
+    "parameter-sort-name": [
+      "error[krs::analysis::invalid-parametric-production]: the sort parameter `Exp` has the name of a sort, so K would read `syntax {Exp}` as that sort; rename the parameter, such as `S`"
+    ],
+    "parametric-alias": [
+      "error[krs::analysis::invalid-parametric-production]: a parametric production (K's `syntax {S}`) cannot carry `#[k::alias]` or `#[k::desugar]`: a static rewrite of a parametric production is not supported"
+    ],
+    "domain-instance": [
+      "error[krs::analysis::invalid-parametric-production]: the parametric constructor `Wrap` builds a value of its sort parameter, so it cannot be instantiated at Int, whose values its domain or hook fixes"
+    ],
+    "missing-turbofish": [
+      "error[krs::analysis::parametric-instance]: an equation or rule head of the parametric production `Choose` needs a turbofish: without one K would instantiate its sort parameter at K and this sentence would never apply; write `Choose::<k::builtin::Int>`"
+    ],
+    "turbofish-disagrees": [
+      "error[krs::analysis::parametric-instance]: the turbofish `::<k::builtin::Int>` gives this application the sort Int, which is not admissible where the sort Bool is declared or expected"
+    ],
+    "head-argument-below": [
+      "error[krs::analysis::parametric-instance]: an argument of sort Int at a position of the sort parameter `S` of this head is not a variable, so K's strict cast cannot fix its instance `Exp`; match it with a variable of sort Exp and test it in `requires`"
+    ],
+    "head-binder-sort": [
+      "error[krs::analysis::incompatible-binder]: binder `a` is declared `Exp` but this occurrence needs `Int`"
+    ],
+    "undetermined-instance": [
+      "error[krs::analysis::parametric-instance]: K cannot determine the sort parameter `S` of `Same` from its arguments (Int, Bool) and position: they have no common sort; give an argument a narrower sort with a typed binder or `where`"
+    ],
+    "native-instance": [
+      "error[krs::analysis::native-instance]: label sort parameters cannot be written natively, so k-rust fixes this head's instance from its argument sorts: it would solve S = Int, not the turbofish's S = Exp. Give at least one parametric argument a variable of sort Exp."
+    ],
+    "turbofish-alias": [
+      "error[E0277]: a turbofish in reference code names the sort marker, the type inside `k::Term<..>`, not the alias `Exp`: write `Choose::<dyn ExpSort>`"
+    ],
+    "readable-turbofish-marker": [
+      "error[krs::expand::turbofish-spelling]: a readable clause names the sort in a turbofish, not its marker `dyn ExpSort`: write `crate::Choose::<Exp>`; `krs expand` renders the marker"
+    ]
+  },
+  "capability_requirements": {
+    "krs-sorts-algebra-constructors": [
+      {
+        "feature": "ParametricConstructorSchema",
+        "symbol": "wrap",
+        "origin": "def.production.30bc72c88cd95b6ec2744205"
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+[package]
+name = "krs-verification-surface-l21-readable"
+description = "K tutorial lesson 1.21 in the readable layer: existentials and ensures on rule clauses"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_verification_surface_l21_readable"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-LESSON-21-READABLE"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

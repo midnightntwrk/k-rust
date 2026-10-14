@@ -1,0 +1,518 @@
+//! Policy fixtures, lesson acceptance, and allowlist drift.
+//!
+//! When `KRS_WASM_PARITY_CASES` names a directory, every fixture writes its
+//! schema-1 request and native `run` response bytes there.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+use krs_lesson_policy::{LessonPolicy, PolicyDiagnostic, check, check_request, protocol, rules};
+use krs_syntax::surface::{self, AttributeMacro, FunctionMacro};
+
+fn fixtures_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+}
+
+struct Expected {
+    code: String,
+    start: usize,
+    end: usize,
+    text: String,
+}
+
+struct Fixture {
+    name: String,
+    display_file: String,
+    editable_files: Vec<String>,
+    source: String,
+    expected: Vec<Expected>,
+}
+
+fn string(table: &toml_edit::Table, key: &str, fixture: &str) -> String {
+    table
+        .get(key)
+        .and_then(toml_edit::Item::as_str)
+        .unwrap_or_else(|| panic!("{fixture}: `{key}` must be a string"))
+        .to_owned()
+}
+
+fn integer(table: &toml_edit::Table, key: &str, fixture: &str) -> usize {
+    let value = table
+        .get(key)
+        .and_then(toml_edit::Item::as_integer)
+        .unwrap_or_else(|| panic!("{fixture}: `{key}` must be an integer"));
+    usize::try_from(value).expect("offsets are non-negative")
+}
+
+fn load_fixtures() -> Vec<Fixture> {
+    let mut directories: Vec<PathBuf> = std::fs::read_dir(fixtures_root())
+        .expect("fixture directory exists")
+        .map(|entry| entry.expect("fixture entry").path())
+        .filter(|path| path.is_dir())
+        .collect();
+    directories.sort();
+    directories
+        .into_iter()
+        .map(|directory| {
+            let name = directory
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("UTF-8 fixture name")
+                .to_owned();
+            let source = std::fs::read_to_string(directory.join("source.rs"))
+                .unwrap_or_else(|error| panic!("{name}: source.rs: {error}"));
+            let manifest = std::fs::read_to_string(directory.join("expected.toml"))
+                .unwrap_or_else(|error| panic!("{name}: expected.toml: {error}"));
+            let document: toml_edit::Document<String> = manifest
+                .parse()
+                .unwrap_or_else(|error| panic!("{name}: expected.toml: {error}"));
+            let root = document.as_table();
+            let display_file = root
+                .get("display_file")
+                .and_then(toml_edit::Item::as_str)
+                .unwrap_or("src/lib.rs")
+                .to_owned();
+            let editable_files = root
+                .get("editable_files")
+                .and_then(toml_edit::Item::as_array)
+                .map_or_else(
+                    || vec!["src/lib.rs".to_owned()],
+                    |array| {
+                        array
+                            .iter()
+                            .map(|value| value.as_str().expect("path string").to_owned())
+                            .collect()
+                    },
+                );
+            let expected = root
+                .get("diagnostic")
+                .and_then(toml_edit::Item::as_array_of_tables)
+                .map(|tables| {
+                    tables
+                        .iter()
+                        .map(|table| Expected {
+                            code: string(table, "code", &name),
+                            start: integer(table, "start", &name),
+                            end: integer(table, "end", &name),
+                            text: string(table, "text", &name),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Fixture {
+                name,
+                display_file,
+                editable_files,
+                source,
+                expected,
+            }
+        })
+        .collect()
+}
+
+fn policy_for(fixture: &Fixture) -> LessonPolicy {
+    LessonPolicy {
+        editable_files: fixture.editable_files.clone(),
+        ..LessonPolicy::single_file()
+    }
+}
+
+fn observed_line(diagnostic: &PolicyDiagnostic) -> String {
+    match &diagnostic.authored {
+        Some(range) => format!("{} {}..{}", diagnostic.code, range.start(), range.end()),
+        None => format!("{} (request level)", diagnostic.code),
+    }
+}
+
+#[test]
+fn every_fixture_yields_exactly_its_expected_diagnostics() {
+    let fixtures = load_fixtures();
+    assert!(!fixtures.is_empty(), "no fixtures found");
+    let mut failures = Vec::new();
+    let parity_dir = std::env::var_os("KRS_WASM_PARITY_CASES").map(PathBuf::from);
+    if let Some(directory) = &parity_dir {
+        std::fs::create_dir_all(directory).expect("parity case directory is writable");
+    }
+    for fixture in &fixtures {
+        for expected in &fixture.expected {
+            let authored = fixture.source.get(expected.start..expected.end);
+            if authored != Some(expected.text.as_str()) {
+                failures.push(format!(
+                    "{}: expected.toml text {:?} does not match source bytes {}..{} ({authored:?})",
+                    fixture.name, expected.text, expected.start, expected.end
+                ));
+            }
+        }
+        let expected_lines: Vec<String> = fixture
+            .expected
+            .iter()
+            .map(|expected| format!("{} {}..{}", expected.code, expected.start, expected.end))
+            .collect();
+        let observed = check(&fixture.source, &fixture.display_file, &policy_for(fixture));
+        let observed_lines: Vec<String> = observed.iter().map(observed_line).collect();
+        if observed_lines != expected_lines {
+            failures.push(format!(
+                "{}: expected {expected_lines:?}, observed {observed_lines:?}\n{:#?}",
+                fixture.name, observed
+            ));
+        }
+        for diagnostic in &observed {
+            assert_eq!(diagnostic.class, "exact-authored", "{}", fixture.name);
+            assert_eq!(diagnostic.file, fixture.display_file, "{}", fixture.name);
+        }
+        if let Some(directory) = &parity_dir {
+            let request = protocol::Request {
+                schema: protocol::SCHEMA,
+                policy: policy_for(fixture),
+                files: BTreeMap::from([(fixture.display_file.clone(), fixture.source.clone())]),
+            };
+            let request_bytes = serde_json::to_vec(&request).expect("policy request serializes");
+            let response_bytes = protocol::run_json(&request_bytes);
+            std::fs::write(
+                directory.join(format!("{}.run.request.json", fixture.name)),
+                request_bytes,
+            )
+            .expect("parity request is writable");
+            std::fs::write(
+                directory.join(format!("{}.run.response.json", fixture.name)),
+                response_bytes,
+            )
+            .expect("parity response is writable");
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+#[test]
+fn every_code_has_a_rejecting_and_an_accepted_fixture() {
+    let fixtures = load_fixtures();
+    let mut rejected = BTreeSet::new();
+    let mut near_misses = BTreeSet::new();
+    for fixture in &fixtures {
+        for expected in &fixture.expected {
+            rejected.insert(expected.code.clone());
+        }
+        if fixture.expected.is_empty()
+            && let Some(code) = fixture.name.strip_suffix("-accepted")
+        {
+            near_misses.insert(format!("krs::policy::{code}"));
+        }
+    }
+    // Request-level codes are exercised by the request and protocol tests below.
+    // `raw-k-not-allowed` is the compiler's package-metadata check
+    // (`krs_compiler::raw_k_policy`), not a lesson source rule.
+    for code in rules::CODES.iter().filter(|code| {
+        **code != rules::EDITABLE_FILE
+            && **code != protocol::PROTOCOL_ERROR
+            && **code != krs_diagnostic::codes::policy::RAW_K_NOT_ALLOWED
+    }) {
+        assert!(
+            rejected.contains(code.as_str()),
+            "no fixture rejecting {code}"
+        );
+        if *code != rules::PARSE {
+            assert!(
+                near_misses.contains(code.as_str()),
+                "no accepted near-miss fixture for {code}"
+            );
+        }
+    }
+}
+
+/// The tool and variant attribute allowlists each have a fixture that is
+/// rejected just outside the allowlist and one that is accepted.
+#[test]
+fn every_attribute_allowlist_has_fixtures() {
+    let fixtures = load_fixtures();
+    let find = |name: &str| {
+        fixtures
+            .iter()
+            .find(|fixture| fixture.name == name)
+            .unwrap_or_else(|| panic!("missing fixture {name}"))
+    };
+    for allowlist in ["tool-attribute", "variant-attribute"] {
+        assert!(!find(allowlist).expected.is_empty());
+        assert!(find(&format!("{allowlist}-accepted")).expected.is_empty());
+    }
+}
+
+#[test]
+fn tour_lessons_pass_the_policy() {
+    for source in [
+        include_str!("../../../tests/tour-minimal/src/lib.rs"),
+        include_str!("../../../tests/tour-imp/src/lib.rs"),
+    ] {
+        assert_eq!(
+            check(source, "src/lib.rs", &LessonPolicy::single_file()),
+            Vec::new()
+        );
+    }
+}
+
+#[test]
+fn d007_is_rejected_at_the_external_derive_path() {
+    let source = include_str!("fixtures/d007-external-proc-macro/source.rs");
+    let diagnostics = check(source, "src/lib.rs", &LessonPolicy::single_file());
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, rules::NON_KRS_PROC_MACRO);
+    assert_eq!(
+        diagnostics[0].authored,
+        Some(krs_syntax::SourceRange::new(9, 25).unwrap())
+    );
+    assert_eq!(&source[9..25], "serde::Serialize");
+}
+
+/// The two crate-root names the path-C expander appends compile natively
+/// but collide (E0428) with the generated table in the browser; the policy
+/// rejects them at the authored name.
+#[test]
+fn registration_table_names_are_reserved() {
+    let tour = include_str!("../../../tests/tour-minimal/src/lib.rs");
+    for (extra, name) in [
+        (
+            "\npub static __KRS_REGISTRATIONS: u8 = 0;\n",
+            "__KRS_REGISTRATIONS",
+        ),
+        (
+            "\nfn __krs_register_descriptors() {}\n",
+            "__krs_register_descriptors",
+        ),
+    ] {
+        let source = format!("{tour}{extra}");
+        let diagnostics = check(&source, "src/lib.rs", &LessonPolicy::single_file());
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert_eq!(diagnostics[0].code, rules::RESERVED_NAME);
+        let range = diagnostics[0].authored.expect("authored range");
+        assert_eq!(range.text(&source), Some(name));
+    }
+}
+
+#[test]
+fn request_files_outside_the_allowlist_are_rejected_without_a_range() {
+    let files = BTreeMap::from([
+        ("src/lib.rs".to_owned(), "pub struct Accepted;\n".to_owned()),
+        ("src/extra.rs".to_owned(), "pub struct Extra;\n".to_owned()),
+    ]);
+    let diagnostics = check_request(&files, &LessonPolicy::single_file());
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, rules::EDITABLE_FILE);
+    assert_eq!(diagnostics[0].file, "src/extra.rs");
+    assert_eq!(diagnostics[0].authored, None);
+    assert_eq!(diagnostics[0].class, "unmappable");
+}
+
+#[test]
+fn json_protocol_reports_d007() {
+    let source = include_str!("fixtures/d007-external-proc-macro/source.rs");
+    let request = serde_json::json!({
+        "schema": 1,
+        "policy": { "editable_files": ["src/lib.rs"], "facade_alias": "k" },
+        "files": { "src/lib.rs": source },
+    });
+    let response: serde_json::Value =
+        serde_json::from_slice(&protocol::run_json(request.to_string().as_bytes())).unwrap();
+    assert_eq!(
+        response,
+        serde_json::json!({
+            "schema": 1,
+            "ok": false,
+            "diagnostics": [{
+                "code": "krs::policy::non-krs-proc-macro",
+                "message": "derive `serde::Serialize` is not a built-in derive; lessons cannot run external procedural macros",
+                "file": "src/lib.rs",
+                "authored": [9, 25],
+                "class": "exact-authored",
+            }],
+        })
+    );
+}
+
+#[test]
+fn json_protocol_reports_attribute_order_and_reserved_names() {
+    let source = "#[derive(Clone)]\n#[k::cell]\npub struct __KrsCell;\n";
+    let request = serde_json::json!({
+        "schema": 1,
+        "policy": { "editable_files": ["src/lib.rs"], "facade_alias": "k" },
+        "files": { "src/lib.rs": source },
+    });
+    let response: serde_json::Value =
+        serde_json::from_slice(&protocol::run_json(request.to_string().as_bytes())).unwrap();
+    assert_eq!(response["ok"], false);
+    let observed: Vec<(String, serde_json::Value)> = response["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| {
+            (
+                diagnostic["code"].as_str().unwrap().to_owned(),
+                diagnostic["authored"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        observed,
+        [
+            (
+                rules::ATTRIBUTE_ORDER.to_string(),
+                serde_json::json!([0, 16])
+            ),
+            (
+                rules::RESERVED_NAME.to_string(),
+                serde_json::json!([39, 48])
+            ),
+        ]
+    );
+}
+
+#[test]
+fn json_protocol_rejects_malformed_requests() {
+    for request in [
+        &b"not json"[..],
+        br#"{"schema":2,"policy":{"editable_files":[],"facade_alias":"k"},"files":{}}"#,
+        br#"{"schema":1,"policy":{"editable_files":[],"facade_alias":"k","rules":[]},"files":{}}"#,
+        br#"{"schema":1,"policy":{"version":2,"editable_files":[],"facade_alias":"k"},"files":{}}"#,
+    ] {
+        let response: serde_json::Value =
+            serde_json::from_slice(&protocol::run_json(request)).unwrap();
+        assert_eq!(response["ok"], false);
+        assert_eq!(response.get("policy_version"), None);
+        assert_eq!(response["diagnostics"][0]["code"], "krs::policy::protocol");
+    }
+}
+
+/// The reserved (`__`-prefixed) `#[proc_macro]` and
+/// `#[proc_macro_attribute]` functions of `krs-macros`, each with whether it
+/// is `#[doc(hidden)]`.
+fn reserved_krs_macros_entries() -> Vec<(String, bool)> {
+    let file = syn::parse_file(include_str!("../../krs-macros/src/lib.rs"))
+        .expect("krs-macros/src/lib.rs parses");
+    let mut reserved = Vec::new();
+    for item in file.items {
+        let syn::Item::Fn(function) = item else {
+            continue;
+        };
+        let name = function.sig.ident.to_string();
+        let is_entry = function.attrs.iter().any(|attribute| {
+            attribute.path().is_ident("proc_macro_attribute")
+                || attribute.path().is_ident("proc_macro")
+        });
+        if is_entry && name.starts_with("__") {
+            let hidden = function.attrs.iter().any(|attribute| {
+                attribute.path().is_ident("doc")
+                    && attribute
+                        .parse_args::<syn::Ident>()
+                        .is_ok_and(|argument| argument == "hidden")
+            });
+            reserved.push((name, hidden));
+        }
+    }
+    reserved
+}
+
+/// The lesson allowlists are stated over the surface catalogue: every
+/// accepted inert attribute and every tool namespace is in the catalogue,
+/// and the only accepted single-segment attributes that the path-C expander
+/// does not skip as inert are `derive`, which is order-sensitive, and the
+/// variant attributes, which never precede a KRS attribute.
+#[test]
+fn lesson_allowlists_are_stated_over_the_catalogue() {
+    for name in rules::INERT_ATTRIBUTES {
+        assert!(
+            surface::INERT_ATTRIBUTES.contains(name),
+            "`{name}` is not in the catalogue's inert attributes"
+        );
+    }
+    for (tool, _) in rules::TOOL_ATTRIBUTES {
+        assert!(
+            surface::TOOL_ATTRIBUTES.contains(tool),
+            "the expander does not skip `{tool}::` attributes"
+        );
+    }
+    for name in rules::ORDER_SENSITIVE_ATTRIBUTES
+        .iter()
+        .chain(rules::VARIANT_ATTRIBUTES)
+    {
+        assert!(!surface::INERT_ATTRIBUTES.contains(name), "{name}");
+    }
+    assert_eq!(rules::ORDER_SENSITIVE_ATTRIBUTES, ["derive"]);
+}
+
+#[test]
+fn reserved_krs_macros_entry_points_are_hidden_and_rejected() {
+    let reserved = reserved_krs_macros_entries();
+    assert!(!reserved.is_empty());
+    for (name, hidden) in reserved {
+        assert!(
+            hidden,
+            "reserved entry point `{name}` must be #[doc(hidden)]"
+        );
+        for source in [
+            format!("k::{name}! {{}}\n"),
+            format!("#[k::{name}]\npub struct S;\n"),
+        ] {
+            let diagnostics = check(&source, "src/lib.rs", &LessonPolicy::single_file());
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == rules::RESERVED_FACADE_ITEM),
+                "`{name}` is not rejected as a reserved facade item in {source:?}: {diagnostics:?}"
+            );
+        }
+        // Unprefixed, a reserved entry point is not a KRS macro at all.
+        let diagnostics = check(
+            &format!("{name}! {{}}\n"),
+            "src/lib.rs",
+            &LessonPolicy::single_file(),
+        );
+        let codes: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.clone())
+            .collect();
+        assert_eq!(codes, [rules::NON_KRS_PROC_MACRO], "{name}");
+    }
+}
+
+#[test]
+fn krs_facade_reexports_every_entry_point_under_its_own_name() {
+    let file =
+        syn::parse_file(include_str!("../../krs/src/lib.rs")).expect("krs/src/lib.rs parses");
+    let mut reexported = BTreeSet::new();
+    for item in file.items {
+        let syn::Item::Use(item) = item else { continue };
+        let syn::UseTree::Path(path) = &item.tree else {
+            continue;
+        };
+        if path.ident != "krs_macros" {
+            continue;
+        }
+        let syn::UseTree::Group(group) = &*path.tree else {
+            assert!(
+                matches!(&*path.tree, syn::UseTree::Name(name) if name.ident == "__framework_sorts")
+                    && matches!(item.vis, syn::Visibility::Inherited),
+                "the framework sorts import must remain private"
+            );
+            continue;
+        };
+        for tree in &group.items {
+            let syn::UseTree::Name(name) = tree else {
+                panic!("krs re-exports krs_macros entries without renaming");
+            };
+            reexported.insert(name.ident.to_string());
+        }
+    }
+    let expected: BTreeSet<String> = AttributeMacro::ALL
+        .iter()
+        .filter(|entry| !entry.is_reserved())
+        .map(|entry| entry.name())
+        .chain(
+            FunctionMacro::ALL
+                .iter()
+                .filter(|entry| !entry.is_reserved())
+                .map(|entry| entry.name()),
+        )
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(reexported, expected);
+}

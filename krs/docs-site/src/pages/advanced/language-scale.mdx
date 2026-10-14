@@ -1,0 +1,375 @@
+---
+title: Language-scale state and builtins
+description: Model nested and repeated state, lexical tokens, associative collections, bytes, and typed hooks without overstating the current ports.
+---
+
+# Language-scale state and builtins
+
+{/* tour-concepts: extended-builtins tokens nested-cells nested-cell-field-metadata repeated-cells typed-hooks */}
+
+IMP uses two leaf cells and a Map.
+Larger definitions use the same declarations recursively: nominal cell groups organize state, fragments match part of a group, and builtin collections keep large terms symbolic.
+
+## Nested and repeated state
+
+KEVM's selected account state is a compact executable example:
+
+```rust [semantics/kevm/src/lib.rs]
+// [!include ~/snippets/kevm-accounts.rs]
+```
+
+`Account` is a nominal nested cell group.
+The `nested` marker says that the field expands as that group rather than as one leaf cell.
+`k::fragment!` can then describe the named portion of a nested configuration needed by a rule without reconstructing its unrelated fields.
+
+The outer `account` field is repeated with `multiplicity = "*"` and represented by a `Map`-typed cell collection.
+That shape has language-scale, end-to-end evidence; `Set` and `List` collections and optional (`Option`) cells run natively and in Java K on smaller fixtures, as described in [optional cells and cell collections](/reference/language#optional-cells-and-cell-collections).
+Cell bags are refused, because K's LLVM and Haskell backends do not support them.
+
+Cell declarations are still symbolic schema.
+Neither the Rust struct nor a fragment is a mutable host object, and a machine rule still performs one relational rewrite over the cells it names while framing the rest.
+
+## Tokens and collection sorts
+
+Each `#[k::token(regex = r"...")]` or `#[k::token(terminal = "...")]` attribute declares one K token production, and attributes stack.
+On `struct Name(String);` they declare a closed token sort: its values are its tokens, its `String` field stores nothing at runtime, and no constructor may target it, because a sort with domain values has no constructors.
+On a type alias they add token productions to the sort it names, a token sort or the builtin `Id`, and declare no sort.
+Membership in open sorts still goes through the `k::sorts!` line `impl KItem for Name;`.
+The carrier's Rust visibility is the tokens' visibility: on a carrier that is not `pub` they are K `private`, so programs cannot contain them while the package's own rules can, as in the grammar-lexing gate's `visibility` package, where `goto #done` is rejected but a rule rewrites `goto done` to it.
+
+K's scanner is global and takes the longest match; a terminal outranks a regex of the same length, and `prec = N` orders regexes only.
+So `main`, declared with `terminal = "main"`, is a `Name` and never a keyword, while `while`, a terminal of another production, is a keyword: `call while` does not parse.
+The scanner also lexes your rules and the configuration, so a token regex should not shadow K's own identifiers, such as `#LowerId` (`[a-z][a-zA-Z0-9]*` at `prec(2)`), which lexes cell names like the `k` of `<k>`.
+`krs check` rejects the two shapes that break a build (`krs::analysis::token-collision`): a regex spelled exactly like one of K's own token regexes at another `prec`, which K reports as inconsistent token precedence, and a regex that matches a whole configuration cell name or cell property name at a `prec` at least as high as K's own token for it, such as `r"[a-z][a-z0-9_]*"` at `prec = 2` against `<k>`, which Java K then cannot parse.
+A literal quote in a regex is written `\"`; an unescaped `"` starts a quoted string in K's regex syntax, so KRS rejects it.
+The regex and precedence determine parsing; they do not cause Rust's regex engine to run when a symbolic token is constructed.
+
+`k::lexeme!(Name, "main")` is one token in a rule, written the same way in `cells!` rules and readable clauses; the emitted K shows `#token("main","Name")`.
+It exists because KRS cannot lex object text inside Rust, and K never re-lexes a token, so the text is not checked against the regex.
+Two lexemes with different texts never overlap, and a lexeme overlaps a variable of its sort.
+A builtin token is written as a literal, `k::id!`, or `k::bytes!` instead.
+
+The grammar-lexing gate's `tokens` fixture:
+
+```rust [tests/grammar-lexing/packages/tokens/src/lib.rs]
+// [!include ~/snippets/token.rs]
+```
+
+### Layout and named lexicals
+
+Layout is what the scanner throws away between tokens.
+K's default layout is whitespace and the `//` and `/* */` comments; `k::layout!` replaces it, so a definition that declares any layout declares whitespace again.
+Each regex becomes `syntax #Layout ::= r"..." [token]` in the program-syntax module.
+Layout is global, including in the rule parser that reads the emitted rules, so pick a comment marker that no terminal starts with: a `#` comment would swallow K's own `#if` in rules.
+
+`k::lexical!` names a regex fragment, like a flex definitions section; it adds no syntax.
+A token, layout, or lexical regex refers to it as `{Name}`, and a name matches `[A-Z][A-Za-z0-9]*`.
+`krs check` rejects a name declared twice, a `{Name}` that no lexical declares, and lexicals that refer to each other in a cycle.
+
+The grammar-lexing gate's `layout` fixture, where `;` starts a comment and `//` is no longer one:
+
+```rust [tests/grammar-lexing/packages/layout/src/lib.rs]
+// [!include ~/snippets/layout.rs]
+```
+
+### Syntactic lists
+
+`#[k::syntax_list(separator = ",")]` on `enum Ints { Cons { head: Int, tail: Ints }, Nil() }` is K's `List{Int, ","}`.
+It reads like the Rust Book's cons list, with K's twists.
+Programs write `1, 2, 3`: the terminator is implicit, and the empty program text is the empty list.
+`non_empty` makes the list K's `NeList`, which programs cannot write empty, and `separator = ""` is a list without separator.
+Rules match the variants: `Ints::Cons(i, is)` and `Ints::Nil()`, which the emitted K shows as `I , Is` and `.Ints`; `.Ints` is rule syntax, so a program cannot write it.
+The KMIR port declares its call and aggregate `Operands` this way, as upstream's `List{Operand, ""}`: its corpus writes arguments one after another, `copy(..) move(..)`, and a call without arguments leaves the position empty.
+
+The enum is the whole definition of a closed sort: exactly one cons variant with two fields, the second of the list's own sort, and one terminator `Nil()`.
+No other constructor joins a list sort, and the only sort that may be its subsort is a strict list's value list (below); membership in open sorts still goes through `k::sorts!` `impl` lines.
+The symbols derive from the enum name, `intsCons` and `intsNil`, so two lists in one package never collide, and `krs check` names the list when another production takes one of its symbols.
+
+This is a syntactic list, an AST that K parses: not K's semantic `List`, and not a `Vec`.
+`sum` is a function, so K's lesson writes it with `#[k::function]` and `#[k::equation]`s.
+The grammar-lexing gate's `lists` fixture, where `sum(1, 2, 3)` is `6` on both routes:
+
+```rust [tests/grammar-lexing/packages/lists/src/lib.rs]
+// [!include ~/snippets/lists.rs]
+```
+
+### Strict lists and value lists
+
+A strict list puts `#[k::strict]` or `#[k::seqstrict]` on the cons variant and the result sort on the attribute, `#[k::syntax_list(separator = ",", result = KResult)]`; `krs expand` writes it as `#[k::seqstrict(sequence = [head, tail], result = k::KResult)]` with `k::Term<..>` field types.
+Strictness alone only heats the elements: once they are values, the list `1, 2` is still an `Exps` built by `expsCons`, which is not a result, so a construct that is strict in an `Exps` argument heats it again and never finishes.
+
+K's answer is the value list, and KRS spells it as K does.
+`Vals` is a second `#[k::syntax_list]` whose elements are values; `impl Exps for Vals;` makes it the one subsort the strict list admits, and `impl KResult for Vals;` makes it a result.
+KRS then gives both lists K's `overload` key, `overload(expsCons)` on each `List{..}` sentence, so K's overload axioms rewrite `1, 2` built by `expsCons` to the same list built by `valsCons`, a `Vals`.
+A program whose arguments are already values parses as a `Vals` directly.
+
+`krs check` accepts the subsort only for this shape: the value list is not strict, has the strict list's separator and `non_empty` flag, has elements that are a subsort of the strict list's elements, and it and its elements are subsorts of the strict list's result sort; a strict list has one value list, and any other subsort of a list sort is an error.
+
+The grammar-lexing gate's `strict-lists` fixture evaluates call arguments left to right: `tick` returns a counter and increments it, so `f(tick, tick, tick)` is `123` natively and with Java `krun`, and `f(1, 2)` parses as `valsCons` on both routes.
+
+```rust [tests/grammar-lexing/packages/strict-lists/src/lib.rs]
+// [!include ~/snippets/strict-lists.rs]
+```
+
+Beyond IMP's `Int`, `Bool`, `Map`, and `Id`, the facade exports:
+
+- `Bytes`, with length, indexed get/update, empty, left- and right-pad, substring, concatenation, reversal, replacement, and the `Int2Bytes`/`Bytes2Int` conversions over the `Endianness` and `Signedness` sorts;
+- `List<T>`, with empty/item/concatenation, indexed access and update, size, repetition, ranges, range updates, and membership;
+- `Set<T>`, with empty/item/concatenation, union, difference, intersection, inclusion, size, membership, and conversion to and from a List; and
+- on `Map<K, V>`, beyond update, lookup, and key membership: removal of one key or a key set, total lookup with a default, the key set, key and value lists, size, and update by a second map.
+
+The [language reference](/reference/language#builtin-operation-catalog) lists every operation and the rule that names it.
+
+These are typed, zero-sized authoring markers for K builtins, not `Vec`, `HashMap`, byte buffers, or iterator APIs.
+Calls such as `list::get(xs, index)` construct symbolic applications and may remain unevaluated when their semantic preconditions do not hold.
+
+## Typed hooks
+
+A function declaration may select one of KRS's typed hook operations, for example `krypto::keccak256_raw` for a Bytes-to-Bytes function.
+Macro expansion rejects an unknown hook path.
+After collection, KRS validates the declared operand and result sorts while constructing and checking Definition IR.
+This is a bounded catalog of checked paths.
+A hook outside it can be named only by its exact K spelling, `hook = "KRYPTO.keccak256"`, in a package that sets `allow-raw-k = true`: KRS knows only that the hook exists, so it checks the name against the pinned hook registry but not the signature, and every build warns ([raw K escapes](/reference/language#raw-k-escapes)).
+There is no general raw-K-attribute escape hatch.
+
+```rust [crates/krs-macros/tests/fixtures/positive/src/main.rs]
+// [!include ~/snippets/typed-hook.rs]
+```
+
+Unknown hook names, wrong signatures, malformed nested fields, and unsupported cell metadata fail during Rust expansion or KRS checking.
+A well-formed hook may still be rejected by a backend that does not implement the selected capability.
+
+Upstream K that the surface cannot express yet can be kept, in the same opted-in package, as one `k::raw_k!` rule, claim, or context: K text that KRS prints verbatim and K parses with the package's grammar.
+It is a TODO marker rather than a feature, and the strict profile refuses it.
+
+## What the large ports prove
+
+KWasm, KMIR, and KEVM provide checked extracts for realistic syntax, state, functions, rules, claims, collections, and hooks.
+They are incremental qualification ports, not complete language definitions.
+The summaries below are generated from `semantics/coverage.toml` and include every recorded implemented entry, adapter boundary, and deferred area.
+A tour example must never turn this evidence into a completeness claim.
+
+{/* generated:port-coverage:start */}
+
+### KWasm
+
+**Status: incomplete.**
+This extract contains 5 implemented coverage entries, 8 equations, 8 machine rules, and 1 claim.
+
+- Package: `krs-kwasm-semantics`
+- Pinned authority: K 7.1.329 at `212271bd434bd402e27c42f6416854342733386d`
+- KRS qualification release: K 7.1.337
+- Authority inventory: 13 source files, 386 syntax declarations, and 884 rules
+- Pinned executions: 32
+
+<details>
+<summary>5 implemented coverage entries</summary>
+
+- i32 and i64 integer values
+- const, add, sub, mul, and div_u
+- modulo word normalization
+- operand stack transitions
+- division traps
+
+</details>
+
+<details>
+<summary>1 recorded adapter boundary</summary>
+
+- recursive instruction and value-stack boundaries in place of builtin Lists
+
+</details>
+
+<details>
+<summary>6 deferred areas</summary>
+
+- module instantiation and validation
+- control instructions and labels
+- locals, globals, tables, memory, and calls
+- floating-point and conversion operators
+- binary and text decoding
+- host, WRC20, ABI, and test modules
+
+</details>
+
+### KEVM
+
+**Status: incomplete.**
+This extract contains 47 implemented coverage entries, 321 equations, 280 machine rules, and 8 claims.
+
+- Package: `krs-kevm-semantics`
+- Pinned authority: K 7.1.337 at `d818397e9b7ffa213d687e64418dc8f5293e1ce2`
+- KRS qualification release: K 7.1.337
+- Authority inventory: 98 source files, 478 syntax declarations, and 3440 rules
+- Pinned executions: 240
+
+<details>
+<summary>47 implemented coverage entries</summary>
+
+- PUSH0, PUSH1-PUSH32, POP, DUP1-DUP16, SWAP1-SWAP16, ADD, MUL, SUB, DIV, SDIV, MOD, SMOD, ADDMOD, MULMOD, EXP, SIGNEXTEND, LT, GT, SLT, SGT, EQ, ISZERO, AND, OR, XOR, NOT, BYTE, SHL, SHR, SAR, SHA3, ADDRESS, BALANCE, ORIGIN, CALLER, CALLVALUE, CALLDATALOAD, CALLDATASIZE, CALLDATACOPY, CODESIZE, CODECOPY, GASPRICE, EXTCODESIZE, EXTCODECOPY, RETURNDATASIZE, RETURNDATACOPY, EXTCODEHASH, BLOCKHASH, COINBASE, TIMESTAMP, NUMBER, PREVRANDAO, GASLIMIT, CHAINID, SELFBALANCE, BASEFEE, MLOAD, MSTORE, MSTORE8, SLOAD, SSTORE, MSIZE, GAS, PC, JUMP, JUMPI, JUMPDEST, LOG0-LOG4, RETURN, REVERT, absent/present-empty non-precompile STATICCALL, successful, reverted, or exceptional nonempty-code STATICCALL, ECREC, SHA-256, RIPEMD-160, identity, MODEXP, ECADD, ECMUL, and ECPAIRING precompile STATICCALL, STOP, and INVALID
+- word-stack and program-counter transitions
+- modulo-2^256 addition, multiplication, and subtraction
+- totalized unsigned word division and modulus
+- two's-complement word sign, magnitude, signed division, and signed modulus
+- full-precision ternary modular arithmetic
+- unsigned and two's-complement signed word comparisons, equality, and zero testing
+- modular exponentiation and Shanghai exponent-byte gas charging
+- byte sign extension, bitwise operations, big-endian byte selection, and totalized logical and arithmetic shifts
+- depth-indexed stack duplication and exchange with underflow and DUP stack-overflow boundaries
+- Shanghai PUSH0 decoding, Gbase charging, shared 1,024-word push boundary, and atomic out-of-gas behavior
+- bytecode-scanned jump-destination validation that excludes PUSH immediate data
+- Shanghai nullary transaction, call, block, chain, return-data-size, code-size, and post-charge gas observations
+- exact selected upstream context cells and STOP output clearing through the pinned BYTES.empty operation
+- BLOCKHASH lookup over the exact builtin-List history cell, including current/future rejection, the 256-block boundary, and the zero sentinel
+- Shanghai Gblockhash = 20 charging
+- zero-padded big-endian memory reads, full-word and low-byte writes, 32-byte memory growth, and quadratic expansion charging
+- zero-padded calldata word loads and calldata, program, and bounded return-data copies
+- Shanghai Gcopy per-word charging, zero-width copy behavior, and charged invalid-return-data bounds failure
+- exact local-memory Bytes and active-memory-word configuration cells
+- Shanghai Gzero, Gjumpdest, Gbase, Gverylow, Glow, Gmid, Ghigh, Gexp, and Gexpbyte gas charging
+- success, bad-jump-destination, and selected exceptional statuses
+- builtin Bytes program storage, opcode lookup, and PUSH immediate decoding
+- repeated Map-typed account configuration with nested account id, balance, code, current storage, and original storage cells
+- Shanghai SLOAD fallback-to-zero behavior, Berlin warm/cold storage access tracking, and exact 100/2100 gas charging
+- Shanghai SSTORE clean, dirty, no-op, reset, clear, restoration, stipend, static-mode, refund, and mutation-order behavior
+- accessed-storage Map-of-Sets, refund, and static-mode state without top-level current-storage adapters
+- Berlin warm/cold account access tracking with exact 100/2600 charging and post-charge access marking
+- BALANCE and EXTCODESIZE present-account lookup with ordered absent-account fallback to zero
+- EXTCODECOPY byte-exact copying with right-zero padding, memory expansion, and copy-word charging
+- EXTCODEHASH account-existence and EIP-161 emptiness distinction over code, nonce, and balance with ordered zero fallback and exact warm/cold access charging
+- SELFBALANCE over the current account without account-access charging
+- LOG0-LOG4 append behavior over the exact builtin-List log cell with ordered topics and byte-exact zero-padded memory data
+- Shanghai Glog = 375, Glogdata = 8, and Glogtopic = 375 charging with memory expansion, static-mode rejection, underflow precedence, and atomic out-of-gas behavior
+- SHA3 byte-exact memory hashing through the typed KRYPTO.keccak256raw hook, big-endian digest conversion, Gsha3/Gsha3word charging, memory expansion, stack failure, and atomic out-of-gas behavior
+- RETURN and REVERT output extraction with zero padding, memory expansion charging, stack failures, and terminal success/revert statuses
+- STATICCALL six-operand preparation plus non-precompile absent/present-empty success with warm/cold access, two-region memory expansion, output clearing, underflow, and atomic out-of-gas behavior
+- STATICCALL EIP-150 all-but-one-64th gas capping, complete 15-field call-state save/restore through the builtin call-stack List, child execution context installation, successful STOP return, caller gas restoration, and success-result propagation
+- STATICCALL typed account-and-substate snapshots through interimStates, success-time snapshot dropping, revert/exception rollback, zero/one result propagation, exceptional forwarded-gas consumption, revert gas refund, bounded return-data copying, and empty-stack postconditions
+- Shanghai identity precompile at address 4 with exact 15 + 3 * ceil(input-width / 32) charging, EIP-150 forwarded-gas success/failure, byte-exact output, bounded caller-memory copy, access warming, and empty call/world stack postconditions
+- Shanghai SHA-256 precompile at address 2 through the typed KRYPTO.sha256raw hook with exact 60 + 12 * ceil(input-width / 32) charging, EIP-150 forwarded-gas success/failure, byte-exact output, bounded caller-memory copy, access warming, and empty call/world stack postconditions
+- Shanghai RIPEMD-160 precompile at address 3 through the typed KRYPTO.ripemd160raw hook with exact 600 + 120 * ceil(input-width / 32) charging, 12-byte left padding, EIP-150 forwarded-gas success/failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
+- Shanghai ECREC precompile at address 1 through the typed KRYPTO.ecdsaRecover hook with fixed 3,000 gas charging, zero-padded 128-byte input splitting, valid recovered-address output, successful empty output for invalid signatures, EIP-150 forwarded-gas failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
+- Berlin EIP-2565 MODEXP precompile at address 5 with zero-padded length and operand parsing, exact modulus-width output, total modulus-zero behavior, adjusted exponent length, max(200, floor(ceil(max(base length, modulus length) / 8)^2 * max(adjusted exponent length, 1) / 3)) charging, EIP-150 forwarded-gas success/failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
+- Istanbul ECADD precompile at address 6 through typed KRYPTO.bn128valid and KRYPTO.bn128add hooks with zero-padded 128-byte input, Ethereum point-at-infinity encoding, field and curve validation, exact 64-byte output, fixed 150 gas charging, EIP-150 forwarded-gas success/failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
+- Istanbul ECMUL precompile at address 7 through typed KRYPTO.bn128valid and KRYPTO.bn128mul hooks with zero-padded 96-byte input, full 256-bit scalar reduction, Ethereum point-at-infinity encoding, field and curve validation, exact 64-byte output, fixed 6,000 gas charging, EIP-150 forwarded-gas success/failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
+- Istanbul ECPAIRING precompile at address 8 through typed KRYPTO.bn128valid, KRYPTO.bn128g2valid, and KRYPTO.bn128ate hooks with 192-byte tuple validation, Ethereum G1/G2 point-at-infinity encoding, G2 field, curve, and subgroup validation, exact imaginary/real input decoding, empty-product identity, exact 32-byte Boolean output, 45,000 + 34,000 * pair-count charging, EIP-150 forwarded-gas success/failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
+
+</details>
+
+<details>
+<summary>1 recorded adapter boundary</summary>
+
+- STATICCALL world snapshots retain the selected repeated-account record plus the complete substate rather than the full AccountsCell collection; this is exact for the currently non-mutating static account surface but must generalize before mutable nested calls
+
+</details>
+
+<details>
+<summary>7 deferred areas</summary>
+
+- remaining opcode families, including calls and creation
+- remaining memory operations, account lifecycle, and transactions
+- remaining calls and creation control effects
+- fork schedules and transaction-wide account-access initialization
+- remaining cryptographic hooks outside the selected precompile surface and symbolic summaries
+- full repeated-account collection snapshots required before mutable nested CALL, DELEGATECALL, or creation rollback
+- remaining account fields and account lifecycle beyond balance, code, nonce, and storage
+
+</details>
+
+### KMIR
+
+**Status: incomplete.**
+This extract contains 57 implemented coverage entries, 259 equations, 181 machine rules, and 1 claim.
+
+- Package: `krs-kmir-semantics`
+- Pinned authority: K 7.1.337 at `4d793252bcd77091ee759ca6cd1629db41ed5496`
+- KRS qualification release: K 7.1.337
+- Authority inventory: 19 source files, 525 syntax declarations, and 787 rules
+- Pinned executions: 184
+
+<details>
+<summary>57 implemented coverage entries</summary>
+
+- builtin List basic-block storage and direct indexed lookup
+- typed local List entries with preserved type and mutability metadata
+- ordered assignment execution
+- exact empty-projection Place syntax
+- direct-value, copied-local, and moved-local operands plus source-shaped allocated Boolean and all signed/unsigned integer constants decoded little-endian at their exact widths
+- source-shaped allocated fixed arrays and dynamic slices decoded recursively from exact element widths, plus arbitrary-layout structs decoded from field offsets in declaration order, including nested arrays and downstream field/index projection
+- source-shaped empty and arbitrary-layout tuple allocations decoded into declaration-ordered aggregates, including zero-byte materialization and downstream field projection
+- source-shaped fieldless enum allocations decoded by exact discriminant lookup into aggregate variant indices, with invalid tags remaining undefined
+- source-shaped direct-tag enum allocations with per-variant field lists and arbitrary-offset layouts, exact discriminant selection across I8/I16/I32/I64/I128 tag widths, and arbitrary variant counts
+- source-shaped niche-pointer Option allocations with all-zero bytes decoded to the empty variant-zero aggregate, while unsupported nonzero pointer/reference encodings remain undefined
+- source-shaped constantKindZeroSized operands materialized for struct, tuple, fixed zero-length array, and function-item TypeInfo as empty aggregates or ranges
+- source-shaped ordinary ADT, array, tuple, and closure Rvalue aggregates with ordered builtin-List operand accumulation, preserved copies, ordinary move invalidation, nonzero ADT variants, and exact Aggregate or Range materialization
+- source-shaped union ADT aggregate construction with exactly one active field plus same-active-field reads, persistent writes, projected moves, and reference creation; cross-field reinterpretation remains undefined as in the pinned upstream TODO
+- source-shaped RawPtr aggregate construction from a local pointer and either u64 dynamic length or empty-unit metadata, including requested mutability, retained offsets and origin sizes, trailing zero ConstantIndex removal for fat pointers, and noMetadataSize thin pointers
+- source-shaped Repeat and Len array rvalues with allocation-backed little-endian TyConst lengths, pinned LIST.make repetition, constant/copy/move element evaluation, zero-length arrays, move invalidation, and whole or projected Range lengths returned as u64-width usize values
+- source-shaped CopyForDeref over arbitrary projected places plus whole and retained projected Discriminant lookup against exact nonconsecutive enum discriminant metadata, with flexible-width unsigned integer results and no mutation of the inspected aggregate
+- source-shaped Ty as a MaybeTy subsort plus total concrete getTyOf traversal across dereference, field, dynamic and constant index, subslice, and downcast projections, with TyUnknown fail-closed fallback and reuse by projected PtrToPtr, Transmute, and Discriminant evaluation
+- source-shaped NullOp SizeOf, AlignOf, and UbChecks rvalues with UB checks disabled as pinned, 64-bit usize results, integer/float/Boolean/character/string primitive widths, enum/struct/union/tuple layout size and alignment, fixed and dynamic arrays, thin and fat pointers/references, and fail-closed explicit void-type evaluation
+- move invalidation and reassignment of moved locals
+- projected Move reads with metadata-preserving reconstruction of the enclosing value around a nested Moved marker
+- arbitrary-depth aggregate field projection reads and writes with metadata-preserving persistent reconstruction
+- source-shaped aggregate Downcast projection with variant reinterpretation and persistent field writes
+- Range values with local-indexed array and slice reads and metadata-preserving persistent writes
+- front-relative and documented end-relative ConstantIndex range reads and persistent writes with exact length guards
+- front- and end-relative Subslice range reads and nested persistent writes through builtin List range and updateAll
+- source-shaped shared and mutable reference creation through type-directed projection traversal with dynamic-index freezing, local/stack/allocation targets, metadata recomputation, dereference reads, and pointee-directed persistent writes
+- source-shaped nested current-frame state, current-function identity, function map, and call stack
+- regular constant-target function calls with callee body and typed-local reservation
+- constant, copied, and moved whole-local call arguments with caller-side move invalidation
+- nested call return, caller-frame restoration, returned-value placement, and continuation at the caller target block
+- recursive reference-height adjustment across aggregate and range values, copied reference arguments, read-only dereference through saved caller frames, and returned-reference height restoration
+- cross-frame mutable-reference writes through saved caller locals with retained projection traversal, type and mutability preservation, and recursive replacement-reference height restoration
+- stack-aware read traversal across the selected aggregate, range, and reference projections, including repeated dereference and references crossing multiple saved frames
+- shared upstream-shaped projection target, reconstruction-context, and read/write/move/reference action traversal, including nested cross-frame dereference writes, projected caller-frame move invalidation, and allocation reborrowing
+- retained PointerOffset place traversal over Range values with source-shaped origin sizes, metadata-provided offsets, static and dynamic dereference truncation, persistent nested reconstruction, and cross-frame writes
+- source-shaped AddressOf and PtrLocal values with frozen projected places, reference-to-pointer shortening, local and saved-frame dereference reads and writes, recursive frame-height adjustment, and retained pointer-offset metadata
+- raw-pointer equality and inequality over exact frame height, projected place, and metadata identity while ignoring mutability
+- dynamic pointer/reference metadata extraction plus zero and nonnegative bounded raw-pointer offsets against static or dynamic origin sizes, including the one-past-end result boundary
+- source-shaped PointerCoercion Unsize for raw local pointers and references with static-to-dynamic size conversion and exact preservation of frame height, place, mutability, offset, and origin metadata
+- concrete builtin Ty-to-TypeInfo pointer metadata plus source-shaped same-pointee PtrToPtr copy and move casts with exact pointer preservation and ordinary move invalidation
+- source-shaped typeInfoRefType outer metadata with same-pointee and projected PtrToPtr conversion across all raw-pointer/reference type combinations
+- recursive source-first PtrToPtr conversion among dynamic slice, nested array, and primitive u8 pointees with ConstantIndex and SingletonArray projections, inverse projection cancellation, and target-driven thin/dynamic metadata conversion
+- source-shaped fixed-array TyConst values backed by little-endian allocation bytes plus slice/static-array and static-length-changing PtrToPtr metadata conversion with retained origin sizes
+- source-shaped typeInfoVoidType zero-sized pointees with ToZST/FromZST PtrToPtr projections and inverse projection cancellation
+- source-shaped singleton typeInfoStructType metadata with zero-offset arbitrary-field layouts, Field/WrapStruct PtrToPtr projections, exact-array wrapper priority, inverse cancellation, dereference traversal, and persistent write reconstruction
+- source-shaped allocated Operand constants with singleton provenance, thin and fat reference decoding against concrete type/allocation maps, AllocId identities, AllocRef values, and concrete allocation memory with retained allocation projections, metadata-truncated read-only dereference traversal, static-to-dynamic unsizing, and dynamic pointer-metadata extraction
+- source-shaped same-representation Transmute identity casts for local references, raw pointers, and allocation references guarded by equal resolved TypeInfo
+- width-aware signed and unsigned integer truncation
+- metadata-preserving integer addition, subtraction, multiplication, division, and truncating remainder with ordinary overflow and zero-divisor undefinedness, including the unchecked add/subtract/multiply constructor variants
+- checked addition, subtraction, and multiplication with wrapped-result and overflow-flag aggregates
+- source-shaped checked-arithmetic Assert success and terminal AssertError failure with Continue unwind syntax
+- integer equality and ordered comparisons producing Boolean values
+- Boolean equality and ordered comparisons
+- integer and Boolean bitwise conjunction, disjunction, and exclusive disjunction
+- signed and unsigned left/right shifts including unchecked width guards
+- Boolean not plus signed integer negation and signed/unsigned integer bitwise not
+- Goto, ordered Boolean and width-aware unsigned integer SwitchInt branch targets with otherwise fallback, no-op Drop continuation, terminal ReachedUnreachable errors, and top-level Return
+
+</details>
+
+<details>
+<summary>0 recorded adapter boundaries</summary>
+
+No adapter boundary is recorded.
+
+</details>
+
+<details>
+<summary>7 deferred areas</summary>
+
+- nullOpOffsetOf, which has pinned syntax but no pinned operational rule, plus cross-field union reinterpretation, which remains an upstream TODO
+- remaining Stable MIR syntax and type metadata beyond the retained primitive, aggregate-layout, array, pointer/reference, function, dynamic, void, and opaque local Ty surfaces
+- opaque-cast, subtype, and remaining projection kinds
+- remaining type-directed raw-pointer casts beyond raw-pointer/reference outer metadata plus mutable and general allocation state
+- remaining assertion messages, unwind actions, panic paths, and intrinsics
+- remaining binary operators
+- generated symbolic lookup and proof workflows
+
+</details>
+
+{/* generated:port-coverage:end */}
+
+Next, [definition composition](/advanced/composition) combines independently named package facets without weakening Rust identity or Cargo selection.

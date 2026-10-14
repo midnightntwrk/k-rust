@@ -1,0 +1,81 @@
+configuration	Machine	
+constructor	Add	enum:Op
+constructor	And	enum:Op
+constructor	Assign	enum:StmtSyntax
+constructor	Block	enum:StmtSyntax
+constructor	Div	enum:Op
+constructor	EmptyBlock	enum:StmtSyntax
+constructor	Eq	enum:Op
+constructor	Ge	enum:Op
+constructor	Gt	enum:Op
+constructor	IfThen	enum:StmtSyntax
+constructor	IfThenElse	enum:StmtSyntax
+constructor	Le	enum:Op
+constructor	Lt	enum:Op
+constructor	Mul	enum:Op
+constructor	Ne	enum:Op
+constructor	Neg	enum:Op
+constructor	Not	enum:Op
+constructor	Or	enum:Op
+constructor	Sequence	enum:StmtSyntax
+constructor	Sub	enum:Op
+constructor	While	enum:StmtSyntax
+grammar	__krs_grammar_Op_Add	enum:Op
+grammar	__krs_grammar_Op_And	enum:Op
+grammar	__krs_grammar_Op_Div	enum:Op
+grammar	__krs_grammar_Op_Eq	enum:Op
+grammar	__krs_grammar_Op_Ge	enum:Op
+grammar	__krs_grammar_Op_Gt	enum:Op
+grammar	__krs_grammar_Op_Le	enum:Op
+grammar	__krs_grammar_Op_Lt	enum:Op
+grammar	__krs_grammar_Op_Mul	enum:Op
+grammar	__krs_grammar_Op_Ne	enum:Op
+grammar	__krs_grammar_Op_Neg	enum:Op
+grammar	__krs_grammar_Op_Not	enum:Op
+grammar	__krs_grammar_Op_Or	enum:Op
+grammar	__krs_grammar_Op_Sub	enum:Op
+grammar	__krs_grammar_Op_associativity	enum-associativity:Op
+grammar	__krs_grammar_Op_precedence	enum-precedence:Op
+grammar	__krs_grammar_StmtSyntax_Assign	enum:StmtSyntax
+grammar	__krs_grammar_StmtSyntax_Block	enum:StmtSyntax
+grammar	__krs_grammar_StmtSyntax_EmptyBlock	enum:StmtSyntax
+grammar	__krs_grammar_StmtSyntax_IfThen	enum:StmtSyntax
+grammar	__krs_grammar_StmtSyntax_IfThenElse	enum:StmtSyntax
+grammar	__krs_grammar_StmtSyntax_Sequence	enum:StmtSyntax
+grammar	__krs_grammar_StmtSyntax_While	enum:StmtSyntax
+grammar	__krs_grammar_StmtSyntax_associativity	enum-associativity:StmtSyntax
+grammar	__krs_grammar_StmtSyntax_precedence	enum-precedence:StmtSyntax
+grammar	__krs_grammar_bracket_Expr_0	bracket:0
+grammar	__krs_grammar_subsort(member=relative:Bool;supersort=relative:Value)	subsort
+grammar	__krs_grammar_subsort(member=relative:Id;supersort=relative:Expr)	subsort
+grammar	__krs_grammar_subsort(member=relative:Int;supersort=relative:Value)	subsort
+rule	and_false	
+rule	and_true	
+rule	assign	
+rule	block	
+rule	done	
+rule	eval_add	
+rule	eval_bool_eq	
+rule	eval_bool_ne	
+rule	eval_div	
+rule	eval_ge	
+rule	eval_gt	
+rule	eval_int_eq	
+rule	eval_int_ne	
+rule	eval_le	
+rule	eval_lt	
+rule	eval_mul	
+rule	eval_neg	
+rule	eval_not	
+rule	eval_sub	
+rule	if_else	
+rule	if_false	
+rule	if_true	
+rule	or_false	
+rule	or_true	
+rule	step	
+rule	var	
+rule	while	
+sort	Expr	
+sort	Stmt	
+sort	Value	

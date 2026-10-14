@@ -1,0 +1,13 @@
+[package]
+name = "krs-wasm-abi"
+description = "JSON-over-linear-memory Wasm ABI shared by the KRS browser modules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+
+[lints]
+workspace = true

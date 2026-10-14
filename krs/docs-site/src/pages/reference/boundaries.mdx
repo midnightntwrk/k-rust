@@ -1,0 +1,96 @@
+---
+title: Current boundaries and open questions
+description: Distinguish supported KRS, qualified subsets, unresolved design questions, and syntax that does not exist.
+---
+
+# Current boundaries and open questions
+
+{/* tour-concepts: simplification-priority one-path-claims incremental-semantics open-cell-questions open-grammar-style open-initialization open-formatter-style deferred-term-format-sugar open-rule-doc-style unsupported-logic unsupported-grammar unsupported-cells restricted-rust */}
+
+KRS deliberately exposes less than arbitrary Rust and less than the full K language.
+The status words below are part of the tour contract:
+
+- **current** has an implemented public surface and production or canonical positive evidence;
+- **qualified** is supported only for the stated bounded shape;
+- **unqualified** is accepted below some layer but lacks a positive end-to-end specimen;
+- **open** is a recorded design question; and
+- **unsupported** is not current public syntax.
+
+## Restricted Rust is intentional
+
+Term islands, readable rule bodies, and configuration initializers accept a checked symbolic subset.
+Constructor applications, literals, binders, collection notation, and the documented builtin calls are available where their grammar permits them.
+Arbitrary operators, method calls, closures, host `if`/loops, mutation, and generic constructor shapes other than K sort parameters (`S: ?Sized`) are not silently interpreted as semantics.
+
+This boundary keeps object-language meaning deterministic and collectable.
+If an expression is ordinary Rust, rustc executes or type-checks it as host code; if it is inside a KRS island, the island parser must recognize it as symbolic syntax.
+
+## Qualified or unqualified today
+
+| Surface | Status | Exact boundary |
+| --- | --- | --- |
+| optional cells and cell collections | qualified | `multiplicity = "?"` is an `Option<T>` field, and `multiplicity = "*"` a Set, Map, or List collection that is its parent's only child; both agree natively and in Java K on the configuration-cells fixtures, and only KEVM's Map has language-scale evidence; a List rule changes either its front or its back and never reorders matched instances; cell bags are refused |
+| program syntax | qualified | each package emits `<NS>-SYNTAX` and `<NS>`, and the configured package also `<NS>-CONFIGURATION` when a dependency's rules need its configuration; a production over `Map`, `List`, or `Set` is never program syntax, because K has no `-SYNTAX` module for them |
+| token sorts | qualified | `#[k::token]` adds regex or terminal token productions to a closed struct sort, another token sort, or builtin `Id`, and `k::lexeme!` writes a token in rules and claims, not in initializers; KRS does not check a lexeme's text against the regex; it rejects a token regex spelled like one of K's own at another `prec` and one that would take a configuration cell or property name from K (`krs::analysis::token-collision`), but does not detect other ways a regex can shadow K's rule-level tokens |
+| syntactic lists | qualified | `#[k::syntax_list]` declares `List{}` and `NeList{}` of one element sort, with a closed sort and symbols derived from the enum name; there is no slice-pattern sugar, and a list sort has no other constructors; the only sort that joins one is a strict list's value list, K's `Vals`, which KRS puts in the strict list's `overload` family, and only the grammar-lexing `strict-lists` fixture exercises it |
+| layout and lexicals | qualified | `k::layout!` replaces K's default layout and also applies when K parses the emitted rules, which KRS does not check; a layout regex that swallows a terminal breaks Java K's rule parsing, K's own rules included (a layout comment starting with `#` breaks the `#if` rules of K-EQUAL once a definition imports it), but not the native route |
+| typed hooks | qualified | the typed catalog exported by KRS is checked; a quoted hook (`hook = "KRYPTO.keccak256"`) must name a hook of the pinned K and k-rust, its signature is unchecked, and the package must set `allow-raw-k = true`; no raw-attribute escape hatch |
+| raw K sentences | qualified | `k::raw_k!` keeps one K rule, claim, or context verbatim in the package's semantics module, with `allow-raw-k = true`; K parses it with the package's grammar, a parse error fails the build, and every build warns (the strict profile refuses it) |
+| existential rule results | qualified | `#[k::exists]` and `#[k::ensures]` on transitions run symbolically on the k-rust and Java Haskell routes (K tutorial lesson 1.21 agrees on both); the LLVM routes refuse them (`krs::capability::unavailable`); ensures conditions are object Bool, not matching logic |
+| matching-logic predicates | qualified | `k::ml` connectives (`top`, `bottom`, `not`, `and`, `or`, `implies`, `equals`, `ceil`, `exists`) are K's `#Top` ... `#Exists` in claim conditions, simplification conditions, and predicate simplifications rooted at `#Equals` or `#Ceil`; k-rust and Java `kprove` agree on K tutorial lesson 1.22's lemma, which proves its claim with the lemma and fails it without; transition and equation conditions stay object Bool; `#Floor`, `#In`, and set variables are not supported |
+| fresh values | qualified | `#[k::fresh]` binders on transitions draw from K's shared generated counter through the sort's `fresh_generator` (Int and Id use K's own) on every route; one fresh binder per rule agrees across backends, while K assigns the offsets of several binders of one rule in an unspecified order (k-rust: by name) |
+| trusted claims | qualified | `#[k::claim(.., trusted)]` emits `[trusted]`; `krs prove` and Java `kprove` both apply it as an assumed lemma, `krs prove` reports it `trusted` rather than `proven`, and every prove run and Haskell build warns; Java prints `#Top` even for a spec of only trusted claims, so the trusted status comes from `krs prove` |
+| SMT translations | qualified | `#[k::function(.., smtlib = "sym")]` emits `smtlib(sym)` and `smt_hook = "tmpl"` emits `smt-hook(..)` with `{field}` placeholders renumbered to `#N`; k-rust (Z3) and Java `kprove` both use them, both are trusted rather than checked against equations, and a function with an `smt_hook` but no equation is evaluated only by Z3 on symbolic paths |
+| Concrete, symbolic, and SMT lemmas | qualified | `#[k::simplification(..)]` and `#[k::equation(..)]` take `concrete`, `concrete(x, ..)`, `symbolic`, `symbolic(x, ..)`, and `smt_lemma`, emitted as K's `concrete(X)`, `symbolic(X)`, and `smt-lemma` with the sentence's variable names; k-rust and Java `kprove` agree on a `concrete(x)` simplification that leaves a symbolic claim unproved and on an `smt_lemma` that proves it |
+| desugar and recursive aliases | qualified | `#[k::desugar]` emits `macro` and `recursive` on the production emits `macro-rec` or `alias-rec`; programs and rules expand alike on k-rust and Java K, and both printers reverse `alias-rec` clauses; a plain desugar that leaves its own symbol in a program after one step leaves Java K's LLVM run stuck there, while k-rust refuses to execute the program by contract (the symbol has no value of its own); a `recursive` desugar with a clause for every shape, or an ordinary rule, runs on both |
+| desugar unbound variables | qualified | `#[k::desugar(unbound_variables = [x, _])]` on a desugar clause emits `unboundVariables(X, _)`; k-rust and Java K both expand such a desugar into the rules that use it as a pattern, with fresh variables per use; the key is rejected on every other sentence and on production markers |
+| pattern aliases | qualified | `name @ pattern` in a left-hand side is K's `( PATTERN #as Name:Sort )` and runs alike on the k-rust and Java LLVM routes; it may not alias a whole rule subject |
+| pattern alternatives | qualified | `A \| B` in a left-hand side is K's `( A #Or B )` and runs alike on the k-rust, Java LLVM, and Java Haskell routes; KRS accepts it only where those readings agree: every alternative binds the same names, and alternatives that could match one term with different bindings are rejected (LLVM would take one, Haskell both); `\|` cannot join whole `k::term!` subjects, `cells!` remainders, or machine records |
+| shape tests | qualified | `k::matches!(t, P)` is K's `( P :=K T )`, a Bool, and runs alike on the k-rust, Java LLVM, and Java Haskell routes; it is valid in rule and equation conditions and Bool-sorted results, never in a pattern or a claim (Java K's `kprove` and the k-rust prover both reject `:=K` in a claim); the pattern takes `_`, `name @ pattern`, and `A \| B` but no `if` guard, its names are local binders that may not reuse a rule binder's name, and `@` is accepted only in conditions because K rejects `#as` in a right-hand side |
+| local bindings | qualified | a block `{ let P = A; B }` is K's `( #let P = A #in B )`, that is `#fun(P => B)(A)`, and runs alike on the k-rust, Java LLVM, and Java Haskell routes; it is valid in results and conditions, never in a pattern, a `cells!` cell value, an initializer, or a claim; a refutable pattern or an ascription `let x: S` that fails makes the term undefined rather than a compile error (Java K's LLVM backend aborts and k-rust ends the run as undefined, while Java K's Haskell backend leaves a failed ascription's generated function application stuck and does not terminate on a failed constructor pattern; guard a refutable pattern with `#[k::requires]`, not `#if`, which keeps the undefined branch's definedness), the pattern takes `_` but neither `A \| B` nor `name @ pattern` (K rejects `#as` outside a left-hand side), and its names are local binders, so a shadowing `let` is a distinct variable |
+| local rewrites | qualified | a `#[k::rule]` fn that returns `()` is K's single-body rule, with `k::rewrite!(from => to)` marking each change in its `cells!` or `term!` subject; it emits K's local form and runs alike natively and on Java LLVM; a map rewrite changes a value and never adds an entry, `()` on the right removes a whole K-sequence item, rewrites do not nest, and the form is reference-only and a transition (not an anywhere rule), with no `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`; rewrites of nested group cells are not covered |
+| heating and cooling | qualified | `#[k::rule(heat, hole = h)]` and `#[k::rule(cool, hole = h)]` are K's `[heat]` and `[cool]` rules, with an optional `result = S`; the hole is emitted as `HOLE`, K adds the result-sort condition, and lesson 14's hand-written rules run like `#[k::seqstrict]` natively and on Java LLVM; a readable machine record matches one computation-cell item, so a cool rule is written as a `cells!` rule, and freezers are a reference `KItem` family |
+| contexts | qualified | `#[k::context(hole = h)]` on a unit-returning fn is K's `context`, with an optional `result = S` and `label`; a `k::term!` subject is completed to the computation cell by K, a `k::cells!` subject may constrain other cells, and one `k::rewrite!` may rewrite the hole to a term containing it; lesson 14's contexts run like `#[k::seqstrict]`, an lvalue context and two context aliases sharing a name with `result = S` run alike natively and on Java LLVM; the hole and a context alias's `HERE` must lie in the computation cell |
+| function contexts | qualified | an equation's final `k::cells! { cell: .., .. }: Machine` parameter is K's `[[ F => R ]] <cells>` and runs alike on the k-rust, Java LLVM, and Java Haskell routes; it reads leaf cells only (a whole nested cell is rejected), ends with an anonymous `..`, makes the binder list mandatory, and is rejected on rules, simplifications, and aliases; a total function whose context may not match is not diagnosed by KRS (K's non-exhaustive-match warning names the hidden configuration argument); a rule that calls such a function, directly or through other functions, has the context's cells in its overlap-check footprint, unified as unconstrained variables |
+| sort-parametric productions | qualified | a production struct `Choose<S: ?Sized>` is K's `syntax {S}`; equation and rule heads fix their instance with a turbofish, emitted as strict casts (`A::Int`), and agree on the k-rust and Java Haskell routes for functions and on the k-rust and Java LLVM routes for constructors; the LLVM routes refuse parametric function equations and the Java Haskell route parametric constructors (`krs::capability::unavailable`); a head whose binders all sit below its turbofish is rejected (`krs::analysis::native-instance`), and a non-head term's turbofish must name the instance K solves from its arguments; user parametric sorts and generic rules do not exist |
+| anywhere rules | qualified | `#[k::rule(anywhere)]` on term-shaped rules runs on the k-rust and Java LLVM routes; the Java Haskell route refuses it (`krs::capability::unavailable`); k-rust applies a rule whose left-hand side nests its own head only where it can show at load that the rule's overlaps with itself rejoin, so it leaves the unrestricted reassociation `(s1 ; s2) ; s3` unreduced while restricting the first leaf to an atom sort runs, and while such a head is left unreduced, a rule over its sort that rebuilds an application of it can run without end |
+| floats | qualified | binary32 (`f32`) and binary64 (`f64`) Floats run on every route; a `FLOAT` operation applied to tokens only and formats other than `f32` and `f64` (`pNxM`) run only on Java K's LLVM backend, and the native and browser routes refuse them (`krs::capability::unavailable`); Java K's Haskell backend has no Float evaluator; arithmetic over an `f32` and an `f64` operand gives an `f64` on k-rust runs (Java K's LLVM backend: the left operand's format) and is left unevaluated in k-rust proofs |
+| typed binders | qualified | a rule fn declares no binders or every subject binder, in first-occurrence order, each at its inferred sort or a narrower one; a declared sort an occurrence cannot accept is rejected |
+| sort tests and projections | qualified | `k::is!(S, t)` and `k::project!(S, t)` are K's `isS(T)` and `{T}:>S` in results, guards, and claims, never in patterns; a projection that does not apply aborts Java K's LLVM run, while k-rust splits on whether it is defined and ends in a stuck leaf and a `#Bottom` leaf |
+| console I/O | qualified | `stream` cells and the `exit` cell run with `krs run`, which reads standard input before the first step and prints the output cell when the run ends, and with Java K's `krun`; `krs search` and the browser route refuse them; the direct `io::write` and `io::putc` hooks run on Java K and through `krs build --backend llvm`, and the in-process routes refuse them (`krs::capability::unavailable`) |
+| KWasm, KMIR, KEVM | qualified | incremental extracts tracked in `semantics/coverage.toml`, not complete ports |
+| one-path claims | unqualified | grammar acceptance exists, but no positive end-to-end authored fixture currently qualifies the backend route |
+| simplification priority | unqualified | parsing and lowering accept `simplification(priority = N)`; no positive authored macro specimen was found |
+
+Traps need no special KRS construct.
+A language defines an ordinary object-language trap state and transitions to it; backend hook/capability failure is a different outcome.
+
+## Open design questions
+
+The following questions remain recorded rather than answered by this tour:
+
+- whether `{ .. }` in a cell position means only a tail map pattern or an all-framed cell record;
+- the style rule for naming cross-family precedence groups;
+- whether a future const-style configuration initializer should complement `#[k::init]`;
+- aligned-column versus fixed-gutter trailing comments (aligned is only the provisional default); and
+- the documentation style for individual readable rule clauses.
+
+An implementation or example that depends on one of these must surface the decision; source order and formatter output must not decide it accidentally.
+
+## Unsupported surface
+
+Cell bags (`cell_type = "Bag"`), a collection that shares its parent with other cells, and List rules that change both ends or move instances are unsupported.
+Matching logic beyond the `k::ml` connectives, strict casts (`::S` and `{T}<:S`), and arbitrary raw grammar are not current public features; a typed binder or `where x: S` narrows what a rule matches, `k::project!` is K's projection cast, and fresh values are [`#[k::fresh]`](/reference/language#fresh-values).
+
+Method-call term sugar is deferred, and there is no `% ` format escape: a plain space in a format prints as written.
+Non-doc block comments inside DSL macro bodies are rejected.
+Source order is never a rule tie-breaker: rules are ordered only by `priority = N` or `owise` (see [rule priority](/reference/language#rule-priority)).
+`krs run`, `krs search`, and `krs prove` always use the in-process k-rust backend; their results print through the grammar as `krun --output pretty` prints them, and the printer adds parentheses by K's simple algorithm, which is not guaranteed to reparse (as in K).
+There is no stepping debugger: `krs run --trace` lists the rewrite steps of a finished run.
+
+When an example needs an unsupported feature, state the semantic gap and use a checked adapter only if its limitation is recorded.
+Do not present parser acceptance, a historical draft, or a generated reference spelling as a supported idiom.
+
+The dependency-ordered language tour is complete here.
+Finish with its [five-minute synthesis](/start/five-minute-theory), which compresses the model into one definition.
+The synthesis intentionally stays compact; unfamiliar terms link or expose focused explanations, while these canonical chapters own the full treatment.

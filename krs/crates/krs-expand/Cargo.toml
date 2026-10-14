@@ -1,0 +1,24 @@
+[package]
+name = "krs-expand"
+description = "Proc-macro-free expansion core shared by krs-macros and non-rustc expansion hosts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+krs-diagnostic = { path = "../krs-diagnostic", features = ["proc-macro2"] }
+krs-ir = { path = "../krs-ir", features = ["proc-macro2"] }
+krs-syntax = { path = "../krs-syntax" }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+quote = { workspace = true }
+serde_json.workspace = true
+syn = { workspace = true, features = ["full", "parsing", "printing", "visit"] }
+
+[dev-dependencies]
+expect-test = { workspace = true }
+prettyplease = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,43 @@
+---
+title: IMP state—machine rules
+description: Match computation heads and maps, update multiple cells, and understand implicit frames.
+---
+
+# IMP state: sequences, maps, and framing
+
+{/* tour-concepts: k-sequences machine-rules map-patterns */}
+
+Machine rules relate whole symbolic configurations while mentioning only the cells and fragments relevant to one step.
+
+```rust [tests/tour-imp/chapters/06-machine-rules.rs]
+// [!include ~/snippets/imp-machine-rules.rs]
+```
+
+## Read both cells at once
+
+`for Machine;` makes each clause a configuration rule.
+The left side of `var` requires an identifier at the head of `k` and a matching `name -> value` entry in `env`.
+The right side replaces only that computation head.
+
+The omitted environment cell and the `..` sequence tail and map tail are frames: they persist unchanged.
+This is one simultaneous symbolic rewrite, not a series of Rust field assignments.
+
+## Persistent map updates
+
+`assign` matches an evaluated assignment at the computation head and binds the complete environment as `e`.
+Its result erases the consumed head item and replaces `env` with the symbolic application `map::update(e, name, value)`.
+
+Map lookup in a pattern and persistent update on a result are different operations.
+Neither reads or mutates a host `HashMap` during definition collection.
+
+`where name: Id` and `where value: Value` narrow binders to the sorts required by the cell and builtin operations.
+Clause source order remains semantically irrelevant.
+The clause names identify the authored rule sentences; constructor and cell identities still come from their Rust-resolved declarations.
+
+An unknown cell, incompatible frame, duplicate binder with inconsistent meaning, or statically overlapping head fails analysis.
+A well-formed rule whose pattern is absent is merely inapplicable.
+
+Run `python3 tests/tour-imp/verify.py` from the repository root to check this exact machine-rule slice, the complete capstone, canonical formatting, deterministic expansion and K emission, and authored source maps.
+The [language reference](/reference/language) indexes sequence, map, term, and cell islands.
+
+Next, [control flow](/imp/control-flow) uses K-sequence splice and erase to finish IMP.

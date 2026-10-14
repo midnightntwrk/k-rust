@@ -1,0 +1,92 @@
+#[doc(hidden)]
+fn __krs_lexical_descriptor_48fd87ead4f94387() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_lexical_48fd87ead4f94387",
+                ::k::ItemKind::Grammar,
+                "lexical",
+            )
+            .expect("Cargo and Rust macro context form a valid grammar identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"lexical\",\"grammar\":{\"lexicals\":[{\"key\":{\"role\":\"lexical_declaration\",\"ordinal\":0},\"name\":\"Alpha\",\"regex_key\":{\"role\":\"lexical_regex\",\"ordinal\":0},\"regex\":\"[a-zA-Z]\"},{\"key\":{\"role\":\"lexical_declaration\",\"ordinal\":1},\"name\":\"AlphaNum\",\"regex_key\":{\"role\":\"lexical_regex\",\"ordinal\":1},\"regex\":\"[a-zA-Z0-9_]\"}]}}}",
+            ::k::__KrsSlots::default(),
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::LexicalDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 5u32),
+                            (4u32, 25u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::LexicalRegex,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 13u32),
+                            (4u32, 24u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::LexicalDeclaration,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 5u32),
+                            (5u32, 32u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::LexicalRegex,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 16u32),
+                            (5u32, 31u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (6u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_lexical_descriptor_48fd87ead4f94387);

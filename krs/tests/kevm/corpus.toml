@@ -1,0 +1,3682 @@
+schema = 1
+reason = "stuck"
+observe = ["k", "program", "wordStack", "pc", "gas", "output", "localMem", "memoryUsed", "statusCode"]
+
+[expect]
+k = ".K"
+output = 'b""'
+localMem = 'b""'
+memoryUsed = "0"
+storage = ".Map"
+accessedStorage = ".Map"
+refund = "0"
+accessedAccounts = ".Set"
+log = ".List"
+callStack = ".List"
+interimStates = ".List"
+
+[report]
+k = "k"
+program = "program"
+wordStack = "stack"
+pc = "pc"
+gas = "gas"
+output = "output"
+localMem = "local_mem"
+memoryUsed = "memory_used"
+statusCode = "status"
+storage = "storage"
+accessedStorage = "accessed_storage"
+refund = "refund"
+accessedAccounts = "accessed_accounts"
+log = "logs"
+callStack = "call_stack"
+interimStates = "interim_states"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/evm.md"
+contract = "configuration, #next/#exec/#pc/#gas pipeline, PUSH, Shanghai pure-word expressions, SHA3, nullary execution-context queries, LOG0-LOG4, PC, STOP, RETURN, REVERT, INVALID, and exceptional statuses"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/evm-types.md"
+contract = "EVM word arithmetic, modular power, sign extension, bitwise operations, byte selection, and logical/arithmetic shifts"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/word.md"
+contract = "Word, WordStack, and modulo-2^256 chop"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/schedule.md"
+contract = "Shanghai Gzero, Gbase, Gverylow, Glow, Gmid, Gexp, Gexpbyte, Gsha3, Gsha3word, Glog, Glogdata, and Glogtopic costs plus active shift availability"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/push-summary.k"
+contract = "direct PUSH transition over program, stack, PC, and gas"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/pushzero-summary.k"
+contract = "direct Shanghai PUSHZERO transition with Gbase charging and stack bounds"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/add-summary.k"
+contract = "direct ADD transition with 256-bit normalization"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/sub-summary.k"
+contract = "direct SUB transition with top-first operand order and 256-bit normalization"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/div-summary.k"
+contract = "direct DIV transition with top-first operand order and Glow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/mod-summary.k"
+contract = "direct MOD transition with top-first operand order and Glow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/sdiv-summary.k"
+contract = "direct SDIV transition with two's-complement word interpretation and Glow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/smod-summary.k"
+contract = "direct SMOD transition with dividend-signed remainder and Glow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/addmod-summary.k"
+contract = "direct ADDMOD transition with an unbounded addition intermediate and Gmid charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/mulmod-summary.k"
+contract = "direct MULMOD transition with an unbounded multiplication intermediate and Gmid charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/exp-summary.k"
+contract = "direct EXP transition with modular power and exponent-byte-dependent Shanghai charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/signextend-summary.k"
+contract = "direct SIGNEXTEND transition with two's-complement byte extension and Glow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/lt-summary.k"
+contract = "direct top-first unsigned LT transition and Gverylow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/gt-summary.k"
+contract = "direct top-first unsigned GT transition and Gverylow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/slt-summary.k"
+contract = "direct top-first signed LT transition over two's-complement words"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/sgt-summary.k"
+contract = "direct top-first signed GT transition over two's-complement words"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/eq-summary.k"
+contract = "direct word equality transition and Gverylow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/iszero-summary.k"
+contract = "direct unary zero-test transition and Gverylow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/pop-summary.k"
+contract = "direct POP transition with Gbase charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/dup-summary.k"
+contract = "depth-indexed DUP transition with Gverylow charging and stack bounds"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/swap-summary.k"
+contract = "depth-indexed SWAP transition with Gverylow charging and stack bounds"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/and-summary.k"
+contract = "direct AND transition through K's native integer conjunction"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/evmor-summary.k"
+contract = "direct EVMOR transition through K's native integer inclusive disjunction"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/xor-summary.k"
+contract = "direct XOR transition through K's native integer exclusive disjunction"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/not-summary.k"
+contract = "direct NOT transition as XOR with maxUInt256"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/byte-summary.k"
+contract = "direct BYTE transition with big-endian word indexing"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/shl-summary.k"
+contract = "direct SHL transition with top-first shift/value order and Gverylow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/shr-summary.k"
+contract = "direct SHR transition with top-first shift/value order and Gverylow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/sar-summary.k"
+contract = "direct SAR transition with two's-complement arithmetic fill and Gverylow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/pc-summary.k"
+contract = "direct PC observation transition"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/gas-summary.k"
+contract = "gas observation and deduction ordering"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/blockhash-summary.k"
+contract = "direct BLOCKHASH transition over history, block number, stack, PC, and Gblockhash charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/mload-summary.k"
+contract = "MLOAD zero-padded big-endian reads, memory accounting, and Gverylow plus expansion charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/sha3-summary.k"
+contract = "direct SHA3 memory extraction, Keccak-256 result, memory accounting, and per-word plus expansion charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/mstore-summary.k"
+contract = "MSTORE 32-byte big-endian writes, memory accounting, and Gverylow plus expansion charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/mstore8-summary.k"
+contract = "MSTORE8 low-byte writes, memory accounting, and Gverylow plus expansion charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/msize-summary.k"
+contract = "MSIZE observation of the active memory word count and Gbase charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/calldataload-summary.k"
+contract = "CALLDATALOAD zero-padded big-endian reads and Gverylow charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/calldatacopy-summary.k"
+contract = "CALLDATACOPY zero-padded byte copies, memory accounting, and per-word copy charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/codecopy-summary.k"
+contract = "CODECOPY zero-padded byte copies from the active program and per-word copy charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/returndatacopy-summary.k"
+contract = "RETURNDATACOPY bounded byte copies, invalid-memory-access failure, memory accounting, and gas charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/jumpdest-summary.k"
+contract = "direct JUMPDEST transition with Gjumpdest charging"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/stop-summary.k"
+contract = "successful halt status"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/invalid-summary.k"
+contract = "invalid-instruction exceptional status"
+
+[[source_evidence]]
+path = "kevm-pyk/src/kevm_pyk/kproj/evm-semantics/summaries/log-summary.k"
+contract = "LOG0-LOG4 memory extraction, topic order, append behavior, and gas charging"
+
+[[behavior]]
+id = "empty-program"
+program = 'b""'
+stack = ".WordStack"
+pc = "0"
+gas = "0"
+expect.program = 'b""'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "push-zero"
+program = 'b"\x5f\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "2"
+expect.program = 'b"\x5f\x00"'
+expect.wordStack = "0 : 7 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "push-zero-out-of-gas-is-atomic"
+program = 'b"\x5f\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "1"
+expect.program = 'b"\x5f\x00"'
+expect.wordStack = "7 : .WordStack"
+expect.pc = "0"
+expect.gas = "1"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "pop"
+program = 'b"\x50\x00"'
+stack = "7 : 8 : .WordStack"
+pc = "0"
+gas = "2"
+expect.program = 'b"\x50\x00"'
+expect.wordStack = "8 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "duplicate-first"
+program = 'b"\x80\x00"'
+stack = "7 : 8 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x80\x00"'
+expect.wordStack = "7 : 7 : 8 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "duplicate-sixteenth"
+program = 'b"\x8f\x00"'
+stack = "1 : 2 : 3 : 4 : 5 : 6 : 7 : 8 : 9 : 10 : 11 : 12 : 13 : 14 : 15 : 16 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x8f\x00"'
+expect.wordStack = "16 : 1 : 2 : 3 : 4 : 5 : 6 : 7 : 8 : 9 : 10 : 11 : 12 : 13 : 14 : 15 : 16 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "swap-first"
+program = 'b"\x90\x00"'
+stack = "1 : 2 : 3 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x90\x00"'
+expect.wordStack = "2 : 1 : 3 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "swap-sixteenth"
+program = 'b"\x9f\x00"'
+stack = "1 : 2 : 3 : 4 : 5 : 6 : 7 : 8 : 9 : 10 : 11 : 12 : 13 : 14 : 15 : 16 : 17 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x9f\x00"'
+expect.wordStack = "17 : 2 : 3 : 4 : 5 : 6 : 7 : 8 : 9 : 10 : 11 : 12 : 13 : 14 : 15 : 16 : 1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "duplicate-depth-underflow"
+program = 'b"\x82\x00"'
+stack = "1 : 2 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x82\x00"'
+expect.wordStack = "1 : 2 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "swap-depth-underflow"
+program = 'b"\x91\x00"'
+stack = "1 : 2 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x91\x00"'
+expect.wordStack = "1 : 2 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "pop-underflow"
+program = 'b"\x50\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x50\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "duplicate-out-of-gas"
+program = 'b"\x80\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "2"
+expect.program = 'b"\x80\x00"'
+expect.wordStack = "7 : .WordStack"
+expect.pc = "0"
+expect.gas = "2"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "duplicate-stack-overflow"
+program = 'b"\x80\x00"'
+stack = "0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x80\x00"'
+expect.wordStack = "0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : 0 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_OVERFLOW"
+
+[[behavior]]
+id = "multiply"
+program = 'b"\x02\x00"'
+stack = "7 : 6 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x02\x00"'
+expect.wordStack = "42 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "multiply-word-wrap"
+program = 'b"\x02\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : 2 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x02\x00"'
+expect.wordStack = "115792089237316195423570985008687907853269984665640564039457584007913129639934 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "subtract"
+program = 'b"\x03\x00"'
+stack = "9 : 4 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x03\x00"'
+expect.wordStack = "5 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "subtract-top-first-word-wrap"
+program = 'b"\x03\x00"'
+stack = "4 : 9 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x03\x00"'
+expect.wordStack = "115792089237316195423570985008687907853269984665640564039457584007913129639931 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "divide"
+program = 'b"\x04\x00"'
+stack = "9 : 4 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x04\x00"'
+expect.wordStack = "2 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "divide-by-zero"
+program = 'b"\x04\x00"'
+stack = "9 : 0 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x04\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "modulus"
+program = 'b"\x06\x00"'
+stack = "11 : 4 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x06\x00"'
+expect.wordStack = "3 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "modulus-by-zero"
+program = 'b"\x06\x00"'
+stack = "11 : 0 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x06\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "core-arithmetic-stop"
+program = 'b"\x60\x02\x60\x03\x02\x60\x04\x60\x09\x03\x60\x03\x60\x09\x04\x60\x04\x60\x0b\x06\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "42"
+expect.program = 'b"\x60\x02\x60\x03\x02\x60\x04\x60\x09\x03\x60\x03\x60\x09\x04\x60\x04\x60\x0b\x06\x00"'
+expect.wordStack = "3 : 3 : 5 : 6 : .WordStack"
+expect.pc = "20"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-divide-negative-by-positive"
+program = 'b"\x05\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639927 : 4 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x05\x00"'
+expect.wordStack = "115792089237316195423570985008687907853269984665640564039457584007913129639934 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-divide-both-negative"
+program = 'b"\x05\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639927 : 115792089237316195423570985008687907853269984665640564039457584007913129639932 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x05\x00"'
+expect.wordStack = "2 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-divide-by-zero"
+program = 'b"\x05\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639927 : 0 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x05\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-divide-minimum-overflow"
+program = 'b"\x05\x00"'
+stack = "57896044618658097711785492504343953926634992332820282019728792003956564819968 : 115792089237316195423570985008687907853269984665640564039457584007913129639935 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x05\x00"'
+expect.wordStack = "57896044618658097711785492504343953926634992332820282019728792003956564819968 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-modulus-negative-dividend"
+program = 'b"\x07\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639925 : 4 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x07\x00"'
+expect.wordStack = "115792089237316195423570985008687907853269984665640564039457584007913129639933 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-modulus-negative-divisor"
+program = 'b"\x07\x00"'
+stack = "11 : 115792089237316195423570985008687907853269984665640564039457584007913129639932 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x07\x00"'
+expect.wordStack = "3 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-modulus-by-zero"
+program = 'b"\x07\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639925 : 0 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x07\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "add-modulus"
+program = 'b"\x08\x00"'
+stack = "7 : 6 : 5 : .WordStack"
+pc = "0"
+gas = "8"
+expect.program = 'b"\x08\x00"'
+expect.wordStack = "3 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "add-modulus-unbounded-intermediate"
+program = 'b"\x08\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : 2 : 5 : .WordStack"
+pc = "0"
+gas = "8"
+expect.program = 'b"\x08\x00"'
+expect.wordStack = "2 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "add-modulus-by-zero"
+program = 'b"\x08\x00"'
+stack = "7 : 6 : 0 : .WordStack"
+pc = "0"
+gas = "8"
+expect.program = 'b"\x08\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "multiply-modulus"
+program = 'b"\x09\x00"'
+stack = "7 : 6 : 5 : .WordStack"
+pc = "0"
+gas = "8"
+expect.program = 'b"\x09\x00"'
+expect.wordStack = "2 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "multiply-modulus-unbounded-intermediate"
+program = 'b"\x09\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : 2 : 5 : .WordStack"
+pc = "0"
+gas = "8"
+expect.program = 'b"\x09\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "multiply-modulus-by-zero"
+program = 'b"\x09\x00"'
+stack = "7 : 6 : 0 : .WordStack"
+pc = "0"
+gas = "8"
+expect.program = 'b"\x09\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "arithmetic-tranches-stop"
+program = 'b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "56"
+expect.program = 'b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x00"'
+expect.wordStack = "4 : 0 : 1 : 3 : .WordStack"
+expect.pc = "24"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "less-than-true"
+program = 'b"\x10\x00"'
+stack = "2 : 7 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x10\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "less-than-false"
+program = 'b"\x10\x00"'
+stack = "7 : 2 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x10\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "greater-than-true"
+program = 'b"\x11\x00"'
+stack = "7 : 2 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x11\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "greater-than-false"
+program = 'b"\x11\x00"'
+stack = "2 : 7 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x11\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-less-than-negative-positive"
+program = 'b"\x12\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : 1 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x12\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-less-than-positive-negative"
+program = 'b"\x12\x00"'
+stack = "1 : 115792089237316195423570985008687907853269984665640564039457584007913129639935 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x12\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-less-than-both-negative"
+program = 'b"\x12\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639927 : 115792089237316195423570985008687907853269984665640564039457584007913129639932 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x12\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-greater-than-both-negative"
+program = 'b"\x13\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639932 : 115792089237316195423570985008687907853269984665640564039457584007913129639927 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x13\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "equal-true"
+program = 'b"\x14\x00"'
+stack = "7 : 7 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x14\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "equal-false"
+program = 'b"\x14\x00"'
+stack = "7 : 2 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x14\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "is-zero-true"
+program = 'b"\x15\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x15\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "is-zero-false"
+program = 'b"\x15\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x15\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "arithmetic-comparison-tranches-stop"
+program = 'b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x60\x07\x60\x02\x10\x60\x02\x60\x07\x11\x60\x07\x60\x02\x12\x60\x02\x60\x07\x13\x60\x05\x60\x05\x14\x60\x00\x15\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "107"
+expect.program = 'b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x60\x07\x60\x02\x10\x60\x02\x60\x07\x11\x60\x07\x60\x02\x12\x60\x02\x60\x07\x13\x60\x05\x60\x05\x14\x60\x00\x15\x00"'
+expect.wordStack = "1 : 1 : 1 : 1 : 1 : 1 : 4 : 0 : 1 : 3 : .WordStack"
+expect.pc = "52"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "push-width-one"
+program = 'b"\x60\x2a\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x60\x2a\x00"'
+expect.wordStack = "42 : .WordStack"
+expect.pc = "2"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "push-width-thirty-two"
+program = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x7f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\x00"'
+stack = ".WordStack"
+pc = "9"
+gas = "3"
+expect.program = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x7f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\x00"'
+expect.wordStack = "255 : .WordStack"
+expect.pc = "42"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "add"
+program = 'b"\x01\x00"'
+stack = "2 : 3 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x01\x00"'
+expect.wordStack = "5 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "add-word-wrap"
+program = 'b"\x01\x00"'
+stack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : 1 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x01\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "program-counter"
+program = 'b"\x00\x00\x00\x00\x00\x00\x00\x58\x00"'
+stack = ".WordStack"
+pc = "7"
+gas = "2"
+expect.program = 'b"\x00\x00\x00\x00\x00\x00\x00\x58\x00"'
+expect.wordStack = "7 : .WordStack"
+expect.pc = "8"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "push-add-pc-stop"
+program = 'b"\x60\x02\x60\x03\x01\x58\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "11"
+expect.program = 'b"\x60\x02\x60\x03\x01\x58\x00"'
+expect.wordStack = "5 : 5 : .WordStack"
+expect.pc = "6"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "add-underflow-empty"
+program = 'b"\x00\x00\x00\x00\x01\x00"'
+stack = ".WordStack"
+pc = "4"
+gas = "20"
+expect.program = 'b"\x00\x00\x00\x00\x01\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "4"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "add-underflow-one"
+program = 'b"\x00\x00\x00\x00\x01\x00"'
+stack = "9 : .WordStack"
+pc = "4"
+gas = "20"
+expect.program = 'b"\x00\x00\x00\x00\x01\x00"'
+expect.wordStack = "9 : .WordStack"
+expect.pc = "4"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "push-out-of-gas"
+program = 'b"\x60\x2a\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "2"
+expect.program = 'b"\x60\x2a\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "2"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "add-out-of-gas"
+program = 'b"\x01\x00"'
+stack = "2 : 3 : .WordStack"
+pc = "0"
+gas = "2"
+expect.program = 'b"\x01\x00"'
+expect.wordStack = "2 : 3 : .WordStack"
+expect.pc = "0"
+expect.gas = "2"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "pc-out-of-gas"
+program = 'b"\x00\x00\x00\x00\x00\x00\x00\x58\x00"'
+stack = ".WordStack"
+pc = "7"
+gas = "1"
+expect.program = 'b"\x00\x00\x00\x00\x00\x00\x00\x58\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "7"
+expect.gas = "1"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "invalid-instruction"
+program = 'b"\x00\x00\x00\xfe\x00"'
+stack = "9 : .WordStack"
+pc = "3"
+gas = "20"
+expect.program = 'b"\x00\x00\x00\xfe\x00"'
+expect.wordStack = "9 : .WordStack"
+expect.pc = "3"
+expect.gas = "20"
+expect.statusCode = "EVMC_INVALID_INSTRUCTION"
+
+[[behavior]]
+id = "stop-zero-gas"
+program = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+stack = ".WordStack"
+pc = "12"
+gas = "0"
+expect.program = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "12"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "multiply-out-of-gas"
+program = 'b"\x02\x00"'
+stack = "7 : 6 : .WordStack"
+pc = "0"
+gas = "4"
+expect.program = 'b"\x02\x00"'
+expect.wordStack = "7 : 6 : .WordStack"
+expect.pc = "0"
+expect.gas = "4"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "modulus-underflow-one"
+program = 'b"\x06\x00"'
+stack = "11 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x06\x00"'
+expect.wordStack = "11 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "add-modulus-underflow-two"
+program = 'b"\x08\x00"'
+stack = "7 : 6 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x08\x00"'
+expect.wordStack = "7 : 6 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "multiply-modulus-out-of-gas"
+program = 'b"\x09\x00"'
+stack = "7 : 6 : 5 : .WordStack"
+pc = "0"
+gas = "7"
+expect.program = 'b"\x09\x00"'
+expect.wordStack = "7 : 6 : 5 : .WordStack"
+expect.pc = "0"
+expect.gas = "7"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "less-than-underflow-one"
+program = 'b"\x10\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x10\x00"'
+expect.wordStack = "7 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "is-zero-underflow"
+program = 'b"\x15\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x15\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "signed-greater-than-out-of-gas"
+program = 'b"\x13\x00"'
+stack = "7 : 2 : .WordStack"
+pc = "0"
+gas = "2"
+expect.program = 'b"\x13\x00"'
+expect.wordStack = "7 : 2 : .WordStack"
+expect.pc = "0"
+expect.gas = "2"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "exponent-zero"
+program = 'b"\x0a\x00"'
+stack = "7 : 0 : .WordStack"
+pc = "0"
+gas = "10"
+expect.program = 'b"\x0a\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "exponent-one-byte"
+program = 'b"\x0a\x00"'
+stack = "2 : 8 : .WordStack"
+pc = "0"
+gas = "60"
+expect.program = 'b"\x0a\x00"'
+expect.wordStack = "256 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "exponent-two-byte-wrap"
+program = 'b"\x0a\x00"'
+stack = "2 : 256 : .WordStack"
+pc = "0"
+gas = "110"
+expect.program = 'b"\x0a\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "exponent-dynamic-out-of-gas"
+program = 'b"\x0a\x00"'
+stack = "2 : 256 : .WordStack"
+pc = "0"
+gas = "109"
+expect.program = 'b"\x0a\x00"'
+expect.wordStack = "2 : 256 : .WordStack"
+expect.pc = "0"
+expect.gas = "109"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "sign-extend-positive-byte"
+program = 'b"\x0b\x00"'
+stack = "0 : 127 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x0b\x00"'
+expect.wordStack = "127 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "sign-extend-negative-byte"
+program = 'b"\x0b\x00"'
+stack = "0 : 128 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x0b\x00"'
+expect.wordStack = "115792089237316195423570985008687907853269984665640564039457584007913129639808 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "sign-extend-invalid-index"
+program = 'b"\x0b\x00"'
+stack = "32 : 128 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x0b\x00"'
+expect.wordStack = "128 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "bitwise-and"
+program = 'b"\x16\x00"'
+stack = "15 : 51 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x16\x00"'
+expect.wordStack = "3 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "bitwise-or"
+program = 'b"\x17\x00"'
+stack = "15 : 51 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x17\x00"'
+expect.wordStack = "63 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "bitwise-xor"
+program = 'b"\x18\x00"'
+stack = "15 : 51 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x18\x00"'
+expect.wordStack = "60 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "bitwise-not"
+program = 'b"\x19\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x19\x00"'
+expect.wordStack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "byte-big-endian"
+program = 'b"\x1a\x00"'
+stack = "30 : 43981 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x1a\x00"'
+expect.wordStack = "171 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "byte-invalid-index"
+program = 'b"\x1a\x00"'
+stack = "32 : 43981 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x1a\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "shift-left-word-wrap"
+program = 'b"\x1b\x00"'
+stack = "1 : 115792089237316195423570985008687907853269984665640564039457584007913129639935 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x1b\x00"'
+expect.wordStack = "115792089237316195423570985008687907853269984665640564039457584007913129639934 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "shift-left-large"
+program = 'b"\x1b\x00"'
+stack = "256 : 7 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x1b\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "shift-right"
+program = 'b"\x1c\x00"'
+stack = "3 : 128 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x1c\x00"'
+expect.wordStack = "16 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "shift-right-large"
+program = 'b"\x1c\x00"'
+stack = "256 : 128 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x1c\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-shift-right-positive"
+program = 'b"\x1d\x00"'
+stack = "3 : 128 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x1d\x00"'
+expect.wordStack = "16 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-shift-right-negative"
+program = 'b"\x1d\x00"'
+stack = "1 : 115792089237316195423570985008687907853269984665640564039457584007913129639934 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x1d\x00"'
+expect.wordStack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "signed-shift-right-large-negative"
+program = 'b"\x1d\x00"'
+stack = "256 : 115792089237316195423570985008687907853269984665640564039457584007913129639934 : .WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x1d\x00"'
+expect.wordStack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "pure-word-binary-underflow"
+program = 'b"\x1c\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x1c\x00"'
+expect.wordStack = "7 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "pure-word-unary-underflow"
+program = 'b"\x19\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x19\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "pure-word-fixed-out-of-gas"
+program = 'b"\x16\x00"'
+stack = "15 : 51 : .WordStack"
+pc = "0"
+gas = "2"
+expect.program = 'b"\x16\x00"'
+expect.wordStack = "15 : 51 : .WordStack"
+expect.pc = "0"
+expect.gas = "2"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "pure-word-tranche-stop"
+program = 'b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "149"
+expect.program = 'b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00"'
+expect.wordStack = "115792089237316195423570985008687907853269984665640564039457584007913129639935 : 16 : 48 : 171 : 115792089237316195423570985008687907853269984665640564039457584007913129639935 : 60 : 63 : 3 : 115792089237316195423570985008687907853269984665640564039457584007913129639808 : 256 : .WordStack"
+expect.pc = "50"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "jump-forward"
+program = 'b"\x60\x04\x56\xfe\x5b\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "12"
+expect.program = 'b"\x60\x04\x56\xfe\x5b\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "5"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "jump-invalid-opcode"
+program = 'b"\x60\x04\x56\xfe\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "11"
+expect.program = 'b"\x60\x04\x56\xfe\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "2"
+expect.gas = "0"
+expect.statusCode = "EVMC_BAD_JUMP_DESTINATION"
+
+[[behavior]]
+id = "jump-rejects-push-immediate"
+program = 'b"\x60\x5b\x56"'
+stack = "1 : .WordStack"
+pc = "2"
+gas = "8"
+expect.program = 'b"\x60\x5b\x56"'
+expect.wordStack = ".WordStack"
+expect.pc = "2"
+expect.gas = "0"
+expect.statusCode = "EVMC_BAD_JUMP_DESTINATION"
+
+[[behavior]]
+id = "jump-outside-program"
+program = 'b"\x56"'
+stack = "9 : .WordStack"
+pc = "0"
+gas = "8"
+expect.program = 'b"\x56"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "0"
+expect.statusCode = "EVMC_BAD_JUMP_DESTINATION"
+
+[[behavior]]
+id = "jump-if-true"
+program = 'b"\x57\xfe\xfe\xfe\x5b\x00"'
+stack = "4 : 1 : .WordStack"
+pc = "0"
+gas = "11"
+expect.program = 'b"\x57\xfe\xfe\xfe\x5b\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "5"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "jump-if-false-ignores-destination"
+program = 'b"\x57\x00"'
+stack = "999 : 0 : .WordStack"
+pc = "0"
+gas = "10"
+expect.program = 'b"\x57\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "jump-if-true-invalid-destination"
+program = 'b"\x57\x00"'
+stack = "999 : 1 : .WordStack"
+pc = "0"
+gas = "10"
+expect.program = 'b"\x57\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "0"
+expect.statusCode = "EVMC_BAD_JUMP_DESTINATION"
+
+[[behavior]]
+id = "jump-underflow"
+program = 'b"\x56\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "8"
+expect.program = 'b"\x56\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "8"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "jump-if-underflow-one"
+program = 'b"\x57\x00"'
+stack = "1 : .WordStack"
+pc = "0"
+gas = "10"
+expect.program = 'b"\x57\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "0"
+expect.gas = "10"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "jump-out-of-gas"
+program = 'b"\x56\x00"'
+stack = "1 : .WordStack"
+pc = "0"
+gas = "7"
+expect.program = 'b"\x56\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "0"
+expect.gas = "7"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "jumpdest-out-of-gas"
+program = 'b"\x5b\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "0"
+expect.program = 'b"\x5b\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "0"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "control-flow-tranche-stop"
+program = 'b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "45"
+expect.program = 'b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "19"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "execution-context-out-of-gas"
+program = 'b"\x30\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "1"
+address = "10"
+expect.program = 'b"\x30\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "1"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "block-hash-latest"
+program = 'b"\x40\x00"'
+stack = "99 : .WordStack"
+pc = "0"
+gas = "20"
+number = "100"
+block_hashes = 'ListItem(111) ListItem(222) ListItem(0) .List'
+expect.program = 'b"\x40\x00"'
+expect.wordStack = "111 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "block-hash-older"
+program = 'b"\x40\x00"'
+stack = "98 : .WordStack"
+pc = "0"
+gas = "20"
+number = "100"
+block_hashes = 'ListItem(111) ListItem(222) ListItem(0) .List'
+expect.program = 'b"\x40\x00"'
+expect.wordStack = "222 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "block-hash-current-block"
+program = 'b"\x40\x00"'
+stack = "100 : .WordStack"
+pc = "0"
+gas = "20"
+number = "100"
+block_hashes = 'ListItem(111) ListItem(222) ListItem(0) .List'
+expect.program = 'b"\x40\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "block-hash-256-block-limit"
+program = 'b"\x40\x00"'
+stack = "43 : .WordStack"
+pc = "0"
+gas = "20"
+number = "300"
+block_hashes = 'ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) ListItem(1) .List'
+expect.program = 'b"\x40\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "block-hash-zero-sentinel"
+program = 'b"\x40\x00"'
+stack = "97 : .WordStack"
+pc = "0"
+gas = "20"
+number = "100"
+block_hashes = 'ListItem(111) ListItem(0) ListItem(333) .List'
+expect.program = 'b"\x40\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "block-hash-underflow"
+program = 'b"\x40\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "20"
+number = "100"
+block_hashes = 'ListItem(111) ListItem(0) .List'
+expect.program = 'b"\x40\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "block-hash-out-of-gas"
+program = 'b"\x40\x00"'
+stack = "99 : .WordStack"
+pc = "0"
+gas = "19"
+number = "100"
+block_hashes = 'ListItem(111) ListItem(0) .List'
+expect.program = 'b"\x40\x00"'
+expect.wordStack = "99 : .WordStack"
+expect.pc = "0"
+expect.gas = "19"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "execution-context-tranche-stop"
+program = 'b"\x30\x32\x33\x34\x36\x38\x3a\x3d\x41\x42\x43\x44\x45\x46\x48\x60\x10\x40\x5a\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "55"
+address = "10"
+origin = "11"
+caller = "12"
+call_value = "13"
+call_data = 'b"\xaa\xbb\xcc"'
+gas_price = "14"
+return_data = 'b"\xdd\xee"'
+coinbase = "15"
+timestamp = "16"
+number = "17"
+block_hashes = 'ListItem(99) ListItem(0) .List'
+prev_randao = "18"
+gas_limit = "19"
+chain_id = "20"
+base_fee = "21"
+expect.program = 'b"\x30\x32\x33\x34\x36\x38\x3a\x3d\x41\x42\x43\x44\x45\x46\x48\x60\x10\x40\x5a\x00"'
+expect.wordStack = "0 : 99 : 21 : 20 : 19 : 18 : 17 : 16 : 15 : 2 : 14 : 20 : 3 : 13 : 12 : 11 : 10 : .WordStack"
+expect.pc = "19"
+expect.gas = "0"
+expect.output = 'b""'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "memory-load-zero-padding"
+program = 'b"\x51\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "3"
+local_mem = 'b"\xaa\xbb"'
+memory_used = "1"
+expect.program = 'b"\x51\x00"'
+expect.wordStack = "77223584660268843893097183864970739571271838680742677802621042239896532549632 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\xaa\xbb"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "sha3-empty"
+program = 'b"\x20\x00"'
+stack = "0 : 0 : .WordStack"
+pc = "0"
+gas = "30"
+expect.program = 'b"\x20\x00"'
+expect.wordStack = "89477152217924674838424037953991966239322087453347756267410168184682657981552 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.memoryUsed = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "sha3-abc-with-expansion"
+program = 'b"\x20\x00"'
+stack = "0 : 3 : .WordStack"
+pc = "0"
+gas = "39"
+local_mem = 'b"abc"'
+memory_used = "0"
+expect.program = 'b"\x20\x00"'
+expect.wordStack = "35286403120855365962805127237049809881669876751651884979611909062921250761797 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"abc"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "sha3-underflow"
+program = 'b"\x20\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "39"
+expect.program = 'b"\x20\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "0"
+expect.gas = "39"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "sha3-out-of-gas-is-atomic"
+program = 'b"\x20\x00"'
+stack = "0 : 3 : .WordStack"
+pc = "0"
+gas = "38"
+local_mem = 'b"abc"'
+memory_used = "0"
+expect.program = 'b"\x20\x00"'
+expect.wordStack = "0 : 3 : .WordStack"
+expect.pc = "0"
+expect.gas = "38"
+expect.localMem = 'b"abc"'
+expect.memoryUsed = "0"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "memory-store-word"
+program = 'b"\x52\x00"'
+stack = "0 : 258 : .WordStack"
+pc = "0"
+gas = "6"
+expect.program = 'b"\x52\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "memory-store-unaligned-multiword"
+program = 'b"\x52\x00"'
+stack = "1 : 1 : .WordStack"
+pc = "0"
+gas = "9"
+expect.program = 'b"\x52\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "2"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "memory-store8-low-byte-no-expansion"
+program = 'b"\x53\x00"'
+stack = "1 : 511 : .WordStack"
+pc = "0"
+gas = "3"
+local_mem = 'b"\xaa\xbb"'
+memory_used = "1"
+expect.program = 'b"\x53\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\xaa\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "memory-quadratic-expansion-boundary"
+program = 'b"\x51\x00"'
+stack = "704 : .WordStack"
+pc = "0"
+gas = "7"
+memory_used = "22"
+expect.program = 'b"\x51\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b""'
+expect.memoryUsed = "23"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "memory-load-underflow"
+program = 'b"\x51\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x51\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "memory-store-underflow"
+program = 'b"\x52\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x52\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "memory-store8-underflow"
+program = 'b"\x53\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x53\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "memory-store-out-of-gas"
+program = 'b"\x52\x00"'
+stack = "0 : 1 : .WordStack"
+pc = "0"
+gas = "5"
+expect.program = 'b"\x52\x00"'
+expect.wordStack = "0 : 1 : .WordStack"
+expect.pc = "0"
+expect.gas = "5"
+expect.localMem = 'b""'
+expect.memoryUsed = "0"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "memory-size"
+program = 'b"\x59\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "2"
+memory_used = "23"
+expect.program = 'b"\x59\x00"'
+expect.wordStack = "736 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.memoryUsed = "23"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "memory-size-out-of-gas"
+program = 'b"\x59\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "1"
+memory_used = "1"
+expect.program = 'b"\x59\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "1"
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "memory-tranche-stop"
+program = 'b"\x60\xaa\x60\x00\x52\x60\x00\x51\x59\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "20"
+return_data = 'b"\xdd"'
+expect.program = 'b"\x60\xaa\x60\x00\x52\x60\x00\x51\x59\x00"'
+expect.wordStack = "32 : 170 : .WordStack"
+expect.pc = "9"
+expect.gas = "0"
+expect.output = 'b""'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xaa"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "call-data-load-full-word"
+program = 'b"\x35\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "3"
+call_data = 'b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x20"'
+expect.program = 'b"\x35\x00"'
+expect.wordStack = "455867356320691211509944977504407603390036387149619137164185182714736811808 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "call-data-load-offset-zero-padding"
+program = 'b"\x35\x00"'
+stack = "1 : .WordStack"
+pc = "0"
+gas = "3"
+call_data = 'b"\xaa\xbb\xcc"'
+expect.program = 'b"\x35\x00"'
+expect.wordStack = "84942939486285605029046610645716550566922115826192257030654339733343988350976 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "call-data-load-underflow"
+program = 'b"\x35\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x35\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "call-data-load-out-of-gas"
+program = 'b"\x35\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "2"
+call_data = 'b"\xaa"'
+expect.program = 'b"\x35\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "0"
+expect.gas = "2"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "call-data-copy-normal"
+program = 'b"\x37\x00"'
+stack = "0 : 0 : 3 : .WordStack"
+pc = "0"
+gas = "9"
+call_data = 'b"\xaa\xbb\xcc"'
+expect.program = 'b"\x37\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\xaa\xbb\xcc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "call-data-copy-source-zero-padding"
+program = 'b"\x37\x00"'
+stack = "0 : 2 : 4 : .WordStack"
+pc = "0"
+gas = "9"
+call_data = 'b"\xaa\xbb\xcc"'
+expect.program = 'b"\x37\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\xcc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "call-data-copy-zero-width"
+program = 'b"\x37\x00"'
+stack = "999 : 999 : 0 : .WordStack"
+pc = "0"
+gas = "3"
+call_data = 'b"\xaa"'
+local_mem = 'b"\xbb"'
+memory_used = "1"
+expect.program = 'b"\x37\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\xbb"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "call-data-copy-multiword-gas"
+program = 'b"\x37\x00"'
+stack = "0 : 0 : 33 : .WordStack"
+pc = "0"
+gas = "15"
+call_data = 'b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x20\x21"'
+expect.program = 'b"\x37\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x20\x21\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "2"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "call-data-copy-out-of-gas"
+program = 'b"\x37\x00"'
+stack = "0 : 0 : 3 : .WordStack"
+pc = "0"
+gas = "8"
+call_data = 'b"\xaa\xbb\xcc"'
+expect.program = 'b"\x37\x00"'
+expect.wordStack = "0 : 0 : 3 : .WordStack"
+expect.pc = "0"
+expect.gas = "8"
+expect.localMem = 'b""'
+expect.memoryUsed = "0"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "code-copy-normal"
+program = 'b"\x39\x00\xaa\xbb"'
+stack = "0 : 2 : 2 : .WordStack"
+pc = "0"
+gas = "9"
+expect.program = 'b"\x39\x00\xaa\xbb"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\xaa\xbb\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "code-copy-source-zero-padding"
+program = 'b"\x39\x00\xaa\xbb"'
+stack = "0 : 3 : 4 : .WordStack"
+pc = "0"
+gas = "9"
+expect.program = 'b"\x39\x00\xaa\xbb"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\xbb\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "return-data-copy-valid"
+program = 'b"\x3e\x00"'
+stack = "0 : 1 : 2 : .WordStack"
+pc = "0"
+gas = "9"
+return_data = 'b"\x11\x22\x33\x44"'
+expect.program = 'b"\x3e\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.output = 'b""'
+expect.localMem = 'b"\x22\x33\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "return-data-copy-invalid-bounds"
+program = 'b"\x3e\x00"'
+stack = "0 : 3 : 2 : .WordStack"
+pc = "0"
+gas = "10"
+return_data = 'b"\x11\x22\x33\x44"'
+local_mem = 'b"\xaa"'
+expect.program = 'b"\x3e\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "1"
+expect.output = 'b"\x11\x22\x33\x44"'
+expect.localMem = 'b"\xaa"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_INVALID_MEMORY_ACCESS"
+
+[[behavior]]
+id = "return-data-copy-out-of-gas-precedes-bounds"
+program = 'b"\x3e\x00"'
+stack = "0 : 3 : 2 : .WordStack"
+pc = "0"
+gas = "8"
+return_data = 'b"\x11\x22\x33\x44"'
+expect.program = 'b"\x3e\x00"'
+expect.wordStack = "0 : 3 : 2 : .WordStack"
+expect.pc = "0"
+expect.gas = "8"
+expect.output = 'b"\x11\x22\x33\x44"'
+expect.localMem = 'b""'
+expect.memoryUsed = "0"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "call-data-copy-underflow-empty"
+program = 'b"\x37\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x37\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "call-data-copy-underflow-one"
+program = 'b"\x37\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x37\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "call-data-copy-underflow-two"
+program = 'b"\x37\x00"'
+stack = "0 : 0 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x37\x00"'
+expect.wordStack = "0 : 0 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "code-copy-underflow-empty"
+program = 'b"\x39\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x39\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "code-copy-underflow-one"
+program = 'b"\x39\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x39\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "code-copy-underflow-two"
+program = 'b"\x39\x00"'
+stack = "0 : 0 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x39\x00"'
+expect.wordStack = "0 : 0 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "return-data-copy-underflow-empty"
+program = 'b"\x3e\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x3e\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "return-data-copy-underflow-one"
+program = 'b"\x3e\x00"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x3e\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "return-data-copy-underflow-two"
+program = 'b"\x3e\x00"'
+stack = "0 : 0 : .WordStack"
+pc = "0"
+gas = "20"
+expect.program = 'b"\x3e\x00"'
+expect.wordStack = "0 : 0 : .WordStack"
+expect.pc = "0"
+expect.gas = "20"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "load-copy-tranche-stop"
+program = 'b"\x60\x00\x35\x60\x03\x60\x01\x60\x00\x37\x60\x02\x60\x00\x60\x03\x39\x60\x02\x60\x01\x60\x05\x3e\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "54"
+call_data = 'b"\xaa\xbb\xcc\xdd"'
+return_data = 'b"\x11\x22\x33"'
+expect.program = 'b"\x60\x00\x35\x60\x03\x60\x01\x60\x00\x37\x60\x02\x60\x00\x60\x03\x39\x60\x02\x60\x01\x60\x05\x3e\x00"'
+expect.wordStack = "77224998574671802608401215176576978315802517580781917942944813718736052682752 : .WordStack"
+expect.pc = "24"
+expect.gas = "0"
+expect.output = 'b""'
+expect.localMem = 'b"\xbb\xcc\xdd\x60\x00\x22\x33\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "storage-load-absent-cold"
+program = 'b"\x54\x00"'
+stack = "5 : .WordStack"
+pc = "0"
+gas = "2100"
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x54\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.accessedStorage = '0 |-> SetItem(5)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "storage-load-present-cold"
+program = 'b"\x54\x00"'
+stack = "5 : .WordStack"
+pc = "0"
+gas = "2100"
+storage = '5 |-> 9 .Map'
+expect.storage = '5 |-> 9 .Map'
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x54\x00"'
+expect.wordStack = "9 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.accessedStorage = '0 |-> SetItem(5)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "storage-load-repeated-warm"
+program = 'b"\x60\x05\x54\x60\x05\x54\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "2206"
+storage = '5 |-> 9 .Map'
+expect.storage = '5 |-> 9 .Map'
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x60\x05\x54\x60\x05\x54\x00"'
+expect.wordStack = "9 : 9 : .WordStack"
+expect.pc = "6"
+expect.gas = "0"
+expect.accessedStorage = '0 |-> SetItem(5)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "storage-store-clean-set-cold"
+program = 'b"\x55\x00"'
+stack = "5 : 9 : .WordStack"
+pc = "0"
+gas = "22100"
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x55\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.storage = '5 |-> 9'
+expect.accessedStorage = '0 |-> SetItem(5)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "storage-store-clean-reset-cold"
+program = 'b"\x55\x00"'
+stack = "5 : 7 : .WordStack"
+pc = "0"
+gas = "5000"
+storage = '5 |-> 9 .Map'
+original_storage = '5 |-> 9 .Map'
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x55\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.storage = '5 |-> 7'
+expect.accessedStorage = '0 |-> SetItem(5)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "storage-store-clean-clear-cold"
+program = 'b"\x55\x00"'
+stack = "5 : 0 : .WordStack"
+pc = "0"
+gas = "5000"
+storage = '5 |-> 9 .Map'
+original_storage = '5 |-> 9 .Map'
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x55\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.storage = '5 |-> 0'
+expect.accessedStorage = '0 |-> SetItem(5)'
+expect.refund = "4800"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "storage-store-dirty-new-slot-restoration-warm"
+program = 'b"\x55\x00"'
+stack = "5 : 0 : .WordStack"
+pc = "0"
+gas = "2400"
+storage = '5 |-> 9 .Map'
+original_storage = '.Map'
+accessed_storage = '0 |-> SetItem(5)'
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x55\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "2300"
+expect.storage = '5 |-> 0'
+expect.accessedStorage = '0 |-> SetItem(5)'
+expect.refund = "19900"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "storage-store-dirty-original-restoration-warm"
+program = 'b"\x55\x00"'
+stack = "5 : 7 : .WordStack"
+pc = "0"
+gas = "2400"
+storage = '5 |-> 9 .Map'
+original_storage = '5 |-> 7 .Map'
+accessed_storage = '0 |-> SetItem(5)'
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x55\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "2300"
+expect.storage = '5 |-> 7'
+expect.accessedStorage = '0 |-> SetItem(5)'
+expect.refund = "2800"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "storage-store-stipend-out-of-gas"
+program = 'b"\x55\x00"'
+stack = "5 : 9 : .WordStack"
+pc = "0"
+gas = "2300"
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x55\x00"'
+expect.wordStack = "5 : 9 : .WordStack"
+expect.pc = "0"
+expect.gas = "2300"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "storage-store-static-violation"
+program = 'b"\x55\x00"'
+stack = "5 : 9 : .WordStack"
+pc = "0"
+gas = "50000"
+static = 'true'
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x55\x00"'
+expect.wordStack = "5 : 9 : .WordStack"
+expect.pc = "0"
+expect.gas = "50000"
+expect.statusCode = "EVMC_STATIC_MODE_VIOLATION"
+
+[[behavior]]
+id = "storage-load-out-of-gas"
+program = 'b"\x54\x00"'
+stack = "5 : .WordStack"
+pc = "0"
+gas = "2099"
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x54\x00"'
+expect.wordStack = "5 : .WordStack"
+expect.pc = "0"
+expect.gas = "2099"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "storage-load-underflow"
+program = 'b"\x54\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "2100"
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x54\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "2100"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "storage-store-underflow-empty"
+program = 'b"\x55\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "22100"
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x55\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "22100"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "storage-store-underflow-one"
+program = 'b"\x55\x00"'
+stack = "5 : .WordStack"
+pc = "0"
+gas = "22100"
+observe = ["storage", "accessedStorage", "refund"]
+expect.program = 'b"\x55\x00"'
+expect.wordStack = "5 : .WordStack"
+expect.pc = "0"
+expect.gas = "22100"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "storage-load-does-not-select-non-current-account"
+program = 'b"\x54\x00"'
+stack = "5 : .WordStack"
+pc = "0"
+gas = "2100"
+address = "7"
+account_id = "8"
+observe = ["storage", "accessedStorage", "refund"]
+expect.k = "SLOAD ~> .K"
+expect.program = 'b"\x54\x00"'
+expect.wordStack = "5 : .WordStack"
+expect.pc = "0"
+expect.gas = "2100"
+expect.statusCode = ".StatusCode"
+
+[[behavior]]
+id = "balance-present-cold"
+program = 'b"\x31\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "2600"
+account_id = "7"
+balance = "99"
+observe = ["accessedAccounts"]
+expect.program = 'b"\x31\x00"'
+expect.wordStack = "99 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.accessedAccounts = 'SetItem(7)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "balance-present-warm"
+program = 'b"\x31\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "100"
+account_id = "7"
+balance = "99"
+accessed_accounts = 'SetItem(7) .Set'
+expect.accessedAccounts = 'SetItem(7) .Set'
+observe = ["accessedAccounts"]
+expect.program = 'b"\x31\x00"'
+expect.wordStack = "99 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "balance-absent-cold"
+program = 'b"\x31\x00"'
+stack = "8 : .WordStack"
+pc = "0"
+gas = "2600"
+account_id = "7"
+balance = "99"
+observe = ["accessedAccounts"]
+expect.program = 'b"\x31\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.accessedAccounts = 'SetItem(8)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "balance-cold-out-of-gas-is-atomic"
+program = 'b"\x31\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "2599"
+account_id = "7"
+balance = "99"
+observe = ["accessedAccounts"]
+expect.program = 'b"\x31\x00"'
+expect.wordStack = "7 : .WordStack"
+expect.pc = "0"
+expect.gas = "2599"
+expect.accessedAccounts = '.Set'
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "balance-underflow"
+program = 'b"\x31\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "2600"
+observe = ["accessedAccounts"]
+expect.program = 'b"\x31\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "2600"
+expect.accessedAccounts = '.Set'
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "extcodesize-present-cold"
+program = 'b"\x3b\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "2600"
+account_id = "7"
+code = 'b"\xaa\xbb"'
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3b\x00"'
+expect.wordStack = "2 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.accessedAccounts = 'SetItem(7)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "extcodesize-absent-warm"
+program = 'b"\x3b\x00"'
+stack = "8 : .WordStack"
+pc = "0"
+gas = "100"
+account_id = "7"
+code = 'b"\xaa\xbb"'
+accessed_accounts = 'SetItem(8) .Set'
+expect.accessedAccounts = 'SetItem(8) .Set'
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3b\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "extcodesize-underflow"
+program = 'b"\x3b\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "2600"
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3b\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "2600"
+expect.accessedAccounts = '.Set'
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "extcodecopy-present-cold"
+program = 'b"\x3c\x00"'
+stack = "7 : 1 : 1 : 3 : .WordStack"
+pc = "0"
+gas = "2606"
+account_id = "7"
+code = 'b"\x61\x62\x63\x64\x65"'
+local_mem = 'b"\xff"'
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3c\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\xff\x62\x63\x64\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.accessedAccounts = 'SetItem(7)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "extcodecopy-absent-cold-zero-pads"
+program = 'b"\x3c\x00"'
+stack = "8 : 0 : 4 : 2 : .WordStack"
+pc = "0"
+gas = "2606"
+account_id = "7"
+code = 'b"\xaa"'
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3c\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.accessedAccounts = 'SetItem(8)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "extcodecopy-cold-out-of-gas-is-atomic"
+program = 'b"\x3c\x00"'
+stack = "7 : 0 : 0 : 1 : .WordStack"
+pc = "0"
+gas = "2605"
+account_id = "7"
+code = 'b"\xaa"'
+local_mem = 'b"\xff"'
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3c\x00"'
+expect.wordStack = "7 : 0 : 0 : 1 : .WordStack"
+expect.pc = "0"
+expect.gas = "2605"
+expect.localMem = 'b"\xff"'
+expect.memoryUsed = "0"
+expect.accessedAccounts = '.Set'
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "extcodecopy-underflow-three"
+program = 'b"\x3c\x00"'
+stack = "7 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "3000"
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3c\x00"'
+expect.wordStack = "7 : 0 : 0 : .WordStack"
+expect.pc = "0"
+expect.gas = "3000"
+expect.accessedAccounts = '.Set'
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "extcodehash-code-nonempty-cold"
+program = 'b"\x3f\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "2600"
+account_id = "7"
+code = 'b"abc"'
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3f\x00"'
+expect.wordStack = "35286403120855365962805127237049809881669876751651884979611909062921250761797 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.accessedAccounts = 'SetItem(7)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "extcodehash-nonce-nonempty-warm"
+program = 'b"\x3f\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "100"
+account_id = "7"
+nonce = "1"
+accessed_accounts = 'SetItem(7) .Set'
+expect.accessedAccounts = 'SetItem(7) .Set'
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3f\x00"'
+expect.wordStack = "89477152217924674838424037953991966239322087453347756267410168184682657981552 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "extcodehash-balance-nonempty-cold"
+program = 'b"\x3f\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "2600"
+account_id = "7"
+balance = "1"
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3f\x00"'
+expect.wordStack = "89477152217924674838424037953991966239322087453347756267410168184682657981552 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.accessedAccounts = 'SetItem(7)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "extcodehash-empty-present-cold"
+program = 'b"\x3f\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "2600"
+account_id = "7"
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3f\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.accessedAccounts = 'SetItem(7)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "extcodehash-absent-warm"
+program = 'b"\x3f\x00"'
+stack = "8 : .WordStack"
+pc = "0"
+gas = "100"
+account_id = "7"
+nonce = "1"
+accessed_accounts = 'SetItem(8) .Set'
+expect.accessedAccounts = 'SetItem(8) .Set'
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3f\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "extcodehash-cold-out-of-gas-is-atomic"
+program = 'b"\x3f\x00"'
+stack = "7 : .WordStack"
+pc = "0"
+gas = "2599"
+account_id = "7"
+code = 'b"abc"'
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3f\x00"'
+expect.wordStack = "7 : .WordStack"
+expect.pc = "0"
+expect.gas = "2599"
+expect.accessedAccounts = '.Set'
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "extcodehash-underflow"
+program = 'b"\x3f\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "2600"
+observe = ["accessedAccounts"]
+expect.program = 'b"\x3f\x00"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "2600"
+expect.accessedAccounts = '.Set'
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "staticcall-ecrec-precompile-success"
+program = 'b"\xfa"'
+stack = "3500 : 1 : 0 : 128 : 128 : 32 : .WordStack"
+pc = "0"
+gas = "4000"
+local_mem = 'b"\x21\x4b\x37\xe7\x1b\x42\x13\xc6\xf2\x07\x8d\x1b\x5a\x57\xf9\x27\x6f\x82\x9b\xca\xb6\xf2\x53\xed\xba\x79\x8f\x0a\x36\x8e\xf1\xf8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1b\xa3\x27\x4c\x5e\x45\xc5\xcc\x6f\x37\x60\x45\x24\x39\xdb\xcd\x4c\xad\xee\x5d\xd5\x84\x68\x72\x52\xf8\xef\xce\xbe\x07\x67\x71\xc6\x6f\xdf\xe3\x74\xa0\x6d\x77\xa3\xa2\xeb\x10\x39\xa4\xc8\xed\x2e\x9f\xc3\x9e\xb9\xee\x8c\x4f\x24\xb0\x17\x85\xd5\x83\xbe\x55\xaa"'
+memory_used = "4"
+accessed_accounts = 'SetItem(1) .Set'
+expect.accessedAccounts = 'SetItem(1) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "897"
+expect.output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x7e\x5f\x45\x52\x09\x1a\x69\x12\x5d\x5d\xfc\xb7\xb8\xc2\x65\x90\x29\x39\x5b\xdf"'
+expect.localMem = 'b"\x21\x4b\x37\xe7\x1b\x42\x13\xc6\xf2\x07\x8d\x1b\x5a\x57\xf9\x27\x6f\x82\x9b\xca\xb6\xf2\x53\xed\xba\x79\x8f\x0a\x36\x8e\xf1\xf8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1b\xa3\x27\x4c\x5e\x45\xc5\xcc\x6f\x37\x60\x45\x24\x39\xdb\xcd\x4c\xad\xee\x5d\xd5\x84\x68\x72\x52\xf8\xef\xce\xbe\x07\x67\x71\xc6\x6f\xdf\xe3\x74\xa0\x6d\x77\xa3\xa2\xeb\x10\x39\xa4\xc8\xed\x2e\x9f\xc3\x9e\xb9\xee\x8c\x4f\x24\xb0\x17\x85\xd5\x83\xbe\x55\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x7e\x5f\x45\x52\x09\x1a\x69\x12\x5d\x5d\xfc\xb7\xb8\xc2\x65\x90\x29\x39\x5b\xdf"'
+expect.memoryUsed = "5"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecrec-precompile-invalid-signature"
+program = 'b"\xfa"'
+stack = "3500 : 1 : 0 : 128 : 128 : 32 : .WordStack"
+pc = "0"
+gas = "4000"
+local_mem = 'b"\x21\x4b\x37\xe7\x1b\x42\x13\xc6\xf2\x07\x8d\x1b\x5a\x57\xf9\x27\x6f\x82\x9b\xca\xb6\xf2\x53\xed\xba\x79\x8f\x0a\x36\x8e\xf1\xf8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1d\xa3\x27\x4c\x5e\x45\xc5\xcc\x6f\x37\x60\x45\x24\x39\xdb\xcd\x4c\xad\xee\x5d\xd5\x84\x68\x72\x52\xf8\xef\xce\xbe\x07\x67\x71\xc6\x6f\xdf\xe3\x74\xa0\x6d\x77\xa3\xa2\xeb\x10\x39\xa4\xc8\xed\x2e\x9f\xc3\x9e\xb9\xee\x8c\x4f\x24\xb0\x17\x85\xd5\x83\xbe\x55\xaa"'
+memory_used = "4"
+accessed_accounts = 'SetItem(1) .Set'
+expect.accessedAccounts = 'SetItem(1) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "897"
+expect.output = 'b""'
+expect.localMem = 'b"\x21\x4b\x37\xe7\x1b\x42\x13\xc6\xf2\x07\x8d\x1b\x5a\x57\xf9\x27\x6f\x82\x9b\xca\xb6\xf2\x53\xed\xba\x79\x8f\x0a\x36\x8e\xf1\xf8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1d\xa3\x27\x4c\x5e\x45\xc5\xcc\x6f\x37\x60\x45\x24\x39\xdb\xcd\x4c\xad\xee\x5d\xd5\x84\x68\x72\x52\xf8\xef\xce\xbe\x07\x67\x71\xc6\x6f\xdf\xe3\x74\xa0\x6d\x77\xa3\xa2\xeb\x10\x39\xa4\xc8\xed\x2e\x9f\xc3\x9e\xb9\xee\x8c\x4f\x24\xb0\x17\x85\xd5\x83\xbe\x55\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "5"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecrec-precompile-out-of-gas"
+program = 'b"\xfa"'
+stack = "2999 : 1 : 0 : 128 : 128 : 32 : .WordStack"
+pc = "0"
+gas = "4000"
+local_mem = 'b"\x21\x4b\x37\xe7\x1b\x42\x13\xc6\xf2\x07\x8d\x1b\x5a\x57\xf9\x27\x6f\x82\x9b\xca\xb6\xf2\x53\xed\xba\x79\x8f\x0a\x36\x8e\xf1\xf8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1b\xa3\x27\x4c\x5e\x45\xc5\xcc\x6f\x37\x60\x45\x24\x39\xdb\xcd\x4c\xad\xee\x5d\xd5\x84\x68\x72\x52\xf8\xef\xce\xbe\x07\x67\x71\xc6\x6f\xdf\xe3\x74\xa0\x6d\x77\xa3\xa2\xeb\x10\x39\xa4\xc8\xed\x2e\x9f\xc3\x9e\xb9\xee\x8c\x4f\x24\xb0\x17\x85\xd5\x83\xbe\x55\xaa"'
+memory_used = "4"
+accessed_accounts = 'SetItem(1) .Set'
+expect.accessedAccounts = 'SetItem(1) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "898"
+expect.output = 'b""'
+expect.localMem = 'b"\x21\x4b\x37\xe7\x1b\x42\x13\xc6\xf2\x07\x8d\x1b\x5a\x57\xf9\x27\x6f\x82\x9b\xca\xb6\xf2\x53\xed\xba\x79\x8f\x0a\x36\x8e\xf1\xf8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1b\xa3\x27\x4c\x5e\x45\xc5\xcc\x6f\x37\x60\x45\x24\x39\xdb\xcd\x4c\xad\xee\x5d\xd5\x84\x68\x72\x52\xf8\xef\xce\xbe\x07\x67\x71\xc6\x6f\xdf\xe3\x74\xa0\x6d\x77\xa3\xa2\xeb\x10\x39\xa4\xc8\xed\x2e\x9f\xc3\x9e\xb9\xee\x8c\x4f\x24\xb0\x17\x85\xd5\x83\xbe\x55\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "5"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-sha256-precompile-success"
+program = 'b"\xfa"'
+stack = "80 : 2 : 0 : 3 : 0 : 32 : .WordStack"
+pc = "0"
+gas = "200"
+local_mem = 'b"abc"'
+memory_used = "1"
+accessed_accounts = 'SetItem(2) .Set'
+expect.accessedAccounts = 'SetItem(2) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "28"
+expect.output = 'b"\xba\x78\x16\xbf\x8f\x01\xcf\xea\x41\x41\x40\xde\x5d\xae\x22\x23\xb0\x03\x61\xa3\x96\x17\x7a\x9c\xb4\x10\xff\x61\xf2\x00\x15\xad"'
+expect.localMem = 'b"\xba\x78\x16\xbf\x8f\x01\xcf\xea\x41\x41\x40\xde\x5d\xae\x22\x23\xb0\x03\x61\xa3\x96\x17\x7a\x9c\xb4\x10\xff\x61\xf2\x00\x15\xad"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-sha256-precompile-out-of-gas"
+program = 'b"\xfa"'
+stack = "71 : 2 : 0 : 3 : 0 : 32 : .WordStack"
+pc = "0"
+gas = "200"
+local_mem = 'b"abc"'
+memory_used = "1"
+accessed_accounts = 'SetItem(2) .Set'
+expect.accessedAccounts = 'SetItem(2) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "29"
+expect.output = 'b""'
+expect.localMem = 'b"abc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ripemd160-precompile-success"
+program = 'b"\xfa"'
+stack = "800 : 3 : 0 : 3 : 0 : 32 : .WordStack"
+pc = "0"
+gas = "1000"
+local_mem = 'b"abc"'
+memory_used = "1"
+accessed_accounts = 'SetItem(3) .Set'
+expect.accessedAccounts = 'SetItem(3) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "180"
+expect.output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x8e\xb2\x08\xf7\xe0\x5d\x98\x7a\x9b\x04\x4a\x8e\x98\xc6\xb0\x87\xf1\x5a\x0b\xfc"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x8e\xb2\x08\xf7\xe0\x5d\x98\x7a\x9b\x04\x4a\x8e\x98\xc6\xb0\x87\xf1\x5a\x0b\xfc"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ripemd160-precompile-out-of-gas"
+program = 'b"\xfa"'
+stack = "719 : 3 : 0 : 3 : 0 : 32 : .WordStack"
+pc = "0"
+gas = "1000"
+local_mem = 'b"abc"'
+memory_used = "1"
+accessed_accounts = 'SetItem(3) .Set'
+expect.accessedAccounts = 'SetItem(3) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "181"
+expect.output = 'b""'
+expect.localMem = 'b"abc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-identity-precompile-success"
+program = 'b"\xfa"'
+stack = "50 : 4 : 0 : 3 : 4 : 2 : .WordStack"
+pc = "0"
+gas = "200"
+local_mem = 'b"abc"'
+memory_used = "1"
+accessed_accounts = 'SetItem(4) .Set'
+expect.accessedAccounts = 'SetItem(4) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "82"
+expect.output = 'b"abc"'
+expect.localMem = 'b"abc\x00ab\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-identity-precompile-out-of-gas"
+program = 'b"\xfa"'
+stack = "17 : 4 : 0 : 3 : 4 : 2 : .WordStack"
+pc = "0"
+gas = "200"
+local_mem = 'b"abc"'
+memory_used = "1"
+accessed_accounts = 'SetItem(4) .Set'
+expect.accessedAccounts = 'SetItem(4) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "83"
+expect.output = 'b""'
+expect.localMem = 'b"abc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-modexp-precompile-success-at-minimum-gas"
+program = 'b"\xfa"'
+stack = "200 : 5 : 0 : 99 : 99 : 1 : .WordStack"
+pc = "0"
+gas = "400"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x05\x0d\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "4"
+accessed_accounts = 'SetItem(5) .Set'
+expect.accessedAccounts = 'SetItem(5) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "100"
+expect.output = 'b"\x06"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x05\x0d\x06\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "4"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-modexp-precompile-zero-modulus"
+program = 'b"\xfa"'
+stack = "200 : 5 : 0 : 99 : 99 : 1 : .WordStack"
+pc = "0"
+gas = "400"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "4"
+accessed_accounts = 'SetItem(5) .Set'
+expect.accessedAccounts = 'SetItem(5) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "100"
+expect.output = 'b"\x00"'
+expect.memoryUsed = "4"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-modexp-precompile-zero-output-width"
+program = 'b"\xfa"'
+stack = "200 : 5 : 0 : 98 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "400"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "4"
+accessed_accounts = 'SetItem(5) .Set'
+expect.accessedAccounts = 'SetItem(5) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "100"
+expect.output = 'b""'
+expect.memoryUsed = "4"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-modexp-precompile-out-of-gas"
+program = 'b"\xfa"'
+stack = "199 : 5 : 0 : 99 : 99 : 1 : .WordStack"
+pc = "0"
+gas = "400"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x05\x0d\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x05\x0d\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "4"
+accessed_accounts = 'SetItem(5) .Set'
+expect.accessedAccounts = 'SetItem(5) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "101"
+expect.output = 'b""'
+expect.memoryUsed = "4"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-modexp-precompile-long-exponent-cost"
+program = 'b"\xfa"'
+stack = "216 : 5 : 0 : 202 : 202 : 1 : .WordStack"
+pc = "0"
+gas = "500"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x21\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x0d\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "7"
+accessed_accounts = 'SetItem(5) .Set'
+expect.accessedAccounts = 'SetItem(5) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "184"
+expect.output = 'b"\x01"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x21\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x0d\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "7"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecadd-precompile-success"
+program = 'b"\xfa"'
+stack = "150 : 6 : 0 : 128 : 128 : 64 : .WordStack"
+pc = "0"
+gas = "350"
+local_mem = 'b"\x18\xb1\x8a\xcf\xb4\xc2\xc3\x02\x76\xdb\x54\x11\x36\x8e\x71\x85\xb3\x11\xdd\x12\x46\x91\x61\x0c\x5d\x3b\x74\x03\x4e\x09\x3d\xc9\x06\x3c\x90\x9c\x47\x20\x84\x0c\xb5\x13\x4c\xb9\xf5\x9f\xa7\x49\x75\x57\x96\x81\x96\x58\xd3\x2e\xfc\x0d\x28\x81\x98\xf3\x72\x66\x07\xc2\xb7\xf5\x8a\x84\xbd\x61\x45\xf0\x0c\x9c\x2b\xc0\xbb\x1a\x18\x7f\x20\xff\x2c\x92\x96\x3a\x88\x01\x9e\x7c\x6a\x01\x4e\xed\x06\x61\x4e\x20\xc1\x47\xe9\x40\xf2\xd7\x0d\xa3\xf7\x4c\x9a\x17\xdf\x36\x17\x06\xa4\x48\x5c\x74\x2b\xd6\x78\x84\x78\xfa\x17\xd7\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "6"
+accessed_accounts = 'SetItem(6) .Set'
+expect.accessedAccounts = 'SetItem(6) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "100"
+expect.output = 'b"\x22\x43\x52\x5c\x5e\xfd\x4b\x9c\x3d\x3c\x45\xac\x0c\xa3\xfe\x4d\xd8\x5e\x83\x0a\x4c\xe6\xb6\x5f\xa1\xee\xae\xe2\x02\x83\x97\x03\x30\x1d\x1d\x33\xbe\x6d\xa8\xe5\x09\xdf\x21\xcc\x35\x96\x47\x23\x18\x0e\xed\x75\x32\x53\x7d\xb9\xae\x5e\x7d\x48\xf1\x95\xc9\x15"'
+expect.localMem = 'b"\x18\xb1\x8a\xcf\xb4\xc2\xc3\x02\x76\xdb\x54\x11\x36\x8e\x71\x85\xb3\x11\xdd\x12\x46\x91\x61\x0c\x5d\x3b\x74\x03\x4e\x09\x3d\xc9\x06\x3c\x90\x9c\x47\x20\x84\x0c\xb5\x13\x4c\xb9\xf5\x9f\xa7\x49\x75\x57\x96\x81\x96\x58\xd3\x2e\xfc\x0d\x28\x81\x98\xf3\x72\x66\x07\xc2\xb7\xf5\x8a\x84\xbd\x61\x45\xf0\x0c\x9c\x2b\xc0\xbb\x1a\x18\x7f\x20\xff\x2c\x92\x96\x3a\x88\x01\x9e\x7c\x6a\x01\x4e\xed\x06\x61\x4e\x20\xc1\x47\xe9\x40\xf2\xd7\x0d\xa3\xf7\x4c\x9a\x17\xdf\x36\x17\x06\xa4\x48\x5c\x74\x2b\xd6\x78\x84\x78\xfa\x17\xd7\x22\x43\x52\x5c\x5e\xfd\x4b\x9c\x3d\x3c\x45\xac\x0c\xa3\xfe\x4d\xd8\x5e\x83\x0a\x4c\xe6\xb6\x5f\xa1\xee\xae\xe2\x02\x83\x97\x03\x30\x1d\x1d\x33\xbe\x6d\xa8\xe5\x09\xdf\x21\xcc\x35\x96\x47\x23\x18\x0e\xed\x75\x32\x53\x7d\xb9\xae\x5e\x7d\x48\xf1\x95\xc9\x15"'
+expect.memoryUsed = "6"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecadd-precompile-empty-input-infinity"
+program = 'b"\xfa"'
+stack = "150 : 6 : 0 : 0 : 128 : 64 : .WordStack"
+pc = "0"
+gas = "350"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "6"
+accessed_accounts = 'SetItem(6) .Set'
+expect.accessedAccounts = 'SetItem(6) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "100"
+expect.output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "6"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecadd-precompile-invalid-point"
+program = 'b"\xfa"'
+stack = "150 : 6 : 0 : 128 : 128 : 64 : .WordStack"
+pc = "0"
+gas = "350"
+local_mem = 'b"\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "6"
+accessed_accounts = 'SetItem(6) .Set'
+expect.accessedAccounts = 'SetItem(6) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "100"
+expect.output = 'b""'
+expect.memoryUsed = "6"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecadd-precompile-out-of-gas"
+program = 'b"\xfa"'
+stack = "149 : 6 : 0 : 128 : 128 : 64 : .WordStack"
+pc = "0"
+gas = "350"
+local_mem = 'b"\x18\xb1\x8a\xcf\xb4\xc2\xc3\x02\x76\xdb\x54\x11\x36\x8e\x71\x85\xb3\x11\xdd\x12\x46\x91\x61\x0c\x5d\x3b\x74\x03\x4e\x09\x3d\xc9\x06\x3c\x90\x9c\x47\x20\x84\x0c\xb5\x13\x4c\xb9\xf5\x9f\xa7\x49\x75\x57\x96\x81\x96\x58\xd3\x2e\xfc\x0d\x28\x81\x98\xf3\x72\x66\x07\xc2\xb7\xf5\x8a\x84\xbd\x61\x45\xf0\x0c\x9c\x2b\xc0\xbb\x1a\x18\x7f\x20\xff\x2c\x92\x96\x3a\x88\x01\x9e\x7c\x6a\x01\x4e\xed\x06\x61\x4e\x20\xc1\x47\xe9\x40\xf2\xd7\x0d\xa3\xf7\x4c\x9a\x17\xdf\x36\x17\x06\xa4\x48\x5c\x74\x2b\xd6\x78\x84\x78\xfa\x17\xd7\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x18\xb1\x8a\xcf\xb4\xc2\xc3\x02\x76\xdb\x54\x11\x36\x8e\x71\x85\xb3\x11\xdd\x12\x46\x91\x61\x0c\x5d\x3b\x74\x03\x4e\x09\x3d\xc9\x06\x3c\x90\x9c\x47\x20\x84\x0c\xb5\x13\x4c\xb9\xf5\x9f\xa7\x49\x75\x57\x96\x81\x96\x58\xd3\x2e\xfc\x0d\x28\x81\x98\xf3\x72\x66\x07\xc2\xb7\xf5\x8a\x84\xbd\x61\x45\xf0\x0c\x9c\x2b\xc0\xbb\x1a\x18\x7f\x20\xff\x2c\x92\x96\x3a\x88\x01\x9e\x7c\x6a\x01\x4e\xed\x06\x61\x4e\x20\xc1\x47\xe9\x40\xf2\xd7\x0d\xa3\xf7\x4c\x9a\x17\xdf\x36\x17\x06\xa4\x48\x5c\x74\x2b\xd6\x78\x84\x78\xfa\x17\xd7\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "6"
+accessed_accounts = 'SetItem(6) .Set'
+expect.accessedAccounts = 'SetItem(6) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "101"
+expect.output = 'b""'
+expect.memoryUsed = "6"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecmul-precompile-generator-times-two"
+program = 'b"\xfa"'
+stack = "6000 : 7 : 0 : 96 : 96 : 64 : .WordStack"
+pc = "0"
+gas = "6200"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "5"
+accessed_accounts = 'SetItem(7) .Set'
+expect.accessedAccounts = 'SetItem(7) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "100"
+expect.output = 'b"\x03\x06\x44\xe7\x2e\x13\x1a\x02\x9b\x85\x04\x5b\x68\x18\x15\x85\xd9\x78\x16\xa9\x16\x87\x1c\xa8\xd3\xc2\x08\xc1\x6d\x87\xcf\xd3\x15\xed\x73\x8c\x0e\x0a\x7c\x92\xe7\x84\x5f\x96\xb2\xae\x9c\x0a\x68\xa6\xa4\x49\xe3\x53\x8f\xc7\xff\x3e\xbf\x7a\x5a\x18\xa2\xc4"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x03\x06\x44\xe7\x2e\x13\x1a\x02\x9b\x85\x04\x5b\x68\x18\x15\x85\xd9\x78\x16\xa9\x16\x87\x1c\xa8\xd3\xc2\x08\xc1\x6d\x87\xcf\xd3\x15\xed\x73\x8c\x0e\x0a\x7c\x92\xe7\x84\x5f\x96\xb2\xae\x9c\x0a\x68\xa6\xa4\x49\xe3\x53\x8f\xc7\xff\x3e\xbf\x7a\x5a\x18\xa2\xc4"'
+expect.memoryUsed = "5"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecmul-precompile-zero-scalar-infinity"
+program = 'b"\xfa"'
+stack = "6000 : 7 : 0 : 96 : 96 : 64 : .WordStack"
+pc = "0"
+gas = "6200"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "5"
+accessed_accounts = 'SetItem(7) .Set'
+expect.accessedAccounts = 'SetItem(7) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "100"
+expect.output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "5"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecmul-precompile-invalid-point"
+program = 'b"\xfa"'
+stack = "6000 : 7 : 0 : 96 : 96 : 64 : .WordStack"
+pc = "0"
+gas = "6200"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "5"
+accessed_accounts = 'SetItem(7) .Set'
+expect.accessedAccounts = 'SetItem(7) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "100"
+expect.output = 'b""'
+expect.memoryUsed = "5"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecmul-precompile-out-of-gas"
+program = 'b"\xfa"'
+stack = "5999 : 7 : 0 : 96 : 96 : 64 : .WordStack"
+pc = "0"
+gas = "6200"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "5"
+accessed_accounts = 'SetItem(7) .Set'
+expect.accessedAccounts = 'SetItem(7) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "101"
+expect.output = 'b""'
+expect.memoryUsed = "5"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecpairing-precompile-empty-input"
+program = 'b"\xfa"'
+stack = "45000 : 8 : 0 : 0 : 0 : 32 : .WordStack"
+pc = "0"
+gas = "46000"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "1"
+accessed_accounts = 'SetItem(8) .Set'
+expect.accessedAccounts = 'SetItem(8) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "900"
+expect.output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecpairing-precompile-generator-is-not-identity"
+program = 'b"\xfa"'
+stack = "79000 : 8 : 0 : 192 : 192 : 32 : .WordStack"
+pc = "0"
+gas = "81000"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x19\x8e\x93\x93\x92\x0d\x48\x3a\x72\x60\xbf\xb7\x31\xfb\x5d\x25\xf1\xaa\x49\x33\x35\xa9\xe7\x12\x97\xe4\x85\xb7\xae\xf3\x12\xc2\x18\x00\xde\xef\x12\x1f\x1e\x76\x42\x6a\x00\x66\x5e\x5c\x44\x79\x67\x43\x22\xd4\xf7\x5e\xda\xdd\x46\xde\xbd\x5c\xd9\x92\xf6\xed\x09\x06\x89\xd0\x58\x5f\xf0\x75\xec\x9e\x99\xad\x69\x0c\x33\x95\xbc\x4b\x31\x33\x70\xb3\x8e\xf3\x55\xac\xda\xdc\xd1\x22\x97\x5b\x12\xc8\x5e\xa5\xdb\x8c\x6d\xeb\x4a\xab\x71\x80\x8d\xcb\x40\x8f\xe3\xd1\xe7\x69\x0c\x43\xd3\x7b\x4c\xe6\xcc\x01\x66\xfa\x7d\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x19\x8e\x93\x93\x92\x0d\x48\x3a\x72\x60\xbf\xb7\x31\xfb\x5d\x25\xf1\xaa\x49\x33\x35\xa9\xe7\x12\x97\xe4\x85\xb7\xae\xf3\x12\xc2\x18\x00\xde\xef\x12\x1f\x1e\x76\x42\x6a\x00\x66\x5e\x5c\x44\x79\x67\x43\x22\xd4\xf7\x5e\xda\xdd\x46\xde\xbd\x5c\xd9\x92\xf6\xed\x09\x06\x89\xd0\x58\x5f\xf0\x75\xec\x9e\x99\xad\x69\x0c\x33\x95\xbc\x4b\x31\x33\x70\xb3\x8e\xf3\x55\xac\xda\xdc\xd1\x22\x97\x5b\x12\xc8\x5e\xa5\xdb\x8c\x6d\xeb\x4a\xab\x71\x80\x8d\xcb\x40\x8f\xe3\xd1\xe7\x69\x0c\x43\xd3\x7b\x4c\xe6\xcc\x01\x66\xfa\x7d\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "7"
+accessed_accounts = 'SetItem(8) .Set'
+expect.accessedAccounts = 'SetItem(8) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "1900"
+expect.output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "7"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecpairing-precompile-invalid-g1"
+program = 'b"\xfa"'
+stack = "79000 : 8 : 0 : 192 : 192 : 32 : .WordStack"
+pc = "0"
+gas = "81000"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x03\x19\x8e\x93\x93\x92\x0d\x48\x3a\x72\x60\xbf\xb7\x31\xfb\x5d\x25\xf1\xaa\x49\x33\x35\xa9\xe7\x12\x97\xe4\x85\xb7\xae\xf3\x12\xc2\x18\x00\xde\xef\x12\x1f\x1e\x76\x42\x6a\x00\x66\x5e\x5c\x44\x79\x67\x43\x22\xd4\xf7\x5e\xda\xdd\x46\xde\xbd\x5c\xd9\x92\xf6\xed\x09\x06\x89\xd0\x58\x5f\xf0\x75\xec\x9e\x99\xad\x69\x0c\x33\x95\xbc\x4b\x31\x33\x70\xb3\x8e\xf3\x55\xac\xda\xdc\xd1\x22\x97\x5b\x12\xc8\x5e\xa5\xdb\x8c\x6d\xeb\x4a\xab\x71\x80\x8d\xcb\x40\x8f\xe3\xd1\xe7\x69\x0c\x43\xd3\x7b\x4c\xe6\xcc\x01\x66\xfa\x7d\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x03\x19\x8e\x93\x93\x92\x0d\x48\x3a\x72\x60\xbf\xb7\x31\xfb\x5d\x25\xf1\xaa\x49\x33\x35\xa9\xe7\x12\x97\xe4\x85\xb7\xae\xf3\x12\xc2\x18\x00\xde\xef\x12\x1f\x1e\x76\x42\x6a\x00\x66\x5e\x5c\x44\x79\x67\x43\x22\xd4\xf7\x5e\xda\xdd\x46\xde\xbd\x5c\xd9\x92\xf6\xed\x09\x06\x89\xd0\x58\x5f\xf0\x75\xec\x9e\x99\xad\x69\x0c\x33\x95\xbc\x4b\x31\x33\x70\xb3\x8e\xf3\x55\xac\xda\xdc\xd1\x22\x97\x5b\x12\xc8\x5e\xa5\xdb\x8c\x6d\xeb\x4a\xab\x71\x80\x8d\xcb\x40\x8f\xe3\xd1\xe7\x69\x0c\x43\xd3\x7b\x4c\xe6\xcc\x01\x66\xfa\x7d\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "7"
+accessed_accounts = 'SetItem(8) .Set'
+expect.accessedAccounts = 'SetItem(8) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "1900"
+expect.output = 'b""'
+expect.memoryUsed = "7"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecpairing-precompile-invalid-g2"
+program = 'b"\xfa"'
+stack = "79000 : 8 : 0 : 192 : 192 : 32 : .WordStack"
+pc = "0"
+gas = "81000"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x19\x8e\x93\x93\x92\x0d\x48\x3a\x72\x60\xbf\xb7\x31\xfb\x5d\x25\xf1\xaa\x49\x33\x35\xa9\xe7\x12\x97\xe4\x85\xb7\xae\xf3\x12\xc2\x18\x00\xde\xef\x12\x1f\x1e\x76\x42\x6a\x00\x66\x5e\x5c\x44\x79\x67\x43\x22\xd4\xf7\x5e\xda\xdd\x46\xde\xbd\x5c\xd9\x92\xf6\xed\x09\x06\x89\xd0\x58\x5f\xf0\x75\xec\x9e\x99\xad\x69\x0c\x33\x95\xbc\x4b\x31\x33\x70\xb3\x8e\xf3\x55\xac\xda\xdc\xd1\x22\x97\x5b\x12\xc8\x5e\xa5\xdb\x8c\x6d\xeb\x4a\xab\x71\x80\x8d\xcb\x40\x8f\xe3\xd1\xe7\x69\x0c\x43\xd3\x7b\x4c\xe6\xcc\x01\x66\xfa\x7d\xab\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x19\x8e\x93\x93\x92\x0d\x48\x3a\x72\x60\xbf\xb7\x31\xfb\x5d\x25\xf1\xaa\x49\x33\x35\xa9\xe7\x12\x97\xe4\x85\xb7\xae\xf3\x12\xc2\x18\x00\xde\xef\x12\x1f\x1e\x76\x42\x6a\x00\x66\x5e\x5c\x44\x79\x67\x43\x22\xd4\xf7\x5e\xda\xdd\x46\xde\xbd\x5c\xd9\x92\xf6\xed\x09\x06\x89\xd0\x58\x5f\xf0\x75\xec\x9e\x99\xad\x69\x0c\x33\x95\xbc\x4b\x31\x33\x70\xb3\x8e\xf3\x55\xac\xda\xdc\xd1\x22\x97\x5b\x12\xc8\x5e\xa5\xdb\x8c\x6d\xeb\x4a\xab\x71\x80\x8d\xcb\x40\x8f\xe3\xd1\xe7\x69\x0c\x43\xd3\x7b\x4c\xe6\xcc\x01\x66\xfa\x7d\xab\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "7"
+accessed_accounts = 'SetItem(8) .Set'
+expect.accessedAccounts = 'SetItem(8) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "1900"
+expect.output = 'b""'
+expect.memoryUsed = "7"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecpairing-precompile-malformed-length"
+program = 'b"\xfa"'
+stack = "45000 : 8 : 0 : 1 : 32 : 32 : .WordStack"
+pc = "0"
+gas = "46000"
+local_mem = 'b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "2"
+accessed_accounts = 'SetItem(8) .Set'
+expect.accessedAccounts = 'SetItem(8) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "900"
+expect.output = 'b""'
+expect.memoryUsed = "2"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-ecpairing-precompile-out-of-gas"
+program = 'b"\xfa"'
+stack = "78999 : 8 : 0 : 192 : 192 : 32 : .WordStack"
+pc = "0"
+gas = "81000"
+local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x19\x8e\x93\x93\x92\x0d\x48\x3a\x72\x60\xbf\xb7\x31\xfb\x5d\x25\xf1\xaa\x49\x33\x35\xa9\xe7\x12\x97\xe4\x85\xb7\xae\xf3\x12\xc2\x18\x00\xde\xef\x12\x1f\x1e\x76\x42\x6a\x00\x66\x5e\x5c\x44\x79\x67\x43\x22\xd4\xf7\x5e\xda\xdd\x46\xde\xbd\x5c\xd9\x92\xf6\xed\x09\x06\x89\xd0\x58\x5f\xf0\x75\xec\x9e\x99\xad\x69\x0c\x33\x95\xbc\x4b\x31\x33\x70\xb3\x8e\xf3\x55\xac\xda\xdc\xd1\x22\x97\x5b\x12\xc8\x5e\xa5\xdb\x8c\x6d\xeb\x4a\xab\x71\x80\x8d\xcb\x40\x8f\xe3\xd1\xe7\x69\x0c\x43\xd3\x7b\x4c\xe6\xcc\x01\x66\xfa\x7d\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.localMem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x19\x8e\x93\x93\x92\x0d\x48\x3a\x72\x60\xbf\xb7\x31\xfb\x5d\x25\xf1\xaa\x49\x33\x35\xa9\xe7\x12\x97\xe4\x85\xb7\xae\xf3\x12\xc2\x18\x00\xde\xef\x12\x1f\x1e\x76\x42\x6a\x00\x66\x5e\x5c\x44\x79\x67\x43\x22\xd4\xf7\x5e\xda\xdd\x46\xde\xbd\x5c\xd9\x92\xf6\xed\x09\x06\x89\xd0\x58\x5f\xf0\x75\xec\x9e\x99\xad\x69\x0c\x33\x95\xbc\x4b\x31\x33\x70\xb3\x8e\xf3\x55\xac\xda\xdc\xd1\x22\x97\x5b\x12\xc8\x5e\xa5\xdb\x8c\x6d\xeb\x4a\xab\x71\x80\x8d\xcb\x40\x8f\xe3\xd1\xe7\x69\x0c\x43\xd3\x7b\x4c\xe6\xcc\x01\x66\xfa\x7d\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+memory_used = "7"
+accessed_accounts = 'SetItem(8) .Set'
+expect.accessedAccounts = 'SetItem(8) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "1901"
+expect.output = 'b""'
+expect.memoryUsed = "7"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-absent-cold"
+program = 'b"\xfa\x00"'
+stack = "1000 : 10 : 0 : 0 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "2600"
+return_data = 'b"\xaa"'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.output = 'b""'
+expect.accessedAccounts = 'SetItem(10)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-present-empty-warm"
+program = 'b"\xfa\x00"'
+stack = "1000 : 10 : 0 : 0 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "100"
+account_id = "10"
+accessed_accounts = 'SetItem(10) .Set'
+expect.accessedAccounts = 'SetItem(10) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-present-nonempty-stop-warm"
+program = 'b"\xfa\x00"'
+stack = "0 : 10 : 0 : 0 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "100"
+account_id = "10"
+code = 'b"\x00"'
+accessed_accounts = 'SetItem(10) .Set'
+expect.accessedAccounts = 'SetItem(10) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.output = 'b""'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-present-nonempty-revert-rolls-back-access"
+program = 'b"\xfa\x00"'
+stack = "3000 : 10 : 0 : 0 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "4000"
+account_id = "10"
+code = 'b"\x60\x0b\x31\x60\x00\x60\x00\xfd"'
+accessed_accounts = 'SetItem(10) .Set'
+expect.accessedAccounts = 'SetItem(10) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "1291"
+expect.output = 'b""'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-present-nonempty-exception-rolls-back-access"
+program = 'b"\xfa\x00"'
+stack = "3000 : 10 : 0 : 0 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "4000"
+account_id = "10"
+code = 'b"\x60\x0b\x31\xfe"'
+accessed_accounts = 'SetItem(10) .Set'
+expect.accessedAccounts = 'SetItem(10) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "900"
+expect.output = 'b""'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-present-nonempty-revert-copies-return-data"
+program = 'b"\xfa\x00"'
+stack = "500 : 10 : 0 : 0 : 0 : 1 : .WordStack"
+pc = "0"
+gas = "1000"
+account_id = "10"
+code = 'b"\x60\x2a\x60\x00\x53\x60\x01\x60\x00\xfd"'
+accessed_accounts = 'SetItem(10) .Set'
+expect.accessedAccounts = 'SetItem(10) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "879"
+expect.output = 'b""'
+expect.localMem = 'b"\x2a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-empty-memory-expansion"
+program = 'b"\xfa\x00"'
+stack = "1000 : 10 : 0 : 1 : 32 : 1 : .WordStack"
+pc = "0"
+gas = "2606"
+local_mem = 'b"\xff"'
+return_data = 'b"\xaa"'
+observe = ["accessedAccounts"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "1 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.output = 'b""'
+expect.localMem = 'b"\xff"'
+expect.memoryUsed = "2"
+expect.accessedAccounts = 'SetItem(10)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-cold-out-of-gas-is-atomic"
+program = 'b"\xfa\x00"'
+stack = "1000 : 10 : 0 : 0 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "2599"
+return_data = 'b"\xaa"'
+observe = ["accessedAccounts"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "1000 : 10 : 0 : 0 : 0 : 0 : .WordStack"
+expect.pc = "0"
+expect.gas = "2599"
+expect.output = 'b"\xaa"'
+expect.accessedAccounts = '.Set'
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "staticcall-underflow-five"
+program = 'b"\xfa\x00"'
+stack = "1000 : 10 : 0 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "2600"
+observe = ["accessedAccounts"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "1000 : 10 : 0 : 0 : 0 : .WordStack"
+expect.pc = "0"
+expect.gas = "2600"
+expect.accessedAccounts = '.Set'
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "selfbalance"
+program = 'b"\x47\x00"'
+stack = ".WordStack"
+pc = "0"
+gas = "5"
+address = "7"
+account_id = "7"
+balance = "99"
+expect.program = 'b"\x47\x00"'
+expect.wordStack = "99 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "log-zero-appends"
+program = 'b"\xa0\x00"'
+stack = "1 : 2 : 99 : .WordStack"
+pc = "0"
+gas = "394"
+address = "7"
+local_mem = 'b"\x11\x22\x33"'
+logs = 'ListItem(logEntry(1, ListItem(9) .List, b"\xaa")) .List'
+observe = ["log"]
+expect.program = 'b"\xa0\x00"'
+expect.wordStack = "99 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\x11\x22\x33"'
+expect.memoryUsed = "1"
+expect.log = 'ListItem(logEntry(1, ListItem(9) .List, b"\xaa")) ListItem(logEntry(7, .List, b"\x22\x33")) .List'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "log-one-out-of-gas-is-atomic"
+program = 'b"\xa1\x00"'
+stack = "0 : 1 : 9 : 99 : .WordStack"
+pc = "0"
+gas = "760"
+address = "7"
+local_mem = 'b"\xaa"'
+logs = 'ListItem(logEntry(1, .List, b"\xbb")) .List'
+observe = ["log"]
+expect.program = 'b"\xa1\x00"'
+expect.wordStack = "0 : 1 : 9 : 99 : .WordStack"
+expect.pc = "0"
+expect.gas = "760"
+expect.localMem = 'b"\xaa"'
+expect.memoryUsed = "0"
+expect.log = 'ListItem(logEntry(1, .List, b"\xbb")) .List'
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "log-two-zero-width"
+program = 'b"\xa2\x00"'
+stack = "999 : 0 : 10 : 11 : 99 : .WordStack"
+pc = "0"
+gas = "1125"
+address = "7"
+local_mem = 'b"\xaa"'
+observe = ["log"]
+expect.program = 'b"\xa2\x00"'
+expect.wordStack = "99 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\xaa"'
+expect.memoryUsed = "0"
+expect.log = 'ListItem(logEntry(7, ListItem(10) ListItem(11) .List, b"")) .List'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "log-two-underflow-precedes-static-violation"
+program = 'b"\xa2\x00"'
+stack = "0 : 0 : 10 : .WordStack"
+pc = "0"
+gas = "5000"
+static = 'true'
+observe = ["log"]
+expect.program = 'b"\xa2\x00"'
+expect.wordStack = "0 : 0 : 10 : .WordStack"
+expect.pc = "0"
+expect.gas = "5000"
+expect.memoryUsed = "0"
+expect.log = '.List'
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "log-three-zero-width"
+program = 'b"\xa3\x00"'
+stack = "999 : 0 : 10 : 11 : 12 : 99 : .WordStack"
+pc = "0"
+gas = "1500"
+address = "7"
+observe = ["log"]
+expect.program = 'b"\xa3\x00"'
+expect.wordStack = "99 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.memoryUsed = "0"
+expect.log = 'ListItem(logEntry(7, ListItem(10) ListItem(11) ListItem(12) .List, b"")) .List'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "log-four-zero-pads-and-orders-topics"
+program = 'b"\xa4\x00"'
+stack = "1 : 3 : 10 : 11 : 12 : 13 : 99 : .WordStack"
+pc = "0"
+gas = "1902"
+address = "7"
+local_mem = 'b"\xaa\xbb"'
+observe = ["log"]
+expect.program = 'b"\xa4\x00"'
+expect.wordStack = "99 : .WordStack"
+expect.pc = "1"
+expect.gas = "0"
+expect.localMem = 'b"\xaa\xbb"'
+expect.memoryUsed = "1"
+expect.log = 'ListItem(logEntry(7, ListItem(10) ListItem(11) ListItem(12) ListItem(13) .List, b"\xbb\x00\x00")) .List'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "log-zero-static-violation"
+program = 'b"\xa0\x00"'
+stack = "0 : 0 : 99 : .WordStack"
+pc = "0"
+gas = "5000"
+static = 'true'
+logs = 'ListItem(logEntry(1, .List, b"\xaa")) .List'
+observe = ["log"]
+expect.program = 'b"\xa0\x00"'
+expect.wordStack = "0 : 0 : 99 : .WordStack"
+expect.pc = "0"
+expect.gas = "5000"
+expect.memoryUsed = "0"
+expect.log = 'ListItem(logEntry(1, .List, b"\xaa")) .List'
+expect.statusCode = "EVMC_STATIC_MODE_VIOLATION"
+
+[[behavior]]
+id = "return-memory-slice"
+program = 'b"\xf3"'
+stack = "1 : 3 : 9 : .WordStack"
+pc = "0"
+gas = "0"
+local_mem = 'b"\xaa\xbb\xcc\xdd"'
+memory_used = "1"
+return_data = 'b"\xff"'
+expect.program = 'b"\xf3"'
+expect.wordStack = "9 : .WordStack"
+expect.pc = "0"
+expect.gas = "0"
+expect.output = 'b"\xbb\xcc\xdd"'
+expect.localMem = 'b"\xaa\xbb\xcc\xdd"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "return-zero-padded-expansion"
+program = 'b"\xf3"'
+stack = "2 : 4 : .WordStack"
+pc = "0"
+gas = "3"
+local_mem = 'b"\x11\x22\x33"'
+memory_used = "0"
+expect.program = 'b"\xf3"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "0"
+expect.output = 'b"\x33\x00\x00\x00"'
+expect.localMem = 'b"\x11\x22\x33"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "return-zero-width"
+program = 'b"\xf3"'
+stack = "999 : 0 : .WordStack"
+pc = "0"
+gas = "0"
+return_data = 'b"\xaa"'
+expect.program = 'b"\xf3"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "0"
+expect.output = 'b""'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "revert-memory-slice"
+program = 'b"\xfd"'
+stack = "0 : 2 : .WordStack"
+pc = "0"
+gas = "0"
+local_mem = 'b"\xde\xad"'
+memory_used = "1"
+expect.program = 'b"\xfd"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "0"
+expect.output = 'b"\xde\xad"'
+expect.localMem = 'b"\xde\xad"'
+expect.memoryUsed = "1"
+expect.statusCode = "EVMC_REVERT"
+
+[[behavior]]
+id = "revert-out-of-gas-before-output"
+program = 'b"\xfd"'
+stack = "32 : 1 : .WordStack"
+pc = "0"
+gas = "5"
+local_mem = 'b"\xaa"'
+memory_used = "0"
+return_data = 'b"\xbb"'
+expect.program = 'b"\xfd"'
+expect.wordStack = "32 : 1 : .WordStack"
+expect.pc = "0"
+expect.gas = "5"
+expect.output = 'b"\xbb"'
+expect.localMem = 'b"\xaa"'
+expect.memoryUsed = "0"
+expect.statusCode = "EVMC_OUT_OF_GAS"
+
+[[behavior]]
+id = "return-underflow-empty"
+program = 'b"\xf3"'
+stack = ".WordStack"
+pc = "0"
+gas = "10"
+expect.program = 'b"\xf3"'
+expect.wordStack = ".WordStack"
+expect.pc = "0"
+expect.gas = "10"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"
+
+[[behavior]]
+id = "revert-underflow-one"
+program = 'b"\xfd"'
+stack = "0 : .WordStack"
+pc = "0"
+gas = "10"
+expect.program = 'b"\xfd"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "0"
+expect.gas = "10"
+expect.statusCode = "EVMC_STACK_UNDERFLOW"

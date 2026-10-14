@@ -1,0 +1,31 @@
+[package]
+name = "krs-imp-expanded"
+description = "Replacement-crate validation for the reviewed KRS layer-2 IMP expansion"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[lib]
+name = "krs_imp_expanded"
+path = "src/lib.rs"
+
+[dependencies]
+k = { package = "krs", path = "../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-IMP"
+# Upstream EXPR-SYNTAX imports UNSIGNED-INT-SYNTAX: `-1` in a program is `Neg(1)`.
+int-literals = "unsigned"
+
+[package.metadata.krs.definitions.main]
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

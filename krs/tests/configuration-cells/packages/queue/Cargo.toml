@@ -1,0 +1,21 @@
+[package]
+name = "krs-configuration-cells-queue"
+description = "A List cell collection used as a FIFO queue (KF-023)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_configuration_cells_queue"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-QUEUE"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

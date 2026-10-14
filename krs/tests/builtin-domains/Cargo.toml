@@ -1,0 +1,39 @@
+[workspace]
+members = [
+    "packages/bool-ops",
+    "packages/bytes-ops",
+    "packages/float-java-only",
+    "packages/floats",
+    "packages/int-ops",
+    "packages/int-sign",
+    "packages/int-sign-unsigned",
+    "packages/io",
+    "packages/io-hooks",
+    "packages/io-log",
+    "packages/k-equal",
+    "packages/map-ops",
+    "packages/raw-denied",
+    "packages/raw-hook",
+    "packages/raw-k",
+    "packages/raw-parse-error",
+    "packages/raw-strict",
+    "packages/set-ops",
+    "packages/sort-test-matched",
+    "packages/sort-test-project-k",
+    "packages/sort-test-trivial",
+    "packages/sort-tests",
+    "packages/strings",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.99"
+version = "0.1.0"
+
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "deny"

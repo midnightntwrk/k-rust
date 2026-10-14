@@ -1,0 +1,3 @@
+#[k::constructor(sort = Expr, syntax = "halt", group = "atoms")]
+#[__krs_explicit_symbol("api::Halt")]
+pub struct Halt;

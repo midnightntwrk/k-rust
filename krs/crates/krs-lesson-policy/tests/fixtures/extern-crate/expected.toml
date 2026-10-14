@@ -1,0 +1,11 @@
+[[diagnostic]]
+code = "krs::policy::extern-crate"
+start = 9
+end = 28
+text = "extern crate alloc;"
+
+[[diagnostic]]
+code = "krs::policy::extern-crate"
+start = 30
+end = 63
+text = "pub extern crate core as renamed;"

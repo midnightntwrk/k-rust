@@ -1,0 +1,97 @@
+# Size and shape ladders for tests/perf/ladder.py.
+#
+# A ladder measures one `krs` stage at ascending values of one size parameter
+# and fits every metric's growth (tests/perf/growth.py). Values go up by
+# powers of two; a rung whose median wall time exceeds `stop_seconds`, or
+# whose every repetition fails, ends the ladder, as `stop_seconds` does in
+# k-rust's `scripts/algo-workloads.toml`.
+#
+# kind = "truncate": the port's source with `value / denominator` of its
+#   rewrite rules and equations kept and every declaration kept
+#   (tests/perf/truncate.py), in a scratch copy of the semantics workspace.
+# kind = "synthetic": a generated single-crate definition of `shape`
+#   (tests/perf/synth.py) with n = value, in scratch.
+schema = 1
+
+[[ladder]]
+name = "kevm-fraction"
+kind = "truncate"
+port = "kevm"
+param = "eighths of rules and equations"
+denominator = 8
+values = [1, 2, 4, 8]
+stop_seconds = 1200
+description = "KEVM with 1/8, 1/4, 1/2, and all of its rules and equations; every declaration kept."
+
+[[ladder]]
+name = "kmir-fraction"
+kind = "truncate"
+port = "kmir"
+param = "eighths of rules and equations"
+denominator = 8
+values = [1, 2, 4, 8]
+stop_seconds = 1200
+description = "KMIR with 1/8, 1/4, 1/2, and all of its rules and equations; every declaration kept."
+
+[[ladder]]
+name = "many-small-rules"
+kind = "synthetic"
+shape = "many-small-rules"
+param = "rules"
+values = [16, 32, 64, 128, 256, 512, 1024, 2048]
+stop_seconds = 300
+description = "n one-token configuration rules in one k::rules! block."
+
+[[ladder]]
+name = "few-large-rules"
+kind = "synthetic"
+shape = "few-large-rules"
+param = "right-hand k-sequence items per rule"
+values = [16, 32, 64, 128, 256, 512, 1024, 2048]
+stop_seconds = 300
+description = "Four rules whose right-hand k sequence has n items."
+
+[[ladder]]
+name = "deep-terms"
+kind = "synthetic"
+shape = "deep-terms"
+param = "term nesting depth"
+values = [8, 16, 32, 64, 128, 256, 512]
+stop_seconds = 300
+description = "Four rules whose right-hand term nests n constructors deep."
+
+[[ladder]]
+name = "wide-enums"
+kind = "synthetic"
+shape = "wide-enums"
+param = "constructor variants"
+values = [16, 32, 64, 128, 256, 512, 1024, 2048]
+stop_seconds = 300
+description = "One constructor enum with n nullary variants and a full precedence list."
+
+[[ladder]]
+name = "sorts-deep"
+kind = "synthetic"
+shape = "sorts-deep"
+param = "sort chain length"
+values = [8, 16, 32, 64, 128, 256, 512, 1024]
+stop_seconds = 300
+description = "A k::sorts! chain of n sorts, each with one leaf membership (quadratic local-ancestor closure)."
+
+[[ladder]]
+name = "sorts-dense"
+kind = "synthetic"
+shape = "sorts-dense"
+param = "sorts (layers of four)"
+values = [8, 16, 32, 64, 128, 256, 512, 1024]
+stop_seconds = 300
+description = "n sorts in layers of four, each a subsort of the whole previous layer, each with one leaf membership."
+
+[[ladder]]
+name = "anchors-per-rule"
+kind = "synthetic"
+shape = "anchors-per-rule"
+param = "expression leaves per rule"
+values = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+stop_seconds = 300
+description = "Four rules whose right-hand integer expression is a balanced tree of n leaves (provenance anchors per rule grow, depth grows as log n)."

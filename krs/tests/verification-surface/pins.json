@@ -1,0 +1,446 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-verification-surface-l21": "b25b3c778d2a99b64ba072aa215afbe46921d5a28aa8ac300d35ef82a8cfd9df",
+    "krs-verification-surface-l21-readable": "2b92db2200faeeaa3dcbf588a5d6160dfbcc07e59f1564ba3c853e7c11d8fae7",
+    "krs-verification-surface-imp-sum": "740ae3d86b6e487d9e27a96819f63895cccc2bc0ec28f129c1f7f17e108d88b7",
+    "krs-verification-surface-l22-verification": "ce49d8cc10acace996e8e70b05c80df99cb9fc61d4daf94edff38dc3170c84b8"
+  },
+  "emitted": {
+    "krs-verification-surface-l21": {
+      "definition.k": "75ed1612537c9ed6bdc806f5338539e21c8de46c8d6094cda132f2cad8717ca8",
+      "spec.k": "872d3b722049fe76dd49179d3882f4eb18b78123e0cf711e233491fc974f95c0"
+    },
+    "krs-verification-surface-l21-readable": {
+      "definition.k": "30e3619416868ceb9733c1aaa0c55406fa28e5d62ed35a61261d21c1d02aeb09"
+    },
+    "krs-verification-surface-trusted": {
+      "definition.k": "cb99becedbc945d5f20ae104fe49825fca3257b80d8b568fe44a5997b46076d2",
+      "spec.k": "b8485b7024c6e1b8757ebbd1ff87a5af158249d4037810e8c72dba9bbe6de2ae"
+    },
+    "krs-verification-surface-trusted-ablation": {
+      "definition.k": "cb99becedbc945d5f20ae104fe49825fca3257b80d8b568fe44a5997b46076d2",
+      "spec.k": "8d5a60df347f29a95cc31eb7490285f64d4b93b9e0129ab58a2d5f544162064a"
+    },
+    "krs-verification-surface-hook": {
+      "definition.k": "4534d1aed587b1884647427aec5a888779c5ccbb5d440a9fdb5a75516c0b1001",
+      "spec.k": "700aac369146b160f8733e451717c6ba18c1d404d36aa8c0a65cf2d9d6071d7e"
+    },
+    "krs-verification-surface-hook-ablation": {
+      "definition.k": "8e2fed16db6211f3ec598830d9f4bae54f2d7f85e6bfcd464362b5f9ca620d15",
+      "spec.k": "c1cc39d30dcc93ebd9e9a1bd4e10edf027f43f251ccaa67658a677ee4e8b5fed"
+    },
+    "krs-verification-surface-conc": {
+      "definition.k": "142fece5ba8519640dbb2b6cb5095e0fb2ebd69d87fc6c66c61598e587074950",
+      "spec.k": "eafc715f2864e2ff5c305a24a6993fcf5375c44e7f8e4dff587a134f560bf5f3"
+    },
+    "krs-verification-surface-conc-smt-lemma": {
+      "definition.k": "53fa2f0d70a0b525b8ff7f14c187ebe325198fd57a0121dc76ee3b7dc4838e47",
+      "spec.k": "52ff6921f00ff7b21e7d2c7dba112cafdcb6ecabb5593a301b4e26dec704e681"
+    },
+    "krs-verification-surface-imp-sum": {
+      "definition.k": "662a994a80043027f66a0f29d196e8909aee9c398f13108d7d6d96bbff31d900",
+      "spec.k": "be388bad9696ce082bd89ca4af1b07fbbe40a4a6040f14faa9b81a3602f5e180"
+    },
+    "krs-verification-surface-l22-verification": {
+      "definition.k": "303c2db277bb36448086e7b0e645d036471e1b4328f86fe5a4a7ebcf88a4c627",
+      "spec.k": "b6ca1e74f8ca2ededa902e2315d3b16db2320860394fafbbaa2789fbca9e674a"
+    },
+    "krs-verification-surface-l22-lesson": {
+      "definition.k": "3cb18aabae99e6966f419e44a77022e6f91400d6b9cde966d0afe0b0069f2638",
+      "spec.k": "468c0248ecac21d91a67760cb8cfe046984ab633fcbf838a664f09840f72d149"
+    }
+  },
+  "capability_refusals": {
+    "krs-verification-surface-l21": "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains rules that introduce symbolic values [foo-bounded, zero-to-unknown]; concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell",
+    "krs-verification-surface-l21-readable": "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains rules that introduce symbolic values [zero-to-unknown]; concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell"
+  },
+  "reference_sha256": {
+    "krs-verification-surface-l21": "17b34abc524a54f3ce78f34f064f13ee6ef682924511ea38177400cc66094737",
+    "krs-verification-surface-l21-readable": "a094c2f7bda03eac9f1df9ed0a0d080e7646aef4f2f958b0cc46ad5050d5b048",
+    "krs-verification-surface-trusted": "33702242467e6c060b0b6cb3189f2c31e9e5c10b7c0d001e98cf75a2896977c8",
+    "krs-verification-surface-trusted-ablation": "579757a841ca55e559c03d4a70676eac47de1dec111a3a1f5663b0aa4d1b2e2a",
+    "krs-verification-surface-hook": "25faf69d3f861dab5985b9a2fbae3692751b41d9d8b63fa0e0823958eb411609",
+    "krs-verification-surface-hook-ablation": "22a8e80652be3c4a663fd7c4c1dfe46a42c6067c84b0e91cd2bf7e312d3741f0",
+    "krs-verification-surface-conc": "a68176c708ae7d55eb2b97e658d40ab37ca4fb32d70a89a800ff53ff4618e1a9",
+    "krs-verification-surface-conc-smt-lemma": "279670545e957eb7192563b8f86826e23e714873821137de8345b05710866511",
+    "krs-verification-surface-imp-sum": "bdf91e96c50a6bd78c2d94040573e91ea4cfa0887e00cd0ebada91febba449a3",
+    "krs-verification-surface-l22-verification": "303d7d2d904c4aaef8283c402439d11fe7294bcd155b5cdad7aede86094e3d6d",
+    "krs-verification-surface-l22-lesson": "3754d5667bc6f21368b899efc86df205f05683271b3792c24b40a4b6d95a6942"
+  },
+  "outcomes": {
+    "krs-verification-surface-l21": {
+      "foo": [
+        {
+          "k": "#token(\"5\",\"Int\")",
+          "constraints": [
+            "?V0 == 0",
+            "?V1 in [10, +inf]"
+          ]
+        },
+        {
+          "k": "?V0",
+          "constraints": [
+            "?V0 in [-inf, 4] minus {0}"
+          ]
+        },
+        {
+          "k": "?V0",
+          "constraints": [
+            "?V0 in [-inf, 9] minus {0}",
+            "?V1 == 0"
+          ]
+        }
+      ],
+      "zero": [
+        {
+          "k": "?V0",
+          "constraints": [
+            "?V0 in [-inf, 9] minus {0}"
+          ]
+        },
+        {
+          "k": "#token(\"5\",\"Int\")",
+          "constraints": [
+            "?V0 in [10, +inf]"
+          ]
+        }
+      ]
+    },
+    "krs-verification-surface-l21-readable": {
+      "zero": [
+        {
+          "k": "?V0",
+          "constraints": [
+            "?V0 in [-inf, 9] minus {0}"
+          ]
+        },
+        {
+          "k": "#token(\"5\",\"Int\")",
+          "constraints": [
+            "?V0 in [10, +inf]"
+          ]
+        }
+      ]
+    }
+  },
+  "claims": {
+    "krs-verification-surface-l21": {
+      "foo-reaches-below-five": {
+        "proven": true,
+        "stuck": false,
+        "depth": null,
+        "k": null
+      },
+      "zero-reaches-nonzero": {
+        "proven": false,
+        "stuck": true,
+        "depth": 0,
+        "k": "0 ~> Tail"
+      }
+    }
+  },
+  "warnings": {
+    "ensures-llvm": [
+      "warning[krs::capability::ignored-ensures]: rule `count-down` has an ensures condition; concrete (LLVM) execution ignores it, so build with --backend haskell to assume it"
+    ]
+  },
+  "diagnostics": {
+    "exists-equation": [
+      "error[krs::expand::existential-placement]: existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases"
+    ],
+    "exists-unused": [
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: an existential must occur in the rule's result or ensures condition"
+    ],
+    "exists-in-requires": [
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: an existential cannot occur in `requires`: it names a value the step creates"
+    ],
+    "exists-shadows": [
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: an existential cannot shadow a subject binding; rename it"
+    ],
+    "smtlib-duplicate": [
+      "error[krs::analysis::duplicate-smtlib]: `First` and `Second` both declare `smtlib = \"probe\"`: Z3 would identify `probe` across two K functions; give each its own symbol"
+    ],
+    "restriction-unknown-binder": [
+      "error[krs::analysis::invalid-match-restriction]: `y` in `concrete(..)` is not a binder of the left-hand side of `h_concrete`; `concrete(..)` names left-hand binders, and they are `x`"
+    ],
+    "restriction-both-bare": [
+      "error[krs::analysis::invalid-match-restriction]: `h_both` is both bare `concrete` and bare `symbolic`: no binder can be ground and symbolic at once; restrict different binders with `concrete(x)` and `symbolic(y)`"
+    ],
+    "restriction-equation-inconsistent": [
+      "error[krs::analysis::invalid-match-restriction]: equation `h_zero` is `concrete`, but equation `h_other` of the same function `H` is not: K requires every equation of a function to be `concrete` once one is (\"Found concrete attribute without simplification attribute on function with one or more non-concrete rules\"); mark them all `concrete`, or make the restricted one a #[k::simplification]"
+    ],
+    "smt-lemma-untranslatable": [
+      "error[krs::analysis::smt-lemma-untranslatable]: `smt_lemma` on `h_lemma` mentions function `H`, which Z3 cannot see; Z3 sees a user function only through `smtlib = \"..\"` or `smt_hook = \"..\"`, so give it one or drop `smt_lemma`"
+    ],
+    "spec-module-sort": [
+      "error[krs::analysis::invalid-spec-module]: `Extra` is a sort in spec module `KRS-SPEC-MODULE-SORT-PROOFS`; K proof modules may contain only claims, simplification lemmas, and tokens for existing sorts. Move it into the definition"
+    ],
+    "spec-module-cycle": [
+      "error[krs::analysis::invalid-spec-module]: spec-module imports form a cycle: FIRST-SPEC -> SECOND-SPEC -> FIRST-SPEC; K module imports must be acyclic"
+    ],
+    "spec-module-undeclared-id": [
+      "error[krs::analysis::invalid-spec-module]: the identifier `$x` in `var_stays` is lexed by no token production that spec module `KRS-SPEC-MODULE-UNDECLARED-ID-PROOFS` sees, and K parses its sentences with that grammar. Add a token for `Id` that lexes it, to this spec module or to the definition as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`"
+    ],
+    "spec-module-smt-lemma": [
+      "error[krs::analysis::invalid-spec-module]: `smt_lemma` on `h_lemma` in spec module `KRS-SPEC-MODULE-SMT-LEMMA-PROOFS` would have no effect: kore-exec hands only the definition's lemmas to Z3. Move the lemma into the definition"
+    ],
+    "spec-module-no-definition": [
+      "error[krs::analysis::invalid-spec-module]: spec module `LONELY-SPEC` does not import the definition: its imports never reach `KRS-SPEC-MODULE-NO-DEFINITION`. Add `imports = [crate]` (or a spec module that imports it)"
+    ],
+    "spec-module-private-lemma": [
+      "error[krs::analysis::private-production-in-spec]: `H` is private to KRS-SPEC-MODULE-PRIVATE-LEMMA; K's private syntax is invisible to proof modules. Make it `pub` and mark it `internal`"
+    ],
+    "ml-transition-requires": [
+      "error[krs::analysis::ml-placement]: matching-logic conditions are allowed on claims and simplifications, not on a transition: a rule's condition is an object Bool (write `int::eq`, `bool::not`, ..., not `ml::equals`, `ml::not`)"
+    ],
+    "ml-equation-requires": [
+      "error[krs::analysis::ml-placement]: matching-logic conditions are allowed on claims and simplifications, not on an equation: a rule's condition is an object Bool (write `int::eq`, `bool::not`, ..., not `ml::equals`, `ml::not`)"
+    ],
+    "ml-object-operand": [
+      "error[krs::analysis::invalid-ml-predicate]: `ml::top` is a matching-logic predicate, not an object term: it cannot be an operand of an object function or stand where a value is expected; predicates combine only with ml::not, ml::and, ml::or, ml::implies, and ml::exists"
+    ],
+    "ml-bool-predicate": [
+      "error[krs::analysis::invalid-ml-predicate]: a predicate is expected here, but this is an object term; an object Bool enters matching logic only as `ml::equals(true, <term>)` (K's `{ true #Equals B }`)"
+    ],
+    "ml-equals-sorts": [
+      "error[krs::analysis::invalid-ml-predicate]: the operands of ml::equals have sorts `Int` and `Bool`, which share no least common sort; both sides of an equality denote values of one sort"
+    ],
+    "ml-exists-shadows": [
+      "error[krs::analysis::invalid-ml-predicate]: the ml::exists binder `a` shadows a binder of the sentence; quantify a fresh name (K would silently shadow `a`)"
+    ],
+    "ml-exists-untyped": [
+      "error[krs::syntax::invalid-ml-exists]: the ml::exists binder needs a sort: write `|x: Sort| predicate`"
+    ],
+    "ml-closure-elsewhere": [
+      "error[krs::syntax::invalid-ml-exists]: closures introduce quantified binders only inside ml::exists: write `ml::exists(|x: Sort| predicate)`; a closure is never a K function"
+    ],
+    "ml-unknown-item": [
+      "error[krs::expand::unknown-ml-item]: `ml::floor` is not a matching-logic connective. The connectives are ml::top, ml::bottom, ml::not, ml::and, ml::or, ml::implies, ml::equals, ml::ceil, ml::exists."
+    ],
+    "ml-simplification-root": [
+      "error[krs::analysis::invalid-ml-predicate]: the left side of a predicate simplification must be rooted at ml::equals or ml::ceil: K's simplifier rewrites an equality or a definedness condition, nothing else"
+    ],
+    "ml-simplification-types": [
+      "error[krs::expand::ml-placement]: a predicate simplification's parameter and result types disagree: the subject is `ml::Predicate`, so this type must be `ml::Predicate` too; a simplification of object terms uses `Term<S>` on both sides"
+    ],
+    "ml-predicate-rule": [
+      "error[krs::expand::ml-placement]: an `ml::Predicate` subject and result make a predicate simplification; they are allowed only on `#[k::simplification]` (a rule or equation rewrites object terms, `Term<S>`)"
+    ],
+    "spec-module-private-id": [
+      "error[krs::analysis::invalid-spec-module]: the identifier `$x` in `var_stays` is lexed by no token production that spec module `KRS-SPEC-MODULE-PRIVATE-ID-PROOFS` sees, and K parses its sentences with that grammar. Add a token for `Id` that lexes it, to this spec module or to the definition as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`"
+    ]
+  },
+  "trusted_proofs": {
+    "krs-verification-surface-trusted": {
+      "statuses": {
+        "call-spec": "proven",
+        "helper-axiom": "trusted"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 1 of 2 claims proven, 1 trusted"
+      ],
+      "warnings": [
+        "warning[krs::emit::trusted-claim]: claim `helper-axiom` is trusted: it is assumed without proof"
+      ]
+    },
+    "krs-verification-surface-trusted-ablation": {
+      "statuses": {
+        "call-spec": "disproved"
+      },
+      "exit": 1,
+      "summary": [
+        "krs prove: 0 of 1 claim proven"
+      ],
+      "warnings": []
+    }
+  },
+  "trusted_kprove": {
+    "krs-verification-surface-trusted": {
+      "proven": true,
+      "top": true
+    },
+    "krs-verification-surface-trusted-ablation": {
+      "proven": false,
+      "top": false
+    }
+  },
+  "smt_proofs": {
+    "krs-verification-surface-hook": {
+      "statuses": {
+        "abs-nonneg": "proven"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 1 of 1 claim proven"
+      ],
+      "warnings": []
+    },
+    "krs-verification-surface-hook-ablation": {
+      "statuses": {
+        "abs-nonneg": "failed"
+      },
+      "exit": 1,
+      "summary": [
+        "krs prove: 0 of 1 claim proven"
+      ],
+      "warnings": []
+    }
+  },
+  "smt_kprove": {
+    "krs-verification-surface-hook": {
+      "proven": true,
+      "top": true
+    },
+    "krs-verification-surface-hook-ablation": {
+      "proven": false,
+      "top": false
+    }
+  },
+  "restriction_proofs": {
+    "krs-verification-surface-conc": {
+      "statuses": {
+        "go-concrete": "proven",
+        "go-symbolic": "failed"
+      },
+      "exit": 1,
+      "summary": [
+        "krs prove: 1 of 2 claims proven"
+      ],
+      "warnings": []
+    },
+    "krs-verification-surface-conc-smt-lemma": {
+      "statuses": {
+        "go-concrete": "proven",
+        "go-symbolic": "proven"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 2 of 2 claims proven"
+      ],
+      "warnings": []
+    }
+  },
+  "restriction_kprove": {
+    "krs-verification-surface-conc": {
+      "KRS-CONC-SPEC": {
+        "go-concrete": true,
+        "go-symbolic": false
+      },
+      "KRS-CONC-UNRESTRICTED": {
+        "go-concrete-unrestricted": true,
+        "go-symbolic-unrestricted": true
+      }
+    },
+    "krs-verification-surface-conc-smt-lemma": {
+      "go-concrete": true,
+      "go-symbolic": true
+    }
+  },
+  "spec_module_proofs": {
+    "krs-verification-surface-imp-sum": {
+      "statuses": {
+        "dollar-sum-spec": "proven"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 1 of 1 claim proven"
+      ],
+      "warnings": []
+    },
+    "krs-verification-surface-l22-lesson": {
+      "statuses": {
+        "dollar-assign": "proven"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 1 of 1 claim proven"
+      ],
+      "warnings": []
+    }
+  },
+  "spec_module_refusals": {
+    "krs-verification-surface-imp-sum": {
+      "IMP-VERIFICATION-LEMMAS": [
+        "error[krs::exec::claim]: spec module `IMP-VERIFICATION-LEMMAS` has no claims of its own or through its imports"
+      ],
+      "MISSING-SPEC": [
+        "error[krs::exec::claim]: no spec module is named `MISSING-SPEC`; the definition's spec modules are `IMP-SUM-SPEC`, `IMP-VERIFICATION-LEMMAS` and the generated `IMP-VERIFICATION-SPEC`"
+      ]
+    },
+    "krs-verification-surface-l22-lesson": {
+      "default": [
+        "error[krs::exec::claim]: every claim of this definition is in a spec module; pass --spec-module with one of `LESSON-SPEC`"
+      ]
+    }
+  },
+  "spec_module_kprove": {
+    "krs-verification-surface-imp-sum": {
+      "proven": true,
+      "top": true
+    },
+    "krs-verification-surface-l22-lesson": {
+      "proven": true,
+      "top": true
+    }
+  },
+  "ml_proofs": {
+    "krs-verification-surface-l22-verification": {
+      "KRS-L22-CLAIMS": {
+        "statuses": {
+          "branch": "proven",
+          "div-eq": "proven",
+          "div-small": "proven"
+        },
+        "exit": 0,
+        "summary": [
+          "krs prove: 3 of 3 claims proven"
+        ],
+        "warnings": []
+      },
+      "KRS-L22-ABLATION": {
+        "statuses": {
+          "branch-ablation": "failed"
+        },
+        "exit": 1,
+        "summary": [
+          "krs prove: 0 of 1 claim proven"
+        ],
+        "warnings": []
+      }
+    }
+  },
+  "ml_kprove": {
+    "krs-verification-surface-l22-verification": {
+      "KRS-L22-CLAIMS": {
+        "branch": true,
+        "div-eq": true,
+        "div-small": true
+      },
+      "KRS-L22-ABLATION": {
+        "branch-ablation": false
+      }
+    }
+  },
+  "smt_llvm_warnings": {
+    "krs-verification-surface-hook": [
+      "warning[krs::emit::smt-only-function]: function `myAbs` has an `smt_hook` and no equation: it is evaluated only by Z3 on symbolic paths; concrete execution cannot evaluate it",
+      "warning[krs::emit::smt-only-function]: function `clampSub` has an `smt_hook` and no equation: it is evaluated only by Z3 on symbolic paths; concrete execution cannot evaluate it"
+    ],
+    "krs-verification-surface-hook-ablation": []
+  },
+  "restriction_ablation_proofs": {
+    "krs-verification-surface-conc": {
+      "statuses": {
+        "go-concrete-unrestricted": "proven",
+        "go-symbolic-unrestricted": "proven"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 2 of 2 claims proven"
+      ],
+      "warnings": []
+    }
+  }
+}

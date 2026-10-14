@@ -1,0 +1,21 @@
+[package]
+name = "krs-builtin-io-log"
+description = "A log line through K's #log hook"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_builtin_io_log"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-IO-LOG"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

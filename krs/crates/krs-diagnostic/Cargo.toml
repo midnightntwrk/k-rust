@@ -1,0 +1,19 @@
+[package]
+name = "krs-diagnostic"
+description = "Located diagnostic model and code registry for KRS producers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+proc-macro2 = ["dep:proc-macro2"]
+
+[dependencies]
+krs-ir = { path = "../krs-ir", default-features = false }
+proc-macro2 = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

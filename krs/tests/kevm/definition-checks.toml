@@ -1,0 +1,23 @@
+# Required and forbidden constructs of the operational corpus.
+
+[[check]]
+message = "emitted KEVM definition does not import pinned BYTES"
+required.imports = ["BYTES"]
+
+[[check]]
+message = "emitted KEVM definition omits functional lengthBytes syntax"
+[[check.applied_operations]]
+operation = "bytes_length"
+
+[[check]]
+message = "emitted KEVM definition omits builtin byte lookup syntax"
+[[check.applied_operations]]
+operation = "bytes_get"
+result_sort = "Int"
+argument_sorts = ["Bytes", "Int"]
+
+[[check]]
+message = "emitted KEVM definition retained the structured program adapter"
+forbidden.sorts = ["EvmProgram"]
+forbidden.terminals = ["EvmProgram"]
+forbidden.production_symbols = ["EvmProgram"]

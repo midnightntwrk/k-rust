@@ -1,0 +1,1082 @@
+::k::__request_framework_sorts!();
+#[doc = concat!("Membership marker generated for the `", "ReadableExpr", "` K sort.")]
+pub trait ReadableExprSort {}
+#[doc = concat!("Symbolic term type generated for the `", "ReadableExpr", "` K sort.")]
+pub type ReadableExpr = ::k::Term<dyn ReadableExprSort>;
+#[doc(hidden)]
+fn __krs_sort_type_565187d54f4138cb() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<ReadableExpr>()
+}
+#[doc(hidden)]
+fn __krs_sort_descriptor_565187d54f4138cb() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "ReadableExpr",
+                ::k::ItemKind::Sort,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_sort_type_565187d54f4138cb),
+            ),
+        ),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[]}}",
+            ::k::__KrsSlots {
+                types: &[],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 5u32),
+                            (4u32, 17u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_sort_descriptor_565187d54f4138cb);
+#[doc(hidden)]
+fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_bracket_ReadableExpr_0",
+                ::k::ItemKind::Grammar,
+                "bracket:0",
+            )
+            .expect("Cargo and Rust macro context form a valid bracket identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"bracket_declaration\",\"ordinal\":0},\"template_key\":null,\"owner\":{\"production_owner\":\"bracket_sort\",\"sort\":{\"key\":{\"role\":\"sort_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableExpr\"}}},\"result_sort\":{\"key\":{\"role\":\"sort_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableExpr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"bracket_syntax_item\",\"ordinal\":0},\"text\":\"(\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"bracket_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"bracket_value_reference\",\"ordinal\":0},\"declaration_key\":null,\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"sort_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableExpr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"bracket_syntax_item\",\"ordinal\":2},\"text\":\")\"}],\"attributes\":[{\"attribute_kind\":\"bracket\",\"key\":{\"role\":\"bracket_declaration\",\"ordinal\":0}}]}}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_sort_type_565187d54f4138cb)],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::BracketDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::BracketSyntaxItem,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::BracketSyntaxItem,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::BracketSyntaxItem,
+                        2u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::BracketValueReference,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 18u32),
+                            (3u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 5u32),
+                            (4u32, 17u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_bracket_descriptor_565187d54f4138cb_0);
+#[doc(hidden)]
+fn __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<ReadableExpr>()
+}
+#[doc(hidden)]
+fn __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Id>()
+}
+#[doc(hidden)]
+fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_subsort(member=relative:Id;supersort=relative:ReadableExpr)",
+                ::k::ItemKind::Grammar,
+                "subsort",
+            )
+            .expect("Cargo and Rust macro context form a valid subsort identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Id\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableExpr\"}}}}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(
+                        __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229,
+                    ),
+                    ::k::HostTypeKey(
+                        __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229,
+                    ),
+                ],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SubsortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 27u32),
+                            (5u32, 29u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSuperSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 10u32),
+                            (5u32, 22u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSubSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 27u32),
+                            (5u32, 29u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(
+    __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229
+);
+#[doc = concat!("Membership marker generated for the `", "ReadableValue", "` K sort.")]
+pub trait ReadableValueSort: ReadableExprSort + ::k::KResultSort {}
+#[doc = concat!("Symbolic term type generated for the `", "ReadableValue", "` K sort.")]
+pub type ReadableValue = ::k::Term<dyn ReadableValueSort>;
+#[doc(hidden)]
+fn __krs_sort_type_055e4df68589a682() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<ReadableValue>()
+}
+#[doc(hidden)]
+fn __krs_sort_parent_055e4df68589a682_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<ReadableExpr>()
+}
+#[doc(hidden)]
+fn __krs_sort_parent_055e4df68589a682_1() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<k::KResult>()
+}
+#[doc(hidden)]
+fn __krs_sort_descriptor_055e4df68589a682() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "ReadableValue",
+                ::k::ItemKind::Sort,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_sort_type_055e4df68589a682),
+            ),
+        ),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"ReadableExpr\"},{\"slot\":1,\"authored_path\":\"k :: KResult\"}]}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(__krs_sort_parent_055e4df68589a682_0),
+                    ::k::HostTypeKey(__krs_sort_parent_055e4df68589a682_1),
+                ],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 5u32),
+                            (7u32, 18u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 20u32),
+                            (7u32, 32u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (7u32, 35u32),
+                            (7u32, 45u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_sort_descriptor_055e4df68589a682);
+#[doc(hidden)]
+fn __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<ReadableValue>()
+}
+#[doc(hidden)]
+fn __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Int>()
+}
+#[doc(hidden)]
+fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_subsort(member=relative:Int;supersort=relative:ReadableValue)",
+                ::k::ItemKind::Grammar,
+                "subsort",
+            )
+            .expect("Cargo and Rust macro context form a valid subsort identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Int\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableValue\"}}}}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(
+                        __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529,
+                    ),
+                    ::k::HostTypeKey(
+                        __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529,
+                    ),
+                ],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SubsortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 28u32),
+                            (8u32, 31u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSuperSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 10u32),
+                            (8u32, 23u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSubSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 28u32),
+                            (8u32, 31u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(
+    __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529
+);
+#[doc(hidden)]
+fn __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<ReadableValue>()
+}
+#[doc(hidden)]
+fn __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Bool>()
+}
+#[doc(hidden)]
+fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_subsort(member=relative:Bool;supersort=relative:ReadableValue)",
+                ::k::ItemKind::Grammar,
+                "subsort",
+            )
+            .expect("Cargo and Rust macro context form a valid subsort identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Bool\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableValue\"}}}}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(
+                        __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529,
+                    ),
+                    ::k::HostTypeKey(
+                        __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529,
+                    ),
+                ],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SubsortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 33u32),
+                            (8u32, 37u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSuperSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 10u32),
+                            (8u32, 23u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSubSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (8u32, 33u32),
+                            (8u32, 37u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(
+    __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529
+);
+#[doc = concat!("Membership marker generated for the `", "DiamondTop", "` K sort.")]
+pub trait DiamondTopSort {}
+#[doc = concat!("Symbolic term type generated for the `", "DiamondTop", "` K sort.")]
+pub type DiamondTop = ::k::Term<dyn DiamondTopSort>;
+#[doc(hidden)]
+fn __krs_sort_type_a39f6dc1d44893ad() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<DiamondTop>()
+}
+#[doc(hidden)]
+fn __krs_sort_descriptor_a39f6dc1d44893ad() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "DiamondTop",
+                ::k::ItemKind::Sort,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_sort_type_a39f6dc1d44893ad),
+            ),
+        ),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[]}}",
+            ::k::__KrsSlots {
+                types: &[],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (10u32, 5u32),
+                            (10u32, 15u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_sort_descriptor_a39f6dc1d44893ad);
+#[doc = concat!("Membership marker generated for the `", "DiamondLeft", "` K sort.")]
+pub trait DiamondLeftSort: DiamondTopSort {}
+#[doc = concat!("Symbolic term type generated for the `", "DiamondLeft", "` K sort.")]
+pub type DiamondLeft = ::k::Term<dyn DiamondLeftSort>;
+#[doc(hidden)]
+fn __krs_sort_type_3d2b6e3da09d4920() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<DiamondLeft>()
+}
+#[doc(hidden)]
+fn __krs_sort_parent_3d2b6e3da09d4920_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<DiamondTop>()
+}
+#[doc(hidden)]
+fn __krs_sort_descriptor_3d2b6e3da09d4920() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "DiamondLeft",
+                ::k::ItemKind::Sort,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_sort_type_3d2b6e3da09d4920),
+            ),
+        ),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"DiamondTop\"}]}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_sort_parent_3d2b6e3da09d4920_0)],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (11u32, 5u32),
+                            (11u32, 16u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (11u32, 18u32),
+                            (11u32, 28u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_sort_descriptor_3d2b6e3da09d4920);
+#[doc = concat!("Membership marker generated for the `", "DiamondRight", "` K sort.")]
+pub trait DiamondRightSort: DiamondTopSort {}
+#[doc = concat!("Symbolic term type generated for the `", "DiamondRight", "` K sort.")]
+pub type DiamondRight = ::k::Term<dyn DiamondRightSort>;
+#[doc(hidden)]
+fn __krs_sort_type_6a7ca0e7c3857a9a() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<DiamondRight>()
+}
+#[doc(hidden)]
+fn __krs_sort_parent_6a7ca0e7c3857a9a_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<DiamondTop>()
+}
+#[doc(hidden)]
+fn __krs_sort_descriptor_6a7ca0e7c3857a9a() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "DiamondRight",
+                ::k::ItemKind::Sort,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_sort_type_6a7ca0e7c3857a9a),
+            ),
+        ),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"DiamondTop\"}]}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_sort_parent_6a7ca0e7c3857a9a_0)],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (12u32, 5u32),
+                            (12u32, 17u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (12u32, 19u32),
+                            (12u32, 29u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_sort_descriptor_6a7ca0e7c3857a9a);
+#[doc = concat!("Membership marker generated for the `", "Diamond", "` K sort.")]
+pub trait DiamondSort: DiamondLeftSort + DiamondRightSort {}
+#[doc = concat!("Symbolic term type generated for the `", "Diamond", "` K sort.")]
+pub type Diamond = ::k::Term<dyn DiamondSort>;
+#[doc(hidden)]
+fn __krs_sort_type_736b00612848daf9() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Diamond>()
+}
+#[doc(hidden)]
+fn __krs_sort_parent_736b00612848daf9_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<DiamondLeft>()
+}
+#[doc(hidden)]
+fn __krs_sort_parent_736b00612848daf9_1() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<DiamondRight>()
+}
+#[doc(hidden)]
+fn __krs_sort_descriptor_736b00612848daf9() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "Diamond",
+                ::k::ItemKind::Sort,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_sort_type_736b00612848daf9),
+            ),
+        ),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"DiamondLeft\"},{\"slot\":1,\"authored_path\":\"DiamondRight\"}]}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(__krs_sort_parent_736b00612848daf9_0),
+                    ::k::HostTypeKey(__krs_sort_parent_736b00612848daf9_1),
+                ],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (13u32, 5u32),
+                            (13u32, 12u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (13u32, 14u32),
+                            (13u32, 25u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (13u32, 28u32),
+                            (13u32, 40u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_sort_descriptor_736b00612848daf9);
+#[doc(hidden)]
+fn __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Diamond>()
+}
+#[doc(hidden)]
+fn __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Int>()
+}
+#[doc(hidden)]
+fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_subsort(member=relative:Int;supersort=relative:Diamond)",
+                ::k::ItemKind::Grammar,
+                "subsort",
+            )
+            .expect("Cargo and Rust macro context form a valid subsort identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Int\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Diamond\"}}}}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(
+                        __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429,
+                    ),
+                    ::k::HostTypeKey(
+                        __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429,
+                    ),
+                ],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SubsortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (14u32, 22u32),
+                            (14u32, 25u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSuperSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (14u32, 10u32),
+                            (14u32, 17u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSubSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (14u32, 22u32),
+                            (14u32, 25u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (15u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(
+    __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429
+);
+impl ReadableExprSort for Id {}
+impl ReadableValueSort for Int {}
+impl ReadableExprSort for Int {}
+impl ReadableValueSort for Bool {}
+impl ReadableExprSort for Bool {}
+impl DiamondSort for Int {}
+impl DiamondLeftSort for Int {}
+impl DiamondTopSort for Int {}
+impl DiamondRightSort for Int {}

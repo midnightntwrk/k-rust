@@ -1,0 +1,18 @@
+{
+  "name": "@krs/browser-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "KRS browser compiler pipeline: editable lesson source to the canonical DescriptorBundle in a module worker.",
+  "exports": {
+    "./protocol": "./src/protocol.ts",
+    "./controller": "./src/controller.ts"
+  },
+  "scripts": {
+    "test": "bun test test/unit",
+    "typecheck": "bunx --package typescript@5.9.3 tsc --noEmit -p . && bunx --package typescript@5.9.3 tsc --noEmit -p ../../tests/browser-backend"
+  },
+  "dependencies": {
+    "smol-toml": "1.9.0"
+  }
+}

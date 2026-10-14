@@ -1,0 +1,103 @@
+impl ValueSort for Identifier {}
+#[doc(hidden)]
+fn __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Value>()
+}
+#[doc(hidden)]
+fn __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Identifier>()
+}
+#[doc(hidden)]
+fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_subsort(member=relative:Identifier;supersort=relative:Value)",
+                ::k::ItemKind::Grammar,
+                "subsort",
+            )
+            .expect("Cargo and Rust macro context form a valid subsort identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Identifier\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Value\"}}}}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(
+                        __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529,
+                    ),
+                    ::k::HostTypeKey(
+                        __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529,
+                    ),
+                ],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SubsortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 1u32),
+                            (3u32, 33u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSuperSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (2u32, 21u32),
+                            (2u32, 26u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SubsortSubSort,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 20u32),
+                            (3u32, 30u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (2u32, 28u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(
+    __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529
+);

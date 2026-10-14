@@ -1,0 +1,92 @@
+#[doc(hidden)]
+fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_precedence_e2bc532c95be9144",
+                ::k::ItemKind::Grammar,
+                "precedence",
+            )
+            .expect("Cargo and Rust macro context form a valid grammar identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"precedence\",\"grammar\":{\"key\":{\"role\":\"precedence_declaration\",\"ordinal\":0},\"chains\":[{\"key\":{\"role\":\"precedence_chain\",\"ordinal\":0},\"groups\":[{\"key\":{\"role\":\"precedence_group_reference\",\"ordinal\":0},\"group\":\"pair\"},{\"key\":{\"role\":\"precedence_group_reference\",\"ordinal\":1},\"group\":\"atoms\"}]}]}}}",
+            ::k::__KrsSlots::default(),
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::PrecedenceDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 5u32),
+                            (3u32, 18u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::PrecedenceChain,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 5u32),
+                            (3u32, 17u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::PrecedenceGroupReference,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 5u32),
+                            (3u32, 9u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::PrecedenceGroupReference,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 12u32),
+                            (3u32, 17u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (4u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+::k::__register_host_descriptor!(__krs_precedence_descriptor_e2bc532c95be9144);

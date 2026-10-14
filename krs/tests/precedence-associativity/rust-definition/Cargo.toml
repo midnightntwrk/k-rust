@@ -1,0 +1,29 @@
+[package]
+name = "krs-precedence-associativity"
+description = "Behavioral fixture for readable precedence associativity"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[lib]
+name = "krs_precedence_associativity"
+path = "src/lib.rs"
+
+[dependencies]
+k = { package = "krs", path = "../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-PRECEDENCE-ASSOCIATIVITY"
+
+[package.metadata.krs.definitions.main]
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

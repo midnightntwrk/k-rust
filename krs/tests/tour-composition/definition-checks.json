@@ -1,0 +1,52 @@
+{
+  "packages": [
+    "base-semantics",
+    "root-semantics"
+  ],
+  "root_module": "ORG-KRS-COMPOSITION-ROOT",
+  "base_module": "ORG-KRS-COMPOSITION-BASE",
+  "productions": [
+    {
+      "sort": "BaseCommon",
+      "symbol": "baseSame",
+      "terminals": [
+        "same",
+        "-",
+        "base"
+      ]
+    },
+    {
+      "sort": "RootCommon",
+      "symbol": "rootSame",
+      "terminals": [
+        "same",
+        "-",
+        "root"
+      ]
+    }
+  ],
+  "configured_production": {
+    "sort": "RootCommon",
+    "terminals": [
+      "extended",
+      "-",
+      "root"
+    ]
+  },
+  "rule_body": {
+    "kind": "rewrite",
+    "sort": "BaseCommon",
+    "from": {
+      "kind": "application",
+      "sort": "BaseCommon",
+      "symbol": "baseSame",
+      "arguments": []
+    },
+    "to": {
+      "kind": "application",
+      "sort": "BaseCommon",
+      "symbol": "baseSame",
+      "arguments": []
+    }
+  }
+}

@@ -1,0 +1,22 @@
+[package]
+name = "krs-macros-positive"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+krs-macros = { path = "../../.." }
+language-host = { package = "krs", path = "../../../../krs" }
+krs-collector = { path = "../../../../krs-collector" }
+krs-compiler = { path = "../../../../krs-compiler" }
+krs-ir = { path = "../../../../krs-ir" }
+krs-ir-levels = { path = "../../../../krs-ir-levels" }
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

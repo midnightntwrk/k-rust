@@ -1,0 +1,11 @@
+[[diagnostic]]
+code = "krs::policy::env"
+start = 23
+end = 45
+text = "env!(\"CARGO_PKG_NAME\")"
+
+[[diagnostic]]
+code = "krs::policy::env"
+start = 92
+end = 116
+text = "std::option_env!(\"HOME\")"

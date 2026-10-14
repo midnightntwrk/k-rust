@@ -1,0 +1,16 @@
+[package]
+name = "krs-verification-surface-spec-module-sort"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+k = { package = "krs", path = @KRS_CRATE_PATH@ }
+
+[package.metadata.krs]
+k-namespace = "KRS-SPEC-MODULE-SORT"
+
+[package.metadata.krs.definitions.main]
+
+[workspace]
+resolver = "3"

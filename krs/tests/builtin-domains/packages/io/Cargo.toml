@@ -1,0 +1,21 @@
+[package]
+name = "krs-builtin-io"
+description = "Console I/O through stream cells and the exit cell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_builtin_io"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-IO"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

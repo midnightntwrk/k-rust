@@ -1,0 +1,29 @@
+schema = 1
+id = "B13-recovery"
+behavior = "After B11 and B12 traps, the B14 compiler trap, and a cancelled spin run, the next compile and run in the same host session succeed."
+basis = "the collector runner's COLLECTOR_MODE=spin; recovery after cancellation; the compiler worker's state and cancellation"
+expected_status = "pass"
+# Runs after every other case of the session.
+last = true
+opt_levels = [0]
+
+[[crate]]
+name = "b13_recovery"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "before"
+bin = "b13_recovery"
+
+[[run]]
+name = "spin"
+bin = "b13_recovery"
+env = ["COLLECTOR_MODE=spin"]
+timeout_ms = 3000
+cancel = true
+recompile_after = true
+
+[[run]]
+name = "after"
+bin = "b13_recovery"

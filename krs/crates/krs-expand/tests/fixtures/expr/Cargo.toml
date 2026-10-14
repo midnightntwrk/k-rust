@@ -1,0 +1,28 @@
+[package]
+name = "krs-expand-expr-fixture"
+description = "Explicit Rust-authored IMP expression definition used as a krs-expand fixture"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[lib]
+name = "krs_expr_fixture"
+
+[dependencies]
+k = { package = "krs", path = "../../../../krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-EXPR-FIXTURE"
+
+[package.metadata.krs.definitions.main]
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

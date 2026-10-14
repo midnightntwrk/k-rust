@@ -1,0 +1,25 @@
+[package]
+name = "krs"
+description = "Author-facing Rust host facade for KRS definitions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = ["inventory"]
+# Linker-section registration for native collectors. Without it, collectors
+# enumerate descriptors through generated registration tables.
+inventory = ["dep:inventory"]
+
+[dependencies]
+inventory = { version = "0.3.21", optional = true }
+krs-ir = { path = "../krs-ir" }
+krs-macros = { path = "../krs-macros" }
+
+[dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,17 @@
+[[diagnostic]]
+code = "krs::policy::cfg"
+start = 0
+end = 12
+text = "#[cfg(test)]"
+
+[[diagnostic]]
+code = "krs::policy::cfg"
+start = 27
+end = 68
+text = "#[cfg_attr(feature = \"x\", derive(Debug))]"
+
+[[diagnostic]]
+code = "krs::policy::cfg"
+start = 101
+end = 113
+text = "#[cfg(unix)]"

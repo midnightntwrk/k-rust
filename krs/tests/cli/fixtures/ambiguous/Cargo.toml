@@ -1,0 +1,5 @@
+[workspace]
+members = ["root"]
+exclude = ["duplicate-a", "duplicate-b"]
+resolver = "3"
+

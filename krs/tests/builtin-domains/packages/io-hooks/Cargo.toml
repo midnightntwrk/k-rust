@@ -1,0 +1,21 @@
+[package]
+name = "krs-builtin-io-hooks"
+description = "Direct console writes through K's #write and #putc hooks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_builtin_io_hooks"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-IO-HOOKS"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

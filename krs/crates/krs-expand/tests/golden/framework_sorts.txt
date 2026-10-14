@@ -1,0 +1,168 @@
+#[doc = concat!("Membership marker generated for the `", "KItem", "` K sort.")]
+pub trait KItemSort {}
+#[doc = concat!("Symbolic term type generated for the `", "KItem", "` K sort.")]
+pub type KItem = ::k::Term<dyn KItemSort>;
+#[doc(hidden)]
+fn __krs_sort_type_01e0b0fa3b2b0c81() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<KItem>()
+}
+#[doc(hidden)]
+fn __krs_sort_descriptor_01e0b0fa3b2b0c81() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "KItem",
+                ::k::ItemKind::Sort,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_sort_type_01e0b0fa3b2b0c81),
+            ),
+        ),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[]}}",
+            ::k::__KrsSlots {
+                types: &[],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (3u32, 5u32),
+                            (3u32, 10u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (5u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+#[doc = concat!("Membership marker generated for the `", "KResult", "` K sort.")]
+pub trait KResultSort: ::k::KItemSort {}
+#[doc = concat!("Symbolic term type generated for the `", "KResult", "` K sort.")]
+pub type KResult = ::k::Term<dyn KResultSort>;
+#[doc(hidden)]
+fn __krs_sort_type_0e2453058f695f49() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<KResult>()
+}
+#[doc(hidden)]
+fn __krs_sort_parent_0e2453058f695f49_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<KItem>()
+}
+#[doc(hidden)]
+fn __krs_sort_descriptor_0e2453058f695f49() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "KResult",
+                ::k::ItemKind::Sort,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_sort_type_0e2453058f695f49),
+            ),
+        ),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"KItem\"}]}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_sort_parent_0e2453058f695f49_0)],
+                items: &[],
+                targets: &[],
+            },
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            const {
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
+                    (
+                        ::k::ProvenanceRole::SortDeclaration,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 5u32),
+                            (4u32, 12u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::SortParent,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 14u32),
+                            (4u32, 19u32),
+                            true,
+                        ),
+                    ),
+                ];
+                &::k::__KrsRawProvenance::new(
+                    &["src/lib.rs"],
+                    ::k::__KrsRawAnchor::new(
+                        0usize,
+                        false,
+                        (2u32, 1u32),
+                        (5u32, 2u32),
+                        true,
+                    ),
+                    __KRS_AUTHORED,
+                )
+            },
+        )?,
+    })
+}
+#[doc(hidden)]
+pub(crate) const FRAMEWORK_FACTORIES: &[fn() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+>] = &[__krs_sort_descriptor_01e0b0fa3b2b0c81, __krs_sort_descriptor_0e2453058f695f49];

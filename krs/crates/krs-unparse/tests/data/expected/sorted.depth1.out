@@ -1,0 +1,13 @@
+<generatedTop>
+  <k>
+    x10 = 10 ; ~> x2 = 2 ;
+    y = 100 ;
+    x1 = 9 ; ~> .K
+  </k>
+  <env>
+    .Map
+  </env>
+  <seen>
+    .Set
+  </seen>
+</generatedTop>

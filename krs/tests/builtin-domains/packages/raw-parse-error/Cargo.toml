@@ -1,0 +1,22 @@
+[package]
+name = "krs-builtin-raw-parse-error"
+description = "A raw K rule that K cannot parse"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_builtin_raw_parse_error"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-RAW-PARSE-ERROR"
+allow-raw-k = true
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

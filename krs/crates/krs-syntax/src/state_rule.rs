@@ -1,0 +1,2366 @@
+use krs_ir::ProvenanceKey;
+use proc_macro2::TokenStream;
+use syn::spanned::Spanned;
+use syn::{
+    Attribute, Expr, FnArg, Ident, ItemFn, Macro, Meta, Pat, PatMacro, Path, ReturnType, Stmt, Type,
+};
+
+use crate::ReferenceCandidate;
+use crate::attribute::{ClaimBinder, ExistsAttribute};
+use crate::parse::{
+    KrsSyntax, ProvenanceAnchors, checked_ordinal, unsupported_rule_pattern as pattern_error,
+    unsupported_rule_signature as signature_error,
+};
+use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
+use crate::provenance::RuleSide;
+use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, RuleExistentials, take_requires_helper};
+use crate::term::{
+    local_rewrite_error, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
+};
+use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
+use crate::{
+    CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleRole,
+    StateMacroRemainder, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermLiteral,
+    TermNode, TokenRange, parse_cells_expression, parse_cells_pattern,
+};
+
+/// Semantic class of one binding introduced by a configuration-rule subject.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StateRuleBindingKind {
+    /// An object-language term with an explicit authored Rust sort.
+    Term,
+    /// A named tail of a K sequence.
+    KSequenceFrame,
+    /// A named associative-map remainder.
+    MapFrame,
+    /// A named remainder of the complete fixed configuration.
+    ConfigurationFrame,
+    /// A named rest of a collection cell's instances (KF-023).
+    InstancesFrame,
+}
+
+/// One typed or structurally classified configuration-rule binding.
+#[derive(Clone, Debug)]
+pub struct StateRuleBinding {
+    name: Ident,
+    kind: StateRuleBindingKind,
+    sort: Option<TermSort>,
+}
+
+impl StateRuleBinding {
+    /// Returns the authored binding name.
+    #[must_use]
+    pub const fn name(&self) -> &Ident {
+        &self.name
+    }
+
+    /// Returns the binding's exact semantic class.
+    #[must_use]
+    pub const fn kind(&self) -> StateRuleBindingKind {
+        self.kind
+    }
+
+    /// Returns the explicit term sort, or `None` for structural frames.
+    #[must_use]
+    pub const fn term_sort(&self) -> Option<&TermSort> {
+        self.sort.as_ref()
+    }
+}
+
+/// Semantic class of one rustc-resolvable path in a configuration rule.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StateRuleReferenceKind {
+    /// Explicit sort path of a typed term binding.
+    BindingSort,
+    /// Subject or result fixed-configuration type.
+    Configuration,
+    /// `Cell` or `KCell` wrapper path.
+    CellWrapper,
+    /// Constructor or builtin operation application head.
+    ApplicationHead,
+    /// Bare nonbinding path, normally a qualified unit constructor.
+    Reference,
+}
+
+/// One complete simultaneous fixed-configuration rule.
+#[derive(Clone, Debug)]
+pub struct StateRuleItem {
+    item: ItemFn,
+    subject_macro: PatMacro,
+    subject_type: Path,
+    subject: CellsExpression,
+    /// The result, absent exactly for a single-body rule (KF-011).
+    result: Option<StateRuleResult>,
+    bindings: Vec<StateRuleBinding>,
+    requires: Option<RuleCondition>,
+    existentials: RuleExistentials,
+}
+
+/// The `-> Machine { cells!{..} }` result of a two-sided configuration rule.
+#[derive(Clone, Debug)]
+struct StateRuleResult {
+    result_macro: Macro,
+    result_type: Path,
+    result: CellsExpression,
+}
+
+/// Object-language Boolean postcondition consumed only by a claim.
+#[derive(Clone, Debug)]
+pub struct ClaimEnsures {
+    term: TermExpression,
+}
+
+impl ClaimEnsures {
+    /// Returns the structured postcondition.
+    #[must_use]
+    pub const fn term(&self) -> &TermExpression {
+        &self.term
+    }
+}
+
+/// One rustc-resolvable claim-only sort occurrence.
+#[derive(Clone, Debug)]
+pub struct ClaimSortCandidate {
+    key: ProvenanceKey,
+    path: Path,
+}
+
+impl ClaimSortCandidate {
+    /// Returns its parser-owned key.
+    #[must_use]
+    pub const fn key(&self) -> &ProvenanceKey {
+        &self.key
+    }
+    /// Returns the exact sort path.
+    #[must_use]
+    pub const fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// A whole-configuration claim with scoped existential metadata.
+#[derive(Clone, Debug)]
+pub struct StateClaimItem {
+    rule: StateRuleItem,
+    exists: Option<ExistsAttribute>,
+    ensures: Option<ClaimEnsures>,
+}
+
+impl StateClaimItem {
+    /// Parses the frozen relational claim body and consumes its helper attributes.
+    ///
+    /// # Errors
+    ///
+    /// Rejects malformed helper attributes, invalid configuration-rule shape,
+    /// or an existential which shadows a subject binding.
+    pub fn from_item(mut item: ItemFn) -> Result<Self, SyntaxError> {
+        let exists = take_exists_helper(&mut item.attrs)?;
+        let ensures = take_ensures_helper(&mut item.attrs)?;
+        let rule = StateRuleItem::from_item_with(item, StateRuleForm::Claim)?;
+        let universal = rule
+            .bindings
+            .iter()
+            .map(|binding| binding.name.to_string())
+            .collect::<std::collections::BTreeSet<_>>();
+        for binder in exists
+            .as_ref()
+            .into_iter()
+            .flat_map(ExistsAttribute::binders)
+        {
+            if universal.contains(&binder.name().to_string()) {
+                return Err(signature_error(
+                    "an existential cannot shadow a universal or structural binding",
+                    binder.name().span(),
+                ));
+            }
+        }
+        Ok(Self {
+            rule,
+            exists,
+            ensures,
+        })
+    }
+    /// Returns the shared configuration rewrite parser result.
+    #[must_use]
+    pub const fn rule(&self) -> &StateRuleItem {
+        &self.rule
+    }
+    /// Returns existential declarations in source order.
+    #[must_use]
+    pub fn existentials(&self) -> &[ClaimBinder] {
+        self.exists.as_ref().map_or(&[], ExistsAttribute::binders)
+    }
+    /// Returns the optional postcondition.
+    #[must_use]
+    pub const fn ensures(&self) -> Option<&ClaimEnsures> {
+        self.ensures.as_ref()
+    }
+    /// Returns claim-only parser-owned anchors.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when an authored endpoint or provenance occurrence
+    /// cannot be represented.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut output = self.rule.provenance()?;
+        output.retain(|anchor| anchor.role() != ProvenanceRole::RuleDeclaration);
+        output.push(ProvenanceAnchor::new(
+            ProvenanceRole::ClaimDeclaration,
+            0,
+            TokenRange::for_tokens(&self.rule.item.sig.ident)?,
+        ));
+        let mut universal_ordinal = 0_u32;
+        for binding in &self.rule.bindings {
+            if binding.kind == StateRuleBindingKind::Term {
+                output.push(ProvenanceAnchor::new(
+                    ProvenanceRole::ClaimUniversalBinder,
+                    universal_ordinal,
+                    TokenRange::for_tokens(&binding.name)?,
+                ));
+                output.push(ProvenanceAnchor::new(
+                    ProvenanceRole::ClaimBinderName,
+                    universal_ordinal,
+                    TokenRange::for_tokens(&binding.name)?,
+                ));
+                let Some(sort) = binding.term_sort() else {
+                    return Err(signature_error(
+                        "term claim binding is missing its sort",
+                        binding.name.span(),
+                    ));
+                };
+                output.push(ProvenanceAnchor::new(
+                    ProvenanceRole::ClaimBinderSort,
+                    universal_ordinal,
+                    TokenRange::for_tokens(sort.sort())?,
+                ));
+                universal_ordinal = universal_ordinal.checked_add(1).ok_or_else(|| {
+                    signature_error("too many universal claim binders", binding.name.span())
+                })?;
+            }
+        }
+        if let Some(exists) = &self.exists {
+            let mut anchors = exists.provenance()?;
+            anchors.retain(|anchor| {
+                !matches!(
+                    anchor.role(),
+                    ProvenanceRole::ClaimBinderName | ProvenanceRole::ClaimBinderSort
+                )
+            });
+            output.extend(anchors);
+            for (index, binder) in exists.binders().iter().enumerate() {
+                let ordinal = universal_ordinal
+                    .checked_add(u32::try_from(index).map_err(|_| {
+                        signature_error("too many existential binders", binder.name().span())
+                    })?)
+                    .ok_or_else(|| {
+                        signature_error("too many claim binders", binder.name().span())
+                    })?;
+                output.push(ProvenanceAnchor::new(
+                    ProvenanceRole::ClaimBinderName,
+                    ordinal,
+                    TokenRange::for_tokens(binder.name())?,
+                ));
+                output.push(ProvenanceAnchor::new(
+                    ProvenanceRole::ClaimBinderSort,
+                    ordinal,
+                    TokenRange::for_tokens(binder.sort())?,
+                ));
+            }
+        }
+        if let Some(ensures) = &self.ensures {
+            output.extend(ensures.term.provenance_with_roles(
+                ProvenanceRole::ClaimEnsures,
+                ProvenanceRole::ClaimEnsuresPath,
+            )?);
+            output.extend(
+                ensures
+                    .term
+                    .full_provenance_with_roles(
+                        ProvenanceRole::ClaimEnsures,
+                        ProvenanceRole::ClaimEnsuresApplicationHead,
+                        ProvenanceRole::ClaimEnsuresReference,
+                        ProvenanceRole::ClaimEnsuresLiteral,
+                        ProvenanceRole::ClaimEnsuresRecordFieldName,
+                    )?
+                    .into_iter()
+                    .skip(1),
+            );
+        }
+        append_claim_special_anchors(&self.rule, self.ensures.as_ref(), &mut output)?;
+        if let Some(ensures) = &self.ensures {
+            push_claim_ensures_anchors(&self.rule, ensures, &mut output)?;
+        }
+        Ok(output)
+    }
+    /// Returns claim-only sort paths needing rustc/collector resolution.
+    ///
+    /// # Errors
+    ///
+    /// Returns an occurrence-overflow error if claim sort provenance cannot be
+    /// represented.
+    pub fn sort_candidates(&self) -> Result<Vec<ClaimSortCandidate>, SyntaxError> {
+        let mut output = self
+            .existentials()
+            .iter()
+            .enumerate()
+            .map(|(index, binder)| {
+                Ok(ClaimSortCandidate {
+                    key: key(
+                        ProvenanceRole::ClaimBinderSort,
+                        u32::try_from(index).map_err(|_| {
+                            signature_error("too many existential binders", binder.name().span())
+                        })?,
+                    ),
+                    path: binder.sort().clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, SyntaxError>>()?;
+        let mut ordinal = 0_u32;
+        for term in claim_terms(&self.rule, self.ensures.as_ref()) {
+            for node in term.nodes() {
+                if let TermNode::Anonymous { sort, .. } = node {
+                    output.push(ClaimSortCandidate {
+                        key: key(ProvenanceRole::ClaimAnonymousSort, ordinal),
+                        path: sort.clone(),
+                    });
+                    ordinal = ordinal.checked_add(1).ok_or_else(|| {
+                        signature_error("too many anonymous occurrences", sort.span())
+                    })?;
+                }
+            }
+        }
+        Ok(output)
+    }
+}
+
+impl KrsSyntax for StateClaimItem {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2(tokens)?)
+    }
+}
+
+/// One zero-return, one-sided fixed-configuration context-alias declaration.
+#[derive(Clone, Debug)]
+pub struct StateContextAliasItem {
+    item: ItemFn,
+    pattern_macro: PatMacro,
+    configuration_type: Path,
+    pattern: CellsExpression,
+    bindings: Vec<StateRuleBinding>,
+    here: Ident,
+}
+
+impl StateContextAliasItem {
+    /// Parses the frozen context-alias function shape.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a return type/body, a non-`cells!` pattern, or a `here`
+    /// selection which is absent, duplicated, or structural rather than an
+    /// ordinary term binding.
+    pub fn from_item(item: ItemFn, here: &Ident) -> Result<Self, SyntaxError> {
+        validate_signature(&item)?;
+        if !matches!(item.sig.output, ReturnType::Default) || !item.block.stmts.is_empty() {
+            return Err(body_error(
+                "a context alias must return `()` and have an empty body",
+                item.block.span(),
+            ));
+        }
+        let Some(argument) = item.sig.inputs.last() else {
+            return Err(signature_error(
+                "a context alias requires a final `cells!` pattern",
+                item.sig.span(),
+            ));
+        };
+        let FnArg::Typed(argument) = argument else {
+            return Err(signature_error(
+                "context aliases cannot have a self receiver",
+                argument.span(),
+            ));
+        };
+        let Pat::Macro(pattern_macro) = &*argument.pat else {
+            return Err(pattern_error(
+                "a context alias subject must be `cells! { ... }`",
+                argument.pat.span(),
+            ));
+        };
+        let pattern_macro = pattern_macro.clone();
+        validate_cells_path(&pattern_macro.mac.path, pattern_macro.span())?;
+        let pattern = parse_cells_pattern(pattern_macro.mac.tokens.clone())?;
+        let configuration_type = parse_configuration_type(&argument.ty)?;
+        let mut bindings = Vec::new();
+        collect_cells_bindings(&pattern, &mut bindings)?;
+        let here_matches = count_term_binding_occurrences_in_cells(&pattern, here);
+        if here_matches != 1
+            || bindings
+                .iter()
+                .find(|binding| binding.name == *here)
+                .is_none_or(|binding| binding.kind != StateRuleBindingKind::Term)
+        {
+            return Err(pattern_error(
+                "`here` must select exactly one ordinary term binding",
+                here.span(),
+            ));
+        }
+        let typed = parse_typed_bindings(&item)?;
+        require_declared_binders_occur(&bindings, &typed)?;
+        let ordinary_names = bindings
+            .iter()
+            .filter(|binding| binding.kind == StateRuleBindingKind::Term && binding.name != *here)
+            .map(|binding| &binding.name)
+            .collect::<Vec<_>>();
+        if typed.len() != ordinary_names.len()
+            || typed
+                .iter()
+                .zip(ordinary_names)
+                .any(|((name, _), expected)| name != expected)
+        {
+            return Err(signature_error(BINDER_LIST_CONTRACT, item.sig.span()));
+        }
+        for ((_, sort), binding) in
+            typed.into_iter().zip(bindings.iter_mut().filter(|binding| {
+                binding.kind == StateRuleBindingKind::Term && binding.name != *here
+            }))
+        {
+            binding.sort = Some(sort);
+        }
+        Ok(Self {
+            item,
+            pattern_macro,
+            configuration_type,
+            pattern,
+            bindings,
+            here: here.clone(),
+        })
+    }
+
+    /// Returns the original function item.
+    #[must_use]
+    pub const fn item(&self) -> &ItemFn {
+        &self.item
+    }
+    /// Returns the fixed-configuration type.
+    #[must_use]
+    pub const fn configuration_type(&self) -> &Path {
+        &self.configuration_type
+    }
+    /// Returns the complete one-sided cells pattern.
+    #[must_use]
+    pub const fn pattern(&self) -> &CellsExpression {
+        &self.pattern
+    }
+    /// Returns bindings in first-occurrence preorder.
+    #[must_use]
+    pub fn bindings(&self) -> &[StateRuleBinding] {
+        &self.bindings
+    }
+    /// Returns the distinguished HERE binding.
+    #[must_use]
+    pub const fn here(&self) -> &Ident {
+        &self.here
+    }
+
+    /// Returns parser-owned pattern/type/cell/frame origins.
+    ///
+    /// # Errors
+    ///
+    /// Returns endpoint or ordinal overflow failures only.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut output = vec![
+            ProvenanceAnchor::new(
+                ProvenanceRole::RulePattern,
+                0,
+                TokenRange::for_tokens(&self.pattern_macro)?,
+            ),
+            ProvenanceAnchor::new(
+                ProvenanceRole::RuleType,
+                0,
+                TokenRange::for_tokens(&self.configuration_type)?,
+            ),
+        ];
+        for (ordinal, sort) in self
+            .bindings
+            .iter()
+            .filter_map(StateRuleBinding::term_sort)
+            .enumerate()
+        {
+            output.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleBindingType,
+                checked_ordinal(ordinal, ProvenanceRole::RuleBindingType, sort.sort().span())?,
+                TokenRange::for_tokens(sort.sort())?,
+            ));
+        }
+        append_cells_provenance(&self.pattern, RuleSide::Left, &mut output)?;
+        Ok(output)
+    }
+
+    /// Returns rustc-resolvable paths with parser-owned keys.
+    ///
+    /// # Errors
+    ///
+    /// Returns occurrence overflow failures only.
+    pub fn reference_candidates(
+        &self,
+    ) -> Result<Vec<ReferenceCandidate<StateRuleReferenceKind>>, SyntaxError> {
+        let mut output = self
+            .bindings
+            .iter()
+            .filter_map(StateRuleBinding::term_sort)
+            .enumerate()
+            .map(|(ordinal, sort)| {
+                Ok(ReferenceCandidate {
+                    key: key(
+                        ProvenanceRole::RuleBindingType,
+                        checked_ordinal(
+                            ordinal,
+                            ProvenanceRole::RuleBindingType,
+                            sort.sort().span(),
+                        )?,
+                    ),
+                    path: sort.sort().clone(),
+                    kind: StateRuleReferenceKind::BindingSort,
+                })
+            })
+            .collect::<Result<Vec<_>, SyntaxError>>()?;
+        output.push(ReferenceCandidate {
+            key: key(ProvenanceRole::RuleType, 0),
+            path: self.configuration_type.clone(),
+            kind: StateRuleReferenceKind::Configuration,
+        });
+        append_cells_candidates(&self.pattern, RuleSide::Left, &self.bindings, &mut output)?;
+        Ok(output)
+    }
+}
+
+impl StateRuleItem {
+    /// Parses a function whose subject and result are `cells!` islands.
+    ///
+    /// # Errors
+    ///
+    /// Rejects non-rule signature features, non-configuration types, any
+    /// subject/result shell other than `cells!`, and result frame reuses that
+    /// were not introduced in the complete subject pattern.
+    pub fn from_item(item: ItemFn) -> Result<Self, SyntaxError> {
+        Self::from_item_with(item, StateRuleForm::Rule)
+    }
+
+    /// Parses a `cells!`-shaped `#[k::context]` fn (KF-021): it returns
+    /// `()`, has an empty body, and its subject holds at most one
+    /// `k::rewrite!`.
+    ///
+    /// # Errors
+    ///
+    /// The shape errors of [`Self::from_item`], a result, a body, more than
+    /// one rewrite, and `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`.
+    pub fn parse_context_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_context_item(syn::parse2(tokens)?)
+    }
+
+    /// Validates a previously parsed Rust function as a `cells!`-shaped
+    /// `#[k::context]` fn (KF-021).
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::parse_context_tokens`].
+    pub fn from_context_item(item: ItemFn) -> Result<Self, SyntaxError> {
+        Self::from_item_with(item, StateRuleForm::Context)
+    }
+
+    /// Parses a configuration rule; a unit-returning fn is a single-body
+    /// rule (KF-011) only for a `#[k::rule]` fn, and a context for a
+    /// `#[k::context]` fn.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The signature, subject, result or single body, bindings, and helpers are validated in one ordered pass."
+    )]
+    fn from_item_with(mut item: ItemFn, form: StateRuleForm) -> Result<Self, SyntaxError> {
+        let single_body = form != StateRuleForm::Claim;
+        validate_signature(&item)?;
+        let Some(argument) = item.sig.inputs.last() else {
+            return Err(signature_error(
+                "a configuration rule must have a final `cells!` subject",
+                item.sig.inputs.span(),
+            ));
+        };
+        let FnArg::Typed(argument) = argument else {
+            return Err(signature_error(
+                "configuration rules cannot have a `self` receiver",
+                argument.span(),
+            ));
+        };
+        if !argument.attrs.is_empty() {
+            return Err(signature_error(
+                "configuration-rule parameters cannot have helper attributes",
+                argument.attrs[0].span(),
+            ));
+        }
+        let Pat::Macro(subject_macro) = &*argument.pat else {
+            return Err(pattern_error(
+                "a configuration-rule subject must be `cells! { ... }`",
+                argument.pat.span(),
+            ));
+        };
+        let subject_macro = subject_macro.clone();
+        validate_cells_path(&subject_macro.mac.path, subject_macro.span())?;
+        let subject = parse_cells_pattern(subject_macro.mac.tokens.clone())?;
+        let subject_type = parse_configuration_type(&argument.ty)?;
+        if form == StateRuleForm::Context {
+            check_context_shape(
+                &item,
+                match &item.sig.output {
+                    ReturnType::Default => true,
+                    ReturnType::Type(_, ty) => is_unit_type(ty),
+                },
+                &cells_rewrite_spans(&subject),
+            )?;
+        }
+
+        // A unit-returning rule is a single-body rule (KF-011): its
+        // subject's `k::rewrite!` islands mark what changes.
+        let result = match &item.sig.output {
+            ReturnType::Type(_, result_type) if !is_unit_type(result_type) => {
+                let result_type = parse_configuration_type(result_type)?;
+                let result_macro = parse_result_macro(&item)?;
+                validate_cells_path(&result_macro.path, result_macro.span())?;
+                let result = parse_cells_expression(result_macro.tokens.clone())?;
+                Some(StateRuleResult {
+                    result_macro,
+                    result_type,
+                    result,
+                })
+            }
+            // A fn with statements and no rewrite meant to return a result.
+            _ if !single_body
+                || (!item.block.stmts.is_empty() && cells_rewrite_spans(&subject).is_empty()) =>
+            {
+                return Err(signature_error(
+                    "a configuration rule must declare its configuration result type",
+                    item.sig.ident.span(),
+                ));
+            }
+            _ => {
+                if !item.block.stmts.is_empty() {
+                    return Err(local_rewrite_error(
+                        SINGLE_BODY_BODY.to_owned(),
+                        item.block.span(),
+                    ));
+                }
+                None
+            }
+        };
+        let rewrites = cells_rewrite_spans(&subject);
+        match (&result, rewrites.first()) {
+            (None, None) if form == StateRuleForm::Context => {}
+            (None, None) => {
+                return Err(local_rewrite_error(
+                    SINGLE_BODY_WITHOUT_REWRITE.to_owned(),
+                    item.sig.ident.span(),
+                ));
+            }
+            (Some(_), Some(span)) => {
+                return Err(local_rewrite_error(REWRITE_WITH_RESULT.to_owned(), *span));
+            }
+            _ => {}
+        }
+
+        let typed_bindings = parse_typed_bindings(&item)?;
+        let mut bindings = Vec::new();
+        collect_cells_bindings(&subject, &mut bindings)?;
+        validate_rewrite_right_sides(&subject, &bindings)?;
+        attach_typed_binding_sorts(&mut bindings, typed_bindings)?;
+        if let Some(result) = &result {
+            validate_result_reuses(&result.result, &bindings)?;
+        }
+        let requires = take_requires_helper(&mut item.attrs)?;
+        let existentials = RuleExistentials::take(&mut item.attrs)?;
+        if result.is_none()
+            && let Some(helper) = existentials.attributes().first()
+        {
+            return Err(local_rewrite_error(
+                if form == StateRuleForm::Context {
+                    CONTEXT_BINDERS
+                } else {
+                    SINGLE_BODY_BINDERS
+                }
+                .to_owned(),
+                helper.path().span(),
+            ));
+        }
+        let subject_names = bindings
+            .iter()
+            .map(|binding| binding.name.clone())
+            .collect::<Vec<_>>();
+        existentials.check_shadowing(&subject_names)?;
+        let mut result_terms = Vec::new();
+        if let Some(result) = &result {
+            append_cells_terms(&result.result, &mut result_terms);
+        }
+        existentials.check_scope(requires.as_ref().map(RuleCondition::term), &result_terms)?;
+        Ok(Self {
+            item,
+            subject_macro,
+            subject_type,
+            subject,
+            result,
+            bindings,
+            requires,
+            existentials,
+        })
+    }
+
+    /// Returns the original span-preserving Rust function.
+    #[must_use]
+    pub const fn item(&self) -> &ItemFn {
+        &self.item
+    }
+
+    /// Returns the subject configuration type path.
+    #[must_use]
+    pub const fn subject_type(&self) -> &Path {
+        &self.subject_type
+    }
+
+    /// Returns the complete subject `cells!` AST.
+    #[must_use]
+    pub const fn subject(&self) -> &CellsExpression {
+        &self.subject
+    }
+
+    /// Returns the result configuration type path, or `None` for a
+    /// single-body rule (KF-011).
+    #[must_use]
+    pub fn result_type(&self) -> Option<&Path> {
+        self.result.as_ref().map(|result| &result.result_type)
+    }
+
+    /// Returns the complete result `cells!` AST, or `None` for a single-body
+    /// rule (KF-011).
+    #[must_use]
+    pub fn result(&self) -> Option<&CellsExpression> {
+        self.result.as_ref().map(|result| &result.result)
+    }
+
+    /// Returns subject bindings in first-occurrence structural preorder.
+    ///
+    /// Repeated bare names in different cells denote the same binding, as in
+    /// IMP's variable lookup rule; they are not duplicate declarations.
+    #[must_use]
+    pub fn bindings(&self) -> &[StateRuleBinding] {
+        &self.bindings
+    }
+
+    /// Returns the optional object-language Boolean applicability condition.
+    #[must_use]
+    pub const fn requires(&self) -> Option<&RuleCondition> {
+        self.requires.as_ref()
+    }
+
+    /// Returns the `#[k::exists]` and `#[k::ensures]` helpers of a transition.
+    #[must_use]
+    pub const fn existentials(&self) -> &RuleExistentials {
+        &self.existentials
+    }
+
+    /// Returns one collision-free descriptor-wide provenance table.
+    ///
+    /// # Errors
+    ///
+    /// Returns endpoint or ordinal-overflow errors only.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One table numbers every anchor role of the sentence in expansion order."
+    )]
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut output = vec![
+            ProvenanceAnchor::new(
+                ProvenanceRole::RuleDeclaration,
+                0,
+                TokenRange::for_tokens(&self.item.sig.ident)?,
+            ),
+            ProvenanceAnchor::new(
+                ProvenanceRole::RulePattern,
+                0,
+                TokenRange::for_tokens(&self.subject_macro)?,
+            ),
+            ProvenanceAnchor::new(
+                ProvenanceRole::RuleType,
+                0,
+                TokenRange::for_tokens(&self.subject_type)?,
+            ),
+        ];
+        if let Some(result) = &self.result {
+            output.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleResultType,
+                0,
+                TokenRange::for_tokens(&result.result_type)?,
+            ));
+            output.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleResult,
+                0,
+                TokenRange::for_tokens(&result.result_macro)?,
+            ));
+        }
+        for (ordinal, sort) in self
+            .bindings
+            .iter()
+            .filter_map(StateRuleBinding::term_sort)
+            .enumerate()
+        {
+            output.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleBindingType,
+                checked_ordinal(ordinal, ProvenanceRole::RuleBindingType, sort.sort().span())?,
+                TokenRange::for_tokens(sort.sort())?,
+            ));
+        }
+        append_cells_provenance(&self.subject, RuleSide::Left, &mut output)?;
+        if let Some(result) = &self.result {
+            append_cells_provenance(&result.result, RuleSide::Right, &mut output)?;
+        }
+        if let Some(requires) = &self.requires {
+            output.extend(requires.provenance()?);
+        }
+        output.extend(self.existentials.provenance()?);
+        // `k::rewrite!` shells and sides (KF-011), in subject order.
+        let mut rewrites = 0_usize;
+        for term in claim_terms(self, None) {
+            crate::term::push_rewrite_anchors(&mut output, term.nodes(), &mut rewrites)?;
+        }
+        let mut lexemes = 0_usize;
+        let mut sort_tests = 0_usize;
+        for term in claim_terms(self, None) {
+            push_lexeme_anchors(&mut output, term.nodes(), &mut lexemes)?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            push_lexeme_anchors(&mut output, ensures.nodes(), &mut lexemes)?;
+        }
+        for term in claim_terms(self, None) {
+            push_sort_test_anchors(&mut output, term.nodes(), &mut sort_tests)?;
+        }
+        let mut aliases = 0_usize;
+        for term in claim_terms(self, None) {
+            crate::term::push_pattern_as_anchors(&mut output, term.nodes(), &mut aliases)?;
+        }
+        let mut alternatives = 0_usize;
+        for term in claim_terms(self, None) {
+            crate::term::push_pattern_or_anchors(&mut output, term.nodes(), &mut alternatives)?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            push_sort_test_anchors(&mut output, ensures.nodes(), &mut sort_tests)?;
+            crate::term::push_pattern_as_anchors(&mut output, ensures.nodes(), &mut aliases)?;
+            crate::term::push_pattern_or_anchors(&mut output, ensures.nodes(), &mut alternatives)?;
+        }
+        // Turbofish sort markers (KF-027), in expansion order, like sort tests.
+        let mut instances = 0_usize;
+        for term in claim_terms(self, None) {
+            crate::term::push_application_instance_anchors(
+                &mut output,
+                term.nodes(),
+                &mut instances,
+            )?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            crate::term::push_application_instance_anchors(
+                &mut output,
+                ensures.nodes(),
+                &mut instances,
+            )?;
+        }
+        // `k::matches!` shells and pattern wildcards (KF-031), in expansion
+        // order: the cells, the condition, then the ensures condition.
+        let (mut matches, mut wildcards) = (0_usize, 0_usize);
+        for term in claim_terms(self, None) {
+            crate::term::push_matches_anchors(
+                &mut output,
+                term.nodes(),
+                &mut matches,
+                &mut wildcards,
+            )?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            crate::term::push_matches_anchors(
+                &mut output,
+                ensures.nodes(),
+                &mut matches,
+                &mut wildcards,
+            )?;
+        }
+        // `let` statements and their pattern wildcards (KF-032), likewise.
+        let (mut lets, mut let_wildcards) = (0_usize, 0_usize);
+        for term in claim_terms(self, None) {
+            crate::term::push_let_anchors(
+                &mut output,
+                term.nodes(),
+                &mut lets,
+                &mut let_wildcards,
+            )?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            crate::term::push_let_anchors(
+                &mut output,
+                ensures.nodes(),
+                &mut lets,
+                &mut let_wildcards,
+            )?;
+        }
+        // `ml::exists` closures (KF-039), likewise.
+        let mut closures = 0_usize;
+        for term in claim_terms(self, None) {
+            crate::term::push_ml_binder_anchors(&mut output, term.nodes(), &mut closures)?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            crate::term::push_ml_binder_anchors(&mut output, ensures.nodes(), &mut closures)?;
+        }
+        Ok(output)
+    }
+
+    /// Returns every rustc-resolvable type/wrapper/term path with the same
+    /// descriptor-wide keys as [`Self::provenance`].
+    ///
+    /// Bare subject references are bindings. Bare result references equal to
+    /// a subject binding are reuse sites and therefore omitted; other result
+    /// references remain candidates so qualified or unit constructors are
+    /// resolved by rustc rather than guessed by spelling.
+    ///
+    /// # Errors
+    ///
+    /// Returns an occurrence-overflow error for pathological inputs.
+    pub fn reference_candidates(
+        &self,
+    ) -> Result<Vec<ReferenceCandidate<StateRuleReferenceKind>>, SyntaxError> {
+        let mut output = self
+            .bindings
+            .iter()
+            .filter_map(StateRuleBinding::term_sort)
+            .enumerate()
+            .map(|(ordinal, sort)| {
+                Ok(ReferenceCandidate {
+                    key: key(
+                        ProvenanceRole::RuleBindingType,
+                        checked_ordinal(
+                            ordinal,
+                            ProvenanceRole::RuleBindingType,
+                            sort.sort().span(),
+                        )?,
+                    ),
+                    path: sort.sort().clone(),
+                    kind: StateRuleReferenceKind::BindingSort,
+                })
+            })
+            .collect::<Result<Vec<_>, SyntaxError>>()?;
+        output.extend([ReferenceCandidate {
+            key: key(ProvenanceRole::RuleType, 0),
+            path: self.subject_type.clone(),
+            kind: StateRuleReferenceKind::Configuration,
+        }]);
+        if let Some(result) = &self.result {
+            output.push(ReferenceCandidate {
+                key: key(ProvenanceRole::RuleResultType, 0),
+                path: result.result_type.clone(),
+                kind: StateRuleReferenceKind::Configuration,
+            });
+        }
+        append_cells_candidates(&self.subject, RuleSide::Left, &self.bindings, &mut output)?;
+        if let Some(result) = &self.result {
+            append_cells_candidates(&result.result, RuleSide::Right, &self.bindings, &mut output)?;
+        }
+        Ok(output)
+    }
+}
+
+/// The diagnostic for a function context on a sentence other than an
+/// equation (KF-025).
+pub const FUNCTION_CONTEXT_ONLY_ON_EQUATIONS: &str =
+    "a configuration context belongs only on #[k::equation] (K's [[ ]] function context)";
+
+/// The diagnostic for a function context that is not a `cells!` pattern typed
+/// by the configuration struct (KF-025).
+pub const FUNCTION_CONTEXT_SHAPE: &str = "a function context is a final `k::cells! { cell: .., .. }` parameter typed by the configuration struct";
+
+/// The diagnostic for a function context without its trailing anonymous `..`
+/// (KF-025).
+pub const FUNCTION_CONTEXT_REMAINDER: &str =
+    "a function context frames the rest of the configuration with an anonymous `..`";
+
+fn function_context_error(reason: &str, span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(
+        SyntaxErrorKind::InvalidFunctionContext {
+            reason: reason.to_owned(),
+        },
+        span,
+    )
+}
+
+/// Whether a fn parameter is written `k::cells! { .. }`, the shape of a
+/// function context (or of a `cells!` rule's subject).
+#[must_use]
+pub fn is_cells_parameter(argument: &FnArg) -> bool {
+    let FnArg::Typed(argument) = argument else {
+        return false;
+    };
+    let Pat::Macro(pattern) = &*argument.pat else {
+        return false;
+    };
+    pattern
+        .mac
+        .path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "cells")
+}
+
+/// The read-only configuration context of an equation (KF-025): a final
+/// `k::cells! { cell: .., .. }: Machine` parameter, K's `[[ .. ]]` cells.
+#[derive(Clone, Debug)]
+pub struct FunctionContext {
+    parameter: syn::PatType,
+    pattern_macro: PatMacro,
+    configuration_type: Path,
+    pattern: CellsExpression,
+    bindings: Vec<StateRuleBinding>,
+}
+
+impl FunctionContext {
+    /// Parses the final parameter of an equation as a function context.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a parameter that is not `k::cells! { .. }` typed by a plain
+    /// configuration path, a context without its trailing anonymous `..`, and
+    /// malformed cell patterns.
+    pub(crate) fn parse(argument: &FnArg) -> Result<Self, SyntaxError> {
+        let FnArg::Typed(argument) = argument else {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                argument.span(),
+            ));
+        };
+        if !argument.attrs.is_empty() {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                argument.attrs[0].span(),
+            ));
+        }
+        let Pat::Macro(pattern_macro) = &*argument.pat else {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                argument.pat.span(),
+            ));
+        };
+        if !is_plain_path(&pattern_macro.mac.path)
+            || pattern_macro
+                .mac
+                .path
+                .segments
+                .last()
+                .is_none_or(|segment| segment.ident != "cells")
+        {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                pattern_macro.span(),
+            ));
+        }
+        let Type::Path(path) = &*argument.ty else {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                argument.ty.span(),
+            ));
+        };
+        if path.qself.is_some() || !is_plain_path(&path.path) {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                argument.ty.span(),
+            ));
+        }
+        let pattern = parse_cells_pattern(pattern_macro.mac.tokens.clone())?;
+        match pattern.remainder() {
+            StateMacroRemainder::Anonymous(_) => {}
+            StateMacroRemainder::Bind { range, .. } | StateMacroRemainder::Reuse { range, .. } => {
+                return Err(function_context_error(
+                    FUNCTION_CONTEXT_REMAINDER,
+                    range.first(),
+                ));
+            }
+            StateMacroRemainder::Exact => {
+                return Err(function_context_error(
+                    FUNCTION_CONTEXT_REMAINDER,
+                    pattern_macro.mac.delimiter.span().close(),
+                ));
+            }
+        }
+        let mut bindings = Vec::new();
+        collect_cells_bindings(&pattern, &mut bindings)?;
+        Ok(Self {
+            parameter: argument.clone(),
+            pattern_macro: pattern_macro.clone(),
+            configuration_type: path.path.clone(),
+            pattern,
+            bindings,
+        })
+    }
+
+    /// Returns the complete authored `k::cells! { .. }: Machine` parameter.
+    #[must_use]
+    pub const fn parameter(&self) -> &syn::PatType {
+        &self.parameter
+    }
+
+    /// Returns the configuration type path.
+    #[must_use]
+    pub const fn configuration_type(&self) -> &Path {
+        &self.configuration_type
+    }
+
+    /// Returns the one-sided `cells!` pattern.
+    #[must_use]
+    pub const fn pattern(&self) -> &CellsExpression {
+        &self.pattern
+    }
+
+    /// Returns the context's bindings in first-occurrence preorder; a term
+    /// binding carries its declared sort.
+    #[must_use]
+    pub fn bindings(&self) -> &[StateRuleBinding] {
+        &self.bindings
+    }
+
+    /// The context's term bindings in first-occurrence preorder.
+    pub(crate) fn term_bindings(&self) -> impl Iterator<Item = &Ident> {
+        self.bindings
+            .iter()
+            .filter(|binding| binding.kind == StateRuleBindingKind::Term)
+            .map(|binding| &binding.name)
+    }
+
+    /// Rejects a structural frame name that is also a subject binder, and
+    /// attaches each term binding's declared sort.
+    pub(crate) fn attach_sorts(
+        &mut self,
+        subject: &[Ident],
+        declared: &[(Ident, TermSort)],
+    ) -> Result<(), SyntaxError> {
+        for binding in &mut self.bindings {
+            if binding.kind != StateRuleBindingKind::Term {
+                if subject.iter().any(|name| name == &binding.name) {
+                    return Err(pattern_error(
+                        "a configuration-rule binding cannot be reused as a different frame or term kind",
+                        binding.name.span(),
+                    ));
+                }
+                continue;
+            }
+            binding.sort = declared
+                .iter()
+                .find(|(name, _)| name == &binding.name)
+                .map(|(_, sort)| sort.clone());
+        }
+        Ok(())
+    }
+
+    /// The context's cell terms in expansion order.
+    #[must_use]
+    pub fn terms(&self) -> Vec<&TermExpression> {
+        let mut output = Vec::new();
+        append_cells_terms(&self.pattern, &mut output);
+        output
+    }
+
+    /// The `Cell`/`KCell` wrapper paths, which rustc resolves.
+    #[must_use]
+    pub fn wrapper_paths(&self) -> Vec<&Path> {
+        self.pattern
+            .entries()
+            .iter()
+            .filter_map(crate::CellsEntry::wrapper)
+            .collect()
+    }
+
+    /// The parameter anchors (`function_context`, `function_context_type`)
+    /// and the cell anchors, whose left-hand term ordinals continue after
+    /// the subject's in `existing`.
+    ///
+    /// # Errors
+    ///
+    /// Returns endpoint or ordinal-overflow errors only.
+    pub(crate) fn provenance(
+        &self,
+        existing: &[ProvenanceAnchor],
+    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut output = vec![
+            ProvenanceAnchor::new(
+                ProvenanceRole::FunctionContext,
+                0,
+                TokenRange::for_tokens(&self.pattern_macro)?,
+            ),
+            ProvenanceAnchor::new(
+                ProvenanceRole::FunctionContextType,
+                0,
+                TokenRange::for_tokens(&self.configuration_type)?,
+            ),
+        ];
+        let mut counters = ProvenanceAnchors::continuing(
+            existing,
+            &[
+                ProvenanceRole::RuleLeftApplicationHead,
+                ProvenanceRole::RuleLeftReference,
+                ProvenanceRole::RuleLeftLiteral,
+                ProvenanceRole::RuleLeftRecordFieldName,
+                ProvenanceRole::RuleLeftWildcard,
+            ],
+        );
+        append_remapped(
+            self.pattern.provenance()?,
+            RuleSide::Left,
+            &mut counters,
+            &mut output,
+        )?;
+        for entry in self.pattern.entries() {
+            append_state_term_provenance(
+                entry.value(),
+                RuleSide::Left,
+                &mut counters,
+                &mut output,
+            )?;
+        }
+        Ok(output)
+    }
+}
+
+impl KrsSyntax for StateRuleItem {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2(tokens)?)
+    }
+}
+
+/// Parses a one-sided context-alias function item.
+///
+/// # Errors
+///
+/// Returns Rust parsing or [`StateContextAliasItem`] shape errors.
+pub fn parse_state_context_alias_item(
+    tokens: TokenStream,
+    here: &Ident,
+) -> Result<StateContextAliasItem, SyntaxError> {
+    StateContextAliasItem::from_item(syn::parse2(tokens)?, here)
+}
+
+/// Which fn sentence a `cells!` rule item is parsed as.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StateRuleForm {
+    /// A claim, which always has a result.
+    Claim,
+    /// A `#[k::rule]` fn, which may be a single-body rule (KF-011).
+    Rule,
+    /// A `#[k::context]` fn (KF-021).
+    Context,
+}
+
+/// The reason given for a context with a result.
+pub(crate) const CONTEXT_RESULT: &str = "a context returns `()`: it says where evaluation may happen and has no after-state; K turns it into a heat rule and a cool rule";
+
+/// The reason given for a context with statements in its body.
+pub(crate) const CONTEXT_BODY: &str =
+    "a context has an empty body `{}`; its subject is the whole context";
+
+/// The reason given for more than one rewrite in a context.
+pub(crate) const CONTEXT_REWRITES: &str =
+    "a context rewrites at most its hole, once: `k::rewrite!(h => f(h))`, K's `HOLE => f(HOLE)`";
+
+/// The reason given for result binders on a context.
+pub(crate) const CONTEXT_BINDERS: &str =
+    "a context takes no `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`: it has no after-state";
+
+/// Checks the shape of a `#[k::context]` fn (KF-021): a unit return, an
+/// empty body, and at most one `k::rewrite!` (at `rewrites`).
+pub(crate) fn check_context_shape(
+    item: &ItemFn,
+    returns_unit: bool,
+    rewrites: &[proc_macro2::Span],
+) -> Result<(), SyntaxError> {
+    if !returns_unit {
+        let span = match &item.sig.output {
+            ReturnType::Type(_, ty) => ty.span(),
+            ReturnType::Default => item.sig.span(),
+        };
+        return Err(signature_error(CONTEXT_RESULT, span));
+    }
+    if !item.block.stmts.is_empty() {
+        return Err(signature_error(CONTEXT_BODY, item.block.span()));
+    }
+    if let Some(span) = rewrites.get(1) {
+        return Err(local_rewrite_error(CONTEXT_REWRITES.to_owned(), *span));
+    }
+    Ok(())
+}
+
+/// The reason given for a single-body rule with statements in its body.
+pub(crate) const SINGLE_BODY_BODY: &str = "a single-body rule (one that returns `()`) has an empty body `{}`; its subject's `k::rewrite!` islands say what changes";
+
+/// The reason given for a single-body rule without a rewrite.
+pub(crate) const SINGLE_BODY_WITHOUT_REWRITE: &str = "a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result";
+
+/// The reason given for result binders on a single-body rule.
+pub(crate) const SINGLE_BODY_BINDERS: &str = "a single-body rule takes no `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`: write a rule with a result to introduce new values";
+
+/// The reason given for a rewrite in a rule that has a result.
+pub(crate) const REWRITE_WITH_RESULT: &str = "`k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state";
+
+/// Whether `ty` is `()`.
+pub(crate) fn is_unit_type(ty: &Type) -> bool {
+    matches!(ty, Type::Tuple(tuple) if tuple.elems.is_empty())
+}
+
+/// The spans of the `k::rewrite!` islands of a `cells!` pattern, in order.
+fn cells_rewrite_spans(cells: &CellsExpression) -> Vec<proc_macro2::Span> {
+    let mut terms = Vec::new();
+    append_cells_terms(cells, &mut terms);
+    terms
+        .into_iter()
+        .flat_map(TermExpression::nodes)
+        .filter_map(|node| match node {
+            TermNode::Rewrite { range, .. } => Some(range.first()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Checks the right side of every `k::rewrite!` (KF-011): each bare name
+/// there is a term binding of the left image, and a map key holds no
+/// rewrite.
+fn validate_rewrite_right_sides(
+    cells: &CellsExpression,
+    bindings: &[StateRuleBinding],
+) -> Result<(), SyntaxError> {
+    for entry in cells.entries() {
+        if let StateTerm::Map(map) = entry.value()
+            && let MapBody::Items { items, .. } = map.body()
+        {
+            for item in items {
+                if let Some(TermNode::Rewrite { range, .. }) = item
+                    .key()
+                    .nodes()
+                    .iter()
+                    .find(|node| matches!(node, TermNode::Rewrite { .. }))
+                {
+                    return Err(local_rewrite_error(
+                        crate::term::REWRITE_IN_MAP_KEY.to_owned(),
+                        range.first(),
+                    ));
+                }
+            }
+        }
+    }
+    let mut terms = Vec::new();
+    append_cells_terms(cells, &mut terms);
+    let names = bindings
+        .iter()
+        .filter(|binding| binding.kind == StateRuleBindingKind::Term)
+        .map(|binding| binding.name.clone())
+        .collect::<Vec<_>>();
+    for term in terms {
+        crate::term::check_rewrite_right_bindings(term.nodes(), &names)?;
+    }
+    Ok(())
+}
+
+fn validate_signature(item: &ItemFn) -> Result<(), SyntaxError> {
+    let signature = &item.sig;
+    if signature.inputs.is_empty() {
+        return Err(signature_error(
+            "a configuration rule must have a final `cells!` subject",
+            signature.inputs.span(),
+        ));
+    }
+    if signature.constness.is_some()
+        || signature.asyncness.is_some()
+        || signature.unsafety.is_some()
+        || signature.abi.is_some()
+        || !signature.generics.params.is_empty()
+        || signature.generics.where_clause.is_some()
+        || signature.variadic.is_some()
+    {
+        return Err(signature_error(
+            "configuration rules cannot use qualifiers, generics, where clauses, or variadics",
+            signature.span(),
+        ));
+    }
+    Ok(())
+}
+
+fn parse_typed_bindings(item: &ItemFn) -> Result<Vec<(Ident, TermSort)>, SyntaxError> {
+    let mut output = Vec::new();
+    for argument in item
+        .sig
+        .inputs
+        .iter()
+        .take(item.sig.inputs.len().saturating_sub(1))
+    {
+        let FnArg::Typed(argument) = argument else {
+            return Err(signature_error(
+                "configuration rules cannot have a `self` receiver",
+                argument.span(),
+            ));
+        };
+        if !argument.attrs.is_empty() {
+            return Err(signature_error(
+                "configuration-rule parameters cannot have helper attributes",
+                argument.attrs[0].span(),
+            ));
+        }
+        let Pat::Ident(pattern) = &*argument.pat else {
+            return Err(signature_error(
+                "configuration-rule term parameters must be plain bindings",
+                argument.pat.span(),
+            ));
+        };
+        if pattern.by_ref.is_some()
+            || pattern.mutability.is_some()
+            || pattern.subpat.is_some()
+            || output
+                .iter()
+                .any(|(existing, _): &(Ident, TermSort)| existing == &pattern.ident)
+        {
+            return Err(signature_error(
+                "configuration-rule term parameters must be unique immutable bindings",
+                pattern.span(),
+            ));
+        }
+        let authored_type = (*argument.ty).clone();
+        crate::parse::validate_authored_binder(&pattern.ident.to_string(), pattern.ident.span())?;
+        let sort = parse_term_sort(authored_type.clone())
+            .or_else(|_| parse_readable_sort(authored_type))?;
+        output.push((pattern.ident.clone(), sort));
+    }
+    Ok(output)
+}
+
+fn parse_configuration_type(ty: &Type) -> Result<Path, SyntaxError> {
+    let Type::Path(path) = ty else {
+        return Err(signature_error(
+            "configuration-rule types must be plain nominal Rust paths",
+            ty.span(),
+        ));
+    };
+    if path.qself.is_some() || !is_plain_path(&path.path) {
+        return Err(signature_error(
+            "configuration-rule types must be plain nominal Rust paths",
+            ty.span(),
+        ));
+    }
+    Ok(path.path.clone())
+}
+
+fn parse_result_macro(item: &ItemFn) -> Result<Macro, SyntaxError> {
+    if item.block.stmts.len() != 1 {
+        return Err(body_error(
+            "a configuration-rule body must contain exactly one `cells!` expression",
+            item.block.span(),
+        ));
+    }
+    match &item.block.stmts[0] {
+        Stmt::Expr(Expr::Macro(expression), None) => Ok(expression.mac.clone()),
+        Stmt::Macro(statement) if statement.attrs.is_empty() && statement.semi_token.is_none() => {
+            Ok(statement.mac.clone())
+        }
+        statement => Err(body_error(
+            "a configuration-rule body must be one unterminated `cells!` expression",
+            statement.span(),
+        )),
+    }
+}
+
+fn validate_cells_path(path: &Path, span: proc_macro2::Span) -> Result<(), SyntaxError> {
+    if !is_plain_path(path)
+        || path
+            .segments
+            .last()
+            .is_none_or(|segment| segment.ident != "cells")
+    {
+        return Err(pattern_error(
+            "configuration rules require the compiler-owned `cells!` island",
+            span,
+        ));
+    }
+    Ok(())
+}
+
+fn collect_cells_bindings(
+    cells: &CellsExpression,
+    output: &mut Vec<StateRuleBinding>,
+) -> Result<(), SyntaxError> {
+    for entry in cells.entries() {
+        collect_state_term_bindings(entry.value(), output)?;
+    }
+    collect_remainder_binding(
+        cells.remainder(),
+        StateRuleBindingKind::ConfigurationFrame,
+        output,
+    )
+}
+
+fn count_term_binding_occurrences_in_cells(cells: &CellsExpression, binding: &Ident) -> usize {
+    cells
+        .entries()
+        .iter()
+        .map(|entry| count_term_binding_occurrences_in_state(entry.value(), binding))
+        .sum()
+}
+
+fn count_term_binding_occurrences_in_state(state: &StateTerm, binding: &Ident) -> usize {
+    match state {
+        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => state
+            .nested_states()
+            .into_iter()
+            .map(|nested| count_term_binding_occurrences_in_state(nested, binding))
+            .sum(),
+        StateTerm::Term(term) | StateTerm::Group(term) => {
+            count_term_binding_occurrences(term, binding)
+        }
+        StateTerm::KSequence(sequence) => sequence
+            .items()
+            .iter()
+            .map(|term| count_term_binding_occurrences(term, binding))
+            .sum(),
+        StateTerm::Map(map) => match map.body() {
+            MapBody::Empty { .. } | MapBody::Update { .. } => 0,
+            MapBody::Items { items, .. } => items
+                .iter()
+                .map(|item| {
+                    count_term_binding_occurrences(item.key(), binding)
+                        + count_term_binding_occurrences(item.value(), binding)
+                })
+                .sum(),
+        },
+    }
+}
+
+fn count_term_binding_occurrences(term: &TermExpression, binding: &Ident) -> usize {
+    term.nodes()
+        .iter()
+        .filter(|node| match node {
+            TermNode::Reference(path) => bare_ident(path) == Some(binding),
+            TermNode::As { binding: alias, .. } => alias == binding,
+            _ => false,
+        })
+        .count()
+}
+
+fn collect_state_term_bindings(
+    term: &StateTerm,
+    output: &mut Vec<StateRuleBinding>,
+) -> Result<(), SyntaxError> {
+    match term {
+        StateTerm::Present(inner) => collect_state_term_bindings(inner, output),
+        StateTerm::Absent(_) => Ok(()),
+        StateTerm::Instances(list) => {
+            for instance in list.front() {
+                for field in instance.fields() {
+                    collect_state_term_bindings(field.value(), output)?;
+                }
+            }
+            collect_remainder_binding(list.rest(), StateRuleBindingKind::InstancesFrame, output)?;
+            for instance in list.back() {
+                for field in instance.fields() {
+                    collect_state_term_bindings(field.value(), output)?;
+                }
+            }
+            Ok(())
+        }
+        StateTerm::Term(term) | StateTerm::Group(term) => collect_term_bindings(term, output),
+        StateTerm::KSequence(sequence) => {
+            for item in sequence.items() {
+                collect_term_bindings(item, output)?;
+            }
+            collect_remainder_binding(
+                sequence.tail(),
+                StateRuleBindingKind::KSequenceFrame,
+                output,
+            )
+        }
+        StateTerm::Map(map) => {
+            if let Some(bindings) = map.pattern_bindings() {
+                for binding in &bindings.terms {
+                    push_binding(binding, StateRuleBindingKind::Term, output)?;
+                }
+                if let Some(binding) = &bindings.frame {
+                    push_binding(binding, StateRuleBindingKind::MapFrame, output)?;
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn collect_term_bindings(
+    term: &TermExpression,
+    output: &mut Vec<StateRuleBinding>,
+) -> Result<(), SyntaxError> {
+    // Only the left image binds (KF-011): the right side of a `k::rewrite!`
+    // uses the subject's bindings.
+    let (left, _) = crate::term::split_rewrite_images(term.nodes());
+    for node in left {
+        let binding = match node {
+            TermNode::Reference(path) => bare_ident(path),
+            TermNode::As { binding, .. } => Some(binding),
+            _ => None,
+        };
+        if let Some(binding) = binding {
+            push_binding(binding, StateRuleBindingKind::Term, output)?;
+        }
+    }
+    Ok(())
+}
+
+fn collect_remainder_binding(
+    remainder: &StateMacroRemainder,
+    kind: StateRuleBindingKind,
+    output: &mut Vec<StateRuleBinding>,
+) -> Result<(), SyntaxError> {
+    if let StateMacroRemainder::Bind { binding, .. } = remainder {
+        push_binding(binding, kind, output)?;
+    }
+    Ok(())
+}
+
+fn push_binding(
+    binding: &Ident,
+    kind: StateRuleBindingKind,
+    output: &mut Vec<StateRuleBinding>,
+) -> Result<(), SyntaxError> {
+    crate::parse::validate_authored_binder(&binding.to_string(), binding.span())?;
+    if let Some(existing) = output.iter().find(|existing| existing.name == *binding) {
+        if existing.kind != kind {
+            return Err(pattern_error(
+                "a configuration-rule binding cannot be reused as a different frame or term kind",
+                binding.span(),
+            ));
+        }
+        return Ok(());
+    }
+    output.push(StateRuleBinding {
+        name: binding.clone(),
+        kind,
+        sort: None,
+    });
+    Ok(())
+}
+
+/// Rejects a declared binder that the subject never binds (X5.6).
+fn require_declared_binders_occur(
+    bindings: &[StateRuleBinding],
+    typed: &[(Ident, TermSort)],
+) -> Result<(), SyntaxError> {
+    for (name, _) in typed {
+        if !bindings.iter().any(|binding| &binding.name == name) {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::InvalidBinderList {
+                    reason: format!(
+                        "binder `{name}` is declared but does not occur in the subject"
+                    ),
+                },
+                name.span(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn attach_typed_binding_sorts(
+    bindings: &mut [StateRuleBinding],
+    typed: Vec<(Ident, TermSort)>,
+) -> Result<(), SyntaxError> {
+    require_declared_binders_occur(bindings, &typed)?;
+    let subject_terms = bindings
+        .iter()
+        .filter(|binding| binding.kind == StateRuleBindingKind::Term)
+        .map(|binding| &binding.name)
+        .collect::<Vec<_>>();
+    if typed.len() != subject_terms.len()
+        || typed
+            .iter()
+            .zip(subject_terms)
+            .any(|((typed, _), subject)| typed != subject)
+    {
+        let span = typed
+            .first()
+            .map_or_else(proc_macro2::Span::call_site, |(name, _)| name.span());
+        return Err(signature_error(BINDER_LIST_CONTRACT, span));
+    }
+    for ((_, sort), binding) in typed.into_iter().zip(
+        bindings
+            .iter_mut()
+            .filter(|binding| binding.kind == StateRuleBindingKind::Term),
+    ) {
+        binding.sort = Some(sort);
+    }
+    Ok(())
+}
+
+fn validate_result_reuses(
+    cells: &CellsExpression,
+    bindings: &[StateRuleBinding],
+) -> Result<(), SyntaxError> {
+    validate_remainder_reuse(
+        cells.remainder(),
+        StateRuleBindingKind::ConfigurationFrame,
+        bindings,
+    )?;
+    for entry in cells.entries() {
+        validate_state_reuses(entry.value(), bindings)?;
+    }
+    Ok(())
+}
+
+fn validate_state_reuses(
+    state: &StateTerm,
+    bindings: &[StateRuleBinding],
+) -> Result<(), SyntaxError> {
+    {
+        match state {
+            StateTerm::Present(inner) => validate_state_reuses(inner, bindings)?,
+            StateTerm::Absent(_) => {}
+            StateTerm::Instances(list) => {
+                for nested in state.nested_states() {
+                    validate_state_reuses(nested, bindings)?;
+                }
+                validate_remainder_reuse(
+                    list.rest(),
+                    StateRuleBindingKind::InstancesFrame,
+                    bindings,
+                )?;
+            }
+            StateTerm::Term(term) | StateTerm::Group(term) => {
+                validate_term_reuses(term, bindings)?;
+            }
+            StateTerm::KSequence(sequence) => {
+                for item in sequence.items() {
+                    validate_term_reuses(item, bindings)?;
+                }
+                validate_remainder_reuse(
+                    sequence.tail(),
+                    StateRuleBindingKind::KSequenceFrame,
+                    bindings,
+                )?;
+            }
+            StateTerm::Map(map) => {
+                for term in map_terms(map) {
+                    validate_term_reuses(term, bindings)?;
+                }
+                if let MapBody::Items { remainder, .. } = map.body() {
+                    validate_remainder_reuse(remainder, StateRuleBindingKind::MapFrame, bindings)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_remainder_reuse(
+    remainder: &StateMacroRemainder,
+    expected: StateRuleBindingKind,
+    bindings: &[StateRuleBinding],
+) -> Result<(), SyntaxError> {
+    if let StateMacroRemainder::Reuse { binding, range } = remainder
+        && !bindings
+            .iter()
+            .any(|existing| existing.name == *binding && existing.kind == expected)
+    {
+        return Err(body_error(
+            "a result remainder must reuse a subject frame of the same kind",
+            range.first(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_term_reuses(
+    term: &TermExpression,
+    bindings: &[StateRuleBinding],
+) -> Result<(), SyntaxError> {
+    for node in term.nodes() {
+        if let TermNode::Reference(path) = node
+            && let Some(name) = bare_ident(path)
+            && let Some(binding) = bindings.iter().find(|binding| binding.name == *name)
+            && binding.kind != StateRuleBindingKind::Term
+        {
+            return Err(body_error(
+                "a structural frame cannot be reused as an object-language term",
+                name.span(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn append_cells_provenance(
+    cells: &CellsExpression,
+    side: RuleSide,
+    output: &mut Vec<ProvenanceAnchor>,
+) -> Result<(), SyntaxError> {
+    let mut counters = ProvenanceAnchors::default();
+    append_remapped(cells.provenance()?, side, &mut counters, output)?;
+    for entry in cells.entries() {
+        append_state_term_provenance(entry.value(), side, &mut counters, output)?;
+    }
+    Ok(())
+}
+
+fn append_state_term_provenance(
+    term: &StateTerm,
+    side: RuleSide,
+    counters: &mut ProvenanceAnchors,
+    output: &mut Vec<ProvenanceAnchor>,
+) -> Result<(), SyntaxError> {
+    match term {
+        StateTerm::Present(inner) => append_state_term_provenance(inner, side, counters, output),
+        StateTerm::Absent(_) => Ok(()),
+        StateTerm::Instances(list) => {
+            // The instance, child-field, and rest roles each count in
+            // traversal order; the children's own anchors follow.
+            append_remapped(list.provenance()?, side, counters, output)?;
+            for nested in term.nested_states() {
+                append_state_term_provenance(nested, side, counters, output)?;
+            }
+            Ok(())
+        }
+        StateTerm::Term(term) | StateTerm::Group(term) => {
+            append_term_provenance(term, side, counters, output)
+        }
+        StateTerm::KSequence(sequence) => {
+            append_remapped(sequence.provenance()?, side, counters, output)?;
+            for item in sequence.items() {
+                append_term_provenance(item, side, counters, output)?;
+            }
+            Ok(())
+        }
+        StateTerm::Map(map) => {
+            append_remapped(map.provenance()?, side, counters, output)?;
+            for term in map_terms(map) {
+                append_term_provenance(term, side, counters, output)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn append_term_provenance(
+    term: &TermExpression,
+    side: RuleSide,
+    counters: &mut ProvenanceAnchors,
+    output: &mut Vec<ProvenanceAnchor>,
+) -> Result<(), SyntaxError> {
+    let (application_role, reference_role, literal_role, field_role) = match side {
+        RuleSide::Left => (
+            ProvenanceRole::RuleLeftApplicationHead,
+            ProvenanceRole::RuleLeftReference,
+            ProvenanceRole::RuleLeftLiteral,
+            ProvenanceRole::RuleLeftRecordFieldName,
+        ),
+        RuleSide::Right => (
+            ProvenanceRole::RuleRightApplicationHead,
+            ProvenanceRole::RuleRightReference,
+            ProvenanceRole::RuleRightLiteral,
+            ProvenanceRole::RuleRightRecordFieldName,
+        ),
+    };
+    for node in term.nodes() {
+        let role = match node {
+            TermNode::ApplicationHead(_) => application_role,
+            TermNode::Reference(_) => reference_role,
+            TermNode::Literal(_) => literal_role,
+            TermNode::IdToken(_)
+            | TermNode::BytesToken(_)
+            | TermNode::Anonymous { .. }
+            | TermNode::OrBool(_)
+            | TermNode::Lexeme { .. }
+            | TermNode::SortTest { .. }
+            | TermNode::As { .. }
+            | TermNode::Or(_)
+            | TermNode::Matches(_)
+            | TermNode::MatchesWildcard(_)
+            | TermNode::Let { .. }
+            | TermNode::Closure { .. }
+            | TermNode::LetWildcard(_)
+            | TermNode::Rewrite { .. } => continue,
+        };
+        output.push(ProvenanceAnchor::new(
+            role,
+            counters.next(role, node_span(node))?,
+            node_range(node)?,
+        ));
+    }
+    let mut fields = Vec::new();
+    push_record_field_anchors(&mut fields, term.tree(), field_role)?;
+    for field in fields {
+        output.push(ProvenanceAnchor::new(
+            field_role,
+            counters.next(field_role, field.range().first())?,
+            field.range(),
+        ));
+    }
+    if matches!(side, RuleSide::Left) {
+        let mut wildcards = Vec::new();
+        term.tree().wildcard_ranges_preorder(&mut wildcards);
+        for range in wildcards {
+            output.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleLeftWildcard,
+                counters.next(ProvenanceRole::RuleLeftWildcard, range.first())?,
+                range,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn append_remapped(
+    anchors: Vec<ProvenanceAnchor>,
+    side: RuleSide,
+    counters: &mut ProvenanceAnchors,
+    output: &mut Vec<ProvenanceAnchor>,
+) -> Result<(), SyntaxError> {
+    for anchor in anchors {
+        let Some(role) = RuleRole::from_standalone(anchor.role()) else {
+            continue;
+        };
+        let role = role.on_side(side);
+        output.push(ProvenanceAnchor::new(
+            role,
+            counters.next(role, anchor.range().first())?,
+            anchor.range(),
+        ));
+    }
+    Ok(())
+}
+
+fn append_cells_candidates(
+    cells: &CellsExpression,
+    side: RuleSide,
+    bindings: &[StateRuleBinding],
+    output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
+) -> Result<(), SyntaxError> {
+    let mut counters = ProvenanceAnchors::default();
+    for entry in cells.entries() {
+        let wrapper_role = match side {
+            RuleSide::Left => ProvenanceRole::RuleLeftCellsWrapper,
+            RuleSide::Right => ProvenanceRole::RuleRightCellsWrapper,
+        };
+        if let Some(wrapper) = entry.wrapper() {
+            let ordinal = counters.next(wrapper_role, wrapper.span())?;
+            output.push(ReferenceCandidate {
+                key: key(wrapper_role, ordinal),
+                path: wrapper.clone(),
+                kind: StateRuleReferenceKind::CellWrapper,
+            });
+        }
+        append_state_term_candidates(entry.value(), side, bindings, &mut counters, output)?;
+    }
+    Ok(())
+}
+
+fn append_state_term_candidates(
+    state: &StateTerm,
+    side: RuleSide,
+    bindings: &[StateRuleBinding],
+    counters: &mut ProvenanceAnchors,
+    output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
+) -> Result<(), SyntaxError> {
+    match state {
+        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => {
+            for nested in state.nested_states() {
+                append_state_term_candidates(nested, side, bindings, counters, output)?;
+            }
+            Ok(())
+        }
+        StateTerm::Term(term) | StateTerm::Group(term) => {
+            append_term_candidates(term, side, bindings, counters, output)
+        }
+        StateTerm::KSequence(sequence) => {
+            for term in sequence.items() {
+                append_term_candidates(term, side, bindings, counters, output)?;
+            }
+            Ok(())
+        }
+        StateTerm::Map(map) => {
+            for term in map_terms(map) {
+                append_term_candidates(term, side, bindings, counters, output)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn append_term_candidates(
+    term: &TermExpression,
+    side: RuleSide,
+    bindings: &[StateRuleBinding],
+    counters: &mut ProvenanceAnchors,
+    output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
+) -> Result<(), SyntaxError> {
+    let (application_role, reference_role) = match side {
+        RuleSide::Left => (
+            ProvenanceRole::RuleLeftApplicationHead,
+            ProvenanceRole::RuleLeftReference,
+        ),
+        RuleSide::Right => (
+            ProvenanceRole::RuleRightApplicationHead,
+            ProvenanceRole::RuleRightReference,
+        ),
+    };
+    for node in term.nodes() {
+        match node {
+            TermNode::ApplicationHead(path) => {
+                let ordinal = counters.next(application_role, path.span())?;
+                output.push(ReferenceCandidate {
+                    key: key(application_role, ordinal),
+                    path: path.clone(),
+                    kind: StateRuleReferenceKind::ApplicationHead,
+                });
+            }
+            TermNode::Reference(path) => {
+                let ordinal = counters.next(reference_role, path.span())?;
+                let bound = bare_ident(path).is_some_and(|candidate| {
+                    bindings.iter().any(|binding| {
+                        binding.name == *candidate && binding.kind == StateRuleBindingKind::Term
+                    })
+                });
+                if !bound {
+                    output.push(ReferenceCandidate {
+                        key: key(reference_role, ordinal),
+                        path: path.clone(),
+                        kind: StateRuleReferenceKind::Reference,
+                    });
+                }
+            }
+            TermNode::Literal(_)
+            | TermNode::IdToken(_)
+            | TermNode::BytesToken(_)
+            | TermNode::Anonymous { .. }
+            | TermNode::OrBool(_)
+            | TermNode::Lexeme { .. }
+            | TermNode::SortTest { .. }
+            | TermNode::As { .. }
+            | TermNode::Or(_)
+            | TermNode::Matches(_)
+            | TermNode::MatchesWildcard(_)
+            | TermNode::Let { .. }
+            | TermNode::Closure { .. }
+            | TermNode::LetWildcard(_)
+            | TermNode::Rewrite { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn map_terms(map: &MapExpression) -> Vec<&TermExpression> {
+    match map.body() {
+        MapBody::Empty { .. } => Vec::new(),
+        MapBody::Items { items, .. } => items
+            .iter()
+            .flat_map(|item| [item.key(), item.value()])
+            .collect(),
+        MapBody::Update { base, key, value } => vec![base, key, value],
+    }
+}
+
+fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
+    match node {
+        TermNode::ApplicationHead(path) | TermNode::Reference(path) => TokenRange::for_tokens(path),
+        TermNode::Literal(TermLiteral::Integer(value)) => Ok(value.range()),
+        TermNode::Literal(TermLiteral::Float(value)) => Ok(value.range()),
+        TermNode::Literal(TermLiteral::Boolean(value)) => TokenRange::for_tokens(value),
+        TermNode::Literal(TermLiteral::String(value)) | TermNode::IdToken(value) => {
+            TokenRange::for_tokens(value)
+        }
+        TermNode::BytesToken(value) => TokenRange::for_tokens(value),
+        TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
+        TermNode::OrBool(range)
+        | TermNode::SortTest { range, .. }
+        | TermNode::As { range, .. }
+        | TermNode::Or(range)
+        | TermNode::Matches(range)
+        | TermNode::MatchesWildcard(range)
+        | TermNode::Let { range, .. }
+        | TermNode::Closure { range, .. }
+        | TermNode::LetWildcard(range)
+        | TermNode::Rewrite { range, .. } => Ok(*range),
+        TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
+    }
+}
+
+fn node_span(node: &TermNode) -> proc_macro2::Span {
+    match node {
+        TermNode::ApplicationHead(path) | TermNode::Reference(path) => path.span(),
+        TermNode::Literal(TermLiteral::Integer(value)) => value.span(),
+        TermNode::Literal(TermLiteral::Float(value)) => value.span(),
+        TermNode::Literal(TermLiteral::Boolean(value)) => value.span(),
+        TermNode::Literal(TermLiteral::String(value)) | TermNode::IdToken(value) => value.span(),
+        TermNode::BytesToken(value) => value.span(),
+        TermNode::Anonymous { spelling, .. } => spelling.span(),
+        TermNode::OrBool(range)
+        | TermNode::SortTest { range, .. }
+        | TermNode::As { range, .. }
+        | TermNode::Or(range)
+        | TermNode::Matches(range)
+        | TermNode::MatchesWildcard(range)
+        | TermNode::Let { range, .. }
+        | TermNode::Closure { range, .. }
+        | TermNode::LetWildcard(range)
+        | TermNode::Rewrite { range, .. } => range.first(),
+        TermNode::Lexeme { text, .. } => text.span(),
+    }
+}
+
+fn helper_name(attribute: &Attribute) -> Option<&Ident> {
+    attribute
+        .path()
+        .segments
+        .last()
+        .map(|segment| &segment.ident)
+}
+
+fn helper_payload(attribute: &Attribute, name: &str) -> Result<TokenStream, SyntaxError> {
+    let Meta::List(list) = &attribute.meta else {
+        return Err(signature_error(
+            "claim helpers require parenthesized payloads",
+            attribute.span(),
+        ));
+    };
+    if list.tokens.is_empty() {
+        return Err(signature_error(
+            "claim helper payload must not be empty",
+            attribute.span(),
+        ));
+    }
+    let _ = name;
+    Ok(list.tokens.clone())
+}
+
+fn take_exists_helper(
+    attributes: &mut Vec<Attribute>,
+) -> Result<Option<ExistsAttribute>, SyntaxError> {
+    let mut found = None;
+    let mut retained = Vec::with_capacity(attributes.len());
+    for attribute in std::mem::take(attributes) {
+        if helper_name(&attribute).is_some_and(|name| name == "exists") {
+            if found.is_some() {
+                return Err(signature_error(
+                    "a claim may declare only one `exists` helper",
+                    attribute.span(),
+                ));
+            }
+            found = Some(ExistsAttribute::parse_tokens(helper_payload(
+                &attribute, "exists",
+            )?)?);
+        } else {
+            retained.push(attribute);
+        }
+    }
+    *attributes = retained;
+    Ok(found)
+}
+
+fn take_ensures_helper(
+    attributes: &mut Vec<Attribute>,
+) -> Result<Option<ClaimEnsures>, SyntaxError> {
+    let mut found = None;
+    let mut retained = Vec::with_capacity(attributes.len());
+    for attribute in std::mem::take(attributes) {
+        if helper_name(&attribute).is_some_and(|name| name == "ensures") {
+            if found.is_some() {
+                return Err(signature_error(
+                    "a claim may declare only one `ensures` helper",
+                    attribute.span(),
+                ));
+            }
+            let payload = helper_payload(&attribute, "ensures")?;
+            crate::term::reject_pattern_alias(&payload)?;
+            let expression: Expr = syn::parse2(payload)?;
+            found = Some(ClaimEnsures {
+                term: TermExpression::from_expression(expression)?,
+            });
+        } else {
+            retained.push(attribute);
+        }
+    }
+    *attributes = retained;
+    Ok(found)
+}
+
+/// Appends the lexeme, sort-test, `name @ ..`, `A | B`, and `k::matches!`
+/// anchors of a claim's ensures condition, whose ordinals continue after the
+/// rule's subject, result, and condition (the rule's own anchors number
+/// those).
+fn push_claim_ensures_anchors(
+    rule: &StateRuleItem,
+    ensures: &ClaimEnsures,
+    output: &mut Vec<ProvenanceAnchor>,
+) -> Result<(), SyntaxError> {
+    let count = |wanted: fn(&TermNode) -> bool| {
+        claim_terms(rule, None)
+            .iter()
+            .flat_map(|term| term.nodes())
+            .filter(|node| wanted(node))
+            .count()
+    };
+    let nodes = ensures.term.nodes();
+    let mut lexemes = count(|node| matches!(node, TermNode::Lexeme { .. }));
+    push_lexeme_anchors(output, nodes, &mut lexemes)?;
+    let mut sort_tests = count(|node| matches!(node, TermNode::SortTest { .. }));
+    push_sort_test_anchors(output, nodes, &mut sort_tests)?;
+    let mut aliases = count(|node| matches!(node, TermNode::As { .. }));
+    crate::term::push_pattern_as_anchors(output, nodes, &mut aliases)?;
+    let mut alternatives = count(|node| matches!(node, TermNode::Or(_)));
+    crate::term::push_pattern_or_anchors(output, nodes, &mut alternatives)?;
+    let mut matches = count(|node| matches!(node, TermNode::Matches(_)));
+    let mut wildcards = count(|node| matches!(node, TermNode::MatchesWildcard(_)));
+    crate::term::push_matches_anchors(output, nodes, &mut matches, &mut wildcards)?;
+    let mut lets = count(|node| matches!(node, TermNode::Let { .. }));
+    let mut let_wildcards = count(|node| matches!(node, TermNode::LetWildcard(_)));
+    crate::term::push_let_anchors(output, nodes, &mut lets, &mut let_wildcards)?;
+    let mut closures = count(|node| matches!(node, TermNode::Closure { .. }));
+    crate::term::push_ml_binder_anchors(output, nodes, &mut closures)?;
+    let mut instances = claim_terms(rule, None)
+        .iter()
+        .flat_map(|term| term.nodes())
+        .map(application_instance_count)
+        .sum();
+    crate::term::push_application_instance_anchors(output, nodes, &mut instances)
+}
+
+/// The number of turbofish sort markers on an application-head node.
+fn application_instance_count(node: &TermNode) -> usize {
+    match node {
+        TermNode::ApplicationHead(path) => {
+            match path.segments.last().map(|segment| &segment.arguments) {
+                Some(syn::PathArguments::AngleBracketed(arguments)) => arguments.args.len(),
+                _ => 0,
+            }
+        }
+        _ => 0,
+    }
+}
+
+fn claim_terms<'a>(
+    rule: &'a StateRuleItem,
+    ensures: Option<&'a ClaimEnsures>,
+) -> Vec<&'a TermExpression> {
+    let mut output = Vec::new();
+    append_cells_terms(rule.subject(), &mut output);
+    if let Some(result) = rule.result() {
+        append_cells_terms(result, &mut output);
+    }
+    if let Some(requires) = rule.requires() {
+        output.push(requires.term());
+    }
+    if let Some(ensures) = ensures {
+        output.push(ensures.term());
+    }
+    output
+}
+
+fn append_cells_terms<'a>(cells: &'a CellsExpression, output: &mut Vec<&'a TermExpression>) {
+    for entry in cells.entries() {
+        append_state_terms(entry.value(), output);
+    }
+}
+
+fn append_state_terms<'a>(state: &'a StateTerm, output: &mut Vec<&'a TermExpression>) {
+    match state {
+        StateTerm::Term(term) | StateTerm::Group(term) => output.push(term),
+        StateTerm::KSequence(sequence) => output.extend(sequence.items().iter()),
+        StateTerm::Map(map) => output.extend(map_terms(map)),
+        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => {
+            for nested in state.nested_states() {
+                append_state_terms(nested, output);
+            }
+        }
+    }
+}
+
+fn append_claim_special_anchors(
+    rule: &StateRuleItem,
+    ensures: Option<&ClaimEnsures>,
+    output: &mut Vec<ProvenanceAnchor>,
+) -> Result<(), SyntaxError> {
+    let mut id_ordinal = 0_u32;
+    let mut bytes_ordinal = 0_u32;
+    let mut anonymous_ordinal = 0_u32;
+    let mut or_ordinal = 0_u32;
+    for term in claim_terms(rule, ensures) {
+        for node in term.nodes() {
+            match node {
+                TermNode::IdToken(literal) => {
+                    output.push(ProvenanceAnchor::new(
+                        ProvenanceRole::ClaimIdToken,
+                        id_ordinal,
+                        TokenRange::for_tokens(literal)?,
+                    ));
+                    id_ordinal = id_ordinal
+                        .checked_add(1)
+                        .ok_or_else(|| signature_error("too many Id tokens", literal.span()))?;
+                }
+                TermNode::BytesToken(literal) => {
+                    output.push(ProvenanceAnchor::new(
+                        ProvenanceRole::ClaimBytesToken,
+                        bytes_ordinal,
+                        TokenRange::for_tokens(literal)?,
+                    ));
+                    bytes_ordinal = bytes_ordinal
+                        .checked_add(1)
+                        .ok_or_else(|| signature_error("too many Bytes tokens", literal.span()))?;
+                }
+                TermNode::Anonymous { sort, spelling } => {
+                    output.push(ProvenanceAnchor::new(
+                        ProvenanceRole::ClaimAnonymous,
+                        anonymous_ordinal,
+                        TokenRange::for_tokens(spelling)?,
+                    ));
+                    output.push(ProvenanceAnchor::new(
+                        ProvenanceRole::ClaimAnonymousSort,
+                        anonymous_ordinal,
+                        TokenRange::for_tokens(sort)?,
+                    ));
+                    output.push(ProvenanceAnchor::new(
+                        ProvenanceRole::ClaimAnonymousSpelling,
+                        anonymous_ordinal,
+                        TokenRange::for_tokens(spelling)?,
+                    ));
+                    anonymous_ordinal = anonymous_ordinal.checked_add(1).ok_or_else(|| {
+                        signature_error("too many anonymous occurrences", spelling.span())
+                    })?;
+                }
+                TermNode::OrBool(range) => {
+                    output.push(ProvenanceAnchor::new(
+                        ProvenanceRole::ClaimOrBool,
+                        or_ordinal,
+                        *range,
+                    ));
+                    or_ordinal = or_ordinal.checked_add(1).ok_or_else(|| {
+                        signature_error("too many Boolean disjunctions", range.first())
+                    })?;
+                }
+                TermNode::ApplicationHead(_)
+                | TermNode::Reference(_)
+                | TermNode::Literal(_)
+                | TermNode::Lexeme { .. }
+                | TermNode::SortTest { .. }
+                | TermNode::As { .. }
+                | TermNode::Or(_)
+                | TermNode::Matches(_)
+                | TermNode::MatchesWildcard(_)
+                | TermNode::Let { .. }
+                | TermNode::Closure { .. }
+                | TermNode::LetWildcard(_)
+                | TermNode::Rewrite { .. } => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
+    role.key(ordinal)
+}
+
+fn body_error(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::UnsupportedRuleBody { reason }, span)
+}

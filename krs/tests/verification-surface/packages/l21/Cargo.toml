@@ -1,0 +1,21 @@
+[package]
+name = "krs-verification-surface-l21"
+description = "K tutorial lesson 1.21: rules with existential results and ensures conditions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_verification_surface_l21"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-LESSON-21"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

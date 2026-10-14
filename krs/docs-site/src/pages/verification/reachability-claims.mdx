@@ -1,0 +1,307 @@
+---
+title: All-path reachability claims
+description: State preconditions, postconditions, existential results, anonymous values, and circular proof claims.
+---
+
+# All-path reachability claims
+
+{/* tour-concepts: claims claim-binders */}
+
+A reachability claim specifies what every allowed execution path from a symbolic initial state must eventually establish.
+It is a proof sentence, not another transition rule.
+
+## Branching results
+
+This complete IMP claim permits either branch result while requiring the final value to satisfy a postcondition:
+
+```rust
+// [!include ~/snippets/claim-branching.rs]
+```
+
+`all_paths` selects the supported all-path modality.
+The left-side function argument describes the initial configuration and the return value describes the target pattern.
+
+`#[k::exists(n: Int)]` declares a result witness.
+`#[k::ensures]` constrains that witness after reachability, while `k::anonymous!` creates a symbolic value whose identity is intentionally not bound for later use.
+An anonymous value is allowed only in the claim subject—the initial, left-hand configuration—and never in the result.
+The same helpers on a `#[k::rule]` give a transition a symbolic result instead of a witness: the rule introduces a fresh value and the ensures condition constrains it on every later path (see [existential results](/reference/language#existential-results-and-ensures)).
+A claim's target must not match its start.
+K checks the target before every step, the start included, so a claim from `foo` to `?Y` with `ensures ?Y <Int 5` is proven once a rule rewrites `foo` to a symbolic integer below five, since `foo` itself is not an `Int`.
+A claim from `0` to `?Y` with `ensures ?Y =/=Int 0`, by contrast, is never proven, even though every rule from `0` reaches a non-zero integer: `0` already unifies with `?Y`, the condition fails there, and both Java `kprove` and `krs prove` report the claim stuck at depth 0.
+Map and cell frames preserve state that the claim does not constrain.
+
+`#[k::requires]` on a claim is a symbolic precondition.
+It does not run a host assertion before invoking a Rust function.
+
+## Circular claims
+
+Loop proofs may deliberately use circularity:
+
+```rust
+// [!include ~/snippets/claim-circular.rs]
+```
+
+`circularity` opts the claim into the backend's circular proof discipline.
+It is not permission for an unguarded recursive Rust call.
+
+## Trusted claims
+
+A `trusted` claim is an axiom: the prover assumes it and never proves it, like `unsafe` in Rust or `assume` in Verus.
+
+```rust
+#[k::claim(all_paths, label = "helper-axiom", trusted)]
+fn helper_axiom(
+    i: Term<Int>,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::Helper(i), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(int::add(i, 1), ..tail), ..state }
+}
+```
+
+K writes it `claim [helper-axiom]: <k> helper ( I:Int ) ~> Tail:K => I:Int +Int 1 ~> Tail:K </k> [trusted]`.
+Other claims may apply it: when `call(I)` steps to `helper(I)` and no rule defines `helper`, the claim `call(I) => I +Int 1` is proved through `helper-axiom`, and without it the proof stops at `helper(I)`.
+`krs prove` reports such a claim `trusted`, never `proven`, and exits 0 when every selected claim is proven or trusted; every prove run and every `krs build --backend haskell` warns once per trusted claim (`krs::emit::trusted-claim`), so an assumption is never silent.
+`trusted` is a bare flag, legal with `all_paths` or `one_path`, and rejected with `circularity`, because an assumed claim is not proved and circularity has no effect on it.
+Use a trusted claim to split a proof into parts, never to make one pass: nothing checks that the axiom holds.
+
+## Functions the solver understands
+
+A claim whose last step leaves a Boolean such as `myAbs(I) >=Int 0` needs Z3 to decide it, and Z3 knows Int arithmetic but not your functions.
+`smt_hook` gives a function a meaning in Z3's language, SMT-LIB, and `smtlib` only a name:
+
+```rust
+#[k::function(total, sort = Int, syntax = "myAbs({value})", smt_hook = "(ite (< {value} 0) (- 0 {value}) {value})")]
+pub struct MyAbs {
+    pub value: Term<Int>,
+}
+```
+
+With the hook, the claim `go(I) => true` after the rule `go(I) => myAbs(I) >=Int 0` is proved although `myAbs` has no equation; with `smtlib = "myAbs"` in its place Z3 sees an unknown function and the claim fails, on both `krs prove` and Java `kprove`.
+Like a trusted claim, neither key is checked: a wrong template proves wrong claims (see [SMT translations of functions](/reference/language#smt-translations-of-functions)).
+
+## Ground and symbolic arguments
+
+A simplification fires on any term its left side matches, and in a proof most terms contain variables.
+`concrete(x)` restricts it to a ground `x`, and `smt_lemma` gives the same equation to Z3 as an axiom:
+
+```rust
+#[k::function(total, sort = Int, syntax = "h({value})", smtlib = "probeH")]
+pub struct H {
+    pub value: Term<Int>,
+}
+
+#[k::simplification(concrete(x))]
+fn h_concrete(k::term![H(x)]: Term<Int>) -> Term<Int> {
+    int::add(x, 1)
+}
+```
+
+After the rule `go(I) => h(I) >Int 3`, the claim `go(5) => true` is proved: the prover rewrites `h(5)` to `6`.
+The claim `go(I) => true` with `requires I >Int 2` is not, on `krs prove` or Java `kprove`: `h(I)` is never rewritten, and Z3 sees only the uninterpreted `probeH(I)`.
+Without `concrete(x)` the simplification also rewrites `h(I)` and both claims are proved; with `#[k::simplification(concrete(x), smt_lemma)]` the prover still leaves `h(I)` alone, but Z3 knows `probeH(x) = x + 1` for every `x` and proves the claim.
+Z3 can use an `smt_lemma` only when it can see every function the lemma mentions, which is why `h` declares `smtlib`; like a trusted claim, the lemma is assumed, not checked (see [Concrete, symbolic, and SMT lemmas](/reference/language#concrete-symbolic-and-smt-lemmas)).
+
+## Spec modules
+
+K proves claims with `kprove`, which reads a different file from the one `kompile` reads.
+The definition is the language; a spec module is a proof input that imports the definition explicitly and may add only claims, simplification lemmas, and tokens for sorts the definition already declares.
+In KRS a spec module is an inline Rust `mod` carrying `#[k::spec_module]`:
+
+```rust
+// The verification package depends on IMP. Its definition module, IMP-VERIFICATION,
+// adds one token to `Id`, as upstream imp-verification.k does.
+#[k::token(regex = r"\$[a-zA-Z0-9_]+")]
+pub type DollarId = k::builtin::Id;
+
+#[k::spec_module(name = "IMP-VERIFICATION-LEMMAS", imports = [crate])]
+pub mod lemmas {
+    use super::*;
+    #[k::simplification]
+    fn lt_irreflexive(k::term![int::lt(value, value)]: Term<Bool>) -> Term<Bool> {
+        false
+    }
+}
+
+#[k::spec_module(name = "IMP-SUM-SPEC", imports = [lemmas])]
+mod sum_spec {
+    use super::*;
+    #[k::claim(all_paths, label = "dollar-sum-spec", circularity)]
+    #[k::requires(int::ge(n, 0))]
+    fn dollar_sum_spec(/* the sum loop over $n and $s */) -> Machine { /* .. */ }
+}
+```
+
+`krs emit-k` writes the author spec modules to `spec.k` in import order, before the generated `<MAIN>-SPEC` that holds the claims outside every spec module:
+
+```text
+module IMP-SUM-SPEC
+  imports IMP-VERIFICATION-LEMMAS
+  ...
+  claim [dollar-sum-spec]:
+    <k> while ( ! ($n <= 0) ) { $s = $s + $n ; $n = $n + - 1 ; } ~> Tail:K => .K ~> Tail:K </k>
+    ...
+endmodule
+```
+
+`krs prove --spec-module IMP-SUM-SPEC` proves its claims, as `kprove spec.k --spec-module IMP-SUM-SPEC` does, and the claim labels are module-qualified (`IMP-SUM-SPEC.dollar-sum-spec`).
+Without `--spec-module`, `krs prove` proves the generated `<MAIN>-SPEC`.
+
+In Rust terms, `mod` gives the scope and `imports = [..]` is K's import: `crate` names this package's semantics module, a dependency crate root names that package's, and a spec module path names that spec module; rustc checks every path.
+A Rust `use` never changes what K sees.
+The name defaults to `<k-namespace>-<UPPER-KEBAB(mod name)>`.
+
+An identifier in a spec-module claim must be lexed by a token production the module sees, because K parses the module's claims with its own grammar and `Id` has no identifier syntax outside programs.
+That is why the definition adds the `$`-identifier token: the claim can write `$n` where a claim outside a spec module needs `#token("$n","Id")`.
+The token may instead live in the spec module itself when only its proofs need the names; `kompile` then never sees it.
+
+A package may hold nothing but spec modules, as a K lesson's `-spec.k` file adds claims to a language it does not change.
+This lesson package depends on lesson 1.22's language crate and adds one claim:
+
+```rust
+// Cargo package `krs-verification-surface-l22-lesson`, k-namespace "KRS-L22-LESSON",
+// with a Cargo dependency on the language package `krs-verification-surface-l22`.
+use krs_verification_surface_l22::{Machine, StmtSyntax};
+
+#[k::spec_module(name = "LESSON-SPEC", imports = [crate])]
+mod lesson_spec {
+    use super::*;
+    #[k::token(regex = r"\$[a-zA-Z0-9_]+")]
+    pub type DollarId = k::builtin::Id;
+    #[k::claim(all_paths, label = "dollar-assign")]
+    fn dollar_assign(/* $n = N; $m = M; stores N and M under $n and $m */) -> Machine { /* .. */ }
+}
+```
+
+The package's definition module is emitted empty and imports the language, so `definition.k` is the language and nothing else; `spec.k` holds the token and the claim:
+
+```text
+module KRS-L22-LESSON
+  imports KRS-L22
+  imports KRS-L22-LESSON-SYNTAX
+endmodule
+```
+
+```text
+module LESSON-SPEC
+  imports KRS-L22-LESSON
+  ...
+  syntax Id ::= r"\\$[a-zA-Z0-9_]+" [token]
+
+  claim [dollar-assign]:
+    <k> $n = N:Int ; $m = M:Int ; ~> Tail:K => .K ~> Tail:K </k>
+    <store> S:Map => S:Map [ $n <- N:Int ] [ $m <- M:Int ] </store>
+endmodule
+```
+
+`krs prove --spec-module LESSON-SPEC` and `kprove spec.k --spec-module LESSON-SPEC` both prove it.
+
+KRS rejects, with `krs::analysis::invalid-spec-module`, a sort, constructor, function, rule, equation, or configuration in a spec module, an `smt_lemma` lemma there (kore-exec hands only the definition's lemmas to Z3), an import cycle, a spec module whose imports never reach the definition's main module, a reused module name, and an identifier no visible token lexes.
+Spec modules do not nest, and only the main package's spec modules are part of a build: a dependency's spec modules are its own proof inputs.
+
+A spec module sees only the definition's public syntax.
+A production whose Rust item is not `pub` is K `private`, and K hides private syntax from every importing module, proof modules included.
+Rust lets a spec module inside the crate name such an item, so KRS checks it instead: a claim, here or in `<MAIN>-SPEC`, or a simplification lemma that names a private production is rejected with `krs::analysis::private-production-in-spec`; make the production `pub` and mark it `internal`.
+
+## Matching-logic predicates
+
+K has two kinds of truth.
+`int::eq(a, b)` is an object-language Bool: a value a rule computes, stores, and branches on.
+`ml::equals(a, b)` is a statement about what two patterns denote, K's `{ A #Equals B }`, which only the prover reads.
+The connectives live in `k::ml` and are function shaped, like the builtin operations, with no operator or method sugar:
+
+| Rust | K | Meaning |
+| --- | --- | --- |
+| `ml::top()`, `ml::bottom()` | `#Top`, `#Bottom` | always and never |
+| `ml::not(p)` | `#Not ( P )` | set complement, not `bool::not` |
+| `ml::and(p, q)`, `ml::or(p, q)`, `ml::implies(p, q)` | `P #And Q`, `P #Or Q`, `P #Implies Q` | predicate connectives |
+| `ml::equals(t, u)` | `{ T #Equals U }` | two terms of one sort denote the same value |
+| `ml::ceil(t)` | `#Ceil ( T )` | `t` denotes something: it is defined |
+| `ml::exists(\|q: Int\| p)` | `#Exists Q:Int . P` | a quantifier, not a callback |
+
+An object Bool enters matching logic only as `ml::equals(true, b)`, K's `{ true #Equals B }`.
+Predicates are written in claim `requires` and `ensures`, in a simplification's `requires`, and on both sides of a predicate simplification, whose subject and result have type `ml::Predicate`:
+
+```rust
+#[k::spec_module(name = "KRS-L22-LEMMAS", imports = [crate])]
+pub mod lemmas {
+    use super::*;
+    /// Lesson 1.22's lemma: one map updated at one key to two values is equal only if the values are.
+    #[k::simplification]
+    fn update_injective(
+        m: Term<Map>, key: Term<KItem>, v: Term<KItem>, w: Term<KItem>,
+        k::term![ml::equals(map::update(m, key, v), map::update(m, key, w))]: Predicate,
+    ) -> Predicate {
+        ml::equals(v, w)
+    }
+    /// Definedness: `pf(x)` denotes a value exactly when `x` is positive.
+    #[k::simplification]
+    fn pf_defined(k::term![ml::ceil(Pf(x))]: Predicate) -> Predicate {
+        ml::equals(true, int::gt(x, 0))
+    }
+}
+
+#[k::spec_module(name = "KRS-L22-CLAIMS", imports = [lemmas])]
+mod spec {
+    use super::*;
+    #[k::claim(all_paths, label = "div-eq")]
+    #[k::exists(r: Int)]
+    #[k::requires(ml::not(ml::equals(b, 0)))]
+    #[k::ensures(ml::equals(r, int::div(a, b)))]
+    fn div_eq(a: Term<Int>, b: Term<Int>,
+        k::cells! { k: k::configuration::KCell(Op::Div(a, b), tail @ ..), state @ .. }: Machine) -> Machine {
+        k::cells! { k: k::configuration::KCell(r, ..tail), ..state }
+    }
+}
+```
+
+```text
+  rule { M:Map [ Key:KItem <- V:KItem ] #Equals M:Map [ Key:KItem <- W:KItem ] } => { V:KItem #Equals W:KItem } [simplification, ..]
+  rule #Ceil ( pf ( X:Int ) ) => { true #Equals X:Int >Int 0 } [simplification, ..]
+  claim [div-eq]:
+    <k> div ( A:Int , B:Int ) ~> Tail:K => ?R:Int ~> Tail:K </k>
+    requires #Not ( { B:Int #Equals 0 } )
+    ensures { ?R:Int #Equals A:Int /Int B:Int }
+```
+
+A quantified postcondition is `#[k::ensures(ml::exists(|q: Int| ml::and(ml::equals(r, q), ml::equals(true, int::lt(q, 5)))))]`, emitted `ensures #Exists Q:Int . ( { ?R:Int #Equals Q:Int } #And { true #Equals Q:Int <Int 5 } )`.
+The closure's parameter is a local binder visible only in its body; a closure is never a K function, and it is valid nowhere but as the one argument of `ml::exists`.
+
+A predicate simplification is an unchecked axiom, not a match arm: the prover trusts it, so a wrong lemma proves wrong claims.
+Its left side is rooted at `ml::equals` or `ml::ceil`, because K's simplifier rewrites an equality or a definedness condition.
+Lesson 1.22's `branch` claim needs `update_injective`: without it the prover cannot see that two stores are equal only when the value stored last is, and the claim fails on both routes.
+
+Prover residuals use the same vocabulary, so read them back through it: `#Not ( { true #Equals A <Int B } )` is `ml::not(ml::equals(true, int::lt(a, b)))`.
+
+KRS rejects a predicate in a transition or equation condition (`krs::analysis::ml-placement`; rule conditions stay object Bool), and, with `krs::analysis::invalid-ml-predicate`, a predicate as an operand of an object function, a Bool term where a predicate is expected (write `ml::equals(true, <term>)`), `ml::equals` operands without a common sort, a predicate simplification whose left side is not rooted at `ml::equals` or `ml::ceil`, and an `ml::exists` binder that reuses a sentence binder's name.
+An `ml::exists` closure without exactly one typed parameter, a closure anywhere else, an `ml::` item outside the connectives above, and an `ml::Predicate` subject or result on anything but a simplification are expansion errors.
+`#Floor`, `#In`, and set variables are not part of `k::ml`.
+
+## Capability boundary
+
+`krs emit-k` writes claims to `spec.k`, in their spec modules or in a generated `<MAIN>-SPEC` module, beside the claim-free `definition.k`, because K accepts claims only outside an executable definition.
+Claims are proof obligations, so only a proving backend consumes them.
+LLVM executes but does not prove: `krs build --backend llvm` omits every claim from its KORE and reports how many it omitted, so a definition with claims still builds a concrete interpreter.
+
+The table below describes repository-qualified claim processing on the Haskell route, not just whether a token parses:
+
+| Claim form | Collection and emitted K | Haskell route |
+| --- | --- | --- |
+| All-path, without existential binders | Current; the complete IMP and KWasm fixtures provide positive authored specimens. | Current; the complete IMP proof suite records bounded outcomes including a proved `addition-1` claim. KWasm's additional pinned K reference proof runs only when its gate receives `--java-reference`. |
+| All-path with existential results, anonymous values, or `ensures` | Current; the complete IMP fixture preserves binders, uses, and source maps. | Current; the complete IMP proof suite has exact native/reference KORE parity and pinned bounded proof outcomes, including a proved `branching` claim. |
+| Circular all-path | Current; the complete IMP fixture authors two specimens. | Current but proof-result-sensitive: `sum-spec` is proved, while `two-sum-spec` retains one incomplete frontier at depth 100 and branching bound 64. |
+| Trusted all-path | Current; the verification-surface fixture emits `[trusted]`. | Current; `krs prove` reports the trusted claim `trusted` and proves the claim that applies it, and Java `kprove` proves the same spec; without the trusted claim both routes fail. |
+| One-path | Accepted by parsing, lowering, and emission. | Unqualified; there is no positive end-to-end proof specimen. |
+| In an author spec module | Current; the verification-surface fixture emits two spec modules in import order before the generated module, and a package of only spec modules with an empty definition module. | Current; `krs prove --spec-module IMP-SUM-SPEC` and Java `kprove --spec-module IMP-SUM-SPEC` both prove the circular sum claim over `$`-identifiers, and both prove `LESSON-SPEC` in a package of only spec modules. |
+| With matching-logic `requires`, `ensures`, or predicate-simplification lemmas | Current; the verification-surface fixture emits K tutorial lesson 1.22's lemmas and claims with `#Equals`, `#Not`, `#And`, `#Ceil`, and `#Exists`. | Current; `krs prove` and Java `kprove` both prove `branch`, `div-eq`, and the `#Exists` postcondition, and both fail `branch` without the lemma module. |
+
+“Current” does not mean every true-looking claim closes within every bound.
+A proved result, an incomplete frontier, a false claim, and exhausted resources are distinct observations.
+
+The Haskell cells refer to `krs build --backend haskell` artifacts plus the repository's pinned native `kprove` harnesses.
+Those cells describe the named K/KORE consumers and repository harnesses; `krs prove` proves the same claims in-process with the k-rust backend and reports k-rust's verdicts.
+One-path remains unqualified until a positive end-to-end fixture establishes its intended backend route.
+
+Malformed binders and ill-sorted conditions fail during authoring or semantic checking.
+A well-formed claim may still fail because it is false or because proof resources are insufficient; those outcomes must not be collapsed into one diagnostic.
+
+Next, [language-scale state and builtins](/advanced/language-scale) introduces the qualified constructs used by KWasm, KMIR, and KEVM extracts.

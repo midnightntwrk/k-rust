@@ -1,0 +1,26 @@
+[package]
+name = "krs-expand-wasm"
+description = "Browser-lesson KRS expander: whole-file expansion behind a JSON Wasm ABI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+krs-diagnostic = { path = "../krs-diagnostic" }
+krs-expand = { path = "../krs-expand" }
+krs-ir = { path = "../krs-ir" }
+# Without the default `abi` feature, so this module does not re-export the
+# policy module's `krs_lesson_policy_*` symbols.
+krs-lesson-policy = { path = "../krs-lesson-policy", default-features = false }
+krs-wasm-abi = { path = "../krs-wasm-abi" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = { workspace = true }
+syn = { workspace = true, features = ["full", "parsing"] }
+
+[lints]
+workspace = true

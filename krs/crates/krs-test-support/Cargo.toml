@@ -1,0 +1,20 @@
+[package]
+name = "krs-test-support"
+description = "Shared assertions and fixture support for KRS tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+test = false
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tempfile = "3.27.0"
+serde_json.workspace = true
+toml_edit = { workspace = true, features = ["parse"] }

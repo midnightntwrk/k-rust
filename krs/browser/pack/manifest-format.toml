@@ -1,0 +1,184 @@
+# Format of pack-manifest.toml, the manifest of a KRS browser dependency pack.
+#
+# Producer: browser/pack/build.sh (via manifest.py assemble). Consumers: the browser/worker
+# compiler pipeline, the tour-minimal bundle parity gate, and tests/browser-pack/verify.py.
+# This file is the normative description; manifest.py is the reference writer and `manifest.py verify`
+# the reference checker. Field types use TOML names. A consumer must reject a manifest whose
+# schema_version or manifest_kind differs from the values below.
+#
+# Conventions:
+# - "pack path": a relative path from the pack root (the directory holding pack-manifest.toml),
+#   using "/" separators. Every file of the pack except pack-manifest.toml is an [[artifact]].
+# - "virtual path": an absolute path inside the build namespace or the browser VFS (/krs, /sysroot);
+#   never a host path.
+# - Hashes are lowercase hexadecimal SHA-256 of the exact file bytes.
+# - The manifest is deterministic: two builds from the same inputs produce byte-identical manifests.
+#   It contains no timestamps and no host paths; build statistics live outside the pack.
+
+schema_version = 2
+manifest_kind = "krs-browser-lesson-pack"
+
+# ------------------------------------------------------------------ pack layout
+
+[layout]
+"pack-manifest.toml" = "this manifest"
+"deps/" = "target rlibs for wasm32-wasip1 (role target-rlib) and the sysroot supplement (role sysroot-supplement)"
+"proc-macro-meta/" = "metadata-only proc-macro artifacts, lib<crate>-<disambiguator>.rmeta (role proc-macro-metadata)"
+"krs/crates/krs/" = "framework sources served at /krs/crates/krs/ (role framework-source)"
+"sysroot/sysroot-wasip1.bundle" = "RIWB1 sysroot bundle, materialized at /sysroot (role sysroot-bundle)"
+"compiler/rustc.wasm" = "the wasip1-hosted rustc that accepts this pack (role compiler)"
+
+# ------------------------------------------------------------------ top level
+
+[top_level]
+schema_version = { type = "integer", value = 2 }
+manifest_kind = { type = "string", value = "krs-browser-lesson-pack" }
+pack_id = { type = "string", format = "sha256:<hex>", rule = "SHA-256 of the UTF-8 text formed by sorting the lines \"<artifact.sha256>  <artifact.path>\\n\" (two spaces, as sha256sum prints) over every [[artifact]]" }
+
+# ------------------------------------------------------------------ tables
+
+[tables.producer]
+description = "How the pack was built. Informational except krs_revision, which the tour-minimal parity gate compares with the oracle revision."
+builder = "string: always \"browser/pack/build.sh\""
+krs_revision = "string: full commit id exported with git archive"
+krs_source = "string: prose description of the source mount"
+krs_worktree_clean = "boolean: always true (the source is a git archive of a commit)"
+virtual_root = "string: \"/krs\""
+cargo_version = "string: `cargo -V` of the Cargo that drove the twin"
+cargo_args = "array of strings: Cargo arguments"
+cargo_env = "inline table of strings: the fixed Cargo/rustc environment inside the namespace"
+rustflags = "array of strings: flags for target (wasm32-wasip1) units"
+host_rustflags = "array of strings: flags for host units (build scripts, proc macros); empty"
+cargo_lock_sha256 = "string: hash of browser/pack/Cargo.lock"
+registry_index = "string: crates.io source directory name inside the Cargo home"
+
+[tables.compiler]
+description = "Compiler identity. A consumer must run compiler/rustc.wasm, whose sha256 is rustc_wasm_sha256; rlibs are accepted only by a rustc whose version string equals cfg_version (E0514 otherwise)."
+fork_repository = "string"
+fork_revision = "string: commit-hash of both compilers"
+fork_commits = "array of strings: \"<sha> <subject>\" for the fork patch commits (FORK_PATCH_BASE..HEAD); empty when build.sh ran without FORK_SOURCE"
+cfg_version = "string: rustc version string without the \"rustc \" prefix, e.g. \"1.96.0-dev (195111dff 2026-09-23)\""
+native_twin_rustc_vv = "array of strings: `rustc -vV` lines of the native twin"
+wasip1_host_rustc_vv = "array of strings: `rustc -vV` lines of rustc.wasm (first line equals the twin's)"
+target = "string: \"wasm32-wasip1\""
+target_codegen_backend = "string: \"llvm\" (the twin's default backend)"
+rustc_wasm = "string: pack path of the compiler artifact"
+rustc_wasm_sha256 = "string"
+
+[tables.sysroot]
+description = "The sysroot the rlibs were compiled against. The browser must mount exactly this bundle at `mount`."
+bundle = "string: pack path of the bundle artifact"
+bundle_sha256 = "string: equals the bundle artifact's sha256"
+mount = "string: \"/sysroot\""
+files = "integer: number of [[sysroot.file]] entries"
+twin_identical = "integer: entries byte-identical to the twin's stage1 file of the same path"
+
+[tables."sysroot.file"]
+description = "Array of tables, one per file in the bundle index (manifest.json excluded), sorted by path."
+path = "string: path inside the sysroot, e.g. lib/rustlib/wasm32-wasip1/lib/libstd-<h>.rlib"
+bytes = "integer"
+sha256 = "string"
+twin = "string: \"identical\" | \"absent\" (the twin has no file at that path); \"differs\" fails the build"
+
+[tables.direct_rustc]
+description = """How to call rustc.wasm on lesson and collector sources against this pack. Paths in \
+dependency_search_paths and externs are pack paths: prefix them with the directory where the pack is \
+mounted in the compiler's VFS (the worker uses /pack). Lint flags and CARGO_* variables are lesson properties and are not recorded here."""
+path_base = "string: \"pack root\""
+edition = "string: \"2024\" (--edition)"
+target = "string: --target"
+sysroot = "string: --sysroot (the sysroot.mount)"
+panic = "string: -C panic=<value>"
+dependency_search_paths = "array of pack paths: each becomes -L dependency=<mount>/<path>"
+extra_flags = "array of strings: always passed, e.g. -Zproc-macro-metadata-only"
+rustc_bootstrap_required = "boolean: false; the fork's -dev channel accepts -Z flags without RUSTC_BOOTSTRAP"
+collector_flags = "array of strings: additional flags for the collector binary (-C opt-level=2)"
+framework_sources = "array of virtual paths the collector reads at run time; each is served from the framework-source artifact whose virtual_path matches"
+
+[tables."direct_rustc.externs"]
+description = "Crate aliases to pack paths. Keys: k (the lesson's facade), __krs_host_runtime and __krs_collector_runtime (the generated collector, backed by krs-collector)."
+k = "pack path of the krs rlib"
+__krs_host_runtime = "pack path of the krs rlib"
+__krs_collector_runtime = "pack path of the krs_collector rlib"
+
+[tables.checks]
+description = "Build-time assertions; build.sh fails before writing the manifest if any is violated."
+so_files = "integer: 0"
+inventory_in_lock = "boolean: false"
+krs_depends_on_inventory = "boolean: false"
+krs_depends_on_rustversion = "boolean: false"
+proc_macro_hashes_match_dependents = "boolean: true"
+
+[tables.counts]
+description = "Number of artifacts per role (keys are the role names)."
+
+[tables.paths]
+declared = """array of inline tables { pattern, class, roles, note }: the absolute paths allowed in \
+artifacts. pattern is a Python regular expression matched at the start of a path found by the scan; roles \
+limits the artifact roles (empty: all). `manifest.py scan` fails on any other path and on any raw \
+occurrence of the build host's own paths."""
+
+[tables.artifact]
+description = "Array of tables, one per pack file except the manifest, sorted by path."
+path = "string: pack path (required)"
+role = "string: one of the roles below (required)"
+bytes = "integer (required)"
+sha256 = "string (required)"
+crate_name = "string: target-rlib, proc-macro-metadata, sysroot-supplement"
+package_id = "string: Cargo package id (target-rlib, proc-macro-metadata); \"twin sysroot wasm32-wasip1\" for sysroot-supplement"
+features = "array of strings: Cargo features of the unit (target-rlib, proc-macro-metadata)"
+source = "string: the unit's output path in the build namespace (target-rlib) or <stage1>-relative source (sysroot-supplement)"
+svh = "string: crate hash from the crate's metadata (target-rlib, proc-macro-metadata)"
+virtual_path = "string: framework-source only; where the collector VFS serves the file"
+format = "string: sysroot-bundle only; \"RIWB1\""
+mount = "string: sysroot-bundle only; \"/sysroot\""
+host = "string: compiler only; \"wasm32-wasip1\""
+
+[tables."artifact.provenance"]
+description = "Present on proc-macro-metadata artifacts only: how the metadata-only file was made (the library's .rustc payload, since an --emit=metadata rerun has another crate hash)."
+source_library = "string: the proc-macro .so in the build namespace (it is not shipped)"
+source_library_sha256 = "string"
+section = "string: \".rustc\""
+section_bytes = "integer"
+payload_offset = "integer: 16 (8-byte METADATA_HEADER plus u64 length)"
+payload_bytes = "integer: the artifact's size"
+host_triple = "string: the proc macro's host (x86_64-unknown-linux-gnu)"
+recorded_by = "array of strings: crate names of pack rlibs that record this crate (kind MacrosOnly) with the same svh"
+
+[tables.build_script]
+description = "Array of tables, one per executed build script, sorted by package_id then out_dir."
+package_id = "string"
+out_dir = "string: OUT_DIR in the build namespace"
+files = "integer"
+out_dir_sha256 = "string: SHA-256 of the sorted \"<sha256>  <relative path>\\n\" lines of OUT_DIR"
+
+[tables.input]
+description = "Array of tables: every input that determines the pack."
+name = "string"
+kind = "string: file | tree | git-tree | crate"
+path = "string (file, tree, git-tree): <stage1>, <fork> and /krs denote the twin directory, the fork build root, and the virtual root"
+files = "integer (tree)"
+sha256 = "string (file: file hash; tree: as build_script.out_dir_sha256; crate: the .crate archive hash, equal to its Cargo.lock checksum and verified against the Cargo cache)"
+git_tree = "string (git-tree): tree object id at krs_revision"
+source = "string (crate): Cargo source id"
+
+# ------------------------------------------------------------------ roles
+
+[roles]
+target-rlib = "wasm32-wasip1 rlib of the collector closure built by the native twin (LLVM); lives in deps/"
+sysroot-supplement = "the twin's wasm32-wasip1 libproc_macro and librustc_literal_escaper (.rlib and .rmeta), which the bundle omits and proc-macro2 needs; lives in deps/"
+proc-macro-metadata = "the proc-macro library's own .rustc metadata, loaded by rustc.wasm under -Zproc-macro-metadata-only; never invoked"
+framework-source = "a KRS source file the collector reads at run time; served at its stable virtual_path"
+sysroot-bundle = "the RIWB1 sysroot bundle of the fork build"
+compiler = "the wasip1-hosted rustc.wasm of the fork build"
+
+# ------------------------------------------------------------------ consumer contract (worker, parity gate, release checker)
+
+[consumer]
+verify = "Before use, check every [[artifact]] against bytes and sha256 and recompute pack_id; reject on mismatch (failure code pack-integrity)."
+compiler_vfs = "Mount deps/ and proc-macro-meta/ read-only under one directory (the worker uses /pack/deps and /pack/proc-macro-meta) and materialize the bundle at /sysroot."
+collector_vfs = "Serve each framework-source artifact at its virtual_path; nothing else from the pack is visible to the collector."
+lesson_rustc = "rustc.wasm <lesson> --crate-name <crate> --crate-type rlib --edition <edition> --target <target> --sysroot <sysroot> -C panic=<panic> <extra_flags> -L dependency=<mount>/<each dependency_search_path> --extern k=<mount>/<externs.k> <lesson lint flags> with CARGO_PKG_NAME, CARGO_PKG_VERSION, CARGO_MANIFEST_DIR, CARGO_CRATE_NAME in the WASI environment"
+collector_rustc = "rustc.wasm <collector> --crate-type bin <same common flags> <collector_flags> --extern <crate>=<lesson rlib> --extern __krs_host_runtime=<mount>/<externs.__krs_host_runtime> --extern __krs_collector_runtime=<mount>/<externs.__krs_collector_runtime>"
+same_revision = "The pack, the expander module, and the native oracle must come from one KRS revision, because the expander's output must match the krs-macros the pack's rlibs were built from; compare producer.krs_revision."
+reference_run = "tests/browser-backend/verify.py applies this contract under Node WASI and in headless browsers (mount /pack)."

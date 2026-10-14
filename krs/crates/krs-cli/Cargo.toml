@@ -1,0 +1,47 @@
+[package]
+name = "krs-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Cargo-native command and collection pipeline for KRS definitions"
+
+[[bin]]
+name = "krs"
+path = "src/main.rs"
+doc = false
+
+[features]
+default = ["z3-inference"]
+z3-inference = ["krs-exec/z3-inference", "krs-k-rust/z3-inference"]
+
+[dependencies]
+annotate-snippets = "0.12.16"
+krs = { path = "../krs" }
+krs-collector = { path = "../krs-collector" }
+krs-compiler = { path = "../krs-compiler" }
+krs-diagnostic = { path = "../krs-diagnostic" }
+krs-exec = { path = "../krs-exec", default-features = false }
+krs-fmt = { path = "../krs-fmt" }
+krs-ir = { path = "../krs-ir" }
+krs-ir-levels = { path = "../krs-ir-levels" }
+krs-k-rust = { path = "../krs-k-rust", default-features = false }
+krs-syntax = { path = "../krs-syntax" }
+lexopt = "0.3.2"
+proc-macro2 = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = { workspace = true }
+syn = { workspace = true, features = ["full", "parsing"] }
+tempfile = "3.27.0"
+toml_edit = { workspace = true, features = ["display", "parse"] }
+
+[dev-dependencies]
+expect-test.workspace = true
+krs-compiler = { path = "../krs-compiler", features = ["test-support"] }
+krs-ir = { path = "../krs-ir", features = ["test-support"] }
+krs-ir-levels = { path = "../krs-ir-levels", features = ["test-support"] }
+krs-test-support = { path = "../krs-test-support" }
+
+[lints]
+workspace = true

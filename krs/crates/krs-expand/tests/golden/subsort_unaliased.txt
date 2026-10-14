@@ -1,0 +1,1 @@
+error[krs::syntax::unsupported-subsort-declaration] 3:5-3:10: unsupported subsort declaration: `#[k::subsort]` names the supersort's alias and implements its marker trait: write `#[k::subsort(sort = Value)] impl ValueSort for Identifier {}`

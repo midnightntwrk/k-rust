@@ -1,0 +1,2441 @@
+//! Typed projections of emitted K artifacts.
+
+use krs_compiler::{MappedIdentity, SourceMap, SymbolMap, definition_module_imports};
+use krs_ir::{
+    ApplicationRef, DescriptorBundle, DescriptorPayload, FixedCell, FixedCellContent,
+    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind, OriginFrame,
+    ProductionAttribute, RangedOriginKind, SentenceKind,
+};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
+    RuleBodyRef, SemanticTheory, SymbolId,
+};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::{Value, json};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fs,
+    path::Path,
+};
+
+mod projections;
+
+type QueryResult = Result<Value, Box<dyn Error>>;
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum Query {
+    DescriptorDetails {
+        #[serde(default)]
+        module_path: Option<Vec<String>>,
+        #[serde(default)]
+        item_name: Option<String>,
+        #[serde(default)]
+        public_only: bool,
+    },
+    HeadRuleWalkthrough {
+        item_name: String,
+    },
+    SymbolProjection {
+        emitted_names: Vec<String>,
+    },
+    SourceToken {
+        authored: String,
+        package_relative_path: String,
+        token: String,
+        artifact: String,
+    },
+    ReplacementParity {
+        reference: String,
+        module: String,
+        module_path: Vec<String>,
+        k_namespace: String,
+        replaced_k_tail_cells: Vec<String>,
+        preserved_map_remainder_cells: Vec<String>,
+    },
+    AbsoluteStrings {},
+    Files {},
+    Modules {},
+    Capabilities {
+        route: String,
+    },
+    SemanticModules {},
+    Sentences {
+        #[serde(default)]
+        module: Option<String>,
+        #[serde(default)]
+        sentence_kind: Option<String>,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    Productions {
+        #[serde(default)]
+        module: Option<String>,
+        #[serde(default)]
+        sort: Option<String>,
+        #[serde(default)]
+        symbol: Option<String>,
+    },
+    Vocabulary {},
+    Applications {
+        #[serde(default)]
+        operation: Option<String>,
+        #[serde(default)]
+        symbol: Option<String>,
+        #[serde(default)]
+        result_sort: Option<String>,
+        #[serde(default)]
+        argument_sorts: Option<Vec<String>>,
+        #[serde(default)]
+        arguments: Option<Vec<TermPattern>>,
+    },
+    Descriptors {
+        #[serde(default)]
+        descriptor_kind: Option<String>,
+        #[serde(default)]
+        item_kind: Option<String>,
+    },
+    Symbols {
+        #[serde(default)]
+        emitted_name: Option<String>,
+        #[serde(default)]
+        identity_kind: Option<String>,
+        #[serde(default)]
+        symbol_kind: Option<String>,
+    },
+    Sources {
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default)]
+        node_kind: Option<String>,
+        #[serde(default)]
+        artifact: Option<String>,
+    },
+    DefinitionShape {},
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TermPattern {
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    sort: Option<String>,
+    #[serde(default)]
+    symbol: Option<String>,
+    #[serde(default)]
+    operation: Option<String>,
+    #[serde(default)]
+    token: Option<String>,
+    #[serde(default)]
+    variable: Option<String>,
+    #[serde(default)]
+    arguments: Option<Vec<Self>>,
+}
+
+impl TermPattern {
+    fn matches(&self, fact: &Value) -> bool {
+        [
+            (&self.kind, "kind"),
+            (&self.sort, "sort"),
+            (&self.symbol, "symbol"),
+            (&self.operation, "operation"),
+            (&self.token, "token"),
+            (&self.variable, "variable"),
+        ]
+        .iter()
+        .all(|(expected, key)| expected.as_ref().is_none_or(|value| fact[*key] == *value))
+            && self.arguments.as_ref().is_none_or(|patterns| {
+                fact["arguments"].as_array().is_some_and(|arguments| {
+                    patterns.len() == arguments.len()
+                        && patterns.iter().zip(arguments).all(|(p, a)| p.matches(a))
+                })
+            })
+    }
+}
+
+fn read<T: DeserializeOwned + Send>(directory: &Path, name: &str) -> Result<T, Box<dyn Error>> {
+    Ok(krs_ir::json::from_slice(&fs::read(directory.join(name))?)?)
+}
+fn absolute_strings(directory: &Path) -> QueryResult {
+    let mut rows = Vec::new();
+    for artifact in [
+        krs_compiler::DESCRIPTOR_ARTIFACT,
+        krs_compiler::SEMANTIC_ARTIFACT,
+        krs_compiler::DEFINITION_IR_ARTIFACT,
+        krs_compiler::SYMBOLS_ARTIFACT,
+        krs_compiler::SOURCES_ARTIFACT,
+    ] {
+        let bytes = match fs::read(directory.join(artifact)) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let value: Value = serde_json::from_slice(&bytes)?;
+        collect_absolute_strings(artifact, &value, &mut rows);
+    }
+    Ok(json!({"rows": rows}))
+}
+
+fn absolute_string_row(artifact: &str, value: &str, rows: &mut Vec<Value>) {
+    if krs_ir::DisplayPath::is_absolute_spelling(value) || value.starts_with('/') {
+        rows.push(json!({"artifact": artifact, "value": value}));
+    }
+}
+
+fn collect_absolute_strings(artifact: &str, value: &Value, rows: &mut Vec<Value>) {
+    match value {
+        Value::String(value) => absolute_string_row(artifact, value, rows),
+        Value::Array(values) => {
+            for child in values {
+                collect_absolute_strings(artifact, child, rows);
+            }
+        }
+        Value::Object(object) => {
+            for (key, child) in object {
+                absolute_string_row(artifact, key, rows);
+                collect_absolute_strings(artifact, child, rows);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn encoded<T: Serialize>(value: &T) -> Value {
+    serde_json::to_value(value).expect("IR values serialize")
+}
+fn enum_name<T: Serialize>(value: &T) -> String {
+    encoded(value)
+        .as_str()
+        .expect("enum has a string encoding")
+        .to_owned()
+}
+fn accepts(filter: Option<&str>, value: &str) -> bool {
+    filter.is_none_or(|filter| filter == value)
+}
+
+struct Context<'a> {
+    names: BTreeMap<&'a SymbolId, &'a str>,
+    cells: BTreeMap<&'a SymbolId, &'a str>,
+    hooks: BTreeMap<&'a SymbolId, String>,
+}
+impl<'a> Context<'a> {
+    fn new(definition: &'a DefinitionIr) -> Self {
+        let mut context = Self {
+            names: BTreeMap::new(),
+            cells: BTreeMap::new(),
+            hooks: BTreeMap::new(),
+        };
+        for module in definition.modules() {
+            for sentence in module.sentences() {
+                match sentence {
+                    DefinitionSentence::SyntaxSort(s) => {
+                        context
+                            .names
+                            .insert(s.symbol().id(), s.symbol().emitted_name());
+                    }
+                    DefinitionSentence::Production(p) => {
+                        context
+                            .names
+                            .insert(p.symbol().id(), p.symbol().emitted_name());
+                        for attribute in p.attributes() {
+                            if let ProductionAttribute::Hook { operation, .. } = attribute {
+                                context.hooks.insert(p.symbol().id(), enum_name(operation));
+                            }
+                        }
+                    }
+                    DefinitionSentence::Configuration(c) => context.cell_names(c.cells()),
+                    _ => {}
+                }
+            }
+        }
+        context
+    }
+    fn cell_names(&mut self, cells: &'a [FixedCell<DefinitionSortRef, SymbolId>]) {
+        for cell in cells {
+            self.cells.insert(cell.id(), cell.name());
+            if let FixedCellContent::Children { children } = cell.content() {
+                self.cell_names(children);
+            }
+        }
+    }
+    fn sort(&self, sort: &DefinitionSortRef) -> String {
+        match sort {
+            DefinitionSortRef::Declared(id) => self.names[id].to_owned(),
+            DefinitionSortRef::Builtin(sort) => sort.k_name().to_owned(),
+            DefinitionSortRef::Cell(id) => krs_ir_levels::k_surface::cell_sort_name(self.cells[id]),
+            DefinitionSortRef::Parameter(name) => name.to_string(),
+        }
+    }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive projection over the closed definition term sum."
+    )]
+    fn term(&self, term: &DefinitionTerm) -> Value {
+        let mut fact = json!({"sort":self.sort(term.sort())});
+        let (kind, arguments) = match term.kind() {
+            DefinitionTermKind::Variable { variable } => {
+                fact["variable"] = json!(variable.as_str());
+                ("variable", None)
+            }
+            DefinitionTermKind::Token { value } => {
+                fact["token"] = json!(value);
+                ("token", None)
+            }
+            DefinitionTermKind::Application {
+                application,
+                arguments,
+                instance,
+                ..
+            } => {
+                if !instance.is_empty() {
+                    fact["instance"] = json!(
+                        instance
+                            .iter()
+                            .map(|sort| self.sort(sort))
+                            .collect::<Vec<_>>()
+                    );
+                }
+                match application {
+                    ApplicationRef::Declared(id) => {
+                        fact["symbol"] = json!(self.names[id]);
+                    }
+                    ApplicationRef::Builtin(operation) => {
+                        fact["operation"] = json!(enum_name(operation));
+                    }
+                    ApplicationRef::Generated(operation) => {
+                        let (name, sort) = match operation {
+                            krs_ir::GeneratedOperation::SortPredicate(sort) => {
+                                ("sort_predicate", sort)
+                            }
+                            krs_ir::GeneratedOperation::SortProjection(sort) => {
+                                ("sort_projection", sort)
+                            }
+                        };
+                        fact["generated"] = json!(name);
+                        fact["target_sort"] = json!(self.sort(sort));
+                    }
+                }
+                ("application", Some(arguments.iter().collect::<Vec<_>>()))
+            }
+            DefinitionTermKind::KSequence { items, .. } => {
+                ("k_sequence", Some(items.iter().collect()))
+            }
+            DefinitionTermKind::Map(operands) => {
+                fact["operation"] = json!(format!("map.{}", enum_name(&operands.operation())));
+                ("map", Some(operands.operands().collect()))
+            }
+            DefinitionTermKind::List(operands) => {
+                fact["operation"] = json!(format!("list.{}", enum_name(&operands.operation())));
+                ("list", Some(operands.operands().collect()))
+            }
+            DefinitionTermKind::Set(operands) => {
+                fact["operation"] = json!(format!("set.{}", enum_name(&operands.operation())));
+                ("set", Some(operands.operands().collect()))
+            }
+            DefinitionTermKind::Cell { cell, children } => {
+                fact["cell"] = json!(self.cells[cell]);
+                ("cell", Some(children.iter().collect()))
+            }
+            DefinitionTermKind::Rewrite { from, to } => {
+                fact["from"] = self.term(from);
+                fact["to"] = self.term(to);
+                ("rewrite", None)
+            }
+            DefinitionTermKind::As { alias, pattern } => {
+                fact["alias"] = json!(alias.as_str());
+                ("as", Some(vec![pattern.as_ref()]))
+            }
+            DefinitionTermKind::Or { alternatives } => ("or", Some(alternatives.iter().collect())),
+            DefinitionTermKind::Matches {
+                subject,
+                pattern,
+                binds,
+            } => {
+                fact["subject"] = self.term(subject);
+                fact["pattern"] = self.term(pattern);
+                fact["binds"] = json!(
+                    binds
+                        .iter()
+                        .map(krs_ir::SemanticId::as_str)
+                        .collect::<Vec<_>>()
+                );
+                ("matches", None)
+            }
+            DefinitionTermKind::Let {
+                pattern,
+                value,
+                body,
+                binds,
+            } => {
+                fact["pattern"] = self.term(pattern);
+                fact["value"] = self.term(value);
+                fact["body"] = self.term(body);
+                fact["binds"] = json!(
+                    binds
+                        .iter()
+                        .map(krs_ir::SemanticId::as_str)
+                        .collect::<Vec<_>>()
+                );
+                ("let", None)
+            }
+        };
+        fact["kind"] = json!(kind);
+        if let Some(arguments) = arguments {
+            fact["arguments"] = json!(
+                arguments
+                    .into_iter()
+                    .map(|t| self.term(t))
+                    .collect::<Vec<_>>()
+            );
+        }
+        fact
+    }
+    fn operation_rows(
+        &self,
+        term: &DefinitionTerm,
+        rows: &mut Vec<Value>,
+        module: &str,
+        label: &str,
+        filter: &dyn Fn(&Value) -> bool,
+        include_arguments: bool,
+    ) {
+        if let Some((symbol, operation, arguments)) = self.operation_head(term) {
+            let hook = match term.kind() {
+                DefinitionTermKind::Application {
+                    application: ApplicationRef::Declared(id),
+                    ..
+                } => self.hooks.get(id),
+                _ => None,
+            };
+            let argument_sorts = arguments
+                .iter()
+                .map(|term| self.sort(term.sort()))
+                .collect::<Vec<_>>();
+            let mut row = json!({
+                "module": module,
+                "label": label,
+                "symbol": symbol,
+                "operation": operation,
+                "hook": hook,
+                "result_sort": self.sort(term.sort()),
+                "argument_sorts": argument_sorts,
+            });
+            if filter(&row) {
+                if include_arguments {
+                    row["arguments"] =
+                        json!(arguments.iter().map(|t| self.term(t)).collect::<Vec<_>>());
+                }
+                rows.push(row);
+            }
+            for child in arguments {
+                self.operation_rows(child, rows, module, label, filter, include_arguments);
+            }
+            return;
+        }
+        let children = match term.kind() {
+            DefinitionTermKind::KSequence { items, .. } => items,
+            DefinitionTermKind::Cell { children, .. } => children,
+            DefinitionTermKind::Rewrite { from, to } => {
+                self.operation_rows(from, rows, module, label, filter, include_arguments);
+                self.operation_rows(to, rows, module, label, filter, include_arguments);
+                return;
+            }
+            _ => return,
+        };
+        for child in children {
+            self.operation_rows(child, rows, module, label, filter, include_arguments);
+        }
+    }
+    /// The symbol or operation name and the operands of an application or collection term.
+    fn operation_head<'t>(
+        &self,
+        term: &'t DefinitionTerm,
+    ) -> Option<(Option<String>, Option<String>, Vec<&'t DefinitionTerm>)> {
+        match term.kind() {
+            DefinitionTermKind::Application {
+                application: ApplicationRef::Declared(id),
+                arguments,
+                ..
+            } => Some((
+                Some(self.names[id].to_owned()),
+                None,
+                arguments.iter().collect(),
+            )),
+            DefinitionTermKind::Application {
+                application: ApplicationRef::Builtin(operation),
+                arguments,
+                ..
+            } => Some((None, Some(enum_name(operation)), arguments.iter().collect())),
+            DefinitionTermKind::Map(operands) => Some((
+                None,
+                Some(format!("map.{}", enum_name(&operands.operation()))),
+                operands.operands().collect(),
+            )),
+            DefinitionTermKind::List(operands) => Some((
+                None,
+                Some(format!("list.{}", enum_name(&operands.operation()))),
+                operands.operands().collect(),
+            )),
+            DefinitionTermKind::Set(operands) => Some((
+                None,
+                Some(format!("set.{}", enum_name(&operands.operation()))),
+                operands.operands().collect(),
+            )),
+            _ => None,
+        }
+    }
+}
+
+fn sentence_kind(sentence: &DefinitionSentence) -> &'static str {
+    match sentence {
+        DefinitionSentence::SyntaxSort(_) => "syntax_sort",
+        DefinitionSentence::Subsort(_) => "subsort",
+        DefinitionSentence::Production(_) => "production",
+        DefinitionSentence::Precedence(_) => "precedence",
+        DefinitionSentence::Associativity(_) => "associativity",
+        DefinitionSentence::Configuration(_) => "configuration",
+        DefinitionSentence::ContextAlias(_) => "context_alias",
+        DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Claim => "claim",
+        DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Context => "context",
+        DefinitionSentence::Rule(_) => "rule",
+        DefinitionSentence::Lexical(_) => "lexical",
+        DefinitionSentence::Layout(_) => "layout",
+        DefinitionSentence::Raw(_) => "raw",
+    }
+}
+
+fn frame_fact(frame: &krs_ir::CellContentFrame) -> Value {
+    let (kind, binding) = match frame {
+        krs_ir::CellContentFrame::Exact => ("exact", None),
+        krs_ir::CellContentFrame::KSequenceTail { binding, .. } => {
+            ("k_sequence_tail", binding.as_ref())
+        }
+        krs_ir::CellContentFrame::MapRemainder { binding, .. } => {
+            ("map_remainder", binding.as_ref())
+        }
+        krs_ir::CellContentFrame::ListRemainder { .. } => ("list_remainder", None),
+    };
+    json!({"kind":kind,"binding":binding})
+}
+
+fn rule_body(
+    context: &Context<'_>,
+    body: RuleBodyRef<'_, krs_ir_levels::DefinitionLevel>,
+) -> Value {
+    match body {
+        RuleBodyRef::Term(term) => json!({
+            "sort": context.sort(term.sort()),
+            "kind": "rewrite",
+            "from": context.term(term.from()),
+            "to": context.term(term.to()),
+        }),
+        RuleBodyRef::Configuration { body, .. } => {
+            // Each cell-level part: a fixed clause, a present optional cell, or
+            // an instance's child (KF-023); a removed cell has no `to`, a
+            // created one no `from`.
+            let clauses = body
+                .parts()
+                .into_iter()
+                .map(|part| match part {
+                    krs_ir::ClausePart::Matched {
+                        cell,
+                        before,
+                        after,
+                        frame,
+                        ..
+                    } => {
+                        // A single-body clause (KF-011) projects to its images.
+                        let (from, to) = match after {
+                            krs_ir::PartPost::Preserve => (before.clone(), Some(before.clone())),
+                            krs_ir::PartPost::Replace(term) => (before.clone(), Some(term.clone())),
+                            krs_ir::PartPost::Local => {
+                                (before.pre_pattern(), Some(before.post_term()))
+                            }
+                            krs_ir::PartPost::Removed => (before.clone(), None),
+                        };
+                        json!({
+                            "cell": context.cells[cell],
+                            "from": context.term(&from),
+                            "to": to.map(|to| context.term(&to)),
+                            "frame": frame_fact(frame),
+                        })
+                    }
+                    krs_ir::ClausePart::Written { cell, term, .. } => json!({
+                        "cell": context.cells[cell],
+                        "from": null,
+                        "to": context.term(term),
+                        "frame": frame_fact(&krs_ir::CellContentFrame::Exact),
+                    }),
+                })
+                .collect::<Vec<_>>();
+            json!({"kind": "configuration_rewrite", "clauses": clauses})
+        }
+        // A predicate simplification (KF-039): the operand terms of each side.
+        RuleBodyRef::Predicate(body) => {
+            let terms = |predicate: &krs_ir_levels::DefinitionMlPredicate| {
+                predicate
+                    .terms()
+                    .into_iter()
+                    .map(|term| context.term(term))
+                    .collect::<Vec<_>>()
+            };
+            json!({
+                "kind": "predicate_rewrite",
+                "from": terms(body.lhs()),
+                "to": terms(body.rhs()),
+            })
+        }
+    }
+}
+/// The cells an equation's function context reads (KF-025).
+fn function_context_cells(
+    context: &Context<'_>,
+    function_context: &krs_ir_levels::DefinitionFunctionContext,
+) -> Value {
+    function_context
+        .cells()
+        .cells()
+        .iter()
+        .map(|cell| {
+            json!({
+                "cell": context.cells[cell.cell()],
+                "pattern": context.term(cell.pattern()),
+                "frame": frame_fact(cell.frame()),
+            })
+        })
+        .collect()
+}
+
+fn initializer_rows(
+    context: &Context<'_>,
+    initializers: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
+    rows: &mut Vec<Value>,
+) {
+    for cell in initializers {
+        match cell.content() {
+            FixedInitializerContent::Term { term } => {
+                rows.push(json!({"cell":context.cells[cell.cell()],"term":context.term(term)}));
+            }
+            FixedInitializerContent::Children { children } => {
+                initializer_rows(context, children, rows);
+            }
+        }
+    }
+}
+fn productions(
+    definition: &DefinitionIr,
+    context: &Context<'_>,
+    module_filter: Option<&str>,
+    sort_filter: Option<&str>,
+    symbol_filter: Option<&str>,
+) -> Vec<Value> {
+    let mut rows = Vec::new();
+    for module in definition.modules() {
+        if !accepts(module_filter, module.id().as_str()) {
+            continue;
+        }
+        for sentence in module.sentences() {
+            if let DefinitionSentence::Production(p) = sentence {
+                let sort = context.sort(p.result_sort());
+                let symbol = p.symbol().emitted_name();
+                if !accepts(sort_filter, &sort) || !accepts(symbol_filter, symbol) {
+                    continue;
+                }
+                let terminals = p
+                    .items()
+                    .iter()
+                    .filter_map(|item| match item.kind() {
+                        GrammarProductionItemKind::Terminal { text } => Some(text.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let items = p
+                    .items()
+                    .iter()
+                    .map(|item| match item.kind() {
+                        GrammarProductionItemKind::NonTerminal { field, sort } => json!({
+                            "item_kind": "non_terminal",
+                            "field": field,
+                            "sort": context.sort(sort),
+                        }),
+                        kind => encoded(kind),
+                    })
+                    .collect::<Vec<_>>();
+                rows.push(json!({
+                    "module": module.id(),
+                    "sort": sort,
+                    "symbol": symbol,
+                    "terminals": terminals,
+                    "items": items,
+                    "attributes": p.attributes(),
+                }));
+            }
+        }
+    }
+    rows.sort_by(|a, b| {
+        (a["module"].as_str(), a["symbol"].as_str())
+            .cmp(&(b["module"].as_str(), b["symbol"].as_str()))
+    });
+    rows
+}
+
+fn operations(
+    definition: &DefinitionIr,
+    context: &Context<'_>,
+    filter: &dyn Fn(&Value) -> bool,
+    include_arguments: bool,
+) -> Vec<Value> {
+    let mut rows = Vec::new();
+    for module in definition.modules() {
+        for sentence in module.sentences() {
+            if let DefinitionSentence::Rule(rule) = sentence {
+                let name = module.id().as_str();
+                let label = rule.label().emitted_name();
+                match rule.relational_body() {
+                    RuleBodyRef::Predicate(body) => {
+                        for term in body.lhs().terms().into_iter().chain(body.rhs().terms()) {
+                            context.operation_rows(
+                                term,
+                                &mut rows,
+                                name,
+                                label,
+                                filter,
+                                include_arguments,
+                            );
+                        }
+                    }
+                    RuleBodyRef::Term(t) => {
+                        for endpoint in [t.from(), t.to()] {
+                            context.operation_rows(
+                                endpoint,
+                                &mut rows,
+                                name,
+                                label,
+                                filter,
+                                include_arguments,
+                            );
+                        }
+                    }
+                    RuleBodyRef::Configuration { body: c, .. } => {
+                        for term in c.parts().iter().flat_map(krs_ir::ClausePart::terms) {
+                            context.operation_rows(
+                                term,
+                                &mut rows,
+                                name,
+                                label,
+                                filter,
+                                include_arguments,
+                            );
+                        }
+                    }
+                }
+                for cell in rule
+                    .function_context()
+                    .map_or(&[][..], |context| context.cells().cells())
+                {
+                    context.operation_rows(
+                        cell.pattern(),
+                        &mut rows,
+                        name,
+                        label,
+                        filter,
+                        include_arguments,
+                    );
+                }
+                for condition in rule.requires().into_iter().chain(rule.ensures()) {
+                    for term in condition.terms() {
+                        context.operation_rows(
+                            term,
+                            &mut rows,
+                            name,
+                            label,
+                            filter,
+                            include_arguments,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    rows
+}
+
+fn cell_rows(
+    context: &Context<'_>,
+    cells: &[FixedCell<DefinitionSortRef, SymbolId>],
+    initializers: &[Value],
+    variables: &BTreeMap<String, String>,
+    rows: &mut Vec<Value>,
+) {
+    for cell in cells {
+        let (sort, variable) = match cell.content() {
+            FixedCellContent::Term { sort } => (
+                Some(context.sort(sort)),
+                initializers
+                    .iter()
+                    .find(|i| i["cell"] == cell.name())
+                    .and_then(|i| i["term"]["variable"].as_str())
+                    .and_then(|v| variables.get(v)),
+            ),
+            FixedCellContent::Children { children } => {
+                cell_rows(context, children, initializers, variables, rows);
+                (None, None)
+            }
+        };
+        rows.push(json!({"name":cell.name(),"sort":sort,"configuration_variable":variable}));
+    }
+}
+
+fn vocabulary(definition: &DefinitionIr, context: &Context<'_>) -> Value {
+    let mut sorts = BTreeSet::new();
+    let mut labels = BTreeSet::new();
+    let mut imports = BTreeSet::new();
+    let mut cells = Vec::new();
+    let mut subsorts = Vec::new();
+    for module in definition.modules() {
+        imports.extend(definition_module_imports(module));
+        for sentence in module.sentences() {
+            match sentence {
+                DefinitionSentence::SyntaxSort(s) => {
+                    sorts.insert(s.symbol().emitted_name().to_owned());
+                }
+                DefinitionSentence::Rule(r) => {
+                    labels.insert(r.label().emitted_name().to_owned());
+                }
+                DefinitionSentence::Subsort(s) => subsorts.push(
+                    json!({"sort":context.sort(s.supersort()),"subsort":context.sort(s.subsort())}),
+                ),
+                DefinitionSentence::Configuration(c) => {
+                    let mut initializers = Vec::new();
+                    initializer_rows(context, c.initializer(), &mut initializers);
+                    let vars = c
+                        .variables()
+                        .iter()
+                        .map(|v| (v.id().as_str().to_owned(), v.external_name().to_owned()))
+                        .collect();
+                    cell_rows(context, c.cells(), &initializers, &vars, &mut cells);
+                }
+                _ => {}
+            }
+        }
+    }
+    let productions = productions(definition, context, None, None, None);
+    let symbols = productions
+        .iter()
+        .map(|p| p["symbol"].as_str().unwrap().to_owned())
+        .collect::<BTreeSet<_>>();
+    let terminals = productions
+        .iter()
+        .flat_map(|p| p["terminals"].as_array().unwrap())
+        .map(|t| t.as_str().unwrap().to_owned())
+        .collect::<BTreeSet<_>>();
+    json!({
+        "sorts": sorts,
+        "production_symbols": symbols,
+        "terminals": terminals,
+        "rule_labels": labels,
+        "imports": imports,
+        "cells": cells,
+        "subsorts": subsorts,
+        "applied_operations": operations(definition, context, &|_| true, false),
+    })
+}
+
+fn source_file_fact(range: &krs_ir::SourceRange) -> Value {
+    json!({
+        "k_namespace": range.file.package().k_namespace(),
+        "cargo_name": range.file.package().cargo_name(),
+        "package_relative_path": range.file.package_relative_path(),
+        "content_sha256": range.file.content_sha256(),
+    })
+}
+
+fn source_fact(row: &krs_compiler::SourceMapEntry) -> Value {
+    let mut fact = encoded(row);
+    let mut authored = Vec::new();
+    let mut ranged = Vec::new();
+    for frame in row.origin().frames() {
+        if let OriginFrame::Ranged { kind, range, .. } = frame {
+            let file = source_file_fact(range);
+            if *kind == RangedOriginKind::Authored {
+                authored.push(file.clone());
+            }
+            let mut file = file;
+            file["frame_kind"] = encoded(kind);
+            ranged.push(file);
+        }
+    }
+    fact["authored"] = json!(authored);
+    fact["ranged"] = json!(ranged);
+    fact
+}
+
+/// The capability requirements of the emitted definition (V8) and the
+/// refusal of `route`, if it lacks one of them.
+fn capabilities(definition: &DefinitionIr, route: &str) -> QueryResult {
+    let route = krs_k_rust::Route::from_name(route)
+        .ok_or_else(|| format!("unknown capability route `{route}`"))?;
+    let requirements = krs_compiler::capability::capability_requirements(definition);
+    let mut refusals = Vec::new();
+    for feature in krs_compiler::capability::CapabilityFeature::ALL {
+        if !requirements
+            .iter()
+            .any(|requirement| requirement.feature() == *feature)
+        {
+            continue;
+        }
+        if let krs_k_rust::CapabilityAvailability::Unavailable(reason) =
+            krs_k_rust::route_capability(feature.name(), route)
+        {
+            refusals.push(json!({
+                "feature": feature.name(),
+                "code": krs_diagnostic::codes::capability::UNAVAILABLE.as_str(),
+                "message": krs_compiler::capability::unavailable_message(
+                    *feature,
+                    reason,
+                    &requirements,
+                ),
+            }));
+        }
+    }
+    Ok(json!({
+        "route": route.name(),
+        "requirements": requirements,
+        "refusals": refusals,
+    }))
+}
+
+/// Dispatches an independent artifact-query session request.
+///
+/// # Errors
+///
+/// Returns an error for missing paths, missing query objects, or failed queries.
+pub fn dispatch(request: &Value) -> QueryResult {
+    let directory = request
+        .get("artifacts")
+        .and_then(Value::as_str)
+        .ok_or("ir.query requires string `artifacts`")?;
+    query(
+        Path::new(directory),
+        request.get("query").ok_or("ir.query requires `query`")?,
+    )
+}
+
+/// Answers one closed artifact query; modeled projections use version-checked readers.
+///
+/// # Errors
+///
+/// Returns an error for unknown fields, invalid artifacts, unsupported schemas,
+/// or unreadable required files.
+#[expect(
+    clippy::too_many_lines,
+    reason = "The closed query dispatcher keeps every supported artifact query in one exhaustive match."
+)]
+pub fn query(directory: &Path, request: &Value) -> QueryResult {
+    let query: Query = serde_json::from_value(request.clone())?;
+    match query {
+        Query::AbsoluteStrings {} => absolute_strings(directory),
+        Query::DescriptorDetails {
+            module_path,
+            item_name,
+            public_only,
+        } => projections::descriptor_details(
+            directory,
+            module_path.as_deref(),
+            item_name.as_deref(),
+            public_only,
+        ),
+        Query::HeadRuleWalkthrough { item_name } => {
+            projections::head_rule_walkthrough(directory, &item_name)
+        }
+        Query::SymbolProjection { emitted_names } => {
+            projections::symbol_projection(directory, &emitted_names)
+        }
+        Query::SourceToken {
+            authored,
+            package_relative_path,
+            token,
+            artifact,
+        } => projections::source_token(
+            directory,
+            Path::new(&authored),
+            &package_relative_path,
+            &token,
+            &artifact,
+        ),
+        Query::ReplacementParity {
+            reference,
+            module,
+            module_path,
+            k_namespace,
+            replaced_k_tail_cells,
+            preserved_map_remainder_cells,
+        } => projections::replacement_parity(
+            Path::new(&reference),
+            directory,
+            &module,
+            &module_path,
+            &k_namespace,
+            &projections::FrameNormalization {
+                replaced_k_tail_cells: &replaced_k_tail_cells,
+                preserved_map_remainder_cells: &preserved_map_remainder_cells,
+            },
+        ),
+        Query::Descriptors {
+            descriptor_kind,
+            item_kind,
+        } => {
+            let bundle: DescriptorBundle = read(directory, krs_compiler::DESCRIPTOR_ARTIFACT)?;
+            let mut rows = Vec::new();
+            let mut kinds = BTreeMap::<String, usize>::new();
+            let mut items = BTreeMap::<String, usize>::new();
+            for d in bundle.descriptors() {
+                let kind = match d.payload() {
+                    DescriptorPayload::Sort(_) => "sort",
+                    DescriptorPayload::Constructor(_) => "constructor",
+                    DescriptorPayload::Grammar(_) => "grammar",
+                    DescriptorPayload::StructuredRule(_) => "structured_rule",
+                    DescriptorPayload::FixedConfiguration(_) => "fixed_configuration",
+                    DescriptorPayload::Cell(_) => "cell",
+                    DescriptorPayload::ConfigurationRule(_) => "configuration_rule",
+                    DescriptorPayload::HeadRule(_) => "head_rule",
+                    DescriptorPayload::ContextAlias(_) => "context_alias",
+                };
+                let item = enum_name(&d.id().item_kind());
+                if accepts(descriptor_kind.as_deref(), kind) && accepts(item_kind.as_deref(), &item)
+                {
+                    *kinds.entry(kind.to_owned()).or_default() += 1;
+                    *items.entry(item.clone()).or_default() += 1;
+                    rows.push(json!({
+                        "id": d.id(),
+                        "descriptor_kind": kind,
+                        "item_kind": item,
+                        "cargo_name": d.id().package().cargo_name(),
+                    }));
+                }
+            }
+            Ok(json!({"counts":{"descriptor_kind":kinds,"item_kind":items},"rows":rows}))
+        }
+        Query::SemanticModules {} => {
+            let theory: SemanticTheory = read(directory, krs_compiler::SEMANTIC_ARTIFACT)?;
+            let rows = theory
+                .modules()
+                .iter()
+                .map(|module| {
+                    json!({
+                        "name": module.id(),
+                        "production_count": module.productions().len(),
+                        "rule_count": module.rules().len(),
+                        "has_configuration": module.configuration().is_some(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({"rows": rows}))
+        }
+        Query::Symbols {
+            emitted_name,
+            identity_kind,
+            symbol_kind,
+        } => {
+            let map: SymbolMap = read(directory, krs_compiler::SYMBOLS_ARTIFACT)?;
+            let rows = map
+                .entries()
+                .iter()
+                .filter(|row| {
+                    let kind = match row.identity() {
+                        MappedIdentity::Module(_) => "module",
+                        MappedIdentity::Symbol(_) => "symbol",
+                        MappedIdentity::Label(_) => "label",
+                        MappedIdentity::ContextAlias(_) => "context_alias",
+                    };
+                    accepts(emitted_name.as_deref(), row.emitted_name())
+                        && accepts(identity_kind.as_deref(), kind)
+                        && symbol_kind.as_ref().is_none_or(|kind| {
+                            row.symbol_kind()
+                                .is_some_and(|value| enum_name(&value) == *kind)
+                        })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({"rows": rows}))
+        }
+        Query::Sources {
+            key,
+            node_kind,
+            artifact,
+        } => {
+            let map: SourceMap = read(directory, krs_compiler::SOURCES_ARTIFACT)?;
+            let rows = map
+                .entries()
+                .iter()
+                .filter(|row| {
+                    accepts(key.as_deref(), row.key().as_str())
+                        && accepts(node_kind.as_deref(), &enum_name(&row.node_kind()))
+                        && artifact.as_ref().is_none_or(|artifact| {
+                            row.generated()
+                                .is_some_and(|range| range.artifact() == artifact)
+                        })
+                })
+                .map(source_fact)
+                .collect::<Vec<_>>();
+            Ok(json!({"rows":rows}))
+        }
+        query => {
+            let definition: DefinitionIr = read(directory, krs_compiler::DEFINITION_IR_ARTIFACT)?;
+            let context = Context::new(&definition);
+            match query {
+                Query::Files {} => {
+                    let has_claims = definition
+                        .modules()
+                        .iter()
+                        .flat_map(krs_ir_levels::DefinitionModule::sentences)
+                        .any(|sentence| {
+                            matches!(sentence,
+                            DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Claim)
+                        });
+                    let mut actual = fs::read_dir(directory)?
+                        .map(|entry| {
+                            entry.map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    actual.sort();
+                    let owned = fs::read(directory.join(krs_compiler::ARTIFACT_MARKER_FILE))
+                        .is_ok_and(|bytes| bytes == krs_compiler::ARTIFACT_MARKER.as_bytes());
+                    Ok(json!({
+                        "expected": krs_compiler::emitted_artifact_names(has_claims),
+                        "actual": actual,
+                        "owned": owned,
+                        "has_claims": has_claims,
+                    }))
+                }
+                Query::Capabilities { route } => capabilities(&definition, &route),
+                Query::Modules {} => {
+                    let rows = definition
+                        .modules()
+                        .iter()
+                        .map(|module| {
+                            json!({
+                                "name": module.id(),
+                                "imports": definition_module_imports(module),
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    Ok(json!({"main_module": definition.main_module(), "rows": rows}))
+                }
+                Query::Sentences {
+                    module,
+                    sentence_kind: kind,
+                    label,
+                } => {
+                    let sources: SourceMap = read(directory, krs_compiler::SOURCES_ARTIFACT)?;
+                    let mut rows = Vec::new();
+                    for m in definition.modules() {
+                        if !accepts(module.as_deref(), m.id().as_str()) {
+                            continue;
+                        }
+                        for s in m.sentences() {
+                            let name = if let DefinitionSentence::Rule(r) = s {
+                                Some(r.label().emitted_name())
+                            } else {
+                                None
+                            };
+                            if !accepts(kind.as_deref(), sentence_kind(s))
+                                || label.as_ref().is_some_and(|l| Some(l.as_str()) != name)
+                            {
+                                continue;
+                            }
+                            let (rule_kind, body) = if let DefinitionSentence::Rule(r) = s {
+                                let mut body = rule_body(&context, r.relational_body());
+                                if let Some(function_context) = r.function_context() {
+                                    body["function_context"] =
+                                        function_context_cells(&context, function_context);
+                                }
+                                (Some(enum_name(&r.kind())), body)
+                            } else {
+                                (None, Value::Null)
+                            };
+                            let range = sources
+                                .entries()
+                                .iter()
+                                .find(|row| row.key() == s.origin().key())
+                                .and_then(krs_compiler::SourceMapEntry::generated);
+                            let mut initializers = Vec::new();
+                            if let DefinitionSentence::Configuration(c) = s {
+                                initializer_rows(&context, c.initializer(), &mut initializers);
+                            }
+                            let associativity = match s {
+                                DefinitionSentence::Associativity(value) => {
+                                    Some(value.associativity())
+                                }
+                                _ => None,
+                            };
+                            rows.push(json!({
+                                "module": m.id(),
+                                "kind": sentence_kind(s),
+                                "label": name,
+                                "rule_kind": rule_kind,
+                                "source_map_key": s.origin().key(),
+                                "generated": range,
+                                "body": body,
+                                "initializers": initializers,
+                                "associativity": associativity,
+                            }));
+                        }
+                    }
+                    rows.sort_by(|a, b| {
+                        let range = |v: &Value| {
+                            (
+                                v["generated"]["artifact"].as_str().unwrap_or("").to_owned(),
+                                v["generated"]["start_byte"].as_u64().unwrap_or(0),
+                            )
+                        };
+                        range(a).cmp(&range(b))
+                    });
+                    Ok(json!({"rows":rows}))
+                }
+                Query::Productions {
+                    module,
+                    sort,
+                    symbol,
+                } => {
+                    let rows = productions(
+                        &definition,
+                        &context,
+                        module.as_deref(),
+                        sort.as_deref(),
+                        symbol.as_deref(),
+                    );
+                    Ok(json!({"rows": rows}))
+                }
+                Query::Vocabulary {} => Ok(vocabulary(&definition, &context)),
+                Query::Applications {
+                    operation,
+                    symbol,
+                    result_sort,
+                    argument_sorts,
+                    arguments,
+                } => {
+                    let rows = operations(
+                        &definition,
+                        &context,
+                        &|r| {
+                            [
+                                (&operation, "operation"),
+                                (&symbol, "symbol"),
+                                (&result_sort, "result_sort"),
+                            ]
+                            .iter()
+                            .all(|(f, k)| f.as_ref().is_none_or(|v| r[*k] == *v))
+                                && argument_sorts
+                                    .as_ref()
+                                    .is_none_or(|sorts| r["argument_sorts"] == json!(sorts))
+                        },
+                        true,
+                    )
+                    .into_iter()
+                    .filter(|r| {
+                        arguments.as_ref().is_none_or(|patterns| {
+                            r["arguments"].as_array().is_some_and(|args| {
+                                patterns.len() == args.len()
+                                    && patterns.iter().zip(args).all(|(p, a)| p.matches(a))
+                            })
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                    Ok(json!({"rows":rows}))
+                }
+                Query::DefinitionShape {} => Ok(definition_shape(&definition)),
+                _ => unreachable!("sidecar query was already handled"),
+            }
+        }
+    }
+}
+
+fn definition_shape(definition: &DefinitionIr) -> Value {
+    let mut value = encoded(definition);
+    value["modules"] =
+        json!(
+            definition
+                .modules()
+                .iter()
+                .map(|module| {
+                    let mut row = encoded(module);
+                    row["sentences"] =
+                        json!(module.sentences().iter().map(|sentence| {
+            if let DefinitionSentence::Rule(rule) = sentence {
+                json!({
+                    "sentence_kind": "rule",
+                    "sentence": {"kind": rule.kind(), "label": rule.label()},
+                })
+            } else {
+                encoded(sentence)
+            }
+        }).collect::<Vec<_>>());
+                    row
+                })
+                .collect::<Vec<_>>()
+        );
+    strip_provenance(&mut value);
+    value
+}
+
+fn strip_provenance(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            for key in ["origin", "name_origin", "here_origin", "initializer_origin"] {
+                object.remove(key);
+            }
+            for v in object.values_mut() {
+                strip_provenance(v);
+            }
+        }
+        Value::Array(values) => {
+            for v in values {
+                strip_provenance(v);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use krs_ir::testing;
+    use krs_ir::{
+        CellPost, ConfigurationRoot, FixedConfiguration, ItemKind, ModuleId, NodeOrigin, PackageId,
+        SemanticId, StableItemId, TransformationOriginKind,
+    };
+    use krs_ir_levels::{
+        SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort,
+        SemanticSortRef, SemanticSubsort, SemanticTerm,
+    };
+    fn package() -> PackageId {
+        testing::package("KRS-FOO-BAR", "foo-bar-semantics")
+    }
+
+    fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
+        testing::item_in(package(), module, name, kind)
+    }
+
+    fn origin(key: &str) -> NodeOrigin {
+        origin_with_label(key, None)
+    }
+
+    fn origin_with_label(key: &str, label: Option<&str>) -> NodeOrigin {
+        let mut stack = testing::authored_in(package(), "src/lib.rs", testing::digest(), 0, 3);
+        stack.push(OriginFrame::Transformation {
+            kind: TransformationOriginKind::SemanticIr,
+            item: None,
+            label: label.map(str::to_owned).or_else(|| Some(key.to_owned())),
+        });
+        NodeOrigin::new(krs_ir::SourceMapKey::new(key).unwrap(), stack)
+    }
+
+    fn theory() -> SemanticTheory {
+        theory_with_claims(false)
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The fixture constructs the complete semantic theory and optional claims."
+    )]
+    fn theory_with_claims(with_claims: bool) -> SemanticTheory {
+        let k_item = item("syntax", "KItem", ItemKind::Sort);
+        let k_result = item("syntax", "KResult", ItemKind::Sort);
+        let object = item("syntax", "Obj", ItemKind::Sort);
+        let foo_production = item("syntax", "Foo", ItemKind::Constructor);
+        let bar = item("syntax", "Bar", ItemKind::Constructor);
+        let rule = item("rules", "foo_to_bar", ItemKind::Rule);
+        let sorts = vec![
+            SemanticSort::new(origin("sem.sort.kitem"), k_item.clone()),
+            SemanticSort::new(origin("sem.sort.kresult"), k_result.clone()),
+            SemanticSort::new(origin("sem.sort.object"), object.clone()),
+        ];
+        let subsorts = vec![
+            SemanticSubsort::new(
+                origin("sem.subsort.kresult-kitem"),
+                SemanticSortRef::Declared(k_result.clone()),
+                SemanticSortRef::Declared(k_item.clone()),
+            ),
+            SemanticSubsort::new(
+                origin("sem.subsort.object-kresult"),
+                SemanticSortRef::Declared(object.clone()),
+                SemanticSortRef::Declared(k_result),
+            ),
+        ];
+        let productions = vec![
+            SemanticProduction::new(
+                origin("sem.production.foo"),
+                foo_production.clone(),
+                SemanticSortRef::Declared(object.clone()),
+                vec![
+                    SemanticProductionItem::terminal(origin("sem.production.foo.item"), "foo")
+                        .unwrap(),
+                ],
+                vec![],
+            )
+            .unwrap(),
+            SemanticProduction::new(
+                origin("sem.production.bar"),
+                bar.clone(),
+                SemanticSortRef::Declared(object.clone()),
+                vec![
+                    SemanticProductionItem::terminal(origin("sem.production.bar.item"), "bar")
+                        .unwrap(),
+                ],
+                vec![],
+            )
+            .unwrap(),
+        ];
+        let k_cell = SemanticId::new("machine.k").unwrap();
+        let configuration = FixedConfiguration::new(
+            origin("sem.configuration"),
+            SemanticId::new("machine").unwrap(),
+            ConfigurationRoot::GeneratedTop,
+            vec![
+                FixedCell::leaf(
+                    origin("sem.cell.k"),
+                    k_cell.clone(),
+                    "k",
+                    vec![],
+                    SemanticSortRef::k_sequence(),
+                )
+                .unwrap(),
+            ],
+            origin("sem.initializer"),
+            SemanticId::new("machine.init").unwrap(),
+            vec![],
+            vec![FixedInitializerCell::term(
+                origin("sem.initializer.k"),
+                k_cell,
+                SemanticTerm::k_sequence(
+                    origin("sem.term.init.sequence"),
+                    SemanticSortRef::Declared(k_item.clone()),
+                    vec![SemanticTerm::application(
+                        origin("sem.term.init.foo"),
+                        SemanticSortRef::Declared(object.clone()),
+                        ApplicationRef::Declared(foo_production.clone()),
+                        vec![],
+                    )],
+                ),
+            )],
+        )
+        .unwrap();
+        let rewrite = SemanticTerm::rewrite(
+            origin("sem.term.rule.rewrite"),
+            SemanticSortRef::Declared(object.clone()),
+            SemanticTerm::application(
+                origin("sem.term.rule.foo"),
+                SemanticSortRef::Declared(object.clone()),
+                ApplicationRef::Declared(foo_production),
+                vec![],
+            ),
+            SemanticTerm::application(
+                origin("sem.term.rule.bar"),
+                SemanticSortRef::Declared(object),
+                ApplicationRef::Declared(bar),
+                vec![],
+            ),
+        )
+        .unwrap();
+        let rule = SemanticRule::new(
+            origin("sem.rule.foo-to-bar"),
+            rule,
+            SentenceKind::Transition,
+            vec![],
+            rewrite,
+        )
+        .unwrap();
+        let mut rules = vec![rule];
+        if with_claims {
+            for label in ["z-last", "a-first"] {
+                let key = |suffix: &str| format!("claim.{label}.{suffix}");
+                let claim = SemanticRule::new_configuration(
+                    origin(&key("sentence")),
+                    item("claims", label, ItemKind::Claim),
+                    SentenceKind::Claim,
+                    vec![],
+                    krs_ir::FixedConfigurationRewrite::new(
+                        origin(&key("rewrite")),
+                        SemanticId::new("machine").unwrap(),
+                        vec![krs_ir::FixedCellClause::new(
+                            origin(&key("cell")),
+                            SemanticId::new("machine.k").unwrap(),
+                            SemanticTerm::k_sequence(
+                                origin(&key("empty")),
+                                SemanticSortRef::Declared(k_item.clone()),
+                                vec![],
+                            ),
+                            CellPost::Preserve,
+                            krs_ir::CellContentFrame::Exact,
+                        )],
+                        vec![],
+                    )
+                    .unwrap(),
+                )
+                .unwrap()
+                .with_label(Some(
+                    krs_ir_levels::SemanticRuleLabel::new(origin(&key("label")), label).unwrap(),
+                ))
+                .with_claim(Some(krs_ir_levels::SemanticClaim::new(
+                    origin(&key("modality")),
+                    krs_ir::ClaimModality::AllPaths,
+                    None,
+                    vec![],
+                )));
+                rules.push(claim);
+            }
+        }
+        SemanticTheory::new(vec![SemanticModule::new(
+            origin("sem.module.main"),
+            ModuleId::new("KRS-FOO-BAR").unwrap(),
+            vec![],
+            sorts,
+            subsorts,
+            productions,
+            vec![],
+            vec![],
+            Some(configuration),
+            rules,
+        )])
+        .unwrap()
+    }
+    fn artifacts() -> krs_test_support::TempDir {
+        artifacts_with_claims(false)
+    }
+
+    fn artifacts_with_claims(with_claims: bool) -> krs_test_support::TempDir {
+        let directory = krs_test_support::temp_dir();
+        let theory = if with_claims {
+            theory_with_claims(true)
+        } else {
+            theory()
+        };
+        let lowered = krs_compiler::lower_semantic_theory(&theory).unwrap();
+        let emitted = krs_compiler::emit_k(&lowered).unwrap();
+        let files = [
+            (
+                krs_compiler::DEFINITION_IR_ARTIFACT,
+                lowered.definition().to_canonical_json().unwrap(),
+            ),
+            (
+                krs_compiler::SEMANTIC_ARTIFACT,
+                theory.to_canonical_json().unwrap(),
+            ),
+            (krs_compiler::DESCRIPTOR_ARTIFACT, {
+                let key = krs_ir::ProvenanceKey::new(krs_ir::ProvenanceRole::SortDeclaration, 0);
+                let descriptor = krs_ir::testing::descriptor(
+                    item("syntax", "Obj", ItemKind::Sort),
+                    BTreeMap::new(),
+                    krs_ir::DescriptorProvenance::new(
+                        key.clone(),
+                        vec![krs_ir::DescriptorNodeOrigin::new(
+                            key,
+                            testing::authored_in(package(), "src/lib.rs", testing::digest(), 0, 3),
+                        )],
+                    )
+                    .unwrap(),
+                    DescriptorPayload::Sort(krs_ir::SortDescriptor {
+                        parents: BTreeSet::new(),
+                    }),
+                );
+                DescriptorBundle::new(vec![descriptor])
+                    .unwrap()
+                    .to_canonical_json()
+                    .unwrap()
+            }),
+            (
+                krs_compiler::SYMBOLS_ARTIFACT,
+                emitted.symbol_map().to_canonical_json().unwrap(),
+            ),
+            (
+                krs_compiler::SOURCES_ARTIFACT,
+                emitted.source_map().to_canonical_json().unwrap(),
+            ),
+            (
+                krs_compiler::DEFINITION_ARTIFACT,
+                emitted.source().to_owned(),
+            ),
+            (
+                krs_compiler::ARTIFACT_MARKER_FILE,
+                krs_compiler::ARTIFACT_MARKER.to_owned(),
+            ),
+        ];
+        if let Some(spec) = emitted.spec() {
+            fs::write(
+                directory.path().join(krs_compiler::SPEC_ARTIFACT),
+                spec.source(),
+            )
+            .unwrap();
+        }
+        for (name, source) in files {
+            fs::write(directory.path().join(name), source).unwrap();
+        }
+        directory
+    }
+    #[test]
+    fn queries_read_typed_artifacts_and_project_all_kinds() {
+        let directory = artifacts();
+        let read = |q| query(directory.path(), &q).unwrap();
+        let files = read(json!({"kind":"files"}));
+        assert_eq!(files["expected"], files["actual"]);
+        assert_eq!(files["owned"], true);
+        assert_eq!(files["has_claims"], false);
+        let modules = read(json!({"kind":"modules"}));
+        assert_eq!(modules["main_module"], "KRS-FOO-BAR");
+        assert_eq!(modules["rows"].as_array().unwrap().len(), 2);
+        let semantic = read(json!({"kind":"semantic_modules"}));
+        assert_eq!(semantic["rows"][0]["production_count"], 2);
+        assert_eq!(semantic["rows"][0]["rule_count"], 1);
+        let sentences = read(json!({"kind":"sentences","sentence_kind":"rule"}));
+        assert_eq!(sentences["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(sentences["rows"][0]["body"]["kind"], "rewrite");
+        assert_eq!(
+            sentences["rows"][0]["generated"]["artifact"],
+            "definition.k"
+        );
+        let productions = read(json!({"kind":"productions"}));
+        assert_eq!(productions["rows"].as_array().unwrap().len(), 2);
+        assert!(
+            productions["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["terminals"] == json!(["foo"]))
+        );
+        let vocabulary = read(json!({"kind":"vocabulary"}));
+        assert_eq!(vocabulary["sorts"].as_array().unwrap().len(), 3);
+        assert_eq!(vocabulary["cells"][0]["name"], "k");
+        assert_eq!(vocabulary["subsorts"].as_array().unwrap().len(), 2);
+        let apps = read(json!({"kind":"applications","arguments":[]}));
+        assert_eq!(apps["rows"].as_array().unwrap().len(), 2);
+        assert!(
+            read(json!({"kind":"applications","arguments":[{}]}))["rows"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        let descriptors =
+            read(json!({"kind":"descriptors","descriptor_kind":"sort","item_kind":"sort"}));
+        assert_eq!(descriptors["counts"]["descriptor_kind"]["sort"], 1);
+        assert_eq!(descriptors["counts"]["item_kind"]["sort"], 1);
+        assert_eq!(descriptors["rows"][0]["cargo_name"], "foo-bar-semantics");
+        assert_eq!(
+            read(json!({"kind":"symbols","identity_kind":"label"}))["rows"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let sources = read(json!({"kind":"sources","node_kind":"rule","artifact":"definition.k"}));
+        assert_eq!(sources["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            sources["rows"][0]["authored"][0]["cargo_name"],
+            "foo-bar-semantics"
+        );
+        assert_eq!(sources["rows"][0]["ranged"][0]["frame_kind"], "authored");
+        let shape = read(json!({"kind":"definition_shape"}));
+        assert_eq!(shape["main_module"], "KRS-FOO-BAR");
+        assert!(
+            !serde_json::to_string(&shape)
+                .unwrap()
+                .contains("start_byte")
+        );
+    }
+    #[test]
+    fn descriptor_and_symbol_projections_are_closed_and_filtered() {
+        let dir = artifacts();
+        let details = query(
+            dir.path(),
+            &json!({"kind":"descriptor_details","module_path":["syntax"],"item_name":"Obj"}),
+        )
+        .unwrap();
+        assert_eq!(details["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            details["rows"][0]["visibility"],
+            json!({"visibility":"inherited"})
+        );
+        assert_eq!(
+            details["rows"][0]["normalized"]["id"]["package"],
+            json!({"k_namespace":"KRS-FOO-BAR"})
+        );
+        assert!(details["rows"][0]["normalized"].get("provenance").is_none());
+        assert_eq!(
+            query(
+                dir.path(),
+                &json!({"kind":"descriptor_details","public_only":true})
+            )
+            .unwrap()["rows"],
+            json!([])
+        );
+        let bundle: DescriptorBundle = read(dir.path(), "descriptor-bundle.json").unwrap();
+        let mut descriptor = testing::DescriptorInputs::from(bundle.descriptors()[0].clone());
+        let mut origins = descriptor.provenance.origins().to_vec();
+        origins.push(krs_ir::DescriptorNodeOrigin::new(
+            krs_ir::ProvenanceKey::new(krs_ir::ProvenanceRole::StableSymbol, 0),
+            testing::authored_in(package(), "src/lib.rs", testing::digest(), 0, 3),
+        ));
+        descriptor.provenance =
+            krs_ir::DescriptorProvenance::new(descriptor.provenance.primary_key().clone(), origins)
+                .unwrap();
+        let declaration = krs_ir::DescriptorDeclaration::new(
+            descriptor.id.clone(),
+            krs_ir::RustVisibility::Public,
+            Some(krs_ir::ExplicitSymbol::new("api::Obj").unwrap()),
+        );
+        let bundle = DescriptorBundle::with_declarations(
+            vec![descriptor.build().unwrap()],
+            vec![declaration],
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("descriptor-bundle.json"),
+            bundle.to_canonical_json().unwrap(),
+        )
+        .unwrap();
+        let public = query(
+            dir.path(),
+            &json!({"kind":"descriptor_details","public_only":true}),
+        )
+        .unwrap();
+        assert_eq!(public["rows"][0]["explicit_symbol"], "api::Obj");
+        assert_eq!(
+            public["rows"][0]["visibility"],
+            json!({"visibility":"public"})
+        );
+        let symbols = query(
+            dir.path(),
+            &json!({"kind":"symbol_projection","emitted_names":["foo"]}),
+        )
+        .unwrap();
+        assert_eq!(symbols["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(symbols["source_keys"].as_array().unwrap().len(), 1);
+        assert!(
+            query(
+                dir.path(),
+                &json!({"kind":"descriptor_details","unknown":true})
+            )
+            .is_err()
+        );
+        assert!(
+            query(
+                dir.path(),
+                &json!({"kind":"symbol_projection","emitted_names":[],"unknown":true})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn exact_source_token_uses_unique_diagnostic_translation() {
+        use sha2::{Digest, Sha256};
+        let dir = krs_test_support::temp_dir();
+        let authored = dir.path().join("authored.rs");
+        fs::write(&authored, "before Exact after").unwrap();
+        fs::write(dir.path().join("spec.k"), "claim exact\n").unwrap();
+        let digest =
+            krs_ir::Sha256Digest::new(krs_ir::lower_hex(&Sha256::digest(b"before Exact after")))
+                .unwrap();
+        let origin = testing::authored_in(package(), "src/lib.rs", digest, 7, 12);
+        let entry = json!({"key":"exact.token","node_kind":"term","origin":origin,"generated":{
+            "artifact": "spec.k", "start_byte": 6, "end_byte": 11,
+            "start_line": 1, "start_column": 7, "end_line": 1, "end_column": 12,
+        }});
+        let write = |entries: Vec<Value>| {
+            fs::write(
+                dir.path().join("sources.json"),
+                json!({"schema_version":2,"entries":entries}).to_string(),
+            )
+            .unwrap();
+        };
+        write(vec![entry.clone()]);
+        let request = json!({
+            "kind": "source_token", "authored": authored,
+            "package_relative_path": "src/lib.rs", "token": "Exact", "artifact": "spec.k",
+        });
+        let result = query(dir.path(), &request).unwrap();
+        assert_eq!(result["authored_range"]["start_byte"], 7);
+        assert_eq!(result["generated"]["start_byte"], 6);
+        let mut surrounding = entry.clone();
+        surrounding["key"] = json!("surrounding.condition");
+        surrounding["origin"][0]["range"]["end_byte"] = json!(18);
+        write(vec![entry.clone(), surrounding]);
+        assert_eq!(query(dir.path(), &request).unwrap(), result);
+        fs::write(&authored, "before Wrong after").unwrap();
+        assert!(query(dir.path(), &request).is_err());
+        fs::write(&authored, "before Exact after").unwrap();
+        let mut duplicate = entry.clone();
+        duplicate["key"] = json!("duplicate.token");
+        write(vec![entry.clone(), duplicate]);
+        assert!(query(dir.path(), &request).is_err());
+        let mut ambiguous = entry;
+        ambiguous["origin"]
+            .as_array_mut()
+            .unwrap()
+            .push(encoded(origin.frames().first().unwrap()));
+        write(vec![ambiguous]);
+        assert!(query(dir.path(), &request).is_err());
+    }
+
+    fn replacement_request(reference: &Path) -> Value {
+        json!({
+            "kind": "replacement_parity",
+            "reference": reference,
+            "module": "KRS-FOO-BAR",
+            "module_path": ["syntax"],
+            "k_namespace": "KRS-FOO-BAR",
+            "replaced_k_tail_cells": ["k"],
+            "preserved_map_remainder_cells": ["env"],
+        })
+    }
+
+    #[test]
+    fn replacement_package_namespace_is_independent_of_the_emitted_module() {
+        let left = artifacts();
+        let right = artifacts();
+        for (directory, cargo_name) in
+            [(&left, "authored-package"), (&right, "replacement-package")]
+        {
+            let bundle: DescriptorBundle =
+                read(directory.path(), krs_compiler::DESCRIPTOR_ARTIFACT).unwrap();
+            let mut descriptor = testing::DescriptorInputs::from(bundle.descriptors()[0].clone());
+            descriptor.id = testing::item_in(
+                testing::package("PACKAGE-NAMESPACE", cargo_name),
+                "syntax",
+                "Obj",
+                ItemKind::Sort,
+            );
+            fs::write(
+                directory.path().join(krs_compiler::DESCRIPTOR_ARTIFACT),
+                DescriptorBundle::new(vec![descriptor.build().unwrap()])
+                    .unwrap()
+                    .to_canonical_json()
+                    .unwrap(),
+            )
+            .unwrap();
+        }
+        let mut request = replacement_request(left.path());
+        assert!(query(right.path(), &request).is_err());
+        request["k_namespace"] = json!("PACKAGE-NAMESPACE");
+        assert!(query(right.path(), &request).is_ok());
+        request.as_object_mut().unwrap().remove("k_namespace");
+        assert!(query(right.path(), &request).is_err());
+    }
+
+    #[test]
+    fn replacement_projection_preserves_sentence_multiplicity_and_changes() {
+        let left = artifacts();
+        let right = artifacts();
+        let request = replacement_request(left.path());
+        let facts = query(right.path(), &request).unwrap();
+        assert_eq!(facts["non_rule_counts"], json!({"sort":1}));
+        assert_eq!(facts["non_rule_count"], 1);
+        assert_eq!(facts["reference_rules"], json!({}));
+        assert!(facts["sentence_count"].as_u64().unwrap() > 1);
+        let path = right.path().join("definition-ir.json");
+        let mut definition =
+            encoded(&read::<DefinitionIr>(right.path(), "definition-ir.json").unwrap());
+        let rule = definition["modules"][0]["sentences"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|s| s["sentence_kind"] == "rule")
+            .unwrap();
+        rule["sentence"]["label"]["emitted_name"] = json!("changed-label");
+        fs::write(path, definition.to_string()).unwrap();
+        assert!(
+            query(right.path(), &request)
+                .unwrap_err()
+                .to_string()
+                .contains("sentence multiset")
+        );
+    }
+
+    #[test]
+    fn replacement_subsort_names_follow_distinct_typed_relations() {
+        use krs_ir::{
+            DescriptorSortRef, DescriptorSortReference, GrammarDescriptor, ProvenanceKey,
+            ProvenanceRole,
+        };
+        let left = artifacts();
+        let right = artifacts();
+        let key = |role| ProvenanceKey::new(role, 0);
+        let descriptors = |prefix: &str| {
+            ["Obj", "KResult"]
+                .iter()
+                .enumerate()
+                .map(|(i, sort)| {
+                    let roles = [
+                        ProvenanceRole::SubsortDeclaration,
+                        ProvenanceRole::SubsortSubSort,
+                        ProvenanceRole::SubsortSuperSort,
+                    ];
+                    krs_ir::testing::descriptor(
+                        item("syntax", &format!("{prefix}_{i}"), ItemKind::Grammar),
+                        BTreeMap::new(),
+                        krs_ir::DescriptorProvenance::new(
+                            key(roles[0]),
+                            roles
+                                .iter()
+                                .map(|role| {
+                                    krs_ir::DescriptorNodeOrigin::new(
+                                        key(*role),
+                                        testing::authored_in(
+                                            package(),
+                                            "src/lib.rs",
+                                            testing::digest(),
+                                            0,
+                                            3,
+                                        ),
+                                    )
+                                })
+                                .collect(),
+                        )
+                        .unwrap(),
+                        DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
+                            key: key(roles[0]),
+                            subsort: DescriptorSortReference {
+                                key: key(roles[1]),
+                                sort: DescriptorSortRef::Declared(item(
+                                    "syntax",
+                                    sort,
+                                    ItemKind::Sort,
+                                )),
+                            },
+                            supersort: DescriptorSortReference {
+                                key: key(roles[2]),
+                                sort: DescriptorSortRef::Declared(item(
+                                    "syntax",
+                                    "KItem",
+                                    ItemKind::Sort,
+                                )),
+                            },
+                        })),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        for (dir, prefix) in [(&left, "generated_span"), (&right, "readable")] {
+            let bundle = DescriptorBundle::new(descriptors(prefix)).unwrap();
+            fs::write(
+                dir.path().join("descriptor-bundle.json"),
+                bundle.to_canonical_json().unwrap(),
+            )
+            .unwrap();
+        }
+        let request = replacement_request(left.path());
+        let result = query(right.path(), &request).unwrap();
+        assert_eq!(result["subsort_count"], 2);
+        assert_eq!(result["non_rule_counts"], json!({"grammar":2}));
+        let mut changed = descriptors("readable")
+            .into_iter()
+            .map(testing::DescriptorInputs::from)
+            .collect::<Vec<_>>();
+        let DescriptorPayload::Grammar(grammar) = &mut changed[0].payload else {
+            unreachable!()
+        };
+        let GrammarDescriptor::Subsort { supersort, .. } = &mut **grammar else {
+            unreachable!()
+        };
+        supersort.sort = DescriptorSortRef::Builtin(krs_ir::BuiltinSort::Int);
+        fs::write(
+            right.path().join("descriptor-bundle.json"),
+            testing::descriptor_bundle(changed)
+                .unwrap()
+                .to_canonical_json()
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            query(right.path(), &request)
+                .unwrap_err()
+                .to_string()
+                .contains("non-rule descriptors")
+        );
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The test compares every declared K-tail and map-remainder normalization case."
+    )]
+    fn replacement_normalizes_only_declared_replaced_k_tails_and_preserved_map_remainders() {
+        let lowered = krs_compiler::lower_semantic_theory(&theory()).unwrap();
+        let definition = lowered.definition();
+        let mut context = Context::new(definition);
+        let cell = *context
+            .cells
+            .iter()
+            .find(|(_, name)| **name == "k")
+            .unwrap()
+            .0;
+        let ordinary = definition.modules()[0]
+            .sentences()
+            .iter()
+            .find_map(|s| match s {
+                DefinitionSentence::Rule(r) => Some(r),
+                _ => None,
+            })
+            .unwrap();
+        let RuleBodyRef::Term(rewrite) = ordinary.relational_body() else {
+            unreachable!()
+        };
+        let (from, to) = (rewrite.from(), rewrite.to());
+        let make = |frame: krs_ir::CellContentFrame, after: CellPost<DefinitionTerm>| {
+            DefinitionSentence::Rule(krs_ir_levels::RuleSentence::new_configuration(
+                ordinary.origin().clone(),
+                ordinary.label().clone(),
+                ordinary.kind().try_into().unwrap(),
+                vec![krs_ir_levels::DefinitionVariable::new(
+                    SemanticId::new("tail").unwrap(),
+                    DefinitionSortRef::k_sequence(),
+                )],
+                krs_ir::FixedConfigurationRewrite::new(
+                    origin("test.rewrite"),
+                    SemanticId::new("machine").unwrap(),
+                    vec![krs_ir::FixedCellClause::new(
+                        origin("test.clause"),
+                        (*cell).clone(),
+                        DefinitionTerm::k_sequence(
+                            origin("test.before"),
+                            from.sort().clone(),
+                            vec![from.clone()],
+                        ),
+                        after,
+                        frame,
+                    )],
+                    vec![],
+                )
+                .unwrap(),
+            ))
+        };
+        let tail = || krs_ir::CellContentFrame::KSequenceTail {
+            origin: origin("test.frame"),
+            binding: Some(SemanticId::new("tail").unwrap()),
+        };
+        let replace = || CellPost::Replace {
+            term: DefinitionTerm::k_sequence(
+                origin("test.after"),
+                to.sort().clone(),
+                vec![to.clone()],
+            ),
+        };
+        let input = make(tail(), replace());
+        let replaced_k_tail_cells = ["k".to_owned()];
+        let preserved_map_remainder_cells = ["env".to_owned()];
+        let frames = projections::FrameNormalization {
+            replaced_k_tail_cells: &replaced_k_tail_cells,
+            preserved_map_remainder_cells: &preserved_map_remainder_cells,
+        };
+        let normalized =
+            encoded(&projections::frame_normalized(&input, &context, &frames).unwrap());
+        assert!(
+            normalized["sentence"]["body"]["clauses"][0]["frame"]
+                .get("binding")
+                .is_none()
+        );
+        assert_eq!(normalized["sentence"]["variables"], json!([]));
+        let left = artifacts();
+        let right = artifacts();
+        for (dir, sentence) in [(&left, normalized.clone()), (&right, encoded(&input))] {
+            let mut value = encoded(definition);
+            let rule = value["modules"][0]["sentences"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|s| s["sentence_kind"] == "rule")
+                .unwrap();
+            *rule = sentence;
+            fs::write(dir.path().join("definition-ir.json"), value.to_string()).unwrap();
+        }
+        assert!(query(right.path(), &replacement_request(left.path())).is_ok());
+        let preserved = make(tail(), CellPost::Preserve);
+        assert_eq!(
+            projections::frame_normalized(&preserved, &context, &frames).unwrap(),
+            preserved
+        );
+        context.cells.insert(cell, "env");
+        let map = || krs_ir::CellContentFrame::MapRemainder {
+            origin: origin("test.frame"),
+            binding: Some(SemanticId::new("tail").unwrap()),
+        };
+        let preserved = make(map(), CellPost::Preserve);
+        let normalized =
+            encoded(&projections::frame_normalized(&preserved, &context, &frames).unwrap());
+        assert!(
+            normalized["sentence"]["body"]["clauses"][0]["frame"]
+                .get("binding")
+                .is_none()
+        );
+        let replaced = make(map(), replace());
+        assert_eq!(
+            projections::frame_normalized(&replaced, &context, &frames).unwrap(),
+            replaced
+        );
+        context.cells.insert(cell, "other");
+        assert_eq!(
+            projections::frame_normalized(&input, &context, &frames).unwrap(),
+            input
+        );
+        let replaced_k_tail_cells = ["other".to_owned()];
+        let frames = projections::FrameNormalization {
+            replaced_k_tail_cells: &replaced_k_tail_cells,
+            preserved_map_remainder_cells: &[],
+        };
+        let normalized =
+            encoded(&projections::frame_normalized(&input, &context, &frames).unwrap());
+        assert_eq!(normalized["sentence"]["variables"], json!([]));
+    }
+
+    fn head_rule_artifacts() -> krs_test_support::TempDir {
+        use krs_ir::{
+            Arguments, DescriptorApplicationRef, DescriptorApplicationReference,
+            DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleResult,
+            DescriptorTerm, NamedTermArgument, ProvenanceKey, ProvenanceRole,
+        };
+        let dir = artifacts();
+        let original: DescriptorBundle = read(dir.path(), "descriptor-bundle.json").unwrap();
+        let mut descriptor = testing::DescriptorInputs::from(original.descriptors()[0].clone());
+        let key = |role| ProvenanceKey::new(role, 0);
+        let var = |name: &str| DescriptorTerm::Variable {
+            key: key(ProvenanceRole::RuleLeftReference),
+            path_key: key(ProvenanceRole::RuleLeftReference),
+            name: name.into(),
+        };
+        let application = |head, args| DescriptorTerm::Application {
+            instance: Vec::new(),
+            head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
+            reference: DescriptorApplicationReference {
+                key: key(ProvenanceRole::RuleLeftReference),
+                application: head,
+            },
+            path_key: key(ProvenanceRole::RuleLeftReference),
+            arguments: args,
+        };
+        let config = item("machine", "Machine", ItemKind::Configuration);
+        descriptor.id = item("rules", "eval_add", ItemKind::Rule);
+        descriptor.payload = DescriptorPayload::HeadRule(Box::new(DescriptorHeadRule {
+            sentence_kind: SentenceKind::Transition,
+            label: Some(krs_ir::DescriptorRuleLabel {
+                key: key(ProvenanceRole::RuleLabel),
+                name: "eval-add".into(),
+            }),
+            priority: None,
+            nondet: None,
+            pattern_key: key(ProvenanceRole::RulePattern),
+            result_key: key(ProvenanceRole::RuleResult),
+            head_sort: None,
+            configuration: config.clone(),
+            computation_cell: Some(krs_ir::DescriptorCellReference {
+                key: key(ProvenanceRole::RuleLeftCellsField),
+                cell: krs_ir::DescriptorCellIdentity {
+                    owner: config,
+                    field: "k".into(),
+                },
+            }),
+            bindings: vec![
+                DescriptorHeadRuleBinding {
+                    name: "lhs".into(),
+                    refinement: None,
+                },
+                DescriptorHeadRuleBinding {
+                    name: "rhs".into(),
+                    refinement: None,
+                },
+            ],
+            head: Some(krs_ir::ProtocolHeadRuleHead {
+                subject: application(
+                    DescriptorApplicationRef::Declared(item(
+                        "syntax",
+                        "Add",
+                        ItemKind::Constructor,
+                    )),
+                    Arguments::named(
+                        ["lhs", "rhs"]
+                            .iter()
+                            .map(|name| NamedTermArgument {
+                                key: key(ProvenanceRole::RuleLeftReference),
+                                field: krs_ir::ProductionFieldId::new(*name).unwrap(),
+                                value: Box::new(var(name)),
+                            })
+                            .collect(),
+                    ),
+                ),
+                result: DescriptorHeadRuleResult::Replace(application(
+                    DescriptorApplicationRef::Builtin(krs_ir::BuiltinOperation::IntAdd),
+                    Arguments::Positional(
+                        ["lhs", "rhs"]
+                            .iter()
+                            .map(|name| Box::new(var(name)))
+                            .collect(),
+                    ),
+                )),
+            }),
+            requires: None,
+            extras: vec![],
+            existentials: Vec::new(),
+            ensures: None,
+            fresh: Vec::new(),
+            evaluation: None,
+        }));
+        fs::write(
+            dir.path().join("descriptor-bundle.json"),
+            DescriptorBundle::new(vec![descriptor.build().unwrap()])
+                .unwrap()
+                .to_canonical_json()
+                .unwrap(),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn head_rule_walkthrough_projects_typed_named_and_positional_arguments() {
+        let dir = head_rule_artifacts();
+        let request = json!({"kind":"head_rule_walkthrough","item_name":"eval_add"});
+        let value = query(dir.path(), &request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "id": "eval_add", "kind": "head_rule", "sentence_kind": "transition",
+                "label": "eval-add", "configuration": "Machine", "cell": "k",
+                "bindings": ["lhs", "rhs"],
+                "subject": {"application": "Add", "arguments": ["lhs", "rhs"]},
+                "result": {"application": "builtin:int_add", "arguments": ["lhs", "rhs"]},
+            })
+        );
+        assert!(
+            query(
+                dir.path(),
+                &json!({"kind":"head_rule_walkthrough","item_name":"absent"})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn definition_shape_ignores_explicit_rule_tail_bindings() {
+        let lowered = krs_compiler::lower_semantic_theory(&theory()).unwrap();
+        let definition = lowered.definition();
+        let modules = definition
+            .modules()
+            .iter()
+            .map(|module| {
+                let sentences = module
+                    .sentences()
+                    .iter()
+                    .map(|sentence| {
+                        if let DefinitionSentence::Rule(rule) = sentence {
+                            let RuleBodyRef::Term(body) = rule.relational_body() else {
+                                panic!("fixture has an ordinary rewrite");
+                            };
+                            let tail = SemanticId::new("tail").unwrap();
+                            let sort = DefinitionSortRef::k_sequence();
+                            let variables = vec![krs_ir_levels::DefinitionVariable::new(
+                                tail.clone(),
+                                sort.clone(),
+                            )];
+                            let body = DefinitionTerm::rewrite(
+                                body.origin().clone(),
+                                sort.clone(),
+                                DefinitionTerm::variable(
+                                    origin("tail.before"),
+                                    sort.clone(),
+                                    tail.clone(),
+                                ),
+                                DefinitionTerm::variable(origin("tail.after"), sort, tail),
+                            )
+                            .unwrap();
+                            DefinitionSentence::Rule(
+                                krs_ir_levels::RuleSentence::new(
+                                    rule.origin().clone(),
+                                    rule.label().clone(),
+                                    rule.kind(),
+                                    variables,
+                                    body,
+                                )
+                                .unwrap(),
+                            )
+                        } else {
+                            sentence.clone()
+                        }
+                    })
+                    .collect();
+                let rebuilt = krs_ir_levels::DefinitionModule::new(
+                    module.origin().clone(),
+                    module.id().clone(),
+                    module.imports().iter().cloned().collect(),
+                    module.production_groups().to_vec(),
+                    sentences,
+                );
+                match module.role() {
+                    krs_ir_levels::ModuleRole::ProgramSyntax => {
+                        rebuilt.into_program_syntax(module.int_literals())
+                    }
+                    krs_ir_levels::ModuleRole::Semantics => rebuilt,
+                    krs_ir_levels::ModuleRole::Spec => rebuilt.into_spec(),
+                }
+            })
+            .collect();
+        let expanded = DefinitionIr::new(definition.main_module().clone(), modules).unwrap();
+        assert_ne!(encoded(definition), encoded(&expanded));
+        assert_eq!(definition_shape(definition), definition_shape(&expanded));
+        let shape = definition_shape(definition);
+        let configuration = shape["modules"][0]["sentences"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|sentence| sentence["sentence_kind"] == "configuration")
+            .unwrap();
+        assert!(configuration["sentence"].get("initializer").is_some());
+    }
+
+    #[test]
+    fn claim_rows_follow_emitted_order_and_slice_exact_spec_sentences() {
+        let directory = artifacts_with_claims(true);
+        let files = query(directory.path(), &json!({"kind":"files"})).unwrap();
+        assert_eq!(files["has_claims"], true);
+        assert_eq!(files["expected"], files["actual"]);
+        let claims = query(
+            directory.path(),
+            &json!({"kind":"sentences","sentence_kind":"claim"}),
+        )
+        .unwrap();
+        let rows = claims["rows"].as_array().unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| r["label"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["a-first", "z-last"]
+        );
+        let source = fs::read(directory.path().join(krs_compiler::SPEC_ARTIFACT)).unwrap();
+        for row in rows {
+            let range = &row["generated"];
+            assert_eq!(range["artifact"], "spec.k");
+            let start = usize::try_from(range["start_byte"].as_u64().unwrap()).unwrap();
+            let end = usize::try_from(range["end_byte"].as_u64().unwrap()).unwrap();
+            let excerpt = std::str::from_utf8(&source[start..end]).unwrap();
+            assert!(excerpt.starts_with(&format!("  claim [{}]:", row["label"].as_str().unwrap())));
+            assert!(excerpt.ends_with('\n'));
+        }
+        assert_eq!(
+            rows[0]["generated"]["end_byte"],
+            rows[1]["generated"]["start_byte"]
+        );
+    }
+
+    #[test]
+    fn absolute_strings_scans_present_json_values_and_keys_without_model_validation() {
+        let directory = krs_test_support::temp_dir();
+        let artifacts = [
+            krs_compiler::DESCRIPTOR_ARTIFACT,
+            krs_compiler::SEMANTIC_ARTIFACT,
+            krs_compiler::DEFINITION_IR_ARTIFACT,
+            krs_compiler::SYMBOLS_ARTIFACT,
+            krs_compiler::SOURCES_ARTIFACT,
+        ];
+        let mut expected = Vec::new();
+        for artifact in artifacts {
+            fs::write(
+                directory.path().join(artifact),
+                serde_json::to_vec(&json!({
+                    "/absolute/key": ["/posix/path", {"nested": "C:\\host\\file"}],
+                    "other": ["file:///host/file", "\\host\\file", "src/lib.rs", "C:relative"],
+                    "scalars": [null, true, 42],
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            for value in [
+                "/absolute/key",
+                "/posix/path",
+                "C:\\host\\file",
+                "file:///host/file",
+                "\\host\\file",
+            ] {
+                expected.push(json!({"artifact": artifact, "value": value}));
+            }
+        }
+        fs::write(directory.path().join("unrelated.json"), br#"["/ignored"]"#).unwrap();
+        let request = json!({"kind": "absolute_strings"});
+        assert_eq!(
+            query(directory.path(), &request).unwrap()["rows"],
+            json!(expected)
+        );
+        for artifact in artifacts {
+            fs::remove_file(directory.path().join(artifact)).unwrap();
+        }
+        assert_eq!(
+            query(directory.path(), &request).unwrap(),
+            json!({"rows": []})
+        );
+        fs::write(directory.path().join(artifacts[0]), b"invalid json").unwrap();
+        assert!(query(directory.path(), &request).is_err());
+        assert!(
+            query(
+                directory.path(),
+                &json!({"kind": "absolute_strings", "extra": true})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn queries_reject_unknown_fields_and_read_only_required_files() {
+        let directory = artifacts();
+        for q in [
+            json!({"kind":"files","extra":true}),
+            json!({"kind":"productions","unknown":false}),
+            json!({"kind":"applications","arguments":[{"extra":false}]}),
+            json!({"kind":"missing"}),
+        ] {
+            assert!(
+                query(directory.path(), &q).is_err(),
+                "unexpected accepted query: {q}"
+            );
+        }
+        fs::remove_file(directory.path().join(krs_compiler::DEFINITION_IR_ARTIFACT)).unwrap();
+        assert!(query(directory.path(), &json!({"kind":"symbols"})).is_ok());
+        assert!(query(directory.path(), &json!({"kind":"sources"})).is_ok());
+        assert!(query(directory.path(), &json!({"kind":"descriptors"})).is_ok());
+        assert!(query(directory.path(), &json!({"kind":"modules"})).is_err());
+    }
+    #[test]
+    fn recursive_term_patterns_match_only_declared_facts() {
+        let p: TermPattern = serde_json::from_value(
+            json!({"symbol":"wrappingRange","arguments":[{"token":"1"},{"token":"0"}]}),
+        )
+        .unwrap();
+        assert!(p.matches(&json!({
+            "kind": "application", "symbol": "wrappingRange",
+            "arguments": [{"kind": "token", "token": "1"}, {"kind": "token", "token": "0"}],
+        })));
+        assert!(
+            !p.matches(
+                &json!({"symbol":"wrappingRange","arguments":[{"token":"0"},{"token":"1"}]})
+            )
+        );
+    }
+
+    #[test]
+    fn every_capability_feature_has_one_route_table_row() {
+        for feature in krs_compiler::capability::CapabilityFeature::ALL {
+            let rows = krs_k_rust::ROUTE_CAPABILITIES
+                .iter()
+                .filter(|row| row.feature == feature.name())
+                .count();
+            assert_eq!(rows, 1, "{}", feature.name());
+        }
+        for row in krs_k_rust::ROUTE_CAPABILITIES {
+            assert!(
+                krs_compiler::capability::CapabilityFeature::ALL
+                    .iter()
+                    .any(|feature| feature.name() == row.feature),
+                "route table row {} names no compiler feature",
+                row.feature
+            );
+        }
+    }
+}

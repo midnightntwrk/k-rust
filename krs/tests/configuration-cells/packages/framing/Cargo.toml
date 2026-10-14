@@ -1,0 +1,21 @@
+[package]
+name = "krs-configuration-cells-framing"
+description = "Readable machine rules that leave the computation cell out (KF-015)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_configuration_cells_framing"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-FRAMING"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

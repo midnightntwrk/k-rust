@@ -1,0 +1,27 @@
+[package]
+name = "krs-ir-levels"
+description = "Semantic IR and Definition IR: the target-neutral IR levels KRS lowers a descriptor bundle through"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+test-support = ["krs-ir/test-support"]
+
+[dependencies]
+krs-ir = { path = "../krs-ir" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+expect-test = { workspace = true }
+krs-ir = { path = "../krs-ir", features = ["test-support"] }
+krs-ir-levels = { path = ".", features = ["test-support"] }
+krs-test-support = { path = "../krs-test-support" }
+proc-macro2 = { workspace = true }
+serde-reflection = "0.6.0"
+syn = { workspace = true, features = ["full", "parsing"] }
+
+[lints]
+workspace = true

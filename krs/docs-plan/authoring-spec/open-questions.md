@@ -1,0 +1,129 @@
+# Open questions (decided-to-be-open — do not silently resolve)
+
+Everything the investigation deliberately left undecided. An implementing
+agent hitting one of these must surface it as a decision request (or take
+the marked default and flag it), never pick silently. Items are grouped by
+what they block.
+
+## Blocks `krs fmt` (decision F1)
+
+1. ~~**Canonical layout design**~~ (16 §I) — **RESOLVED
+   (2026-08-23, decisions F5/F7)**: single-cell clauses are one line
+   each after interior comments normalize to leading position;
+   multi-cell rules never collapse, one cell per line; no width-based
+   heuristics. Expanded rules use the exact `=>`/`where` placement in
+   the normative specimen and 14 §Verdict sketch. The sole remaining
+   layout choice is the trailing-comment column vs fixed gutter in
+   item 4 below.
+2. ~~**Column alignment in single-cell tables**~~ — **RESOLVED
+   (2026-08-23, decision F5): the formatter emits alignment across the
+   whole `k::rules!` block.** `:`, `=>`, and `where` columns align
+   table-wide, not per blank-line group (whitespace-implicit
+   sub-concepts are fragile; separate concepts belong in separate
+   blocks). Blank lines are preserved but carry no formatter
+   semantics. The formatter's edit-stability fixture pins that a label rename changes only the label token and table-padding whitespace.
+3. ~~**Provenance/span safety under reformatting**~~ — **RESOLVED
+   (2026-08-23, decision F6)**: formatting is provenance-preserving
+   re-anchoring — stable IDs, provenance-key topology, and semantic
+   payload unchanged; anchors recomputed byte-exact against the new
+   text; checked in the formatter's test ladder (gates F3.2/F3.4).
+4. ~~**The krs-syntax public API and trivia model**~~ (16 §I) —
+   **RESOLVED (2026-08-23, decision F7)**: the narrow facade — `syn`
+   and all grammar productions unchanged; trivia recovered by
+   classifying the byte gaps between proc-macro2's tokens, totality
+   asserted; `parse_*_source_with_trivia -> (Ast, TriviaTable)` entry
+   points beside the untouched existing ones; cedar-style
+   token-attached leading/trailing; three in-binary oracles plus a
+   UUID-injection comment fuzz target; rowan-CST rewrite as the named
+   escape hatch (>~15 placement handlers or multi-error recovery).
+   **Additionally: non-doc `/* */` is a hard error inside DSL macro
+   bodies** — DSL comments are line comments only, enforced by
+   `krs fmt`/collector (macros cannot see comments); interior clause
+   comments normalize to leading position.
+   **Remaining sub-item, still open**: whether trailing clause comments form their own aligned column or sit at a fixed two-space gutter.
+   Both behaviors have stable snapshots and CLI policies; `aligned` is the provisional recommended default, not yet the frozen decision.
+
+## Blocks the rule engine
+
+5. ~~**Overlap-diagnostic mechanism**~~ — **RESOLVED (2026-08-26, decision F2)**: run deterministic pattern unification after semantic sort inference over readable `HeadRule` declarations.
+   The implementation is cross-table, sort-, constructor-, literal-, and repeated-variable-aware; ambiguous framed map-item requirements remain conservatively overlapping.
+   Focused unifier tests and an end-to-end duplicated-IMP-rule regression pin the typed diagnostic.
+6. **`{ .. }` in a cell position**: tail-only map pattern or all-framed
+   cell record? Not exercised by IMP; the grammar must rule on it before
+   larger definitions. [result README open list]
+7. ~~**The no-k-head escape hatch** for machine rules that don't touch the
+   computation cell~~ — **RESOLVED (2026-10, KF-015)**: no escape hatch and
+   no new spelling. A readable `for Machine` record may leave the
+   computation cell out, and an omitted computation cell is framed like
+   every omitted cell (E7): `burn: { fuel: f, acc: a } => { .. }` emits
+   `rule [burn]: <fuel> .. </fuel> <acc> .. </acc>` with no `<k>`. This
+   supersedes the earlier "layer-2 only" note; the layer-2 `cells!` subject
+   already accepted a record without `KCell`. A readable rule without the
+   computation cell that changes no cell is rejected
+   (`krs::analysis::rule-changes-no-cell`), and so is one whose every cell
+   pattern is an unguarded variable or `_` of the cell's sort, because it
+   is always enabled (`krs::analysis::always-enabled-rule`). The overlap
+   check treats rules with disjoint footprints as independent. Rejected: an
+   explicit `k: ..` marker (inconsistent with E7), a third table header,
+   and keeping the form reference-only.
+   [14 §Relationships]
+
+## Blocks the grammar surface
+
+8. ~~**Default associativity of a bare (unprefixed) precedence group**~~
+   — **RESOLVED (2026-08-23): bare = no associativity constraint.** The
+   specimen's assumption ("K's bare `>` is non-associative") was wrong;
+   it was never checked against the oracle. Evidence:
+   - K user manual (`inspirations/runtimeverification/k/docs/`
+     `user_manual.md`, "symbol priority and associativity"): the bare
+     `>` example grammar is explicitly described as *still ambiguous*
+     until `left:`/`right:` annotations are added; `non-assoc` is a
+     separate opt-in (block prefix, `syntax non-assoc`, or production
+     attribute).
+   - Empirical: bare-tier iterated unary (`!!true`) parses under
+     kompile; adding explicit `non-assoc` breaks valid IMP statement
+     nesting — so non-associative-by-default is both unfaithful to K
+     and un-implementable without regressions.
+   Decision recorded in C7 (updated): bare emits no associativity
+   annotation; `non_assoc` is an explicit keyword mapping to K's
+   non-associativity. Qualification lives in `tests/precedence-associativity`: it pins
+   `!!true` parsing under a bare tier, `non_assoc` rejecting same-tier
+   direct nesting, and the emitted `syntax non-assoc` sentence. The
+   public `constructors` macro rustdoc for its enum-level
+   `#[k::precedence]` helper records the bare default.
+   [result README open list; falsified vs K manual]
+9. ~~**`ExprSort` trait suffix vs a generated `mod sort { trait Expr }`**~~ — **RESOLVED by the compiling IMP expansion**: generate `ExprSort` and the short `type Expr = Term<dyn ExprSort>` alias.
+   This keeps ordinary author references short while giving the marker trait a collision-free Rust identity.
+   Sealing sorts against out-of-definition implementations remains a separate future hardening question.
+10. **Tier-group naming for cross-family references**: generated
+    (`op_tier1`) vs author-named via the chain's name position — both
+    exist; the style-guide rule for when to name is unwritten.
+
+## Blocks configuration
+
+11. ~~**Leaf-vs-nested cell discrimination once wrappers are injected**~~ — **RESOLVED by the compiling IMP surface**: every readable leaf field must carry `#[k::cell]`.
+    The attribute carries cell properties, and the field sort identifies the computation cell; missing helpers and unsupported nested shapes fail locally.
+12. **`const`-initializer alternative to the init fn**
+    (`k::config_vars! { … }` + `const MACHINE`) — sketch only; field
+    default values confirmed still unstable (E0658). Default: init fn
+    (D2). [result README open list]
+
+## Deferred / out of scope for the IMP authoring surface
+
+13. **Method-call term sugar** (`e.update(k, v)`) — deferred and
+    policy-blocked (r10: no Rust trait resolution in term position);
+    would need a closed sort-directed method table. [result README]
+14. ~~**`imp-verification.k`** (`[simplification]` rules, regex `token` productions)~~ — **RESOLVED (2026-10, KF-041)**: spec modules and `$` tokens.
+    A K proof module is an inline Rust `mod` carrying `#[k::spec_module(name = "..", imports = [..])]`; it holds claims, simplification lemmas, and tokens (terminal or regex) for existing sorts, imports the definition explicitly (`crate`, a dependency crate root, or another spec module; rustc checks every path), and is emitted into `spec.k` in import order before the generated `<MAIN>-SPEC`.
+    `krs prove --spec-module NAME` proves it natively, as `kprove --spec-module NAME` does.
+    The `$`-prefixed `Id` token is authored as upstream does, in the definition: `#[k::token(regex = r"\$[a-zA-Z0-9_]+")] pub type DollarId = k::builtin::Id;`, and a spec-module claim then prints `k::id!("$n")` bare as `$n`, so C2-002's `#token("$n","Id")` spelling is no longer needed there.
+    A spec module may also declare the token itself, terminal or regex, when only its proofs need the names; regex tokens were first kept out of spec modules after one design probe in which kore-exec did not terminate with one in a proof module, but two re-probes (the sum loop and lesson 1.22's claims, with the regex moved into the proof module) proved in seconds, so the restriction was lifted (2026-10).
+    An identifier in a spec-module claim that no visible token production lexes is an error. Claims outside every spec module, in the generated `<MAIN>-SPEC`, get no such check and no warning: they spell an identifier no token lexes as `#token("$n","Id")`, which K always parses, and a warning there would fire on every IMP claim.
+    A spec module sees only the definition's public syntax: K hides `private` productions from every importing module, so a claim or simplification lemma in a spec module that names a non-`pub` production is an error (`krs::analysis::private-production-in-spec`, KF-045), as a claim in `<MAIN>-SPEC` already was.
+    A package may hold nothing but spec modules (2026-10), as a K lesson's `-spec.k` file adds claims to a language it does not change: the lesson package depends on the language crate, its spec modules import `crate`, and its definition module `<k-namespace>` is emitted empty, importing the packages its spec modules name, so `kompile` sees exactly the language and `kprove --spec-module` and `krs prove --spec-module` prove against it.
+    The four `[simplification]` lemmas remain in the explicit `#[k::simplification]` function form (`tests/imp/rust-definition/src/verification.rs`); the readable `k::rules!` tables have no simplification spelling.
+    Rejected: Cargo-metadata spec facets, requiring one package per spec module (a package of only spec modules is allowed, not required), a general `#[k::module]`, spec-only constructors or functions (K forbids them), a ban on regex token aliases in spec modules (lifted above), and a `<MAIN>-SPEC` warning for `$` identifiers.
+15. ~~**Exact-parity `% ` format escape**~~ — **RESOLVED for printing**: there is no `% ` escape.
+    A format's literal text prints as written and its terminals print by position (the C5 note), so a plain space is the exact spelling; the escape list is `%n %i %d %c %r %%`.
+16. **Style-guide item to write**: doc-comment policy on rule clauses (the control-flow table documents every clause, while the eval table documents none).
+    The `k::builtin::map` facade and alias-safe `map::update` identity are implemented and no longer part of this open item.

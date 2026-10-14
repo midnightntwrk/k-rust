@@ -1,0 +1,19 @@
+# KMIR acceptance gate
+
+Run `python3 tests/kmir/verify.py` from the repository root to check the pinned KMIR corpus with the native K-Rust route.
+The gate compiles Definition IR to KORE through the pinned K-Rust frontend, executes the corpus with the K-Rust backend, checks each expected outcome, and checks the native behavior digest against `pins.toml`.
+This route does not require the Java K toolchain.
+
+Each case declares what it observes and expects as data, in the format `tests/support/behavior.py` describes.
+KMIR cases check `locals`, `retVal`, `currentBody`, `stack`, and `k`; the stack defaults to size zero and the computation defaults to `.K`.
+Error cases declare the error through a head expectation for `k`.
+Top-level `[report]` names the outcome field of each reported cell; the pinned outcome of a case is its expected text or size for those cells.
+
+Run `python3 tests/kmir/verify.py --java-reference` to add the upstream K reference route.
+The gate kompiles the emitted K definition, runs each case with `krun --output kore`, and passes the resulting KORE states to the `kore.read` session operation and checks them with the same structural expectations and outcome builder as the native route.
+Both routes build each outcome from the corpus case once its expectations are met, so the routes agree exactly when every Java state meets the expectations its native peer meets.
+The gate requires one Java outcome per native case id.
+The Java-kompiled definition remains pinned, while reference behavior is checked against the corpus expectations.
+
+The `--artifacts-only` option checks pinned emitted artifacts and native KORE without executing the behavior corpus.
+The `--record` option updates measured output pins only after the complete selected gate passes; review any pin change before accepting it.

@@ -1,0 +1,382 @@
+#!/usr/bin/env python3
+"""Pin the tour's focused negative diagnostics to exact authored tokens."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError, entry  # noqa: E402
+from support.diagnostics import cargo_primary_span, envelopes, krs_diagnostics, split_krs_code  # noqa: E402
+from support.krs import Invocation, build  # noqa: E402
+from support.packages import check_packages  # noqa: E402
+from support.process import compact, render, run  # noqa: E402
+from support.tools import checkout_scratch, executable, z3_environment  # noqa: E402
+
+
+HERE = Path(__file__).resolve().parent
+MACRO_NEGATIVES = ROOT / "crates" / "krs-macros" / "tests" / "fixtures" / "negative"
+SPEC_MODULE_FIXTURES = ROOT / "tests" / "verification-surface" / "fixtures"
+PRIVATE_LEMMA = "spec-module-private-lemma"
+PRIVATE_LEMMA_MESSAGE = (
+    "`H` is private to KRS-SPEC-MODULE-PRIVATE-LEMMA; K's private syntax is invisible to proof "
+    "modules. Make it `pub` and mark it `internal`"
+)
+PRIVATE_LEMMA_NOTES = (
+    "simplification lemma: KRS-SPEC-MODULE-PRIVATE-LEMMA::proofs::h_lemma (simplification)",
+    "spec module: KRS-SPEC-MODULE-PRIVATE-LEMMA-PROOFS",
+)
+FRESH_PLACEMENT = (
+    "fresh values are drawn from the generated counter only by a transition step of the "
+    "configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, "
+    "context, context alias, anywhere rule, or heat or cool rule"
+)
+
+
+def run_failing(command: list[str | Path]) -> subprocess.CompletedProcess[str]:
+    """Run a command the negative case requires to fail."""
+
+    result = run(command, environment=z3_environment(), check=False)
+    if result.returncode == 0:
+        raise GateError(f"command should fail: {render(command)}\n{compact(result)}")
+    return result
+
+
+UNBOUND_VARIABLES_OUTSIDE_DESUGAR = (
+    "unbound_variables applies only to desugar clauses: write it in the `#[k::desugar(..)]` of "
+    "a clause fn, `#[k::desugar(unbound_variables = [x, _])]`"
+)
+
+
+def check_rust_negative(binary: str, message: str, token: str) -> str:
+    """Require the rustc message and its authored token; return the KRS code a macro carried, or `rustc`."""
+
+    result = run_failing(
+        [
+            executable("cargo"),
+            "+stable",
+            "check",
+            "--locked",
+            "--offline",
+            "--manifest-path",
+            MACRO_NEGATIVES / "Cargo.toml",
+            "--bin",
+            binary,
+            "--message-format=json",
+        ],
+    )
+    span = cargo_primary_span(result.stdout)
+    code, text = split_krs_code(span.message)
+    if text != message:
+        raise GateError(f"{binary}: diagnostic changed: {span.message!r}")
+    source = MACRO_NEGATIVES / span.file_name
+    selected = source.read_bytes()[span.byte_start:span.byte_end].decode()
+    if selected != token:
+        raise GateError(f"{binary}: expected authored token {token!r}, got {selected!r}")
+    return code or "rustc"
+
+
+def check_overlap(binary: Path) -> None:
+    result = run_failing(
+        Invocation(binary, HERE / "Cargo.toml", "krs-tour-negatives", "main").argv(
+            "check", "--message-format=json"
+        ),
+    )
+    diagnostics = envelopes(result.stderr)
+    if len(diagnostics) != 1:
+        raise GateError(f"overlap: expected one JSON diagnostic line, got {len(diagnostics)}")
+    typed = krs_diagnostics(result.stderr)
+    if len(typed) != 1:
+        raise GateError(f"overlap: expected one KRS diagnostic, got {len(typed)}")
+    diagnostic = typed[0]
+    expected = {
+        "schema_version": 1,
+        "stage": "analysis",
+        "code": "krs::analysis::overlapping-rule-heads",
+        "severity": "error",
+    }
+    for field, value in expected.items():
+        if getattr(diagnostic, field) != value:
+            raise GateError(f"overlap: {field} changed: {getattr(diagnostic, field)!r}")
+    selected = diagnostic.selected_bytes(HERE).decode()
+    if selected != "Foo":
+        raise GateError(f"overlap: second authored head span changed: {selected!r}")
+    if "second_foo" not in diagnostic.message:
+        raise GateError("overlap diagnostic does not identify the second stable rule")
+
+    human = run_failing(
+        Invocation(binary, HERE / "Cargo.toml", "krs-tour-negatives", "main").argv("check"),
+    )
+    if "error[krs::analysis::overlapping-rule-heads]" not in human.stderr:
+        raise GateError("default overlap diagnostic lacks the human error title")
+    source_path = (HERE / "src/lib.rs").relative_to(ROOT)
+    if f"--> {source_path}:" not in human.stderr:
+        raise GateError("default overlap diagnostic lacks the cwd-relative source path")
+    source_line = next(
+        line for line in (HERE / "src/lib.rs").read_text(encoding="utf-8").splitlines()
+        if "second_foo:" in line
+    )
+    if source_line.strip() not in human.stderr:
+        raise GateError("default overlap diagnostic lacks the authored Foo snippet line")
+
+
+def check_private_lemma(binary: Path, environment: dict[str, str], scratch: Path) -> None:
+    """A spec-module lemma that names a private production is rejected at the lemma."""
+
+    package = scratch / PRIVATE_LEMMA
+    if package.exists():
+        shutil.rmtree(package)
+    shutil.copytree(SPEC_MODULE_FIXTURES / PRIVATE_LEMMA, package)
+    facade = json.dumps(os.fspath((ROOT / "crates" / "krs").resolve()))
+    template = package / "Cargo.toml.in"
+    manifest = package / "Cargo.toml"
+    manifest.write_text(
+        template.read_text(encoding="utf-8").replace("@KRS_CRATE_PATH@", facade), encoding="utf-8"
+    )
+    template.unlink()
+    result = run(
+        Invocation(binary, manifest, f"krs-verification-surface-{PRIVATE_LEMMA}", "main").argv(
+            "check", "--message-format=json"
+        ),
+        environment=environment,
+        check=False,
+    )
+    if result.returncode == 0:
+        raise GateError(f"{PRIVATE_LEMMA}: krs check accepted a lemma naming a private production")
+    typed = krs_diagnostics(result.stderr)
+    if len(typed) != 1:
+        raise GateError(f"{PRIVATE_LEMMA}: expected one KRS diagnostic, got {len(typed)}")
+    diagnostic = typed[0]
+    if diagnostic.code != "krs::analysis::private-production-in-spec":
+        raise GateError(f"{PRIVATE_LEMMA}: code changed: {diagnostic.code!r}")
+    if diagnostic.message != PRIVATE_LEMMA_MESSAGE:
+        raise GateError(f"{PRIVATE_LEMMA}: message changed: {diagnostic.message!r}")
+    if diagnostic.notes != PRIVATE_LEMMA_NOTES:
+        raise GateError(f"{PRIVATE_LEMMA}: notes changed: {diagnostic.notes!r}")
+    selected = diagnostic.selected_bytes(package).decode()
+    if selected != "h_lemma":
+        raise GateError(f"{PRIVATE_LEMMA}: expected the lemma's name, got {selected!r}")
+
+
+def main() -> None:
+    target = checkout_scratch() / "tour-negatives-root-target"
+    environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
+    binary = build(environment)
+    check_packages("tour-negatives", krs=binary, env=environment, target_dir=target)
+    check_overlap(binary)
+    print("PASS overlap: structured analysis code, exact second Foo head, and default human snippet")
+    check_private_lemma(binary, environment, checkout_scratch() / "tour-negatives-fixtures")
+    print(f"PASS {PRIVATE_LEMMA}: private production in a spec-module lemma, at the lemma's name")
+    cases = (
+        (
+            "readable_missing_cell",
+            "unsupported fixed configuration field: wrapper-free configurations require `#[k::cell]` on every plain field",
+            "renamed_krs",
+        ),
+        (
+            "initializer_control_flow",
+            "unsupported declarative initializer body: statements, semicolons, control flow, mutation, and early return are forbidden",
+            "if",
+        ),
+        (
+            "malformed_readable_family",
+            "invalid enum precedence chain: enum variant `Other` is missing from the exhaustive chain",
+            "Other",
+        ),
+        (
+            "readable_rule_bad_update",
+            "the update base must be the cell `env`",
+            "other",
+        ),
+        (
+            "prefer_with_avoid",
+            "`prefer` must be omitted: a production is either preferred or avoided, not both",
+            "prefer",
+        ),
+        (
+            "overload_unknown_target",
+            "no variant named `Missing` found for enum `ExpSyntax`",
+            "Missing",
+        ),
+        (
+            "overload_private_target",
+            "enum `ExpSyntax` is private",
+            "ExpSyntax",
+        ),
+        (
+            "cell_bag",
+            "invalid `cell` attribute: cell bags are unsupported by K's LLVM and Haskell backends; "
+            "use cell_type = \"Set\", \"Map\", or \"List\"",
+            '"Bag"',
+        ),
+        (
+            "optional_plain_field",
+            "unsupported fixed configuration field: a `multiplicity = \"?\"` cell is declared "
+            "`Option<T>`, T its leaf sort or nested cell struct",
+            "renamed_krs",
+        ),
+        (
+            "readable_rule_empty_record",
+            "a machine rule selects at least one cell",
+            "{}",
+        ),
+        (
+            "sort_test_in_pattern",
+            "unsupported term expression: `k::is!` and `k::project!` are function calls and cannot be matched; restrict the binder with a typed parameter or `where x: S`",
+            "is",
+        ),
+        (
+            "rule_fresh_in_pattern",
+            "a fresh value cannot be matched: it does not exist until the step happens, so it cannot also be a pattern binding; rename it",
+            "value",
+        ),
+        (
+            "rule_fresh_in_requires",
+            "a fresh value cannot occur in `requires`: the step allocates it only after deciding to apply",
+            "n",
+        ),
+        (
+            "rule_fresh_unused",
+            "a fresh binder must occur in the rule's result or ensures condition",
+            "n",
+        ),
+        ("rule_fresh_equation", FRESH_PLACEMENT, "n"),
+        ("rule_fresh_claim", FRESH_PLACEMENT, "fresh"),
+        ("rule_fresh_anywhere", FRESH_PLACEMENT, "n"),
+        ("rule_fresh_heat", FRESH_PLACEMENT, "n"),
+        (
+            "rule_heat_without_hole",
+            "a heat or cool rule names the subterm it moves with `hole = x`, K's HOLE; bind `x` "
+            "on the left side",
+            "heat",
+        ),
+        (
+            "rule_heat_and_cool",
+            "a rule is a heating step or a cooling step, not both; write `heat` or `cool`",
+            "cool",
+        ),
+        (
+            "rule_hole_without_heat",
+            "`hole` and `result` are keys of a heat or cool rule; add `heat` or `cool`",
+            "h",
+        ),
+        (
+            "rule_heat_with_priority",
+            "a heat or cool rule is ordered by its hole: K adds `requires notBool isKResult(HOLE)` "
+            "to heating and `requires isKResult(HOLE)` to cooling; it takes no `owise`, "
+            "`priority`, `nondet`, or `anywhere`",
+            "10",
+        ),
+        (
+            "context_missing_hole",
+            "missing required argument `hole = ...`",
+            "label",
+        ),
+        (
+            "context_binder_misordered",
+            "unsupported rule signature: typed term parameters must declare every term binder of "
+            "the subject and function context, in first-occurrence order (hole binders included; "
+            "`_`, remainders, HERE, instance labels and local binders excluded)",
+            "h",
+        ),
+        (
+            "context_with_result",
+            "unsupported rule signature: a context returns `()`: it says where evaluation may "
+            "happen and has no after-state; K turns it into a heat rule and a cool rule",
+            "Term",
+        ),
+        (
+            "context_two_rewrites",
+            "a context rewrites at most its hole, once: `k::rewrite!(h => f(h))`, K's "
+            "`HOLE => f(HOLE)`",
+            "k",
+        ),
+        ("context_fresh", FRESH_PLACEMENT, "fresh"),
+        (
+            "desugar_clause_recursive",
+            "recursion is a property of the production: write `recursive` on the production's "
+            "`#[k::alias]` or `#[k::desugar]` marker, and a plain marker on its clauses",
+            "recursive",
+        ),
+        (
+            "desugar_requires",
+            "a desugar clause has no `#[k::requires]`: K rewrites the definition and the program "
+            "with it once, before anything runs, so there is nothing to test a condition against",
+            "requires",
+        ),
+        (
+            "alias_and_desugar",
+            "a production is an alias or a desugar, not both: `alias` also prints backwards, "
+            "`desugar` only expands",
+            "desugar",
+        ),
+        (
+            "desugar_unbound_bound",
+            "`body` is bound by the pattern; `unbound_variables` lists only result names the "
+            "pattern does not bind",
+            "body",
+        ),
+        (
+            "desugar_unbound_unused",
+            "`_` is listed in `unbound_variables`, but the result has no `_`; list `_` only for "
+            "a result with wildcards",
+            "_",
+        ),
+        (
+            "alias_unbound_variables",
+            UNBOUND_VARIABLES_OUTSIDE_DESUGAR,
+            "unbound_variables",
+        ),
+        (
+            "desugar_production_payload",
+            UNBOUND_VARIABLES_OUTSIDE_DESUGAR,
+            "unbound_variables",
+        ),
+        (
+            "spec_module_not_a_module",
+            "`#[k::spec_module]` applies to an inline `mod name { .. }`, which holds the spec module's claims, lemmas, and tokens",
+            "fn",
+        ),
+        (
+            "spec_module_syntax_name",
+            "`ORG-SYNTAX` ends in `-SYNTAX`, which KRS reserves for program-syntax modules; choose another spec-module name",
+            '"ORG-SYNTAX"',
+        ),
+        (
+            "spec_module_nested",
+            "spec modules do not nest: declare this spec module beside its parent and list the parent in its `imports`",
+            "#",
+        ),
+        (
+            "or_pattern_unequal_binders",
+            "variable `x` is not bound in all alternatives",
+            "Pair",
+        ),
+        (
+            "matches_malformed",
+            "K's :=K has no guard; conjoin a separate condition with bool::and",
+            "if",
+        ),
+        (
+            "let_block_malformed",
+            "a term block is `let pattern = term;`* followed by one result term (K's #let)",
+            "y",
+        ),
+        (
+            "function_context_on_rule",
+            "a configuration context belongs only on #[k::equation] (K's [[ ]] function context)",
+            "cells",
+        ),
+    )
+    for binary, message, token in cases:
+        code = check_rust_negative(binary, message, token)
+        print(f"PASS {binary}: pinned message, code {code}, and authored token {token!r}")
+
+
+if __name__ == "__main__":
+    entry("tour-negatives", main, errors=(OSError, KeyError, TypeError, ValueError))

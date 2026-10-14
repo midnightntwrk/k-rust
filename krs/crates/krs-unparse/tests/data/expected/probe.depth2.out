@@ -1,0 +1,9 @@
+<generatedTop>
+  <k>
+    b = zeroAlias ;
+    a = ( 1 + 2 ) * 3 ; ~> c = 1 + 2 * zeroAlias ; ~> .K
+  </k>
+  <env>
+    .Map
+  </env>
+</generatedTop>

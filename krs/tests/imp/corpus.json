@@ -1,0 +1,81 @@
+{
+  "schema": 2,
+  "input_ledgers": {
+    "imp-state": {"path": "tests/imp-state/pins.json"},
+    "imp-control-flow": {"path": "tests/imp-control-flow/pins.json"},
+    "imp-static-semantics": {"path": "tests/imp_static_semantics/pins.json"}
+  },
+  "routes": {
+    "reference": {
+      "source": "tests/imp_static_semantics/fixtures/static-adjunct.k",
+      "main_module": "KRS-IMP-STATIC",
+      "syntax_module": "KRS-IMP-STATIC-SYNTAX"
+    },
+    "actual": {
+      "main_module": "KRS-IMP",
+      "syntax_module": "KRS-IMP",
+      "claim_spec_module": "KRS-IMP-SPEC"
+    }
+  },
+  "parse": {
+    "accepted": [
+      {"root": "tests/imp/corpus/expr/accepted", "glob": "*.expr", "sort": "Expr", "count": 9},
+      {"root": "tests/imp/corpus/accepted", "glob": "*.expr", "sort": "Expr", "count": 1},
+      {"root": "tests/imp-state/corpus/accepted", "glob": "*.calc", "sort": "Stmt", "count": 5},
+      {"root": "tests/imp-control-flow/corpus/accepted", "glob": "*.imp", "sort": "Stmt", "count": 8}
+    ],
+    "rejected": [
+      {"path": "tests/imp/corpus/expr/rejected/syntax/dangling-operator.expr", "sort": "Expr", "class": "parser", "range": [2, 1, 2, 1]},
+      {"path": "tests/imp/corpus/expr/rejected/syntax/unclosed-parenthesis.expr", "sort": "Expr", "class": "parser", "range": [2, 1, 2, 1]},
+      {"path": "tests/imp-state/corpus/rejected/syntax/missing-identifier.calc", "sort": "Stmt", "class": "parser", "range": [1, 1, 1, 2]},
+      {"path": "tests/imp-state/corpus/rejected/syntax/missing-semicolon.calc", "sort": "Stmt", "class": "parser", "range": [2, 1, 2, 1]},
+      {"path": "tests/imp-control-flow/corpus/rejected/syntax/missing-condition.imp", "sort": "Stmt", "class": "parser", "range": [1, 5, 1, 6]},
+      {"path": "tests/imp-control-flow/corpus/rejected/syntax/missing-else-body.imp", "sort": "Stmt", "class": "parser", "range": [2, 1, 2, 1]},
+      {"path": "tests/imp-control-flow/corpus/rejected/syntax/stray-else.imp", "sort": "Stmt", "class": "parser", "range": [1, 1, 1, 5]},
+      {"path": "tests/imp-control-flow/corpus/rejected/syntax/unclosed-block.imp", "sort": "Stmt", "class": "parser", "range": [2, 1, 2, 1]}
+    ]
+  },
+  "execution": {
+    "expression_wrapper": "result = {expression};\n",
+    "expression_accepted_root": "tests/imp/corpus/expr/accepted",
+    "expression_stuck_root": "tests/imp/corpus/expr/rejected/semantic-type",
+    "imp-state": {
+      "tests/imp-state/corpus/accepted/single-assignment.calc": {"environment": ".Map", "steps": 1},
+      "tests/imp-state/corpus/accepted/initial-environment.calc": {"environment": "x |-> 41", "steps": 7},
+      "tests/imp-state/corpus/accepted/lookup-evaluation-order.calc": {"environment": ".Map", "steps": 15},
+      "tests/imp-state/corpus/accepted/update-existing.calc": {"environment": ".Map", "steps": 9},
+      "tests/imp-state/corpus/accepted/right-associated-sequence.calc": {"environment": ".Map", "steps": 14}
+    },
+    "imp-control-flow": {
+      "tests/imp-control-flow/corpus/accepted/empty-block.imp": 1,
+      "tests/imp-control-flow/corpus/accepted/if-true.imp": 3,
+      "tests/imp-control-flow/corpus/accepted/if-false.imp": 3,
+      "tests/imp-control-flow/corpus/accepted/explicit-else.imp": 2,
+      "tests/imp-control-flow/corpus/accepted/dangling-else.imp": 9,
+      "tests/imp-control-flow/corpus/accepted/block-sequence.imp": 19,
+      "tests/imp-control-flow/corpus/accepted/while-followed.imp": 83,
+      "tests/imp-control-flow/corpus/accepted/nested-control.imp": 59
+    },
+    "bounded_live": {"path": "tests/imp-control-flow/corpus/nonterminating/infinite-loop.imp", "depths": [0, 1, 2, 3, 4, 8, 16, 32]},
+    "stuck": [
+      "tests/imp-state/corpus/rejected/semantic/type-error.calc",
+      "tests/imp-state/corpus/rejected/semantic/undefined-variable.calc",
+      "tests/imp-control-flow/corpus/rejected/semantic/non-bool-if.imp",
+      "tests/imp-control-flow/corpus/rejected/semantic/non-bool-while.imp",
+      "tests/imp-control-flow/corpus/rejected/semantic/undefined-condition.imp"
+    ],
+    "static": "tests/imp_static_semantics/corpus/static-evaluation.imp",
+    "depth_state_counts": {"imp-state": 51, "imp-control-flow": 187, "bounded_live": 8, "total": 246}
+  },
+  "search": {
+    "finite": {
+      "tests/imp-control-flow/corpus/accepted/explicit-else.imp": [0, 1, 2],
+      "tests/imp-control-flow/corpus/accepted/dangling-else.imp": [0, 1, 2, 4, 9]
+    },
+    "bounded_live": {"path": "tests/imp-control-flow/corpus/nonterminating/infinite-loop.imp", "depths": [0, 1, 2, 3, 4, 8, 16, 32]},
+    "frontier_count": 16
+  },
+  "failures": [
+    {"name": "division-by-zero", "path": "tests/imp-state/corpus/rejected/semantic/division-by-zero.calc", "class": "hook", "fragment": "[hook_INT_tdiv]: Division by zero: 1 / 0"}
+  ]
+}

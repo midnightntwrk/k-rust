@@ -1,0 +1,21 @@
+[package]
+name = "krs-rule-forms-heat-cool"
+description = "Heat and cool fixture: K tutorial lesson 14-A, hand-written heating and cooling rules with freezers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_rule_forms_heat_cool"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-HEAT-COOL"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

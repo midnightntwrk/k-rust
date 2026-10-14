@@ -1,0 +1,478 @@
+//! Narrow procedural-macro facade for the explicit KRS surface.
+//!
+//! Parsing belongs to `krs-syntax` and expansion to `krs-expand`; these entry
+//! points only pass rustc's tokens and invocation environment to
+//! `krs-expand` and render its diagnostics. Whole-definition name resolution
+//! and K semantics remain collector/compiler responsibilities.
+
+use proc_macro::TokenStream;
+
+mod environment;
+
+use environment::ProcMacroEnvironment;
+use krs_syntax::surface::{AttributeMacro, FunctionMacro};
+
+fn finish(result: krs_expand::Result<proc_macro2::TokenStream>) -> TokenStream {
+    result
+        .unwrap_or_else(|error| {
+            error
+                .into_syn_error(proc_macro2::Span::call_site())
+                .into_compile_error()
+        })
+        .into()
+}
+
+fn attribute_macro(
+    entry: AttributeMacro,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> TokenStream {
+    finish(krs_expand::expand_attribute(
+        entry,
+        &ProcMacroEnvironment,
+        attributes.into(),
+        item.into(),
+    ))
+}
+
+fn function_macro(entry: FunctionMacro, input: TokenStream) -> TokenStream {
+    finish(krs_expand::expand_function(
+        entry,
+        &ProcMacroEnvironment,
+        input.into(),
+    ))
+}
+
+/// Declares an open K sort on its empty Rust marker trait:
+/// `#[k::sort(alias = Expr)] pub trait ExprSort {}` beside
+/// `pub type Expr = k::Term<dyn ExprSort>;`, with `parents = [..]` naming one
+/// parent sort per marker supertrait.
+#[proc_macro_attribute]
+pub fn sort(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Sort, attributes, item)
+}
+
+/// Declares readable sort aliases, membership markers, and semantic edges.
+#[proc_macro]
+pub fn sorts(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Sorts, input)
+}
+
+/// Expands like [`sorts!`] and also emits the invocation's factory table.
+///
+/// This is the `krs` facade's framework `KItem`/`KResult` block. Authors use
+/// [`sorts!`]; the extra `FRAMEWORK_FACTORIES` table serves collectors that
+/// enumerate explicit registration tables instead of linker sections.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __framework_sorts(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::FrameworkSorts, input)
+}
+
+/// Pins the stable public identity of a symbol-bearing declaration.
+///
+/// This ordinary attribute must precede `#[k::sort]` or
+/// `#[k::constructor]`; it delegates the declaration to that macro while
+/// retaining the symbol literal's exact source span.
+#[proc_macro_attribute]
+pub fn symbol(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Symbol, attributes, item)
+}
+
+/// Declares a unit or named-record K constructor.
+#[proc_macro_attribute]
+pub fn constructor(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Constructor, attributes, item)
+}
+
+/// Declares one K function production.
+///
+/// The attribute requires exactly one of `total` or `partial`, a `sort`, and a
+/// `syntax` template, and accepts an optional `hook` from the typed function
+/// hook catalog. `total` adds K's `total` attribute to the emitted `function`
+/// production; `partial` omits it, so an application that no equation covers
+/// has no denotation.
+///
+/// `smtlib = "sym"` names the function in the SMT solver as the
+/// uninterpreted SMT-LIB symbol `sym`; `smt_hook = "(ite (< {value} 0) ..)"`
+/// gives it a meaning there, an SMT-LIB term whose `{field}` placeholders
+/// stand for the arguments. The two keys are mutually exclusive, and
+/// `smtlib` may be combined with `hook`. Neither is checked against the
+/// function's equations: both are trusted.
+#[proc_macro_attribute]
+pub fn function(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Function, attributes, item)
+}
+
+/// Declares a Rust enum as a family of K constructors, each of which
+/// constructs `sort`; the enum itself is not a sort.
+///
+/// Readable families (`sort = ..., result = ...`) require a following
+/// exhaustive enum-level precedence chain. `>` means “binds tighter than”;
+/// `left`, `right`, and `non_assoc` prefix tiers with explicit associativity.
+/// A bare tier carries no associativity constraint; `non_assoc` lowers to K's
+/// explicit `syntax non-assoc` sentence. These three keywords are reserved in
+/// group-name position. An optional name before a member list selects the
+/// emitted production-group identity:
+///
+/// ```ignore
+/// #[k::constructors(sort = Expr, result = KResult)]
+/// #[k::precedence((Neg) > left additive (Add, Sub) > non_assoc equality (Eq))]
+/// enum Op { /* ... */ }
+/// ```
+///
+/// Every enum variant must occur exactly once. Variant declaration order has
+/// no precedence meaning. Deterministic layer-2 output uses the internal
+/// `reference` form with fully materialized fields and metadata.
+#[proc_macro_attribute]
+pub fn constructors(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Constructors, attributes, item)
+}
+
+/// Declares a nominal token sort and its checked regex production.
+#[proc_macro_attribute]
+pub fn token(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Token, attributes, item)
+}
+
+/// Adds one syntax-only bracket production to an attributed sort.
+#[proc_macro_attribute]
+pub fn bracket(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Bracket, attributes, item)
+}
+
+/// Adds one explicit after-the-fact subsort relation:
+/// `#[k::subsort(sort = Value)] impl ValueSort for Int {}` names the semantic
+/// supersort's alias while the Rust impl targets its marker trait.
+#[proc_macro_attribute]
+pub fn subsort(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Subsort, attributes, item)
+}
+
+/// Constructor helper consumed by `#[k::constructor]`.
+#[proc_macro_attribute]
+pub fn strict(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Strict, attributes, item)
+}
+
+/// Constructor helper consumed by `#[k::constructor]`.
+#[proc_macro_attribute]
+pub fn seqstrict(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Seqstrict, attributes, item)
+}
+
+/// Declares a complete fixed-cell configuration and its paired initializer.
+///
+/// Plain fields marked `#[k::cell]` infer `KCell` for `KSequence` and `Cell`
+/// for every other leaf sort. Explicit `Cell<T>`/`KCell<KSequence>` fields
+/// remain supported as the reference surface.
+#[proc_macro_attribute]
+pub fn configuration(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Configuration, attributes, item)
+}
+
+/// Declares a nominal nested fixed-cell group.
+#[proc_macro_attribute]
+pub fn cell(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Cell, attributes, item)
+}
+
+/// Declares the restricted associated initializer paired to a configuration.
+///
+/// Plain parameters derive their external names by uppercasing the Rust
+/// binding, and the parameter used in the computation cell is inferred as the
+/// main input. `#[k::config_var(...)]` remains available as an override.
+#[proc_macro_attribute]
+pub fn init(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Init, attributes, item)
+}
+
+/// Declares an ordinary term rule or a simultaneous fixed-configuration rule.
+#[proc_macro_attribute]
+pub fn rule(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Rule, attributes, item)
+}
+
+/// Declares a readable family of independently named ordinary term rules.
+///
+/// A block-local `use Family::*;` selects one constructor family explicitly.
+/// Without that line, an unqualified clause head follows ordinary Rust module
+/// scope, including `use Family::*;` imports. Colliding module globs are
+/// reported by rustc at the authored head instead of selecting one by order.
+#[proc_macro]
+pub fn rules(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Rules, input)
+}
+
+/// Declares one unconditional or `requires`-guarded function equation.
+#[proc_macro_attribute]
+pub fn equation(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Equation, attributes, item)
+}
+
+/// Declares one simplifier lemma, with an optional numeric ordering hint.
+#[proc_macro_attribute]
+pub fn simplification(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Simplification, attributes, item)
+}
+
+/// Declares one explicitly labeled reachability claim.
+#[proc_macro_attribute]
+pub fn claim(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Claim, attributes, item)
+}
+
+/// Declares a reversible static alias production helper or alias clause.
+///
+/// On a production, `#[k::alias(recursive)]` is K's `alias-rec`: an
+/// expansion may apply again to its own output. The clauses stay plain
+/// `#[k::alias]` fns.
+#[proc_macro_attribute]
+pub fn alias(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Alias, attributes, item)
+}
+
+/// Declares one reusable one-sided fixed-configuration context template;
+/// `result = S` is K's `result(S)`.
+#[proc_macro_attribute]
+pub fn context_alias(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::ContextAlias, attributes, item)
+}
+
+/// Attaches an exact numeric priority to an equation.
+#[proc_macro_attribute]
+pub fn priority(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Priority, attributes, item)
+}
+
+/// Rule helper consumed by an outer `#[k::rule]` expansion.
+#[proc_macro_attribute]
+pub fn requires(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Requires, attributes, item)
+}
+
+/// Claim helper consumed by an outer `#[k::claim]` expansion.
+#[proc_macro_attribute]
+pub fn exists(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Exists, attributes, item)
+}
+
+/// Claim postcondition helper consumed by an outer `#[k::claim]` expansion.
+#[proc_macro_attribute]
+pub fn ensures(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Ensures, attributes, item)
+}
+
+/// Parses the named-term subset as a Rust expression.
+///
+/// This is a type-checking placeholder, not a runtime term builder. Its
+/// expansion validates authored Rust paths inside a never-called closure and
+/// then panics if evaluated. Rule attributes consume their nested `term!`
+/// payloads before this function-like macro is expanded.
+#[proc_macro]
+pub fn term(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Term, input)
+}
+
+/// Compiler-owned concrete builtin Id token island.
+#[proc_macro]
+pub fn id(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Id, input)
+}
+
+/// Compiler-owned concrete builtin Bytes token island.
+#[proc_macro]
+pub fn bytes(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Bytes, input)
+}
+
+/// Compiler-owned anonymous object-language variable occurrence (K's `_X:Sort`).
+///
+/// Each occurrence is its own variable; it is not a fresh value, which
+/// `#[k::fresh]` declares.
+#[proc_macro]
+pub fn anonymous(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Anonymous, input)
+}
+
+/// Compiler-owned associative object-Bool disjunction.
+#[proc_macro]
+pub fn or_bool(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::OrBool, input)
+}
+
+/// Checks a compiler-owned complete nested-cell term.
+#[proc_macro]
+pub fn fragment(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Fragment, input)
+}
+
+/// Checks a complete computation-sequence expression without evaluating it.
+#[proc_macro]
+pub fn k(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::K, input)
+}
+
+/// Checks a compiler-owned finite-map expression island.
+#[proc_macro]
+pub fn map(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Map, input)
+}
+
+/// Checks a compiler-owned simultaneous fixed-cell expression island.
+#[proc_macro]
+pub fn cells(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Cells, input)
+}
+
+/// Declares one or more precedence chains between production groups.
+#[proc_macro]
+pub fn precedence(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Precedence, input)
+}
+
+/// Declares typed associativity for production groups.
+#[proc_macro]
+pub fn associativity(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Associativity, input)
+}
+
+/// Compiler-owned token of a user token sort: `k::lexeme!(Sort, "text")` is
+/// K's `#token("text","Sort")`.
+#[proc_macro]
+pub fn lexeme(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Lexeme, input)
+}
+
+/// Names regex fragments, K's `syntax lexical Name = r".."`.
+///
+/// Each `Name = r"..";` entry adds no syntax; token, layout, and lexical
+/// regexes refer to it as `{Name}`.
+#[proc_macro]
+pub fn lexical(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Lexical, input)
+}
+
+/// Declares the layout regexes the program scanner discards, K's
+/// `syntax #Layout ::= r".." [token]`.
+///
+/// Declaring any layout replaces K's default whitespace and comments.
+#[proc_macro]
+pub fn layout(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Layout, input)
+}
+
+/// Declares a syntactic list, K's `List{Elem, "sep"}` (or `NeList` with
+/// `non_empty`), on an enum with one cons variant `Cons { head: Elem, tail:
+/// List }` and one terminator `Nil()`.
+///
+/// The enum is the whole definition of its sort. Programs write `1, 2, 3`
+/// and the empty text for the empty list; rules match the variants, which K
+/// prints as `I , Is` and `.Ints`.
+#[proc_macro_attribute]
+pub fn syntax_list(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::SyntaxList, attributes, item)
+}
+
+/// Rule helper consumed by an outer `#[k::rule]` expansion: `#[k::fresh(l: Loc)]`
+/// declares binders the step fills with new values (K's `!L:Loc`).
+///
+/// A fresh binder occurs only in the result (and the ensures condition):
+/// the value does not exist until the step happens, so it cannot be matched.
+/// K draws it from the shared `<generatedCounter>` through the sort's
+/// `#[k::function(total, fresh_generator, ..)]`; Int and Id have K's own.
+#[proc_macro_attribute]
+pub fn fresh(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Fresh, attributes, item)
+}
+
+/// Keeps one K rule, claim, or context that the KRS surface cannot express
+/// yet, as unchecked K text placed in the package's semantics module.
+///
+/// Raw K is an escape from KRS's "no strings" rule: the package must set
+/// `allow-raw-k = true` in `[package.metadata.krs]`, every build warns, and
+/// the strict profile rejects it. K parses the text with the package's
+/// grammar; a parse error fails the build.
+#[proc_macro]
+pub fn raw_k(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::RawK, input)
+}
+
+/// K's generated sort predicate: `k::is!(Sort, t)` is `isSort(T)`, a total
+/// Bool function that holds when `t` has sort `Sort`. Unlike a typed binder
+/// or `where t: Sort`, which restricts what a rule matches, it is a value a
+/// rule can compute with; it is never matched.
+#[proc_macro]
+pub fn is(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Is, input)
+}
+
+/// K's generated sort projection: `k::project!(Sort, t)` is `{T}:>Sort`
+/// (`project:Sort`), a partial function with no value when `t` is not a
+/// `Sort`; it is never matched.
+#[proc_macro]
+pub fn project(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Project, input)
+}
+
+/// Declares a one-way static desugar (K's `macro`, KF-028): on a production,
+/// `#[k::desugar]` or `#[k::desugar(recursive)]` (K's `macro-rec`); on a fn,
+/// one desugar clause, `pattern => replacement`, with no `requires`.
+///
+/// K rewrites the definition's rules and the input program with the clauses
+/// once, before anything runs; it is not a runtime step. Unlike an alias, a
+/// desugar is never applied backwards when K prints a result.
+#[proc_macro_attribute]
+pub fn desugar(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Desugar, attributes, item)
+}
+
+/// Declares an author K proof module on an inline `mod` (KF-041).
+///
+/// `#[k::spec_module(name = "IMP-SUM-SPEC", imports = [lemmas])] mod sum_spec { .. }`
+/// emits K `module IMP-SUM-SPEC imports .. endmodule` in `spec.k`. A proof
+/// module may contain only claims, simplification lemmas, and tokens (terminal
+/// or regex) for existing sorts; it imports the definition explicitly (`imports =
+/// [crate]` names this package's semantics module, a dependency crate root
+/// names that package's, and a spec module names that module). A Rust `use`
+/// never changes what K sees. The name defaults to
+/// `<k-namespace>-<UPPER-KEBAB(mod name)>`; `krs prove --spec-module NAME`
+/// proves its claims.
+#[proc_macro_attribute]
+pub fn spec_module(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::SpecModule, attributes, item)
+}
+
+/// K's shape test: `k::matches!(t, Pattern)` is `( PATTERN :=K T )`, an
+/// object-language Bool that is true when `t` matches the pattern. It is
+/// valid in results, requires, and ensures, never on a left-hand side. The
+/// pattern is a Rust pattern (`_`, `name @ ..`, `A | B`; no `if` guard)
+/// whose names are local binders visible only inside it.
+#[proc_macro]
+pub fn matches(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Matches, input)
+}
+
+/// K's local rewrite: `k::rewrite!(from => to)` marks what changes inside
+/// the subject of a single-body `#[k::rule]` fn, one that returns `()`, or
+/// rewrites the hole of a `#[k::context]` fn; the rest of the subject is the
+/// frame, as in K's `<k> (X = V ; => .K) ... </k>`.
+/// `()` on the right is K's `.K` and removes a whole K-sequence item. Used
+/// anywhere else it is a compile error.
+#[proc_macro]
+pub fn rewrite(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Rewrite, input)
+}
+
+/// Declares an evaluation context, K's `context`: where evaluation may
+/// happen. `#[k::context(hole = h)] fn add_rhs(k::term![Op::Add(e, h)]: Term<Expr>) {}`
+/// is K's `context E + HOLE`; K turns it into a heat rule and a cool rule
+/// with the labels `<label>-heat` and `<label>-cool`. The subject is a
+/// `k::term!` (K completes it to the computation cell) or a `k::cells!`
+/// pattern that may constrain other cells; `k::rewrite!(h => f(h))` rewrites
+/// the hole once (an lvalue context). `result = S` is K's `result(S)` and
+/// `label` defaults to the fn name with `_` written `-`.
+#[proc_macro_attribute]
+pub fn context(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Context, attributes, item)
+}

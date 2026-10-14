@@ -1,0 +1,1065 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-builtin-int-ops": "b4dfd882f87bc0ca7a0bb53c3979c433a3f270907ab42d655851158fe0da7f57",
+    "krs-builtin-bool-ops": "57f55087ec0741edf63b488a53fd13a6e079b0ed3b1f019097d2a1a2f5c919bc",
+    "krs-builtin-bytes-ops": "563494860541932f270323b17c09cb13455d77809821e0f7c8ef450cd3a15a7d",
+    "krs-builtin-set-ops": "4982a447eb3ec15b98fb6deb6a6b2cb9639877baba1cc762916b5da5832827eb",
+    "krs-builtin-map-ops": "b60d9bfe74a78cfd0d374c0fc01a084929f4b60ea2a3008fa0bf3bbec02ec8a1",
+    "krs-builtin-int-sign": "e1a2cfafcd110b748449853e8fd98af2b2e0de92a30976572d17dbabc01f10b6",
+    "krs-builtin-int-sign-unsigned": "a1b724f11e7a58c236d6651b21645d08f23b31e991dc814fe60c44350bed7448",
+    "krs-builtin-strings": "acd3d4df499c5de0289e99945fa5e7ee4809c84c497c51eb9c9de76e14809b35",
+    "krs-builtin-k-equal": "b60322a703e2d37c1758791f4993e3e94a1c84eb3d85e7511558a441d4a6800f",
+    "krs-builtin-floats": "5c895fcad626bf7020b00482f48e9ceb455dec60dc8742c969fdbe532665e2a2",
+    "krs-builtin-float-java-only": "65ef7a40141e832aaf5757b254ddc09938d5fe2a833b8fdd15d7fe3ffee98ebd",
+    "krs-builtin-io": "0240434b269985643cd8d980003bd6403d88a7073ba38d1cbad9c1913f50daaf",
+    "krs-builtin-raw-k": "77df98c8479bf964d8b3ca2ce807e7af4108a7247146f4aed386c7886b642d1b",
+    "krs-builtin-raw-hook": "6aae83077dbd4ae0146cf99dd9a2e2e4edbf8dcca8d26f726c81b6bc6a7244ca",
+    "krs-builtin-sort-tests": "263c20c184972e54dd614f78fb536c86b7920d1e469f77a813f724a6ef58584a",
+    "krs-builtin-io-hooks": "432ae6232d161e7b477307ac1b9e95ab2f664979d9d7e53b8fa7d608beda68a5",
+    "krs-builtin-io-log": "9eea5006bf5dc831fbb7bb014fd6e33ccc7c7dff56c5dfc58ebdcc00775cc71d"
+  },
+  "emitted": {
+    "krs-builtin-int-ops": {
+      "definition.k": "0ccc40ede000a07eb39123f48809f7b70ad59b6d377650ca96e59e0f3a52215f"
+    },
+    "krs-builtin-bool-ops": {
+      "definition.k": "a384d55cae6d521a3a46db2d36ac51193f1f1df3b578d64b961f449324c9aa84"
+    },
+    "krs-builtin-bytes-ops": {
+      "definition.k": "b2d4d5573940430bf4b698ede52c46185135be5afa0c001f21cb0b2dc310b3e5"
+    },
+    "krs-builtin-set-ops": {
+      "definition.k": "1b68da78eb93fb66827a288b42e608ff3dceadfd28d02a5ea06e7be4d2a762d1"
+    },
+    "krs-builtin-map-ops": {
+      "definition.k": "0fbeaf57c811f2b930b953a11116e418d3de872c07139bbe882515e5278b0a17"
+    },
+    "krs-builtin-int-sign": {
+      "definition.k": "e0a448da699ceea224bf3085be8d5ccb2694ba4a0fff66f9e9b97247009962f0"
+    },
+    "krs-builtin-int-sign-unsigned": {
+      "definition.k": "3cf4d7d4238851c3876170431ca2db23e25f1c54caa5b62981f974d80818c1b7"
+    },
+    "krs-builtin-strings": {
+      "definition.k": "3624a118fe1fdb6f8c6b90d09bdac1d9abaa73961024da8d412b057c857cc1fd"
+    },
+    "krs-builtin-k-equal": {
+      "definition.k": "5ef06537c311d5b2b74976ba09441717cfede6dbbea38f7b51506b7e93ef76b7"
+    },
+    "krs-builtin-floats": {
+      "definition.k": "a48eee59bb370318495a44dc9c6fab9053d490329eba07e4d7329d569c1ea2fb"
+    },
+    "krs-builtin-float-java-only": {
+      "definition.k": "0e30d56cd5343e9455d388e8214940ad127bfdcbf9ea8af0e6d5cd314c0ee694"
+    },
+    "krs-builtin-io": {
+      "definition.k": "1b13c02023a891dabab55637c6dfaf74e43aaf61aef6748be13dd4200571d367"
+    },
+    "krs-builtin-raw-k": {
+      "definition.k": "f282e69740f0143fc06381f1f475e4fa2473a0b36bbd395f11054fdc4b69fbde"
+    },
+    "krs-builtin-raw-hook": {
+      "definition.k": "b309215f60849786427777e4a7b39955fe3479bfe2b168b3133c65800896f3b6"
+    },
+    "krs-builtin-sort-tests": {
+      "definition.k": "9e3a91ad4f7170aa710f52074e010e1571dea871e642caf597d5d822de98554a"
+    },
+    "krs-builtin-io-hooks": {
+      "definition.k": "9f0558b8eeb7ee00b6bfbeb4f58a4645a0429e2c883c4f465d45f9abdb772724"
+    },
+    "krs-builtin-io-log": {
+      "definition.k": "946c2f5d8868d192266ff703c60704aa133347920372113d314ebce8c9350eb7"
+    }
+  },
+  "reference_sha256": {
+    "krs-builtin-int-ops": "5b093634c8cb4154a501a79b7735bfb6199af89bb1bb2279d5cd987fee41885c",
+    "krs-builtin-bool-ops": "cc859734215c55f5b93bb49e459e6ac25daa22ea67dc3e90dfe55b28528ac976",
+    "krs-builtin-bytes-ops": "3305bf128f6d52349f475b2607265e49918542ba97e440c55359e12c8bb3e164",
+    "krs-builtin-set-ops": "547e8bfbb49db07d6bde2380c1f63239e906bf72f213e38fd55f90edc1899e2b",
+    "krs-builtin-map-ops": "ca7ca06593d1c493e998bda7764c454fd95d68e78f92d937086dbd35767178ae",
+    "krs-builtin-int-sign": "bc698f50ed325be1fd86baddf573d2352df71d7a8ea11c54468b32cac0810453",
+    "krs-builtin-int-sign-unsigned": "243df2ced4c3da8960392438b8619be7832a59800e04135360237226a6a95162",
+    "krs-builtin-strings": "b792cc9d0a0f4f56467f329167aecce08a1235a7d2c48febb68bd934a960f4dd",
+    "krs-builtin-k-equal": "8c3e96010bbe14f66c6595cf868c90ab038a8688cb2d0c6c40c7c0b8ffe9b480",
+    "krs-builtin-floats": "f17d72f219227cd7c47ccff662f7dc672aa8c7e80b65826e5b1be81d7b23cb40",
+    "krs-builtin-float-java-only": "12ac6d5d467497efe3212b5ec59477270c039747a3bb00d30cd2b70b49f570d5",
+    "krs-builtin-io": "b2d5abdfa4b07398f3bf88c25cb6f23f21d7281a1ae9a78b193cf4a95fffda1c",
+    "krs-builtin-raw-k": "2cb88332eb3d1ab846c43bbd0b4ac1dcd601beac727d130fc2f60ff33c6ef37a",
+    "krs-builtin-raw-hook-haskell": "e3504c9d4446c6ad01c76aefa91a26ca75af355ebde8bc5db855098a1dd49839",
+    "krs-builtin-sort-tests": "c7571e17d21ad3aa80c1fbabe9e1a2aa23468c26dc0b8614cf5474545ea01109",
+    "krs-builtin-io-hooks": "00c98e87c19d62e3a698c023a2ceb9688c89b5dcf8eb4a7f7a46945fe47d0f19",
+    "krs-builtin-io-log": "b383fb21fb73ae21e2040c7422ff2ac8988ef2f8e8e21042418362684278c5bb",
+    "krs-builtin-floats-outputs": "7fb09e1c99c58d0accad5e73b2620f9fe1350639098c77b6b8cba6779cba5b2e"
+  },
+  "outcomes": {
+    "krs-builtin-int-ops": {
+      "add": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "sub": {
+        "parse": "accepted",
+        "run": "-3"
+      },
+      "mul": {
+        "parse": "accepted",
+        "run": "-21"
+      },
+      "div": {
+        "parse": "accepted",
+        "run": "-2"
+      },
+      "rem": {
+        "parse": "accepted",
+        "run": "-1"
+      },
+      "div-euclid": {
+        "parse": "accepted",
+        "run": "-3"
+      },
+      "rem-euclid": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "pow": {
+        "parse": "accepted",
+        "run": "1024"
+      },
+      "pow-mod": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "shift-left": {
+        "parse": "accepted",
+        "run": "48"
+      },
+      "shift-right": {
+        "parse": "accepted",
+        "run": "-4"
+      },
+      "bit-and": {
+        "parse": "accepted",
+        "run": "8"
+      },
+      "bit-or": {
+        "parse": "accepted",
+        "run": "14"
+      },
+      "bit-xor": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "bit-not": {
+        "parse": "accepted",
+        "run": "-6"
+      },
+      "min": {
+        "parse": "accepted",
+        "run": "-4"
+      },
+      "max": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "abs": {
+        "parse": "accepted",
+        "run": "5"
+      },
+      "log2": {
+        "parse": "accepted",
+        "run": "10"
+      },
+      "bit-range": {
+        "parse": "accepted",
+        "run": "35"
+      },
+      "sign-extend-bit-range": {
+        "parse": "accepted",
+        "run": "-1"
+      },
+      "divides": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "not-divides": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "eq": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "ne": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "lt": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "le": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "gt": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "ge": {
+        "parse": "accepted",
+        "run": "true"
+      }
+    },
+    "krs-builtin-bool-ops": {
+      "not": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "or": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "xor": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "implies": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "implies-vacuous": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "and-then": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "or-else": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "eq": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "ne": {
+        "parse": "accepted",
+        "run": "true"
+      }
+    },
+    "krs-builtin-bytes-ops": {
+      "empty": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "length": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "get": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "update": {
+        "parse": "accepted",
+        "run": "b\"\\xff\\x02\""
+      },
+      "substr": {
+        "parse": "accepted",
+        "run": "b\"\\x02\\x03\""
+      },
+      "pad-right": {
+        "parse": "accepted",
+        "run": "b\"\\x01\\x00\\x00\""
+      },
+      "pad-left": {
+        "parse": "accepted",
+        "run": "b\"\\x00\\x00\\x01\""
+      },
+      "concat": {
+        "parse": "accepted",
+        "run": "b\"\\x01\\x02\\x03\""
+      },
+      "reverse": {
+        "parse": "accepted",
+        "run": "b\"\\x02\\x01\""
+      },
+      "replace-at": {
+        "parse": "accepted",
+        "run": "b\"\\x00\\xff\\x00\""
+      },
+      "from-int": {
+        "parse": "accepted",
+        "run": "b\"\\x00\\x00\\x01\\x02\""
+      },
+      "from-int-no-len": {
+        "parse": "accepted",
+        "run": "b\"\\xff\""
+      },
+      "to-int-unsigned": {
+        "parse": "accepted",
+        "run": "513"
+      },
+      "to-int-signed": {
+        "parse": "accepted",
+        "run": "-2"
+      }
+    },
+    "krs-builtin-set-ops": {
+      "difference": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "intersect": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "union-size": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "is-subset": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "not-subset": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "contains": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "to-list": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "from-list": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "list-contains": {
+        "parse": "accepted",
+        "run": "false"
+      }
+    },
+    "krs-builtin-map-ops": {
+      "remove": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "remove-absent": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "remove-all": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "keys": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "keys-absent": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "keys-list": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "values": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "size": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "update-all": {
+        "parse": "accepted",
+        "run": "10"
+      },
+      "get-or-default": {
+        "parse": "accepted",
+        "run": "20"
+      },
+      "get-or-default-absent": {
+        "parse": "accepted",
+        "run": "7"
+      }
+    },
+    "krs-builtin-int-sign": {
+      "quot-positive": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "quot-negative-dividend": {
+        "parse": "accepted",
+        "run": "-2"
+      },
+      "quot-negative-divisor": {
+        "parse": "accepted",
+        "run": "-2"
+      },
+      "quot-negative-both": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "sgn-minus-one": {
+        "parse": "accepted",
+        "run": "-1"
+      },
+      "sgn-negative": {
+        "parse": "accepted",
+        "run": "-1"
+      },
+      "sgn-zero": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "sgn-positive": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "div-by-minus-one": {
+        "parse": "accepted",
+        "run": "-7"
+      },
+      "div-by-one": {
+        "parse": "accepted",
+        "run": "-7"
+      }
+    },
+    "krs-builtin-int-sign-unsigned": {
+      "rule-literal": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "positive": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "program-literal": {
+        "parse": "rejected",
+        "run": null
+      }
+    },
+    "krs-builtin-strings": {
+      "msg": {
+        "parse": "accepted",
+        "run": "\"The string you provided: world\\nHave a nice day!\""
+      },
+      "length": {
+        "parse": "accepted",
+        "run": "5"
+      },
+      "length-latin-1": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "substr": {
+        "parse": "accepted",
+        "run": "\"el\""
+      },
+      "find": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "find-absent": {
+        "parse": "accepted",
+        "run": "-1"
+      },
+      "chr": {
+        "parse": "accepted",
+        "run": "\"A\""
+      },
+      "ord": {
+        "parse": "accepted",
+        "run": "65"
+      },
+      "ord-latin-1": {
+        "parse": "accepted",
+        "run": "193"
+      },
+      "chr-latin-1": {
+        "parse": "accepted",
+        "run": "\"\\xc1\""
+      },
+      "from-string-latin-1": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "from-int": {
+        "parse": "accepted",
+        "run": "\"-42\""
+      },
+      "to-int": {
+        "parse": "accepted",
+        "run": "42"
+      },
+      "from-bool": {
+        "parse": "accepted",
+        "run": "\"true\""
+      },
+      "to-bool": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "eq": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "lt": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "not-lt": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "from-string": {
+        "parse": "accepted",
+        "run": "5"
+      },
+      "to-string": {
+        "parse": "accepted",
+        "run": "\"hi\""
+      },
+      "match-literal": {
+        "parse": "accepted",
+        "run": "\"hello, world\""
+      },
+      "match-latin-1": {
+        "native": {
+          "parse": "accepted",
+          "run": "\"\\xc1!\""
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "greet(\"\\xc1\")"
+        }
+      }
+    },
+    "krs-builtin-k-equal": {
+      "if-true": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "if-false": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "if-nested": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "same-terms": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "same-values": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "differ": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "pick-true": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "pick-false": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "ite-undefined-branch": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "1"
+        }
+      }
+    },
+    "krs-builtin-floats": {
+      "sum-binary64": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "sum-binary64-exact": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "sum-binary32": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "arithmetic": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "nan-ieee-eq": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "nan-ieee-ne": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "nan-term-eq": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "nan": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "not-nan": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "signed-zero-ieee-eq": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "signed-zero-term-eq": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "signed-zero-neg": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "infinite": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "finite": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "ordered-nan": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "ordered-infinity": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "sqrt": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "rounding": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "to-int-tie-down": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "to-int-tie-up": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "to-int-tie-negative": {
+        "parse": "accepted",
+        "run": "-2"
+      },
+      "from-int": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "from-int-binary32": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "round-binary32": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "max-value": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "format-binary32": {
+        "parse": "accepted",
+        "run": "2408"
+      },
+      "format-binary64": {
+        "parse": "accepted",
+        "run": "5311"
+      },
+      "format-binary64-suffix": {
+        "parse": "accepted",
+        "run": "5311"
+      },
+      "match-literal": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "match-binary32": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "match-infinity": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "match-negative-infinity": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "match-negative-zero": {
+        "parse": "accepted",
+        "run": "5"
+      },
+      "negate-binary64": {
+        "parse": "accepted",
+        "run": "-0.15000000000000000e1",
+        "cells": {
+          "k": "-0.15000000000000000e1 ~> .K"
+        }
+      },
+      "negate-binary32": {
+        "parse": "accepted",
+        "run": "-0.100000001e0f",
+        "cells": {
+          "k": "-0.100000001e0f ~> .K"
+        }
+      },
+      "negate-infinity": {
+        "parse": "accepted",
+        "run": "Infinity",
+        "cells": {
+          "k": "Infinity ~> .K"
+        }
+      },
+      "negate-nan-binary32": {
+        "parse": "accepted",
+        "run": "NaNf",
+        "cells": {
+          "k": "NaNf ~> .K"
+        }
+      },
+      "negate-zero": {
+        "parse": "accepted",
+        "run": "-0.00000000000000000e0",
+        "cells": {
+          "k": "-0.00000000000000000e0 ~> .K"
+        }
+      },
+      "negate-subnormal": {
+        "parse": "accepted",
+        "run": "-0.25000000000000171e-309",
+        "cells": {
+          "k": "-0.25000000000000171e-309 ~> .K"
+        }
+      }
+    },
+    "krs-builtin-float-java-only": {
+      "ground": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "binary128": {
+        "parse": "accepted",
+        "run": "true"
+      }
+    },
+    "krs-builtin-raw-k": {
+      "double": {
+        "parse": "accepted",
+        "run": "42"
+      }
+    },
+    "krs-builtin-raw-hook": {
+      "keccak-abc": {
+        "parse": "accepted",
+        "run": "\"4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45\""
+      }
+    },
+    "krs-builtin-sort-tests": {
+      "chk-int": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "chk-bool": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "chk-guard-fails": {
+        "parse": "accepted",
+        "run": "chk(box(1))"
+      },
+      "prj": {
+        "parse": "accepted",
+        "run": "5"
+      },
+      "prj-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      },
+      "unbox": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "unbox-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      },
+      "isval-value": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "isval-not-value": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "nth": {
+        "parse": "accepted",
+        "run": "20"
+      },
+      "kind-int": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "kind-box": {
+        "parse": "accepted",
+        "run": "0"
+      }
+    }
+  },
+  "known_divergences": {
+    "krs-builtin-strings": {
+      "match-latin-1": {
+        "native": {
+          "parse": "accepted",
+          "run": "\"\\xc1!\""
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "greet(\"\\xc1\")"
+        }
+      }
+    },
+    "krs-builtin-k-equal": {
+      "ite-undefined-branch": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "1"
+        }
+      }
+    },
+    "krs-builtin-sort-tests": {
+      "prj-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      },
+      "unbox-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      }
+    }
+  },
+  "capability_refusals": {
+    "native-rust": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
+    "native-llvm": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
+    "browser": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
+    "browser-console-io": "error[krs::capability::unavailable]: definition contains console input or output [<input>, <output>]; the browser route has no standard input or output; run it with `krs run` or Java K's krun"
+  },
+  "console_io": {
+    "krs-builtin-io": {
+      "native": {
+        "stdout": "7",
+        "status": 7
+      },
+      "java": {
+        "stdout": "7",
+        "status": 7
+      }
+    }
+  },
+  "diagnostics": {
+    "io-search": [
+      "error[krs::exec::streams]: krs search cannot run a definition with stream cells; K's search has no console I/O (k-rust rejects --io on in search)"
+    ],
+    "raw-denied": [
+      "error[krs::policy::raw-k-not-allowed]: quoted hook `KRYPTO.keccak256`: raw K is an escape from A4; add `allow-raw-k = true` to [package.metadata.krs] to allow it in this package",
+      "error[krs::policy::raw-k-not-allowed]: `raw_k!` rule: raw K is an escape from A4; add `allow-raw-k = true` to [package.metadata.krs] to allow it in this package"
+    ],
+    "raw-strict": [
+      "error[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: raw K is an error under the strict profile (signature unchecked; native capability: implemented)",
+      "error[krs::semantic::raw-k]: `raw_k!` rule: raw K is an error under the strict profile (unchecked K text, opaque to KRS; K parses it with this package's grammar)"
+    ],
+    "raw-profile-strict": [
+      "error[krs::semantic::raw-k]: `raw_k!` rule: raw K is an error under the strict profile (unchecked K text, opaque to KRS; K parses it with this package's grammar)"
+    ],
+    "raw-parse-error": [
+      "error[krs::native::raw-k-parse]: K cannot parse this `raw_k!` rule with the grammar of module \"KRS-RAW-PARSE-ERROR\": Parse error: unexpected token '...' following token '+Int'."
+    ],
+    "sort-test-matched": [
+      "error[krs::analysis::invalid-sort-test]: `k::is!(Int, ..)` is a sort predicate, which is a function call and cannot be matched; restrict the binder with a typed parameter or `where x: Int`"
+    ],
+    "sort-test-project-k": [
+      "error[krs::analysis::invalid-sort-test]: `k::project!(K, ..)` projects into `K`, for which K generates no projection; every term already has sort `K`"
+    ],
+    "io-hooks-run": [
+      "error[krs::capability::unavailable]: route `native-rust` refuses this definition: definition contains direct console writes (`io::write`, `io::putc`) [both, bye, hello]; the in-process k-rust backend gives `#write` and `#putc` no console state, so they cannot run; append to a `stream = \"stdout\"` cell instead, or run the emitted K with Java K's krun or build with --backend llvm"
+    ]
+  },
+  "raw_warnings": {
+    "krs-builtin-raw-k": [
+      "warning[krs::semantic::raw-k]: `raw_k!` rule: unchecked K text, opaque to KRS; K parses it with this package's grammar"
+    ],
+    "krs-builtin-raw-hook": [
+      "warning[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: signature unchecked; native capability: implemented"
+    ]
+  },
+  "sort_test_warnings": {
+    "krs-builtin-sort-test-trivial": [
+      "warning[krs::analysis::trivial-sort-test]: projection is the identity: the operand already has sort `Int`, a subsort of `Exp`; remove `k::project!`",
+      "warning[krs::analysis::trivial-sort-test]: `k::is!(K, ..)` is always true: every term has sort `K`"
+    ]
+  },
+  "console_hooks": {
+    "krs-builtin-io-hooks": {
+      "hello": {
+        "stdout": "hi\n",
+        "status": 0
+      },
+      "bye": {
+        "stdout": "A",
+        "status": 0
+      },
+      "both": {
+        "stdout": "hi\nA",
+        "status": 0
+      }
+    }
+  },
+  "console_log": {
+    "krs-builtin-io-log": {
+      "trace": {
+        "java-run": {
+          "stderr": "traced\n",
+          "status": 0
+        },
+        "java-search": {
+          "stderr": "traced\n",
+          "status": 0
+        },
+        "native-run": {
+          "stderr": "traced\n",
+          "status": 0
+        },
+        "native-search": {
+          "stderr": "traced\n",
+          "status": 0
+        }
+      },
+      "twice": {
+        "java-run": {
+          "stderr": "one\ntraced\n",
+          "status": 0
+        },
+        "java-search": {
+          "stderr": "one\ntraced\n",
+          "status": 0
+        },
+        "native-run": {
+          "stderr": "one\ntraced\n",
+          "status": 0
+        },
+        "native-search": {
+          "stderr": "one\ntraced\n",
+          "status": 0
+        }
+      }
+    }
+  },
+  "kore_comparison": {
+    "krs-builtin-io-hooks": {
+      "summary": "PASS native KORE: reference=3119 native=3119 reference_injective_withheld=0 native_transport_rewrites=8 reference_lambda_symbols=0 native_lambda_symbols=0",
+      "report_sha256": "263a6d1f8624c5015536fd2db8b7fee1ee4e8438f82ef6b35647295cca4a0cf8"
+    },
+    "krs-builtin-io-log": {
+      "summary": "PASS native KORE: reference=3114 native=3114 reference_injective_withheld=0 native_transport_rewrites=8 reference_lambda_symbols=0 native_lambda_symbols=0",
+      "report_sha256": "a4ad6ef18a2e7e7764eb609e3bc471136c235134ae870cb8ab226c67f0c1544d"
+    }
+  },
+  "float_outputs": {
+    "krs-builtin-floats": {
+      "negate-binary64": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"-0.15000000000000000e1\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "-0.15000000000000000e1"
+      },
+      "negate-binary32": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"-0.100000001e0f\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "-0.100000001e0f"
+      },
+      "negate-infinity": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"Infinity\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "Infinity"
+      },
+      "negate-nan-binary32": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"NaNf\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "NaNf"
+      },
+      "negate-zero": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"-0.00000000000000000e0\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "-0.00000000000000000e0"
+      },
+      "negate-subnormal": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"-0.25000000000000171e-309\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "-0.25000000000000171e-309"
+      },
+      "literal-binary64": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"0.15000000000000000e1\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "0.15000000000000000e1"
+      },
+      "literal-binary32": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"0.100000001e0f\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "0.100000001e0f"
+      }
+    }
+  }
+}

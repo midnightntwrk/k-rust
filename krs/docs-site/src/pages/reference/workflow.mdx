@@ -1,0 +1,109 @@
+---
+title: Daily workflow
+description: Format, check, inspect, emit, and build a KRS definition while keeping diagnostic boundaries visible.
+---
+
+# Daily workflow
+
+{/* tour-concepts: diagnostics-lsp formatter-comments */}
+
+KRS has a short, staged command line.
+Use the earliest command that can answer the question you have; later stages add generated artifacts and backend prerequisites.
+
+## Edit and check
+
+```console
+krs fmt --check --manifest-path Cargo.toml
+krs check --package my-semantics --definition main
+```
+
+`fmt` canonicalizes KRS DSL islands while leaving ordinary Rust to the Rust formatter.
+It can format paths or stdin, and `--check` reports drift without rewriting files.
+Without paths it selects what `cargo fmt --all` selects, restricted to workspace members:
+each member target's root and the files of the modules it declares,
+so fixtures beside a target are left alone unless named explicitly.
+Inside DSL macro bodies, use line comments: non-doc `/* ... */` comments are rejected because procedural macros cannot recover them reliably.
+The default aligned trailing-comment layout is provisional; `--trailing-comments gutter` selects the other implemented policy.
+
+`check` resolves Cargo metadata and selected facets, builds and runs the generated collector, validates descriptors, performs semantic analysis, and stops before K emission.
+Rust errors from the collector build are reported at authored source spans when Cargo provides a mappable primary span.
+`check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, including their codes, notes, and authored source snippets when the source revision matches.
+Pass `--message-format=json` when a tool consumes diagnostics.
+`check`, `emit-k`, `build`, and the run commands warn about each quoted hook and `k::raw_k!` sentence of a package that sets `allow-raw-k = true`; `--profile strict` overrides every package's `profile` and turns those warnings into errors, so CI can refuse the [raw K escapes](/reference/language#raw-k-escapes) a package allows.
+In JSON mode, located collector failures use schema-1 JSON envelopes on stderr, with stage `analysis`, a `krs::collect::*` code, and the exact authored file revision and byte range.
+Unlocated diagnostics and other failures retain prose lines in JSON mode.
+Collector process failures without structured diagnostics retain the process status and stderr detail.
+Run ordinary `cargo check` when you want Rust-only feedback on names, types, imports, and macro expansion while editing.
+
+## Inspect the lowering
+
+```console
+krs expand --package my-semantics --definition main
+krs emit-k --package my-semantics --definition main --output target/krs-k
+```
+
+`expand` prints the deterministic explicit Rust-facing reference surface.
+`emit-k` writes the generated K definition and sidecars, including stable symbol and source attribution data.
+Claims go to a separate `spec.k` beside `definition.k`, the layout `kompile` and `kprove` expect.
+These outputs are audit artifacts, not a second source file to edit.
+
+The lowering page names the descriptor, semantic, definition, K, symbol, source, and KORE boundaries in detail.
+When a generated K range has an exact source-map entry, diagnostics should point back to the hash-checked authored bytes rather than expose a generated collector path.
+
+## Build a backend target
+
+```console
+krs build \
+  --package my-semantics \
+  --definition main \
+  --backend llvm \
+  --output target/krs-native
+```
+
+`build` continues through K frontend and selected backend compilation.
+The LLVM backend executes but does not prove, so an LLVM build omits the definition's claims and says how many it omitted.
+Successful `check`, `emit-k`, and `build` commands reuse a previous result when the command options, collector executable, and files read by the collector are unchanged.
+A reused command returns the same stdout and restores any missing or modified output files.
+Pass `--no-reuse`, or set `KRS_NO_REUSE=1`, to run the collector and later stages again.
+
+## Run, search, and prove
+
+```console
+krs run --package my-semantics --definition main prog.imp -c env='.Map'
+krs search --package my-semantics --definition main prog.imp
+krs prove --package my-semantics --definition main --claim branching
+krs parse --package my-semantics --definition main --sort Stmt prog.imp
+```
+
+`run`, `search`, `prove`, and `parse` play the roles of K's `krun`, `krun --search`, `kprove`, and `kast` on the emitted definition.
+They share the collection and lowering stages of `check`, then compile the Definition IR in-process with the k-rust backend over the symbolic KORE dialect, so they take no `--backend`.
+Their results are never reused from an earlier invocation, but the compiled definition is: the first command compiles the Definition IR and keeps the compiled stage in a per-user cache, `${XDG_CACHE_HOME:-~/.cache}/krs/compiled-stages/v1` (or the directory `KRS_STAGE_CACHE_DIR` names), and a later command on the same Definition IR loads it instead of compiling again.
+An entry is keyed by the digest of the Definition IR's canonical JSON, the pinned k-rust commit, and the `krs` executable, so a changed definition, k-rust pin, or `krs` build compiles again; an entry unused for 30 days is deleted.
+`prove --spec-module NAME` also keeps the proof definition it compiles for that author spec module, under the same key plus NAME (the Definition IR digest covers the spec module's content), so a second proof of an unchanged spec module compiles neither.
+`--no-reuse` or `KRS_NO_REUSE=1` compiles again and replaces the entry.
+A cache directory inside the package's Cargo workspace is never used, so an entry is never committed with the package: each command then warns (`krs::exec::stage-cache`) and compiles the definition again, and setting `KRS_STAGE_CACHE_DIR` to a directory outside the workspace restores reuse.
+FILE (or `-` for standard input) is the program bound to `$PGM`; `-c NAME=TEXT` binds another configuration variable by its K name (`ENV` or `$ENV`) or its init parameter (`env`).
+`run` follows one path, choosing one successor per step as krun does, and `search` returns the set of reachable final states; `--mode` selects `all`, `one-step`, or `one-or-more-steps` instead.
+`prove` proves every claim, or each `--claim` label given as the exact label or a unique suffix; `--spec-module NAME` proves the claims of an author spec module (`kprove --spec-module`) instead of the generated `<MAIN>-SPEC` ([spec modules](/verification/reachability-claims#spec-modules)).
+`--depth N` bounds rewrite steps; evaluating functions is not a step.
+`--trace` prints each rewrite step with its rule label and authored source.
+`run`, `search`, and `prove` print configurations through the definition's grammar by default (`--output pretty`, as `krun --output pretty` prints them), and `--color auto|always|never` colours them from the productions' `color` and `colors` (`auto` colours only when standard output is a terminal and `NO_COLOR` is unset); `parse` prints KAST by default, and `--output program` prints the program back through the grammar, as `kast --output program` does.
+`--output kast`, `json`, or `kore` selects the other formats (`none` prints no configuration from `run`).
+A run that ends stuck, at the depth bound, or undefined exits 0; a proof exits 0 only when every selected claim is `proven`; an inconclusive result or an error exits 1, and a usage error exits 2.
+When the definition declares an exit cell (`#[k::cell(exit)]`), a completed run instead exits with that cell's final value, as krun does (the OS keeps its low 8 bits), so a script that must tell it from an error reads `--output json`.
+A definition with a `stream = "stdin"` cell reads standard input into it before the first step; `run` writes what its `stream = "stdout"` cell holds to standard output before the configuration, and `--output json` reports it as `stdout` instead ([console I/O](/reference/language#console-io-and-the-exit-cell)).
+`run` and `search` write each line that `io::log` logs to standard error, one per line and before their own report, as `krun` and `krun --search` do on K's LLVM backend; `--output json` also reports them as `log`.
+
+The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, and `prove`.
+
+## Read failures by stage
+
+- Rust/rust-analyzer errors cover ordinary syntax, imports, types, macro expansion, and some precisely authored attribute spans.
+- KRS analysis errors cover definition-wide identities, sort and grammar consistency, rule shapes, and overlap.
+- K frontend errors are translated through emitted source maps when an exact authored interval exists.
+- native definition-check errors come from `build` and point at the authored item whose sentence the checker rejected.
+
+Macro islands are not ordinary Rust expressions, so editor behavior is bounded.
+The repository's compatibility probes establish exact rustc and rust-analyzer selection for authored syntax tokens and exact K/source-sidecar translation for covered cases; they do not promise IDE understanding of every generated symbol or every DSL token.
+
+Next, the [feature and builtin reference](/reference/language) provides a findable inventory once the narrative chapters have established the concepts.

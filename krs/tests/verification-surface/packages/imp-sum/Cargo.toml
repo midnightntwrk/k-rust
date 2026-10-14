@@ -1,0 +1,22 @@
+[package]
+name = "krs-verification-surface-imp-sum"
+description = "IMP's sum-spec in an author spec module, beside the $-identifier token IMP-VERIFICATION adds to Id"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_verification_surface_imp_sum"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+krs-imp-definition = { path = "../../../imp/rust-definition" }
+
+[package.metadata.krs]
+k-namespace = "IMP-VERIFICATION"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "krs-verification-surface-hook"
+description = "An smt_hook gives a function a meaning in Z3: abs-nonneg is proved with no equation for myAbs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_verification_surface_hook"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-SMT-HOOK"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

@@ -1,0 +1,50 @@
+{
+  "corpus_sha256": {
+    "corpus/accepted/block-sequence.imp": "fc4aaaff87bd929cd5cdd82c5655df8f92ddecbc29a24473c37c78e8955fe592",
+    "corpus/accepted/dangling-else.imp": "b06ae064145d551a7a0fc45437c841e00d1fa944c49989f8fee1b29e377263f4",
+    "corpus/accepted/empty-block.imp": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "corpus/accepted/explicit-else.imp": "29a25911bcf98758e774381a2d247c5a17bbe1f19968c82ba1784414d3f2127e",
+    "corpus/accepted/if-false.imp": "86498b109f0aa388ae23e88bd659b487c478a124123514aa08a4b70fa6501ba3",
+    "corpus/accepted/if-true.imp": "fc5acfec7261774a3b390e674cea2223c9b797a63ced907225d7ada80b8c6619",
+    "corpus/accepted/nested-control.imp": "593e1e3130f7ea7c822a646e82f7bf24c1bb9ff501a343256ccafbf76d096ee9",
+    "corpus/accepted/while-followed.imp": "57879c1180ad09f28368955a933d48d4247f2f490a545ea6868428cf26e7a981",
+    "corpus/nonterminating/infinite-loop.imp": "4054a22eaf38790ab3298e4780705596b578817bea361ed2aaa50ed36ea374cf",
+    "corpus/rejected/semantic/non-bool-if.imp": "16140dc1685cd73fa3118e91b31b4ecd8d60b75d71f7f0c393b0ea5e3b2d30fb",
+    "corpus/rejected/semantic/non-bool-while.imp": "54fb000376db00a070f91b9e2965f80c1f87d23a5c27765c8ad6a6196fbc9c16",
+    "corpus/rejected/semantic/undefined-condition.imp": "da99d69f8d6e500ff4c2dbda796d81f1a8e1f33b05a28767a69f77cf317fd1a3",
+    "corpus/rejected/syntax/missing-condition.imp": "5f7ce409c68c09fc7927dcf501e457c4451a240002359825e1304d8147f5c6a1",
+    "corpus/rejected/syntax/missing-else-body.imp": "efba2c49214c3780511e77b8be3a36062ec41839ba64758345b2d0fee38cb4e6",
+    "corpus/rejected/syntax/stray-else.imp": "8bf393f481da5da9f79e6d569da249aa0958e0b06c6b9d10a72924bcce18db55",
+    "corpus/rejected/syntax/unclosed-block.imp": "ec2e1307d8e67ca05a64077cfd199e73cb56efc9eb2f30df59175c81844852a5",
+    "fixtures/imp.k": "3264a33e007ed727f040715d4b41312c45feb7aa4fe7c7de599e26f6ba9f39a6",
+    "fixtures/induced-definition-error.k": "ab73c56188cf1accef5873edb3fb595592404c7d464bc3564b2fbf8c8e19f4b1"
+  },
+  "imp_state_sha256": {
+    "expr.k": "a3140c3ecde1f1157278cbf48247cac255537bcd4443b16d247df58254925ce9",
+    "calc.k": "bf0a9bd50ba8f36cc813804920032a21b073624aabab047b3d9e0f9fc38430f8"
+  },
+  "upstream_imp": {
+    "commit": "683a773418add3bcae8ded47c2b24e94494e1988"
+  },
+  "normalized_definition_sha256": {
+    "parsed": "dbe70c9c6e3d1ad60be4a3cb24acf2ae28c5b887efcf55c8321c465fc64a5745",
+    "compiled": "0c7da9eb341f0cf29b436ebb6916c198ee972d9dd351b3a06c9a03bc9ecc706f"
+  },
+  "accepted_tree_aggregate_sha256": "bfb758a9b3fed3f8927d294645d64d3817037b72b385a083b07db9ade6a8ccd3",
+  "unparse_aggregate_sha256": "c5b160ca8a8dba4f73ef7e3124545ed3dd12572040dd61d45991abcd0547c007",
+  "final_state_aggregate_sha256": "4be8d180594592c3906b89bf52028ba3eeb63431f3a369af2f1a5abfb2b7e4a1",
+  "llvm_trace_aggregate_sha256": "b764085fb513dbb8feee0b9b58930315b49c27a343a5320676a6f7268f862660",
+  "bounded_search_sha256": {
+    "frontiers": "cb3cb444867a6ddcf0490073b2ed98bb138491fc858b845dcb0de725ca9f99b4",
+    "nontermination": "e5d5aea67c142cab306931fbf63ea6769f534e58ab69bed288c10fba61447a86"
+  },
+  "rejection_sha256": {
+    "stuck_states": "123424f7528371fa1ca6779564e41309f22f7d307eb45465853612270fdd72b8",
+    "syntax_diagnostics": "c6773531d96d6bedfb47be29cf0c39219bd4a655a5062d4f3f29adc2646169f7"
+  },
+  "induced_diagnostic_sha256": "6a933c5f68605b93af7b391578e5e2da4384d183f0a9e8de08544b6ec802ee28",
+  "trace_normalizer_version": 1,
+  "reference_sha256": {
+    "oracle": "283f7703077bda00661db4f05b7724229d7cbaf50dae81681bee36e6c6e1f3b6"
+  }
+}

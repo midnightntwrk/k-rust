@@ -1,0 +1,22 @@
+[workspace]
+members = [
+    "packages/framing",
+    "packages/groups",
+    "packages/objects",
+    "packages/optional",
+    "packages/queue",
+    "packages/threads",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.99"
+version = "0.1.0"
+
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "deny"

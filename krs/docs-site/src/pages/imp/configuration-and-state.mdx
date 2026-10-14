@@ -1,0 +1,53 @@
+---
+title: IMP state—configuration and initialization
+description: Add statement syntax, fixed cells, configuration variables, and a declarative initializer.
+---
+
+# IMP state: configuration and initialization
+
+{/* tour-concepts: fixed-configurations configuration-root-and-leaf-metadata configuration-init single-item-sequence */}
+
+A configuration defines the symbolic machine state that transition rules may inspect and update simultaneously.
+IMP first adds statement syntax, then a computation cell and an environment cell:
+
+```rust [tests/tour-imp/chapters/04-configuration-and-state.rs]
+// [!include ~/snippets/imp-state.rs]
+```
+
+## Statement syntax
+
+`StmtSyntax` is another closed family, this time on the open `Stmt` sort.
+Its named precedence groups put atomic statements above right-associative sequencing.
+`avoid` resolves the dangling-`else` grammar preference; it is a parser attribute, not transition priority.
+
+Formatting templates control canonical layout for blocks and sequences.
+The control-flow rules behind these constructors are deferred to the [control-flow chapter](/imp/control-flow).
+
+## Fixed leaf cells
+
+`#[k::configuration]` declares one fixed machine shape.
+The `k` field is the computation cell: a `KSequence` whose head is the next symbolic item to process.
+The `env` field is a symbolic finite map from builtin identifiers to IMP values.
+
+Cell colors affect emitted presentation.
+Names default from Rust fields here; explicit root and cell-name metadata are available when stable external configuration names are required.
+For example, `#[k::configuration(root = "machine")]` overrides the generated top-cell name, while `#[k::cell(name = "environment", color = "blue")]` fixes a leaf cell's emitted name and display color.
+These strings are configuration metadata, not Rust field aliases or execution order.
+The fields are checked KRS cell declarations, not ordinary mutable Rust storage.
+
+## Declarative initialization
+
+`#[k::init]` maps configuration variables to initial cell terms.
+The `pgm` statement becomes the single item `k::k![pgm]`, while the supplied symbolic map initializes `env`.
+
+KRS records this expression as configuration semantics.
+It does not execute `Machine::init` to allocate or mutate a runtime `Machine` value during collection.
+Initializer bodies therefore use a deliberately restricted, declarative Rust-shaped subset.
+
+Field order does not sequence cell initialization.
+Missing cell annotations, unknown fields, forbidden control flow, or incompatible initializer terms fail at their authored fields or expressions.
+
+Run `python3 tests/tour-imp/verify.py` from the repository root to check this exact state slice, the complete capstone, canonical formatting, deterministic expansion and K emission, and authored source maps.
+The [language reference](/reference/language) indexes configuration, cell, and initializer attributes.
+
+Next, [machine rules](/imp/machine-rules) match and update both cells with implicit framing.

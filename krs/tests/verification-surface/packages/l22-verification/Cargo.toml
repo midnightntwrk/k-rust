@@ -1,0 +1,22 @@
+[package]
+name = "krs-verification-surface-l22-verification"
+description = "K tutorial lesson 1.22 claims with matching-logic conditions and predicate-simplification lemmas, beside the $-identifier token"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_verification_surface_l22_verification"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+krs-verification-surface-l22 = { path = "../l22" }
+
+[package.metadata.krs]
+k-namespace = "KRS-L22-VERIFICATION"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

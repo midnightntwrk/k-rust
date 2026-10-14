@@ -1,0 +1,34 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+expect-test = "1.5.1"
+prettyplease = "0.2.37"
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+quote = "1.0.47"
+regex = "1.13.1"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = { version = "1.0.140", features = ["unbounded_depth"] }
+sha2 = "0.10.9"
+syn = "2.0.119"
+toml_edit = { version = "0.25.13", default-features = false }
+
+[workspace.lints.rust]
+missing_docs = "warn"
+# `deny`, not `forbid`: the Wasm ABI exports allow the lint locally.
+# tests/repo-hygiene/verify.py confines that allowance to crates/krs-wasm-abi.
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+allow_attributes = "warn"
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Its suggested `assert_eq!(v, [] as [T; 0])` reads worse than `assert!(v.is_empty())`.
+assert_is_empty = "allow"

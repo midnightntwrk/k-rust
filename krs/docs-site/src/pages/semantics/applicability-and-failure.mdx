@@ -1,0 +1,68 @@
+---
+title: Applicability, fallback, and failure
+description: Distinguish symbolic guards, overlap, fallback, stuck states, traps, and backend failures.
+---
+
+# Applicability, fallback, and failure
+
+{/* tour-concepts: requires overlap owise outcomes */}
+
+A rule may be well formed without applying to every symbolic state.
+KRS separates applicability from authoring errors.
+
+## Object-language Boolean guards
+
+`requires` adds a symbolic Boolean condition to a sentence:
+
+```rust [crates/krs-macros/tests/fixtures/positive/src/main.rs]
+// [!include ~/snippets/guarded-transition.rs]
+```
+
+This fixture uses the explicit rule-function surface and a renamed facade; readable rule tables carry the same condition semantics.
+The condition is an object-language `Bool` term such as integer comparison, not a host `bool` evaluated while Rust collects the definition.
+
+The rule applies only when its pattern matches and its condition is established.
+An unproved or false symbolic condition makes the rule inapplicable; it does not make the source invalid.
+
+## Overlap and explicit fallback
+
+Transition rules have no source-order priority; their only order is an explicit `priority = N` or `owise`.
+When KRS can establish that two transitions can apply to one configuration at one priority, analysis rejects the ambiguity: K would take either rule.
+Literal complementary guards such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)` separate two rules, as does a guard that unifying the patterns turns into a false comparison of two Int literals, such as `int::ge(x, 10)` against a rule on `0`; an intended choice is declared with `#[k::rule(nondet = NAME)]` on every rule of the group.
+
+This negative fixture deliberately gives two rules the same `Foo()` head:
+
+```rust [tests/tour-negatives/src/lib.rs]
+// [!include ~/snippets/overlapping-rules.rs]
+```
+
+`krs check` renders a human-readable analysis error with code `krs::analysis::overlapping-rule-heads` and the authored source snippet by default.
+`krs check --message-format=json` returns the same diagnostic as a schema-1 JSON envelope on stderr.
+Its authored range selects exactly the `Foo` token in `second_foo`, and its notes retain both stable rule identities.
+The diagnostic does not guess that source order makes `first_foo` win.
+
+`owise` marks an explicit fallback rule that applies when the ordinary alternatives do not.
+It is semantic fallback, not “the last Rust match arm,” and its location in the source table does not select it.
+`owise` is priority 200, and `#[k::rule(priority = N)]` gives a transition any priority in `0..=254` (the default is 50); equations take the same keys, and simplifications have a separate priority hint.
+
+
+`tests/tour-negatives/verify.py` also pins four focused authoring failures to their exact tokens: a wrapper-free field missing `#[k::cell]`, forbidden initializer control flow, a constructor omitted from an exhaustive precedence chain, and an invalid rule-result update base.
+
+## Three outcomes with three different owners
+
+These cases are deliberately not interchangeable:
+
+| Example | Checked outcome | What owns it |
+| --- | --- | --- |
+| `#nonnegativeIdentity(-1)` | The partial function's only equation requires `0 <=Int -1`, so the application denotes bottom. | Static semantics; see [functions and static semantics](/semantics/static-semantics#an-undefined-partial-application). |
+| `y = x + 1;` in the checked IMP stuck-state fixture | LLVM performs two rewrites, exits successfully, and leaves a non-final configuration containing the unresolved lookup. | The authored IMP transition system is stuck: syntax was accepted, but no rule can make further progress. |
+| `i32.const 7 ; i32.const 0 ; i32.div_u ; .Instrs` from KWasm | The checked final instruction sequence is `trap ~> .Instrs ~> .K` with an empty value stack. | KWasm authors `trap` as an `Instruction::Trap` constructor and rules that reach it. |
+
+A **normal form** is the remaining non-error possibility: no transition applies, and that state may be an intended completed result.
+The IMP stuck-state verifier hash-pins both configurations, and the KWasm corpus checks both 32- and 64-bit division-by-zero traps through its native K-Rust runner, with an optional pinned K reference gate.
+
+The absence of a rule is not automatically an exception.
+Bottom supplies no denotation, stuckness preserves an object-language configuration, and a trap is a language-authored state.
+None of these is the LLVM integer-hook abort used by a separate IMP division-by-zero oracle.
+
+Next, [inspect the lowering](/semantics/lowering) to see which stage owns each representation and diagnostic.

@@ -1,0 +1,27 @@
+[package]
+name = "krs-macros"
+description = "Procedural macro facade for Rust-hosted KRS definitions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+krs-diagnostic = { path = "../krs-diagnostic" }
+krs-expand = { path = "../krs-expand" }
+krs-ir = { path = "../krs-ir" }
+krs-syntax = { path = "../krs-syntax" }
+proc-macro-crate = "3.4.0"
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+syn = { workspace = true, features = ["full", "parsing", "printing"] }
+
+[dev-dependencies]
+expect-test = { workspace = true }
+krs-test-support = { path = "../krs-test-support" }
+quote = { workspace = true }
+
+[lints]
+workspace = true

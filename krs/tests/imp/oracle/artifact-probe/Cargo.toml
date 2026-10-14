@@ -1,0 +1,25 @@
+[package]
+name = "krs-imp-artifact-probe"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+k-rust = { version = "=0.6.0", path = "../../../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false, features = ["z3-inference"] }
+krs-collector = { path = "../../../../crates/krs-collector" }
+krs-compiler = { path = "../../../../crates/krs-compiler" }
+krs-ir = { path = "../../../../crates/krs-ir" }
+krs-k-rust = { path = "../../../../crates/krs-k-rust" }
+imp = { package = "krs-imp-definition", path = "../../rust-definition" }
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
