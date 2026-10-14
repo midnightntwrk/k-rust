@@ -18,9 +18,10 @@ the outcomes must agree:
   `;` sequence at the top, inside `wrap(..)`, and repeatedly on both routes;
   the emitted `reassociate` rule writes its left-nested `(S1 ; S2) ; S3` with
   parentheses, so K reads back the tree KRS lowered; reassociating
-  `(b ; c) ; d` is a pinned divergence (k-rust leaves the left-hand side,
-  which nests the anywhere-headed `;`, unreduced with a residual `#Ceil`;
-  Java LLVM reassociates; upstream k-rust/anywhere-nested-own-symbol); each
+  `(b ; c) ; d` is a pinned divergence (k-rust cannot show at load that the
+  unrestricted reassociation's self-overlaps join, so it withdraws `;`'s
+  value claims and leaves the term unreduced under a residual `#Ceil`; Java
+  LLVM reassociates; upstream k-rust/anywhere-nested-own-symbol); each
   emitted rule carries `anywhere` and a
   `// krs-capability: AnywhereRule` comment, `symbols.json` records the
   requirement, and the Java Haskell reference route refuses the definition
@@ -53,8 +54,8 @@ the outcomes must agree:
   routes; `int x, y, z;` (recursive) declares all three names, while
   `decl x, y, z;` (plain) expands one step to `var x; decl y, z;`, a pinned
   divergence (Java LLVM stops at `decl y, z;`, k-rust refuses to execute a
-  state that holds the macro symbol `declareOnce`; upstream
-  k-rust/macro-own-symbol-refused); and
+  state that holds the macro symbol `declareOnce`, by contract: k-rust
+  `docs/compatibility.md`, "Macro applications that survive expansion"); and
   `x = nest(1, 2);` stores `pair(1, pair(2, nil))`, which both printers show
   backwards as `nest(1 , 2 , .Ints)`; the desugars `twin` and `anyPair` are
   written in rule patterns, and their clauses list `unbound_variables`
@@ -179,9 +180,10 @@ ANYWHERE_PROGRAMS = (
     Program("drop-nested", "wrap(a ; b)", "accepted", "wrap(b)"),
     Program("drop-repeated", "a ; a ; c", "accepted", "c"),
     # A pinned divergence: k-rust leaves `(b ; c) ; d` unreduced with a
-    # residual `#Ceil(b ; c)`, because the left-hand side nests the
-    # anywhere-headed `;`; Java LLVM reassociates
-    # (upstream k-rust/anywhere-nested-own-symbol).
+    # residual `#Ceil(b ; c)`, because the load does not show that the
+    # reassociation's self-overlaps join (UnjoinedCriticalPair), so `;` loses
+    # its value claims; Java LLVM reassociates. Restricting the first leaf's
+    # sort would run natively (upstream k-rust/anywhere-nested-own-symbol).
     Program("reassociate", "(b ; c) ; d", "accepted", "b ; c ; d"),
     Program("reassociate-nested", "wrap((b ; c) ; d)", "accepted", "wrap(b ; c ; d)"),
 )

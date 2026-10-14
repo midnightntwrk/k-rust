@@ -682,12 +682,17 @@ pub mod kequal {
 
     /// Marker for K's sort-parametric function `#if c #then t #else e #fi`.
     ///
-    /// It is a function, not control flow: k-rust keeps the definedness
-    /// condition of the untaken branch, while Java K's LLVM and Haskell
-    /// backends answer with the taken branch alone, so keep both branches
-    /// defined. Its sort is the least sort of the two branches that fits where
-    /// it occurs.
-    // upstream k-rust/ite-untaken-branch-definedness
+    /// It is a function that is strict in every operand: k-rust evaluates the
+    /// condition, then only the branch it selects, and never evaluates the
+    /// untaken branch, but keeps that branch's definedness as an obligation.
+    /// The result is the taken value alone when the obligation is decided
+    /// defined, undefined when it is decided undefined, and the taken value
+    /// under an open definedness condition otherwise, while Java K's LLVM and
+    /// Haskell backends answer with the taken branch alone. Keep both branches
+    /// defined, or choose with complementary `requires` rules (k-rust
+    /// `docs/compatibility.md`, "Conditionals and Boolean connectives are
+    /// strict"). Its sort is the least sort of the two branches that fits
+    /// where it occurs.
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct Ite<T = ()>(pub Bool, pub T, pub T);
 

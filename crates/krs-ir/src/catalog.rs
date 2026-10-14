@@ -1601,9 +1601,10 @@ macro_rules! __krs_builtin_operation_catalog {
                 functional: true
             }
             /// `#if _ #then _ #else _ #fi` with symbol `ite`, sort-parametric in its
-            /// branches (`KEQUAL.ite`). k-rust keeps the untaken branch's definedness
-            /// condition, which Java K's LLVM and Haskell backends drop
-            /// (upstream k-rust/ite-untaken-branch-definedness).
+            /// branches (`KEQUAL.ite`). k-rust never evaluates the untaken branch but
+            /// keeps its definedness as an obligation, which Java K's LLVM and Haskell
+            /// backends drop (k-rust `docs/compatibility.md`, "Conditionals and Boolean
+            /// connectives are strict").
             KEqualIte {
                 rust_module: kequal,
                 rust_name: ite,

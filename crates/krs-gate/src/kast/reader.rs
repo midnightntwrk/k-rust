@@ -1,8 +1,9 @@
 //! Read KAST once and verify the typed writer preserves all input fields.
 //!
-//! upstream k-rust/kast-definition-json-completeness: k-rust's typed definition reader omits
-//! `badsentence` nodes and its model has no `KFlatModuleList` envelope, so this module
-//! re-inserts each omitted sentinel and writes the module-list wrapper itself.
+//! k-rust's lossy definition reader is an inspection view by contract: its model has no
+//! `badsentence` node and no `KFlatModuleList` envelope. Writing K's wire documents back is
+//! KRS's gate normalization, so this module re-inserts each omitted sentinel at its recorded
+//! position and writes the module-list wrapper itself (k-rust declined to own these writers).
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -49,7 +50,7 @@ impl Document {
                 main_module,
                 modules,
             } => Ok(envelope(
-                // upstream k-rust/kast-definition-json-completeness: KRS writes this wrapper.
+                // k-rust has no module-list writer; KRS writes the wrapper.
                 json!({"node":"KFlatModuleList","mainModule":main_module,"term":modules.iter().map(module_value).collect::<Result<Vec<_>,_>>()?}),
             )),
         }
@@ -136,7 +137,7 @@ pub(crate) fn term_value(term: &Term) -> Result<Value, String> {
 }
 
 /// The sentinel K's KAST v4 writer leaves in place of a sentence it cannot represent (a context alias).
-/// upstream k-rust/kast-definition-json-completeness: k-rust's reader omits it, so KRS restores it.
+/// k-rust's definition model cannot represent it, so KRS restores it.
 fn bad_sentence() -> Value {
     json!({"node":"badsentence"})
 }
