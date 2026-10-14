@@ -18,14 +18,23 @@
 //! facts [`SortFacts`] names, so the frontend decides a declaration with it before it emits one,
 //! in the definition's own sorts, and the loader decides KORE from any producer the same way.
 //!
-//! An argument that is only read (an index, a key looked up or removed) is not moved into the
-//! result, so its sort decides nothing here, except where the hook reads the argument's items.
+//! A hook that reads its collection arguments without building a collection or returning one
+//! of their items (membership, size, inclusion) gives a `Bool` or an `Int`, a value of `S`
+//! exactly when that sort is `S` or a subsort of it; it reads the items of a collection
+//! argument, which only a collection of the hook's kind has, so a declaration taking anything
+//! else there has no model in which the hook computes it.
+//!
+//! An argument that is only read (an index, a key looked up or removed, an item whose
+//! membership is tested) is not moved into the result, so its sort decides nothing here, except
+//! where the hook reads the argument's items.
 //! The second operand of a set or map difference or of a set intersection is a collection of the
 //! first operand's kind, whose items the hook compares with the first operand's, and the second
 //! operand of `MAP.removeAll` is a set, whose elements are the keys the hook removes. Only a
 //! collection of that kind has such items, so a declaration taking anything else there has no
 //! model in which the hook computes it. The sort of those items decides nothing: none of them is
 //! moved into the result.
+
+use k_rust_kore::names::BuiltinSort;
 
 use crate::{
     matching::SortGraph,
@@ -84,10 +93,13 @@ enum Gives {
     Collection(Kind),
     /// An element of its `Source` or `KeySource` argument, or its `Alternative` argument.
     Member,
+    /// A value of this builtin sort (a membership's `Bool`, a size's `Int`).
+    Builtin(BuiltinSort),
 }
 
-/// The arguments and the result of `hook`, for the collection hooks that build a collection or
-/// return one of a collection's elements; `None` for every other hook.
+/// The arguments and the result of `hook`, for the collection hooks that build a collection,
+/// return one of a collection's elements, or read collections into a `Bool` or an `Int`; `None`
+/// for every other hook.
 fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
     use Operand::{
         Alternative, Element, Elements, Key, KeySource, Keys, Read, ReadCollection, Source, Value,
@@ -96,6 +108,8 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
     let list = Gives::Collection(Kind::List);
     let set = Gives::Collection(Kind::Set);
     let map = Gives::Collection(Kind::Map);
+    let bool = Gives::Builtin(BuiltinSort::Bool);
+    let int = Gives::Builtin(BuiltinSort::Int);
     Some(match hook {
         "LIST.unit" => (&[], list),
         "LIST.element" => (&[Element], list),
@@ -105,6 +119,8 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
         "LIST.update" => (&[Elements(Kind::List), Read, Element], list),
         "LIST.updateAll" => (&[Elements(Kind::List), Read, Elements(Kind::List)], list),
         "LIST.get" => (&[Source(Kind::List), Read], Gives::Member),
+        "LIST.in" => (&[Read, ReadCollection(Kind::List)], bool),
+        "LIST.size" => (&[ReadCollection(Kind::List)], int),
         "SET.unit" => (&[], set),
         "SET.element" => (&[Element], set),
         "SET.concat" | "SET.union" => (&[Elements(Kind::Set), Elements(Kind::Set)], set),
@@ -114,6 +130,12 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
         "SET.list2set" => (&[Elements(Kind::List)], set),
         "SET.set2list" => (&[Elements(Kind::Set)], list),
         "SET.choice" => (&[KeySource(Kind::Set)], Gives::Member),
+        "SET.in" => (&[Read, ReadCollection(Kind::Set)], bool),
+        "SET.size" => (&[ReadCollection(Kind::Set)], int),
+        "SET.inclusion" => (
+            &[ReadCollection(Kind::Set), ReadCollection(Kind::Set)],
+            bool,
+        ),
         "MAP.unit" => (&[], map),
         "MAP.element" => (&[Key, Value], map),
         "MAP.concat" | "MAP.updateAll" => (&[Elements(Kind::Map), Elements(Kind::Map)], map),
@@ -127,6 +149,12 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
         "MAP.lookup" => (&[Source(Kind::Map), Read], Gives::Member),
         "MAP.lookupOrDefault" => (&[Source(Kind::Map), Read, Alternative], Gives::Member),
         "MAP.choice" => (&[KeySource(Kind::Map)], Gives::Member),
+        "MAP.in_keys" => (&[Read, ReadCollection(Kind::Map)], bool),
+        "MAP.size" => (&[ReadCollection(Kind::Map)], int),
+        "MAP.inclusion" => (
+            &[ReadCollection(Kind::Map), ReadCollection(Kind::Map)],
+            bool,
+        ),
         _ => return None,
     })
 }
@@ -185,6 +213,8 @@ pub trait SortFacts {
     fn collection(&self, sort: &Self::Sort) -> Option<CollectionShape<Self::Sort>>;
     /// Whether `sub` is `sup` or a subsort of it.
     fn below(&self, sub: &Self::Sort, sup: &Self::Sort) -> bool;
+    /// The sort of the builtin's values (`Bool`, `Int`).
+    fn builtin(&self, sort: BuiltinSort) -> Self::Sort;
     /// `sort` as the reason names it.
     fn render(&self, sort: &Self::Sort) -> String;
 }
@@ -218,6 +248,10 @@ impl<'c, C: Fn(&Sort) -> Option<&'c CollectionMetadata>> SortFacts for LoadedSor
         matches!(self.sorts.check_subsort(sub, sup), Ok(true))
     }
 
+    fn builtin(&self, sort: BuiltinSort) -> Sort {
+        Sort::builtin(sort)
+    }
+
     fn render(&self, sort: &Sort) -> String {
         render(sort)
     }
@@ -225,7 +259,8 @@ impl<'c, C: Fn(&Sort) -> Option<&'c CollectionMetadata>> SortFacts for LoadedSor
 
 /// Why a symbol `argument_sorts -> result_sort` hooked to `hook` denotes no value of
 /// `result_sort` in general, or `None` when it does or `hook` is not a collection hook that
-/// builds a collection or returns one of a collection's elements.
+/// builds a collection, returns one of a collection's elements, or reads collections into a
+/// `Bool` or an `Int`.
 pub fn misfit<F: SortFacts>(
     hook: &str,
     argument_sorts: &[F::Sort],
@@ -258,6 +293,19 @@ pub fn misfit<F: SortFacts>(
             }
         },
         Gives::Member => None,
+        Gives::Builtin(builtin) => {
+            let given = facts.builtin(builtin);
+            if !facts.below(&given, result_sort) {
+                return Some(format!(
+                    "{hook} gives a value of sort {}, but the result sort {} is not {} or a \
+                     sort above it",
+                    facts.render(&given),
+                    facts.render(result_sort),
+                    facts.render(&given)
+                ));
+            }
+            None
+        }
     };
     // The sorts of what the result holds: a list's or set's elements, a map's keys and values.
     let (element, key, value) = match result {

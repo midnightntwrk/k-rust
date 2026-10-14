@@ -19,6 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust_backend::builtin::{CollectionShape, SortFacts, collection_hook_misfit};
+use k_rust_kore::names::BuiltinSort;
 
 use super::module_to_kore::{collection_concatenation, emitted_subsort_pair, interpreted_hook};
 use crate::{
@@ -45,6 +46,10 @@ impl SortFacts for FrontendSorts<'_> {
 
     fn below(&self, sub: &Sort, sup: &Sort) -> bool {
         self.subsorts.less_than_eq(sub, sup)
+    }
+
+    fn builtin(&self, sort: BuiltinSort) -> Sort {
+        Sort::builtin(sort)
     }
 
     fn render(&self, sort: &Sort) -> String {

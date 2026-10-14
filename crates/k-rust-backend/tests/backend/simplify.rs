@@ -5542,7 +5542,15 @@ fn standalone_predicate_simplification_uses_smt_for_the_residual() {
             module MAIN
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-                sort SortList{} []
+                sort SortKItem{} []
+                hooked-sort SortList{}
+                    [hook{}("LIST.List"), unit{}(Lbl'Stop'List{}()), element{}(LblListItem{}()),
+                     concat{}(Lbl'Unds'List'Unds'{}())]
+                hooked-symbol Lbl'Stop'List{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+                hooked-symbol LblListItem{}(SortKItem{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.element")]
+                hooked-symbol Lbl'Unds'List'Unds'{}(SortList{}, SortList{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
                 hooked-symbol size{}(SortList{}) : SortInt{}
                     [function{}(), total{}(), hook{}("LIST.size")]
                 hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
@@ -5579,7 +5587,15 @@ fn list_size_lemma_definition() -> BackendDefinition {
             module MAIN
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-                hooked-sort SortList{} [hook{}("LIST.List")]
+                sort SortKItem{} []
+                hooked-sort SortList{}
+                    [hook{}("LIST.List"), unit{}(Lbl'Stop'List{}()), element{}(LblListItem{}()),
+                     concat{}(Lbl'Unds'List'Unds'{}())]
+                hooked-symbol Lbl'Stop'List{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+                hooked-symbol LblListItem{}(SortKItem{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.element")]
+                hooked-symbol Lbl'Unds'List'Unds'{}(SortList{}, SortList{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
                 sort SortCell{} []
                 symbol holder{}(SortList{}) : SortCell{}
                     [constructor{}(), functional{}(), injective{}()]
