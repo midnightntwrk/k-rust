@@ -102,7 +102,7 @@ exit = 0
 stderr = """
 warning: hook FLOAT.float2int was left unevaluated at depth 4516 (the definition does not determine its value: Float2Int of NaN or an infinity, which has no nearest integer); the result may not be fully simplified
 """
-stdout = "sha256:002d0e459e26154944ba08c04c6db9c74e6bdb99a7465d65eb40daadbcb8484a (646708 bytes)"
+stdout = "sha256:96333f3bbc1f861521ec199aa77deec1c19782fad781d39a8fc100e2a36d541d (647787 bytes)"
 
 [[program]]
 name = "simple/functions_call"

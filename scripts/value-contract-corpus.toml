@@ -544,7 +544,7 @@ full_condition_memo_refusals = 0
 name = "wasm"
 definition = "wasm"
 [case.expected]
-equations = 1723
+equations = 1724
 pairs = 3846
 overlaps = 69
 separated = 33
