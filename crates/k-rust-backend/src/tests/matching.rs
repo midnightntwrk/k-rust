@@ -749,15 +749,30 @@ fn keeps_evaluate_mode_one_directional() {
         r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("first"), \dv{SortValue{}}("first-value")), SUBJECTREST:SortMap{})"#,
     );
 
-    assert!(matches!(
-        match_collection_remainders_all_in_definition(
-            MatchMode::Evaluate,
-            &definition,
-            Substitution::new(),
-            &[(pattern, subject)],
-        ),
-        CollectionMatches::Undecided
-    ));
+    // The pattern entry may lie in the subject's frame, which evaluation does not narrow: the
+    // match stays undecided, and the one decided solution takes the explicit entry and leaves
+    // the frame unbound.
+    let CollectionMatches::Undecided(solutions) = match_collection_remainders_all_in_definition(
+        MatchMode::Evaluate,
+        &definition,
+        Substitution::new(),
+        &[(pattern, subject)],
+        DecidedSolutions::Keep,
+    ) else {
+        panic!("a pattern entry may lie in the subject frame");
+    };
+    let [(substitution, _)] = solutions.as_slice() else {
+        panic!("one decided solution: {solutions:?}");
+    };
+    assert_eq!(
+        substitution.get(&Variable::new("KEY", Sort::simple("SortKey"))),
+        Some(&internal_term(&definition, r#"\dv{SortKey{}}("first")"#))
+    );
+    assert_eq!(
+        substitution.get(&Variable::new("REST", Sort::simple("SortMap"))),
+        Some(&internal_term(&definition, "SUBJECTREST:SortMap{}"))
+    );
+    assert!(!substitution.contains_key(&Variable::new("SUBJECTREST", Sort::simple("SortMap"))));
 }
 
 #[test]

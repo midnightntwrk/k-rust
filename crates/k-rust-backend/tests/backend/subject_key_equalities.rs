@@ -60,6 +60,8 @@ fn definition() -> BackendDefinition {
             symbol lookv{{}}(SortInt{{}}, SortMap{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
             symbol lookc{{}}(SortInt{{}}, SortMap{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
             symbol h{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+            symbol first{{}}(SortMap{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+            {}
             {}
             {}
             {}
@@ -79,10 +81,26 @@ fn definition() -> BackendDefinition {
             r#"cat{}(VarK:SortInt{}, \dv{SortInt{}}("0"))"#,
             "val{}(VarW:SortInt{}, VarV:SortInt{})"
         ),
+        FIRST,
     );
     let syntax = parse_definition(&source).expect("the definition parses");
     BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
 }
+
+/// `first(M)` is the amount of a record of `M` that names its own key, else 0 (`owise`): the
+/// key is bound inside the map pattern, so each subject entry is an alternative of the match.
+const FIRST: &str = r#"
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{},
+            mapConcat{}(mapItem{}(VarK:SortInt{}, val{}(VarK:SortInt{}, VarV:SortInt{})), VarM:SortMap{})),
+            \top{R}())),
+        \equals{SortInt{}, R}(first{}(X0:SortMap{}), \and{SortInt{}}(VarV:SortInt{}, \top{SortInt{}}()))
+    ) [label{}("first-found")]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{}, VarN:SortMap{}), \top{R}())),
+        \equals{SortInt{}, R}(first{}(X0:SortMap{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))
+    ) [label{}("first-absent"), owise{}()]
+"#;
 
 fn int(value: i64) -> String {
     format!(r#"\dv{{SortInt{{}}}}("{value}")"#)
@@ -289,4 +307,47 @@ fn a_record_naming_its_key_under_a_function_keeps_the_application() {
         int(9)
     );
     assert_kept(&definition, &subject, &[differ(&definition, "A", "C")]);
+}
+
+/// `first((1 |-> val(1, 7)) (B |-> val(h(B), 8)))`: the entry at 1 matches by itself, binding
+/// `V` to 7, while the entry at `B` matches only where `h(B)` equals `B`, which nothing decides.
+/// A matching the matcher decides is an instance of the equation in every model of the subject,
+/// whatever the undecided entry turns out to be, so the equation applies with 7. Where every
+/// entry is undecided the application stays, and the `owise` equation is not reached.
+#[test]
+fn a_decided_alternative_applies_beside_an_undecided_one() {
+    let definition = definition();
+    let entry = |key: &str, value: &str, amount: i64| {
+        format!("mapItem{{}}({key}, val{{}}({value}, {}))", int(amount))
+    };
+    let undecided = |key: &str, amount: i64| {
+        entry(
+            &format!("Var{key}:SortInt{{}}"),
+            &format!("h{{}}(Var{key}:SortInt{{}})"),
+            amount,
+        )
+    };
+    let decided_beside_undecided = format!(
+        "first{{}}(mapConcat{{}}({}, {}))",
+        entry(&int(1), &int(1), 7),
+        undecided("B", 8)
+    );
+    assert_evaluates(
+        &definition,
+        &decided_beside_undecided,
+        &[],
+        &int(7),
+        "first-found",
+    );
+    let every_entry_undecided = format!(
+        "first{{}}(mapConcat{{}}({}, {}))",
+        undecided("B", 8),
+        undecided("C", 9)
+    );
+    assert_kept(&definition, &every_entry_undecided, &[]);
+    assert_kept(
+        &definition,
+        &every_entry_undecided,
+        &[differ(&definition, "B", "C")],
+    );
 }

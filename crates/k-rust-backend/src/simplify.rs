@@ -106,9 +106,9 @@ use crate::{
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     evaluation::EvaluationMode,
     matching::{
-        Bindings, CollectionMatches, FailReason, InjectionEquality, MatchFailed, MatchMode,
-        MatchResult, match_collection_remainders_all_in_definition, match_equation_in_definition,
-        match_injection_equality, match_term_pairs_in_definition,
+        Bindings, CollectionMatches, DecidedSolutions, FailReason, InjectionEquality, MatchFailed,
+        MatchMode, MatchResult, match_collection_remainders_all_in_definition,
+        match_equation_in_definition, match_injection_equality, match_term_pairs_in_definition,
     },
     rewrite::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicate_root_truth,
@@ -6859,6 +6859,16 @@ fn apply_equation(
         }
         EquationInstances::Matched(instances) => instances,
     };
+    // An undecided instance keeps the equation from being refuted whatever the others give, so
+    // deciding an unused instance cannot change the outcome.
+    let set_aside = if instances
+        .iter()
+        .any(|instance| matches!(instance, Instance::Undecided))
+    {
+        SetAsideRequires::Unused
+    } else {
+        set_aside
+    };
     scan_instances(instances, |instance| {
         let (substitution, equalities) = match instance {
             Instance::SetAside(substitution) => (substitution, Vec::new()),
@@ -6990,7 +7000,9 @@ pub(crate) enum EquationInstances {
     /// Matching modulo the map and set axioms could not decide whether the left-hand side
     /// matches the subject.
     Undecided,
-    /// The instances in the matcher's order; never empty.
+    /// The instances in the matcher's order; never empty. When matching modulo the map and set
+    /// axioms decided some matchings but not every one, the decided instances come first and
+    /// the last one is [`Instance::Undecided`].
     Matched(Vec<Instance>),
 }
 
@@ -7025,6 +7037,11 @@ pub(crate) enum Instance {
     /// The matching binds an element variable to a pattern with a set variable
     /// ([`binds_element_variable_to_set_pattern`]), which does not justify the instance.
     NonFunctionalBinding,
+    /// The matchings that matching modulo the map and set axioms could not decide, beside the
+    /// decided instances before it: there may be more instances of the equation than those. It
+    /// is undecided, so the equation applies only through a decided instance, and is refuted
+    /// never, since an undecided matching may hold.
+    Undecided,
 }
 
 impl Instance {
@@ -7042,6 +7059,9 @@ impl Instance {
             Instance::NonFunctionalBinding => Ok(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::NonFunctionalBinding,
             )),
+            Instance::Undecided => Ok(EquationAttempt::Indeterminate(
+                ConditionIndeterminacy::ImplicationIndeterminate,
+            )),
         }
     }
 }
@@ -7054,7 +7074,9 @@ impl Instance {
 /// decomposition `σ` is an instance `f(t) = rhs σ requires R σ` of the equation, which holds by
 /// itself, so a caller applies the equation when one instance does ([`scan_instances`]),
 /// whichever the matcher enumerates first. A match without a collection remainder has one
-/// instance.
+/// instance. Where the matcher decides some decompositions but not all, each decided one is
+/// still an instance, whatever the others turn out to be, and an [`Instance::Undecided`] after
+/// them stands for the rest, so that the equation is never refuted while one may hold.
 pub(crate) fn equation_instances<'r>(
     definition: &BackendDefinition,
     rule: &'r RewriteRule,
@@ -7071,6 +7093,7 @@ pub(crate) fn equation_instances<'r>(
         term,
         &rule.computed_attributes.unread_map_frames,
     );
+    let mut undecided = false;
     let substitutions = match matched {
         MatchResult::Failed(_) => {
             let failed = matched
@@ -7086,12 +7109,20 @@ pub(crate) fn equation_instances<'r>(
             definition,
             substitution,
             &remainder,
+            // Each decided matching is an instance of the equation by itself.
+            DecidedSolutions::Keep,
         ) {
             CollectionMatches::Solutions(solutions) => solutions,
             CollectionMatches::NoSolution(failed) => {
                 return (rule, EquationInstances::NotMatched(failed));
             }
-            CollectionMatches::Undecided => return (rule, EquationInstances::Undecided),
+            CollectionMatches::Undecided(solutions) if solutions.is_empty() => {
+                return (rule, EquationInstances::Undecided);
+            }
+            CollectionMatches::Undecided(solutions) => {
+                undecided = true;
+                solutions
+            }
         },
         MatchResult::Success(substitution) => vec![(substitution, bindings)],
     };
@@ -7128,6 +7159,7 @@ pub(crate) fn equation_instances<'r>(
                 Instance::Usable(substitution)
             }
         })
+        .chain(undecided.then_some(Instance::Undecided))
         .collect();
     (rule, EquationInstances::Matched(instances))
 }

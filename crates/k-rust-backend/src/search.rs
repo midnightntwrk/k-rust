@@ -102,8 +102,8 @@ use crate::{
     evaluation::{EvaluationMode, EvaluationScope, with_evaluation},
     fresh::{FreshCounter, RequestNames},
     matching::{
-        CollectionMatches, MatchMode, MatchResult, match_collection_remainders_all_in_definition,
-        match_terms_in_definition,
+        CollectionMatches, DecidedSolutions, MatchMode, MatchResult,
+        match_collection_remainders_all_in_definition, match_terms_in_definition,
     },
     rewrite::{
         AppliedRule, IndeterminateReason, InitialDefinedness, Pattern, RemainderBranch,
@@ -2538,6 +2538,7 @@ fn match_pattern_with_variables(
             definition,
             substitution.clone(),
             &remainder,
+            DecidedSolutions::Discard,
         ) {
             // Implication reads every solution as a witness, which a sufficient one is.
             CollectionMatches::Solutions(solutions) => solutions
@@ -2545,7 +2546,9 @@ fn match_pattern_with_variables(
                 .map(|(substitution, _bindings)| substitution)
                 .collect(),
             CollectionMatches::NoSolution(_) => return Ok(Ok(Vec::new())),
-            CollectionMatches::Undecided => {
+            // Implication needs every way the pattern holds, so a partly decided match is
+            // undecided.
+            CollectionMatches::Undecided(_) => {
                 return Ok(Err(PatternMatchError::Indeterminate {
                     substitution,
                     remainder,
