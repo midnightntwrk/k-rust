@@ -19,7 +19,7 @@ Every authored source file is rustc-valid Rust.
 The authored and independently expanded IMP packages and the artifact probe are checked on the `Krs.lock` MSRV, Rust 1.95.0, by IMP.2's package checks.
 Native/frontend helpers are additionally qualified on the current stable Rust, which must be at or above that MSRV.
 Workspace-wide formatting, Clippy, tests, documentation, and the workspace MSRV check belong to the standard checks that CI's workspace job runs.
-The complete nine-phase IMP gate passed against clean k-rust `d86f2c10a8aad795f7149c0ec45f04f8ff0a5578` on 2026-10-13 JST.
+The complete nine-phase IMP gate passed against clean k-rust `bbd05fd319f21c7d3a588808698533f4f4455d1f` on 2026-10-14 JST.
 
 ## Evidence layers
 
