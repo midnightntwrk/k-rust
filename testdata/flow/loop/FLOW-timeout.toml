@@ -1,0 +1,18 @@
+# The loop corpus with a program that never ends (flow F-03): under a small
+# time bound and a depth bound it cannot reach, spin is class timeout.
+[spec]
+entry = "loop.k"
+main_module = "LOOP"
+syntax_module = "LOOP-SYNTAX"
+
+[budget]
+time_ms = 500
+max_depth = 1000000000
+
+[[program]]
+id = "spin"
+file = "programs/spin.loop"
+
+[[program]]
+id = "countdown"
+file = "programs/countdown.loop"

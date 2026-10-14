@@ -1,0 +1,9 @@
+# kink-flow corpus manifest for the map-store fixture (flow F-03).
+[spec]
+entry = "map-store.k"
+main_module = "MAP-STORE"
+syntax_module = "MAP-STORE-SYNTAX"
+
+[[program]]
+id = "store"
+text = "store(1, 2)"

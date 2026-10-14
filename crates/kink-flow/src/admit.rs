@@ -11,6 +11,7 @@
 //! concrete-state check and the input gate run. A refused program never stops the others.
 
 use crate::manifest::{FlowManifest, Program};
+use k_rust::backend::Backend;
 use kink_campaign::TestCase;
 use kink_corpus::{
     CorpusSource, LoadedSource, ProgramSource, TestInputSpec,
@@ -68,39 +69,88 @@ impl FlowAdmission {
 
 /// Admit the manifest's specification and then each of its programs.
 pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
-    let mut record = AdmissionRecord::new(SPEC_RECORD_NAME);
-    let admitted = admit_spec(manifest, &mut record).and_then(|spec| {
-        let backend = input_backend(&spec.compiled, &manifest.spec.main_module)?;
-        Ok((spec, backend))
-    });
-    let (spec, mut backend) = match admitted {
-        Ok(admitted) => admitted,
-        Err(refusal) => {
-            record.refusal = Some(refusal);
-            return FlowAdmission {
-                record,
-                spec: None,
-                programs: Vec::new(),
-            };
-        }
+    let (record, admitted) = admit_spec(manifest);
+    let Some((spec, mut inputs)) = admitted else {
+        return FlowAdmission {
+            record,
+            spec: None,
+            programs: Vec::new(),
+        };
     };
-    let root = spec_root(manifest);
     let programs = manifest
         .programs
         .iter()
         .map(|program| ProgramAdmission {
             id: program.id.clone(),
-            outcome: root.clone().and_then(|root| {
-                let test = initial_state(&spec.loaded, &root, program)?;
-                check_initial_state(&mut backend, &test.initial_state)?;
-                Ok(test)
-            }),
+            outcome: inputs
+                .text(program)
+                .and_then(|text| inputs.test_case(&spec, program, text)),
         })
         .collect();
     FlowAdmission {
         record,
         spec: Some(spec),
         programs,
+    }
+}
+
+/// Admit the manifest's specification alone: its record (refused or not) and, when it is
+/// admitted, the specification with the means to admit its programs one at a time.
+pub fn admit_spec(
+    manifest: &FlowManifest,
+) -> (AdmissionRecord, Option<(AdmittedSpec, ProgramInputs)>) {
+    let mut record = AdmissionRecord::new(SPEC_RECORD_NAME);
+    let admitted = admit_definition(manifest, &mut record).and_then(|spec| {
+        let backend = input_backend(&spec.compiled, &manifest.spec.main_module)?;
+        Ok((spec, backend))
+    });
+    match admitted {
+        Ok((spec, backend)) => (
+            record,
+            Some((
+                spec,
+                ProgramInputs {
+                    root: spec_root(manifest),
+                    backend,
+                },
+            )),
+        ),
+        Err(refusal) => {
+            record.refusal = Some(refusal);
+            (record, None)
+        }
+    }
+}
+
+/// Admits the programs of an admitted specification, one at a time and in any order: the
+/// manifest's canonical directory and the input gate's backend.
+pub struct ProgramInputs {
+    root: Result<PathBuf, AdmissionRefusal>,
+    backend: Backend,
+}
+
+impl ProgramInputs {
+    /// The program's text: its file read inside the manifest's directory (stage `load`,
+    /// reason `load-error`), or its inline text.
+    pub fn text(&self, program: &Program) -> Result<String, AdmissionRefusal> {
+        let root = self.root.clone()?;
+        match &program.source {
+            ProgramSource::Text(text) => Ok(text.clone()),
+            ProgramSource::File(name) => read_program(&root, name),
+        }
+    }
+
+    /// The program's concrete initial configuration (`text` is [`Self::text`]'s result):
+    /// assembled, then the concrete-state check and the input gate.
+    pub fn test_case(
+        &mut self,
+        spec: &AdmittedSpec,
+        program: &Program,
+        text: String,
+    ) -> Result<TestCase, AdmissionRefusal> {
+        let test = initial_state(&spec.loaded, program, text)?;
+        check_initial_state(&mut self.backend, &test.initial_state)?;
+        Ok(test)
     }
 }
 
@@ -129,7 +179,21 @@ fn check_below_floor(
     })
 }
 
-fn admit_spec(
+/// How kink-corpus `load_source` loads the manifest's specification (it records every
+/// non-builtin file it reads).
+pub fn corpus_source(manifest: &FlowManifest) -> CorpusSource {
+    let spec = &manifest.spec;
+    CorpusSource {
+        root: manifest.directory.clone(),
+        entry: spec.entry.clone(),
+        include_dirs: spec.include_dirs.clone(),
+        main_module: spec.main_module.clone(),
+        syntax_module: spec.syntax_module.clone(),
+        md_selector: Some(spec.md_selector.clone()),
+    }
+}
+
+fn admit_definition(
     manifest: &FlowManifest,
     record: &mut AdmissionRecord,
 ) -> Result<AdmittedSpec, AdmissionRefusal> {
@@ -137,15 +201,7 @@ fn admit_spec(
     let exclusions = below_floor_exclusions();
     let entry = manifest.directory.join(&spec.entry);
     check_below_floor(&exclusions, &entry, &entry)?;
-    let loaded = load_source(&CorpusSource {
-        root: manifest.directory.clone(),
-        entry: spec.entry.clone(),
-        include_dirs: spec.include_dirs.clone(),
-        main_module: spec.main_module.clone(),
-        syntax_module: spec.syntax_module.clone(),
-        md_selector: Some(spec.md_selector.clone()),
-    })
-    .map_err(load_refusal)?;
+    let loaded = load_source(&corpus_source(manifest)).map_err(load_refusal)?;
     record.files = loaded.files.clone();
     let root = spec_root(manifest)?;
     for file in &loaded.files {
@@ -183,13 +239,9 @@ fn read_program(root: &Path, name: &str) -> Result<String, AdmissionRefusal> {
 
 fn initial_state(
     loaded: &LoadedSource,
-    root: &Path,
     program: &Program,
+    text: String,
 ) -> Result<TestCase, AdmissionRefusal> {
-    let text = match &program.source {
-        ProgramSource::Text(text) => text.clone(),
-        ProgramSource::File(name) => read_program(root, name)?,
-    };
     let initial_state = program_input(
         loaded,
         &TestInputSpec {

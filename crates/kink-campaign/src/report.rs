@@ -6,7 +6,7 @@
 
 use crate::{
     Campaign, CampaignManifest, CampaignRun, FinalResult, OracleSide, OracleValue, PatternValue,
-    SelectionPolicy, SideRun, TestRun, tally,
+    SelectionPolicy, SideRun, TestEvidence, TestRun, tally,
 };
 use k_rust::{
     definition::{AttributeKey, Sentence},
@@ -31,6 +31,11 @@ impl CampaignReport {
     }
     pub fn text(&self) -> String {
         canonical_json(&self.value)
+    }
+    /// One baseline row of the report's `baseline` list, `{"test_id", "run"}`, exactly as
+    /// [`campaign_report_multi`] encodes it (the report uses this function).
+    pub fn baseline_row(evidence: &TestEvidence) -> Result<Value, ReportError> {
+        Ok(json!({"test_id":evidence.test_id,"run":side_run(&evidence.run)?}))
     }
 }
 
@@ -371,7 +376,7 @@ pub fn campaign_report_multi(
     let baseline_runs = run
         .baseline
         .iter()
-        .map(|e| Ok(json!({"test_id":e.test_id,"run":side_run(&e.run)?})))
+        .map(CampaignReport::baseline_row)
         .collect::<Result<Vec<_>, ReportError>>()?;
     let coverage = match run.selection {
         SelectionPolicy::None => Value::Null,

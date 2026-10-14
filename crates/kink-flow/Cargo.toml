@@ -9,6 +9,7 @@ version.workspace = true
 workspace = true
 
 [dependencies]
+k-rust.workspace = true
 kink-campaign.workspace = true
 kink-corpus.workspace = true
 kink-native.workspace = true

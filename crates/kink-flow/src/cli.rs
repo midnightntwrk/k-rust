@@ -7,6 +7,7 @@
 use crate::{
     admit::{FlowAdmission, admit},
     manifest::{FlowManifest, ManifestError},
+    results::ResultsOptions,
 };
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
@@ -21,7 +22,8 @@ pub const EXIT_OK: u8 = 0;
 pub const EXIT_CORPUS: u8 = 1;
 pub const EXIT_USAGE: u8 = 2;
 
-pub const USAGE: &str = "usage: kink-flow check FLOW.toml";
+pub const USAGE: &str =
+    "usage: kink-flow check FLOW.toml | kink-flow results FLOW.toml [--verify] [--cache DIR]";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -39,6 +41,23 @@ pub fn execute(args: Vec<OsString>) -> u8 {
                 Some(result) => result,
                 None => {
                     eprintln!("kink-flow: the admission thread panicked");
+                    return EXIT_CORPUS;
+                }
+            }
+        }
+        Ok([command, manifest, rest @ ..]) if command == "results" => {
+            let manifest = PathBuf::from(manifest);
+            if !manifest.is_file() {
+                return usage(&format!("{} is not a file", manifest.display()));
+            }
+            let options = match results_options(rest) {
+                Ok(options) => options,
+                Err(message) => return usage(&message),
+            };
+            match on_stack(move || results(&manifest, &options)) {
+                Some(result) => result,
+                None => {
+                    eprintln!("kink-flow: the results thread panicked");
                     return EXIT_CORPUS;
                 }
             }
@@ -70,6 +89,40 @@ fn on_stack<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) -> Opt
         .ok()?
         .join()
         .ok()
+}
+
+fn results_options(args: &[String]) -> Result<ResultsOptions, String> {
+    let mut options = ResultsOptions::default();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--verify" if !options.verify => options.verify = true,
+            "--cache" if options.cache.is_none() => {
+                let directory = args.next().ok_or("--cache needs a directory")?;
+                options.cache = Some(PathBuf::from(directory));
+            }
+            _ => return Err(format!("unexpected argument {arg:?}")),
+        }
+    }
+    Ok(options)
+}
+
+/// `kink-flow results FLOW.toml [--verify] [--cache DIR]`: the results document (README 5.3)
+/// and the exit status: [`EXIT_OK`] unless the manifest, the specification or a program is
+/// refused, a run failed, a record could not be written or `--verify` found a mismatch.
+/// A timeout or unknown program is not an error: it is reported, and it cannot kill.
+pub fn results(manifest: &Path, options: &ResultsOptions) -> (Value, u8) {
+    match FlowManifest::read(manifest) {
+        Err(error) => {
+            let mut document = manifest_refused(&error);
+            document["schema"] = json!("kink-flow-results");
+            (document, EXIT_CORPUS)
+        }
+        Ok(manifest) => {
+            let (document, ok) = crate::results::results(&manifest, options);
+            (document, if ok { EXIT_OK } else { EXIT_CORPUS })
+        }
+    }
 }
 
 /// `kink-flow check FLOW.toml`: the check document and the exit status.
