@@ -1916,6 +1916,73 @@ fn a_decided_map_entry_applies_beside_an_undecided_one() {
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
+const ENTRY_BESIDE_A_FRAME: &str = r#"
+module FRAME-SYNTAX
+endmodule
+
+module FRAME
+  imports FRAME-SYNTAX
+  imports INT
+  imports MAP
+  imports SET
+  imports BOOL
+
+  syntax Int ::= cnt(Map) [function, total]
+  rule cnt((_:Int |-> _:Int) R) => 1 +Int cnt(R)
+  rule cnt(_) => 0 [owise]
+
+  syntax Set ::= srest(Set) [function, total]
+  rule srest(SetItem(X:Int) R) => R requires X >Int 10
+  rule srest(S) => S [owise]
+
+  syntax KItem ::= run(Int) | runs(Set)
+endmodule
+
+module FRAME-SPEC
+  imports FRAME
+
+  claim [cnt-one]: <k> run(cnt((1 |-> 2) M)) => run(1 +Int cnt(M)) </k>
+
+  claim [cnt-constant]: <k> run(cnt((1 |-> 2) _M)) => run(1) </k>
+
+  claim [cnt-frame]: <k> run(cnt((1 |-> 2) M)) => run(cnt(M)) </k>
+
+  claim [srest-rest]: <k> runs(srest(SetItem(20) SetItem(A) S)) => runs(SetItem(A) S) </k>
+    requires A <Int 5
+
+  claim [srest-drop]: <k> runs(srest(SetItem(20) SetItem(A) S)) => runs(S) </k>
+    requires A <Int 5
+
+  claim [srest-keep]: <k> runs(srest(SetItem(20) SetItem(A) S)) => runs(SetItem(20) S) </k>
+    requires A <Int 5
+endmodule
+"#;
+
+/// A free pattern key or element matches an explicit entry of a collection with a frame, binding
+/// the pattern's rest to the other entries and the frame; the frame may hold further matching
+/// entries, which evaluation does not decide. The explicit entry's matching is an instance of the
+/// equation by itself, so `cnt((1 |-> 2) M)` is `1 +Int cnt(M)` (`cnt-one`) and `srest` drops the
+/// element 20 alone (`srest-rest`, where `A` is below the threshold); a value that drops the
+/// frame (`cnt-constant`, `srest-drop`) or keeps the entry (`cnt-frame`, `srest-keep`) is not
+/// proven.
+#[test]
+fn a_free_key_applies_through_an_explicit_entry_beside_a_frame() {
+    let wrong = statuses_breaking(
+        ENTRY_BESIDE_A_FRAME,
+        "FRAME-SPEC",
+        "FRAME",
+        &[
+            ("cnt-one", true, "proven"),
+            ("cnt-constant", false, "proven"),
+            ("cnt-frame", false, "proven"),
+            ("srest-rest", true, "proven"),
+            ("srest-drop", false, "proven"),
+            ("srest-keep", false, "proven"),
+        ],
+    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
 const NESTED_STORE_OVER_OWISE: &str = r#"
 module NEST-SYNTAX
 endmodule

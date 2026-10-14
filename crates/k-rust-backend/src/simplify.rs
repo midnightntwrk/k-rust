@@ -106,9 +106,9 @@ use crate::{
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     evaluation::EvaluationMode,
     matching::{
-        Bindings, CollectionMatches, FailReason, InjectionEquality, MatchFailed, MatchMode,
-        MatchResult, match_collection_remainders_all_in_definition, match_equation_in_definition,
-        match_injection_equality, match_term_pairs_in_definition,
+        Bindings, CollectionMatches, DecidedSolutions, FailReason, InjectionEquality, MatchFailed,
+        MatchMode, MatchResult, match_collection_remainders_all_in_definition,
+        match_equation_in_definition, match_injection_equality, match_term_pairs_in_definition,
     },
     rewrite::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicate_root_truth,
@@ -7109,6 +7109,8 @@ pub(crate) fn equation_instances<'r>(
             definition,
             substitution,
             &remainder,
+            // Each decided matching is an instance of the equation by itself.
+            DecidedSolutions::Keep,
         ) {
             CollectionMatches::Solutions(solutions) => solutions,
             CollectionMatches::NoSolution(failed) => {

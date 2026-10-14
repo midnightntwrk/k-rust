@@ -101,10 +101,8 @@ enum PairSolution {
 /// whatever the undecided one turns out to be, and only the completeness of the whole is lost.
 /// An empty complete set is a decided failure; an empty incomplete set is an undecided problem.
 ///
-/// Only a caller without [`Narrowing`] reads an incomplete set's solutions
-/// ([`match_collection_remainders_all_in_definition`]); with narrowing, which mints fresh frame
-/// variables, the solver stops at the first undecided alternative, as every such caller needs
-/// all the solutions or none.
+/// Only a caller that asks for them ([`DecidedSolutions::Keep`]) reads an incomplete set's
+/// solutions; for every other caller the solver stops at the first undecided alternative.
 struct Solved {
     found: Vec<CollectionSolution>,
     complete: bool,
@@ -142,6 +140,18 @@ impl Solved {
     }
 }
 
+/// What the caller does with the decided solutions of a problem the solver cannot decide whole.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DecidedSolutions {
+    /// The caller needs every solution or none: rewriting, narrowing and implication read a
+    /// solution set as all the ways the pattern holds, so the solver stops at the first
+    /// undecided alternative, where the result is known to be discarded.
+    Discard,
+    /// The caller may use one solution by itself, as an equation's instances are: the solver
+    /// keeps exploring past an undecided alternative and returns the solutions it decides.
+    Keep,
+}
+
 const MAX_NESTED_COLLECTION_DEPTH: usize = 64;
 
 /// Solve deferred collection pairs in their original, pattern-oriented order.
@@ -157,7 +167,15 @@ pub(crate) fn solve_collection_pairs_in_definition(
     pairs: &[(Term, Term)],
     narrowing: Option<&mut Narrowing<'_>>,
 ) -> Option<Vec<CollectionSolution>> {
-    solve_collection_pairs(mode, definition, initial, pairs, narrowing).into_complete()
+    solve_collection_pairs(
+        mode,
+        definition,
+        initial,
+        pairs,
+        narrowing,
+        DecidedSolutions::Discard,
+    )
+    .into_complete()
 }
 
 /// Solve deferred collection pairs as [`solve_collection_pairs_in_definition`] does, keeping the
@@ -168,6 +186,7 @@ fn solve_collection_pairs(
     initial: Substitution,
     pairs: &[(Term, Term)],
     mut narrowing: Option<&mut Narrowing<'_>>,
+    decided: DecidedSolutions,
 ) -> Solved {
     let _span = measure::algorithm_span(Algorithm::BackendMatchingCollections);
     let initial = CollectionSolution {
@@ -175,8 +194,15 @@ fn solve_collection_pairs(
         fresh: BTreeSet::new(),
         bindings: Bindings::Forced,
     };
-    let mut solved =
-        solve_collection_pairs_from_solution(mode, definition, initial, pairs, &mut narrowing, 0);
+    let mut solved = solve_collection_pairs_from_solution(
+        mode,
+        definition,
+        initial,
+        pairs,
+        &mut narrowing,
+        decided,
+        0,
+    );
     let solutions = &mut solved.found;
     for solution in solutions.iter_mut() {
         solution.matched.sort_conditions();
@@ -204,6 +230,7 @@ fn solve_collection_pairs_from_solution(
     solution: CollectionSolution,
     pairs: &[(Term, Term)],
     narrowing: &mut Option<&mut Narrowing<'_>>,
+    decided: DecidedSolutions,
     depth: usize,
 ) -> Solved {
     if depth > MAX_NESTED_COLLECTION_DEPTH {
@@ -225,6 +252,7 @@ fn solve_collection_pairs_from_solution(
             subject,
             solution.clone(),
             narrowing,
+            decided,
             depth,
         );
         if !found.complete {
@@ -239,13 +267,23 @@ fn solve_collection_pairs_from_solution(
         }
 
         deferred.extend(pairs[index + 1..].iter().cloned());
-        return continue_solutions(mode, definition, found.found, &deferred, narrowing, depth);
+        return continue_solutions(
+            mode,
+            definition,
+            found.found,
+            &deferred,
+            narrowing,
+            decided,
+            depth,
+        );
     }
-    let Some((position, found)) = partial.filter(|_| narrowing.is_none()) else {
+    let Some((position, found)) = partial.filter(|_| decided == DecidedSolutions::Keep) else {
         return Solved::undecided();
     };
     deferred.remove(position);
-    let mut solved = continue_solutions(mode, definition, found, &deferred, narrowing, depth);
+    let mut solved = continue_solutions(
+        mode, definition, found, &deferred, narrowing, decided, depth,
+    );
     solved.complete = false;
     solved
 }
@@ -257,20 +295,22 @@ fn continue_solutions(
     found: Vec<CollectionSolution>,
     pairs: &[(Term, Term)],
     narrowing: &mut Option<&mut Narrowing<'_>>,
+    decided: DecidedSolutions,
     depth: usize,
 ) -> Solved {
     let mut solved = Solved::complete(Vec::new());
     for found in found {
         solved.extend(solve_collection_pairs_from_solution(
-            mode, definition, found, pairs, narrowing, depth,
+            mode, definition, found, pairs, narrowing, decided, depth,
         ));
-        if !solved.complete && narrowing.is_some() {
+        if !solved.complete && decided == DecidedSolutions::Discard {
             break;
         }
     }
     solved
 }
 
+#[allow(clippy::too_many_arguments)]
 fn solve_collection_pair(
     mode: MatchMode,
     definition: &BackendDefinition,
@@ -278,13 +318,14 @@ fn solve_collection_pair(
     subject: &Term,
     solution: CollectionSolution,
     narrowing: &mut Option<&mut Narrowing<'_>>,
+    decided: DecidedSolutions,
     depth: usize,
 ) -> Solved {
     let pattern = substitute(pattern, solution.matched.substitution());
     let subject = substitute(subject, solution.matched.substitution());
     match (pattern.kind(), subject.kind()) {
         (TermKind::Map { .. }, TermKind::Map { .. }) => solve_map_pair(
-            mode, definition, &pattern, &subject, solution, narrowing, depth,
+            mode, definition, &pattern, &subject, solution, narrowing, decided, depth,
         ),
         (TermKind::Set { .. }, TermKind::Set { .. }) => solve_set_pair(
             mode, definition, &pattern, &subject, solution, narrowing, depth,
@@ -381,6 +422,7 @@ fn solve_term_pair(
                     solution,
                     &collection_pairs,
                     narrowing,
+                    DecidedSolutions::Discard,
                     depth + 1,
                 )
                 .into_complete() else {
@@ -781,6 +823,7 @@ fn solve_ordered_term_pairs(
     Some(solutions)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn solve_map_pair(
     mode: MatchMode,
     definition: &BackendDefinition,
@@ -788,6 +831,7 @@ fn solve_map_pair(
     subject: &Term,
     solution: CollectionSolution,
     narrowing: &mut Option<&mut Narrowing<'_>>,
+    decided: DecidedSolutions,
     depth: usize,
 ) -> Solved {
     let (
@@ -842,7 +886,9 @@ fn solve_map_pair(
             ) {
                 PairSolution::Solved(found) => next.extend(found),
                 PairSolution::NoSolution => {}
-                PairSolution::Indeterminate if narrowing.is_some() => return Solved::undecided(),
+                PairSolution::Indeterminate if decided == DecidedSolutions::Discard => {
+                    return Solved::undecided();
+                }
                 PairSolution::Indeterminate => indeterminate = true,
             }
         }
@@ -1506,9 +1552,11 @@ pub(crate) enum CollectionMatches {
     Solutions(Vec<(Substitution, Bindings)>),
     /// The pairs have no solution: the match failed.
     NoSolution(MatchFailed),
-    /// The solver could not decide every solution of the pairs. It holds the solutions the
-    /// solver did decide, in its stable sorted order, possibly none: each is a solution whatever
-    /// the undecided alternatives turn out to be, but they need not be all.
+    /// The solver could not decide every solution of the pairs. Under [`DecidedSolutions::Keep`]
+    /// it holds the solutions the solver did decide, in its stable sorted order, possibly none:
+    /// each is a solution whatever the undecided alternatives turn out to be, but they need not
+    /// be all. Under [`DecidedSolutions::Discard`] it holds those found before the solver
+    /// stopped, which the caller does not read.
     Undecided(Vec<(Substitution, Bindings)>),
 }
 
@@ -1519,15 +1567,16 @@ pub(crate) enum CollectionMatches {
 /// whether the solutions are execution branches or instances of one equation.
 /// An empty solution set is a failed match of the pattern, so it carries the [`MatchFailed`]
 /// token instead of an empty list. Where the solver cannot decide every solution, the ones it
-/// decided are kept ([`CollectionMatches::Undecided`]), for a consumer that may use one solution
-/// by itself.
+/// decided are kept ([`CollectionMatches::Undecided`]) when the consumer asks for them
+/// ([`DecidedSolutions::Keep`]), for a consumer that may use one solution by itself.
 pub(crate) fn match_collection_remainders_all_in_definition(
     mode: MatchMode,
     definition: &BackendDefinition,
     initial: Substitution,
     remainder: &[(Term, Term)],
+    decided: DecidedSolutions,
 ) -> CollectionMatches {
-    let solved = solve_collection_pairs(mode, definition, initial, remainder, None);
+    let solved = solve_collection_pairs(mode, definition, initial, remainder, None, decided);
     let solutions = solved
         .found
         .into_iter()

@@ -102,8 +102,8 @@ use crate::{
     evaluation::{EvaluationMode, EvaluationScope, with_evaluation},
     fresh::{FreshCounter, RequestNames},
     matching::{
-        CollectionMatches, MatchMode, MatchResult, match_collection_remainders_all_in_definition,
-        match_terms_in_definition,
+        CollectionMatches, DecidedSolutions, MatchMode, MatchResult,
+        match_collection_remainders_all_in_definition, match_terms_in_definition,
     },
     rewrite::{
         AppliedRule, IndeterminateReason, InitialDefinedness, Pattern, RemainderBranch,
@@ -2538,6 +2538,7 @@ fn match_pattern_with_variables(
             definition,
             substitution.clone(),
             &remainder,
+            DecidedSolutions::Discard,
         ) {
             // Implication reads every solution as a witness, which a sufficient one is.
             CollectionMatches::Solutions(solutions) => solutions

@@ -56,8 +56,9 @@
 mod collections;
 
 pub(crate) use collections::{
-    CollectionMatches, CollectionSolution, Narrowing, expand_implication_remainders,
-    is_collection_term, match_collection_remainders_all_in_definition, merge_free_parts,
+    CollectionMatches, CollectionSolution, DecidedSolutions, Narrowing,
+    expand_implication_remainders, is_collection_term,
+    match_collection_remainders_all_in_definition, merge_free_parts,
     solve_collection_pairs_in_definition,
 };
 // Named only by `src/tests/matching_oracle.rs`.

@@ -757,6 +757,7 @@ fn keeps_evaluate_mode_one_directional() {
         &definition,
         Substitution::new(),
         &[(pattern, subject)],
+        DecidedSolutions::Keep,
     ) else {
         panic!("a pattern entry may lie in the subject frame");
     };
