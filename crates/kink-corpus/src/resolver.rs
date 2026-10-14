@@ -58,6 +58,20 @@ impl std::error::Error for LoadError {}
 
 /// Load every source under `root`, recording exactly the non-builtin bytes read.
 pub fn load_source(source: &CorpusSource) -> Result<LoadedSource, LoadError> {
+    load_source_with_overlay(source, &BTreeMap::new())
+}
+
+/// [`load_source`] with in-memory replacements of some source files' text.
+///
+/// `overlay` maps a source's logical name (as [`SourceFile::name`] records it) to the text
+/// the load reads instead of that file's bytes; lookup, containment checks and logical
+/// names are those of [`load_source`], and the recorded digest is the digest of the text
+/// actually loaded. An empty overlay is [`load_source`]. Every overlay entry must be a file
+/// the load reads: an entry the load never reaches is an `Io` error naming it.
+pub fn load_source_with_overlay(
+    source: &CorpusSource,
+    overlay: &BTreeMap<String, String>,
+) -> Result<LoadedSource, LoadError> {
     let root = fs::canonicalize(&source.root).map_err(|e| io_error("root", e))?;
     let include_dirs = source
         .include_dirs
@@ -74,6 +88,7 @@ pub fn load_source(source: &CorpusSource) -> Result<LoadedSource, LoadError> {
     let mut resolver = Resolver {
         root,
         include_dirs,
+        overlay,
         files: BTreeMap::new(),
         failure: None,
     };
@@ -104,6 +119,15 @@ pub fn load_source(source: &CorpusSource) -> Result<LoadedSource, LoadError> {
         return Err(error);
     }
     let (definition, syntax_module) = result.map_err(|e| LoadError::Definition(Box::new(e)))?;
+    if let Some(name) = overlay
+        .keys()
+        .find(|name| !resolver.files.contains_key(*name))
+    {
+        return Err(LoadError::Io {
+            name: name.clone(),
+            detail: "the overlay replaces a file the load does not read".to_owned(),
+        });
+    }
     Ok(LoadedSource {
         baseline: Baseline::new(definition),
         files: resolver
@@ -154,20 +178,24 @@ pub(crate) fn read_under_root(root: &Path, name: &str) -> Result<(String, Vec<u8
     Ok((logical, bytes))
 }
 
-struct Resolver {
+struct Resolver<'o> {
     root: PathBuf,
     include_dirs: Vec<PathBuf>,
+    overlay: &'o BTreeMap<String, String>,
     files: BTreeMap<String, Sha256Digest>,
     failure: Option<LoadError>,
 }
 
-impl Resolver {
+impl Resolver<'_> {
     fn read(&mut self, relative: &Path) -> Result<ResolvedSource, LoadError> {
         let name = relative.to_str().ok_or_else(|| LoadError::Io {
             name: "source".to_owned(),
             detail: "non-UTF-8 source name".to_owned(),
         })?;
-        let (name, bytes) = read_under_root(&self.root, name)?;
+        let (name, mut bytes) = read_under_root(&self.root, name)?;
+        if let Some(text) = self.overlay.get(&name) {
+            bytes = text.clone().into_bytes();
+        }
         let digest = sha256(&bytes);
         let text = String::from_utf8(bytes).map_err(|e| LoadError::Io {
             name: name.clone(),
@@ -232,7 +260,7 @@ impl Resolver {
     }
 }
 
-impl SourceResolver for Resolver {
+impl SourceResolver for Resolver<'_> {
     fn resolve(&mut self, requiring: &str, required: &str) -> Result<ResolvedSource, String> {
         self.lookup(requiring, required).map_err(|error| {
             let text = error.to_string();

@@ -79,7 +79,7 @@ pub struct ManifestError {
 }
 
 impl ManifestError {
-    fn new(key: impl Into<String>, message: impl Into<String>) -> Self {
+    pub(crate) fn new(key: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             key: key.into(),
             message: message.into(),

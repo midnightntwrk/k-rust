@@ -1,0 +1,41 @@
+# kink-flow mutation list for the register fixture (flow F-04). Every mutation here is valid.
+
+[[mutation]]
+id = "put-and-get-offset"
+note = "correlated: put stores the value plus one and get returns the register minus one"
+
+  [[mutation.edit]]
+  rule = "put"
+  find = "_ => I </reg>"
+  replace = "_ => I +Int 1 </reg>"
+
+  [[mutation.edit]]
+  rule = "get"
+  find = "get => I ..."
+  replace = "get => I -Int 1 ..."
+
+[[mutation]]
+id = "put-offset"
+note = "put alone stores the value plus one"
+
+  [[mutation.edit]]
+  rule = "put"
+  find = "_ => I </reg>"
+  replace = "_ => I +Int 1 </reg>"
+
+[[mutation]]
+id = "get-offset"
+note = "get alone returns the register minus one"
+
+  [[mutation.edit]]
+  rule = "REGISTER.get"
+  find = "get => I ..."
+  replace = "get => I -Int 1 ..."
+
+[[mutation]]
+id = "no-seq"
+note = "sequencing is deleted (by line)"
+
+  [[mutation.edit]]
+  line = 19
+  delete = true

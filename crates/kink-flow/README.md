@@ -5,7 +5,8 @@ a K specification, a concrete corpus of programs an LLM writes for it,
 and, in later packets, cached results, a mutation list, a kill search and a survivor report.
 
 This crate currently provides the corpus manifest and the `check` command (flow F-02),
-and the result cache with the `results` command (flow F-03).
+the result cache with the `results` command (flow F-03),
+and the mutation list with its resolution into patches (flow F-04; the `run` command that uses it is F-05).
 
 ## `FLOW.toml`
 
@@ -112,3 +113,62 @@ mismatches and a summary.
 Exit status: 0 when the command did its job (timeouts and unknown programs included);
 1 when the manifest, the specification or a program is refused, a run failed, a record could
 not be written or `--verify` found a mismatch; 2 on a usage error.
+
+## `MUTATIONS.toml`
+
+A mutation is one or more text edits of the specification's rules, applied together or not at all
+(several edits make a correlated mutation):
+
+```toml
+[[mutation]]
+id = "add-becomes-sub"
+note = "addition evaluates as subtraction"   # optional, free text
+
+  [[mutation.edit]]
+  file = "calc.k"            # optional when the spec reads one file, or when rule is given
+  rule = "add"               # optional: a rule label, bare ("add") or module-qualified ("CALC.add")
+  line = 21                  # optional: any line inside the rule
+  find = "I1 +Int I2"        # exact text, exactly once in the addressed rule
+  replace = "I1 -Int I2"
+
+  [[mutation.edit]]          # a second edit of the same mutation
+  rule = "CALC.mul"
+  delete = true              # removes the addressed rule
+```
+
+An edit has `find` and `replace` (`find` non-empty, `replace` may be empty), or `delete = true` (which needs `rule` or `line`).
+With neither `rule` nor `line`, `find` must occur exactly once in the file, inside one rule.
+Unknown keys, values of the wrong type, duplicate or empty ids and a mutation without edits are errors naming the key.
+`testdata/flow/calc/MUTATIONS.toml` and `testdata/flow/register/MUTATIONS.toml` are complete examples.
+
+Resolution (`kink_flow::mutation::resolve`) addresses every edit to one authored rule, applies the edits
+to in-memory copies of the source files (a delete removes the rule's text and keeps its line), loads the
+edited sources with the specification's load options, and checks that the edited load has the baseline's
+modules and sentences, in order and with equal fingerprints, except at the addressed rules: a replaced rule
+is still exactly one rule sentence with the same label, a deleted rule is gone. The edited rules then become
+one pinned kink-patch `Patch` (`ReplaceSentence`, `DeleteSentence`) whose digest is the mutation's identity;
+the mutant is always the patched baseline, never the edited load. Only rules are editable.
+
+A mutation that fails any check is `invalid-mutation`, with the offending edit (`edit[i]`) when one is at fault,
+a reason and a detail; it is never compiled. Reasons:
+
+| Reason | Meaning |
+| --- | --- |
+| `unknown-file` | `file` is not a source file of the specification. |
+| `file-required` | The specification reads several files and the edit names neither `file` nor `rule`. |
+| `unknown-label` | No rule has the label. |
+| `ambiguous-label` | The bare label names rules of several modules; write `MODULE.label`. |
+| `line-outside-rules` | No sentence covers the line. |
+| `line-ambiguous` | Several rules share the line; address one by `rule`. |
+| `address-mismatch` | `rule`, `line` and `file` name different rules. |
+| `non-rule-sentence` | The edit addresses a syntax declaration, configuration or other non-rule sentence. |
+| `find-not-found` | `find` does not occur where the edit looks. |
+| `find-ambiguous` | `find` occurs more than once there; make it longer. |
+| `edit-outside-rule` | `find` occurs in the file but not inside the addressed rule (or inside no rule). |
+| `overlapping-edits` | Two edits of one rule overlap, or a deleted rule is also edited. |
+| `source-changed` | A source file changed since the specification was loaded. |
+| `edited-load-failed` | The edited sources do not load (parse or sort error); the detail is k-rust's message. |
+| `structure-changed` | The edit changed something besides its rule: a sentence split, merged, added, removed, changed kind or changed elsewhere. |
+| `label-changed` | The edit changes the rule's label. |
+| `no-change` | The edited rule equals the original up to formatting. |
+| `no-usable-span`, `patch-rejected` | Defensive; not expected on rules written in `.k` sources. |
