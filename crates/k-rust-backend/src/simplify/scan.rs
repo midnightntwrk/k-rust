@@ -26,10 +26,13 @@ pub(super) enum IndeterminateEquation {
     Continue,
 }
 
-/// Whether an equation attempt decides the `requires` of an instance a `concrete` or `symbolic`
-/// attribute set aside, or reads the instance as [`EquationAttempt::Unused`] without deciding it.
+/// Whether an equation attempt decides the condition of an instance the evaluator does not use,
+/// or reads the instance as [`EquationAttempt::Unused`] without deciding it: the `requires` of an
+/// instance a `concrete` or `symbolic` attribute set aside, and the subject equalities, with the
+/// `requires`, of an instance that matches only where variables of the subject equal the terms
+/// the match bound them to (`simplify::Instance::Conditional`).
 ///
-/// Decided, such a `requires` gives `ContextDependent` when refuted and `Unused` otherwise, and
+/// Decided, such a condition gives `ContextDependent` when refuted and `Unused` otherwise, and
 /// the two differ in one place only: in the function theory, whether the groups after the
 /// equation's group are tried ([`scan_term_theory`]). Everywhere else they lead to the same
 /// outcome, so [`scan_term_theory`] asks for the decision only there:
@@ -45,10 +48,10 @@ pub(super) enum IndeterminateEquation {
 ///   points above make equivalent to what the decision would give.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SetAsideRequires {
-    /// Decide the `requires`: a lower function group follows, which applies only if every
+    /// Decide the condition: a lower function group follows, which applies only if every
     /// equation of this group is refuted.
     Decide,
-    /// Read the instance as `Unused` without deciding the `requires`.
+    /// Read the instance as `Unused` without deciding the condition.
     Unused,
 }
 
@@ -196,8 +199,9 @@ pub(super) enum EquationAttempt<T, N> {
     /// The equation's left-hand side matched, or its shape keeps the evaluator from using it as
     /// a term rewrite, and the evaluator does not use it on this term: a `concrete` or
     /// `symbolic` attribute rejected the binding and its `requires` is not refuted, the match
-    /// bound a variable outside the left-hand side, or the right-hand side is a predicate or
-    /// `\top` (a `\top` lemma is used only on an operand of a term-level conjunction). These
+    /// bound a variable of the subject and the equality that binding states (or the
+    /// `requires`) is not refuted, or the right-hand side is a predicate or `\top` (a `\top`
+    /// lemma is used only on an operand of a term-level conjunction). These
     /// are choices of when the evaluator uses an equation, not of what the definition means:
     /// the equation still holds, or may hold, so the term may equal its right-hand side. This
     /// keeps the term out of the evaluated cache and lets lower-priority simplification lemmas

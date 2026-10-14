@@ -40,7 +40,7 @@ use crate::{
     fresh::{FreshCounter, fresh_variable},
     ite::{IteSplit, SplitSide, split_ite_pair},
     matching::{
-        CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing,
+        Bindings, CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing,
         match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rule::{Predicate, RewriteRule},
@@ -337,6 +337,7 @@ pub(super) fn recover_general_unification(
                 vec![CollectionSolution {
                     matched: MatchSolution::new(unified.substitution),
                     fresh: BTreeSet::new(),
+                    bindings: Bindings::Forced,
                 }],
                 &unified.constraints,
                 &[],

@@ -2289,7 +2289,7 @@ symbol = "initial_match"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/matching/mod.rs"
-symbol = "match_terms_with_context_and_frames"
+symbol = "match_terms_reporting_bindings"
 
 [[node.sites]]
 crate = "k-rust-backend"

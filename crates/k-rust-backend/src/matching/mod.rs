@@ -546,13 +546,15 @@ pub fn match_terms_in_definition(
 /// (`rule::unread_map_frames`). Such a frame is left unbound where the subject map is
 /// `ceil_free` and the pattern's keys are all found in it, instead of being bound to a copy of
 /// the subject's other entries ([`Matcher::match_maps`]).
+///
+/// Also returns the [`Bindings`] of a successful match.
 pub(crate) fn match_equation_in_definition(
     definition: &BackendDefinition,
     pattern: &Term,
     subject: &Term,
     unread_frames: &BTreeSet<Variable>,
-) -> MatchResult {
-    match_terms_with_context_and_frames(
+) -> (MatchResult, Bindings) {
+    match_terms_reporting_bindings(
         MatchMode::Evaluate,
         definition.sort_graph(),
         Some(definition),
@@ -697,7 +699,27 @@ fn match_terms_with_context(
     subject: &Term,
     equation_root: bool,
 ) -> MatchResult {
-    match_terms_with_context_and_frames(
+    match_terms_with_context_reporting_bindings(
+        mode,
+        sorts,
+        definition,
+        pattern,
+        subject,
+        equation_root,
+    )
+    .0
+}
+
+/// [`match_terms_with_context`], with the [`Bindings`] of a successful match.
+fn match_terms_with_context_reporting_bindings(
+    mode: MatchMode,
+    sorts: &SortGraph,
+    definition: Option<&BackendDefinition>,
+    pattern: &Term,
+    subject: &Term,
+    equation_root: bool,
+) -> (MatchResult, Bindings) {
+    match_terms_reporting_bindings(
         mode,
         sorts,
         definition,
@@ -707,6 +729,19 @@ fn match_terms_with_context(
         &NO_FRAMES,
         Scopes::Unknown,
     )
+}
+
+/// How the bindings of a successful match relate to its subject.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum Bindings {
+    /// Each binding is forced: the pattern is an instance of the subject only under these
+    /// bindings, as the matcher reads both sides (a failed match refutes the pattern under the
+    /// same reading).
+    Forced,
+    /// Some binding comes from decomposing an application of a function that an algebraic axiom
+    /// lets equal an application with other arguments: the bindings make the pattern equal the
+    /// subject, but another assignment may as well ([`Matcher::tentative_arguments`]).
+    Sufficient,
 }
 
 /// What the caller knows of the variables of a pattern and its subject.
@@ -731,10 +766,35 @@ fn match_terms_with_context_and_frames(
     unread_frames: &BTreeSet<Variable>,
     scopes: Scopes,
 ) -> MatchResult {
+    match_terms_reporting_bindings(
+        mode,
+        sorts,
+        definition,
+        pattern,
+        subject,
+        equation_root,
+        unread_frames,
+        scopes,
+    )
+    .0
+}
+
+/// [`match_terms_with_context_and_frames`], with the [`Bindings`] of a successful match.
+#[allow(clippy::too_many_arguments)]
+fn match_terms_reporting_bindings(
+    mode: MatchMode,
+    sorts: &SortGraph,
+    definition: Option<&BackendDefinition>,
+    pattern: &Term,
+    subject: &Term,
+    equation_root: bool,
+    unread_frames: &BTreeSet<Variable>,
+    scopes: Scopes,
+) -> (MatchResult, Bindings) {
     let _span = measure::algorithm_span(Algorithm::BackendMatchingSyntactic);
     measure::bump(Counter::MatchingProblems);
     if pattern == subject {
-        return MatchResult::Success(Substitution::new());
+        return (MatchResult::Success(Substitution::new()), Bindings::Forced);
     }
     debug_assert!(
         scopes == Scopes::Unknown
@@ -756,7 +816,7 @@ fn match_terms_with_context_and_frames(
             .variables
             .is_disjoint(&subject.attributes().variables)
     {
-        return match mode {
+        let result = match mode {
             // As in `match_term_pairs_in_definition`: the pair is the remainder, not a
             // placeholder over the shared variables, which would drop the pair.
             MatchMode::Rewrite => MatchResult::Indeterminate {
@@ -771,6 +831,7 @@ fn match_terms_with_context_and_frames(
             )),
             MatchMode::Implies => unreachable!(),
         };
+        return (result, Bindings::Forced);
     }
 
     let mut matcher = Matcher::new(
@@ -783,7 +844,7 @@ fn match_terms_with_context_and_frames(
     if equation_root {
         matcher.normal_forms.given.equation_root(subject.clone());
     }
-    matcher.finish(|| vec![(pattern.clone(), subject.clone())])
+    matcher.finish_reporting_bindings(|| vec![(pattern.clone(), subject.clone())])
 }
 
 static NO_FRAMES: BTreeSet<Variable> = BTreeSet::new();
@@ -940,25 +1001,47 @@ impl<'a> Matcher<'a> {
         }
     }
 
-    fn finish(mut self, original: impl FnOnce() -> Vec<(Term, Term)>) -> MatchResult {
+    fn finish(self, original: impl FnOnce() -> Vec<(Term, Term)>) -> MatchResult {
+        self.finish_reporting_bindings(original).0
+    }
+
+    /// The match, and the [`Bindings`] of a successful one: [`Bindings::Sufficient`] exactly
+    /// when it rests on a tentative decomposition. Every other outcome is reported
+    /// [`Bindings::Forced`]: a tentative decomposition never leaves a failure or a partial
+    /// substitution.
+    fn finish_reporting_bindings(
+        mut self,
+        original: impl FnOnce() -> Vec<(Term, Term)>,
+    ) -> (MatchResult, Bindings) {
         let result = self.run();
         if self.tentative_arguments && (result.is_err() || !self.indeterminate.is_empty()) {
-            return MatchResult::Indeterminate {
-                substitution: Substitution::new(),
-                remainder: original(),
-            };
+            return (
+                MatchResult::Indeterminate {
+                    substitution: Substitution::new(),
+                    remainder: original(),
+                },
+                Bindings::Forced,
+            );
         }
         if let Err(reason) = result {
-            return MatchResult::Failed(reason);
+            return (MatchResult::Failed(reason), Bindings::Forced);
         }
         if self.indeterminate.is_empty() {
-            MatchResult::Success(self.substitution)
+            let bindings = if self.tentative_arguments {
+                Bindings::Sufficient
+            } else {
+                Bindings::Forced
+            };
+            (MatchResult::Success(self.substitution), bindings)
         } else {
             self.indeterminate.reverse();
-            MatchResult::Indeterminate {
-                substitution: self.substitution,
-                remainder: self.indeterminate,
-            }
+            (
+                MatchResult::Indeterminate {
+                    substitution: self.substitution,
+                    remainder: self.indeterminate,
+                },
+                Bindings::Forced,
+            )
         }
     }
 

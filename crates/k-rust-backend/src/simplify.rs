@@ -94,8 +94,8 @@ use crate::{
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
     condition::{
-        Conjunct, ConsumedDefinedness, DecidedEquation, DeferredVariables, EquationInstance,
-        InstantiatedCondition, MatchedEquation,
+        Condition, Conjunct, ConsumedDefinedness, DecidedEquation, DeferredVariables,
+        EquationInstance, InstantiatedCondition, MatchedEquation,
     },
     deferred::{
         DeferredDecision, DeferredOutcome, Folded, ShortCircuit, bool_literal,
@@ -106,8 +106,8 @@ use crate::{
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     evaluation::EvaluationMode,
     matching::{
-        CollectionMatches, FailReason, InjectionEquality, MatchFailed, MatchMode, MatchResult,
-        match_collection_remainders_all_in_definition, match_equation_in_definition,
+        Bindings, CollectionMatches, FailReason, InjectionEquality, MatchFailed, MatchMode,
+        MatchResult, match_collection_remainders_all_in_definition, match_equation_in_definition,
         match_injection_equality, match_term_pairs_in_definition,
     },
     rewrite::{
@@ -6860,68 +6860,106 @@ fn apply_equation(
         EquationInstances::Matched(instances) => instances,
     };
     scan_instances(instances, |instance| {
-        if let Instance::SetAside(substitution) = instance {
-            // Only where a lower function group follows can the decision change the outcome
-            // (`SetAsideRequires`); elsewhere the instance is read as `Unused` undecided.
-            if set_aside == SetAsideRequires::Unused {
-                return Ok(EquationAttempt::Unused);
+        let (substitution, equalities) = match instance {
+            Instance::SetAside(substitution) => (substitution, Vec::new()),
+            Instance::Conditional(substitution) => subject_equalities(&rule, substitution),
+            instance => {
+                return instance.attempt(|substitution| {
+                    apply_equation_instance(
+                        definition,
+                        &rule,
+                        term,
+                        substitution,
+                        known_predicates,
+                        options,
+                        active_conditions,
+                        solver,
+                    )
+                });
             }
-            return decide_set_aside_instance(
-                definition,
-                &rule,
-                term,
-                substitution,
-                known_predicates,
-                options,
-                active_conditions,
-                solver,
-            );
+        };
+        // Only where a lower function group follows can the decision change the outcome
+        // (`SetAsideRequires`); elsewhere the instance is read as `Unused` undecided.
+        if set_aside == SetAsideRequires::Unused {
+            return Ok(EquationAttempt::Unused);
         }
-        instance.attempt(|substitution| {
-            apply_equation_instance(
-                definition,
-                &rule,
-                term,
-                substitution,
-                known_predicates,
-                options,
-                active_conditions,
-                solver,
-            )
-        })
+        decide_unused_instance(
+            definition,
+            &rule,
+            term,
+            substitution,
+            equalities,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )
     })
 }
 
-/// The outcome of an instance of `rule` at `term` that a `concrete` or `symbolic` attribute set
-/// aside ([`Instance::SetAside`]). The attribute chooses when the evaluator uses the equation,
-/// not what it means: the equation still holds of the instance, so `term` equals its right-hand
-/// side wherever its `requires` holds. The `requires` therefore decides what the instance says
-/// about the equations below it. A lower-priority function equation (an `owise` one, or one of a
-/// lower priority group) states its value only where no higher equation applies, which negates
-/// this equation's left-hand side together with its `requires`. Refuted under the path
-/// condition, the instance says nothing about `term`, and it is `ContextDependent`, as a usable
-/// instance whose `requires` is refuted. Held or undecided, the equation holds or may hold of
-/// `term`, which the lower equations' premises then exclude, and it is `Unused`, which keeps the
-/// lower function groups from applying (`scan::scan_term_theory`). An empty `requires` holds.
-/// Called only where a lower function group follows (`scan::SetAsideRequires`), the one place
-/// where the two outcomes differ.
+/// The instance of `rule` under the bindings of `substitution` to its left-hand side's
+/// variables, and the equalities between subject terms, one per binding of a subject variable,
+/// under which that instance is a matching of the equation ([`Instance::Conditional`]).
+fn subject_equalities(
+    rule: &RewriteRule,
+    substitution: Substitution,
+) -> (Substitution, Vec<Predicate>) {
+    let lhs_variables = &rule.lhs.attributes().variables;
+    let (instance, subject): (Substitution, Substitution) = substitution
+        .into_iter()
+        .partition(|(variable, _)| lhs_variables.contains(variable));
+    let equalities = subject
+        .into_iter()
+        .map(|(variable, value)| Predicate::Equals(Term::variable(variable), value))
+        .collect();
+    (instance, equalities)
+}
+
+/// The outcome of an instance of `rule` at `term` that the evaluator does not use: one a
+/// `concrete` or `symbolic` attribute set aside ([`Instance::SetAside`], no `equalities`), or
+/// one that matches only where the subject `equalities` hold ([`Instance::Conditional`]).
+///
+/// Neither choice changes what the equation means: `term` equals the instance's right-hand side
+/// wherever the equalities and the instance's `requires` hold. Their conjunction therefore
+/// decides what the instance says about the equations below it. A lower-priority function
+/// equation (an `owise` one, or one of a lower priority group) states its value only where no
+/// higher equation applies, which negates this equation's left-hand side together with its
+/// `requires`. Refuted under the path condition, the instance says nothing about `term`, and it
+/// is `ContextDependent`, as a usable instance whose `requires` is refuted. Held or undecided,
+/// the equation holds or may hold of `term`, which the lower equations' premises then exclude,
+/// and it is `Unused`, which keeps the lower function groups from applying
+/// (`scan::scan_term_theory`). An empty conjunction holds. Called only where a lower function
+/// group follows (`scan::SetAsideRequires`), the one place where the two outcomes differ.
 #[allow(clippy::too_many_arguments)]
-fn decide_set_aside_instance<T, N>(
+fn decide_unused_instance<T, N>(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     term: &Term,
     substitution: Substitution,
+    equalities: Vec<Predicate>,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<T, N>> {
-    if rule.requires.is_empty() {
+    if rule.requires.is_empty() && equalities.is_empty() {
         return Ok(EquationAttempt::Unused);
     }
+    let condition = if equalities.is_empty() {
+        Cow::Borrowed(&rule.requires)
+    } else {
+        // The equalities mention only subject variables, which `substitution` does not bind,
+        // so instantiating them changes nothing.
+        Cow::Owned(Condition::new(
+            equalities
+                .into_iter()
+                .chain(rule.requires.iter().cloned())
+                .collect(),
+        ))
+    };
     let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
         .map_err(SimplificationError::from)?;
-    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed)
+    let instance = EquationInstance::new(definition, &condition, substitution, consumed)
         .map_err(SimplificationError::from)?;
     Ok(
         match evaluate_equation_condition(
@@ -6962,15 +7000,26 @@ pub(crate) enum EquationInstances {
 pub(crate) enum Instance {
     /// The evaluator may use the instance under this substitution.
     Usable(Substitution),
-    /// The matching binds a variable outside the left-hand side, so it is not a matching of the
-    /// equation, or the instance of a ceil equation binds an element variable to a pattern
+    /// The matching binds a variable outside the left-hand side by an assignment that only
+    /// suffices ([`Bindings::Sufficient`]) or beside a binding of an element variable to a set
+    /// pattern, so the bindings say nothing exact about the subject, or the instance of a ceil
+    /// equation binds an element variable to a pattern
     /// containing its subject ([`binds_element_variable_to_its_subject`]): the evaluator does
     /// not use the equation on this instance.
     Unused,
+    /// The matching binds variables of the subject, each binding forced
+    /// ([`Bindings::Forced`]): a left-hand side variable bound to a subject term reappears where
+    /// the subject holds another term, such as a map key the subject holds under another
+    /// symbolic key. The substitution is then a matching of the equation exactly where each
+    /// such subject variable equals the term bound to it, which the evaluator does not assume.
+    /// The function scan decides those equalities with the instance's `requires` where a lower
+    /// function group follows ([`decide_unused_instance`], `scan::SetAsideRequires`); every
+    /// other use of the equation reads the instance as `Unused`.
+    Conditional(Substitution),
     /// A `concrete` or `symbolic` attribute rejects the binding: the evaluator does not use the
     /// equation's result on this instance, but the equation holds of it. The function scan
     /// decides its `requires` under the substitution where a lower function group follows
-    /// ([`decide_set_aside_instance`], `scan::SetAsideRequires`); every other use of the
+    /// ([`decide_unused_instance`], `scan::SetAsideRequires`); every other use of the
     /// equation reads it as `Unused`.
     SetAside(Substitution),
     /// The matching binds an element variable to a pattern with a set variable
@@ -6987,7 +7036,9 @@ impl Instance {
     ) -> SimplifyResult<EquationAttempt<T, N>> {
         match self {
             Instance::Usable(substitution) => attempt(substitution),
-            Instance::Unused | Instance::SetAside(_) => Ok(EquationAttempt::Unused),
+            Instance::Unused | Instance::SetAside(_) | Instance::Conditional(_) => {
+                Ok(EquationAttempt::Unused)
+            }
             Instance::NonFunctionalBinding => Ok(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::NonFunctionalBinding,
             )),
@@ -7014,7 +7065,7 @@ pub(crate) fn equation_instances<'r>(
         Some((renamed, _)) => Cow::Owned(renamed),
         None => Cow::Borrowed(rule),
     };
-    let matched = match_equation_in_definition(
+    let (matched, bindings) = match_equation_in_definition(
         definition,
         &rule.lhs,
         term,
@@ -7042,16 +7093,28 @@ pub(crate) fn equation_instances<'r>(
             }
             CollectionMatches::Undecided => return (rule, EquationInstances::Undecided),
         },
-        MatchResult::Success(substitution) => vec![substitution],
+        MatchResult::Success(substitution) => vec![(substitution, bindings)],
     };
     let instances = substitutions
         .into_iter()
-        .map(|substitution| {
+        .map(|(substitution, collection_bindings)| {
             if substitution
                 .keys()
                 .any(|variable| !rule.lhs.attributes().variables.contains(variable))
-                || matches!(rule.rhs, RuleRhs::Predicates(_))
-                    && binds_element_variable_to_its_subject(&substitution, term)
+            {
+                // The equalities are exact only if every binding of the match is forced, the
+                // top-level match's as well as the collection solver's: a binding that only
+                // suffices may have fixed the term a later key was compared under. A binding of
+                // an element variable to a set pattern does not justify the instance either.
+                if bindings.max(collection_bindings) == Bindings::Forced
+                    && !binds_element_variable_to_set_pattern(&substitution)
+                {
+                    Instance::Conditional(substitution)
+                } else {
+                    Instance::Unused
+                }
+            } else if matches!(rule.rhs, RuleRhs::Predicates(_))
+                && binds_element_variable_to_its_subject(&substitution, term)
             {
                 Instance::Unused
             } else if binds_element_variable_to_set_pattern(&substitution) {
