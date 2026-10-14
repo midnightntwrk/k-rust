@@ -19,6 +19,332 @@ The work is intended to be merged into k-rust together with KRS.
 | [`kink-native`](crates/kink-native) | Mutant validation and execution adapters over the k-rust backend, and the bridge to kink-pattern paths. |
 | [`kink-campaign`](crates/kink-campaign) | Campaign runner, typed oracle comparison, mutant classification and scoring; campaign manifests, deterministic JSON campaign reports and replay. |
 
+## Using kink-flow
+
+`kink-flow` (crate [`kink-flow`](crates/kink-flow)) is the tool for the primary usage flow:
+an LLM writes a concrete test corpus for a K specification and mutations of its rules,
+and the tool reports which mutations no corpus program kills.
+This section is written for the LLM that drives the loop;
+[`crates/kink-flow/README.md`](crates/kink-flow/README.md) is the reference for every field and reason.
+
+### The loop
+
+1. **Specification.** Start from a K specification: an entry file, its main module and its syntax module.
+2. **Corpus with cached results.** Write concrete programs for it in `FLOW.toml`.
+   `kink-flow results` runs each new or changed program once on the specification,
+   caches its final configuration, and lists the rules no comparable program reaches (`uncovered`).
+   Write programs until no rule is uncovered.
+3. **Mutation list.** Write `MUTATIONS.toml`: edits of rules that are likely to expose bugs,
+   either single edits (one `+Int` becomes `-Int`) or correlated edits (several rules changed together as one mutation).
+4. **Kill search with a killer cache.** `kink-flow run` checks, for each mutation, whether some program's final configuration changes.
+   It reports the survivors: mutations no program kills.
+   For each survivor, write a program that kills it, or argue that the mutation is equivalent and drop it; then run again.
+   A killed mutation is cached with its killing program, so a later run runs that program first and usually only that one.
+
+Only a proved difference kills: kink-campaign's runner compares the exit stop and the whole final configuration of the baseline and the mutant on each program.
+A cached result or killer never decides a status; it only orders the work and detects a corpus that changed under the cache.
+
+### Commands
+
+Every command prints one JSON document on stdout.
+The exit status is 0 when the command did its job (survivors, timeouts and invalid mutations included),
+1 when the manifest, the mutation list, the specification or a program is refused, a cache file cannot be written, or a corpus error stops a run,
+and 2 on a usage error (message on stderr).
+
+| Command | Does |
+| --- | --- |
+| `kink-flow check FLOW.toml` | Loads and admits the specification and parses every program; reports each refusal with its stage and reason. |
+| `kink-flow results FLOW.toml [--verify]` | Fills the result cache for new or changed programs; lists every program's class and every rule's coverage; `--verify` reruns every program and compares it with its cached result. |
+| `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]...` | Updates the result cache, resolves each mutation, runs the kill search, updates the killer cache and writes the report. |
+| `kink-flow report FLOW.toml` | Prints the last run's report again, byte for byte. |
+
+`results`, `run` and `report` take `--cache DIR`; the default cache is `.kink-flow/` next to `FLOW.toml`.
+
+### Walkthrough
+
+The walkthrough below uses the calc specification of [`testdata/flow/calc`](testdata/flow/calc).
+`crates/kink-flow/tests/report.rs` follows it literally on a fresh copy of that directory:
+it reads the blocks of this section in order, writes the files, runs the commands and checks the outputs shown.
+
+The specification, `calc.k`:
+
+<!-- example: file calc.k -->
+```k
+// Flow fixture (F-02): a tiny expression language for kink-flow's tests.
+// `+` and `*` are labelled rules, `-` is an unlabelled rule; strictness heats
+// operands, and the result is the single Int left in the <k> cell.
+module CALC-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp ::= Int
+               | "(" Exp ")" [bracket]
+               > left:
+                 Exp "*" Exp [strict, symbol(mul)]
+               > left:
+                 Exp "+" Exp [strict, symbol(add)]
+               | Exp "-" Exp [strict, symbol(sub)]
+endmodule
+
+module CALC
+  imports CALC-SYNTAX
+  imports INT
+  configuration <k> $PGM:Exp </k>
+
+  syntax KResult ::= Int
+  rule [add]: I1:Int + I2:Int => I1 +Int I2
+  rule [mul]: I1:Int * I2:Int => I1 *Int I2
+  rule I1:Int - I2:Int => I1 -Int I2
+endmodule
+```
+
+A first corpus, `FLOW.toml`, with one program in a file and one written inline:
+
+<!-- example: write FLOW.toml -->
+```toml
+[spec]
+entry = "calc.k"              # relative to this file's directory
+main_module = "CALC"
+syntax_module = "CALC-SYNTAX"
+
+[budget]                      # optional; these are the defaults
+time_ms = 10000               # wall-clock bound of one program run
+max_depth = 100000            # rewrite-depth bound of one program run
+
+[[program]]
+id = "add"
+file = "programs/add.calc"
+
+[[program]]
+id = "square"
+text = "2 * 2"
+```
+
+where `programs/add.calc` holds
+
+<!-- example: file programs/add.calc -->
+```text
+1 + 2
+```
+
+Check the corpus and fill the result cache:
+
+<!-- example: run -->
+```sh
+kink-flow check FLOW.toml
+kink-flow results FLOW.toml
+```
+
+`results` lists the rules no comparable program reaches first.
+Here the unlabelled subtraction rule on line 23 is uncovered:
+
+<!-- example: output /rules/0 -->
+```json
+{"module": "CALC", "file": "calc.k", "label": null, "start_line": 23, "end_line": 23,
+ "status": "uncovered", "reached_by": []}
+```
+
+Cover it with a program, `programs/sub.calc`:
+
+<!-- example: file programs/sub.calc -->
+```text
+10 - 4 - 3
+```
+
+<!-- example: append FLOW.toml -->
+```toml
+
+[[program]]
+id = "sub"
+file = "programs/sub.calc"
+```
+
+<!-- example: run -->
+```sh
+kink-flow results FLOW.toml
+```
+
+Only the new program runs (`computed`); the others come from the cache, and no rule is uncovered:
+
+<!-- example: output /summary -->
+```json
+{"programs": 3, "comparable": 3, "computed": 1, "uncovered": 0, "covered": 3}
+```
+
+A rule that no run can observe (an equation, such as a `[function]` rule) is listed as `not-observable`, never as uncovered.
+A program whose class is not `comparable` cannot kill a mutant; `cause` says why:
+`timeout` (the program did not end within `time_ms`: make it end, or raise the budget),
+`unknown` (it ended without a value kink compares, for example a Map in the final configuration or `max_depth` reached),
+`refused` (it did not parse) or `error`.
+
+Now the mutations, `MUTATIONS.toml`.
+Each edit is addressed to one rule: by its label (`rule`, bare or `MODULE.label`), by any line inside it (`line`),
+or by text that occurs exactly once in the file (`find` alone).
+`find` must occur exactly once in the addressed rule and is replaced by `replace`; `delete = true` removes the rule.
+Several edits in one mutation are applied together or not at all:
+
+<!-- example: write MUTATIONS.toml -->
+```toml
+[[mutation]]
+id = "add-becomes-sub"
+note = "addition evaluates as subtraction"
+
+  [[mutation.edit]]
+  rule = "add"
+  find = "I1 +Int I2"
+  replace = "I1 -Int I2"
+
+[[mutation]]
+id = "mul-becomes-add"
+note = "multiplication evaluates as addition"
+
+  [[mutation.edit]]
+  find = "I1 *Int I2"
+  replace = "I1 +Int I2"
+
+[[mutation]]
+id = "no-sub"
+note = "the subtraction rule is deleted"
+
+  [[mutation.edit]]
+  line = 23
+  delete = true
+
+[[mutation]]
+id = "add-and-mul-swapped"
+note = "correlated: + multiplies and * adds"
+
+  [[mutation.edit]]
+  rule = "CALC.add"
+  find = "I1 +Int I2"
+  replace = "I1 *Int I2"
+
+  [[mutation.edit]]
+  rule = "mul"
+  find = "I1 *Int I2"
+  replace = "I1 +Int I2"
+```
+
+Run the kill search:
+
+<!-- example: run -->
+```sh
+kink-flow run FLOW.toml MUTATIONS.toml
+```
+
+Three mutations are killed; `2 * 2` equals `2 + 2`, so `mul-becomes-add` survives:
+
+<!-- example: output /survivors -->
+```json
+["mul-becomes-add"]
+```
+
+<!-- example: output /counts -->
+```json
+{"killed": 3, "survived": 1}
+```
+
+The survivor's row says what was changed, which programs reach the changed rule, and how each program ran on the mutant:
+
+<!-- example: output /mutations/1 -->
+```json
+{
+  "id": "mul-becomes-add",
+  "status": "survived",
+  "killer": null,
+  "rules": [
+    {"module": "CALC", "file": "calc.k", "label": "CALC.mul", "start_line": 22, "end_line": 22,
+     "before": "rule [mul]: I1:Int * I2:Int => I1 *Int I2",
+     "after": "rule [mul]: I1:Int * I2:Int => I1 +Int I2"}
+  ],
+  "reaching": ["square"],
+  "executed": [
+    {"program": "square", "outcome": "agree", "cause": null},
+    {"program": "add", "outcome": "agree", "cause": null},
+    {"program": "sub", "outcome": "agree", "cause": null}
+  ]
+}
+```
+
+`kink-flow report` prints the same document again, from `.kink-flow/report.json`:
+
+<!-- example: run -->
+```sh
+kink-flow report FLOW.toml
+```
+
+To kill the survivor, write a program that reaches the edited rule and whose final configuration the edit changes.
+`square` reaches the rule but agrees, because `2 * 2` and `2 + 2` are both `4`; `2 * 3` is `6`, and `2 + 3` is `5`:
+
+<!-- example: append FLOW.toml -->
+```toml
+
+[[program]]
+id = "product"
+text = "2 * 3"
+```
+
+<!-- example: run -->
+```sh
+kink-flow run FLOW.toml MUTATIONS.toml
+```
+
+<!-- example: output /survivors -->
+```json
+[]
+```
+
+<!-- example: output /mutations/1 -->
+```json
+{"id": "mul-becomes-add", "status": "killed", "killer": "product", "killer_from_cache": false}
+```
+
+The other mutations ran their cached killer only:
+
+<!-- example: output /mutations/0 -->
+```json
+{"id": "add-becomes-sub", "status": "killed", "killer": "add", "killer_from_cache": true,
+ "calls": [{"programs": ["add"], "status": "killed"}]}
+```
+
+A survivor that no program can kill is an equivalent mutant: for example, swapping the operands of `+Int` changes no result.
+Argue why, then drop it from `MUTATIONS.toml`.
+
+### Reading the report
+
+The report (`run`'s output and `.kink-flow/report.json`) holds the specification digest, the k-rust revision and the solver profile;
+`counts` per status; `survivors`, the ids of the mutations no program killed that a new program could kill;
+`unusable_programs`, every program that cannot kill (`{id, class, cause}`);
+and one row per mutation, in the list's order.
+
+A killed row names its `killer` and whether it came from the cache (`killer_from_cache`).
+Every other row also carries:
+
+- `rules`: each edited rule's `file`, `start_line`, `end_line`, `label`, and its source text `before` and `after` the edit (`after` is null for a deleted rule);
+- `reaching`: the comparable programs whose cached coverage reaches an edited rule;
+- `executed`: each program the mutant ran on, in order, with its `outcome` (`agree`, `distinguish`, `timeout`, `unknown`, `incomparable` or `error`) and, unless it agreed or distinguished, the `cause`;
+- `action`: what the status asks of you.
+
+| Status | What it asks |
+| --- | --- |
+| `killed` | Nothing. |
+| `survived` | Every executed program agreed. Write a program that reaches an edited rule and whose final configuration the edit changes; if `reaching` is empty, first reach the rule. |
+| `timeout` | A program did not end on the mutant within `time_ms`, and no program killed it. Write a program that ends under the mutant with a different final configuration; a timeout is never cached as a killer. |
+| `unknown` | A program's result on the mutant is not a value kink compares (see its `cause`), and no program killed it. Write a program whose final configuration under the mutant kink can compare. |
+| `equivalent` | The mutant compiles to the baseline's definition; nothing can kill it. Drop or change the mutation. |
+| `invalid` | The mutant does not compile (`reason`). Fix the mutation. |
+| `invalid-mutation` | The mutation does not resolve (`reason`, `edit`, `detail`). Fix the mutation. |
+| `error` | The runner failed, or a corpus error stopped the run (`reason`: `baseline-mismatch:<program>`, `campaign-refused`, `program-refused:<program>`, `no-comparable-program`). Fix the corpus; `kink-flow results FLOW.toml --verify` shows which cached result no longer holds. |
+
+### The cache directory
+
+`.kink-flow/` (or `--cache DIR`) holds plain JSON; deleting it, or any file in it, is always safe:
+
+- `results/<spec digest>/<program digest>.json`: one program's cached result (class, cause, baseline evidence, final configuration, rule coverage);
+- `killers/<spec digest>.json`: each killed mutation's last killing program, a scheduling hint only;
+- `report.json`: the last run's report.
+
+The specification digest covers every source file the specification loads, so editing the specification reruns every program;
+the program digest covers a program's text, start sort and variables, so editing a program reruns only that program.
+
 ## SemanticInput, manifests, reports and replay
 
 A baseline's `SemanticInput` v1 is exactly k-rust's compact `KRUST-PROVENANCE` v7 document of the loaded definition and its source table; its digest is the SHA-256 of those bytes.

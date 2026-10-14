@@ -27,8 +27,11 @@
 use crate::{
     admit::{AdmittedSpec, ProgramInputs, admit_spec},
     killers::{KillerCache, KillerEntry},
-    manifest::FlowManifest,
+    manifest::{Budget, FlowManifest},
     mutation::{InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve},
+    report::{
+        RUN_SCHEMA, RUN_VERSION, action, executed_cause, rules_value, survivors, unusable_programs,
+    },
     results::{
         BaselineRunner, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass, cache_directory,
         execution_budget, fixed_oracles, kebab, run_digest, runner_refusal, update_results,
@@ -274,7 +277,7 @@ impl Search<'_> {
                 detail: format!("the runner returned {} mutants for one", run.mutants.len()),
             };
         };
-        verdict(mutant)
+        verdict(mutant, self.manifest.budget)
     }
 
     fn ids(&self, order: &[usize]) -> Vec<&str> {
@@ -290,24 +293,35 @@ impl Search<'_> {
     }
 }
 
-/// The runner's verdict and the programs the mutant ran on, in the runner's order.
-fn verdict(mutant: &MutantRun) -> Call {
+/// The runner's verdict and the programs the mutant ran on, in the runner's order, each with
+/// its outcome and, unless it agreed or distinguished, the cause the runner's evidence gives.
+fn verdict(mutant: &MutantRun, budget: Budget) -> Call {
     let executed = mutant
         .plan
         .tests
         .iter()
-        .filter_map(|test| match &test.run {
-            TestRun::SkippedAfterKill => None,
-            TestRun::Compared(outcomes) => Some(json!({
-                "program": test.test_id,
-                "outcome": compared_outcome(outcomes),
-                "slots": outcomes.iter().map(|o| outcome_name(*o)).collect::<Vec<_>>(),
-            })),
-            TestRun::Failed(kind) => Some(json!({
-                "program": test.test_id,
-                "outcome": status_name(kind.status()),
-                "failure": kebab(&format!("{kind:?}")),
-            })),
+        .filter_map(|test| {
+            let evidence = mutant
+                .evidence
+                .iter()
+                .find(|evidence| evidence.test_id == test.test_id)
+                .map(|evidence| &evidence.run);
+            let cause = executed_cause(&test.run, evidence, budget);
+            match &test.run {
+                TestRun::SkippedAfterKill => None,
+                TestRun::Compared(outcomes) => Some(json!({
+                    "program": test.test_id,
+                    "outcome": compared_outcome(outcomes),
+                    "slots": outcomes.iter().map(|o| outcome_name(*o)).collect::<Vec<_>>(),
+                    "cause": cause,
+                })),
+                TestRun::Failed(kind) => Some(json!({
+                    "program": test.test_id,
+                    "outcome": status_name(kind.status()),
+                    "failure": kebab(&format!("{kind:?}")),
+                    "cause": cause,
+                })),
+            }
         })
         .collect();
     Call::Verdict {
@@ -339,16 +353,25 @@ fn compared_outcome(outcomes: &[OracleOutcome]) -> &'static str {
 /// infrastructure error (the caller's exit status). Survivors, timeouts and invalid mutations
 /// are results, not errors.
 pub fn run(manifest: &FlowManifest, list: &MutationList, options: &RunOptions) -> (Value, bool) {
+    let cache = cache_directory(manifest, options.cache.as_deref());
+    let store = Store::new(&cache);
+    let report_path = cache.join(REPORT_FILE);
+    // A run that admits no specification still replaces the report, so `report` always prints
+    // the last run's document.
+    let refused = |record: &AdmissionRecord| {
+        let document = document(record, None, &[], Vec::new(), None);
+        let _ = store.write_json(&report_path, &document);
+        (document, false)
+    };
     let (mut record, admitted) = admit_spec(manifest);
     let Some((spec, mut inputs)) = admitted else {
-        return (document(&record, None, &[], Vec::new(), None), false);
+        return refused(&record);
     };
-    let cache = cache_directory(manifest, options.cache.as_deref());
     let runner = match BaselineRunner::new(&spec, manifest) {
         Ok(runner) => runner,
         Err(e) => {
             record.refusal = Some(runner_refusal(e));
-            return (document(&record, None, &[], Vec::new(), None), false);
+            return refused(&record);
         }
     };
     let update = update_results(&spec, manifest, &mut inputs, &runner, &cache, false);
@@ -374,15 +397,15 @@ pub fn run(manifest: &FlowManifest, list: &MutationList, options: &RunOptions) -
         tests: vec![None; candidates.len()],
         candidates,
     };
-    let store = Store::new(&cache);
     let mut killers = KillerCache::read(&cache, update.spec_digest);
-    let report_path = cache.join(REPORT_FILE);
     let mut rows = Vec::new();
     let mut stopped = None;
     let selected = list
         .mutations
         .iter()
         .filter(|mutation| options.only.is_empty() || options.only.contains(&mutation.id));
+    // The document as last written to the report file, if it was.
+    let mut written = None;
     for mutation in selected {
         let (mut row, corpus_error) = search_one(&mut search, &mut killers, mutation);
         if corpus_error {
@@ -403,26 +426,32 @@ pub fn run(manifest: &FlowManifest, list: &MutationList, options: &RunOptions) -
             rows.clone(),
             stopped.clone(),
         );
-        if let Err(e) = store.write_json(&report_path, &document) {
-            if let Some(last) = rows.last_mut() {
-                last["cache_error"] = json!(format!("cannot write the report: {e}"));
+        match store.write_json(&report_path, &document) {
+            Ok(()) => written = Some(document),
+            Err(e) => {
+                if let Some(last) = rows.last_mut() {
+                    last["cache_error"] = json!(format!("cannot write the report: {e}"));
+                }
+                ok = false;
             }
-            ok = false;
         }
         if stopped.is_some() {
             break;
         }
     }
-    (
-        document(
-            &record,
-            Some(update.spec_digest),
-            &program_rows,
-            rows,
-            stopped,
-        ),
-        ok,
-    )
+    let document = document(
+        &record,
+        Some(update.spec_digest),
+        &program_rows,
+        rows,
+        stopped,
+    );
+    // The stored report is the document the command prints: write it unless the last write
+    // already stored exactly this document (no mutation was selected, or a write failed).
+    if written.as_ref() != Some(&document) && store.write_json(&report_path, &document).is_err() {
+        ok = false;
+    }
+    (document, ok)
 }
 
 /// The kill search for one mutation: its row of the run document, and whether it ended in
@@ -441,6 +470,7 @@ fn search_one(
         row.insert("reason".into(), json!(invalid.reason.as_str()));
         row.insert("edit".into(), json!(invalid.edit));
         row.insert("detail".into(), json!(invalid.detail));
+        row.insert("rules".into(), Value::Null);
         finish(row, None, false, Vec::new(), Vec::new())
     };
     let resolved = match resolve(search.manifest, &search.spec.loaded, mutation) {
@@ -449,6 +479,8 @@ fn search_one(
     };
     let digest = resolved.digest;
     row.insert("digest".into(), json!(digest.to_string()));
+    // The survivor report's rule texts (README 5.7); a killed mutation drops them below.
+    row.insert("rules".into(), rules_value(&resolved));
     // The generation must derive from the validator's own baseline (the runner refuses any
     // other); the patch is pinned, so it applies to it as to the loaded baseline.
     let generation = match resolved.generation(search.spec.validator.baseline()) {
@@ -545,6 +577,9 @@ fn search_one(
     let (status, killing, reason) = outcome.expect("a verdict");
     row.insert("status".into(), json!(status_name(status)));
     row.insert("reason".into(), json!(reason));
+    if status == MutantStatus::Killed {
+        row.insert("rules".into(), Value::Null);
+    }
     // Only a Killed status writes an entry, and only its first killing test (README 5.6 step
     // 5); every other status removes the mutation's entry.
     let killer = match (status, killing.first()) {
@@ -597,7 +632,8 @@ fn corpus_error(
     )
 }
 
-/// Complete a mutation row: killer, killer_from_cache, executed and calls.
+/// Complete a mutation row: killer, killer_from_cache, executed, calls and the survivor
+/// report's action (`rules` is null unless the mutation resolved and was not killed).
 fn finish(
     mut row: Map<String, Value>,
     killer: Option<String>,
@@ -607,6 +643,12 @@ fn finish(
 ) -> Value {
     row.entry("reason").or_insert(Value::Null);
     row.entry("reaching").or_insert_with(|| json!([]));
+    row.entry("rules").or_insert(Value::Null);
+    let action = action(
+        row["status"].as_str().unwrap_or_default(),
+        row["reason"].as_str(),
+    );
+    row.insert("action".into(), json!(action));
     row.insert("killer".into(), json!(killer));
     row.insert("killer_from_cache".into(), json!(from_cache));
     row.insert("executed".into(), json!(executed));
@@ -646,6 +688,7 @@ fn document(
     stopped: Option<Value>,
 ) -> Value {
     let refusal = record.refusal.as_ref();
+    let survivors = survivors(&mutations);
     let counts = STATUSES
         .iter()
         .map(|status| {
@@ -656,8 +699,8 @@ fn document(
         })
         .collect::<Map<_, _>>();
     json!({
-        "schema": "kink-flow-run",
-        "version": 1,
+        "schema": RUN_SCHEMA,
+        "version": RUN_VERSION,
         "k_rust_revision": K_RUST_REVISION,
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,
@@ -674,8 +717,10 @@ fn document(
                 .collect::<Vec<_>>(),
         },
         "programs": programs,
+        "unusable_programs": unusable_programs(programs),
         "mutations": mutations,
         "counts": counts,
+        "survivors": survivors,
         "stopped": stopped,
     })
 }
@@ -683,8 +728,8 @@ fn document(
 /// The run document of a mutation list that does not decode.
 pub fn mutation_list_refused(detail: &str) -> Value {
     json!({
-        "schema": "kink-flow-run",
-        "version": 1,
+        "schema": RUN_SCHEMA,
+        "version": RUN_VERSION,
         "k_rust_revision": K_RUST_REVISION,
         "profile": SolverProfile::BUILD.name(),
         "mutation_list": {"outcome": "refused", "detail": detail},

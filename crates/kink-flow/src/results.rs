@@ -100,6 +100,9 @@ impl ResultClass {
     }
 }
 
+/// The names of the oracle slots of [`fixed_oracles`], in slot order.
+pub const ORACLE_SLOTS: [&str; 2] = ["exit-stop", "whole-term"];
+
 /// The two oracles of every flow program (README 5.4): the exit stop with no exit-code cell,
 /// then the whole final term; a semantic crash is outside the operand domain (`reject`).
 pub fn fixed_oracles() -> Vec<OracleDeclaration> {

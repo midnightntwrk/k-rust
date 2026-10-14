@@ -2,12 +2,14 @@
 
 The primary usage flow of kink (`draft/tasks/flow/README.md`, section 5):
 a K specification, a concrete corpus of programs an LLM writes for it,
-and, in later packets, cached results, a mutation list, a kill search and a survivor report.
+cached results, a mutation list, a kill search and a survivor report.
+The root README's "Using kink-flow" section is the walkthrough; this file is the reference.
 
-This crate currently provides the corpus manifest and the `check` command (flow F-02),
+This crate provides the corpus manifest and the `check` command (flow F-02),
 the result cache with the `results` command (flow F-03),
 the mutation list with its resolution into patches (flow F-04),
-and the kill search with its killer cache, the `run` command (flow F-05).
+the kill search with its killer cache, the `run` command (flow F-05),
+and the survivor report with the `report` command (flow F-06).
 
 ## `FLOW.toml`
 
@@ -208,21 +210,55 @@ is there a program of the corpus whose result the mutation changes?
 
 A kill folds above every inconclusive outcome: a mutation that one program kills is `killed` even if an earlier program timed out on it.
 
-The document is `{schema: "kink-flow-run", version: 1, k_rust_revision, profile, result_schema_version, spec, programs, mutations, counts, stopped}`:
-`programs` are the `results` rows; `stopped` is `null` or `{mutation, reason}` of the corpus error that stopped the run;
-`counts` counts every status. Each mutation row is
-`{id, note, digest, status, reason, killer, killer_from_cache, reaching, executed, calls}`:
-`digest` is the patch digest (null for an `invalid-mutation`, which also has `edit` and `detail`),
-`executed` lists `{program, outcome, slots | failure}` for every program the mutant ran on, in the runner's order
-(`outcome` is `distinguish`, `agree`, `timeout`, `unknown`, `incomparable` or `error`; `slots` gives the exit-stop and whole-term outcomes),
-and `calls` lists the programs of each runner call (`[[killer]]` with a warm cache, `[[killer], [all]]` when the cached killer no longer kills).
-A row may also carry `stale_killer` (an entry naming a program that is gone, changed or no longer comparable; it was removed) and `cache_error`.
+The document is the report (see "The report: the run document" below).
 
 The cache directory gains `killers/<spec digest>.json`,
 `{schema: "kink-flow-killers", version: 1, spec, killers: {<mutation digest>: {mutation_id, program_id, program_digest}}}`,
-and `report.json`, the last run document.
+and `report.json`, the last run's document (also written when the specification is refused or no mutation is selected).
 A killer entry is a scheduling hint only; a file that does not parse is treated as empty.
 
 Exit status: 0 when every selected mutation got its status (survivors, timeouts and invalid mutations included);
 1 when the manifest, the mutation list, the specification or a program is refused, a run failed, a cache file could not be written,
 no program is comparable, or a corpus error stopped the run; 2 on a usage error (including an `--only` id that names no mutation).
+
+## The report: the run document
+
+`run` prints one document and writes the same document to `.kink-flow/report.json` (after every mutation, and once more at the end):
+
+`{schema: "kink-flow-run", version: 2, k_rust_revision, profile, result_schema_version, spec, programs, unusable_programs, mutations, counts, survivors, stopped}`.
+
+| Field | Meaning |
+| --- | --- |
+| `spec` | `{outcome, stage, reason, detail, digest, files}`: the specification's admission and its digest. |
+| `programs` | The `results` rows `{id, digest, class, cause, cached, verify}`. |
+| `unusable_programs` | Every program whose class is not `comparable`, once: `{id, class, cause}`. These programs are never run on a mutant. |
+| `mutations` | One row per selected mutation, in the list's order (below). |
+| `counts` | The number of mutations per status (all eight statuses). |
+| `survivors` | The ids of the mutations whose status is `survived`, `timeout` or `unknown`: no program killed them, and a new program could. |
+| `stopped` | `null`, or `{mutation, reason}` of the corpus error that stopped the run. |
+
+A mutation row is `{id, note, digest, status, reason, killer, killer_from_cache, reaching, executed, calls, rules, action}`:
+
+| Field | Meaning |
+| --- | --- |
+| `digest` | The patch digest; null for an `invalid-mutation`, which also has `edit` (the offending edit's index or null) and `detail`. |
+| `status`, `reason` | The status (see the run section) and the runner's or the flow's reason. |
+| `killer`, `killer_from_cache` | The first killing program of a `killed` mutation, and whether it was the cached killer; null and false otherwise. |
+| `reaching` | The comparable programs whose cached coverage reaches an edited rule, in the order they were tried. |
+| `executed` | `{program, outcome, slots | failure, cause}` for every program the mutant ran on, in the runner's order. `outcome` is `distinguish`, `agree`, `timeout`, `unknown`, `incomparable` or `error`; `slots` gives the exit-stop and whole-term outcomes; `failure` names a run that produced no value (`time-limit`, `resource-limit`, `indeterminate`, `infrastructure`). `cause` is null when the outcome is `agree` or `distinguish`, else what the runner's evidence says stopped the comparison, per slot (`exit-stop, whole-term: ...`), with the budget values. |
+| `calls` | `{programs, status}` of each runner call: `[[killer]]` with a warm cache, `[[killer], [all]]` when the cached killer no longer kills. |
+| `rules` | Null for a `killed` mutation and for an `invalid-mutation`; otherwise each edited rule, in sentence order: `{module, index, file, label, start_line, end_line, edits, before, after}`. `before` and `after` are the rule's source text before and after the mutation's edits, sliced from the sources by the sentence's span (`after` is null for a deleted rule); `edits` are the indices of the mutation's edits addressed to the rule. |
+| `action` | Null for `killed`; otherwise one sentence saying what the status asks (write a program, fix the mutation, fix the corpus, report it). |
+
+A row may also carry `stale_killer` (an entry naming a program that is gone, changed or no longer comparable; it was removed) and `cache_error`.
+The cause of an `unknown` slot names the possible reasons together (a path stopped at `max_depth`, an undecided end,
+or a final configuration holding a Map, Set or List, an unevaluated function or a symbolic term),
+because the runner's evidence records that the mutant's value is unknown but not which of these stopped it.
+
+## `kink-flow report FLOW.toml [--cache DIR]`
+
+Prints the stored run document again, byte for byte as `run` printed it.
+When there is none, or it is not a version-2 run document, it prints
+`{schema: "kink-flow-report", version: 1, k_rust_revision, profile, outcome: "missing" | "unreadable", path, detail}`.
+
+Exit status: 0 when it printed a report; 1 when there is none, it is unreadable, or the manifest does not decode; 2 on a usage error.

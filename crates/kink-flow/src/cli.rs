@@ -8,6 +8,7 @@ use crate::{
     admit::{FlowAdmission, admit},
     manifest::{FlowManifest, ManifestError},
     mutation::MutationList,
+    report::{ReportOptions, render},
     results::ResultsOptions,
     search::{RunOptions, mutation_list_refused},
 };
@@ -26,7 +27,7 @@ pub const EXIT_USAGE: u8 = 2;
 
 pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FLOW.toml \
                          [--verify] [--cache DIR] | kink-flow run FLOW.toml MUTATIONS.toml \
-                         [--only ID]... [--cache DIR]";
+                         [--only ID]... [--cache DIR] | kink-flow report FLOW.toml [--cache DIR]";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -93,11 +94,21 @@ pub fn execute(args: Vec<OsString>) -> u8 {
                 }
             }
         }
+        Ok([command, manifest, rest @ ..]) if command == "report" => {
+            let manifest = PathBuf::from(manifest);
+            if !manifest.is_file() {
+                return usage(&format!("{} is not a file", manifest.display()));
+            }
+            let options = match report_options(rest) {
+                Ok(options) => options,
+                Err(message) => return usage(&message),
+            };
+            report(&manifest, &options)
+        }
         _ => return usage(USAGE),
     };
     let mut stdout = std::io::stdout().lock();
-    let text = serde_json::to_string_pretty(&document).expect("JSON value");
-    if writeln!(stdout, "{text}").is_err() {
+    if writeln!(stdout, "{}", render(&document)).is_err() {
         return EXIT_CORPUS;
     }
     status
@@ -157,6 +168,39 @@ fn run_options(args: &[String]) -> Result<RunOptions, String> {
         }
     }
     Ok(options)
+}
+
+fn report_options(args: &[String]) -> Result<ReportOptions, String> {
+    let mut options = ReportOptions::default();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--cache" if options.cache.is_none() => {
+                let directory = args.next().ok_or("--cache needs a directory")?;
+                options.cache = Some(PathBuf::from(directory));
+            }
+            _ => return Err(format!("unexpected argument {arg:?}")),
+        }
+    }
+    Ok(options)
+}
+
+/// `kink-flow report FLOW.toml [--cache DIR]`: the run document the last `run` wrote, as `run`
+/// printed it, and [`EXIT_OK`]; or a `kink-flow-report` document saying why there is none
+/// (`missing`, `unreadable`) and [`EXIT_CORPUS`], which is also the status when the manifest
+/// does not decode.
+pub fn report(manifest: &Path, options: &ReportOptions) -> (Value, u8) {
+    match FlowManifest::read(manifest) {
+        Err(error) => {
+            let mut document = manifest_refused(&error);
+            document["schema"] = json!(crate::report::MISSING_SCHEMA);
+            (document, EXIT_CORPUS)
+        }
+        Ok(manifest) => {
+            let (document, ok) = crate::report::report(&manifest, options);
+            (document, if ok { EXIT_OK } else { EXIT_CORPUS })
+        }
+    }
 }
 
 /// `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--cache DIR]`: the run document
