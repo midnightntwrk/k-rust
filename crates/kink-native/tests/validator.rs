@@ -4,7 +4,7 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use k_rust::kompile::CompileOptions;
+use k_rust::kompile::{CompileOptions, compile_loaded_definition};
 use kink_native::{MutantRejection, NativeValidator};
 use kink_patch::{Edit, Patch, PatchFailureKind, SentenceOrigin, TermRef, apply};
 use serde_json::Value;
@@ -149,4 +149,64 @@ fn stale_fingerprint_is_rejected_before_compilation() {
         }
         other => panic!("expected a stale patch rejection, got {other:?}"),
     }
+}
+
+/// F-01: `compile_baseline` memoises its result inside the validator. The memo returns
+/// exactly what a fresh k-rust compile of that validator's own baseline under its own
+/// options returns, never the result of another baseline or of other options, and a
+/// clone carries the result its source holds.
+#[test]
+fn compile_baseline_memo_is_the_validators_own_compile() {
+    let fresh = |validator: &NativeValidator, options: CompileOptions| {
+        compile_loaded_definition(validator.baseline().loaded(), options).expect("fresh compile")
+    };
+    let default = validator();
+    let narrow_options = CompileOptions {
+        kore_width: 40,
+        ..CompileOptions::default()
+    };
+    let narrow = NativeValidator::bind(support::load("counter.k"), narrow_options.clone());
+    let memory = NativeValidator::bind(support::load("memory.k"), CompileOptions::default());
+
+    let first = default.compile_baseline().expect("counter.k compiles");
+    assert_eq!(
+        first.artifacts(),
+        &fresh(&default, CompileOptions::default())
+    );
+    assert_eq!(first.compile_options(), &CompileOptions::default());
+    assert_eq!(first.definition(), default.baseline().definition());
+    assert!(first.origins().is_none());
+    assert_eq!(default.compile_baseline().expect("memoised"), first);
+
+    let narrowed = narrow
+        .compile_baseline()
+        .expect("counter.k compiles narrow");
+    assert_eq!(narrowed.compile_options(), &narrow_options);
+    assert_eq!(narrowed.artifacts(), &fresh(&narrow, narrow_options));
+    assert_ne!(
+        narrowed.artifacts().definition_kore,
+        first.artifacts().definition_kore,
+        "the options reach the compile"
+    );
+    assert_eq!(default.compile_baseline().expect("memoised"), first);
+
+    let other = memory.compile_baseline().expect("memory.k compiles");
+    assert_ne!(other.definition(), first.definition());
+    assert_eq!(
+        other.artifacts(),
+        &fresh(&memory, CompileOptions::default())
+    );
+
+    let before = validator();
+    let cloned_before = before.clone();
+    let cloned_after = default.clone();
+    assert_eq!(cloned_after.compile_baseline().expect("clone"), first);
+    assert_eq!(cloned_before.compile_baseline().expect("clone"), first);
+    assert_eq!(before.compile_baseline().expect("source"), first);
+
+    // A mutant compile is never memoised: it compiles the patched definition.
+    let patch = increment_mutant(&default);
+    let mutant = default.validate(&patch).expect("mutant");
+    assert_ne!(mutant.artifacts(), first.artifacts());
+    assert_eq!(default.compile_baseline().expect("memoised"), first);
 }

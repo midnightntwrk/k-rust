@@ -6,7 +6,7 @@
 //! for the Z3-free structured compile (KRS-owned `z3-free-structured-compile`):
 //! without Z3 the prelude does not load.
 
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, sync::OnceLock};
 
 use k_rust::{
     definition::Definition,
@@ -37,24 +37,47 @@ impl fmt::Display for NativeFailure {
 impl std::error::Error for NativeFailure {}
 
 /// An immutable loaded baseline and the compile options every side uses.
+///
+/// It also holds the memoised result of [`NativeValidator::compile_baseline`]. A clone
+/// carries the result its source already holds, which is the compile of the same
+/// baseline under the same options.
 #[derive(Clone, Debug)]
 pub struct NativeValidator {
     baseline: Baseline,
     options: CompileOptions,
+    compiled_baseline: OnceLock<Result<ValidatedDefinition, NativeFailure>>,
 }
 
 impl NativeValidator {
     /// Captures `baseline`; its caller owns prelude policy.
     pub const fn bind(baseline: Baseline, options: CompileOptions) -> Self {
-        Self { baseline, options }
+        Self {
+            baseline,
+            options,
+            compiled_baseline: OnceLock::new(),
+        }
     }
 
     pub const fn baseline(&self) -> &Baseline {
         &self.baseline
     }
 
-    /// Compiles the unpatched baseline.
+    /// Compiles the unpatched baseline, once per validator.
+    ///
+    /// The first call compiles; every later call, on this validator or on a clone made
+    /// after it, returns a clone of that result, success or failure. The memo has no key
+    /// of its own because the validator is the key: its baseline and compile options are
+    /// fixed at [`NativeValidator::bind`] and never change. Returning the memo instead of
+    /// compiling again rests on k-rust compile determinism (the same loaded definition
+    /// under the same options compiles to the same artifacts), a premise replay already
+    /// takes. Mutant compiles ([`NativeValidator::validate`]) are never memoised.
     pub fn compile_baseline(&self) -> Result<ValidatedDefinition, NativeFailure> {
+        self.compiled_baseline
+            .get_or_init(|| self.compile_baseline_uncached())
+            .clone()
+    }
+
+    fn compile_baseline_uncached(&self) -> Result<ValidatedDefinition, NativeFailure> {
         let loaded = self.baseline.loaded();
         let artifacts = self
             .compile(loaded)

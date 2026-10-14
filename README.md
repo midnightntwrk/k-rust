@@ -42,32 +42,39 @@ Requests this project makes of k-rust and KRS are recorded in the ledgers under 
 
 ## Gate
 
-Every commit must pass:
+Every commit must pass the per-commit gate, the no-Z3 workspace build and the Z3 profile:
 
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo test --workspace --no-fail-fast
+with-z3-static-4.16.0 cargo clippy -p kink-native -p kink-campaign -p kink-corpus --all-targets --features z3 -- -D warnings
+with-z3-static-4.16.0 cargo test -p kink-native --features z3 --no-fail-fast
+with-z3-static-4.16.0 cargo test -p kink-campaign --features z3 --no-fail-fast
+with-z3-static-4.16.0 cargo test -p kink-corpus --features z3 --no-fail-fast
 ```
 
-This workspace build is the no-Z3 solver profile.
+The milestone gate is the same commands with `-- --include-ignored` added to every `cargo test`.
+It also runs the whole-fixture sweeps marked `#[ignore = "milestone"]`,
+each of which has a smaller variant in the per-commit gate.
+Run it before a merge and when a work package closes.
+The external corpus measurements in `kink-corpus/tests/external.rs` are ignored for another reason;
+under `--include-ignored` without `KINK_WORKSPACE` they only record a skip.
+
+The workspace build is the no-Z3 solver profile.
 `kink-native` has a `z3` feature for the Z3 profile
 (it enables k-rust `z3-inference` and k-rust-backend `z3`).
-`kink-campaign` forwards that feature as `z3` and requires its execution adapter's
-solver profile to match the build.
-Its tests carry profile columns for outcomes that differ between no-Z3 and Z3.
+`kink-campaign` and `kink-corpus` forward that feature as `z3`,
+and `kink-campaign` requires its execution adapter's solver profile to match the build.
+Their tests carry profile columns for outcomes that differ between no-Z3 and Z3.
 Z3 comes from the machine wrapper `with-z3-static-4.16.0`,
 which points the `z3-sys` build at a static Z3 4.16.0 library;
 without the wrapper a `z3` build fails to link (`-lz3` missing),
 and nothing is downloaded at build time.
-Run the Z3 gate for every Z3-profile change and before merge:
 
-```sh
-with-z3-static-4.16.0 cargo clippy -p kink-native --all-targets --features z3 -- -D warnings
-with-z3-static-4.16.0 cargo test -p kink-native --features z3
-with-z3-static-4.16.0 cargo clippy -p kink-campaign --all-targets --features z3 -- -D warnings
-with-z3-static-4.16.0 cargo test -p kink-campaign --features z3
-```
+Dependencies are built with `opt-level = 2` in the dev and test profiles (`Cargo.toml`),
+because loading and compiling K definitions in k-rust dominates test time;
+the workspace crates keep the plain dev profile with debug assertions and overflow checks.
 
 ## Retired tooling
 
