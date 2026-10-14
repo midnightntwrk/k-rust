@@ -78,7 +78,7 @@ SPAN_FUNCTIONS: tuple[tuple[str, str], ...] = (
     ("definition.lower", r"^krs_cli::command::lower_definition$"),
     ("native.adapt", r"::adapt_definition_for$"),
     ("native.prepare", r"::prepare_definition$"),
-    ("native.compile", r"::compile_loaded_definition_timed$"),
+    ("native.compile", r"::compile_loaded_definition_with_timings$"),
     ("native.reparse", r"::parse_kore_definition$"),
     ("native.provenance", r"::join_sentence_provenance$"),
 )

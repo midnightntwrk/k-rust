@@ -716,10 +716,18 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
         assert_eq!(timings["status"], "failed", "{backend}");
         assert_eq!(timings["failed_span"], "native.compile", "{backend}");
         assert_timing_invariants(&timings);
+        let ids = span_ids(&timings);
         assert!(
-            span_ids(&timings)
-                .iter()
+            ids.iter()
                 .any(|(id, depth)| id == "native.diagnostics" && *depth == 0)
+        );
+        let compile = ids
+            .iter()
+            .position(|(id, _)| id == "native.compile")
+            .unwrap();
+        assert!(
+            ids.get(compile + 1).is_some_and(|(_, depth)| *depth == 1),
+            "{backend}: the failed native.compile lost the k-rust stages that ran: {ids:?}"
         );
         let stderr = String::from_utf8(build.stderr).unwrap();
         assert!(!build.status.success(), "{backend} accepted:\n{stderr}");

@@ -463,17 +463,18 @@ fn compile_ir(
     })?;
     let mut artifacts = timings.try_span("native.compile", |timings| {
         let definition_module = spec_module.map(|_| ir.main_module().as_str().to_owned());
-        let (artifacts, phases) =
-            compile_loaded_definition_with(&loaded, options, definition_module).map_err(
-                |mut error| {
-                    resolve_diagnostic_keys(adapted.origins(), &mut error.diagnostics);
-                    DefinitionCompileError::Compile(error)
-                },
-            )?;
+        // k-rust appends the stages that ran on failure too, so a failed
+        // compile keeps its children.
+        let mut phases = NativePhaseTimings::default();
+        let compiled =
+            compile_loaded_definition_with(&loaded, options, definition_module, &mut phases);
         for phase in phases.phases {
             timings.record(phase.name, phase.seconds, phase.depth);
         }
-        Ok(artifacts)
+        compiled.map_err(|mut error| {
+            resolve_diagnostic_keys(adapted.origins(), &mut error.diagnostics);
+            DefinitionCompileError::Compile(error)
+        })
     })?;
     resolve_diagnostic_keys(adapted.origins(), &mut artifacts.diagnostics);
     timings.try_span("native.reparse.definition", |_| {
@@ -547,23 +548,27 @@ pub fn compile_loaded_definition_timed(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<(RawCompiledArtifacts, NativePhaseTimings), CompileError> {
-    compile_loaded_definition_with(loaded, options, None)
+    let mut phases = NativePhaseTimings::default();
+    compile_loaded_definition_with(loaded, options, None, &mut phases)
+        .map(|artifacts| (artifacts, phases))
 }
 
-/// [`compile_loaded_definition_timed`], checking a proof definition whose
+/// [`compile_loaded_definition`], checking a proof definition whose
 /// definition module is `definition_module` when one is given (an author spec
-/// module's proof definition, KF-041).
+/// module's proof definition, KF-041), and appending every k-rust stage that
+/// ran to `phases`, whether the compile succeeds or fails.
 fn compile_loaded_definition_with(
     loaded: &LoadedDefinition,
     options: CompileOptions,
     definition_module: Option<String>,
-) -> Result<(RawCompiledArtifacts, NativePhaseTimings), CompileError> {
+    phases: &mut NativePhaseTimings,
+) -> Result<RawCompiledArtifacts, CompileError> {
     let backend = match options.backend {
         Backend::Llvm => kompile::CompilationBackend::Llvm,
         // upstream k-rust/backend-haskell-spelling (reviewed, not a request).
         Backend::Haskell => kompile::CompilationBackend::Rust,
     };
-    let (artifacts, phases) = kompile::compile_loaded_definition_timed(
+    let artifacts = kompile::compile_loaded_definition_with_timings(
         loaded,
         kompile::CompileOptions {
             backend,
@@ -593,20 +598,18 @@ fn compile_loaded_definition_with(
             },
             ..kompile::CompileOptions::default()
         },
+        phases,
     )
     .map_err(CompileError::from)?;
 
-    Ok((
-        RawCompiledArtifacts {
-            definition_kore: artifacts.definition_kore,
-            syntax_definition_kore: artifacts.syntax_definition_kore,
-            macros_kore: artifacts.macros_kore,
-            diagnostics: artifacts.diagnostics.iter().map(Into::into).collect(),
-            sentence_provenance: artifacts.sentence_provenance,
-            configuration_variables: artifacts.configuration_variables,
-        },
-        phases,
-    ))
+    Ok(RawCompiledArtifacts {
+        definition_kore: artifacts.definition_kore,
+        syntax_definition_kore: artifacts.syntax_definition_kore,
+        macros_kore: artifacts.macros_kore,
+        diagnostics: artifacts.diagnostics.iter().map(Into::into).collect(),
+        sentence_provenance: artifacts.sentence_provenance,
+        configuration_variables: artifacts.configuration_variables,
+    })
 }
 
 #[cfg(test)]
