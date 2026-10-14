@@ -375,6 +375,7 @@ pub(super) fn rewrite_step_all(
 ) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
+    let _hook_values = crate::deferred::HookValueScope::enter(definition);
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(definition, &subject);
@@ -908,6 +909,7 @@ pub(super) fn rewrite_step_any(
 ) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
+    let _hook_values = crate::deferred::HookValueScope::enter(definition);
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(definition, &subject);
