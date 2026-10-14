@@ -18,7 +18,7 @@
 // module the build selects), where `create` loads its module from the same
 // asset base and returns a LessonExecutor.
 
-import type { Diagnostic } from '../../../browser/worker/src/protocol.ts'
+import type { Diagnostic } from '../../../krs/browser/worker/src/protocol.ts'
 
 export type ExecutionStage = 'lower' | 'kore' | 'execute'
 

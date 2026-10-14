@@ -1,0 +1,28 @@
+---
+title: k-rust
+description: A Rust implementation of the K Framework frontend with an in-process symbolic backend.
+---
+
+# k-rust
+
+k-rust is a Rust implementation of the [K Framework](https://kframework.org/).
+It parses K definitions and programs, runs the frontend's checking and lowering pipeline, emits KORE, and executes it with an in-process concrete and symbolic backend: reachability search, simplification, implication and reachability checks, builtin collections, and Z3 satisfiability, validity, and model queries.
+The native `krust` command covers `kast`, `kcompile`, `kore-exec`, `kore-simplify`, `kore-get-model`, `kore-implies`, and `kore-match-disjunction`, with experimental `krun` and `kprove`; it bundles K v7.1.337's builtin sources, so it needs no K checkout.
+
+It is a usable early implementation, not yet a drop-in replacement for every K command-line workflow.
+Where K's engines, frontend policies, or recorded outputs disagree, the [compatibility contract](/k-rust/compatibility) states the behavior k-rust implements and the evidence that checks it.
+
+## Crates
+
+- `k-rust`: the frontend, KAST and KORE generation, and the `krust` command.
+- `k-rust-backend`: the in-process backend.
+- `k-rust-kore`: KORE syntax and serialization, shared by the frontend and the backend.
+- `k-rust-regex`: K token regexes, without other dependencies.
+- `k-rust-napi` and `k-rust-wasm`: the host-independent APIs for Node.js and WebAssembly.
+
+The native build links Z3 and MPFR; a portable build without them compiles to `wasm32-unknown-unknown` and refuses, with a structured error, only the rules that need Z3's sort inference.
+
+## KRS
+
+[KRS](/start/what-krs-defines), the Rust-shaped language this site's tour teaches, lowers its definitions to KORE through k-rust and runs, searches, and proves them with its backend.
+The two live in one repository and one Cargo workspace, so k-rust's changes are checked against KRS as they are made.

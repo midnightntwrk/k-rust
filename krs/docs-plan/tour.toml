@@ -32,7 +32,7 @@ id = "tour-minimal-browser"
 route = "/lessons/tour-minimal"
 status = "published"
 fixture = "tests/tour-minimal/src/lib.rs"
-seed = "docs-site/src/snippets/tour-minimal.rs"
+seed = "../docs-site/src/snippets/tour-minimal.rs"
 
 [[synthesis]]
 id = "five-minute-theory"

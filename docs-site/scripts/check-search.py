@@ -33,6 +33,9 @@ REQUIRED = {
 def main() -> None:
     missing: list[str] = []
     for path in PAGES.rglob("*.mdx"):
+        # The k-rust pages mirror k-rust's docs, whose K examples name variables `M1`, `M2`.
+        if path.is_relative_to(PAGES / "k-rust"):
+            continue
         source = path.read_text(encoding="utf-8")
         if INTERNAL_MILESTONE.search(source) or INTERNAL_MILESTONE_IDENTIFIER.search(source):
             missing.append(f"internal milestone terminology in {path.relative_to(SITE)}")

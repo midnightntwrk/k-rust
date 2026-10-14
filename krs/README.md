@@ -26,7 +26,7 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
 - **Toolchain pins.** `Krs.lock` pins K 7.1.337, Z3 4.12.5, and the IR schema versions; every gate reads them from there.
   KRS builds against the `k-rust` crates of the same commit, so there is no `k-rust` pin to move: a `k-rust` change that affects KRS updates KRS in the same commit.
   The MSRV is Rust 1.99.0, the `rust-version` every `k-rust` crate declares; the gates also qualify native-frontend helpers on any stable Rust at or above it.
-- **Documentation.** `docs-plan/tour.toml` is the curriculum and feature-status ledger for a 17-chapter language tour, published by the Vocs site in `docs-site/`.
+- **Documentation.** `docs-plan/tour.toml` is the curriculum and feature-status ledger for a 17-chapter language tour, published by the repository's Vocs site, `../docs-site/`, which documents k-rust as well.
   `docs-plan/authoring-spec/` is the normative readable-authoring specification.
 - **Browser lessons.** `browser/` contains a Web Worker that expands and compiles lessons in the browser, together with its dependency pack and release tooling.
 
@@ -46,7 +46,7 @@ Pass `--message-format=json` for machine consumption: located diagnostics use sc
 | `crates/krs-expand-wasm`, `crates/krs-lesson-policy`, `crates/krs-wasm-abi` | Browser-lesson expander, editable-surface policy, and their shared Wasm ABI |
 | `semantics/` | Separate Cargo workspace with the KWasm, KEVM, and KMIR ports and `coverage.toml` |
 | `tests/` | IMP reference oracles, the complete IMP and precedence/associativity gates, CLI, port, tour, browser, and repository hygiene gates |
-| `docs-plan/`, `docs-site/` | Tour curriculum, authoring specification, and the Vocs documentation site |
+| `docs-plan/` | Tour curriculum and authoring specification; the tour itself is in the repository's `../docs-site/` |
 | `browser/` | Browser-lesson worker, dependency pack, and release format |
 | `Krs.lock` | External toolchain and schema pins |
 
@@ -137,8 +137,8 @@ CI runs none of these gates, so it needs neither K nor the cache.
 ### Documentation site
 
 ```sh
-bun install --cwd docs-site --frozen-lockfile
-bun run --cwd docs-site build
+bun install --cwd ../docs-site --frozen-lockfile
+bun run --cwd ../docs-site build
 ```
 
 The build runs the tour verifiers and several `cargo check` invocations, so it needs the Z3 exports above.

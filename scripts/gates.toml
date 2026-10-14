@@ -105,13 +105,14 @@ inference = [
   '^crates/k-rust/src/(kompile/compile|kast/sort_role|backend/(mod|simplification))\.rs$',
   '^crates/k-rust/Cargo\.toml$',
 ]
-# KRS (krs/README.md): its crates, gates, and ports, and the lock of the K, Z3, and schema versions
-# its gates read. KRS lowers through krust's sources, so its entries also take [path-set.krust].
+# KRS (krs/README.md): its crates, gates, and ports, the lock of the K, Z3, and schema versions its
+# gates read, and the site pages its tour gates quote. KRS lowers through krust's sources, so its entries also take [path-set.krust].
 krs = [
   '^krs/crates/',
   '^krs/tests/',
   '^krs/semantics/',
   '^krs/Krs\.lock$',
+  '^docs-site/src/pages/',
 ]
 
 [[gate]]

@@ -12,8 +12,8 @@ import {
   PackCacheError,
   PackIntegrityError,
   type ReleasePreview,
-} from '../../../browser/worker/src/controller.ts'
-import type { LessonManifest, PackManifest } from '../../../browser/worker/src/protocol.ts'
+} from '../../../krs/browser/worker/src/controller.ts'
+import type { LessonManifest, PackManifest } from '../../../krs/browser/worker/src/protocol.ts'
 import { LESSON_ID, workerUrl } from './config'
 
 /** An environment failure: distinct from errors in the learner's source. */

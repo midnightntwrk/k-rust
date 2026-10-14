@@ -9,6 +9,10 @@ and per-run process-tree peak memory with toolchain and machine metadata.
 definitions and programs, runs the frontend checking and lowering pipeline, emits KORE artifacts,
 and includes an in-process symbolic backend.
 
+The documentation site in [`docs-site/`](docs-site/README.md) publishes KRS's tour and reference and
+k-rust's [compatibility contract](docs/compatibility.md), mirrored by `docs-site/scripts/sync-k-rust.py`
+(`bun run --cwd docs-site sync:snippets` after editing it).
+
 [`krs/`](krs/README.md) holds KRS, a Rust-shaped language for authoring K semantic definitions
 that lowers natively through these crates. Its crates are members of this workspace, so a change
 to `k-rust` builds, lints, and tests KRS with it, and updates KRS in the same commit when it

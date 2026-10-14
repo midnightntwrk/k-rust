@@ -9,7 +9,7 @@ import tomllib
 
 
 SITE = Path(__file__).resolve().parent.parent
-ROOT = SITE.parent
+ROOT = SITE.parent / "krs"
 LOCK = ROOT / "Krs.lock"
 K_RUST = ROOT.parent / "crates/k-rust/Cargo.toml"
 OUTPUT = SITE / "src" / "pages" / "index.mdx"

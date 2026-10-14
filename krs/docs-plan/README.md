@@ -1,7 +1,7 @@
 # KRS language-tour plan
 
 This directory is the planning source for a comprehensive KRS language tour.
-The corresponding Vocs site lives in `docs-site/`.
+The corresponding Vocs site is the repository's `../docs-site/`.
 
 The plan has four artifacts:
 

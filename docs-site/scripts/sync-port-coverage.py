@@ -10,7 +10,7 @@ from typing import Any
 
 
 SITE = Path(__file__).resolve().parent.parent
-ROOT = SITE.parent
+ROOT = SITE.parent / "krs"
 LEDGER = ROOT / "semantics" / "coverage.toml"
 OUTPUT = SITE / "src" / "pages" / "advanced" / "language-scale.mdx"
 START = "{/* generated:port-coverage:start */}"

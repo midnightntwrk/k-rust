@@ -41,14 +41,14 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-SITE = ROOT / "docs-site"
+SITE = ROOT.parent / "docs-site"
 # The directory holding the reference checkouts, as tests/support locates it.
 EXTERNAL_ROOT = Path(os.environ["KRS_EXTERNAL_ROOT"]) if os.environ.get("KRS_EXTERNAL_ROOT") else next(
     (directory for directory in ROOT.parents if (directory / "inspirations" / "runtimeverification").is_dir()),
     ROOT.parents[1],
 )
 RELEASE_INPUTS = ["crates", "browser", "tests/tour-minimal", "../Cargo.toml", "../Cargo.lock"]
-SITE_INPUTS = ["docs-site", "browser/worker", "tests/tour-minimal"]
+SITE_INPUTS = ["../docs-site", "browser/worker", "tests/tour-minimal"]
 NICE = ["nice", "-n", "19", "ionice", "-c3"]
 
 

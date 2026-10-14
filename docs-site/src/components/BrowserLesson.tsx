@@ -8,8 +8,8 @@
 
 import { type KeyboardEvent, type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { KrsCompiler } from '../../../browser/worker/src/controller.ts'
-import type { CompileEvent, Diagnostic, MappingClass, Stage } from '../../../browser/worker/src/protocol.ts'
+import type { KrsCompiler } from '../../../krs/browser/worker/src/controller.ts'
+import type { CompileEvent, Diagnostic, MappingClass, Stage } from '../../../krs/browser/worker/src/protocol.ts'
 import { packBase } from '../lesson/config'
 import {
   EXECUTION_STAGES,

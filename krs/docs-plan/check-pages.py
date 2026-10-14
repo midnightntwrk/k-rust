@@ -15,8 +15,8 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 LEDGER = ROOT / "docs-plan" / "tour.toml"
-PAGES = ROOT / "docs-site" / "src" / "pages"
-VOCS_CONFIG = ROOT / "docs-site" / "vocs.config.ts"
+PAGES = ROOT.parent / "docs-site" / "src" / "pages"
+VOCS_CONFIG = ROOT.parent / "docs-site" / "vocs.config.ts"
 FACADE = ROOT / "crates" / "krs" / "src" / "lib.rs"
 BUILTIN_FACADE = ROOT / "crates" / "krs" / "src" / "builtin.rs"
 CLI_MAIN = ROOT / "crates" / "krs-cli" / "src" / "main.rs"
@@ -188,6 +188,13 @@ def main() -> None:
     lessons = ledger.get("lesson", [])
     concepts = ledger.get("concept", [])
     pages_by_route = documentation_pages()
+    # The /k-rust section mirrors k-rust's documentation (docs-site/scripts/sync-k-rust.py) and is
+    # no part of the KRS curriculum; links into it are still checked.
+    other_pages = {
+        route: page for route, page in pages_by_route.items()
+        if route == "/k-rust" or route.startswith("/k-rust/")
+    }
+    pages_by_route = {route: page for route, page in pages_by_route.items() if route not in other_pages}
     chapter_by_id = {chapter["id"]: chapter for chapter in chapters}
     concepts_by_chapter: dict[str, list[str]] = {
         chapter["id"]: [] for chapter in chapters
@@ -272,7 +279,10 @@ def main() -> None:
             fail(f"lesson {lesson['id']!r} page does not render <BrowserLesson />")
 
     config = VOCS_CONFIG.read_text(encoding="utf-8")
-    sidebar_routes = re.findall(r"\blink:\s*['\"](/[^'\"]*)['\"]", config)
+    sidebar_routes = [
+        route for route in re.findall(r"\blink:\s*['\"](/[^'\"]*)['\"]", config)
+        if route not in other_pages
+    ]
     duplicates = sorted(
         route for route, count in Counter(sidebar_routes).items() if count > 1
     )
@@ -325,7 +335,7 @@ def main() -> None:
 
     anchors_by_route = {
         route: anchors_for_page(page.read_text(encoding="utf-8"), route)
-        for route, page in pages_by_route.items()
+        for route, page in {**pages_by_route, **other_pages}.items()
     }
     linked_routes: set[str] = set(sidebar_routes)
     checked_links = 0
@@ -338,7 +348,7 @@ def main() -> None:
                 continue
             target_route, fragment = resolved
             checked_links += 1
-            if target_route not in known_routes:
+            if target_route not in known_routes and target_route not in other_pages:
                 fail(
                     f"dead internal link from {source_route}:{line}: {target} "
                     f"(resolved to {target_route})"

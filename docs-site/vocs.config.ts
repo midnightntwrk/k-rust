@@ -7,9 +7,9 @@ import { defineConfig, Twoslash } from 'vocs/config'
 const rustTwoslashEnabled = process.env.KRS_RUST_TWOSLASH === '1'
 
 export default defineConfig({
-  title: 'KRS language tour',
-  titleTemplate: '%s – KRS language tour',
-  description: 'Define, inspect, and verify programming-language semantics with KRS.',
+  title: 'k-rust and KRS',
+  titleTemplate: '%s – k-rust and KRS',
+  description: 'k-rust, a Rust implementation of the K Framework, and KRS, a Rust-shaped language for K semantics.',
   checkDeadlinks: true,
   sidebar: [
     {
@@ -74,6 +74,14 @@ export default defineConfig({
       text: 'Try it',
       collapsed: false,
       items: [{ text: 'Compile in the browser', link: '/lessons/tour-minimal' }],
+    },
+    {
+      text: 'k-rust',
+      collapsed: false,
+      items: [
+        { text: 'Overview', link: '/k-rust' },
+        { text: 'Compatibility contract', link: '/k-rust/compatibility' },
+      ],
     },
   ],
   twoslash: rustTwoslashEnabled

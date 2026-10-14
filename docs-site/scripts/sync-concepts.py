@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 SITE = Path(__file__).resolve().parent.parent
-ROOT = SITE.parent
+ROOT = SITE.parent / "krs"
 LEDGER = ROOT / "docs-plan" / "tour.toml"
 OUTPUT = SITE / "src" / "generated" / "five-minute-concepts.ts"
 

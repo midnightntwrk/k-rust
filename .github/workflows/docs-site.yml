@@ -1,0 +1,58 @@
+name: Docs site
+
+# Builds the documentation site (docs-site/): KRS's tour and reference, and the k-rust pages
+# mirrored from docs/. The build runs the site's checks, which include KRS's tour verifiers and
+# the mirrors' freshness. Publishing the built site is not configured yet.
+
+on:
+  pull_request:
+    paths:
+      - ".github/actions/krs-z3/**"
+      - ".github/workflows/docs-site.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**"
+      - "docs/**"
+      - "docs-site/**"
+      - "krs/**"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Provide the pinned solver library
+        uses: ./.github/actions/krs-z3
+
+      - name: Put the solver library on the link and load paths
+        run: |
+          echo "LIBRARY_PATH=$KRS_Z3_LIB" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$KRS_Z3_LIB" >> "$GITHUB_ENV"
+
+      - name: Select Rust
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Select current stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Select Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install locked site dependencies
+        run: bun install --cwd docs-site --frozen-lockfile
+
+      - name: Build the site
+        run: bun run --cwd docs-site build

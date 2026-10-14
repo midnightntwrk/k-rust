@@ -1,12 +1,13 @@
-# KRS language tour site
+# k-rust and KRS documentation site
 
-This directory contains the dependency-ordered language tour and its generated-gloss five-minute synthesis page.
+This directory contains KRS's dependency-ordered language tour, its generated-gloss five-minute synthesis page, and its reference, together with the `/k-rust` pages: an overview and k-rust's compatibility contract, which `scripts/sync-k-rust.py` mirrors from `../docs/compatibility.md` (`bun run sync:snippets` rewrites the mirror; `bun run check` fails when it is stale).
+KRS's sources live in `../krs/`; the curriculum ledger is `../krs/docs-plan/tour.toml`.
 The site uses Vocs 2.8.5 and Bun 1.3.13.
 Install its locked dependencies with `bun install --frozen-lockfile`.
 Run the local site with `bun run dev` and its fixture/tooling gate with `bun run check`.
 Waku is pinned to `1.0.0-beta.6` because Vocs 2.8.5 uses that router event contract; widening the prerelease range resolves to `1.0.0-rc.0` and crashes `ScrollRestoration` after hydration.
 It verifies that the displayed `tour-minimal` mirror is byte-for-byte identical to its authoritative fixture and that the fixture passes `cargo check --locked`.
-The primary navigation contains all 17 canonical chapters from `docs-plan/tour.toml` plus the checked five-minute synthesis.
+The primary navigation contains all 17 canonical chapters from `../krs/docs-plan/tour.toml` plus the checked five-minute synthesis.
 Its hover/focus glosses and canonical destinations are generated from the ledger rather than copied into a second glossary.
 `bun run check` validates the curriculum, reviewed public surfaces, complete page graph and anchors, generated compatibility and port summaries, terminology, gloss accessibility contracts, synced snippets, Rust-Twoslash failure controls, and the authoritative Cargo/KRS fixtures.
 `bun run check:types && bun run build` is the production release gate, including Vocs dead-link checking.
@@ -28,7 +29,7 @@ The fail-closed gate also runs on every enabled build rather than trusting cache
 
 ## Browser lesson assets
 
-`/lessons/tour-minimal` compiles the `tour-minimal` fixture in the reader's browser with the compiler worker in `../browser/worker`.
+`/lessons/tour-minimal` compiles the `tour-minimal` fixture in the reader's browser with the compiler worker in `../krs/browser/worker`.
 The page imports only `browser/worker/src/protocol.ts` and `controller.ts`.
 `bun run build:lesson-worker` bundles `browser/worker/src/worker.ts` to `public/browser-lesson/worker.js` (ignored by Git); `dev` and `build` run it first.
 
@@ -69,7 +70,7 @@ It runs neither the release gates (`run.py` without `--steps`) nor the docs `che
 `CARGO_TARGET_ROOT` is private to the checkout, because a `krs` binary built in another worktree makes the oracle step fail with a Cargo package collision.
 Both servers bind `127.0.0.1`.
 
-`bun ../browser/worker/test/lesson/docs-lesson.ts --site . --assets <publish dir> --out <dir>` drives the built page in headless Chromium and Firefox.
+`bun ../krs/browser/worker/test/lesson/docs-lesson.ts --site . --assets <publish dir> --out <dir>` drives the built page in headless Chromium and Firefox.
 By default the publication is proxied at the same origin (build with `VITE_KRS_BROWSER_PACK_BASE=/krs-pack/`).
 With `--pack-origin cross` it is a second origin, as in the local deployment, at `http://127.0.0.1:<port + 70>/` (default 5380; build with `VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:5380/`).
 With `--attach` it drives servers that are already running, as the launcher starts them:

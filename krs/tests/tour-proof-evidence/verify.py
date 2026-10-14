@@ -72,7 +72,7 @@ def verify_undefined_partial() -> None:
         raise GateError("IMP's defined partial-function claim is no longer proved")
 
     require_fragments(
-        "docs-site/src/pages/semantics/static-semantics.mdx",
+        "../docs-site/src/pages/semantics/static-semantics.mdx",
         "#nonnegativeIdentity(-1)",
         "the application has no denotation: semantic bottom",
         "not a claimed `krun` trace",
@@ -87,7 +87,7 @@ def verify_stuck_state() -> None:
     if not isinstance(aggregate, str) or not re.fullmatch(r"[0-9a-f]{64}", aggregate):
         raise GateError("IMP state's stuck-state aggregate pin is absent")
     require_fragments(
-        "docs-site/src/pages/semantics/applicability-and-failure.mdx",
+        "../docs-site/src/pages/semantics/applicability-and-failure.mdx",
         "`y = x + 1;` in the checked IMP stuck-state fixture",
         "LLVM performs two rewrites",
         "leaves a non-final configuration",
@@ -117,7 +117,7 @@ def verify_authored_trap() -> None:
         raise GateError(f"KWasm trap corpus differs: {traps!r}")
     require_sha256_pin(Ledger(ROOT / "tests/kwasm/pins.toml"), "behavior_sha256")
     require_fragments(
-        "docs-site/src/pages/semantics/applicability-and-failure.mdx",
+        "../docs-site/src/pages/semantics/applicability-and-failure.mdx",
         "`i32.const 7 ; i32.const 0 ; i32.div_u ; .Instrs` from KWasm",
         "`trap ~> .Instrs ~> .K` with an empty value stack",
         "`Instruction::Trap` constructor",
@@ -136,7 +136,7 @@ def verify_llvm_claim_omission() -> None:
         "provenance::tests::llvm_compilation_omits_claims_and_keeps_provenance_consistent",
     )
     require_fragments(
-        "docs-site/src/pages/verification/reachability-claims.mdx",
+        "../docs-site/src/pages/verification/reachability-claims.mdx",
         "`krs build --backend llvm` omits every claim from its KORE and reports how many it omitted",
     )
 
@@ -183,7 +183,7 @@ def verify_capability_matrix() -> None:
         "context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role",
     )
     require_fragments(
-        "docs-site/src/pages/verification/reachability-claims.mdx",
+        "../docs-site/src/pages/verification/reachability-claims.mdx",
         "| Claim form | Collection and emitted K | Haskell route |",
         "All-path, without existential binders",
         "including a proved `addition-1` claim",

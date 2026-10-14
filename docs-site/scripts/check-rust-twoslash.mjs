@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url'
 import { materializeManifest, parseTwoslashOutput, runChecked } from './rust-twoslash-lib.mjs'
 
 const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const repoRoot = resolve(siteRoot, '..')
-const fixtureManifest = join(repoRoot, 'tests/tour-minimal/Cargo.toml')
-const fixtureLock = join(repoRoot, 'tests/tour-minimal/Cargo.lock')
-const fixtureSource = join(repoRoot, 'tests/tour-minimal/src/lib.rs')
+const krsRoot = resolve(siteRoot, '../krs')
+const fixtureManifest = join(krsRoot, 'tests/tour-minimal/Cargo.toml')
+const fixtureLock = join(krsRoot, 'tests/tour-minimal/Cargo.lock')
+const fixtureSource = join(krsRoot, 'tests/tour-minimal/src/lib.rs')
 
 if (process.argv.includes('--if-enabled') && process.env.KRS_RUST_TWOSLASH !== '1') {
   console.log('Rust Twoslash is disabled; compiler-backed snippet checks remain active')
