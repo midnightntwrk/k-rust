@@ -1,0 +1,147 @@
+//! The `kink-flow` command line. Every command prints one JSON document on stdout.
+//!
+//! Exit status: [`EXIT_OK`] when the command did its job and found nothing wrong with the
+//! corpus, [`EXIT_CORPUS`] when the manifest, the specification or a program is refused
+//! (the document says which and why), and [`EXIT_USAGE`] on a usage error (stderr).
+
+use crate::{
+    admit::{FlowAdmission, admit},
+    manifest::{FlowManifest, ManifestError},
+};
+use kink_corpus::cli::DEFINITION_STACK_BYTES;
+use kink_native::{K_RUST_REVISION, execution::SolverProfile};
+use serde_json::{Value, json};
+use std::{
+    ffi::OsString,
+    io::Write,
+    path::{Path, PathBuf},
+};
+
+pub const EXIT_OK: u8 = 0;
+pub const EXIT_CORPUS: u8 = 1;
+pub const EXIT_USAGE: u8 = 2;
+
+pub const USAGE: &str = "usage: kink-flow check FLOW.toml";
+
+/// Run one command; returns the process exit status.
+pub fn execute(args: Vec<OsString>) -> u8 {
+    let args = args
+        .into_iter()
+        .map(|arg| arg.into_string())
+        .collect::<Result<Vec<_>, _>>();
+    let (document, status) = match args.as_deref() {
+        Ok([command, manifest]) if command == "check" => {
+            let manifest = PathBuf::from(manifest);
+            if !manifest.is_file() {
+                return usage(&format!("{} is not a file", manifest.display()));
+            }
+            match on_stack(move || check(&manifest)) {
+                Some(result) => result,
+                None => {
+                    eprintln!("kink-flow: the admission thread panicked");
+                    return EXIT_CORPUS;
+                }
+            }
+        }
+        _ => return usage(USAGE),
+    };
+    let mut stdout = std::io::stdout().lock();
+    let text = serde_json::to_string_pretty(&document).expect("JSON value");
+    if writeln!(stdout, "{text}").is_err() {
+        return EXIT_CORPUS;
+    }
+    status
+}
+
+fn usage(message: &str) -> u8 {
+    eprintln!("kink-flow: {message}");
+    if message != USAGE {
+        eprintln!("{USAGE}");
+    }
+    EXIT_USAGE
+}
+
+/// Run `body` on a thread with kink-corpus's definition stack allowance.
+fn on_stack<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    std::thread::Builder::new()
+        .name("kink-flow".into())
+        .stack_size(DEFINITION_STACK_BYTES)
+        .spawn(body)
+        .ok()?
+        .join()
+        .ok()
+}
+
+/// `kink-flow check FLOW.toml`: the check document and the exit status.
+pub fn check(manifest: &Path) -> (Value, u8) {
+    match FlowManifest::read(manifest) {
+        Err(error) => (manifest_refused(&error), EXIT_CORPUS),
+        Ok(manifest) => {
+            let admission = admit(&manifest);
+            let status = if admission.all_admitted() {
+                EXIT_OK
+            } else {
+                EXIT_CORPUS
+            };
+            (check_document(&admission), status)
+        }
+    }
+}
+
+fn header(spec: Value, programs: Vec<Value>) -> Value {
+    json!({
+        "schema": "kink-flow-check",
+        "version": 1,
+        "k_rust_revision": K_RUST_REVISION,
+        "profile": SolverProfile::BUILD.name(),
+        "spec": spec,
+        "programs": programs,
+    })
+}
+
+/// The document of a manifest that does not decode: the spec is refused at stage
+/// `manifest` with the error, which names the key or program.
+pub fn manifest_refused(error: &ManifestError) -> Value {
+    header(
+        json!({
+            "outcome": "refused",
+            "stage": "manifest",
+            "reason": "invalid-manifest",
+            "detail": error.to_string(),
+            "files": [],
+        }),
+        Vec::new(),
+    )
+}
+
+/// The check document of an admission.
+pub fn check_document(admission: &FlowAdmission) -> Value {
+    let record = &admission.record;
+    let refusal = record.refusal.as_ref();
+    let spec = json!({
+        "outcome": if refusal.is_some() { "refused" } else { "admitted" },
+        "stage": refusal.map(|r| &r.stage),
+        "reason": refusal.map(|r| &r.reason),
+        "detail": refusal.map(|r| &r.detail),
+        "files": record
+            .files
+            .iter()
+            .map(|f| json!({"name": f.name, "sha256": f.sha256.to_string()}))
+            .collect::<Vec<_>>(),
+    });
+    let programs = admission
+        .programs
+        .iter()
+        .map(|program| {
+            let refusal = program.outcome.as_ref().err();
+            json!({
+                "id": program.id,
+                "outcome": if refusal.is_some() { "refused" } else { "ok" },
+                "stage": refusal.map(|r| &r.stage),
+                "reason": refusal.map(|r| &r.reason),
+                "detail": refusal.map(|r| &r.detail),
+            })
+        })
+        .collect();
+    header(spec, programs)
+}

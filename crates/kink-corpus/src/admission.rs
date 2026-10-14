@@ -1,8 +1,11 @@
 //! Ordered corpus refusals. The baseline check has no candidate to execute.
 
 use crate::{
-    LoadedSource, ProgramSource, SourceFile, assemble_input,
-    manifest::{CorpusInput, CorpusManifest, DefinitionSpec, exclusion_applies, path_excluded},
+    LoadedSource, ProgramSource, SourceFile, TestInputSpec, assemble_input,
+    manifest::{
+        BELOW_FLOOR, CorpusInput, CorpusManifest, DefinitionSpec, Exclusion, exclusion_applies,
+        normalized, path_excluded,
+    },
 };
 use k_rust::{
     backend::{Backend, BackendOptions},
@@ -61,7 +64,8 @@ pub struct AdmissionRecord {
     pub kompile_warnings: Option<Vec<KompileWarning>>,
 }
 impl AdmissionRecord {
-    fn new(definition: &str) -> Self {
+    /// An empty record for `definition`: no refusal and no stage output yet.
+    pub fn new(definition: &str) -> Self {
         Self {
             definition: definition.into(),
             refusal: None,
@@ -141,27 +145,11 @@ fn admit(
     workspace: &Path,
     record: &mut AdmissionRecord,
 ) -> Result<AdmittedDefinition, AdmissionRefusal> {
-    for exclusion in &manifest.exclusions {
-        // Inspect path identities only: an alias cannot hide a below-floor source.
-        let canonical = fs::canonicalize(workspace.join(&d.root.path).join(&d.entry)).ok();
-        let resolved_match = canonical.as_ref().is_some_and(|p| {
-            let parts = p
-                .components()
-                .filter_map(|c| match c {
-                    Component::Normal(n) => n.to_str().map(str::to_owned),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            path_excluded(&parts, &exclusion.case)
-        });
-        if exclusion_applies(d, exclusion) || resolved_match {
-            return Err(AdmissionRefusal::new(
-                "exclusion",
-                &exclusion.reason,
-                &exclusion.citation,
-            ));
-        }
-    }
+    check_exclusions(
+        &manifest.exclusions,
+        &workspace.join(&d.root.path).join(&d.entry),
+        |exclusion| exclusion_applies(d, exclusion),
+    )?;
     if d.requires_profile
         .is_some_and(|p| p != SolverProfile::BUILD)
     {
@@ -172,10 +160,120 @@ fn admit(
         ));
     }
     let (loaded, input_texts) = pinned_load(d, workspace, record)?;
+    let semantic_input = check_loaded_semantic_input(&loaded)?;
+    let validator = NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default());
+    let compiled = compile_definition(&validator, record)?;
+    let mut backend = input_backend(&compiled, &d.main_module)?;
+    let mut tests = Vec::new();
+    for test in &d.tests {
+        let initial_state = match &test.input {
+            CorpusInput::Program(spec) => {
+                let mut spec = spec.clone();
+                if let ProgramSource::File(file) = &spec.program {
+                    spec.program = ProgramSource::Text(input_texts[file].clone());
+                }
+                program_input(&loaded, &spec)?
+            }
+            CorpusInput::KoreState { file, .. } => {
+                let value = serde_json::from_str(&input_texts[file])
+                    .map_err(|e| AdmissionRefusal::new("inputs", "parse", e))?;
+                from_value(&value).map_err(|e| AdmissionRefusal::new("inputs", "parse", e))?
+            }
+        };
+        check_initial_state(&mut backend, &initial_state)?;
+        tests.push(TestCase {
+            id: test.id.clone(),
+            initial_state,
+            oracles: test.oracles.clone(),
+        });
+    }
+    baseline_only(manifest, d, &validator, &tests)?;
+    Ok(AdmittedDefinition {
+        loaded,
+        semantic_input,
+        compiled,
+        tests,
+    })
+}
+
+/// The citation every corpus manifest gives for a below-floor exclusion
+/// (manifest.rs requires exactly this text for each `BELOW_FLOOR` case).
+pub const BELOW_FLOOR_CITATION: &str = "../k-rust-927b9ce6-intake/findings/verify.md section 4";
+
+/// The below-floor exclusions a corpus manifest must list, in `BELOW_FLOOR` order, for
+/// callers that admit a definition without a corpus manifest.
+pub fn below_floor_exclusions() -> Vec<Exclusion> {
+    BELOW_FLOOR
+        .iter()
+        .map(|case| Exclusion {
+            case: (*case).into(),
+            reason: "below-floor".into(),
+            citation: BELOW_FLOOR_CITATION.into(),
+        })
+        .collect()
+}
+
+/// Whether `path`, normalized lexically (a leading root is ignored and no link is
+/// resolved), lies inside the full conformance case directory `case`: the lexical identity
+/// match that `exclusion_applies` makes for a manifest's root and entry.
+pub fn path_names_case(path: &Path, case: &str) -> bool {
+    let relative = path
+        .components()
+        .filter(|c| !matches!(c, Component::RootDir | Component::Prefix(_)))
+        .collect::<PathBuf>();
+    relative
+        .to_str()
+        .and_then(|p| normalized(p).ok())
+        .is_some_and(|parts| path_excluded(&parts, case))
+}
+
+/// Exclusion stage: the first exclusion that `applies` (the caller's identity match), or
+/// whose conformance case directory encloses `path` once links are resolved, refuses with
+/// its reason and citation. Only path identities are inspected: an alias cannot hide a
+/// below-floor source.
+pub fn check_exclusions(
+    exclusions: &[Exclusion],
+    path: &Path,
+    applies: impl Fn(&Exclusion) -> bool,
+) -> Result<(), AdmissionRefusal> {
+    for exclusion in exclusions {
+        let canonical = fs::canonicalize(path).ok();
+        let resolved_match = canonical.as_ref().is_some_and(|p| {
+            let parts = p
+                .components()
+                .filter_map(|c| match c {
+                    Component::Normal(n) => n.to_str().map(str::to_owned),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            path_excluded(&parts, &exclusion.case)
+        });
+        if applies(exclusion) || resolved_match {
+            return Err(AdmissionRefusal::new(
+                "exclusion",
+                &exclusion.reason,
+                &exclusion.citation,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Semantic-input stage of a loaded definition: its generated SemanticInput must be canonical.
+pub fn check_loaded_semantic_input(
+    loaded: &LoadedSource,
+) -> Result<SemanticInput, AdmissionRefusal> {
     let generated = SemanticInput::of(&loaded.baseline)
         .map_err(|e| AdmissionRefusal::new("semantic-input", "non-canonical", e))?;
-    let semantic_input = check_semantic_input(generated.text())?;
-    let validator = NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default());
+    check_semantic_input(generated.text())
+}
+
+/// Compile stage, then the representation gate (TB-03) and the declaration census (VI-T13).
+/// The kompile warnings, the representation verdict and the census are written to `record`.
+pub fn compile_definition(
+    validator: &NativeValidator,
+    record: &mut AdmissionRecord,
+) -> Result<ValidatedDefinition, AdmissionRefusal> {
     let compiled = validator
         .compile_baseline()
         .map_err(|e| AdmissionRefusal::new("compile", "compile-error", e))?;
@@ -211,56 +309,51 @@ fn admit(
             "non-natural declarations; see census findings",
         ));
     }
-    let mut backend = Backend::new(
+    Ok(compiled)
+}
+
+/// The backend that gates test inputs of the compiled definition's `main_module`.
+pub fn input_backend(
+    compiled: &ValidatedDefinition,
+    main_module: &str,
+) -> Result<Backend, AdmissionRefusal> {
+    Backend::new(
         &compiled.artifacts().definition_kore,
-        k_rust::kast::identifier::encode(&d.main_module),
+        k_rust::kast::identifier::encode(main_module),
         BackendOptions::default(),
     )
-    .map_err(|e| AdmissionRefusal::new("inputs", "input-gate", e))?;
-    let mut tests = Vec::new();
-    for test in &d.tests {
-        let initial_state = match &test.input {
-            CorpusInput::Program(spec) => {
-                let mut spec = spec.clone();
-                if let ProgramSource::File(file) = &spec.program {
-                    spec.program = ProgramSource::Text(input_texts[file].clone());
-                }
-                assemble_input(&loaded, &spec).map_err(|e| {
-                    let reason = match e {
-                        crate::InputError::Parse(_) => "parse",
-                        _ => "assemble",
-                    };
-                    AdmissionRefusal::new("inputs", reason, e)
-                })?
-            }
-            CorpusInput::KoreState { file, .. } => {
-                let value = serde_json::from_str(&input_texts[file])
-                    .map_err(|e| AdmissionRefusal::new("inputs", "parse", e))?;
-                from_value(&value).map_err(|e| AdmissionRefusal::new("inputs", "parse", e))?
-            }
+    .map_err(|e| AdmissionRefusal::new("inputs", "input-gate", e))
+}
+
+/// Input assembly of one program: a parse failure refuses with reason `parse`, any other
+/// assembly failure with `assemble`.
+pub fn program_input(
+    loaded: &LoadedSource,
+    spec: &TestInputSpec,
+) -> Result<Pattern, AdmissionRefusal> {
+    assemble_input(loaded, spec).map_err(|e| {
+        let reason = match e {
+            crate::InputError::Parse(_) => "parse",
+            _ => "assemble",
         };
-        if !initial_state.free_variables().is_empty() {
-            return Err(AdmissionRefusal::new(
-                "inputs",
-                "input-gate",
-                "corpus v1 requires a concrete initial state",
-            ));
-        }
-        validate_test_initial_state(&mut backend, &initial_state)
-            .map_err(|e| AdmissionRefusal::new("inputs", "input-gate", format!("{e:?}")))?;
-        tests.push(TestCase {
-            id: test.id.clone(),
-            initial_state,
-            oracles: test.oracles.clone(),
-        });
-    }
-    baseline_only(manifest, d, &validator, &tests)?;
-    Ok(AdmittedDefinition {
-        loaded,
-        semantic_input,
-        compiled,
-        tests,
+        AdmissionRefusal::new("inputs", reason, e)
     })
+}
+
+/// The concrete-state check and the input gate of one initial state.
+pub fn check_initial_state(
+    backend: &mut Backend,
+    initial_state: &Pattern,
+) -> Result<(), AdmissionRefusal> {
+    if !initial_state.free_variables().is_empty() {
+        return Err(AdmissionRefusal::new(
+            "inputs",
+            "input-gate",
+            "corpus v1 requires a concrete initial state",
+        ));
+    }
+    validate_test_initial_state(backend, initial_state)
+        .map_err(|e| AdmissionRefusal::new("inputs", "input-gate", format!("{e:?}")))
 }
 fn all_normal(_: &Pattern) -> ExecutionTerminalKind {
     ExecutionTerminalKind::Normal

@@ -1,0 +1,21 @@
+[package]
+name = "kink-flow"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kink-campaign.workspace = true
+kink-corpus.workspace = true
+kink-native.workspace = true
+kink-patch.workspace = true
+serde_json.workspace = true
+toml = { version = "=0.9.12", default-features = false, features = ["parse", "serde", "std"] }
+
+[[bin]]
+name = "kink-flow"
+path = "src/main.rs"

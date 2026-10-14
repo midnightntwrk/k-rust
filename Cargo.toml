@@ -2,6 +2,7 @@
 members = [
   "crates/kink-campaign",
   "crates/kink-corpus",
+  "crates/kink-flow",
   "crates/kink-native",
   "crates/kink-patch",
   "crates/kink-pattern",
@@ -20,6 +21,7 @@ k-rust-backend = { version = "=0.3.0", path = "../k-rust-927b9ce6/crates/k-rust-
 kink-native = { path = "crates/kink-native" }
 kink-campaign = { path = "crates/kink-campaign" }
 kink-corpus = { path = "crates/kink-corpus" }
+kink-flow = { path = "crates/kink-flow" }
 kink-patch = { path = "crates/kink-patch" }
 kink-pattern = { path = "crates/kink-pattern" }
 serde_json = "1.0.149"

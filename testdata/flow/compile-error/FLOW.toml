@@ -1,0 +1,8 @@
+# A spec that kompile refuses (flow F-02); its program is never parsed.
+[spec]
+entry = "compile-error.k"
+main_module = "FLOW-COMPILE-ERROR"
+
+[[program]]
+id = "true"
+text = "true"
