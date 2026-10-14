@@ -263,17 +263,7 @@
   },
   "known_divergences": {
     "krs-patterns-functions-lets": {
-      "scale-refuted": {
-        "native": {
-          "parse": "accepted",
-          "run": "stuck: #lambdaE__ ( pair(1, 2) ~> .K ) ~> .K"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "undefined"
-        }
-      },
-      "definition.kore": "krs-gate kore-compare: KORE sentence multisets differ: reference=405, native=401, missing=21, extra=17"
+      "definition.kore": "krs-gate kore-compare: KORE sentence multisets differ: reference=405, native=403, missing=21, extra=19"
     }
   },
   "kore_comparison": {
@@ -282,8 +272,8 @@
       "report_sha256": "eb3fbad09a9a6cd31ff346dfe17945d508db89fc9b105e0e5f17a756cf042dd8"
     },
     "krs-patterns-functions-lets": {
-      "summary": "krs-gate kore-compare: KORE sentence multisets differ: reference=405, native=401, missing=21, extra=17",
-      "report_sha256": "01cba5a9a31e5a23f5bd82d2573a4ad608102277e9bd60a11a9d7efd91eb2ad9"
+      "summary": "krs-gate kore-compare: KORE sentence multisets differ: reference=405, native=403, missing=21, extra=19",
+      "report_sha256": "736f13e357fc0cee22702e8affd899f16ab4fa1288f98a5e661f51eb25d760b7"
     },
     "krs-patterns-functions-aliases": {
       "summary": "PASS native KORE: reference=289 native=289 reference_injective_withheld=0 native_transport_rewrites=7 reference_lambda_symbols=0 native_lambda_symbols=0",

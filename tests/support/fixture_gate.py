@@ -296,12 +296,20 @@ class FixtureGate:
                     leaves = session.execute(pattern).get("leaves") or []
                 except GateError as error:
                     # k-rust refuses some states outright, such as one that
-                    # still holds a macro symbol; such an outcome can only be
-                    # a pinned divergence (upstream k-rust/macro-own-symbol-refused).
+                    # still holds a macro symbol (by contract: k-rust
+                    # `docs/compatibility.md`, "Macro applications that survive
+                    # expansion"); such an outcome can only be a pinned divergence.
                     refusal = re.sub(r"^gate request \d+ failed: ", "", str(error))
                     outcomes[program.name] = {"parse": ACCEPTED, "run": "refused: " + refusal}
                     continue
-                if not leaves or any("bottom" in str(leaf.get("reason", "")).lower() for leaf in leaves):
+                # Undefined: no leaf, a `#Bottom` leaf, or only leaves without a
+                # defined state (`vacuous`: the configuration is `\bottom`;
+                # `trivial`: a step's result is `\bottom`).
+                if (
+                    not leaves
+                    or any("bottom" in str(leaf.get("reason", "")).lower() for leaf in leaves)
+                    or all(leaf.get("reason") in ("vacuous", "trivial") for leaf in leaves)
+                ):
                     outcomes[program.name] = {"parse": ACCEPTED, "run": UNDEFINED}
                     continue
                 if len(leaves) > 1:

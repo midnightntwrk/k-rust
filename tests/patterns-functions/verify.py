@@ -114,7 +114,7 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.fixture_gate import (  # noqa: E402
-    ACCEPTED, JAVA_TOOLS, Emitted, Fixture, FixtureGate, Program, java_run_outcome, printed_cells,
+    ACCEPTED, JAVA_TOOLS, Emitted, Fixture, FixtureGate, Program, java_run_outcome,
 )
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
@@ -173,16 +173,6 @@ LETS_PROGRAMS = (
     Program("swap-refuted", "swap(3)", "accepted", "undefined"),
     Program("swap-pair-refuted", "swapPair(3)", "accepted", "undefined"),
 )
-# The pinned native backend does not terminate on a `#let` whose constructor
-# pattern fails to match a concrete value (its execute request exceeds the
-# session timeout), so these programs run on Java K only; the failed
-# ascription `scale-refuted` is a pinned divergence (native leaves the
-# generated lambda's application stuck).
-# upstream k-rust/let-refuted-constructor-pattern-diverges
-LETS_JAVA_ONLY = ("swap-refuted", "swap-pair-refuted")
-# Natively stuck programs, whose native outcome is the stuck computation
-# (upstream k-rust/undefined-projection-stuck-leaf, reviewed, not a request).
-LETS_STUCK = ("scale-refuted",)
 # Java K's Haskell backend leaves the failed ascription stuck rather than
 # aborting, and does not terminate on the failed constructor patterns
 # (upstream haskell-backend/let-refuted-constructor-pattern-diverges), so only
@@ -373,54 +363,6 @@ def verify_matches(harness: FixtureGate, workspace: Path) -> None:
             )
 
 
-def compare_lets(harness: FixtureGate, emitted: Emitted) -> dict[str, dict[str, object]]:
-    """Run the let programs on Java K, and those that terminate natively also natively.
-
-    This is `FixtureGate.compare(..., kore=True)` with the programs of
-    `LETS_JAVA_ONLY` kept off the native route; each program's outcome is the
-    agreed one, or its pinned divergence, or (Java only) the expected one.
-    """
-
-    native_programs = tuple(
-        program for program in LETS_PROGRAMS if program.name not in LETS_JAVA_ONLY + LETS_STUCK
-    )
-    native = harness._native_outcomes(emitted, native_programs)  # noqa: SLF001
-    with krs_gate.Session(harness.gate, environment=harness.environment) as session:
-        session.load(emitted.definition_ir, emitted.main_module)
-        for program in LETS_PROGRAMS:
-            if program.name in LETS_STUCK:
-                printed = session.exec_run(program=program.text, print_style="pretty")["printed"]["text"]
-                native[program.name] = {
-                    "parse": ACCEPTED,
-                    "run": f"stuck: {printed_cells(printed, (('k', ''),))['k']}",
-                }
-    java = harness._java_outcomes(emitted, LETS_PROGRAMS, sort="Exp", kore=True)  # noqa: SLF001
-    harness.compare_kore(emitted)
-    known = harness.divergences.get(LETS.package, {})
-    observed: dict[str, dict[str, object]] = {}
-    for program in LETS_PROGRAMS:
-        expected = {"parse": program.parse, "run": program.run}
-        if program.name in LETS_JAVA_ONLY:
-            if java[program.name] != expected:
-                raise GateError(f"{LETS.package} {program.name}: Java K observed {java[program.name]}, expected {expected}")
-            observed[program.name] = java[program.name]
-            continue
-        routes = {"native": native[program.name], "java": java[program.name]}
-        divergence = known.get(program.name)
-        if divergence is not None:
-            if routes != divergence:
-                raise GateError(
-                    f"{LETS.package} {program.name}: pinned divergence changed: expected {divergence}, observed {routes}"
-                )
-            observed[program.name] = java[program.name]
-            continue
-        if routes["native"] != routes["java"] or routes["native"] != expected:
-            raise GateError(f"{LETS.package} {program.name}: observed {routes}, expected {expected}")
-        observed[program.name] = routes["native"]
-    harness.pins.expect(("outcomes", LETS.package), observed)
-    return observed
-
-
 def verify_lets(harness: FixtureGate, workspace: Path) -> None:
     """Let blocks run natively, on Java LLVM from the emitted K and from `reference.k`, and on Java Haskell."""
 
@@ -434,7 +376,9 @@ def verify_lets(harness: FixtureGate, workspace: Path) -> None:
         "<k> shadow ( E:Exp ) => pair ( ( #let E_2:Exp = pair ( E:Exp , E:Exp ) #in E_2:Exp ) , E:Exp ) ... </k>",
         "requires ( #let M:Int = E:Exp #in M:Int >Int 0 )",
     ))
-    observed = compare_lets(harness, emitted)
+    # A refuted pattern is undefined natively too (k-rust `docs/compatibility.md`,
+    # "Refuted local-function patterns"), so every program runs on both routes.
+    observed = harness.compare(emitted, LETS_PROGRAMS, sort="Exp", kore=True)
     agree_with_reference(
         harness, workspace, LETS_REFERENCE, "LETS-REFERENCE", LETS_PROGRAMS, observed,
     )
