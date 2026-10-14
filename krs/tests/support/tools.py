@@ -8,7 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from support import ROOT, GateError
+from support import REPOSITORY, ROOT, GateError
 from support.process import compact, run
 
 
@@ -52,7 +52,7 @@ def executable(name: str) -> str:
 def workspace_debug_binary(name: str) -> Path:
     """Locate a workspace binary under Cargo's configured target directory."""
 
-    target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
+    target = Path(os.environ.get("CARGO_TARGET_DIR", REPOSITORY / "target"))
     if not target.is_absolute():
         target = ROOT / target
     suffix = ".exe" if os.name == "nt" else ""
