@@ -1,0 +1,12 @@
+[spec]
+entry = "collimp.k"
+main_module = "COLLIMP"
+syntax_module = "COLLIMP-SYNTAX"
+[budget]
+max_depth = 200
+[[program]]
+id = "sum"
+text = "var x ; var y ; x = 1 + 2 ; y = x + x ;"
+[[program]]
+id = "dup"
+text = "var x ; var x ;"

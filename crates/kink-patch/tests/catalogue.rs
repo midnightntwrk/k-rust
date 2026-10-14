@@ -185,7 +185,7 @@ fn catalogue_label_spellings_are_pinned_on_authored_fixture_rules() {
         ("_orBool_", Some("guardedeq.k")),
         ("_==K_", Some("symensures.k")),
         ("_=/=K_", None),
-        ("notBool_", None),
+        ("notBool_", Some("collimp.k")),
     ];
     let mut by_fixture = BTreeMap::new();
     for name in names() {
@@ -314,7 +314,7 @@ fn every_loading_top_level_definition_has_a_deterministic_pinned_sweep() {
             );
         }
     }
-    assert_eq!(loaded, 64, "CS-05 top-level load census");
+    assert_eq!(loaded, 69, "CS-05 top-level load census");
 }
 
 #[test]

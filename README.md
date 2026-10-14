@@ -172,7 +172,7 @@ Only the new program runs (`computed`); the others come from the cache, and no r
 A rule that no run can observe (an equation, such as a `[function]` rule) is listed as `not-observable`, never as uncovered.
 A program whose class is not `comparable` cannot kill a mutant; `cause` says why:
 `timeout` (the program did not end within `time_ms`: make it end, or raise the budget),
-`unknown` (it ended without a value kink compares, for example a Map in the final configuration or `max_depth` reached),
+`unknown` (it ended without a value kink compares, for example a collection with a Bytes key or `max_depth` reached),
 `refused` (it did not parse) or `error`.
 
 Now the mutations, `MUTATIONS.toml`.

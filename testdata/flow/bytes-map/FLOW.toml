@@ -1,0 +1,8 @@
+[spec]
+entry = "bytes-map.k"
+main_module = "BYTES-MAP"
+syntax_module = "BYTES-MAP-SYNTAX"
+
+[[program]]
+id = "store"
+text = "store(\"a\", 2)"

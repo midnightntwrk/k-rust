@@ -460,6 +460,16 @@ fn natural_role(
             .iter()
             .any(|(h, args, result, _)| *h == hook && role_signature(symbol, args, *result, &roles))
 }
+/// Whether `symbol` is a natural collection role (rules C and C-H): its
+/// own metadata's unit, element or concat, with the namespace's role hook, over a sort with the
+/// namespace's sort hook, at the role's signature.
+pub(crate) fn natural_collection_symbol(symbol: &Symbol, backend: &BackendDefinition) -> bool {
+    symbol
+        .attributes
+        .collection
+        .as_ref()
+        .is_some_and(|metadata| natural_role(symbol, metadata, backend))
+}
 fn natural_collection_hook(
     symbol: &Symbol,
     backend: &BackendDefinition,

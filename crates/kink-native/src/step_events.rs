@@ -366,6 +366,178 @@ impl<'a> ObservationDecider<'a> {
             _ => false,
         }
     }
+    /// The canonical value of a terminal term, or `None` when it is not
+    /// definition-independent. A term without collection symbols is itself exactly when
+    /// [`Self::definition_independent`] holds. A collection is admitted when every collection
+    /// symbol in it is a natural role of one metadata (census rules C and C-H), it occurs at its
+    /// metadata's collection sort, it is ground, every key, value and element is a value at the
+    /// element symbol's argument sort, and its Map keys or Set elements are distinct; it is
+    /// rebuilt as k-rust externalizes collections, a right-nested concat of element
+    /// applications (unit when empty), Map entries sorted by key and Set elements sorted.
+    pub fn terminal_value(&self, term: &Pattern) -> Option<Pattern> {
+        if !self.has_collection_symbol(term) {
+            return self.definition_independent(term).then(|| term.clone());
+        }
+        self.value_at(term, None)
+    }
+
+    fn has_collection_symbol(&self, term: &Pattern) -> bool {
+        let mut found = false;
+        k_rust::kore::walk::for_each_post_order(term, |node| {
+            if let Pattern::Application { symbol, .. } = node {
+                found |= self
+                    .definition
+                    .symbols()
+                    .get(symbol.name.as_str())
+                    .is_some_and(|s| s.attributes.collection.is_some());
+            }
+        });
+        found
+    }
+
+    fn value_at(&self, term: &Pattern, expected: Option<&InternalSort>) -> Option<Pattern> {
+        if !self.has_collection_symbol(term) {
+            return self.definition_independent(term).then(|| term.clone());
+        }
+        let Pattern::Application { symbol, arguments } = term else {
+            return None;
+        };
+        if is_injection(term) {
+            if !canonical_injection(self.definition, term) {
+                return None;
+            }
+            let source = internal_sort(&symbol.sort_parameters[0])?;
+            let [argument] = arguments.as_slice() else {
+                return None;
+            };
+            return Some(Pattern::Application {
+                symbol: symbol.clone(),
+                arguments: vec![self.value_at(argument, Some(&source))?],
+            });
+        }
+        let backend = self.definition.symbols().get(symbol.name.as_str())?;
+        if backend.attributes.collection.is_some() {
+            return self.collection_value(term, expected?);
+        }
+        if !free_constructor(backend) || arguments.len() != backend.argument_sorts.len() {
+            return None;
+        }
+        Some(Pattern::Application {
+            symbol: symbol.clone(),
+            arguments: arguments
+                .iter()
+                .zip(&backend.argument_sorts)
+                .map(|(argument, sort)| self.value_at(argument, Some(sort)))
+                .collect::<Option<Vec<_>>>()?,
+        })
+    }
+
+    fn collection_value(&self, term: &Pattern, expected: &InternalSort) -> Option<Pattern> {
+        use k_rust_backend::term::CollectionMetadata;
+        let Pattern::Application { symbol, .. } = term else {
+            return None;
+        };
+        let head = self.definition.symbols().get(symbol.name.as_str())?;
+        let metadata = head.attributes.collection.clone()?;
+        let (collection_sort, symbols) = match &metadata {
+            CollectionMetadata::Map(d) => (d.map_sort.clone(), d.symbols.clone()),
+            CollectionMetadata::List(d) | CollectionMetadata::Set(d) => {
+                (d.list_sort.clone(), d.symbols.clone())
+            }
+        };
+        if *expected != InternalSort::simple(collection_sort) || !term.free_variables().is_empty() {
+            return None;
+        }
+        let mut items = Vec::new();
+        self.collection_entries(term, &metadata, &mut items)?;
+        let element = self.definition.symbols().get(&*symbols.element)?;
+        let mut values = items
+            .iter()
+            .map(|arguments| {
+                if arguments.len() != element.argument_sorts.len() {
+                    return None;
+                }
+                arguments
+                    .iter()
+                    .zip(&element.argument_sorts)
+                    .map(|(argument, sort)| self.value_at(argument, Some(sort)))
+                    .collect::<Option<Vec<_>>>()
+            })
+            .collect::<Option<Vec<_>>>()?;
+        match &metadata {
+            CollectionMetadata::Map(_) => {
+                values.sort_by(|left, right| left[0].cmp(&right[0]));
+                if values.windows(2).any(|pair| pair[0][0] == pair[1][0]) {
+                    return None;
+                }
+            }
+            CollectionMetadata::Set(_) => {
+                values.sort();
+                if values.windows(2).any(|pair| pair[0] == pair[1]) {
+                    return None;
+                }
+            }
+            CollectionMetadata::List(_) => {}
+        }
+        let application = |name: &str, arguments| Pattern::Application {
+            symbol: k_rust::kore::ast::Symbol {
+                name: name.to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments,
+        };
+        let mut elements = values
+            .into_iter()
+            .map(|arguments| application(&symbols.element, arguments))
+            .collect::<Vec<_>>();
+        let Some(mut result) = elements.pop() else {
+            return Some(application(&symbols.unit, Vec::new()));
+        };
+        while let Some(element) = elements.pop() {
+            result = application(&symbols.concat, vec![element, result]);
+        }
+        Some(result)
+    }
+
+    /// The argument lists of the element applications of a collection term, or `None` when a
+    /// component is not a natural unit, element or concat of `metadata`.
+    fn collection_entries(
+        &self,
+        term: &Pattern,
+        metadata: &k_rust_backend::term::CollectionMetadata,
+        out: &mut Vec<Vec<Pattern>>,
+    ) -> Option<()> {
+        use k_rust_backend::term::CollectionMetadata;
+        let Pattern::Application { symbol, arguments } = term else {
+            return None;
+        };
+        if !symbol.sort_parameters.is_empty() {
+            return None;
+        }
+        let backend = self.definition.symbols().get(symbol.name.as_str())?;
+        if backend.attributes.collection.as_ref() != Some(metadata)
+            || !crate::census::natural_collection_symbol(backend, self.definition)
+        {
+            return None;
+        }
+        let symbols = match metadata {
+            CollectionMetadata::Map(d) => &d.symbols,
+            CollectionMetadata::List(d) | CollectionMetadata::Set(d) => &d.symbols,
+        };
+        let name = symbol.name.as_str();
+        if name == &*symbols.unit && arguments.is_empty() {
+            Some(())
+        } else if name == &*symbols.concat && arguments.len() == 2 {
+            self.collection_entries(&arguments[0], metadata, out)?;
+            self.collection_entries(&arguments[1], metadata, out)
+        } else if name == &*symbols.element {
+            out.push(arguments.clone());
+            Some(())
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn shared_leaf_feasibility(
         &self,
         state: &serde_json::Value,

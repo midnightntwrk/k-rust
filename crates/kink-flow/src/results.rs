@@ -60,7 +60,7 @@ use std::{
 /// The result schema version, the first component of every result key. It changes whenever
 /// kink changes what counts as a comparable result (for example when ground collections are
 /// admitted), so that older records are recomputed rather than trusted.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v1";
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v2";
 /// The `schema` field of a result record.
 pub const RECORD_SCHEMA: &str = "kink-flow-result";
 /// Domain of a run digest: the digest of the `run` part of a baseline row.
@@ -79,7 +79,7 @@ pub enum ResultClass {
     Comparable,
     /// The run did not finish within the budget's time.
     Timeout,
-    /// The run produced no comparable value (for example a Map in the final configuration,
+    /// The run produced no comparable value (for example a collection with a Bytes key,
     /// a depth limit, or an undecided step).
     Unknown,
     /// The program's input was refused (not read, parsed or assembled); never stored.
@@ -322,7 +322,8 @@ impl<'a> BaselineRunner<'a> {
             })
         {
             "every path ended, but a final configuration is not a value kink can compare \
-             (for example it holds a Map, Set or List, an unevaluated function or a symbolic term)"
+             (for example it holds a collection kink cannot compare, such as one with a Bytes key, \
+             an unevaluated function or a symbolic term)"
                 .to_owned()
         } else {
             "a path did not end".to_owned()

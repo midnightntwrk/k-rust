@@ -185,8 +185,8 @@ fn slot_cause(outcome: OracleOutcome, mutant: Option<&OracleSide>, budget: Budge
         ),
         Some(OracleSide::Unknown) => format!(
             "the mutant's run did not end in a value kink can compare (a path stopped at \
-             max_depth = {} or ended undecided, or a final configuration holds a Map, Set or \
-             List, an unevaluated function or a symbolic term)",
+             max_depth = {} or ended undecided, or a final configuration holds a collection kink \
+             cannot compare, such as one with a Bytes key, an unevaluated function or a symbolic term)",
             budget.max_depth
         ),
         Some(OracleSide::Error) => "the backend failed while running the mutant".into(),

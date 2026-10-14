@@ -14,7 +14,7 @@
 //! [`LeafFeasibility::Solver`] with the Z3 profile); otherwise it is `SolverUnknown`.
 //!
 //! A stuck leaf is complete for a ground term without a path condition, or when its state is feasible: its `Stuck` halt says that no instance of its state has a successor.
-//! In either case its terminal term must be definition-independent (TV-01): every application is a free constructor or a sort injection in k-rust's normal form (strict, well sorted, not nested; TV-01 fix 1), and every domain value has a trusted injective codec.
+//! In either case its terminal term must have a definition-independent value (TV-01): free constructors, normal-form injections and domain values with trusted injective codecs, or ground natural collections canonicalized by [`ObservationDecider::terminal_value`] (T-COLL).
 //! An unevaluated function, anywhere head or uninterpreted application makes the path `SolverUnknown` before terminal classification.
 //!
 //! A `Trivial` leaf is an undefined step: under its predicate, a rule applies to every instance of
@@ -526,11 +526,9 @@ pub(crate) fn partition_conjuncts(conjuncts: Vec<Pattern>) -> (Vec<Pattern>, Vec
 impl SplitState {
     /// The decided state: one definition-independent term, no predicate, and no free variable.
     /// Anything else is neither complete terminal evidence nor a real prefix.
-    fn decided_term(&self, independent: &dyn Fn(&Pattern) -> bool) -> Option<Pattern> {
+    fn decided_term(&self, value: &dyn Fn(&Pattern) -> Option<Pattern>) -> Option<Pattern> {
         match (self.terms.as_slice(), self.predicates.is_empty()) {
-            ([term], true) if term.free_variables().is_empty() && independent(term) => {
-                Some(term.clone())
-            }
+            ([term], true) if term.free_variables().is_empty() => value(term),
             _ => None,
         }
     }
@@ -616,7 +614,7 @@ impl<'a> PathSet<'a> {
         &mut self,
         leaf: &crate::execution::AdaptedLeaf,
         key: String,
-        independent: &dyn Fn(&Pattern) -> bool,
+        value: &dyn Fn(&Pattern) -> Option<Pattern>,
     ) -> Result<(), BridgeFailure> {
         let branch = &leaf.branch;
         let halt = leaf.halt;
@@ -635,12 +633,12 @@ impl<'a> PathSet<'a> {
             LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
         };
         let complete_term = match split.terms.as_slice() {
-            [term] if feasible && independent(term) => Some(term.clone()),
+            [term] if feasible => value(term),
             _ => None,
         };
         let mapped = match leaf_path(
             halt,
-            split.decided_term(independent),
+            split.decided_term(value),
             feasible,
             complete_term,
             self.context.classify,
@@ -740,6 +738,18 @@ pub fn paths_from_execution(
     context: &BridgeContext<'_>,
     independent: &dyn Fn(&Pattern) -> bool,
 ) -> Result<BridgedPaths, BridgeFailure> {
+    paths_from_execution_values(execution, context, &|term| {
+        independent(term).then(|| term.clone())
+    })
+}
+
+/// Reads an adapted execution using canonical terminal values.
+/// `value` must validate and canonicalize against this execution's own definition.
+pub fn paths_from_execution_values(
+    execution: &AdaptedExecution,
+    context: &BridgeContext<'_>,
+    value: &dyn Fn(&Pattern) -> Option<Pattern>,
+) -> Result<BridgedPaths, BridgeFailure> {
     if execution.timed_out {
         return Ok(BridgedPaths {
             paths: Vec::new(),
@@ -755,7 +765,7 @@ pub fn paths_from_execution(
     }
     let mut paths = PathSet::new(context);
     for (leaf, key) in execution.leaves.iter().zip(leaf_keys(&execution.leaves)) {
-        paths.push(leaf, key, independent)?;
+        paths.push(leaf, key, value)?;
     }
     Ok(paths.finish())
 }
@@ -820,12 +830,12 @@ pub fn paths_from_steps(
             LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
         };
         let complete_term = match split.terms.as_slice() {
-            [term] if feasible && decider.definition_independent(term) => Some(term.clone()),
+            [term] if feasible => decider.terminal_value(term),
             _ => None,
         };
         let mapped = match leaf_path(
             leaf.halt,
-            split.decided_term(&|term| decider.definition_independent(term)),
+            split.decided_term(&|term| decider.terminal_value(term)),
             feasible,
             complete_term,
             context.classify,
@@ -1028,12 +1038,12 @@ pub fn tree_from_steps(
             LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
         };
         let complete_term = match split.terms.as_slice() {
-            [term] if feasible && decider.definition_independent(term) => Some(term.clone()),
+            [term] if feasible => decider.terminal_value(term),
             _ => None,
         };
         let mapped = match leaf_path(
             leaf.halt,
-            split.decided_term(&|term| decider.definition_independent(term)),
+            split.decided_term(&|term| decider.terminal_value(term)),
             feasible,
             complete_term,
             context.classify,
@@ -1704,7 +1714,10 @@ mod tests {
         }
         // The path predicate keeps the constrained leaf's condition.
         let split = split_state(&kore(CONSTRAINED), &sorts).expect("split");
-        assert_eq!(split.decided_term(&independent), None);
+        assert_eq!(
+            split.decided_term(&|t| independent(t).then(|| t.clone())),
+            None
+        );
         assert!(matches!(split.path_predicate(), Pattern::Equals { .. }));
     }
 

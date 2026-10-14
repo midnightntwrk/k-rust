@@ -1,0 +1,12 @@
+[[mutation]]
+id = "binding-dropped"
+  [[mutation.edit]]
+  rule = "declaration"
+  find = "Rho => Rho [ X <- V ]"
+  replace = "Rho => Rho"
+[[mutation]]
+id = "update-as-concat"
+  [[mutation.edit]]
+  rule = "declaration"
+  find = "Rho => Rho [ X <- V ]"
+  replace = "Rho => Rho (X |-> V)"

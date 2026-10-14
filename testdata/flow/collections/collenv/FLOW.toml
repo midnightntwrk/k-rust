@@ -1,0 +1,15 @@
+[spec]
+entry = "collenv.k"
+main_module = "COLLENV"
+syntax_module = "COLLENV-SYNTAX"
+[budget]
+max_depth = 100
+[[program]]
+id = "let1"
+text = "let x = 1 ; x"
+[[program]]
+id = "shadow"
+text = "let x = 1 ; let x = 2 ; x"
+[[program]]
+id = "const"
+text = "42"

@@ -512,8 +512,67 @@ fn a_non_terminating_program_is_class_timeout() {
 }
 
 #[test]
-fn a_final_configuration_with_a_map_is_class_unknown_with_the_runners_cause() {
+fn a_ground_map_is_comparable_and_covers_its_rule() {
     let manifest = fixture("map-store", "map").join("FLOW.toml");
+    let (document, status) = run(&manifest, false);
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
+    assert!(document["programs"][0]["cause"].is_null());
+    let path = record_path(&manifest, &document, "store");
+    let mut record = read_json(&path);
+    assert_eq!(record["class"], "comparable");
+    assert!(record["baseline"].is_object() && record["run_sha256"].is_string());
+    let finals = record["final_configuration"].as_array().unwrap();
+    assert_eq!(finals.len(), 1);
+    let text = finals[0].as_str().unwrap();
+    assert!(
+        text.contains("Lbl'UndsPipe'-'-GT-Unds'") && text.contains("\\dv{SortInt{}}(\"2\")"),
+        "{text}"
+    );
+    assert_eq!(
+        record["coverage"]["sentences"][0]["label"],
+        "MAP-STORE.store"
+    );
+    assert_eq!(document["rules"][0]["status"], "covered");
+    assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
+
+    // U1: a v1 record is recomputed, never trusted under the v2 value rule.
+    assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v2");
+    record["key"]["schema_version"] = json!("kink-flow/result/v1");
+    fs::write(&path, record.to_string()).unwrap();
+    let (recomputed, status) = run(&manifest, false);
+    assert_eq!(status, EXIT_OK);
+    assert_eq!(rows(&recomputed), expect(&[("store", "comparable", false)]));
+    assert_eq!(
+        read_json(&path)["key"]["schema_version"],
+        RESULT_SCHEMA_VERSION
+    );
+
+    let (searched, status) = kink_flow::cli::run(
+        &manifest,
+        &manifest.parent().unwrap().join("MUTATIONS.toml"),
+        &kink_flow::search::RunOptions::default(),
+    );
+    assert_eq!(status, EXIT_OK, "{searched:#}");
+    assert_eq!(
+        searched["counts"],
+        json!({
+            "killed": 3, "survived": 1, "equivalent": 0, "invalid": 0,
+            "timeout": 0, "unknown": 0, "error": 0, "invalid-mutation": 0,
+        })
+    );
+    let survivor = searched["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["status"] == "survived")
+        .unwrap();
+    assert_eq!(survivor["id"], "update-as-concat");
+}
+
+#[test]
+fn a_bytes_key_remains_unknown_with_the_runners_cause() {
+    let manifest = fixture("bytes-map", "bytes-map").join("FLOW.toml");
     let (document, status) = run(&manifest, false);
     assert_eq!(status, EXIT_OK, "{document:#}");
     assert_eq!(rows(&document), expect(&[("store", "unknown", false)]));
@@ -521,25 +580,13 @@ fn a_final_configuration_with_a_map_is_class_unknown_with_the_runners_cause() {
         document["programs"][0]["cause"],
         "the campaign runner refused the baseline run (BaselineOracleFailed: a baseline \
          declaration-scoped oracle gate rejected); every path ended, but a final configuration \
-         is not a value kink can compare (for example it holds a Map, Set or List, an \
-         unevaluated function or a symbolic term); leaves: stuck at depth 1"
+         is not a value kink can compare (for example it holds a collection kink cannot compare, \
+         such as one with a Bytes key, an unevaluated function or a symbolic term); leaves: stuck at depth 1"
     );
     let record = read_json(&record_path(&manifest, &document, "store"));
     assert_eq!(record["class"], "unknown");
     assert!(record["baseline"].is_null() && record["run_sha256"].is_null());
-    let finals = record["final_configuration"].as_array().unwrap();
-    assert_eq!(finals.len(), 1);
-    // The stored map `1 |-> 2` is in the final configuration the reader sees.
-    let text = finals[0].as_str().unwrap();
-    assert!(
-        text.contains("Lbl'UndsPipe'-'-GT-Unds'") && text.contains("\\dv{SortInt{}}(\"2\")"),
-        "{text}"
-    );
-    // An unknown program reaches its rule, but only a comparable program covers it.
-    assert_eq!(
-        record["coverage"]["sentences"][0]["label"],
-        "MAP-STORE.store"
-    );
+    assert_eq!(record["final_configuration"].as_array().unwrap().len(), 1);
     assert_eq!(document["rules"][0]["status"], "uncovered");
     assert_eq!(document["rules"][0]["reached_by"], json!([]));
 }

@@ -1,6 +1,6 @@
 // Flow fixture (F-03): a program that writes a value into a Map cell and halts.
-// Until ground collections are admitted (corpus-scale CS-15/CS-16) a final
-// configuration holding a Map is not a comparable value: class unknown.
+// A final configuration holding a ground natural Map is comparable.
+// Collections with entries kink cannot compare remain class unknown.
 module MAP-STORE-SYNTAX
   imports INT-SYNTAX
   syntax Stmt ::= "store" "(" Int "," Int ")" [symbol(store)]

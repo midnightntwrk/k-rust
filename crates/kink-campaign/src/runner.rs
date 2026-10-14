@@ -59,7 +59,7 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{
-    BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution, tree_from_steps,
+    BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution_values, tree_from_steps,
     validate_test_initial_state,
 };
 use kink_native::coverage::{RuleAuthors, TestCoverage};
@@ -1159,14 +1159,14 @@ impl Runtime {
                     solver,
                     TestInitialState::of_test(&test.initial_state),
                 );
-                Ok::<_, k_rust::backend::BackendError>(paths_from_execution(
+                Ok::<_, k_rust::backend::BackendError>(paths_from_execution_values(
                     &execution,
                     &BridgeContext {
                         test_id: &test.id,
                         classify: campaign.classify,
                         sorts: &self.context.symbol_sorts,
                     },
-                    &|term| decider.definition_independent(term),
+                    &|term| decider.terminal_value(term),
                 ))
             }) {
                 Err(_) => SideRun::Sides {

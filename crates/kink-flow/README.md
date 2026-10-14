@@ -85,7 +85,7 @@ A program's class is
 | --- | --- | --- |
 | `comparable` | The run ended and its final configuration is a value kink compares. | Nothing: this program can kill mutants. |
 | `timeout` | The run did not end within `budget.time_ms`. | Make the program terminate, or raise the budget. |
-| `unknown` | The run ended without a comparable value (for example a Map in the final configuration, `budget.max_depth` reached, an undecided step); `cause` says which. | Write a program whose final configuration kink can compare. |
+| `unknown` | The run ended without a comparable value (for example a collection with a Bytes key, `budget.max_depth` reached, an undecided step); `cause` says which. | Write a program whose final configuration kink can compare. |
 | `refused` | The program was not read, parsed or assembled; `cause` is the refusal. | Fix the program. |
 | `error` | The run or the runner failed. | Report it. |
 
@@ -93,7 +93,7 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<spec digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v1`, the two digests and the budget), class and cause,
+(result schema version `kink-flow/result/v2`, the two digests and the budget), class and cause,
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), the final configuration as KORE text, and the rule
 coverage. The specification digest covers the k-rust revision, the solver profile, how the
@@ -252,7 +252,7 @@ A mutation row is `{id, note, digest, status, reason, killer, killer_from_cache,
 
 A row may also carry `stale_killer` (an entry naming a program that is gone, changed or no longer comparable; it was removed) and `cache_error`.
 The cause of an `unknown` slot names the possible reasons together (a path stopped at `max_depth`, an undecided end,
-or a final configuration holding a Map, Set or List, an unevaluated function or a symbolic term),
+or a final configuration holding a collection kink cannot compare (for example one with a Bytes key), an unevaluated function or a symbolic term),
 because the runner's evidence records that the mutant's value is unknown but not which of these stopped it.
 
 ## `kink-flow report FLOW.toml [--cache DIR]`

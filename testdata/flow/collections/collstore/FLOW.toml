@@ -1,0 +1,33 @@
+[spec]
+entry = "collstore.k"
+main_module = "COLLSTORE"
+syntax_module = "COLLSTORE-SYNTAX"
+[budget]
+max_depth = 100
+[[program]]
+id = "two"
+text = "putTwo(1, 10, 2, 20)"
+[[program]]
+id = "set12"
+text = "seq(addSet(1), addSet(2))"
+[[program]]
+id = "set11"
+text = "seq(addSet(1), addSet(1))"
+[[program]]
+id = "list12"
+text = "seq(logList(1), logList(2))"
+[[program]]
+id = "fkey0"
+text = "fKey(0)"
+[[program]]
+id = "byteskey"
+text = "bytesKey(\"a\")"
+[[program]]
+id = "nest"
+text = "nest(3)"
+[[program]]
+id = "halt"
+text = "halt()"
+[[program]]
+id = "clear"
+text = "seq(put(1, 10), clear())"

@@ -4095,10 +4095,9 @@ const TV01_ROWS: [(&str, &str); 25] = [
 /// `trust_base.rs` `review_kept_calls_are_terminals_only_for_a_lying_caller`), against the
 /// baseline's `done(7)`: Distinguish.
 ///
-/// Measured in both profiles and both schedules: every ground row except `list` and `map` runs
-/// `[[Unknown]]`, Unknown; `list`, `map` and every `sym-*` row are refused
-/// (`BaselineOracleFailed`: a collection is not a free constructor, and a symbolic terminal is
-/// not a value). The control below kills.
+/// Measured in both profiles and both schedules: every ground row, including `list` and `map`, runs
+/// `[[Unknown]]`, Unknown; every `sym-*` row is refused
+/// (`BaselineOracleFailed`: a symbolic terminal is not a value). The control below kills.
 #[test]
 fn audit_vi_tv01_review_mutant_kept_calls_are_not_killed() {
     with_stack(|| {
@@ -4148,10 +4147,17 @@ fn audit_vi_tv01_review_real_difference_still_kills() {
         let measured = tv01_audit(
             "tv01-control",
             &patch,
-            &[("inj", "whole"), ("ctor", "whole"), ("mk", "bind")],
+            &[
+                ("inj", "whole"),
+                ("ctor", "whole"),
+                ("mk", "bind"),
+                ("list", "whole"),
+                ("list", "path"),
+                ("map", "whole"),
+            ],
         );
         for ((id, oracle_name, mode), actual) in &measured {
-            if id == "inj" || id == "ctor" {
+            if id == "inj" || id == "ctor" || id == "list" || id == "map" {
                 assert!(
                     matches!(actual, Tv01Audit::Ran(_, MutantStatus::Killed)),
                     "{id} {oracle_name} {mode:?}: control does not kill: {actual:?}"

@@ -1,0 +1,53 @@
+[[mutation]]
+id = "putTwo-order"
+  [[mutation.edit]]
+  rule = "putTwo"
+  find = "M [ K1 <- V1 ] [ K2 <- V2 ]"
+  replace = "M [ K2 <- V2 ] [ K1 <- V1 ]"
+[[mutation]]
+id = "putTwo-values-swapped"
+  [[mutation.edit]]
+  rule = "putTwo"
+  find = "M [ K1 <- V1 ] [ K2 <- V2 ]"
+  replace = "M [ K1 <- V2 ] [ K2 <- V1 ]"
+[[mutation]]
+id = "union-as-concat"
+  [[mutation.edit]]
+  rule = "addSet"
+  find = "S |Set SetItem(I)"
+  replace = "S SetItem(I)"
+[[mutation]]
+id = "append-as-prepend"
+  [[mutation.edit]]
+  rule = "logList"
+  find = "L ListItem(I)"
+  replace = "ListItem(I) L"
+[[mutation]]
+id = "f0-deleted"
+  [[mutation.edit]]
+  rule = "f0"
+  delete = true
+[[mutation]]
+id = "f0-value"
+  [[mutation.edit]]
+  rule = "f0"
+  find = "f(0) => 0"
+  replace = "f(0) => 5"
+[[mutation]]
+id = "bytes-key-doubled"
+  [[mutation.edit]]
+  rule = "bytesKey"
+  find = "String2Bytes(S)"
+  replace = "String2Bytes(S +String S)"
+[[mutation]]
+id = "nest-value"
+  [[mutation.edit]]
+  rule = "nest"
+  find = "ListItem(I) ListItem(I)"
+  replace = "ListItem(I)"
+[[mutation]]
+id = "clear-noop"
+  [[mutation.edit]]
+  rule = "clear"
+  find = "_ => .Map"
+  replace = "M => M"
