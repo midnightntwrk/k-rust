@@ -9,6 +9,7 @@ use num_bigint::{BigInt, Sign};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 mod bytes;
+mod collection_item;
 mod float;
 #[cfg(test)]
 mod hook_models;
@@ -1642,7 +1643,16 @@ fn kequal(
 
 /// R-val: strict hook operands, defined wherever the result exists, denote different
 /// values when both are constructor-like and differ syntactically, or when they are apart.
+///
+/// The operands are of one sort: two constructor-like terms of different sorts may denote one
+/// value (`v` and `inj{Val, KItem}(v)`), so a caller compares an item with a collection's
+/// elements at a common sort (`collection_item`).
 pub(super) fn values_differ(sorts: Option<&SortGraph>, left: &Term, right: &Term) -> bool {
+    debug_assert_eq!(
+        left.sort(),
+        right.sort(),
+        "values_differ compares operands of one sort: {left:?} and {right:?}"
+    );
     (left.attributes().constructor_like && right.attributes().constructor_like && left != right)
         || crate::definedness::terms_apart(sorts, left, right).is_some()
 }

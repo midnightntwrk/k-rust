@@ -2312,6 +2312,62 @@ fn krun_compares_float_values_not_spellings() {
     }
 }
 
+/// A membership hook declared with an item of a strict subsort of the collection's element sort:
+/// `Val "inS" Set` asks whether a `Val` is an element of a set of `KItem`s, where a `Val` used as
+/// a `KItem` is its injection.
+const ITEM_OF_SUBSORT_MEMBERSHIP: &str = r#"
+requires "domains.md"
+module INS-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Val ::= v() | w()
+  syntax Pgm ::= go(Val) | check(Val) | done(Bool)
+endmodule
+module INS
+  imports INS-SYNTAX
+  imports SET
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax Bool ::= Val "inS" Set [function, total, hook(SET.in)]
+  rule <k> go(V) => done(V inS SetItem(V)) ~> done(w() inS SetItem(V)) ... </k>
+  rule <k> check(V) => done(V inS SetItem(V)) ... </k>
+endmodule
+"#;
+
+/// `v() inS SetItem(v())` is `true`: the set holds `v()` injected into `KItem`, which is the
+/// element the `Val` item denotes; `w() inS SetItem(v())` is `false`.
+#[test]
+fn krun_reads_a_membership_item_of_a_subsort_as_its_injection() {
+    let go = compact_success(&krun_mint_program(
+        ITEM_OF_SUBSORT_MEMBERSHIP,
+        "INS",
+        "go(v())",
+    ));
+    assert!(
+        go.contains(
+            r#"kseq{}(inj{SortPgm{},SortKItem{}}(Lbldone'LParUndsRParUnds'INS-SYNTAX'Unds'Pgm'Unds'Bool{}(\dv{SortBool{}}("true"))),kseq{}(inj{SortPgm{},SortKItem{}}(Lbldone'LParUndsRParUnds'INS-SYNTAX'Unds'Pgm'Unds'Bool{}(\dv{SortBool{}}("false"))),dotk{}()))"#
+        ),
+        "{go}"
+    );
+}
+
+/// The claim that `v() inS SetItem(v())` is `false` is not proven: the item is the set's element,
+/// and the ground claim is disproved at the `done(true)` leaf; the claim that it is `true` is
+/// proven.
+#[test]
+fn kprove_does_not_prove_a_subsort_item_absent_from_a_set_holding_it() {
+    for (spec, value, expected) in [
+        ("INS-FALSE", "false", "disproved"),
+        ("INS-TRUE", "true", "proven"),
+    ] {
+        let source = format!(
+            "{ITEM_OF_SUBSORT_MEMBERSHIP}module {spec}\n  imports INS\n  \
+             claim <k> check(v()) => done({value}) ... </k>\nendmodule\n"
+        );
+        let (verdict, stdout) = kprove_single_claim(&source, spec, "INS");
+        assert_eq!(verdict, expected, "{spec}: {stdout}");
+    }
+}
+
 /// `krun` of `program` (a `Pgm`) in the definition `source` with main module `module`.
 fn krun_mint_program(source: &str, module: &str, program: &str) -> Output {
     let (root, definition) = fixture();
