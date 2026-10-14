@@ -28,7 +28,7 @@
 //! must never hold an impure application: [`deferred_obligations`] returns that case as a
 //! [`DeferredOutcome`], which its callers turn into the step's unsupported-hook stop.
 
-use std::{cell::RefCell, collections::VecDeque, marker::PhantomData};
+use std::{cell::RefCell, collections::VecDeque, marker::PhantomData, sync::Arc};
 
 use k_rust_kore::names::{BuiltinSort, OWISE_RULE_PRIORITY};
 
@@ -43,7 +43,7 @@ use crate::{
     simplify::{EquationInstances, Instance, SimplificationError, equation_instances},
     stop::{self, Stoppable},
     substitution::{Substitution, substitute},
-    term::{FunctionType, SymbolType, Term, TermKind, VariableKind},
+    term::{FunctionType, NodeIdentity, Sort, Symbol, SymbolType, Term, TermKind, VariableKind},
 };
 
 /// The three hooked symbols whose deciding operand selects the operand that is evaluated.
@@ -523,16 +523,21 @@ fn defined_without_value(definition: &BackendDefinition, term: &Term) -> Stoppab
 /// the definition (the sorts and kinds it checks its constructions against) and the evaluation
 /// mode: no path condition, console, step or other state enters it. A kept result is read for an
 /// application of the same symbol at the same sort arguments whose arguments are the very term
-/// nodes of the kept application (`Term::ptr_eq`), in the same mode, under the same definition.
-/// The kept application holds those nodes, so no other term can take their addresses while the
-/// result is kept, and the same nodes are equal terms: the key is exact. Comparing identities
+/// nodes the result was computed from, in the same mode, under the same definition. The entry
+/// holds those nodes' identities ([`NodeIdentity`]), so no other node can take their addresses
+/// while it exists, and the same nodes are equal terms: the key is exact. Comparing identities
 /// costs one pointer comparison per argument, never a walk of a collection. An equal argument
-/// that is another node (a copy, or a collection rebuilt by a step) is not recognised, and the
+/// that is another node (a copy, or a collection a step rebuilt) is not recognised, and the
 /// application is evaluated, as it would be without the scope.
+///
+/// A result is kept the second time its application is read: the first read records only the
+/// identities, which hold no term alive. So a collection that a step rebuilds, whose
+/// applications are read once each, leaves nothing alive behind it, and one that stays the same
+/// node is evaluated at most twice.
 ///
 /// An application whose arguments are all domain values is evaluated each time, since its
 /// evaluation costs no more than the lookup would; one with a collection or constructor argument
-/// is the work that grows with its argument and is kept. A stop is never kept.
+/// is the work that grows with its argument. A stop is never kept.
 fn evaluate_pure_hook(
     definition: &BackendDefinition,
     application: &Term,
@@ -540,101 +545,126 @@ fn evaluate_pure_hook(
     let TermKind::Application { arguments, .. } = application.kind() else {
         return evaluate_in_definition(application, definition);
     };
-    let kept = !arguments
+    if arguments
         .iter()
-        .all(|argument| matches!(argument.kind(), TermKind::DomainValue { .. }));
-    let mode = crate::evaluation::current();
-    if kept
-        && let Some(result) = HOOK_VALUES.with_borrow(|values| {
-            values
-                .as_ref()
-                .filter(|values| std::ptr::eq(values.definition, definition))
-                .and_then(|values| {
-                    values
-                        .kept
-                        .iter()
-                        .find(|value| {
-                            value.mode == mode && same_nodes(&value.application, application)
-                        })
-                        .map(|value| value.result.clone())
-                })
-        })
+        .all(|argument| matches!(argument.kind(), TermKind::DomainValue { .. }))
     {
+        return evaluate_in_definition(application, definition);
+    }
+    let mode = crate::evaluation::current();
+    let seen = HOOK_VALUES.with_borrow(|values| {
+        values
+            .as_ref()
+            .filter(|values| std::ptr::eq(values.definition, definition))
+            .and_then(|values| values.entry(mode, application))
+            .map(|entry| entry.result.clone())
+    });
+    if let Some(Some(result)) = seen {
         return Ok(result);
     }
     #[cfg(test)]
     tests::HOOK_EVALUATIONS.with(|count| count.set(count.get() + 1));
     let result = evaluate_in_definition(application, definition)?;
-    if kept {
-        HOOK_VALUES.with_borrow_mut(|values| {
-            if let Some(values) = values
-                .as_mut()
-                .filter(|values| std::ptr::eq(values.definition, definition))
-            {
-                if values.kept.len() >= HOOK_VALUES_CAPACITY {
-                    values.kept.pop_front();
-                }
-                values.kept.push_back(HookValue {
-                    mode,
-                    application: application.clone(),
-                    result: result.clone(),
-                });
-            }
-        });
-    }
+    HOOK_VALUES.with_borrow_mut(|values| {
+        let Some(values) = values
+            .as_mut()
+            .filter(|values| std::ptr::eq(values.definition, definition))
+        else {
+            return;
+        };
+        if let Some(entry) = values
+            .entries
+            .iter_mut()
+            .find(|entry| entry.names(mode, application))
+        {
+            entry.result = Some(result.clone());
+            return;
+        }
+        if values.entries.len() >= HOOK_VALUES_CAPACITY {
+            values.entries.pop_front();
+        }
+        if let Some(entry) = HookValue::first_read(mode, application) {
+            values.entries.push_back(entry);
+        }
+    });
     Ok(result)
 }
 
-/// Whether `application` applies the symbol of `kept` at the same sort arguments to the very
-/// argument nodes of `kept`.
-fn same_nodes(kept: &Term, application: &Term) -> bool {
-    match (kept.kind(), application.kind()) {
-        (
-            TermKind::Application {
-                symbol: kept_symbol,
-                sort_arguments: kept_sorts,
-                arguments: kept_arguments,
-            },
-            TermKind::Application {
-                symbol,
-                sort_arguments,
-                arguments,
-            },
-        ) => {
-            (std::sync::Arc::ptr_eq(kept_symbol, symbol) || kept_symbol == symbol)
-                && kept_sorts == sort_arguments
-                && kept_arguments.len() == arguments.len()
-                && kept_arguments
-                    .iter()
-                    .zip(arguments)
-                    .all(|(kept, argument)| kept.ptr_eq(argument))
-        }
-        _ => false,
+/// How many applications a [`HookValueScope`] remembers; past it, the oldest is forgotten. Each
+/// kept result can be as large as a collection argument, so the count bounds what the scope
+/// holds alive to a few collections. A step reads at most two applications of one discarded
+/// operand (a listing and its size), and the following steps read them again while the
+/// collection is the same node.
+const HOOK_VALUES_CAPACITY: usize = 4;
+
+/// One application [`evaluate_pure_hook`] read, by the identity of its argument nodes.
+struct HookValue {
+    mode: EvaluationMode,
+    symbol: Arc<Symbol>,
+    sort_arguments: Vec<Sort>,
+    arguments: Vec<NodeIdentity>,
+    /// The evaluator's result, kept from the second read on.
+    result: Option<Result<BuiltinResult, BuiltinError>>,
+}
+
+impl HookValue {
+    /// The entry of a first read of `application`, which keeps no result.
+    fn first_read(mode: EvaluationMode, application: &Term) -> Option<Self> {
+        let TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } = application.kind()
+        else {
+            return None;
+        };
+        Some(Self {
+            mode,
+            symbol: Arc::clone(symbol),
+            sort_arguments: sort_arguments.clone(),
+            arguments: arguments.iter().map(Term::identity).collect(),
+            result: None,
+        })
+    }
+
+    /// Whether `application`, in `mode`, applies this entry's symbol at its sort arguments to
+    /// the very argument nodes it names.
+    fn names(&self, mode: EvaluationMode, application: &Term) -> bool {
+        let TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } = application.kind()
+        else {
+            return false;
+        };
+        self.mode == mode
+            && self.arguments.len() == arguments.len()
+            && self
+                .arguments
+                .iter()
+                .zip(arguments)
+                .all(|(identity, argument)| identity.is(argument))
+            && (Arc::ptr_eq(&self.symbol, symbol) || self.symbol == *symbol)
+            && self.sort_arguments == *sort_arguments
     }
 }
 
-/// How many results a [`HookValueScope`] keeps; past it, the oldest is forgotten. Each kept
-/// application holds its collection argument and each kept result can be as large as it, so the
-/// count bounds what the scope holds alive to a few collections. A step reads at most two results
-/// of one discarded operand (a listing and its size), and the following steps read them again
-/// while the collection is the same node.
-const HOOK_VALUES_CAPACITY: usize = 4;
-
-/// One kept result of [`evaluate_pure_hook`].
-struct HookValue {
-    mode: EvaluationMode,
-    /// The application, which also holds its argument nodes, so their addresses stay reserved.
-    application: Term,
-    result: Result<BuiltinResult, BuiltinError>,
-}
-
-/// The results [`evaluate_pure_hook`] keeps under the innermost open [`HookValueScope`], oldest
-/// first.
+/// The applications [`evaluate_pure_hook`] read under the innermost open [`HookValueScope`],
+/// oldest first.
 struct HookValues {
     /// The scope's definition, which the scope borrows, so it is alive and unmoved while these
     /// results are reachable.
     definition: *const BackendDefinition,
-    kept: VecDeque<HookValue>,
+    entries: VecDeque<HookValue>,
+}
+
+impl HookValues {
+    fn entry(&self, mode: EvaluationMode, application: &Term) -> Option<&HookValue> {
+        self.entries
+            .iter()
+            .find(|entry| entry.names(mode, application))
+    }
 }
 
 thread_local! {
@@ -644,8 +674,8 @@ thread_local! {
 
 /// A backend entry point's scope for the results of pure builtin hooks that the deferred
 /// definedness steps evaluate ([`evaluate_pure_hook`]): within it, an application to the same
-/// argument nodes under the same definition and evaluation mode is evaluated once while its
-/// result is among the last [`HOOK_VALUES_CAPACITY`] kept, however many steps, hook sites,
+/// argument nodes under the same definition and evaluation mode is evaluated at most twice
+/// while it is among the last [`HOOK_VALUES_CAPACITY`] read, however many steps, hook sites,
 /// constraint simplifications and atom decisions read it. Opened beside
 /// `term::domain::DomainScope` by the simplification, rewrite-step, execution and proof entry
 /// points.
@@ -674,7 +704,7 @@ impl<'a> HookValueScope<'a> {
         let replaced = (!shares).then(|| {
             HOOK_VALUES.replace(Some(HookValues {
                 definition,
-                kept: VecDeque::with_capacity(HOOK_VALUES_CAPACITY),
+                entries: VecDeque::with_capacity(HOOK_VALUES_CAPACITY),
             }))
         });
         Self {
@@ -1414,7 +1444,7 @@ mod tests {
     }
 
     /// `loop(I, M, _) => loop(I -Int 1, M, #if true #then I #else choice(M) #fi)` while `I > 0`,
-    /// and `loop(0, _, _) => done()`; the claim runs it three steps from a two-binding map, so
+    /// and `loop(0, _, _) => done()`; the claim runs it six steps from a two-binding map, so
     /// every step discards the same `choice(M)`, whose value only an execution chooses.
     fn definition() -> BackendDefinition {
         let syntax = parse_definition(
@@ -1465,7 +1495,7 @@ mod tests {
                 claim{} \implies{SortState{}}(
                     \and{SortState{}}(
                         loop{}(
-                            \dv{SortInt{}}("3"),
+                            \dv{SortInt{}}("6"),
                             mapConcat{}(
                                 mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("10")),
                                 mapItem{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("20"))
@@ -1490,11 +1520,12 @@ mod tests {
     }
 
     #[test]
-    fn a_discarded_operand_is_evaluated_once_whatever_the_steps_and_sites_that_read_it() {
-        // Three steps each discard `choice(M)` over the same ground map. Its evaluator's result
+    fn a_discarded_operand_is_evaluated_at_most_twice_whatever_the_steps_and_sites_that_read_it() {
+        // Six steps each discard `choice(M)` over the same map node. Its evaluator's result
         // depends on the application, the definition and the evaluation mode alone, so it is
-        // computed once: on the proof route the hook site, the state's constraints and the
-        // undefined-step check each read it, and on the execution route each step's hook site.
+        // computed on the first read and on the second, which keeps it: on the proof route the
+        // hook site, the state's constraints and the undefined-step check each read it, and on
+        // the execution route each step's hook site.
         let definition = definition();
         let claim = &definition.reachability_claims()[0];
         let before = hook_evaluations();
@@ -1522,7 +1553,7 @@ mod tests {
         let execution_route = hook_evaluations() - before;
         assert_eq!(
             (proof_route, execution_route),
-            (1, 1),
+            (2, 2),
             "evaluations of the discarded choice(M) on the proof and execution routes"
         );
     }
@@ -1544,52 +1575,61 @@ mod tests {
         (hook_evaluations() - before, result)
     }
 
+    /// The evaluator calls of `reads` successive reads of `application`.
+    fn reads(definition: &BackendDefinition, application: &Term, reads: usize) -> Vec<usize> {
+        (0..reads)
+            .map(|_| evaluations(definition, application).0)
+            .collect()
+    }
+
     #[test]
     fn a_result_is_read_for_the_same_argument_nodes_under_the_innermost_scope_of_its_definition() {
-        // The kept result is read for the same argument nodes only: an equal copy is evaluated.
-        // The scope's results are its definition's only, and a nested scope of another definition reads none of the enclosing results and keeps
-        // none for them, and they come back when it closes.
+        // The first read records the argument nodes, the second keeps the result, and later
+        // reads take it, with the same value. An equal copy is other nodes and is evaluated. The
+        // scope's results are its definition's only: the same nodes under another definition
+        // are neither read nor kept, a nested scope of another definition reads none of the
+        // enclosing results and keeps none for them, and they come back when it closes.
         let first = definition();
         let second = definition();
         let application = choice(&first);
         let _outer = HookValueScope::enter(&first);
         let (count, value) = evaluations(&first, &application);
         assert_eq!(count, 1);
+        assert_eq!(evaluations(&first, &application), (1, value.clone()));
         assert_eq!(evaluations(&first, &application), (0, value.clone()));
         assert_eq!(
             evaluations(&first, &application.unshared_copy()),
             (1, value.clone())
         );
-        // The same nodes under another definition than the scope's are neither read nor kept.
-        assert_eq!(evaluations(&second, &application), (1, value.clone()));
-        assert_eq!(evaluations(&second, &application), (1, value.clone()));
+        assert_eq!(reads(&second, &application, 3), [1, 1, 1]);
         {
             let _inner = HookValueScope::enter(&second);
-            assert_eq!(evaluations(&second, &choice(&second)).0, 1);
-            assert_eq!(evaluations(&first, &application), (1, value.clone()));
-            assert_eq!(evaluations(&first, &application), (1, value.clone()));
+            assert_eq!(reads(&second, &choice(&second), 3), [1, 1, 0]);
+            assert_eq!(reads(&first, &application, 3), [1, 1, 1]);
         }
         assert_eq!(evaluations(&first, &application), (0, value));
     }
 
     #[test]
     fn a_stopped_evaluation_is_not_kept() {
+        // A read that stops records nothing: the next reads are a first and a second read.
         let definition = definition();
         let application = choice(&definition);
         let _scope = HookValueScope::enter(&definition);
         let token = CancellationToken::new();
         token.cancel();
-        match token.scope(|| evaluate_pure_hook(&definition, &application)) {
-            Err(stop) => assert_eq!(stop.into_cause(), StopCause::Cancelled),
-            Ok(result) => panic!("the cancelled request evaluated {result:?}"),
+        for _ in 0..2 {
+            match token.scope(|| evaluate_pure_hook(&definition, &application)) {
+                Err(stop) => assert_eq!(stop.into_cause(), StopCause::Cancelled),
+                Ok(result) => panic!("the cancelled request evaluated {result:?}"),
+            }
         }
-        assert_eq!(evaluations(&definition, &application).0, 1);
-        assert_eq!(evaluations(&definition, &application).0, 0);
+        assert_eq!(reads(&definition, &application, 3), [1, 1, 0]);
     }
 
     #[test]
-    fn a_scope_keeps_its_last_results_only() {
-        // Past the capacity the oldest result is forgotten, which bounds the collections a
+    fn a_scope_keeps_its_last_applications_only() {
+        // Past the capacity the oldest application is forgotten, which bounds the results a
         // scope holds alive.
         let definition = definition();
         let _scope = HookValueScope::enter(&definition);
@@ -1597,13 +1637,13 @@ mod tests {
             .map(|_| choice(&definition).unshared_copy())
             .collect();
         for application in &applications {
-            assert_eq!(evaluations(&definition, application).0, 1);
+            assert_eq!(reads(&definition, application, 2), [1, 1]);
         }
         assert_eq!(
-            evaluations(&definition, &applications[HOOK_VALUES_CAPACITY]).0,
-            0
+            reads(&definition, &applications[HOOK_VALUES_CAPACITY], 1),
+            [0]
         );
-        assert_eq!(evaluations(&definition, &applications[1]).0, 0);
-        assert_eq!(evaluations(&definition, &applications[0]).0, 1);
+        assert_eq!(reads(&definition, &applications[1], 1), [0]);
+        assert_eq!(reads(&definition, &applications[0], 1), [1]);
     }
 }

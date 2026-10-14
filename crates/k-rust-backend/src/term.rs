@@ -864,6 +864,19 @@ impl fmt::Debug for TermData {
 #[derive(Clone, Debug)]
 pub struct Term(Arc<TermData>);
 
+/// The identity of one term node ([`Term::identity`]). It holds a weak handle, so the node's
+/// allocation, and with it its address, is not reused while the identity exists, but the term
+/// itself is freed when its last handle goes: a node is never mistaken for another, and nothing
+/// is kept alive.
+pub(crate) struct NodeIdentity(std::sync::Weak<TermData>);
+
+impl NodeIdentity {
+    /// Whether `term` is the node this identity names.
+    pub(crate) fn is(&self, term: &Term) -> bool {
+        std::ptr::eq(self.0.as_ptr(), Arc::as_ptr(&term.0))
+    }
+}
+
 /// Frees a term one node at a time, with the same stack whatever its depth.
 ///
 /// The drop glue of a node drops its subterms, whose glue drops theirs: one group of frames per
@@ -1654,6 +1667,11 @@ impl Term {
     /// Whether two handles share the same immutable term allocation.
     pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// This node's identity, which keeps its address reserved without keeping the term alive.
+    pub(crate) fn identity(&self) -> NodeIdentity {
+        NodeIdentity(Arc::downgrade(&self.0))
     }
 
     #[cfg(feature = "measure")]
