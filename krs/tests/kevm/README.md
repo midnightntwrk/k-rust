@@ -16,5 +16,5 @@ Both routes build each outcome from the corpus case once its expectations are me
 The Java reference route skips only the cases named with reasons in `HASKELL_BACKEND_GAPS`; every other native case must be compared.
 The Java-kompiled definition remains pinned, while reference behavior is checked against the corpus expectations.
 
-The `--artifacts-only` option checks pinned emitted artifacts and native KORE without executing the behavior corpus.
+The `--artifacts-only` option checks the pinned emitted artifacts and lowers them through k-rust without executing the behavior corpus; the native KORE is k-rust's output, so its digest is not pinned.
 The `--record` option updates measured output pins only after the complete selected gate passes; review any pin change before accepting it.

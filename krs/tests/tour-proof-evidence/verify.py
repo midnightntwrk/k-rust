@@ -129,13 +129,6 @@ def verify_llvm_claim_omission() -> None:
     if lock.get("backend_policy", {}).get("llvm_claims") != "omitted":
         raise GateError("Krs.lock no longer pins the LLVM claim-omission policy")
 
-    pins = Ledger(ROOT / "tests/imp/pins.json")
-    llvm = pins.table("llvm_artifact_sha256")
-    if set(llvm) != {".krs-artifacts", "definition.kore", "macros.kore", "syntaxDefinition.kore"} or not all(
-        isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) for digest in llvm.values()
-    ):
-        raise GateError("IMP's claim-free LLVM artifacts are not pinned")
-
     require_named_tests(
         "krs-k-rust",
         ("--lib",),

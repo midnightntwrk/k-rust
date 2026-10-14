@@ -26,11 +26,11 @@ A fixture compared with `kore=True` also compares its native `definition.kore`
 with the one Java K kompiled, as normalized sentence multisets of the main
 module (`krs-gate kore-compare`, the IMP comparator). The stored Java
 `definition.kore` passes through `krs-gate kore-canonicalize`, because Java K
-numbers generated lambdas in an order that varies between runs. The comparator's summary
-line and the digest of its whole report are pinned as
-`kore_comparison.<package>`. A difference fails unless the ledger declares it
-as `known_divergences.<package>."definition.kore"`, the first line of the
-comparator's report.
+numbers generated lambdas in an order that varies between runs. A difference
+fails unless the ledger declares it as `known_divergences.<package>."definition.kore"`,
+the first line of the comparator's report; its sentence counts are not compared,
+and neither the summary nor the report is pinned, because they count k-rust's
+output, which changes with k-rust and which k-rust's own gates check.
 
 Negative fixtures pin the first diagnostic line of a failing `krs check`
 (`diagnostics.<name>`), with absolute paths of the repository replaced.
@@ -395,14 +395,14 @@ class FixtureGate:
         return reduce
 
     def compare_kore(self, emitted: Emitted, *, native: Path | None = None) -> dict[str, str]:
-        """Compare the native `definition.kore` with Java K's in the main module, and pin the result.
+        """Compare the native `definition.kore` with Java K's in the main module.
 
         Java K's definition is the one `_java_outcomes(..., kore=True)` (or a
         kompile with the `java_kore_output` output) stored. `native` names a
         native artifact directory already built, such as a `--backend llvm`
         build; by default the fixture is built with `krs build`.
         The comparison must pass, or fail with the first line the ledger
-        declares as `known_divergences.<package>."definition.kore"`.
+        declares as `known_divergences.<package>."definition.kore"`, counts aside.
         """
 
         package = emitted.fixture.package
@@ -422,13 +422,11 @@ class FixtureGate:
             raise GateError(f"{package}: native and Java K definition.kore differ in {emitted.main_module}:\n{report}")
         if declared is not None and process.returncode == 0:
             raise GateError(f"{package}: the pinned definition.kore divergence disappeared: {summary}")
-        if declared is not None and summary != declared:
+        if declared is not None and _uncounted(summary) != _uncounted(declared):
             raise GateError(
                 f"{package}: pinned definition.kore divergence changed: expected {declared!r}, observed:\n{report}"
             )
-        observed = {"summary": summary, "report_sha256": _sha256_text(report)}
-        self.pins.expect(("kore_comparison", package), observed)
-        return observed
+        return {"summary": summary, "report_sha256": _sha256_text(report)}
 
     def _java_outcomes(
         self, emitted: Emitted, programs: Sequence[Program], *, sort: str, search: bool = False,
@@ -582,6 +580,12 @@ def diagnostic_lines(stderr: str) -> list[str]:
         if re.match(r"^(error|warning)(\[[^\]]+\])?: ", line) or line.startswith("krs: "):
             lines.append(line.replace(os.fspath(ROOT), "{{root}}"))
     return lines
+
+
+def _uncounted(summary: str) -> str:
+    """A comparator summary with its counts (`reference=405`) left out."""
+
+    return re.sub(r"=\d+", "=N", summary)
 
 
 def _sha256_text(text: str) -> str:

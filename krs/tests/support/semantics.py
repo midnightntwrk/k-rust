@@ -313,13 +313,15 @@ def native_definition(
     pins: Ledger,
     environment: Mapping[str, str],
 ) -> str:
-    """Lower the emitted Definition IR through k-rust and return its pinned KORE digest."""
+    """Lower the emitted Definition IR through k-rust and return its KORE digest.
+
+    The digest is not pinned: the KORE is k-rust's output, which k-rust's own
+    gates check; the behavior and proof layers check what it does.
+    """
 
     definition = workspace / "native-definition.kore"
     krs_gate.compile(gate, artifacts / "definition-ir.json", definition, environment=environment)
-    digest = sha256_file(definition)
-    pins.expect("native_definition_kore_sha256", digest)
-    return digest
+    return sha256_file(definition)
 
 
 _NATIVE_SUMMARY = re.compile(r"^PASS native (\S+) behavior: (\d+) executions; sha256=([0-9a-f]{64})$")

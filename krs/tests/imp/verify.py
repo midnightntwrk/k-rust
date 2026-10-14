@@ -437,8 +437,10 @@ def krs_invocation(krs: Path) -> Invocation:
 
 
 def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Path:
-    """Build the native definition twice per backend and pin both.
+    """Build the native definition twice per backend and require identical builds.
 
+    Only the KRS-owned ownership marker is pinned: the KORE is k-rust's output,
+    which k-rust's own gates check, and IMP.7 and IMP.8 check what it does.
     The concrete LLVM backend does not prove, so its build omits every claim.
     """
 
@@ -454,8 +456,7 @@ def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Pat
         if not process.stdout.endswith(omitted):
             raise GateError(f"LLVM build did not report its omitted claims: {process.stdout!r}")
         llvm_builds.append(output)
-    for name, digest in exact_directory(llvm_builds[0], llvm_builds[1], NATIVE_ARTIFACTS).items():
-        context.pins.expect(("llvm_artifact_sha256", name), digest)
+    exact_directory(llvm_builds[0], llvm_builds[1], NATIVE_ARTIFACTS)
 
     builds: list[Path] = []
     for name in ("native-a", "native-b"):
@@ -466,11 +467,9 @@ def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Pat
             environment=env,
         )
         builds.append(output)
-    native_files = tuple(context.pins.get("native_artifact_sha256", {}).keys())
-    if not native_files:
-        raise GateError("native artifact set is absent from pins.json")
-    for name, digest in exact_directory(builds[0], builds[1], native_files).items():
-        context.pins.expect(("native_artifact_sha256", name), digest)
+    for name, digest in exact_directory(builds[0], builds[1], NATIVE_ARTIFACTS).items():
+        if not name.endswith(".kore"):
+            context.pins.expect(("native_artifact_sha256", name), digest)
     return builds[0]
 
 

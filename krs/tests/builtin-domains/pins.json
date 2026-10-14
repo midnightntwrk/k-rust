@@ -1016,16 +1016,6 @@
       }
     }
   },
-  "kore_comparison": {
-    "krs-builtin-io-hooks": {
-      "summary": "PASS native KORE: reference=3119 native=3119 reference_injective_withheld=0 native_transport_rewrites=8 reference_lambda_symbols=0 native_lambda_symbols=0",
-      "report_sha256": "263a6d1f8624c5015536fd2db8b7fee1ee4e8438f82ef6b35647295cca4a0cf8"
-    },
-    "krs-builtin-io-log": {
-      "summary": "PASS native KORE: reference=3114 native=3114 reference_injective_withheld=0 native_transport_rewrites=8 reference_lambda_symbols=0 native_lambda_symbols=0",
-      "report_sha256": "a4ad6ef18a2e7e7764eb609e3bc471136c235134ae870cb8ab226c67f0c1544d"
-    }
-  },
   "float_outputs": {
     "krs-builtin-floats": {
       "negate-binary64": {

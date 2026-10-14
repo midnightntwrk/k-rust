@@ -265,27 +265,5 @@
     "krs-patterns-functions-lets": {
       "definition.kore": "krs-gate kore-compare: KORE sentence multisets differ: reference=405, native=403, missing=21, extra=19"
     }
-  },
-  "kore_comparison": {
-    "krs-patterns-functions-matches": {
-      "summary": "PASS native KORE: reference=344 native=344 reference_injective_withheld=0 native_transport_rewrites=7 reference_lambda_symbols=6 native_lambda_symbols=6",
-      "report_sha256": "eb3fbad09a9a6cd31ff346dfe17945d508db89fc9b105e0e5f17a756cf042dd8"
-    },
-    "krs-patterns-functions-lets": {
-      "summary": "krs-gate kore-compare: KORE sentence multisets differ: reference=405, native=403, missing=21, extra=19",
-      "report_sha256": "736f13e357fc0cee22702e8affd899f16ab4fa1288f98a5e661f51eb25d760b7"
-    },
-    "krs-patterns-functions-aliases": {
-      "summary": "PASS native KORE: reference=289 native=289 reference_injective_withheld=0 native_transport_rewrites=7 reference_lambda_symbols=0 native_lambda_symbols=0",
-      "report_sha256": "fd5fe60a25b8c673f053140ee1babaf42afecb791310c56fe9e8ad316bd735b1"
-    },
-    "krs-patterns-functions-alternatives": {
-      "summary": "PASS native KORE: reference=290 native=290 reference_injective_withheld=0 native_transport_rewrites=7 reference_lambda_symbols=0 native_lambda_symbols=0",
-      "report_sha256": "b89b3732ac3d9cde110e4190dbb07440be5f6672bc379aa5507bcbb4c63b933c"
-    },
-    "krs-patterns-functions-contexts": {
-      "summary": "PASS native KORE: reference=419 native=419 reference_injective_withheld=0 native_transport_rewrites=7 reference_lambda_symbols=0 native_lambda_symbols=0",
-      "report_sha256": "14ed2d2cb4ef98643237b19b0099f91feec8d929850f91afbc29a8be0c72f2dd"
-    }
   }
 }

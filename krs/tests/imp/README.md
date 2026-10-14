@@ -114,11 +114,16 @@ the IMP state, IMP control flow, and IMP static semantics ledgers, IMP checks th
   versions, the MSRV, and the schema versions come from `Krs.lock`.
   Each external checkout must be clean at its pinned revision, which fixes every
   external file, so no external file is digested separately;
-- outputs KRS produces: the artifact and native artifact digests, the
-  source-definition projection digests, the claim-free LLVM artifact digests,
+- outputs KRS produces: the artifact digests and the native build's ownership
+  marker, the source-definition projection digests,
   the behavior summary, the compatibility report digest, the native-run
   summary (`native_run`) and `krs prove` verdicts (`native_proof_verdicts`),
   and the manifest digest of each reference snapshot (`reference_sha256`, see "Java K");
+  The native and LLVM builds' KORE is k-rust's output, which k-rust's own gates
+  check: IMP requires two builds to be byte-identical but pins no KORE digest;
+  IMP.5 compares the native KORE with Java K's, and IMP.6-IMP.9 check what it does.
+  The `proofs` snapshot still keys its `kore-exec` runs on the native KORE, so a
+  k-rust change to IMP's native KORE needs a `--refresh-reference --record` run;
 - reviewed comparison policy: claim labels, the source-definition and term
   allowances, the native label map, the 21 reference proof outcomes, which
   describe the upstream reference route rather than KRS output, and the named

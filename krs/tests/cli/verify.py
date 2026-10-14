@@ -309,7 +309,13 @@ def verify_pins(results: Results, pins: Ledger, artifacts: dict[str, bytes]) -> 
         "PASS" if fixture_actual == pins["fixture_sha256"] else "FAIL",
         f"sha256={fixture_actual}",
     )
-    actual = {name: sha256_bytes(data) for name, data in sorted(artifacts.items())}
+    # A built definition's KORE is k-rust's output, which k-rust's own gates check;
+    # the run and parse results below pin what it does.
+    actual = {
+        name: sha256_bytes(data)
+        for name, data in sorted(artifacts.items())
+        if not (name.startswith("native/") and name.endswith(".kore"))
+    }
     failures = []
     if not pins.record and set(actual) != set(pins.table("artifacts_sha256")):
         failures.append(f"artifact set differs from pins.json: {sorted(actual)}")
