@@ -100,6 +100,11 @@ enum PairSolution {
 /// subject entries) says nothing about the other alternatives: those it decides are solutions
 /// whatever the undecided one turns out to be, and only the completeness of the whole is lost.
 /// An empty complete set is a decided failure; an empty incomplete set is an undecided problem.
+///
+/// Only a caller without [`Narrowing`] reads an incomplete set's solutions
+/// ([`match_collection_remainders_all_in_definition`]); with narrowing, which mints fresh frame
+/// variables, the solver stops at the first undecided alternative, as every such caller needs
+/// all the solutions or none.
 struct Solved {
     found: Vec<CollectionSolution>,
     complete: bool,
@@ -141,7 +146,8 @@ const MAX_NESTED_COLLECTION_DEPTH: usize = 64;
 
 /// Solve deferred collection pairs in their original, pattern-oriented order.
 ///
-/// `None` means at least one pair needs collection or term theory outside the supported fragment;
+/// `None` means at least one pair needs collection or term theory outside the supported fragment,
+/// or could not be decided for some alternative;
 /// an empty vector means the equation is decidably bottom. Supplying [`Narrowing`] additionally
 /// permits a variable frame on the subject side to absorb pattern entries.
 pub(crate) fn solve_collection_pairs_in_definition(
@@ -235,7 +241,7 @@ fn solve_collection_pairs_from_solution(
         deferred.extend(pairs[index + 1..].iter().cloned());
         return continue_solutions(mode, definition, found.found, &deferred, narrowing, depth);
     }
-    let Some((position, found)) = partial else {
+    let Some((position, found)) = partial.filter(|_| narrowing.is_none()) else {
         return Solved::undecided();
     };
     deferred.remove(position);
@@ -258,6 +264,9 @@ fn continue_solutions(
         solved.extend(solve_collection_pairs_from_solution(
             mode, definition, found, pairs, narrowing, depth,
         ));
+        if !solved.complete && narrowing.is_some() {
+            break;
+        }
     }
     solved
 }
@@ -833,6 +842,7 @@ fn solve_map_pair(
             ) {
                 PairSolution::Solved(found) => next.extend(found),
                 PairSolution::NoSolution => {}
+                PairSolution::Indeterminate if narrowing.is_some() => return Solved::undecided(),
                 PairSolution::Indeterminate => indeterminate = true,
             }
         }
