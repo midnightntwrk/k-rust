@@ -993,11 +993,13 @@ fn a_destination_item_written_by_a_final_update_or_union_is_found_beside_the_res
 /// `<-V` updates a key of `Val`, a strict subsort of the map's key sort, so it writes the key
 /// `inj{Val, KItem}(v())`, the key `<-` writes for `v()`; `|V` adds the elements of a `ValSet`,
 /// a set of another definition, whose `v()` is the `Set`'s element `inj{Val, KItem}(v())`.
+/// `<-X` writes into a `Map` an update of a `VMap`, a map of another sort, and `|W` is the union
+/// of a `ValSet` with a `Set`.
 const MIXED_SORT_UPDATES: &str = r#"
 requires "domains.md"
 module MSU-SYNTAX
   syntax Val ::= v() | w()
-  syntax Pgm ::= go() | rv() | un() | ru()
+  syntax Pgm ::= go() | rv() | un() | ru() | xr() | wu()
 endmodule
 module MSU
   imports MSU-SYNTAX
@@ -1014,11 +1016,19 @@ module MSU
   syntax Map ::= Map "[" Val "<-V" "undef" "]" [function, total, hook(MAP.remove), symbol(remV)]
   syntax Set ::= Set "|V" ValSet [function, total, hook(SET.union), symbol(unionV)]
   syntax Set ::= Set "-V" ValSet [function, total, hook(SET.difference), symbol(diffV)]
-  configuration <k> $PGM:Pgm </k> <m> .Map </m> <u> .Set </u>
+  syntax Set ::= ValSet "|W" Set [function, total, hook(SET.union), symbol(unionW)]
+  syntax VMap [hook(MAP.Map)]
+  syntax VMap ::= VMap VMap [function, total, hook(MAP.concat), symbol(vmconcat), element(vmitem), unit(.VMap), assoc, comm]
+  syntax VMap ::= ".VMap" [function, total, hook(MAP.unit), symbol(.VMap)]
+  syntax VMap ::= Val "v|->" Int [function, total, hook(MAP.element), symbol(vmitem)]
+  syntax Map ::= VMap "[" KItem "<-X" KItem "]" [function, total, hook(MAP.update), symbol(crossupd)]
+  configuration <k> $PGM:Pgm </k> <m> .Map </m> <u> .Set </u> <x> .VMap </x> <vs> .ValSet </vs>
   rule <k> go() => .K ... </k> <m> M => (M [ v() <- 1 ]) [ v() <-V 2 ] </m>
   rule <k> rv() => .K ... </k> <m> M => (M [ v() <-V 1 ]) [ v() <- 2 ] </m>
   rule <k> un() => .K ... </k> <u> S => (S |V VSetItem(v())) |Set SetItem(v()) </u>
   rule <k> ru() => .K ... </k> <u> S => (S |Set SetItem(v())) |V VSetItem(v()) </u>
+  rule <k> xr() => .K ... </k> <x> X </x> <m> _:Map => (X [ v() <-X 1 ]) [ w() <- 2 ] </m>
+  rule <k> wu() => .K ... </k> <vs> VS </vs> <u> _ => (VS |W SetItem(v())) |Set SetItem(w()) </u>
 endmodule
 module MSU-SPEC
   imports MSU
@@ -1033,6 +1043,10 @@ module MSU-SPEC
   claim [union-two]: <k> un() => .K </k> <m> _ </m> <u> _S:Set => SetItem(v()) SetItem(?_X:KItem) ?_C:Set </u>
   claim [other-union-item]: <k> ru() => .K </k> <m> _ </m> <u> _S:Set => SetItem(v()) ?_C:Set </u>
   claim [other-union-two]: <k> ru() => .K </k> <m> _ </m> <u> _S:Set => SetItem(v()) SetItem(?_X:KItem) ?_C:Set </u>
+  claim [cross-rest]: <k> xr() => .K </k> <m> _:Map => w() |-> 2 ?R:Map </m> <u> _ </u> <x> X </x> ensures ?R ==K (X [ v() <-X 1 ]) [ w() <- undef ]
+  claim [cross-both]: <k> xr() => .K </k> <m> _:Map => w() |-> 2 v() |-> 1 ?_R:Map </m> <u> _ </u> <x> _ </x>
+  claim [valset-union-rest]: <k> wu() => .K </k> <m> _ </m> <vs> VS </vs> <u> _:Set => SetItem(w()) ?C:Set </u> ensures ?C ==K (VS |W SetItem(v())) -Set SetItem(w())
+  claim [valset-union-both]: <k> wu() => .K </k> <m> _ </m> <vs> _ </vs> <u> _:Set => SetItem(w()) SetItem(v()) ?_C:Set </u>
 endmodule
 "#;
 
@@ -1047,6 +1061,12 @@ endmodule
 /// outer union adds a set of another definition, so no chain is read: the destination
 /// `SetItem(v()) ?_C`, which holds, is not proven (`other-union-item`), and neither is the one
 /// with a second item.
+/// An update (union) whose map (other set) operand is of another collection sort ends the chain
+/// there, since the removal is declared on the collection's sort: after `xr()` the map binds
+/// `w()` to `2` beside the `VMap` update without `w()` (`cross-rest`), and after `wu()` the set
+/// holds `w()` beside the `ValSet` union without `w()` (`valset-union-rest`). The destinations
+/// that also name the item the inner operation writes hold but are not proven (`cross-both`,
+/// `valset-union-both`): the opaque rest does not show it.
 #[test]
 fn a_chain_of_updates_of_other_sorts_is_read_at_the_collection_sorts() {
     let proven = [
@@ -1056,6 +1076,8 @@ fn a_chain_of_updates_of_other_sorts_is_read_at_the_collection_sorts() {
         "rev-rest",
         "union-item",
         "union-rest",
+        "cross-rest",
+        "valset-union-rest",
     ];
     let unproven = [
         "upd-inner",
@@ -1063,6 +1085,8 @@ fn a_chain_of_updates_of_other_sorts_is_read_at_the_collection_sorts() {
         "union-two",
         "other-union-item",
         "other-union-two",
+        "cross-both",
+        "valset-union-both",
     ];
     let statuses = claim_statuses(
         MIXED_SORT_UPDATES,
