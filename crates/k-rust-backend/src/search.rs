@@ -2545,7 +2545,9 @@ fn match_pattern_with_variables(
                 .map(|(substitution, _bindings)| substitution)
                 .collect(),
             CollectionMatches::NoSolution(_) => return Ok(Ok(Vec::new())),
-            CollectionMatches::Undecided => {
+            // Implication needs every way the pattern holds, so a partly decided match is
+            // undecided.
+            CollectionMatches::Undecided(_) => {
                 return Ok(Err(PatternMatchError::Indeterminate {
                     substitution,
                     remainder,

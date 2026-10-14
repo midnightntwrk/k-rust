@@ -1861,3 +1861,148 @@ fn an_owise_equation_applies_where_the_path_condition_refutes_every_key_a_match_
     );
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+const MAP_ENTRY_ALTERNATIVES: &str = r#"
+module ENTRY-SYNTAX
+endmodule
+
+module ENTRY
+  imports ENTRY-SYNTAX
+  imports INT
+  imports MAP
+  imports K-EQUAL
+
+  syntax Rec ::= val(Int, Int)
+  syntax Int ::= f(Map) [function, total]
+  rule f((K:Int |-> val(K, V:Int)) _) => V
+  rule f(_) => 0 [owise]
+
+  syntax Int ::= h(Int) [function, total]
+
+  syntax KItem ::= a(Map)
+  rule a(M) => f(M)
+endmodule
+
+module ENTRY-SPEC
+  imports ENTRY
+
+  claim [decided-seven]: <k> a((1 |-> val(1, 7)) (B |-> val(B +Int 1, 8))) => 7 </k>
+
+  claim [decided-zero]: <k> a((1 |-> val(1, 7)) (B |-> val(B +Int 1, 8))) => 0 </k>
+
+  claim [undecided-zero]: <k> a((B |-> val(h(B), 8)) (C |-> val(h(C), 9))) => 0 </k>
+endmodule
+"#;
+
+/// The first equation of `f` matches a map entry that names its own key; each subject entry is
+/// an alternative of the match. The entry at 1 matches by itself with 7; the entry at `B` would
+/// need `B +Int 1` to equal `B`, which the matcher leaves undecided. A matching the matcher
+/// decides is an instance of the equation in every model, so `f` is 7 whatever the other entry
+/// is (`decided-seven`), and the `owise` value is not proven (`decided-zero`). Where every entry
+/// is undecided (`h` has no equations, so `h(B)` may equal `B`), the application stays and the
+/// `owise` value is not proven (`undecided-zero`, false where `h(B)` is `B`).
+#[test]
+fn a_decided_map_entry_applies_beside_an_undecided_one() {
+    let wrong = statuses_breaking(
+        MAP_ENTRY_ALTERNATIVES,
+        "ENTRY-SPEC",
+        "ENTRY",
+        &[
+            ("decided-seven", true, "proven"),
+            ("decided-zero", false, "proven"),
+            ("undecided-zero", false, "proven"),
+        ],
+    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+const NESTED_STORE_OVER_OWISE: &str = r#"
+module NEST-SYNTAX
+endmodule
+
+module NEST
+  imports NEST-SYNTAX
+  imports INT
+  imports MAP
+  imports BOOL
+  imports K-EQUAL
+
+  configuration
+    <top>
+      <k> $PGM:KItem </k>
+      <accounts>
+        <account multiplicity="*" type="Map">
+          <id> 0 </id>
+          <store> .Map </store>
+        </account>
+      </accounts>
+    </top>
+
+  syntax Int ::= get(Int, Int) [function, total]
+  rule [[ get(ACCT, KEY) => V ]]
+    <account>
+      <id> ACCT </id>
+      <store> ... KEY |-> V:Int ... </store>
+    </account>
+  rule get(_, _) => 0 [owise]
+
+  syntax KItem ::= a(Int, Int)
+  rule a(A, K) => get(A, K)
+endmodule
+
+module NEST-SPEC
+  imports NEST
+
+  claim [both]: <k> a(A, K) => 0 </k>
+    <accounts>
+      <account> <id> _B1 </id> <store> K1 |-> 5 </store> </account>
+      <account> <id> B2 </id> <store> _K2:Int |-> 6 </store> </account>
+    </accounts>
+    requires (A =/=Int B2) andBool (K =/=Int K1)
+
+  claim [both-keys]: <k> a(_A, K) => 0 </k>
+    <accounts>
+      <account> <id> _B1 </id> <store> K1 |-> 5 </store> </account>
+      <account> <id> _B2 </id> <store> K2:Int |-> 6 </store> </account>
+    </accounts>
+    requires (K =/=Int K1) andBool (K =/=Int K2)
+
+  claim [acct-only]: <k> a(A, _K) => 0 </k>
+    <accounts>
+      <account> <id> _B1 </id> <store> _K1:Int |-> 5 </store> </account>
+      <account> <id> B2 </id> <store> _K2:Int |-> 6 </store> </account>
+    </accounts>
+    requires A =/=Int B2
+
+  claim [key-only]: <k> a(A, K) => 0 </k>
+    <accounts>
+      <account> <id> B1 </id> <store> K1 |-> 5 </store> </account>
+      <account> <id> _B2 </id> <store> _K2:Int |-> 6 </store> </account>
+    </accounts>
+    requires (K =/=Int K1) andBool (A =/=Int B1)
+endmodule
+"#;
+
+/// Accounts whose entries hold a storage map: `get(A, K)` is the value at `K` in the store of
+/// account `A`, else 0. Each account is an alternative of the first equation's match, which
+/// holds where `A` is that account's identifier and `K` its store's key. Where the path
+/// condition refutes one of the two equalities for each account, the `owise` value is proven
+/// (`both`, `both-keys`); where one account and key may still match (`A = B1, K = K1` gives 5 in
+/// `acct-only`, `A = B2, K = K2` gives 6 in `key-only`), it is not. The store keys are declared
+/// `Int`: a key variable that occurs once is otherwise inferred as `KItem`, and an `Int` pattern
+/// key against a `KItem` variable leaves that account's alternative undecided.
+#[test]
+fn an_owise_equation_applies_where_every_nested_store_entry_is_refuted() {
+    let wrong = statuses_breaking(
+        NESTED_STORE_OVER_OWISE,
+        "NEST-SPEC",
+        "NEST",
+        &[
+            ("both", true, "proven"),
+            ("both-keys", true, "proven"),
+            ("acct-only", false, "proven"),
+            ("key-only", false, "proven"),
+        ],
+    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

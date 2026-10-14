@@ -3821,8 +3821,15 @@ fn a_map_binding_a_key_twice_simplifies_to_bottom_where_it_is_built() {
     assert!(matches!(result.term.kind(), TermKind::Map { entries, .. } if entries.len() == 2));
 }
 
+/// `select((ENTRY |-> VALUE) MAP, REQUESTED)` against two lemmas whose map patterns may match
+/// the explicit entry or an entry of the frame `MAP`, which evaluation does not narrow. The
+/// matchings into the frame are undecided, so the term stays open while no decided matching
+/// applies: `exact` matches the explicit entry only where `REQUESTED` is `ENTRY`, and
+/// `different`'s `requires` is undecided with nothing known. Under `ENTRY =/= REQUESTED`,
+/// `different`'s matching of the explicit entry (`REST` bound to `MAP`) is an instance of the
+/// lemma whose `requires` holds, so the lemma applies, whatever the frame holds.
 #[test]
-fn keeps_ambiguous_open_map_equations_indeterminate() {
+fn an_open_map_lemma_applies_only_through_a_matching_it_decides() {
     let syntax = parse_definition(
             r#"[]
             module MAIN
@@ -3882,14 +3889,24 @@ fn keeps_ambiguous_open_map_equations_indeterminate() {
     let result = simplify_with_solver(
         &definition,
         &input,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .unwrap();
+    assert_eq!(result.term, input);
+    assert!(result.applied_rules.is_empty());
+
+    let result = simplify_with_solver(
+        &definition,
+        &input,
         std::slice::from_ref(&known),
         SimplificationOptions::default(),
         &NoSolver,
     )
     .unwrap();
-
-    assert_eq!(result.term, input);
-    assert!(result.applied_rules.is_empty());
+    assert_eq!(result.term, term(&definition, "different{}()"));
+    assert_eq!(result.applied_rules.to_vec(), ["different"]);
 }
 
 #[test]
