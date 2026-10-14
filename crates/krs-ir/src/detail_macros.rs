@@ -3,7 +3,7 @@ macro_rules! details {
         $(#[$doc])*
         #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
         pub enum $name {
-            $(#[doc = concat!("`", $text, "`.")] $variant,)*
+            $(#[doc = concat!("```text\n", $text, "\n```")] $variant,)*
         }
 
         impl ::std::fmt::Display for $name {

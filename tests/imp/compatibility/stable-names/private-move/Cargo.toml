@@ -2,7 +2,7 @@
 name = "krs-imp-stable-private-move"
 version = "99.7.3"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.99"
 publish = false
 
 [dependencies]

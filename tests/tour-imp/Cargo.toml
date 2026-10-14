@@ -3,7 +3,7 @@ name = "krs-tour-imp"
 description = "Documentation-owned, chapter-sliced complete IMP fixture"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.99"
 publish = false
 
 [lib]

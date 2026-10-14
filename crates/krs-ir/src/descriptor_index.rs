@@ -130,13 +130,11 @@ impl<'a> DescriptorIndex<'a> {
     }
 
     /// Iterates descriptors in stable identity order.
-    #[must_use]
     pub fn values(&self) -> impl DoubleEndedIterator<Item = &'a Descriptor> + '_ {
         self.by_id.values().copied()
     }
 
     /// Iterates descriptor identities in stable identity order.
-    #[must_use]
     pub fn keys(&self) -> impl DoubleEndedIterator<Item = &'a StableItemId> + '_ {
         self.by_id.keys().copied()
     }

@@ -3,7 +3,7 @@ name = "krs-precedence-associativity"
 description = "Behavioral fixture for readable precedence associativity"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.99"
 publish = false
 
 [lib]
