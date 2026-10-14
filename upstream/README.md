@@ -23,6 +23,12 @@ Requests that KRS already tracks against k-rust are listed under `[[krs_owned]]`
 | `blocking` | Whether the request blocks a K-in-K2 goal. |
 | `fixed_in` | The upstream commit, or `present at <pin>`; required when `status = "fixed"`. |
 | `summary`, `reproducer`, `local_workaround`, `requested_action`, `sources` | As in the KRS ledger. |
+| `handoff` | The request's id (`KINK-NN`) in the current k-rust handoff; present only on requests that handoff asks for. |
+| `status_at_main` | `open`, `partial`, `fixed`, or `unknown`, judged at the k-rust main named in `status_at_main_basis`; `status` stays judged at the reference pin. |
+| `status_at_main_basis` | Same forms as `status_basis`. |
+| `original_requested_action` | The `requested_action` as first asked, kept on a row whose `requested_action` was later narrowed or merged; `status` at the pin is judged against this text. |
+| `update_YYYY_MM_DD` | A later measurement or note appended without rewriting the original fields. |
+| `where_requested_shape_differs` | How an accepted upstream fix differs from the requested shape. |
 
 `[[withdrawn]]` records requests that K-in-K2 no longer makes, with the reason.
 

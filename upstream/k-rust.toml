@@ -2,14 +2,36 @@
 # Vocabulary and field contract are in README.md beside this file.
 # Supersedes investigations/k-rust-target/{k-rust-agent-requests,upstream-issues,capability-matrix}.toml
 # and status-report.html; those files remain in git history.
+#
+# Reconciled on 2026-10-15 with the k-rust handoff draft/tasks/k-rust-handoff-2026-10-15/HANDOFF.md, judged at k-rust main
+# 9ea39ec716c713981bb11efee03ac05a59fb2ba6. HANDOFF.md is the copy given to a k-rust agent; draft/tasks/k-rust-handoff-2026-10-15/DISPOSITIONS.md records why each
+# id was kept, merged, deferred, satisfied or withdrawn. Deferred items that are not requests are listed in
+# draft/tasks/upstream-pending.md.
+#
+# Fields added on 2026-10-15 (to be added to README.md's field table):
+#   handoff               the request's id in HANDOFF.md (KINK-NN); present only on requests HANDOFF.md asks for.
+#   status_at_main        open, partial, fixed or unknown, judged at the k-rust main named in status_at_main_basis.
+#                         `status` stays judged at [reference_pin]: a request fixed at main but not at the pin stays
+#                         open here until the pin moves, and kink confirms it then with the request's reproducer and
+#                         acceptance. For rows satisfied at main and not narrowed, requested_action is kept as asked
+#                         for that reason. Rows narrowed or merged on 2026-10-15 replace requested_action with the
+#                         narrowed ask; their pin-judged status keeps its basis in original_requested_action.
+#   original_requested_action  the requested_action as asked before 2026-10-15 (verbatim from this file at
+#                         K-in-K2 ea62fa0), present only on rows whose requested_action was rewritten on 2026-10-15;
+#                         `status` at the pin is judged against this text.
+#   status_at_main_basis  same forms as status_basis.
+# Fields already in use, documented here: update_YYYY_MM_DD (a later measurement appended without rewriting the
+# original fields) and where_requested_shape_differs (how an accepted fix differs from the request).
 
 schema = 1
-updated = "2026-10-06"
+updated = "2026-10-15"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native and kink-campaign all depend on k-rust.
 # 927b9ce6 is k-rust main on 2026-10-06. Variable identity reached main redesigned (VARIABLE_IDENTITY = 3) in the fast-forward to 3796d5b7.
 # Seven pre/* merges followed 3796d5b7 before this pin.
+# Not moved on 2026-10-15: kink still builds against this pin. Statuses at k-rust main
+# 9ea39ec716c713981bb11efee03ac05a59fb2ba6 (1961 commits later) are in status_at_main and in draft/tasks/k-rust-handoff-2026-10-15/HANDOFF.md.
 k_rust_commit = "927b9ce6352357db340c221ff5377b294b8324e9"
 k_rust_version = "0.4.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
@@ -42,26 +64,11 @@ fixed_in = "present at 347f693e"
 status_basis = "test run at 927b9ce6 on 2026-10-06 (cargo test --workspace; kink-patch written_sentences_are_the_distinct_existing_targets and identity_and_position_attributes_are_never_edited), plus k-rust KRUST-PROVENANCE v7 contract and the intake static re-screen; K-in-K2's serialization tests since SemanticInput v1 (commit 36ab31e): kink-patch semantic_input.rs corpus_round_trip_is_canonical, read_back_compilation_is_equal, checks_canonical_form_and_changed_token_identity and literal_digests (to_provenance_string/from_provenance_str round trip and canonical re-encoding over every testdata/k definition; read-back compilation over counter, symmem and guardedmem), and codec.rs for canonical patches. Historical citations all_transitions_uses_typed_provenance_without_source_attributes and rule_identities_resolve_by_source_position_per_compiled_side were retired by SO-07 and were not run at this pin."
 blocking = false
 needed_by = ["emitting-sentence provenance"]
-summary = "KRUST-PROVENANCE v7 round-trips definitions and source tables, including context aliases and nested spans. KAST v4 is not a lossless context-alias archive; its unsupported marker is rejected on decode. K-in-K2 currently uses the in-process typed sentence relation and has not implemented SemanticInput serialization."
+summary = "KRUST-PROVENANCE v7 round-trips definitions and source tables, including context aliases and nested spans. KAST v4 is not a lossless context-alias archive; its unsupported marker is rejected on decode. K-in-K2 serializes SemanticInput through to_provenance_string/from_provenance_str (kink-patch semantic_input.rs, since 36ab31e; corrected 2026-10-15, the earlier text said it was not implemented). At k-rust main 9ea39ec7 PROVENANCE_VERSION is 8 and v7 documents are refused, so kink's SemanticInput digests change at the next re-pin (re-pin cost, not a request)."
 reproducer = "Historical at 985e0086: export a definition containing a context alias through KAST v4. At this pin KRUST-PROVENANCE v7 is the lossless format; KAST v4 rejects unsupported aliases on decode."
 local_workaround = "none"
 requested_action = "Satisfied by KRUST-PROVENANCE v7 for lossless persistence; use to_provenance_string/from_provenance_str with the source table. KAST v4 remains unsuitable as a lossless context-alias archive."
 sources = ["k-rust-agent-requests.toml KRUST-UP-001", "upstream-issues.toml KRUST-UP-001"]
-
-[[request]]
-id = "claim-observation"
-# No longer needed by kink: SO-07 replaces rule-attached observations with step events.
-title = "Proof claim observation remains unavailable"
-kind = "missing-feature"
-status = "partial"
-status_basis = "static re-screen at 927b9ce6 on 2026-10-06: TransitionClass::Claim is still reserved with no producer (k-rust-backend transition.rs:76-80; only the wire mapping wire.rs:986 names it); proof results carry observations: Vec::new() (proof.rs:1567, 2008). No longer needed by kink after SO-07; no proof caller or claim-specific test."
-blocking = false
-needed_by = ["none in the goal; proofs and claim observation are outside its delivery steps"]
-summary = "Observed and unobserved execution preserve solver queries and non-observation results. Leaf effects retain the committed transcript. Claim remains a reserved transition class with no producer; proof claim applications are not observed."
-reproducer = "Prove a claim with observation enabled; no TransitionClass::Claim observation is emitted."
-local_workaround = "none"
-requested_action = "Proof claim observation remains open outside the K-in-K2 goal. Any future claim event should use compiled identity with all written origins; a per-written-position execution identity is declined."
-sources = ["k-rust-agent-requests.toml KRUST-UP-002", "upstream-issues.toml KRUST-UP-002"]
 
 [[request]]
 id = "malformed-deep-json"
@@ -80,6 +87,8 @@ fixed_in = "3796d5b7 (k-rust main fast-forward of kink/requests-integration on 2
 
 
 [[request]]
+# 2026-10-15: ticket 7 item 3 (document and test that unbounded strategy all yields every distinct final
+# configuration) is acceptance criterion 3 of handoff KINK-01 (pathset-state-dedup); item 2 is answered by PathSet.
 id = "execution-leaf-completeness"
 title = "Typed halts and complete path leaves for observed execution"
 kind = "correctness"
@@ -95,6 +104,7 @@ requested_action = "Satisfied for path evidence by PathSet, typed halts, and ret
 sources = ["k-in-k2 k-rust migration design, section 8 risk 3 and critique C1"]
 
 [[request]]
+# 2026-10-15: ticket 8 item 4 (align k-rust README.md:263) is satisfied at main 9ea39ec7 (README.md:317-318).
 id = "execution-diagnostics"
 title = "Execution and search responses retain path diagnostics"
 kind = "missing-feature"
@@ -110,6 +120,8 @@ requested_action = "Satisfied by per-path diagnostics. Inspect candidates and re
 sources = ["k-in-k2 k-rust migration design, section 8 risk 4 and critique C3"]
 
 [[request]]
+# 2026-10-15: ticket 9's optional backend inj operand check landed at main (a3ca50be6); the SentenceTyper gap on
+# generated labels is the new request sentence-typer-generated-labels (KINK-03).
 id = "structured-term-sort-check"
 title = "Compiler-owned sort checks for structured rule terms"
 kind = "correctness"
@@ -125,6 +137,7 @@ requested_action = "Satisfied by compile-time validity checks and sentence_typin
 sources = ["k-in-k2 k-rust migration design, section 8 risk 2"]
 
 [[request]]
+# 2026-10-15: ticket 10 item 2 (TypeScript union drift in the napi binding) is withdrawn: kink does not use the binding.
 id = "transition-id-ordering"
 title = "TransitionIdOutput supports ordered identity keys"
 kind = "api"
@@ -463,9 +476,27 @@ reason = "K-in-K2 deleted its search path; recover it from tag archive/search-20
 id = "path-witness-identity"
 reason = "K-in-K2 deleted its search path; recover it from tag archive/search-2026-09 if a search oracle is added. The request comes back with that oracle."
 
-# result-md-stale: note to the k-rust agent; refresh RESULT.md per the intake, no code request.
-# prestart-cancel-profile-divergence: no k-rust action; kink adapts its watchdog (VI-03F).
-# constructor-function-free: no k-rust action; kink adapts under HeadRole::FreeConstructor (D-A).
+[[withdrawn]]
+id = "claim-observation"
+former_id = "KRUST-UP-002"
+reason = "Withdrawn 2026-10-15 (was partial). TransitionClass::Claim is still reserved with no producer at main 9ea39ec7 (k-rust backend/wire.rs:740-745; k-rust-backend transition.rs:75-80), and kink no longer needs it: SO-07 replaced rule-attached observations with step events, kink-flow never calls prove, and neither mutation proposal (F-07) nor pattern occurrence queries (F-08) need claim events. Revive if a survivor analysis uses prove with circularities and needs their events; a future claim event should use compiled identity with all written origins."
+
+[[withdrawn]]
+id = "result-md-stale"
+reason = "Was a comment-only note (intake k-rust-requests.toml row; merged symbolic-differential-recheck). k-rust draft/kink-requests-2026-10/RESULT.md describes the pin kink is leaving and is superseded by k-rust draft/open-issues-2026-10/RESULT.md section 5. No code request; moot on 2026-10-15."
+
+[[withdrawn]]
+id = "prestart-cancel-profile-divergence"
+reason = "Was a comment-only note. A token cancelled before an operation starts gives one Cancelled leaf in the portable build and an operation error in the Z3 build; still so, and documented, at main 9ea39ec7 (k-rust backend/mod.rs:1448-1550). kink maps a fired watchdog to Timeout whatever the backend returns (VI-03F). Documenting both shapes is part of contract item 1 of handoff KINK-08 (documented-decision-facade)."
+
+[[withdrawn]]
+id = "constructor-function-free"
+reason = "Was a comment-only note; merged declared-function-constructor-freeness and NEXT-PLAN's conditional 'expose declared_function'. Refuted: HeadRole makes a constructor without algebraic facts, anywhere or macro a FreeConstructor, and the verifier refuses a function equation headed by a constructor; unchanged at main 9ea39ec7 (k-rust-backend term.rs:321-327, :518-532; verify.rs:865). Decision D-A accepted this contract; kink re-audits free_constructor against HeadRole at the re-pin (trust base T-FREE)."
+
+# ---------------------------------------------------------------- open at the reference pin
+# Re-judged at k-rust main on 2026-10-15 (status_at_main). needed_by is rewritten for the concrete corpus loop
+# (kink-flow): a kink representation or census refusal rejects the user's whole specification at kink-flow check,
+# and an unsafe domain value or collection in a final configuration makes the program unknown, which can never kill.
 
 [[request]]
 id = "unsat-definedness-contract"
@@ -474,12 +505,16 @@ kind = "correctness"
 status = "open"
 status_basis = "static screen of source at 927b9ce6 on 2026-10-06 (adversarial verification: PLAUSIBLE; no violating leaf produced)"
 blocking = false
-needed_by = ["K-in-K2 SO-08 (pattern kills rest directly on relation Unsat->Absent and leaf Unsat discards once the EI certificate is deleted)", "K-in-K2 SO-09 trust-base audit"]
+needed_by = ["K-in-K2 symbolic survivor analysis and kink-campaign pattern-slot kills (secondary features): both treat a solver Unsat on leaf constraints as refutation", "K-in-K2 trust-base audit of T-UNSAT at each re-pin"]
 summary = "k-rust's docs disagree on when an SMT Unsat is conclusive. N/crates/k-rust-backend/src/smt.rs:180-183 (ceca4fef): a partial function translated as a total SMT operation 'is not an over-approximation ... Unsat stays conclusive for it only under the definedness premise that SmtSolver::check_predicates documents'; smt.rs:740-744: that premise is that the definedness of the predicate's partial terms is explicit in it. N/docs/compatibility.md:626 (unchanged from O/docs/compatibility.md:422) still says 'A solver Unsat is sound under every approximation of the translation'. The facade promises only that a leaf predicate implies the definedness of every partial term 'relied on by its conditions, right-hand sides, and simplified states' (N/crates/k-rust/src/backend/mod.rs:133-136; N/docs/backend-port.md:194), which is weaker than 'every partial term in the predicate has its definedness explicit'. definedness::condition_definedness is pub(crate) (N/crates/k-rust-backend/src/definedness.rs:373), so a consumer cannot apply it. K-in-K2 calls SmtSolver::is_sat on leaf constraints and treats Unsat as refuting the leaf (K/crates/kink-native/src/feasibility.rs:284-285, 327-328 -> bridge.rs:132-133) and on relation queries that include the leaf path predicate (feasibility.rs:677-699, 735-736). A leaf wrongly discarded on one side of a mutant pair could make leaf sets differ, which in kink is a spurious kill. Verification found the premise probably holds: rule conditions are hoisted with their definedness (N/crates/k-rust-backend/src/condition.rs:171-182, 255-261), the applicability A is built from them (rewrite/apply.rs:1245-1249) and a remainder is not A (rewrite/roles.rs:66-72), so each partial term's ceil sits inside the negation next to its atom. k-rust's own requires refutation and claim-leaf pruning (compatibility.md:1008) rely on the same premise. Not a regression: O already translated partial functions as total (O/crates/k-rust-backend/src/smt.rs:602-612)."
 reproducer = "Static. The shape to rule out is a leaf predicate with a partial term under a negation and without its definedness, e.g. not(X /Int 0 ==Int 5) and not(X /Int 0 =/=Int 5): K-satisfiable where X /Int 0 is undefined, SMT-Unsat. No k-rust execution was shown to print such a leaf. A regression test should execute a rule whose requires uses a partial function (e.g. requires X /Int Y >Int 0) on a symbolic state with strategy All and PathSet, take every leaf including the remainder, and check that is_sat on each leaf's constraints is not Unsat when the leaf has a K instance (e.g. Y = 0)."
-local_workaround = "none yet. Options for K-in-K2 (its decision D3): name the premise in kink's trust base and pin it with a regression test, or treat Unsat as Unknown when a partial function occurs under a negation (loses Z3 precision)."
-requested_action = "Document as a facade contract, with a regression test that includes the remainder of a requires over a partial term, that the constraints of every execution leaf (and the residual constraints of unify_term_pairs) satisfy the definedness premise of smt.rs:740-744, so that is_sat = Unsat on them refutes the leaf. Reconcile docs/compatibility.md:626 with smt.rs:180-183. Only if that cannot be promised: export a public 'refute these constraints' query that applies condition_definedness."
-sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 2", "findings/api-semantics.md (K9, issue unsat-definedness-contract)"]
+local_workaround = "kink names the premise as trust-base item T-UNSAT (kink-native feasibility.rs, bridge.rs; decision D-B), pins it with regression tests (kink-native tests/trust_base.rs), and refuses test states whose caller-written initial predicate puts a partial term under a negation (TV-01 R2-F1: the one violation found, in a caller-written predicate, not a k-rust-produced leaf). The concrete corpus loop does not depend on it: kink-flow runs the portable build and its ground leaves carry no constraints."
+requested_action = "Handoff KINK-10 (P2, secondary). Document on execute and search results that every partial-function application in a returned leaf's constraints has its definedness among or implied by them, so that Unsat refutes the leaf, or state where this does not hold; reconcile docs/compatibility.md:1522 with k-rust-backend smt.rs:200-204 (lines at main); state the caller's obligation for caller-written initial constraints (open decision D1); only if the first item cannot be stated, export a public refute query that applies condition_definedness. Acceptance: a Z3 regression test on pos(X, Y) => yes(X /Int Y) requires X /Int Y >Int 0 including the remainder; the same for ensures and right-hand sides; the two documents agree."
+original_requested_action = "Document as a facade contract, with a regression test that includes the remainder of a requires over a partial term, that the constraints of every execution leaf (and the residual constraints of unify_term_pairs) satisfy the definedness premise of smt.rs:740-744, so that is_sat = Unsat on them refutes the leaf. Reconcile docs/compatibility.md:626 with smt.rs:180-183. Only if that cannot be promised: export a public 'refute these constraints' query that applies condition_definedness."
+sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 2", "findings/api-semantics.md (K9, issue unsat-definedness-contract)", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-2.md section 8"]
+handoff = "KINK-10"
+status_at_main = "open"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: docs/compatibility.md:1522 unchanged in substance; premise text at k-rust-backend smt.rs:200-204, :898-903; definedness::condition_definedness still pub(crate) (definedness.rs:988); initial-term definedness decided before the first step since e4766a728 and ffd80eb64 (rewrite/mod.rs:822-848), which does not cover caller-written constraints"
 
 
 [[request]]
@@ -489,12 +524,16 @@ kind = "precision"
 status = "open"
 status_basis = "test run in K-in-K2 probe worktree W at b7c3b88 against 927b9ce6 on 2026-10-06, plus decoded execution JSON (adversarial verification: CONFIRMED)"
 blocking = false
-needed_by = ["K-in-K2 precision on definitions whose states hold self-rewriting anywhere productions (testdata symwrap.k; audit AT11)"]
+needed_by = ["K-in-K2 symbolic survivor analysis precision (testdata symwrap.k; audit AT11)", "concrete corpus runs of specifications that rewrite value productions with anywhere rules (none among kink's current flow targets; inferred, not measured)"]
 summary = "Since 4d80cea6 (feat(totality): require equation evidence and preserve value normal forms; in base 4cea2f4c, not in O) kompile withholds functional from a production that an anywhere equation headed by itself rewrites: symwrap.k's Lblwrap compiles as [anywhere{}(), function{}(), value-production{}()] (was functional{}() at O). Executing seq(write(wrap(s(X)),V), seq(load(wrap(z),W), halt)) with strategy All, PathSet, Z3 at 927b9ce6 gives two leaves: stuck@2 under \\ceil(wrap(s(X))) /\\ \\ceil(wrap(z)), and stuck@0 (trace 'remainder') whose term still contains wrap(s(X)) and wrap(z) under \\not(\\ceil(wrap(s(X))) /\\ \\ceil(wrap(z))). That remainder denotes nothing: a pattern t /\\ phi denotes \\ceil(t) /\\ t /\\ phi, feb0eeec's own premise. But feb0eeec uses the initial pattern's facts only to refute admission (N/crates/k-rust-backend/src/rewrite/execute.rs:556-565: FactsVerdict::NotRefuted(_) => {}), and \\ceil(subject) enters path knowledge only under assume_initial_defined (rewrite/apply.rs:572-588). Ground run seq(write(wrap(s(z)),V), ...): no-Z3 gives one Indeterminate leaf at depth 0 with cause Smt{error: Unavailable}; Z3 adds a Stuck remainder leaf under \\not(\\ceil(wrap(z))). dfd3365b fixed the same class of empty remainder for implication only. K-in-K2 reads these leaves as SolverUnknown (precision loss, never a spurious kill): its symwrap clash test goes Match -> Unknown and audit AT11 goes [[A,U,U]] -> [[U,U,U]]."
 reproducer = "Compile k-in-k2 testdata/k/symwrap.k at 927b9ce6 (rule wrap(s(z)) => wrap(z) [anywhere]; rule seq(write(A,V),P) => P) and execute seq(write(wrap(s(X)),V), seq(load(wrap(z),W), halt)) with z3, strategy all, PathSet: observe the depth-0 remainder leaf. Without z3: execute the ground seq(write(wrap(s(z)),V), seq(load(wrap(z),W), halt)) and observe Indeterminate@0, smt unavailable. In k-in-k2 worktree W: cargo test -p kink-native --test symbolic -- --exact non_free_injective_symbol_does_not_prove_a_clash (Unknown, pinned Match)."
 local_workaround = "K-in-K2 re-pins symwrap and AT11 as measured Unknown, citing 4d80cea6. Adding the public ceil_term(leaf term) to a leaf query would refute the symbolic depth-0 remainder, but cannot discharge \\ceil(wrap(z)) on the surviving leaf."
-requested_action = "Preferred: when assume_state_defined is false, use the initial pattern's undecided definedness facts (UndecidedFacts::of_pattern) as path knowledge for the first step, and conjoin them to the path predicate so leaves still imply them (as mod.rs:133-136 and backend-port.md:194-196 describe). This is sound by the pattern semantics and removes both the empty remainder and the no-Z3 indeterminacy. Alternative or additional: implement the 'evaluated-normal-form precision extension' that 4d80cea6 defers, so a value-production application that no equation rewrites counts as defined."
-sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 3", "findings/probe.md section 4.2", "findings/soundness-regressions.md (symwrap)"]
+requested_action = "Handoff KINK-11 (P2, secondary). Verify first: if the acceptance already passes at main, k-rust reports the satisfying commit. Preferred: when assume_state_defined is false, use the initial pattern's undecided definedness facts (UndecidedFacts::of_pattern) as path knowledge for the first step, and conjoin them to the path predicate so leaves still imply them. Alternative or additional: the 'evaluated-normal-form precision extension' that 4d80cea6 defers, so a value-production application that no equation rewrites counts as defined. Acceptance: portable build, the ground seq(write(wrap(s(z)), z), seq(load(wrap(z), z), halt)) ends in one stuck leaf at depth 2 and no indeterminate leaf; Z3 build, the input with X, V and W gives no depth-0 leaf contradicting the initial term's definedness. Folds the intake's initial-definedness-as-step-knowledge and value-production-definedness."
+original_requested_action = "Preferred: when assume_state_defined is false, use the initial pattern's undecided definedness facts (UndecidedFacts::of_pattern) as path knowledge for the first step, and conjoin them to the path predicate so leaves still imply them (as mod.rs:133-136 and backend-port.md:194-196 describe). This is sound by the pattern semantics and removes both the empty remainder and the no-Z3 indeterminacy. Alternative or additional: implement the 'evaluated-normal-form precision extension' that 4d80cea6 defers, so a value-production application that no equation rewrites counts as defined."
+sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 3", "findings/probe.md section 4.2", "findings/soundness-regressions.md (symwrap)", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-2.md section 9"]
+handoff = "KINK-11"
+status_at_main = "unknown"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: e4766a728 and ffd80eb64 decide the initial configuration's definedness obligations before the first step (k-rust-backend rewrite/mod.rs:822-848), which plausibly removes the Z3 empty remainder; whether the portable build still ends Indeterminate was not determined; not run"
 
 
 [[request]]
@@ -504,12 +543,14 @@ kind = "bug"
 status = "open"
 status_basis = "static screen of source at 927b9ce6 on 2026-10-06 (adversarial verification: PLAUSIBLE; not reproduced); listed as open in R/RESULT.md 'Open issues'"
 blocking = false
-needed_by = ["K-in-K2 campaign availability on definitions whose rules grow the configuration without a depth bound"]
+needed_by = ["kink-flow reliability: check, results and run execute in one process on one 256 MiB thread, so a native stack overflow aborts the whole command and the LLM loses the run in progress (never a verdict)"]
 summary = "stop::check_stack is called only from N/crates/k-rust-backend/src/simplify.rs:1422 and :2829 (grep over src/). nesting::with_stack sizes the stack from a depth measured before the work starts (N/crates/k-rust-backend/src/nesting.rs:11-14, 101-138), and the facade applies it once per operation (N/crates/k-rust/src/backend/mod.rs:1336-1337). Matching, rewriting, externalization or recursive TermData drop on terms that grew during execution may therefore overflow and abort the process. For K-in-K2 this is availability only (the campaign dies; never a Killed verdict). Not a regression: O had no stack sizing at all."
 reproducer = "Not run. A definition whose rule wraps the configuration in one more constructor per step (rule <k> run(T) => run(c(T)) </k>), executed in process with max_depth None on a 16 MiB thread under a wall-clock watchdog: the thread may overflow before it is cancelled."
 local_workaround = "K-in-K2 can bound depth (ExecutionBudget.max_depth, K/crates/kink-native/src/execution.rs:158) and may pass leaf patterns to with_solver_over; neither covers growth inside one execute call."
 requested_action = "Re-measure the depth between steps and grow the stack segment or refuse; or make matching, externalization and TermData drop iterative; so that deep growth ends as StopCause::StackExhausted instead of a process abort."
-sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 5", "R/RESULT.md 'Open issues'"]
+sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 5", "R/RESULT.md 'Open issues'", "k-rust draft/open-issues-2026-10/RESULT.md:586-594 (k-rust's answer, carried)", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-2.md section 1"]
+status_at_main = "fixed"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: the simplifier continues on 16 MiB segments up to 1 GiB per thread and 4 GiB per process, then stops with StopCause::StackExhausted(StackLimit) (docs/backend-port.md:181-200; k-rust-backend stop.rs:50-80); dropping backend and KAST terms is iterative (term.rs:902); the other walks are accepted by documented measurement (docs/backend-port.md:215); commits df39e6de1, 94895813f, 245a9a8cf, 7bdb220a4, 607978161, ab015f56c; not run. A stack-exhausted leaf is published as HaltReasonOutput::SimplificationError with the cause in its detail text (k-rust backend/mod.rs:1666-1683)"
 
 
 [[request]]
@@ -519,12 +560,14 @@ kind = "conformance"
 status = "open"
 status_basis = "static screen of R/gates logs and N/scripts/conformance at 927b9ce6 on 2026-10-06 (adversarial verification: CONFIRMED; ratchet not run)"
 blocking = false
-needed_by = ["K-in-K2 work on KRS and larger definitions (same kompile and execution pipeline); none of K-in-K2's current corpora"]
+needed_by = ["kink-flow admission: kink-corpus refuses any user specification whose files lie in one of the 15 below-floor conformance cases (BELOW_FLOOR, pinned to 927b9ce6)"]
 summary = "R/gates/base/ratchet-all.log (main 4cea2f4c) and R/gates/head2/ratchet-all.log:526-527 list the same 15 cases below their required floor. At head2: mismatch kompile (checks, issue-1273); mismatch krun (fun-llvm, issue-1263, issue-946, let-test, pattern-macro, pattern-macro-productions, pl-tutorial simple/2_typed/1_static, kool/1_untyped, kool/2_typed/1_dynamic); mismatch kprove (issue-1879-kproveTrans/haskell); krust-error search (simple/1_untyped, kool/2_typed/2_static); mismatch search (3_fun/1_untyped/1_environment, krust-error at base). Floors: N/scripts/conformance/expectations.toml (e.g. let-test accepted_verdict = match at :1578-1584). N/draft/conformance-backlog/tickets.toml has no ticket for any of them, and N/draft/conformance-backlog/README.md still says zero pending (floors raised at 5381427f; 4d80cea6 landed after). R/reviews/variable-identity-review-rounds-1-3.json round 1 cites a missing #lambdaF functional axiom and total attribute (let-test, consistent with 4d80cea6 but not verified), a kore-parser --verify rejection, and C9 'requires exactly one execution leaf'. RESULT.md:188 calls them pre-existing, which is true at 4cea2f4c, but they are untracked. K-in-K2's testdata corpus compiles byte-identically at O and N except symwrap.k, so K-in-K2 is not affected now; both sides of a kink mutant pair run on the same k-rust, so a deviation here is fidelity, not a spurious-kill risk."
 reproducer = "As the human UID with the reference toolchain, at 927b9ce6: scripts/conformance-ratchet.sh --label triage --cases let-test issue-946 issue-1263 pattern-macro fun-llvm 'pl-tutorial/2_languages/2_kool/1_untyped'; inspect the C8/C9 comparator output per case."
 local_workaround = "none needed now"
 requested_action = "Open conformance-backlog tickets for the 15 cases. For each krun/search case, state whether ground execution changed (extra leaves, a different final state; check whether 4d80cea6's withheld functional causes the C9 multi-leaf failures, cf. anywhere-value-production-precision) or only the comparison or verifier acceptance. Adjudicate with recorded reasons and restore ratchet rc 0 as a usable gate."
-sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 4", "findings/soundness-regressions.md"]
+sources = ["k-in-k2 draft/tasks/k-rust-927b9ce6-intake/findings/verify.md section 4", "findings/soundness-regressions.md", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-3.md section 13"]
+status_at_main = "fixed"
+status_at_main_basis = "carried from k-rust draft/open-issues-2026-10/RESULT.md:28-37, :235-243 (unit ratchet, c9d40185, an ancestor of main: 12 of the 14 below-floor cases match; heavy gates report ratchet --all with 0 regressions), not requalified; plus static screen of scripts/conformance/expectations.toml and draft/conformance-backlog/README.md at 9ea39ec7 on 2026-10-15 (all 15 cases accepted_verdict = match with no case exclusion, checks with two step exclusions; zero pending cases)"
 
 [[request]]
 id = "float-domain-value-canonical"
@@ -533,12 +576,14 @@ kind = "correctness"
 status = "open"
 status_basis = "test run in K-in-K2 probe worktrees at k-in-k2 4f2b4b0 and 5b837cf against 927b9ce6 on 2026-10-07 (portable and Z3, Full and FirstKill); static screen of main 50229d6c on 2026-10-07 (term.rs:903-911 still canonicalizes only Int)"
 blocking = false
-needed_by = ["K-in-K2 TB-03 retirement (the kink-side Float refusal is deleted only once this lands)", "K-in-K2 admission of Float-literal definitions, chiefly KWasm (goal step 6)"]
+needed_by = ["kink-flow admission of user specifications holding Float literals (TB-03 refuses the whole specification at kink-flow check)", "comparable Float values in final configurations (unknown today)"]
 summary = "Term::domain_value (kb/term.rs:879-887 at 927b9ce6) canonicalizes only SortInt; every other domain value keeps its text, and every structural comparator compares (sort, bytes): matcher kb/matching/mod.rs:833-846, unifier kb/unification.rs:276-290, ==K kb/builtin.rs:906-911, map/set keys kb/builtin/map.rs:129-139,:361-399, kb/builtin/set.rs:138-145. FLOAT hooks return canonical text (kb/builtin/float.rs canonical/canonical_f64: 1.0 -> 1.0000000000000000e+00p53x11, 0.0 -> 0e+00p53x11, NaN -> NaNp53x11), while a definition literal arrives verbatim (k-rust/src/kompile/term_to_kore.rs:721). So floatCheck(1.0) never matches Int2Float(1,53,11), Int2Float(1,53,11) ==K 1.0 is false, a hook-inserted Map key is not found by a literal key, and two literal spellings of one value (1.0, 1.0e0) never match each other. docs/compatibility.md:291 says \\dv{S}(\"s\") denotes the element of S that s names, so all of these are one value. STRING.string2token at a Float sort (kb/builtin/string.rs:279-290) also builds unvalidated verbatim text. K-in-K2 measured 20 Float equivalent mutants Killed through Int terminals (decisions/VI-T12-evidence/probes.md rows A1, A2, F1-F2, F4-F13, F15; census V2, V4, V5a, V5b; lens-soundness T1)."
 reproducer = "Definition: rule start(I) => floatCheck(Int2Float(I, 53, 11)); rule floatCheck(1.0) => done(7); rule floatCheck(_) => done(0) [owise]. krun start(1): k-rust gives done(0); K reads 1.0 as the binary64 value int2float returns, so done(7) is expected (not run against the reference backend). Hook-free variant: rule s(_) => c(1.0); rule c(1.0e0) => done(7); rule c(_) => done(0) [owise]; s(1) gives done(0). Token variant: syntax Float ::= parseF(String) [function, hook(STRING.string2token)]; parseF(\"1.0\") ==K Int2Float(1,53,11) is false. Fixtures: k-in-k2 draft/tasks/variable-identity/decisions/VI-T12-evidence/probes/{tb02float.k,t12probe.k}."
 local_workaround = "K-in-K2 TB-03 refuses, before execution, any side whose compiled KORE holds a FLOAT.Float or MINT.MInt domain value or declares a token-creating hook at those sorts, and refuses Float/MInt token construction in test states (Unknown or a refused baseline, never a kill). This refuses KWasm."
 requested_action = "In backend internalization, Term::domain_value, canonicalize every domain value of a FLOAT.Float-hooked sort to the canonical_f32/canonical_f64 spelling of its value (a chokepoint shared by definition loading, request internalization, hook results, string2token and substitution). Text that fails is_float_syntax (86edb97c) or uses a format other than 24x8/53x11 is refused at load by validate_domain_value (kb/definition.rs:2316-2346) and at request internalization, not kept verbatim. Key on the sort's hook, not on the name SortFloat; if Term::domain_value cannot see the hook, refuse at load any FLOAT.Float-hooked sort not named SortFloat so that name and hook coincide. Placement: do NOT rewrite KAST tokens in the frontend loader or kompile; KRUST-PROVENANCE text, PROVENANCE_VERSION and compiled definition.kore stay unchanged. Add a normalization note for printed Float output to docs/compatibility.md. Acceptance: (1) each of 1.0, 1.00, 1.0d, 1.0D, 1e0, +1.0, 1., 10.0e-1, 1.0p53x11, 1.0P53X11 internalizes byte-equal to FLOAT.int2float(1,53,11); 1.0f to int2float(1,24,8); 0.0, -0.0, NaN, Infinity, -Infinity and 0.1 byte-equal to their hook results; (2) the three reproducers give done(7) / true; M[1.0] orDefault finds a key inserted by Int2Float; (3) 0.0 vs -0.0 and p24x8 vs p53x11 stay distinct; (4) a contract test pins that the KRUST-PROVENANCE text and compiled definition.kore of a Float-literal definition are byte-identical before and after the change."
-sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T12-options.md", "decisions/VI-T12-evidence/{krust-audit,probes,census,lens-soundness,lens-cost}.md", "tickets/VI-T12-float-token-canonicalization.md"]
+sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T12-options.md", "decisions/VI-T12-evidence/{krust-audit,probes,census,lens-soundness,lens-cost}.md", "tickets/VI-T12-float-token-canonicalization.md", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 1"]
+status_at_main = "fixed"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: Term::domain_value_of canonicalizes by the sort's hook (k-rust-backend term.rs:1224-1234, builtin/float/canonical.rs:73-84, definition.rs:2807-2826); documented docs/compatibility.md:633-637; tests term.rs:5000-5033 and src/tests/domain_values.rs:477-521; the frontend does not rewrite Float tokens; commits 9488018c3, 509501710, 2e5d5af84, c164ee13c, 86edb97c6; tb02float.k and t12probe.k not run"
 
 [[request]]
 id = "mint-domain-value-canonical"
@@ -547,12 +592,14 @@ kind = "correctness"
 status = "open"
 status_basis = "test run in a K-in-K2 probe worktree at 4f2b4b0 against 927b9ce6 on 2026-10-07 (Z3 profile; the portable profile cannot load MInt rules: Z3InferenceRequired)"
 blocking = false
-needed_by = ["K-in-K2 retirement of the TB-03 MInt refusal (conformance mint-llvm-2,3,4)"]
+needed_by = ["kink-flow admission of specifications holding MInt literals (KWasm-like; no planned flow corpus)", "K-in-K2 retirement of the TB-03 MInt refusal (conformance mint-llvm-2,3,4)"]
 summary = "MInt{W} literals (domains.md:2891, [+-]?[0-9]+[pP][0-9]+) reach KORE and Term::domain_value verbatim, with no validation or canonicalization, and MINT hooks are unimplemented (kb/builtin.rs:318-321). rule m1s(_) => m1c(1p8); rule m1c(1p8) => done(7); owise done(0): respelling the rhs to 01p8 (same MInt{8} value) gives done(0) instead of done(7); K-in-K2 measured it as an equivalent mutant Killed (probes.md M1)."
 reproducer = "k-in-k2 draft/tasks/variable-identity/decisions/VI-T12-evidence/probes/t12mint.k with the rhs respelled 01p8; krun m1s(1) in the Z3 profile."
 local_workaround = "K-in-K2 TB-03 refuses any side whose compiled KORE holds a MINT.MInt domain value, and MInt domain values in test states."
 requested_action = "Confirm K's MInt literal semantics (sign, leading zeros, p/P, and whether a literal is reduced modulo 2^W), then canonicalize MINT.MInt-hooked domain values in Term::domain_value (keyed on the hook), or refuse non-canonical MInt text at load and at request internalization. Same placement rule as float-domain-value-canonical. Acceptance: 1p8, +1p8, 01p8 and 1P8 internalize identically (or the non-canonical ones are refused); the M1 reproducer gives done(7) or is refused at load; KRUST-PROVENANCE text unchanged."
-sources = ["k-in-k2 decisions/VI-T12-evidence/probes.md (M1)", "krust-audit.md section 3 MInt"]
+sources = ["k-in-k2 decisions/VI-T12-evidence/probes.md (M1)", "krust-audit.md section 3 MInt", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 2"]
+status_at_main = "fixed"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: a literal denotes its signed decimal modulo 2^W and its canonical text is the unsigned residue (docs/compatibility.md:629-631; k-rust-backend term.rs:2880-2884, :3044-3098); MINT hooks implemented (builtin/hook_models/mint.rs); commits ac6e0d1ff, e896416d2; t12mint.k not run, and whether the portable build loads MInt rules was not checked"
 
 [[request]]
 id = "string-hex-escape-code-point"
@@ -561,13 +608,15 @@ kind = "conformance"
 status = "open"
 status_basis = "static screen of source at 927b9ce6 on 2026-10-07 (no kill constructed; K-in-K2 probes covered only ASCII escapes and raw UTF-8)"
 blocking = false
-needed_by = ["K-in-K2 retirement of the TB-03 String-escape refusal"]
+needed_by = ["kink-flow admission of specifications with high-byte String literals (TB-03 G-S refuses the whole specification)", "comparable non-ASCII Strings in final configurations (unknown today)", "closing the measured spurious-kill route through constant folding (merged constant-folding-string-encoding; the basis 'no kill constructed' is superseded by update_2026_10_08)"]
 summary = "k-rust/src/kompile/term_to_kore.rs:713 decodes STRING.String tokens with unquote_bytes (k-rust/src/kast/string.rs:110, :113-119), so \"\\xe9\" is the single byte E9 while \"é\", \"\\u00e9\" and chrString(233) are C3 A9. domains.md:1698-1699 and k-rust's own KAST reader unquote (kast/string.rs:71) read \\xHH as U+00HH. Consequences: lengthString(\"\\xc3\\xa9\") is 1 (K: 2), ordChar(\"\\xe9\") is stuck (K: 233), and f(\"\\xe9\") never matches f(chrString(233))."
 reproducer = "rule start(I) => f(chrString(I)); rule f(\"\\xe9\") => done(7); rule f(_) => done(0) [owise]; krun start(233): expected done(7) under K; k-rust gives done(0) by the reading above (not run)."
 local_workaround = "K-in-K2 TB-03 refuses a side whose KAST holds a STRING.String token with such an escape (zero hits in every scanned corpus)."
 requested_action = "In token_value, decode \\xHH and octal escapes in STRING.String tokens as the UTF-8 encoding of U+00HH; Bytes keep the byte reading; the KORE-level byte contract (kk/kore/string.rs) is unchanged. Acceptance: \"\\xe9\", \"é\" and \"\\u00e9\" compile to identical KORE bytes; lengthString(\"\\xc3\\xa9\") is 2; b\"\\xe9\" is still one byte; compiled definition.kore changes only for definitions holding such escapes."
-sources = ["k-in-k2 decisions/VI-T12-evidence/krust-audit.md section 3 String, section 5.C"]
+sources = ["k-in-k2 decisions/VI-T12-evidence/krust-audit.md section 3 String, section 5.C", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 4"]
 update_2026_10_08 = "MEASURED (K-in-K2 TB-03 review 1, handoffs/TB-03-review-1.json): the same mis-decoding is reached with no escape in the source. kompile's constant folding (kompile/passes/constant_folding.rs wrap()) re-quotes a folded String result with kast::string::quote, which spells U+0080..U+00FF as \\xHH, and term_to_kore reads it back with unquote_bytes as one byte. Example: rule p: chk(S) => done(7) requires S ==K chrChar(233); owise done(0); start(I) => chk(chrChar(I)). The compiled KORE holds \\dv{SortString{}}(\"\\xe9\") from the fold beside \\dv(\"\\xc3\\xa9\") from a raw \"\u00e9\" literal, so an equivalent mutant (chrChar(233) replaced by \"\u00e9\") is Killed, portable and Z3, Full and FirstKill. The requested decoding fix also fixes this route; acceptance should add: a folded chrChar(233) and \"\u00e9\" +String \"\" compile to the same bytes as the literal \"\u00e9\"."
+status_at_main = "fixed"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: STRING.String tokens are decoded as code points (k-rust kompile/term_to_kore.rs:734, kast/string.rs:111-140) and folded Strings are quoted as code points (kast/string.rs:28-52, kompile/passes/constant_folding.rs:398); KORE string literals are code points (docs/compatibility.md:657-662); tests tests/term_to_kore.rs:392-399, tests/cli.rs:7757-7807; commits 4a3b0b099, afa2ed7d8. The KORE byte contract this request said would stay unchanged was changed deliberately. t12fold.k not run"
 
 [[request]]
 id = "hooked-sort-identity-by-name"
@@ -576,13 +625,15 @@ kind = "correctness"
 status = "open"
 status_basis = "static screen of source at 927b9ce6 on 2026-10-07; the string2token route was measured at Float only (lens-soundness T1)"
 blocking = false
-needed_by = ["K-in-K2 retirement of the TB-03 clauses for renamed hooked sorts and token-creating hooks"]
+needed_by = ["kink-flow admission of specifications with renamed hooked sorts or token-creating hooks (TB-03 G-I/G-T, bridge refusals)"]
 summary = "Int canonicalization tests is_builtin by name (kb/term.rs:144-150, :1795-1797), and read_int/read_bool/read_float require the canonical names (kb/builtin.rs:1043-1064; float.rs read_float), while validate_domain_value checks by hook (kb/definition.rs:2316-2346). A sort hooked INT.Int or FLOAT.Float under another name is therefore validated but neither canonicalized nor evaluated (hooks return NotApplicable silently), so 07 and 7 are distinct in it. STRING.string2token (kb/builtin/string.rs:279-290) creates Float, MInt, Bool and Int-under-another-name values without validate_domain_value."
 reproducer = "syntax MyInt [hook(INT.Int)] with syntax MyInt ::= r\"[0-9]+\" [token]; rule c(07) => done(7); rule s(_) => c(7); rule c(_) => done(0) [owise]; krun s(1): done(0) by the reading above, done(7) under K (not run). For string2token: the T1 fixture in decisions/VI-T12-evidence/lens-soundness.md section 1 (measured)."
 local_workaround = "K-in-K2 TB-03 refuses declarations of token-creating hooks at Float, MInt, Bool and non-SortInt Int sorts, and non-canonical Int text in non-SortInt INT.Int sorts."
 requested_action = "Key builtin canonicalization and hook evaluation on the sort's hook, or refuse at load a builtin hook on a sort not named as its canonical sort. Run string2token's result through validate_domain_value and the canonicalizer (invalid text: NotApplicable with a diagnostic, never a verbatim value). Acceptance: string2token(\"1.0\") at Float equals Int2Float(1,53,11) byte for byte; string2token(\"TRUE\") at Bool is refused with a diagnostic; a renamed INT.Int sort either canonicalizes 07 to 7 or is refused at load."
-sources = ["k-in-k2 decisions/VI-T12-evidence/lens-soundness.md sections 1-2", "krust-audit.md section 3 Int/Bool"]
+sources = ["k-in-k2 decisions/VI-T12-evidence/lens-soundness.md sections 1-2", "krust-audit.md section 3 Int/Bool", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 3"]
 update_2026_10_08 = "MEASURED test-side form (K-in-K2 TB-03 review 1 F2): a request/test value \\dv{SortMyInt{}}(\"007\") or \"+7\" of a renamed INT.Int-hooked sort is internalized verbatim and compared by spelling, so it differs from 7 although K reads both as 7; an equivalent mutant is Killed. Acceptance should add: request internalization canonicalizes (or refuses) non-canonical text for every INT.Int-hooked sort, not only SortInt."
+status_at_main = "fixed"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: domain kind from the sort's hook on every route (docs/compatibility.md:621-627; k-rust-backend definition.rs:2807-2826); string2token validated and canonicalized at the result sort's kind (builtin/string.rs:395-440); request internalization reads +07 at a renamed INT.Int sort as 7 (src/tests/domain_values.rs:243-268); sorts named SortInt and SortBool stay a documented exception, which can only merge values (a missed kill), never create a difference; commits eabb06afe, ac6e0d1ff, 96ad2d5a4. A builtin hook declared at a renamed builtin sort is not evaluated (docs/compatibility.md:625): deferred as renamed-builtin-sort-hook-evaluation"
 
 [[request]]
 id = "hook-result-sort-check"
@@ -591,12 +642,14 @@ kind = "correctness"
 status = "open"
 status_basis = "test run by K-in-K2 TB-02 review 5 at k-in-k2 1d0318f against 927b9ce6 on 2026-10-07 (portable and Z3, Full and FirstKill) and by the VI-T13 soundness-lens probes at 1d0318f (V3', V4); static screen of main 957d53aa on 2026-10-07 (no result-sort check at simplify_root)"
 blocking = false
-needed_by = ["K-in-K2 retirement of the per-pin hook result-kind audit behind TB-03 clause G-H (VI-T13)", "K-in-K2 narrowing of G-H to its G-H0 tripwire"]
+needed_by = ["no K-unreachable rule fires because a hook value sits at a sort it does not have (measured spurious kills at 927b9ce6)", "K-in-K2 retirement of the soundness role of census rule H (VI-T13), which refuses the whole specification at kink-flow check"]
 summary = "simplify_root places a hook's BuiltinResult::Value with no sort check (kb/simplify.rs:3372-3402, kb/simplify/result.rs:119-155), and the parent is rebuilt around it unchecked (kb/simplify.rs:3233-3297). evaluate_hook_with_context receives the application's declared sort (kb/builtin.rs:225) but never compares the value with it. FIX hooks write the builtin sort they pick by name, FIXCOLL hooks write K's standard List/Map/Set definition (kb/builtin/list.rs:210-234), and PASS hooks return an argument or stored element unchanged (KEQUAL.ite kb/builtin.rs:873-891, MAP.lookup/lookupOrDefault kb/builtin/map.rs:351-389, LIST.get kb/builtin/list.rs:139-190). Under a non-natural declaration the value therefore sits in a position whose declared sort it does not have; the matcher's runtime sort check (kb/matching/mod.rs:1785-1802) rejects every pattern of the declared sort, so a lower-priority or owise rule that K never reaches fires. K-in-K2 measured equivalent mutants Killed from canonical Int input three ways: b2t(Bool, Bytes, Bytes) : Tok [hook(KEQUAL.ite)] feeding token2string; i2b(Bool, Int, Int) : Bool [hook(KEQUAL.ite)]; addB(Int, Int) : Bool [hook(INT.add)]."
 reproducer = "syntax Bool ::= addB(Int, Int) [function, total, hook(INT.add)]; syntax Prog ::= start(Int) | chk(KItem) | done(Int); rule start(I) => chk(addB(I, I)); rule [hit]: chk(B:Bool) => done(1); rule [range]: chk(X:KItem) => done(7) requires X ==K X [priority(60)]; rule chk(_) => done(0) [owise]. krun start(5): k-rust takes [range] (the value is \\dv{SortInt}(\"10\") in a Bool position), which K never reaches because [hit] applies to every Bool; the Haskell backend refuses the declaration. Same shape with syntax Bool ::= i2b(Bool, Int, Int) [function, total, hook(KEQUAL.ite)] and start(I) => chk(i2b(true, I, I)). Fixtures: k-in-k2 testdata/k/t13owk.k and t13ite.k once TB-03 lands (decisions/VI-T13-evidence/lens-soundness.md section 1)."
 local_workaround = "K-in-K2 TB-03 clauses G-H and G-C refuse, before execution, any side whose BackendDefinition declares a hooked symbol whose signature differs from kink's natural-signature table for 927b9ce6, an unclassified hook, or a collection role symbol of the wrong sort (a refused baseline or Unknown, never a kill)."
 requested_action = "K2: in simplify_root after BuiltinResult::Value (kb/simplify.rs:3386-3391), and at every other site that installs a hook value (Simplification::hook, kb/simplify/result.rs:119-155), compare value.sort() with the application's declared sort: equal, keep; a strict subsort, wrap with inject_to_sort; otherwise return Unsupported with a new reason (for example ResultSortMismatch { hook, declared, actual }), so the application stays unevaluated and surfaces as UnsupportedHook. This is a backstop for hook results only: collection role construction in Term::application does not pass through it (see collection-role-symbol-sorts), and it does not replace load-time validation (hook-signature-validation). Backend only: KRUST-PROVENANCE text, PROVENANCE_VERSION and compiled definition.kore stay unchanged. Acceptance: (1) the three reproducers give UnsupportedHook (or are refused at load), never the [range] result; (2) a unit test per result kind (FIX, FIXCOLL, PASS) with a mismatched declared sort; (3) the conformance corpus and every kompile-generated collection helper execute unchanged (the check never fires on a natural signature)."
-sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T13-options.md", "decisions/VI-T13-evidence/{hook-inventory,lens-soundness,lens-cost}.md", "handoffs/TB-02-review-5.json"]
+sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T13-options.md", "decisions/VI-T13-evidence/{hook-inventory,lens-soundness,lens-cost}.md", "handoffs/TB-02-review-5.json", "corpus-scale/handoffs/CS-01-review-1.json, CS-01-review-2.json and CS-01-fix-1.toml proposed_requests[0], limits[0] and the :70 proposal (merged here; see collection-role-symbol-sorts.update_2026_10_09)", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 6"]
+status_at_main = "fixed"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: with a definition, the evaluation entry turns a hook value whose sort differs from the application's, or whose domain values have another kind, into NotApplicable and leaves the application unevaluated (k-rust-backend builtin.rs:370-381, eabb06afe); every simplifier route passes a definition; LIST, SET and MAP hooks build in the declared result sort's collection, and a declaration under which a collection hook gives no value of its result sort is refused at compile and load (docs/compatibility.md:1291-1306; fd59f660f, ca659a98f). The requested typed Unsupported reason was not added; that visibility residual is handoff KINK-12. Not run: whether an unevaluated addB(5, 5) matches chk(B:Bool); kink re-runs t13owk.k, t13ite.k and the CS-01 B1 fixture at the re-pin"
 
 [[request]]
 id = "hook-signature-validation"
@@ -605,12 +658,16 @@ kind = "correctness"
 status = "open"
 status_basis = "static audit of all 157 implemented hooks at 927b9ce6 on 2026-10-07 (decisions/VI-T13-evidence/hook-inventory.md section 3), plus the measured kills of hook-result-sort-check; static screen of main 957d53aa on 2026-10-07 (no signature validation)"
 blocking = false
-needed_by = ["K-in-K2 narrowing of TB-03 clause G-H (VI-T13) and of the TB-02 token-hook rule", "K-in-K2 admission of KWasm typed lists (LIST.make into ListInt, LIST.get at WrappedInt)"]
+needed_by = ["kink-flow check: tell the user and the LLM why programs over a hooked symbol k-rust never evaluates end unknown, instead of refusing the whole specification", "retiring kink's census replica (rules H and U: a reference-prelude compile per process and an evaluate_hook probe under catch_unwind)"]
 summary = "No hooked declaration's signature is checked at load, by kompile or by the backend: kb/verify.rs:621-711 checks only the hooked-symbol keyword, constructor result sorts, the binder's KVar argument and element-symbol arity; kc/kompile/compile.rs:1383-1395 compiles nullary KRYPTO hooks at sort Value. STRING.token2string reads any DomainValue whatever its sort (kb/builtin/string.rs:268-277) and STRING.string2token writes into any result sort (:279-291). The Haskell backend verifies each hook's signature (hb/Builtin.hs:66-83; KEqual.hs:102-123), and docs/compatibility.md:17 leaves the behaviour of such definitions undefined, so refusing them costs no valid definition. In 596 compiled conformance definitions the prelude's 279 hooks carry one signature each (two legitimate pairs: IO.traceTerm, string2token into Id and KVar); the only non-natural user declarations are KREFLECTION.printKORE retyped as crash(Int) : Pgm (kprove-error-status) and KWasm's typed lists (ListInt:make, ListInt:get : WrappedInt and the ListRef twins). FIXCOLL hooks such as LIST.make build Term::list(k_item_definition(), ..) whatever the declared result (kb/builtin/list.rs:210-234), so a typed list built by make is a SortList value in a ListInt position."
 reproducer = "The reproducers of hook-result-sort-check; and syntax Tok [token]; syntax String ::= tok2s(Tok) [function, total, hook(STRING.token2string)]; syntax Tok ::= b2t(Bool, Bytes, Bytes) [function, total, hook(KEQUAL.ite)]; rule start(I) => stringRange(tok2s(b2t(true, Int2Bytes(1, I, BE), Int2Bytes(1, I, BE)))); rule stringRange(S) => done(7) requires lengthString(S) ==Int 1 andBool \"\\u007f\" <String S andBool S <String \"\\u0080\"; rule stringRange(_) => done(0) [owise]. krun start(128): k-rust gives done(7); no K String satisfies the guard."
 local_workaround = "K-in-K2 TB-03 clause G-H (natural-signature table: FIX exact builtin names, ite (Bool, S, S) -> S, collection positions from collection metadata, FIXCOLL only on standard collections, token hooks only over unhooked non-builtin token sorts, unimplemented hooks admitted only when evaluate_hook answers NotImplemented)."
-requested_action = "K1: in verify_declaration (kb/verify.rs:665-666), or after collection metadata is attached (kb/definition.rs:3108-3114), validate each hooked symbol of an implemented hook against a table hook -> (result check, [argument checks]): exact builtin sort, keyed on the sort's hook with a name check where readers key on names; KEQUAL.ite branches = result; collection element, key and value positions = metadata, PASS results = the collection sort, every collection-sort argument = that sort, FIXCOLL hooks only on the standard SortList/SortMap/SortSet; token2string's argument and string2token's result an unhooked token sort. Refuse with DefinitionError::Verification naming the symbol and the expected signature. Unimplemented hook names (for example KEVM's blake2, bls12, sha3, sha512, ed25519, p256 and KZG KRYPTO hooks) must keep loading. If kompile adopts the table, it must refuse before constant folding and never coerce declarations. K3: token_to_string returns NotApplicable on a builtin value sort. K4: FIXCOLL hooks build at the declared collection's definition, or refuse when the declared result is non-standard. Acceptance: (1) the reproducers and K-in-K2's tb02bytestoken.k, tb02stringtoken.k and t13*.k fixtures are refused at load; (2) every domains.md, kast.md, substitution.md, timer.md, unification.k, ffi.md, rat.md and json.md declaration, every kompile-generated collection helper, KEVM's vendored krypto.md and the conformance corpus load unchanged; (3) compile.rs:1383-1395's nullary plugin hooks move to natural signatures or are refused deliberately; (4) with K4, KWasm's ListInt:make yields a ListInt-definition list; (5) KRUST-PROVENANCE text and definition.kore are byte-identical before and after for natural-signature definitions. Supersedes the unfiled token-hook-sort-check of K-in-K2 handoffs/TB-02-fix-4.toml."
-sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T13-options.md", "decisions/VI-T13-evidence/{options,hook-inventory,census,lens-usability}.md", "tickets/VI-T13-hook-result-sorts.md"]
+requested_action = "Narrowed on 2026-10-15 to handoff KINK-12 (P3); the original K1/K3/K4 text is in this file's history at ea62fa0. Closed or moot at main: the soundness half (hook-result-sort-check), K4 and K1 for collection hooks (ca659a98f, 73b4fadcf, fd59f660f); withdrawn: K3 (token2string over builtin value sorts; payloads are canonical at main) and the nullary plugin hooks of kompile/compile.rs (a unit-test fixture). Remaining: report, as a structured diagnostic from kcompile and at backend load, each hooked declaration whose evaluation can never give a value of its declared result sort (the evaluation entry's own rule), naming symbol, hook, declared sort, value sort and location, without changing KORE, KRUST-PROVENANCE or evaluation. Acceptance: addB, i2b and b2t each give one diagnostic; the prelude, generated collection helpers, KEVM's krypto.md and the conformance corpus give none and compile byte-identically; a test pins that the reported declarations are exactly those the evaluation entry turns into NotApplicable. Open decision D12a: warning (recommended) or refusal. Proposal D12b: a public per-symbol hook capability query."
+original_requested_action = "K1: in verify_declaration (kb/verify.rs:665-666), or after collection metadata is attached (kb/definition.rs:3108-3114), validate each hooked symbol of an implemented hook against a table hook -> (result check, [argument checks]): exact builtin sort, keyed on the sort's hook with a name check where readers key on names; KEQUAL.ite branches = result; collection element, key and value positions = metadata, PASS results = the collection sort, every collection-sort argument = that sort, FIXCOLL hooks only on the standard SortList/SortMap/SortSet; token2string's argument and string2token's result an unhooked token sort. Refuse with DefinitionError::Verification naming the symbol and the expected signature. Unimplemented hook names (for example KEVM's blake2, bls12, sha3, sha512, ed25519, p256 and KZG KRYPTO hooks) must keep loading. If kompile adopts the table, it must refuse before constant folding and never coerce declarations. K3: token_to_string returns NotApplicable on a builtin value sort. K4: FIXCOLL hooks build at the declared collection's definition, or refuse when the declared result is non-standard. Acceptance: (1) the reproducers and K-in-K2's tb02bytestoken.k, tb02stringtoken.k and t13*.k fixtures are refused at load; (2) every domains.md, kast.md, substitution.md, timer.md, unification.k, ffi.md, rat.md and json.md declaration, every kompile-generated collection helper, KEVM's vendored krypto.md and the conformance corpus load unchanged; (3) compile.rs:1383-1395's nullary plugin hooks move to natural signatures or are refused deliberately; (4) with K4, KWasm's ListInt:make yields a ListInt-definition list; (5) KRUST-PROVENANCE text and definition.kore are byte-identical before and after for natural-signature definitions. Supersedes the unfiled token-hook-sort-check of K-in-K2 handoffs/TB-02-fix-4.toml."
+sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T13-options.md", "decisions/VI-T13-evidence/{options,hook-inventory,census,lens-usability}.md", "tickets/VI-T13-hook-result-sorts.md", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 7"]
+handoff = "KINK-12"
+status_at_main = "partial"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: collection hooks validated at compile and load (k-rust kompile/hook_signatures.rs:1-13; ca659a98f, 73b4fadcf); no diagnostic for other non-evaluable hooked declarations; the run-time outcome is documented instead (docs/compatibility.md:625; k-rust-backend builtin.rs:370-381; src/tests/domain_values.rs:225-238)"
 
 [[request]]
 id = "collection-role-symbol-sorts"
@@ -619,12 +676,16 @@ kind = "correctness"
 status = "open"
 status_basis = "test run in a K-in-K2 probe worktree at k-in-k2 1d0318f against 927b9ce6 on 2026-10-07 (portable and Z3, Full and FirstKill; decisions/VI-T13-evidence/lens-soundness.md B1)"
 blocking = false
-needed_by = ["K-in-K2 retirement of TB-03 clause G-C (VI-T13)"]
+needed_by = ["soundness margin of kink's ground-collection comparison (corpus-scale CS-16 relies on the census role predicate today)", "K-in-K2 retirement of census rule C (whole-specification refusal at kink-flow check)"]
 summary = "kompile copies the element, unit and concat labels of the production of a LIST.List/MAP.Map/SET.Set-hooked sort that carries element(..) onto the sort with no check of the named symbols' sorts or hooks (kc/kompile/module_to_kore.rs:1416-1484; kc/definition/checks/collections.rs checks parametricity only). attach_collection_metadata attaches the metadata to those symbols by name (kb/definition.rs:3008-3105), and Term::application builds a collection for every application of a symbol that carries metadata (kb/term.rs:776-783, collection_application :800-857), whatever its declared result sort. An unhooked constructor mkFoo(Int) : Foo named as element(mkFoo) of a sort LI therefore yields an LI value in a Foo position, so a Foo-sorted pattern variable rejects it and a K-unreachable rule fires. No hooked symbol is involved, so hook-level checks (and the result-sort backstop at simplify_root) never see it."
 reproducer = "syntax Foo ::= mkFoo(Int) [symbol(mkFoo)]; syntax Prog ::= start(Int) | chk(KItem) | done(Int); syntax LI [hook(LIST.List)]; syntax LI ::= LI LI [function, total, left, assoc, symbol(_LI_), element(mkFoo), unit(.LI)]; syntax LI ::= \".LI\" [function, total, symbol(.LI)]; rule start(I) => chk(mkFoo(I)); rule [hit]: chk(F:Foo) => done(1); rule [range]: chk(X:KItem) => done(7) requires X ==K X [priority(60)]; rule chk(_) => done(0) [owise]. krun start(5): k-rust takes [range]; in K, mkFoo(5) is a Foo and [hit] applies. Fixture: k-in-k2 testdata/k/t13role.k once TB-03 lands."
 local_workaround = "K-in-K2 TB-03 clause G-C refuses any side in which a symbol carrying collection metadata has a result other than the collection sort, role arguments other than the metadata's, or no role hook."
 requested_action = "K5: in attach_collection_metadata (kb/definition.rs:3008-3105), refuse at load a role symbol whose result sort is not the collection sort, a unit symbol with arguments, an element symbol whose arguments differ from the metadata sorts, or a concat symbol whose arguments are not (C, C); optionally require the namespace's role hook (LIST.unit/element/concat, and so on). kompile's collection_attribute_overrides may refuse earlier but must never rewrite. Acceptance: the reproducer is refused at load; K's prelude collections, every kompile-generated cell collection and KWasm's ListInt/ListRef load unchanged; KRUST-PROVENANCE text and definition.kore unchanged for accepted definitions."
-sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T13-evidence/lens-soundness.md sections 1-4"]
+sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T13-evidence/lens-soundness.md sections 1-4", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 8"]
+update_2026_10_09 = "MEASURED further (K-in-K2 CS-01 review 1): an extra symbol that is not the typed collection's metadata role symbol but carries hook LIST.element, LIST.unit, MAP.element or SET.element over a typed collection sort C is evaluated by evaluate_hook, which builds the STANDARD SortList/SortMap/SortSet value (kb/builtin/list.rs element()/unit() use k_item_definition()), placed at declared sort C. An equivalent mutant is Killed (portable and Z3, Full and FirstKill; fixtures in corpus-scale/handoffs/CS-01-review-1.json). hook-result-sort-check, or refusing non-metadata role hooks at load, would close it. [Folded verbatim on 2026-10-15 from k-rust draft/k-in-k/requests-2026-10-07.toml. The route is a hook route: it is merged into hook-result-sort-check and closed at main by fd59f660f; it does not change this request.]"
+handoff = "KINK-07"
+status_at_main = "open"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: attach_collection_metadata checks only element arity, closed element sorts and one collection per symbol (k-rust-backend definition.rs:3549-3640); Term::application builds a collection for any role-symbol application (term.rs:1098-1119); kompile copies role labels unchecked (kompile/module_to_kore.rs:1459-1503); definition/checks/collections.rs unchanged since the pin; t13role.k not run"
 
 [[request]]
 id = "constant-folding-hook-parity"
@@ -633,12 +694,16 @@ kind = "conformance"
 status = "open"
 status_basis = "static screen of source at 927b9ce6 on 2026-10-07 (no kill constructed; fold and backend spot-checked equal for INT.ediv, emod, tdiv, tmod and STRING.string2int)"
 blocking = false
-needed_by = ["K-in-K2 retirement of TB-03 clause G-H6 (exact signatures for folded unimplemented hooks)"]
+needed_by = ["fold and run time agree on every declaration kink may admit once it retires its census (soundness margin; would rise to P2 if kink drops census rule H)", "retiring kink's FOLDED_HOOKS replica"]
 summary = "kc/kompile/passes/constant_folding.rs:215-276 folds BOOL/INT/STRING/FLOAT hook applications on literal arguments into a token of the production's declared result sort, while at run time the backend writes the hook's own builtin sort: addT(1, 2) declared at Tok folds to \\dv{Tok}(\"3\") but evaluates to \\dv{SortInt}(\"3\"). The pass also folds hooks the backend does not implement (constant_folding.rs:286-395: INT.bitRange, INT.signExtendBitRange, STRING.rfind, findChar, rfindChar, replaceAll, replace, replaceFirst, countAllOccurrences), so a definition literal gets a value that run time never computes (NotImplemented). Nothing tests that fold and backend agree on a value."
 reproducer = "Static. syntax Tok [token]; syntax Tok ::= addT(Int, Int) [function, total, hook(INT.add)]; a rule with rhs addT(1, 2) compiles to \\dv{Tok}(\"3\"); the same application built at run time from variables evaluates to \\dv{SortInt}(\"3\"). For an unimplemented hook: a literal-argument STRING.replaceAll(\"aa\", \"a\", \"b\") in a rule rhs compiles to a String literal while a run-time application is stuck with NotImplemented."
 local_workaround = "K-in-K2 TB-03 G-H requires natural signatures (so the declared sort is the hook's sort) and the exact prelude signature for the nine folded unimplemented hooks."
-requested_action = "Fold only applications whose declaration has the hook's natural signature (or only after hook-signature-validation accepts it); for the nine hooks, either implement them in the backend or stop folding them, so that fold and run time agree; add a differential test that folds each hook both sides implement on sample literals and compares with builtin::evaluate_hook. Acceptance: the differential test passes for every hook both implement; no folded token's sort differs from what evaluation would write; compiled definition.kore changes only for definitions that relied on folding a non-natural or unimplemented hook."
-sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T13-evidence/lens-soundness.md section 2 (constant folding)", "hook-inventory.md section 4 (last row)"]
+requested_action = "Narrowed on 2026-10-15 to handoff KINK-13 (P3); the original text is in this file's history at ea62fa0. Done at main: the nine hooks evaluate at run time and a fold-versus-evaluator oracle exists (356bd696e). Remaining: (a) fold only where run-time evaluation would give the value at the application's declared result sort, else leave the application as written (addT(1, 2) at a token sort Tok, and INT.add at a renamed INT.Int sort, are not folded); (b) a differential test of fold against execution through STRING-COMMON for findChar, rfindChar, replace and replaceFirst on sampled literals including negative and out-of-range indices, empty needles and a negative count. Compiled definition.kore changes only for definitions that folded a non-natural declaration."
+original_requested_action = "Fold only applications whose declaration has the hook's natural signature (or only after hook-signature-validation accepts it); for the nine hooks, either implement them in the backend or stop folding them, so that fold and run time agree; add a differential test that folds each hook both sides implement on sample literals and compares with builtin::evaluate_hook. Acceptance: the differential test passes for every hook both implement; no folded token's sort differs from what evaluation would write; compiled definition.kore changes only for definitions that relied on folding a non-natural or unimplemented hook."
+sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T13-evidence/lens-soundness.md section 2 (constant folding)", "hook-inventory.md section 4 (last row)", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 9"]
+handoff = "KINK-13"
+status_at_main = "partial"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: k-rust tests/fixtures/hook-capabilities.toml lists the nine hooks as implemented or equation_defined; the fold writes at the declared result sort with no run-time sort check (kompile/passes/constant_folding.rs:192-260, :389-404); the oracle compares equation-defined hooks with a model written in the test (constant_folding_oracle.rs:1055-1130)"
 
 [[request]]
 id = "string2bytes-declared-total-returns-bottom"
@@ -652,7 +717,9 @@ summary = "K declares String2Bytes [function, total] (encoding not re-checked ag
 reproducer = "Any definition importing BYTES; test predicate \\ceil(String2Bytes(\"\\u0100\")) or a rule that applies String2Bytes to chrChar(256). Expected: a defined Bytes value (total declaration). k-rust: Bottom."
 local_workaround = "None in kink; recorded as VI-T10 residue."
 requested_action = "Check K's specified encoding for BYTES.string2bytes and make the hook defined on every String as K specifies; if K itself is partial there, the K-side declaration and docs/compatibility.md should say so. Acceptance: String2Bytes(chrChar(256)) is defined and equal to what K specifies, and the round trip with Bytes2String holds wherever K says it does."
-sources = ["k-in-k2 draft/tasks/variable-identity/README.md 16.9", "handoffs/TB-02.toml limits", "tickets/VI-T10-test-input-boundary.md"]
+sources = ["k-in-k2 draft/tasks/variable-identity/README.md 16.9", "handoffs/TB-02.toml limits", "tickets/VI-T10-test-input-boundary.md", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 5"]
+status_at_main = "fixed"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: k-rust documents the Latin-1 reading as its own choice; above U+00FF a total String2Bytes is Unsupported(Unspecified { defined: true }) and left unevaluated with its ceil holding (docs/compatibility.md:1389, :1396; k-rust-backend builtin.rs:102, :137; test builtin/bytes.rs:1003); commits 5ea4e0d74, 5c0eb82de, 49232fe85; not run"
 
 [[request]]
 id = "constant-folding-string-encoding"
@@ -665,5 +732,181 @@ needed_by = ["Retiring K-in-K2 TB-03's execution-definition G-S scan"]
 summary = "kompile/passes/constant_folding.rs wrap (:395-405) writes folded String results with kast::string::quote, which spells U+0080..U+00FF as \\xHH; term_to_kore.rs token_value/unquote_token (:698-732) reads them with unquote_bytes as one raw byte. So chrChar(233) compiles to the byte E9, and chrChar(195) +String chrChar(169) to the UTF-8 of e-acute, while run time gives C3 A9 and C3 83 C2 A9. Equivalent mutants were Killed through this before kink refused it. Related to string-hex-escape-code-point (same decoder), but reachable with no escape in the source."
 reproducer = "k-in-k2 testdata/k/t12fold.k (modules T12FOLDCHR, T12FOLDCAT, T12FOLDPAIR): rule chk(S) => done(7) requires S ==K chrChar(233); owise done(0); start(I) => chk(chrChar(I)); krun start(233)."
 local_workaround = "K-in-K2 TB-03 G-S scans the execution definition after the transform stages and refuses any divergent String token."
-requested_action = "Write folded String tokens so that term_to_kore yields the UTF-8 of the folded value (quote with \\u escapes above 0x7f, or quote the UTF-8 bytes), or fix the decoder per string-hex-escape-code-point. Acceptance: a differential test of fold vs run time over code points 0x80..0xff; chrChar(233) folds to the same KORE bytes as the literal e-acute."
-sources = ["k-in-k2 draft/tasks/variable-identity/handoffs/TB-03-review-1.json F1", "handoffs/TB-03-fix-1.toml proposed_requests", "testdata/k/t12fold.k"]
+requested_action = "Merged on 2026-10-15 into string-hex-escape-code-point (same decoder; that row's update_2026_10_08 records this route). As asked: write folded String tokens so that term_to_kore yields the UTF-8 of the folded value, or fix the decoder per string-hex-escape-code-point. Acceptance: a differential test of fold vs run time over code points 0x80..0xff; chrChar(233) folds to the same KORE bytes as the literal e-acute."
+original_requested_action = "Write folded String tokens so that term_to_kore yields the UTF-8 of the folded value (quote with \\u escapes above 0x7f, or quote the UTF-8 bytes), or fix the decoder per string-hex-escape-code-point. Acceptance: a differential test of fold vs run time over code points 0x80..0xff; chrChar(233) folds to the same KORE bytes as the literal e-acute."
+sources = ["k-in-k2 draft/tasks/variable-identity/handoffs/TB-03-review-1.json F1", "handoffs/TB-03-fix-1.toml proposed_requests", "testdata/k/t12fold.k", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 4"]
+status_at_main = "fixed"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: same decoder fix as string-hex-escape-code-point (4a3b0b099); the fold quotes code points that the decoder reads back as code points (k-rust kast/string.rs:28-52, kompile/passes/constant_folding.rs:398); the fold oracle samples 0x80..0xff only by chance, so kink's t12fold.k at the re-pin is the deterministic check; not run"
+
+# ---------------------------------------------------------------- filed on 2026-10-15 with the k-rust handoff
+# Requests that were drafts, pending entries or new needs before 2026-10-15. Each carries its handoff id.
+
+[[request]]
+id = "pathset-state-dedup"
+title = "Execution with strategy all never merges equal intermediate states, so strict operators multiply identical paths exponentially"
+kind = "performance"
+status = "open"
+status_basis = "static screen of source at 927b9ce6 on 2026-10-15 (k-rust-backend rewrite/execute.rs:1160, :1233: StateSet merges final leaves only); IMP path counts carried from draft/tasks/corpus-scale/README.md:464-471 (CS-04, measured against 927b9ce6), not requalified"
+blocking = true
+needed_by = ["kink-flow result runs of every specification with strict operators: kink compares sets of final configurations, so it explores with strategy all", "F-09 (the loop on the K tutorial's IMP lesson_4, whose + and / are strict and whose seed sum.imp loops 100 times)"]
+summary = "execute is a depth-first exploration with no merging of equal intermediate states; under StateSet only the final leaves are merged (k-rust-backend rewrite/execute.rs:1333-1400 at 9ea39ec7). With strict operators every evaluation order is a separate path: IMP sum with n = 1/2/3 gives 4/16/64 identical PathSet leaves, and the observed run takes 0.15/1.0/4.9 s and 2.51 GiB at n = 3 (release, no-Z3, at 927b9ce6). sum.imp with n = 100 cannot finish (about 4^100 paths, extrapolated). Backend::search Final deduplicates states per depth but drops Trivial and Vacuous states (search.rs:1135), keeps one unspecified witness, and keys without effects or console state, so it is not a drop-in replacement. Strategy any is not a substitute either: it follows one successor, so a nondeterministic baseline or mutant can show different final configurations with equal final sets, an unsound kill; k-rust's own conformance record runs this IMP case with --strategy any 'avoiding duplicate strict-heating orders' (scripts/conformance/expectations.toml:2136 at 9ea39ec7). Ticket 7 item 2 asked for less merging and was answered by PathSet; this request asks for more merging under StateSet only."
+reproducer = "k-rust conformance case pl-tutorial/1_k/2_imp/lesson_4 (K k-distribution/tests/regression-new/pl-tutorial/1_k/2_imp/lesson_4/imp.k at K 4a46d123); program tests/sum.imp with n = 100 replaced by n = 3; execute with strategy all, no depth bound: PathSet gives 64 identical leaves; StateSet gives one leaf after 64 paths of work; with n = 100 neither finishes."
+local_workaround = "None that keeps the programs: kink-flow runs strategy all, PathSet, max_breadth None (kink-native execution.rs:340-354); an exploding program ends timeout (never a killer) or, with a breadth bound, unknown."
+requested_action = "Handoff KINK-01 (P0). Under StateSet (or an opt-in flag), execute with strategy all merges equal states during exploration (key: state_key, branch-local effects, observable console, as merge_equal_final_leaves), so work is bounded by distinct reachable states; the set of (state key, halt reason, effects, console) equals the unmerged StateSet run's, with the same kinds of Trivial, Vacuous, frontier and stop leaves (the multiplicity of Trivial and Vacuous leaves may fall); PathSet unchanged; document the trace of a merged leaf. Acceptance: polynomial rewrite steps on IMP sum and sum.imp (n = 100) ends in one Stuck leaf with sum 5050; PathSet leaf counts unchanged from main before the change; a property test against unmerged StateSet with and without a depth bound; unbounded strategy all equals a Final search (ticket 7 item 3); different console output stays distinct; Cancelled and Timeout still work. Open decisions D1-D3 for k-rust (merge depth, opt-in, merged trace)."
+sources = ["k-in-k2 draft/tasks/corpus-scale/README.md CS-T05, Q16; scout-corpora.md M-C7; CS-04 measurement", "draft/upstream-tickets/k-rust-execution-leaf-selection.md items 2 and 3", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-2.md section 2"]
+handoff = "KINK-01"
+status_at_main = "open"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: k-rust-backend rewrite/execute.rs:1-36, :1262-1268, :1333-1400; search.rs:79-83, :735-742, :980-989, :1135"
+
+[[request]]
+id = "reusable-prelude-compilation"
+title = "Every load and compile of a definition redoes the work for the whole K prelude"
+kind = "performance"
+status = "open"
+status_basis = "carried from draft/tasks/upstream-pending.md (2026-10-14 test-time investigation against 927b9ce6: about 70% of a trivial kink test in prelude catalog initialisation), not requalified"
+blocking = false
+needed_by = ["kink-flow kill-search throughput: each mutation costs one load and one compile of the mutant, and program runs take milliseconds", "large flow corpora (KEVM/KMIR mutant compiles of 3-6 s) would make it P0"]
+summary = "Test run at 9ea39ec7 (release): a prelude-only definition costs 0.11-0.12 s to load and 0.17-0.19 s to compile; IMP lesson_4 0.11-0.13 s and 0.19-0.23 s; a one-rule IMP mutant built with LoadedDefinition::with_definition, which is how kink builds mutants (kink-patch apply.rs:68-75 at 18ef47e), loads in 1-2 ms and compiles in 0.21-0.27 s, of which a prelude-only compile (0.17-0.19 s) is about 60-85%, work every mutant repeats. So the cost kink pays is mainly compile; load reuse serves hosts that reload text. Catalogs are per-resolution OnceLocks (k-rust definition/resolve.rs:396-412); LoadedDefinition::with_definition re-resolves from scratch (outer/loader.rs:596-603), but resolution itself costs about 1 ms, so calling ResolvedDefinition::update there alone would save almost nothing; the cost is in rule-bubble resolution and the compile passes. Merges the needs item 'incremental mutant compilation'."
+reproducer = "Load and compile (load_for_compilation_timed, compile_loaded_definition_timed; implicit kast.md and prelude.md; excluded attribute of CompilationBackend::Rust) a prelude-only definition and IMP lesson_4 three times each in one process; compare with a one-rule IMP mutant (I1 +Int I2 to I1 -Int I2) by full reload and by with_definition."
+local_workaround = "None that removes the cost: kink memoises only the baseline compile (kink-native validator.rs:80-99) and builds dependencies with opt-level 2 in dev."
+requested_action = "Handoff KINK-02 (P1). Caller-owned, thread-shareable reuse of the compile work spent on shared modules (at least the builtin prelude), including for mutants built with with_definition, and optionally of load work for hosts that reload text, with artifacts byte-identical to a cold compile and no stale reuse when any input that affects compilation differs. Mechanism unresolved (k-rust decides). Proposal: warm compile of a with_definition one-rule IMP mutant at most 50% of a cold compile of it; if load reuse is built, warm load plus compile at most 35% of a cold full-reload load plus compile; release."
+sources = ["k-in-k2 draft/tasks/upstream-pending.md (2026-10-14)", "k-rust draft/k-in-k/requests-2026-10-07.toml row reusable-prelude-compilation", "k-rust draft/open-issues-2026-10/RESULT.md:463-467 (unit compile-cache, not built; carried)", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-3.md section 1"]
+handoff = "KINK-02"
+status_at_main = "open"
+status_at_main_basis = "test run at 9ea39ec7 on 2026-10-15 (handoff probe: release, default-features = false, host load about 13 on 32 CPUs) and static screen of k-rust definition/resolve.rs:396-412, :531 and outer/loader.rs:557-603, :875-911"
+
+[[request]]
+id = "sentence-typer-generated-labels"
+title = "SentenceTyper fails with UnknownLabel on generated sort predicates and #let in rules that compile"
+kind = "correctness"
+status = "open"
+status_basis = "carried from draft/tasks/corpus-scale/scout-sites.md M-S3 (CS-T01, measured against 927b9ce6: KEVM 32, KMIR 50, KWasm 8 rules), not requalified"
+blocking = false
+needed_by = ["kink-flow mutation validity: kink-patch types every edited rule, so a valid mutation of a rule using isKResult, isInt or #let is rejected", "F-07 mutation proposals (such rules are excluded from the universe as untyped)"]
+summary = "SentenceTyper::new types against the loaded definition's production catalog (k-rust kompile/sort_injections/typing.rs:369-395); generated sort predicates and the #let/#fun forms are not productions there, and a label with no production is UnknownLabel (sort_injections.rs:2510-2512), although the type documents itself as a read of compilation's own computation (typing.rs:340-362). IMP lesson_4 types fully (20 of 20 rules)."
+reproducer = "A definition with rules requires isInt(X) and #let Y = X #in Y +Int 1 compiles; SentenceTyper::typing fails on both with 'cannot find a production for KLabel'."
+local_workaround = "None; such rules are excluded from kink's mutation universe and their flow mutations are reported Rejected."
+requested_action = "Handoff KINK-03 (P1). SentenceTyper::typing succeeds whenever compile_loaded_definition accepts the definition, with per-position sorts agreeing with compilation, for at least is<Sort> (including isKResult), #let, #fun (both #fun2 and #fun3 readings) and any label compilation generates before typing. Acceptance: unit tests per form; a property over the compatibility manifest's compile cases in both builds; ill-sorted uses still refused."
+sources = ["k-in-k2 draft/tasks/corpus-scale/README.md section 10/11 (CS-T01); scout-sites.md M-S3", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-3.md section 3"]
+handoff = "KINK-03"
+status_at_main = "open"
+status_at_main_basis = "test run at 9ea39ec7 on 2026-10-15 (handoff probe: isInt and #let fail; isKResult and #fun not run, same mechanism) and static screen of k-rust kompile/sort_injections/typing.rs:340-395, :940, :1002-1065"
+
+[[request]]
+id = "equation-application-events"
+title = "Equations applied while deciding a rule's conditions are absent from the execution trace"
+kind = "missing-feature"
+status = "open"
+status_basis = "static screen of source at 927b9ce6 on 2026-10-15 (k-rust-backend simplify.rs:629-635 returns predicates only); measurement carried from draft/tasks/corpus-scale/scout-coverage.md M-C3 (guardedeq.k, against 927b9ce6), not requalified"
+blocking = false
+needed_by = ["kink-flow coverage (loop step 2) and survivor reaching programs on function-heavy specifications: an equation used only in a condition can never be reported covered"]
+summary = "Equation and hook applications during state simplification are already TraceKind::Simplification entries with the equation's UNIQUE_ID (k-rust-backend rewrite/execute.rs:533-546 at 9ea39ec7); kink does not read them yet (kink-side first step). Equations applied while deciding requires, ensures, match conditions and definedness obligations are not recorded: simplify_predicates_with_solver returns only Vec<Predicate> (simplify.rs:766-779). guardedeq.k's norm equation, used only in load's requires, never appears in the trace. IMP lesson_4 has no user equations."
+reproducer = "k-in-k2 testdata/k/guardedeq.k (inlined in the handoff): execute seq(load(addr(1), 0), halt); the leaf trace holds the load rule and no entry for norm."
+local_workaround = "kink-flow reports every equation not-observable (kink-flow results.rs:744-834); a mutation of an equation gets no reaching program and is scheduled in manifest order."
+requested_action = "Handoff KINK-04 (P1). The leaf trace (and observed evaluation events) also records each equation and hook application used to decide a rewrite rule's requires, ensures, match conditions or definedness obligations, with UNIQUE_ID and depth, distinguishable from state-simplification entries; presence, not order or multiplicity. Open decisions D1 (record equations evaluated for rules that did not apply; recommended yes, marked) and D2 (opt-in flag)."
+sources = ["k-in-k2 draft/tasks/corpus-scale/README.md CS-T09; scout-coverage.md M-C3", "draft/tasks/k-rust-handoff-2026-10-15/inventory/kink-code.md W-19; inventory/needs.md section 4 item 1", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-2.md section 4"]
+handoff = "KINK-04"
+status_at_main = "open"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: k-rust-backend rewrite/apply.rs:1363-1446, simplify.rs:766-779; Simplification entries at rewrite/execute.rs:533-546, :1215-1235, :1626-1640"
+
+[[request]]
+id = "collection-normal-form-contract"
+title = "No documented contract for what a ground Map, Set or List term returned by execution denotes"
+kind = "contract"
+status = "open"
+status_basis = "static screen of source at 927b9ce6 and 9ea39ec7 on 2026-10-15 (no contract at either; same representation)"
+blocking = false
+needed_by = ["premise T-COLL of kink's ground-collection comparison of final configurations (corpus-scale CS-15/CS-16, then F-09): P1 if CS-15 meets a case kink cannot detect from the returned term"]
+summary = "Residue is explicit in TermKind::Map/List/Set (rest fields; k-rust-backend term.rs:730-744 at 9ea39ec7); a set with a repeated element is bottom where built (docs/compatibility.md:1219-1220, which names sets only); result order is structural and release-unstable (:1624-1625). No statement says a rest-free ground collection in a leaf denotes exactly the collection of its items, nor how that maps to externalized KORE."
+reproducer = "Documentation request; acceptance tests are in the handoff (two insertion orders give equal terms and KORE; a repeated ground key gives no leaf; an unevaluated rest stays in rest)."
+local_workaround = "At the pin every collection terminal is unknown (kink-native feasibility.rs:290-309); CS-16 will check rest, groundness and distinctness itself and trust T-COLL for content."
+requested_action = "Handoff KINK-05 (P2). State in docs/compatibility.md and on TermKind: a rest-free Map/Set denotes exactly its items with distinct keys, a rest-free List its heads in order; a leaf collection has no part outside its items and rest; no leaf holds a map or set with equal keys; the externalized KORE is the concatenation of exactly its items by the collection's own symbols. No behaviour change. Open decision (k-rust): which surface (TermKind, externalized KORE; recommended both)."
+sources = ["k-in-k2 draft/tasks/corpus-scale/README.md Q12 (c), premise T-COLL (:490-505, :575, :658)", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 12"]
+handoff = "KINK-05"
+status_at_main = "open"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: k-rust-backend term.rs:730-744; docs/compatibility.md:1219-1220, :1624-1625"
+
+[[request]]
+id = "compile-execution-determinism-contract"
+title = "Compile and concrete execution determinism is relied on by kink's caches but not stated or tested by k-rust"
+kind = "contract"
+status = "open"
+status_basis = "static screen of source at 9ea39ec7 on 2026-10-15 found no documented contract; the pin was not screened separately (absence at main taken to imply absence at 927b9ce6)"
+blocking = false
+needed_by = ["premise of kink-flow's kill search, result cache, killer cache, replay and compile memo: the kill search compares a baseline run and a mutant run of one campaign, where nondeterminism could give a spurious Distinguish; the cached row is only checked against the fresh baseline run, so nondeterminism against the cache gives corpus errors (draft/tasks/flow/README.md 5.4)"]
+summary = "Test run at 9ea39ec7: IMP lesson_4 compiled byte-identically in three rounds in one process and in three processes; execution determinism was not probed. docs/compatibility.md:1624-1625 documents a structural result order that may change between releases, which kink's revision-keyed caches tolerate. k-rust's heavy gates (untracked draft/open-issues-2026-10/STATE.md head41-head44, carried) find WASM, MIR and KEVM definition.kore byte-identical between base and head, which exercises compile determinism in practice; the request is mainly a documented contract plus an execution-determinism test."
+reproducer = "Compile IMP lesson_4 in two processes and compare artifacts; execute a nondeterministic definition with strategy all twice in fresh processes and compare serialized leaves."
+local_workaround = "kink re-verifies cached results on request and checks for drift (F-03 --verify, F-05 drift check); F-01's compile memo states the premise as a limit."
+requested_action = "Handoff KINK-06 (P2). For a fixed revision and feature set: same sources and options give byte-identical artifacts in any process and thread; the same request on the same compiled definition, with no wall-clock bound, cancellation or SMT resource limit firing, gives the same leaves in the same order; state the excluded inputs. Acceptance: two-process compile and execute tests."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/inventory/needs.md section 4 item 5", "k-in-k2 draft/tasks/flow/handoffs/F-01.toml limits", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-3.md section 9"]
+handoff = "KINK-06"
+status_at_main = "open"
+status_at_main_basis = "test run at 9ea39ec7 on 2026-10-15 (compile only) and static screen of docs/compatibility.md:1624-1625"
+
+[[request]]
+id = "documented-decision-facade"
+title = "In-process cancellation is reachable only through k-rust-backend internals, and k-rust-backend breaks its API without a version change"
+kind = "api"
+status = "open"
+status_basis = "static screen of source at 927b9ce6 and 9ea39ec7 on 2026-10-15 (k-rust-backend 0.3.0 at both; facade has no public cancellation path at either)"
+blocking = false
+needed_by = ["kink-flow's timeout status (kink bounds wall time by cancelling a CancellationToken in process)", "re-pin cost: three of five re-pin compile errors at main are in k-rust-backend APIs"]
+summary = "At 9ea39ec7 stop::StopCause is a private use in the facade (k-rust backend/mod.rs:45), no pub use of k_rust_backend exists in crates/k-rust/src, and the facade documentation sends readers to k_rust_backend::stop::operation (:1448-1453). k-rust-backend is 0.3.0 at both the pin and main although Term::domain_value was removed, StopCause::StackExhausted became StackExhausted(StackLimit) and collection metadata fields became Sorts. Merges ticket 4 item 3 (facade CancellationToken). The broad stable facade for theories, unifier and solver queries is deferred."
+reproducer = "Static: try to bound Backend::execute using only k_rust imports."
+local_workaround = "kink depends on k-rust-backend with an exact version (Cargo.toml) and re-audits its internal use on every re-pin."
+requested_action = "Handoff KINK-08 (P2). (1) The facade re-exports CancellationToken (with scope), StopCause and StackLimit and documents what a cancelled execute or search returns, including a cancellation on the entry poll where the builds differ. (2) Breaking changes visible from versions: open decision (k-rust) between 2a, semver for k-rust-backend public items (recommended), and 2b, declare it internal and re-export what hosts need. Acceptance: a doc test with k_rust imports only observes Cancelled; a public-API check in CI."
+sources = ["k-in-k2 draft/upstream-tickets/k-rust-search-timeout-cancel.md item 3", "draft/tasks/k-rust-handoff-2026-10-15/inventory/kink-code.md W-31; inventory/k-rust-main.md section 3", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-3.md section 6"]
+handoff = "KINK-08"
+status_at_main = "open"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: k-rust backend/mod.rs:45, :1448-1453; crates/k-rust-backend/Cargo.toml version 0.3.0; k-rust-backend stop.rs:50-80"
+
+[[request]]
+id = "configuration-unparser"
+title = "No library unparser prints a configuration in the definition's concrete syntax"
+kind = "missing-feature"
+status = "open"
+status_basis = "static screen of source at 9ea39ec7 on 2026-10-15 (absence by search); the pin was not screened separately"
+blocking = false
+needed_by = ["the LLM reading final configurations and survivor differences in kink-flow results and reports (today KORE text)", "possibly F-07 mutation proposals"]
+summary = "kast::printer::Printer::print_term prints canonical KAST (k-rust kast/printer.rs:15-40); krun output modes are Kore, Captured and None (main.rs:1135-1140). Compiled KORE keeps format attributes and ProgramParser::for_ground_values can parse a ground cell value, so a round-trip test is possible."
+reproducer = "None (missing feature)."
+local_workaround = "Records carry KORE text."
+requested_action = "PROPOSAL in handoff KINK-09 (P2): scope unresolved, Sebastien decides between (a) a k-rust library unparser like K's --output pretty (recommended for fidelity) and (b) a kink KORE pretty-printer; until then k-rust is asked only for a feasibility and cost estimate."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/inventory/needs.md sections 2.2, 2.6, 4 item 4", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-3.md section 8"]
+handoff = "KINK-09"
+status_at_main = "open"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: k-rust kast/printer.rs:15-40, main.rs:1135-1140, kompile/module_to_kore.rs:1683, inner/programs.rs:407"
+
+[[request]]
+id = "execution-identity-digest"
+title = "Which compiled attributes are provenance-only or not executed is not public, so kink hard-codes the lists"
+kind = "api"
+status = "open"
+status_basis = "static screen of source at 927b9ce6 and 9ea39ec7 on 2026-10-15 (attribute_keys.rs provenance rows identical at both)"
+blocking = false
+needed_by = ["kink-flow's equivalent status (a mutant whose compiled output equals the baseline's for execution is not run) and kink-patch sentence fingerprints"]
+summary = "AttributeKey::is_provenance_only is pub(crate) and covers Origin, SentenceStartOffset, SentenceEndOffset and InputAddresses (k-rust definition/attribute_keys.rs:299-308 at 9ea39ec7); kink excludes ten keys and strips Source, Location and rule label from compiled KORE. No public statement says which emitted attributes the backend reads. Merges kink-code W-22 and the F-04 review M2 Location note; W-23 is kink-side."
+reproducer = "Static."
+local_workaround = "Hard-coded lists in kink-native equivalence.rs and kink-patch fingerprint.rs:9-21."
+requested_action = "Handoff KINK-14 (P3). (1) A public, versioned classification of position and provenance-only attribute keys; (2) a documented list or predicate of emitted KORE attributes the Rust backend does not read when executing. Proposal (Sebastien decides): an execution digest or equality over two artifacts instead of (2); kink recommends the classifications only."
+sources = ["draft/tasks/k-rust-handoff-2026-10-15/inventory/kink-code.md W-21, W-22, W-23", "k-in-k2 draft/tasks/flow/handoffs/F-04-review-1.json M2", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-3.md section 4"]
+handoff = "KINK-14"
+status_at_main = "open"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: k-rust definition/attribute_keys.rs:299-308, definition/ast.rs:82-93"
+
+[[request]]
+id = "unadmitted-hook-namespace-visibility"
+title = "A hook in an unadmitted namespace is silently compiled as an unhooked function"
+kind = "tooling"
+status = "fixed"
+fixed_in = "present at 927b9ce6"
+status_basis = "static screen of source at 927b9ce6 on 2026-10-15: kompile emits Diagnostic::warning_at(DiagnosticCode::UnadmittedHookNamespace, ..., attributes) (k-rust kompile/compile.rs:739-745), and Diagnostic carries code, source and location (diagnostic.rs:197, :288-295); observed in K-in-K2 CS-01 against 927b9ce6 on 2026-10-08"
+blocking = false
+needed_by = ["K-in-K2 corpus admission records (fidelity: say when a definition's declared hooks were dropped)"]
+summary = "A function hook outside the builtin and admitted namespaces only produces the warning UnadmittedHookNamespace, and the production compiles as an unhooked function. Not a soundness issue for kink (baseline and mutant see the same uninterpreted function). The hook name is only in the message text, but the structured code and the production's location let a host read the hook attribute from the resolved definition it holds; warnings_to_errors gives the strict option globally. Same logic at 9ea39ec7 (compile.rs:822-856)."
+reproducer = "syntax Int ::= inert(Int) [function, hook(KINKTEST.unimplemented)]; compile with default options: one UnadmittedHookNamespace warning with a location; the BackendDefinition symbol has no hook."
+local_workaround = "kink records kompile warnings with code and message in admission records (kink-corpus admission.rs:280-291); kink-side: also record the location and resolve the hook from it (CS-T11)."
+requested_action = "Satisfied by the existing structured diagnostic (code plus location); no k-rust request. If handoff KINK-12's proposal D12b (hook capability query) lands, dropped hooks can appear in it."
+sources = ["k-rust draft/k-in-k/requests-2026-10-07.toml row unadmitted-hook-namespace-visibility", "k-in-k2 draft/tasks/upstream-pending.md", "draft/tasks/corpus-scale/handoffs/CS-01.toml (CS01-INERT-HOOK-NAMESPACE); corpus-scale/decisions/human-decisions-2026-10-08.md", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-1.md section 10"]
+status_at_main = "fixed"
+status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: k-rust kompile/compile.rs:822-856, diagnostic.rs:72-100, :304-311"
