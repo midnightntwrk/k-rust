@@ -25,7 +25,7 @@ mod substitution;
 
 pub(crate) use hook_signature::LoadedSorts;
 pub use hook_signature::{CollectionShape, SortFacts, misfit as collection_hook_misfit};
-pub(crate) use result_collection::ResultCollection;
+pub(crate) use result_collection::{ResultCollection, stored_at};
 pub(crate) use substitution::KVarSorts;
 
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
