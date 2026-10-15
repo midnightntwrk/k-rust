@@ -20,7 +20,7 @@ const PRELUDE: &str = r#"
 fn load(declarations: &str, axioms: &str) -> BackendDefinition {
     let source = format!("[] module MAIN {PRELUDE} {declarations} {axioms} endmodule []");
     let syntax = parse_definition(&source).expect("the probe parses");
-    BackendDefinition::internalize(&syntax, "MAIN").expect("the probe internalizes")
+    super::internalized(&syntax)
 }
 
 fn tainted(definition: &BackendDefinition, symbol: &str) -> bool {

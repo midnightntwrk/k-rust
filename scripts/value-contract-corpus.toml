@@ -12,6 +12,10 @@
 # simplified or answered from the memo, `condition_memo_hits` those answered from it, and
 # `condition_memo_refusals` the memo keys whose answer the memo refused to store (each such key is
 # simplified as written from then on).
+# `condition_budget_stops` and `condition_stack_stops` count the simplifications of the check that
+# spent their budget of polls or ran out of native stack; every case expects none, so a stop in the
+# corpus fails the gate (the values for `wasm` and `kevm` are the expectation, measured by the
+# KINK-06/3 heavy gate).
 
 [[case]]
 name = "fun"
@@ -43,6 +47,10 @@ full_simplifier_calls = 12
 full_condition_memo_hits = 4
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "simple-untyped"
@@ -74,6 +82,10 @@ full_simplifier_calls = 7
 full_condition_memo_hits = 1
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "simple-typed-static"
@@ -105,6 +117,10 @@ full_simplifier_calls = 6
 full_condition_memo_hits = 1
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "simple-typed-dynamic"
@@ -136,6 +152,10 @@ full_simplifier_calls = 7
 full_condition_memo_hits = 1
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "kool-untyped"
@@ -167,6 +187,10 @@ full_simplifier_calls = 8
 full_condition_memo_hits = 1
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "kool-typed-dynamic"
@@ -198,6 +222,10 @@ full_simplifier_calls = 10
 full_condition_memo_hits = 1
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "kool-typed-static"
@@ -229,6 +257,10 @@ full_simplifier_calls = 6
 full_condition_memo_hits = 1
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "iele-bison-glr-bug"
@@ -260,6 +292,10 @@ full_simplifier_calls = 0
 full_condition_memo_hits = 0
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "glr2"
@@ -291,6 +327,10 @@ full_simplifier_calls = 0
 full_condition_memo_hits = 0
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "glr3"
@@ -322,6 +362,10 @@ full_simplifier_calls = 0
 full_condition_memo_hits = 0
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "glr4"
@@ -353,6 +397,10 @@ full_simplifier_calls = 0
 full_condition_memo_hits = 0
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "overload"
@@ -384,6 +432,10 @@ full_simplifier_calls = 6
 full_condition_memo_hits = 1
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "issue-1090"
@@ -415,6 +467,10 @@ full_simplifier_calls = 6
 full_condition_memo_hits = 1
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "issue-2909-llvm"
@@ -446,6 +502,10 @@ full_simplifier_calls = 2
 full_condition_memo_hits = 0
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "issue-2909-haskell"
@@ -477,6 +537,10 @@ full_simplifier_calls = 2
 full_condition_memo_hits = 0
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "issue-4142"
@@ -508,6 +572,10 @@ full_simplifier_calls = 6
 full_condition_memo_hits = 1
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "issue-4114"
@@ -539,6 +607,10 @@ full_simplifier_calls = 6
 full_condition_memo_hits = 1
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 [[case]]
 name = "wasm"
@@ -570,6 +642,10 @@ full_simplifier_calls = 1738
 full_condition_memo_hits = 1480
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0
 
 # KEVM withdraws a claim (a relevant non-joined pair), so the manifest covers it; it is compiled
 # here and measured at a host UID (scripts/gates.toml, value-contract-corpus).
@@ -603,3 +679,7 @@ full_simplifier_calls = 1240
 full_condition_memo_hits = 995
 condition_memo_refusals = 0
 full_condition_memo_refusals = 0
+condition_budget_stops = 0
+condition_stack_stops = 0
+full_condition_budget_stops = 0
+full_condition_stack_stops = 0

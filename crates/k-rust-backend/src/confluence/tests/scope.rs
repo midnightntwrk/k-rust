@@ -241,7 +241,7 @@ fn without_heads(extra: &str) -> BackendDefinition {
     );
     let syntax =
         k_rust_kore::kore::parser::parse_definition(&source).expect("the definition parses");
-    BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
+    super::internalized(&syntax)
 }
 
 /// Review 1, F2: the certificate site is asked about an overloaded function, so the load
