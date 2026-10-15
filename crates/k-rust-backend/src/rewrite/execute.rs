@@ -197,6 +197,8 @@ struct Execution<'a> {
     discarded: Vec<UncommittedObservation>,
     completed_initial_simplifications: usize,
     bottom_initial_simplifications: usize,
+    /// The cause of the stop that ended the run, once one did (`ExecutionResult::stopped`).
+    stopped: Option<StopCause>,
     /// The states visited and the budget (`work::Work`).
     work: Work,
     /// The merge table of a state-set run that explores every branch; `None` otherwise.
@@ -304,6 +306,7 @@ impl<'a> Execution<'a> {
             discarded: Vec::new(),
             completed_initial_simplifications: 0,
             bottom_initial_simplifications: 0,
+            stopped: None,
             work,
             merge,
             arrival: None,
@@ -315,14 +318,10 @@ impl<'a> Execution<'a> {
 
     /// `max_breadth = Some(0)`: every initial pattern is a `BreadthBound` leaf.
     fn collect_at_breadth_zero(mut self) -> (ExecutionResult, InitialSimplificationStatus) {
-        let mut leaves = self.leaves;
-        leaves.extend(
-            self.pending
-                .drain(..)
-                .map(|state| execution_state_at_breadth_bound(state, &self.observation_log)),
-        );
+        self.drain_at_breadth_bound();
         let modality = self.options.result_modality;
-        let leaves = final_leaves(modality, self.fresh_counter.request(), leaves);
+        let leaves = std::mem::take(&mut self.leaves);
+        let leaves = self.selected_leaves(leaves);
         (
             ExecutionResult {
                 modality,
@@ -332,6 +331,7 @@ impl<'a> Execution<'a> {
                 coverage: None,
                 work: self.work.visited(),
                 stack_stops: 0,
+                stopped: self.stopped,
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: false,
@@ -399,7 +399,15 @@ impl<'a> Execution<'a> {
                 }
                 Err(leaf) => {
                     let ends_execution = match &leaf.halt_reason {
-                        HaltReason::Stopped(cause) => stop_ends_execution(cause, &mut step_timer),
+                        HaltReason::Stopped(cause) => {
+                            // A stop that ends the run is its cause; one local to the state ends
+                            // only the state, which is left unrecorded for merging.
+                            let ends = stop_ends_execution(cause, &mut step_timer);
+                            if ends {
+                                self.stopped = Some(cause.clone());
+                            }
+                            ends
+                        }
                         _ => {
                             self.record_arrival();
                             false
@@ -1777,16 +1785,58 @@ impl<'a> Execution<'a> {
     /// After a push: `BreadthBound` when `pending` exceeds `max_breadth` (the bound appends
     /// its live frontier to leaves already reached), else `Queued`.
     fn breadth_checked(&mut self) -> Expansion {
-        if execution_breadth_exceeded(
-            &mut self.pending,
-            &mut self.leaves,
-            self.options.max_breadth,
-            &self.observation_log,
-        ) {
+        if self
+            .options
+            .max_breadth
+            .is_some_and(|bound| self.pending.len() > bound)
+        {
+            self.drain_at_breadth_bound();
             Expansion::BreadthBound
         } else {
             Expansion::Queued
         }
+    }
+
+    /// Turn every pending state into a `BreadthBound` leaf. Under
+    /// `ExecutionOptions::discard_stopped` it polls once per state, and a stop that ends the run
+    /// ends the drain, recorded in `stopped` (the leaves are then discarded, [`Self::selected_leaves`]).
+    fn drain_at_breadth_bound(&mut self) {
+        while let Some(state) = self.pending.pop_front() {
+            if self.options.discard_stopped
+                && let Some(cause) = run_ending_stop()
+            {
+                self.stopped = Some(cause);
+                self.pending.clear();
+                return;
+            }
+            self.leaves.push(execution_state_at_breadth_bound(
+                state,
+                &self.observation_log,
+            ));
+        }
+    }
+
+    /// E8's leaf selection ([`final_leaves`]). Under `ExecutionOptions::discard_stopped`, a run
+    /// a stop ended selects no leaves and does no final merge, and the merge polls once per leaf:
+    /// a stop that ends the run observed there discards the leaves and is recorded in `stopped`.
+    fn selected_leaves(&mut self, leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
+        let modality = self.options.result_modality;
+        if !self.options.discard_stopped {
+            return final_leaves(modality, self.fresh_counter.request(), leaves);
+        }
+        if self.stopped.is_some() {
+            return Vec::new();
+        }
+        let selected = match modality {
+            ResultModality::StateSet => {
+                merge_final_leaves(self.fresh_counter.request(), leaves, run_ending_stop)
+            }
+            ResultModality::PathSet => Ok(leaves),
+        };
+        selected.unwrap_or_else(|cause| {
+            self.stopped = Some(cause);
+            Vec::new()
+        })
     }
 
     /// E8: under `StateSet` leaves pass `merge_equal_final_leaves`, which merges a leaf into an
@@ -1794,9 +1844,10 @@ impl<'a> Execution<'a> {
     /// `PathSet` every leaf is kept, one per explored path.
     /// `simplified_to_bottom` holds iff every initial input completed E2 and E3 and ended
     /// `Vacuous`.
-    fn collect(self) -> (ExecutionResult, InitialSimplificationStatus) {
+    fn collect(mut self) -> (ExecutionResult, InitialSimplificationStatus) {
         let modality = self.options.result_modality;
-        let leaves = final_leaves(modality, self.fresh_counter.request(), self.leaves);
+        let leaves = std::mem::take(&mut self.leaves);
+        let leaves = self.selected_leaves(leaves);
         // The legacy observer is a single-stream interface. It receives a transcript only when
         // final selection retained one leaf; callers consume multi-leaf transcripts from each leaf.
         let effects = match leaves.as_slice() {
@@ -1820,6 +1871,7 @@ impl<'a> Execution<'a> {
                 coverage: None,
                 work: self.work.visited(),
                 stack_stops: 0,
+                stopped: self.stopped,
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: self.initial_input_count != 0
@@ -1850,6 +1902,19 @@ fn interrupted_with(mut leaf: ExecutionLeaf, lists: &[&[BackendDiagnostic]]) -> 
 fn stop_ends_execution(cause: &StopCause, step_timer: &mut StepTimer<'_>) -> bool {
     step_timer.discard_measurement();
     ends_execution(cause)
+}
+
+/// A poll for a stop that ends the run, after the exploration: a pending cancellation or a failed
+/// solver prelude. A step's passed deadline or an exhausted stack ends only its step, so it is not
+/// one here.
+fn run_ending_stop() -> Option<StopCause> {
+    match stop::check() {
+        Ok(()) => None,
+        Err(stop) => {
+            let cause = stop.into_cause();
+            ends_execution(&cause).then_some(cause)
+        }
+    }
 }
 
 /// Whether a stop ends the whole execution (a cancelled request, a failed solver prelude) rather
@@ -1934,6 +1999,21 @@ fn merge_equal_final_leaves(
     request: &RequestNames,
     leaves: Vec<ExecutionLeaf>,
 ) -> Vec<ExecutionLeaf> {
+    match merge_final_leaves(request, leaves, || None) {
+        Ok(merged) => merged,
+        Err(cause) => unreachable!("a merge that does not poll reports no stop: {cause:?}"),
+    }
+}
+
+/// [`merge_equal_final_leaves`], calling `poll` once per leaf it considers and ending with the
+/// cause `poll` returns, if it returns one.
+fn merge_final_leaves(
+    request: &RequestNames,
+    leaves: Vec<ExecutionLeaf>,
+    mut poll: impl FnMut() -> Option<StopCause>,
+) -> Result<Vec<ExecutionLeaf>, StopCause> {
+    #[cfg(test)]
+    tests::FINAL_MERGES.with(|merges| merges.set(merges.get() + 1));
     let mergeable = |leaf: &ExecutionLeaf| merge_class(&leaf.halt_reason).mergeable();
     if leaves
         .iter()
@@ -1941,12 +2021,15 @@ fn merge_equal_final_leaves(
         .nth(1)
         .is_none()
     {
-        return leaves;
+        return Ok(leaves);
     }
     // Each configuration's key with the indices of its retained leaves in `merged`.
     let mut seen: Vec<(_, Vec<usize>)> = Vec::new();
     let mut merged: Vec<ExecutionLeaf> = Vec::with_capacity(leaves.len());
     for leaf in leaves {
+        if let Some(cause) = poll() {
+            return Err(cause);
+        }
         if !mergeable(&leaf) {
             merged.push(leaf);
             continue;
@@ -1978,7 +2061,7 @@ fn merge_equal_final_leaves(
             }
         }
     }
-    merged
+    Ok(merged)
 }
 
 /// What a leaf's halt means beyond its configuration, which decides whether an equal leaf can
@@ -2109,23 +2192,6 @@ fn enqueue_execution_states(pending: &mut VecDeque<ExecutionState>, next: Vec<Ex
     for state in next.into_iter().rev() {
         pending.push_front(state);
     }
-}
-
-fn execution_breadth_exceeded(
-    pending: &mut VecDeque<ExecutionState>,
-    leaves: &mut Vec<ExecutionLeaf>,
-    max_breadth: Option<usize>,
-    observation_log: &ObservationLog,
-) -> bool {
-    if !max_breadth.is_some_and(|bound| pending.len() > bound) {
-        return false;
-    }
-    leaves.extend(
-        pending
-            .drain(..)
-            .map(|state| execution_state_at_breadth_bound(state, observation_log)),
-    );
-    true
 }
 
 fn execution_state_at_breadth_bound(
@@ -2861,6 +2927,11 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
+
+    thread_local! {
+        /// Calls of `merge_final_leaves` on this thread.
+        pub(super) static FINAL_MERGES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
 
     fn definition(axioms: &str) -> BackendDefinition {
         let source = format!(
@@ -4227,5 +4298,111 @@ mod tests {
             kept_pattern,
             "the leaf did not keep its unsimplified pattern"
         );
+    }
+
+    /// Under `discard_stopped` a run that a cancellation ended builds no result: no leaves, no
+    /// final merge, and the cause in `stopped`. Without it the same run returns the leaves
+    /// finished before the cancellation and the cancelled leaf, with the cause in `stopped` too.
+    /// The initial disjunction is that of `a_state_set_merge_keeps_the_leaf_of_a_stop_that_ended_
+    /// the_run`: `stuck`'s normalisation asks the solver, which cancels the request.
+    #[test]
+    fn a_run_a_cancellation_ended_builds_no_result_when_asked_to_discard_it() {
+        let definition = prelude_definition();
+        let term = |source: &str| {
+            definition
+                .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
+                .expect("term should internalize")
+        };
+        let gt_zero = Predicate::Equals(
+            term(r#"gtInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#),
+            term(r#"\dv{SortBool{}}("true")"#),
+        );
+        let initial = vec![
+            Pattern {
+                term: term("done{}()"),
+                constraints: Vec::new(),
+            },
+            Pattern {
+                term: term("stuck{}(X:SortInt{})"),
+                constraints: vec![gt_zero],
+            },
+            Pattern {
+                term: term("done{}()"),
+                constraints: Vec::new(),
+            },
+            Pattern {
+                term: term(r#"wrap{}(\dv{SortInt{}}("0"))"#),
+                constraints: Vec::new(),
+            },
+        ];
+        let run = |discard_stopped| {
+            let token = crate::stop::CancellationToken::new();
+            let solver = CancelOnFirstQuery {
+                token: token.clone(),
+            };
+            let merges = FINAL_MERGES.with(std::cell::Cell::get);
+            let result = token.scope(|| {
+                super::super::execute_disjunction_with_solver_and_observer(
+                    &definition,
+                    initial.clone(),
+                    ExecutionOptions {
+                        max_depth: 64,
+                        discard_stopped,
+                        ..ExecutionOptions::default()
+                    },
+                    &solver,
+                    |_| {},
+                )
+            });
+            (result, FINAL_MERGES.with(std::cell::Cell::get) - merges)
+        };
+
+        let (discarded, merges) = run(true);
+        assert_eq!(discarded.leaves, []);
+        assert_eq!(discarded.stopped, Some(StopCause::Cancelled));
+        assert_eq!(merges, 0, "a discarded run does no final merge");
+
+        let (kept, merges) = run(false);
+        assert_eq!(kept.stopped, Some(StopCause::Cancelled));
+        assert_eq!(merges, 1);
+        assert_eq!(
+            kept.leaves
+                .iter()
+                .map(|leaf| leaf.halt_reason.clone())
+                .collect::<Vec<_>>(),
+            [
+                HaltReason::Stuck,
+                HaltReason::Stuck,
+                HaltReason::Stopped(StopCause::Cancelled)
+            ]
+        );
+    }
+
+    /// Under `discard_stopped` the final merge polls once per leaf: a cancellation that arrives
+    /// after the exploration ended, while the leaves are merged, discards them. Without it the
+    /// merge polls nothing and returns the merged leaves.
+    #[test]
+    fn a_cancellation_during_the_final_merge_discards_the_leaves_when_asked_to() {
+        let definition = definition("");
+        let leaves = ["a", "b", "a"].map(|name| ExecutionLeaf {
+            pattern: subject(&definition, name),
+            depth: 1,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+            effects: Vec::new(),
+            io: ExecutionIoState::default(),
+            halt_reason: HaltReason::Stuck,
+            diagnostics: Vec::new(),
+        });
+        let token = crate::stop::CancellationToken::new();
+        token.cancel();
+        let polled = token.scope(|| {
+            merge_final_leaves(&RequestNames::default(), leaves.to_vec(), run_ending_stop)
+        });
+        assert_eq!(polled, Err(StopCause::Cancelled));
+        let unpolled =
+            token.scope(|| merge_equal_final_leaves(&RequestNames::default(), leaves.to_vec()));
+        assert_eq!(unpolled.len(), 2);
     }
 }

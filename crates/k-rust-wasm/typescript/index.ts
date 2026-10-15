@@ -262,6 +262,12 @@ export interface ExecuteOptions {
    * leaf's depth, so only an unobserved branching run's output is then linear in its leaves.
    */
   trace?: boolean
+  /**
+   * What the request answers when a cancellation ends its run: 'partial' (the default) returns the
+   * leaves finished before it and the stopped state as a 'cancelled' leaf; 'error' fails with the
+   * cancellation and builds no leaf after it is observed.
+   */
+  cancelledResult?: 'partial' | 'error'
   schemaVersion?: number
 }
 

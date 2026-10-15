@@ -618,6 +618,16 @@ pub struct ExecutionOptions {
     /// diagnostics of the paths merged into it before the stop only, so they may differ from the
     /// same leaf's in a run with a larger budget.
     pub max_work: Option<u64>,
+    /// Build no result after a stop that ends the run (a cancellation, a failed solver prelude),
+    /// for a caller that will not read a stopped run's leaves (`false`, the default: the leaves
+    /// finished before the stop are returned, with the stopped state's leaf).
+    ///
+    /// When it is set, a run that such a stop ended returns no leaves and does no final merge,
+    /// with the cause in [`ExecutionResult::stopped`]; and every pass after the exploration that
+    /// builds or compares leaves (draining the frontier at the breadth bound, the state-set final
+    /// merge) polls for a stop once per state or leaf, so a cancellation that arrives during it
+    /// ends it the same way. Without it nothing polls there.
+    pub discard_stopped: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -651,6 +661,7 @@ impl Default for ExecutionOptions {
             evaluation: EvaluationMode::Proof,
             collect_coverage: false,
             max_work: None,
+            discard_stopped: false,
         }
     }
 }
@@ -873,6 +884,10 @@ pub struct ExecutionResult {
     /// `nesting::with_simplification_stack_budget`, and on the stack other threads of the process
     /// hold, so a run's result is a function of its inputs only when this is zero.
     pub stack_stops: usize,
+    /// The cause of the stop that ended the run (a cancellation or a failed solver prelude), if
+    /// one did; `None` when the run ended by itself, by a bound or by its work budget. Under
+    /// [`ExecutionOptions::discard_stopped`] a run with a cause here has no leaves.
+    pub stopped: Option<StopCause>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

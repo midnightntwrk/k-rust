@@ -1493,6 +1493,9 @@ impl AlphaComparable for ExecutionResult {
         if self.stack_stops != other.stack_stops {
             return Err("execution stack-stop counts differ".into());
         }
+        if self.stopped != other.stopped {
+            return Err("execution stop causes differ".into());
+        }
         if self.effects != other.effects || self.discarded != other.discarded {
             return Err(
                 "execution effects or discarded transitions differ; discarded targets are not retained"
@@ -1515,6 +1518,7 @@ impl AlphaComparable for ExecutionResult {
             coverage: self.coverage.clone(),
             work: self.work,
             stack_stops: self.stack_stops,
+            stopped: self.stopped.clone(),
         })
     }
 }
@@ -1562,6 +1566,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         coverage: None,
         work: 0,
         stack_stops: 0,
+        stopped: None,
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {
             pattern: after.clone(),
