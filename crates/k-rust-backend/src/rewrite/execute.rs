@@ -330,6 +330,7 @@ impl<'a> Execution<'a> {
                 discarded: self.discarded,
                 coverage: None,
                 work: self.work.visited(),
+                expanded: self.work.expanded(),
                 stack_stops: 0,
                 stopped: self.stopped,
             },
@@ -534,6 +535,10 @@ impl<'a> Execution<'a> {
                 ));
             }
         };
+        // The step answered: the run computed this state's successors (`work`).
+        if let ExecutionStateKind::Rewritable = state.kind {
+            self.work.expand();
+        }
         let mut state = match self.check_interrupted(state) {
             Ok(state) => state,
             Err(leaf) => return Err(interrupted_with(leaf, &[&step_diagnostics])),
@@ -1870,6 +1875,7 @@ impl<'a> Execution<'a> {
                 discarded: self.discarded,
                 coverage: None,
                 work: self.work.visited(),
+                expanded: self.work.expanded(),
                 stack_stops: 0,
                 stopped: self.stopped,
             },

@@ -1871,9 +1871,16 @@ A budget at least the unbounded run's `work` changes nothing, and a `max_breadth
 A budget of 0 visits no state either: the first initial state becomes the `work-bound` leaf exactly as the request gave it, unevaluated (an initial configuration written as a function application stays that application), and the other initial states are dropped.
 Exploration, and so `work`, differs between the modalities: a `state-set` run counts a state that arrives equal to one of its depth already expanded ([Search results](#search-results)) as one visited state and does not explore its subtree, where a `path-set` run explores every path, so the budget's stop point differs between them; within one modality it is deterministic as stated above.
 
+Every result also reports `expanded`, the states the run expanded: those whose successors it computed, because their rewrite step answered (with successors, a `branch` or `cut-point` report, a `stuck` or `trivial` verdict, or a failure the step reported).
+A visited state that ended before or instead of its step is not expanded: a `state-set` arrival equal at its depth to a state already expanded (merged, with no leaf and no successor), a state at the depth bound, one whose constraints or term simplified to a vacuous or undefined state, a remainder (its parent's step decided it), a surviving macro or alias, and a state a stop interrupted before its step answered.
+The state at which the work budget stops is neither visited nor expanded.
+So `expanded` is at most `work`: every expanded state was visited first, and each visited state takes at most one step; they are equal exactly when every visited state was stepped.
+Under `path-set` no state is merged, so `work - expanded` counts the visited states that ended without a step; under `state-set` it also counts the merged arrivals.
+`maxWork` bounds the visited states, not the expanded ones: a merged arrival is normalised and looked up in the merge table before it is recognised, so the visited states bound the lookups as well as the expansions, and only they bound the run when every new state is a merged arrival.
+
 The budget bounds the states, the leaves and the pending states of a run, and with them its time and memory only for a definition whose steps and values are bounded.
 It does not bound the work of one state's step (a ground function evaluation runs to its value, bounded only by a step deadline, cancellation and the stack), the size a value reaches, or the length of the leaves' traces, which grows with the depth of each leaf; a host keeps its own time and memory limits for those, and reports their stops as such.
-`a_work_budget_stops_a_branching_run_at_the_same_state`, `a_work_budget_at_least_the_run_count_changes_nothing` and `a_work_bound_leaf_survives_the_state_set_merge` in [work_budget.rs](../crates/k-rust-backend/tests/backend/work_budget.rs), and `a_work_budget_stops_a_run_after_that_many_states_with_one_work_bound_leaf` in [execution_semantics.rs](../crates/k-rust/tests/execution_semantics.rs), pin it.
+`a_work_budget_stops_a_branching_run_at_the_same_state`, `a_work_budget_at_least_the_run_count_changes_nothing`, `a_work_bound_leaf_survives_the_state_set_merge` and the `expanded` tests in [work_budget.rs](../crates/k-rust-backend/tests/backend/work_budget.rs), and `a_work_budget_stops_a_run_after_that_many_states_with_one_work_bound_leaf` in [execution_semantics.rs](../crates/k-rust/tests/execution_semantics.rs), pin it.
 
 ## Determinism and concurrency
 

@@ -874,6 +874,14 @@ pub struct ExecutionResult {
     /// The states the run visited across all its paths, the unit
     /// [`ExecutionOptions::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
+    /// The states the run expanded: those whose successors it computed (their rewrite step
+    /// answered, with successors, a branch, a stuck or an undefined-step verdict, or a failure
+    /// the step reported). At most [`ExecutionResult::work`]: a visited state that ended before
+    /// or instead of its step (a state-set arrival merged into an expanded state of its depth,
+    /// a state at the depth bound, a vacuous or remainder state, a state a stop interrupted
+    /// before its step answered) is not expanded, and the state a work budget stopped at is
+    /// neither visited nor expanded. Reported whether or not a budget was set.
+    pub expanded: u64,
     /// The stops for lack of native stack the run met in the states it explored (a state-set run
     /// skips a state equal to one of its depth already expanded, and the stops of its subtree):
     /// those that ended a state (a leaf halted

@@ -343,3 +343,117 @@ fn a_run_bounded_to_no_breadth_visits_no_state() {
     assert_eq!(result.work, 0);
     assert_eq!(result.leaves[0].halt_reason, HaltReason::BreadthBound);
 }
+
+/// `expanded` under `path-set`: no state is merged, so the visited states that are not expanded
+/// are those that ended without a step. On the comb with a depth bound, the `done` leaves are
+/// stuck after a step (expanded) and the state at the bound ends without one.
+#[test]
+fn a_path_set_run_expands_every_visited_state_but_those_ended_without_a_step() {
+    let definition = comb();
+    let initial = pattern(
+        &definition,
+        r#"fork{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0"))"#,
+    );
+    for max_depth in [1, 2, 5, 10] {
+        let result = execute(
+            &definition,
+            initial.clone(),
+            ExecutionOptions {
+                max_depth,
+                ..options(ResultModality::PathSet, None)
+            },
+        );
+        let unstepped = result
+            .leaves
+            .iter()
+            .filter(|leaf| leaf.halt_reason == HaltReason::DepthBound)
+            .count() as u64;
+        assert!(unstepped > 0, "max_depth {max_depth}");
+        assert_eq!(
+            result.expanded,
+            result.work - unstepped,
+            "max_depth {max_depth}"
+        );
+    }
+    // Without a bound on the diamonds every leaf is stuck after its step, so every visited
+    // state is expanded.
+    for levels in 1..=4 {
+        let definition = graph(&diamonds(levels));
+        let result = execute(
+            &definition,
+            node(&definition, "start-0"),
+            options(ResultModality::PathSet, None),
+        );
+        assert_eq!(result.expanded, result.work, "{levels} levels");
+    }
+}
+
+/// `expanded` under `state-set` with merges: each distinct (depth, state) is expanded once, and
+/// every other visit is an arrival merged into it, which counts in `work` only.
+#[test]
+fn a_state_set_run_expands_each_distinct_state_of_a_depth_once() {
+    for levels in 1..=4 {
+        let edges = diamonds(levels);
+        let definition = graph(&edges);
+        let result = execute(
+            &definition,
+            node(&definition, "start-0"),
+            options(ResultModality::StateSet, None),
+        );
+        // The oracle: the distinct (depth, node) pairs reachable from `start-0`, each expanded
+        // once, and one visit for the initial state and for every successor of an expanded one.
+        let successors = |from: &str| {
+            edges
+                .iter()
+                .filter(|(source, _)| source == from)
+                .map(|(_, to)| to.clone())
+                .collect::<Vec<_>>()
+        };
+        let mut level = vec!["start-0".to_owned()];
+        let (mut distinct, mut visits) = (0u64, 1u64);
+        while !level.is_empty() {
+            distinct += level.len() as u64;
+            let mut next = std::collections::BTreeSet::new();
+            for state in &level {
+                let targets = successors(state);
+                visits += targets.len() as u64;
+                next.extend(targets);
+            }
+            level = next.into_iter().collect();
+        }
+        assert_eq!(result.expanded, distinct, "{levels} levels");
+        assert_eq!(result.work, visits, "{levels} levels");
+        assert!(
+            result.expanded < result.work,
+            "{levels} levels: merges happened"
+        );
+
+        let path_set = execute(
+            &definition,
+            node(&definition, "start-0"),
+            options(ResultModality::PathSet, None),
+        );
+        assert!(result.expanded <= path_set.expanded);
+    }
+}
+
+/// `expanded` at a work-bound stop: the state the budget stops at is neither visited nor
+/// expanded, and on the comb every visited state is stepped.
+#[test]
+fn the_state_a_work_budget_stops_at_is_not_expanded() {
+    let definition = comb();
+    let initial = pattern(
+        &definition,
+        r#"fork{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0"))"#,
+    );
+    for modality in MODALITIES {
+        for k in [1, 2, 7, 30] {
+            let result = execute(&definition, initial.clone(), options(modality, Some(k)));
+            assert_eq!(work_bound_leaves(&result), 1);
+            assert_eq!(result.work, k, "{modality:?} k = {k}");
+            assert_eq!(result.expanded, k, "{modality:?} k = {k}");
+        }
+        let result = execute(&definition, initial.clone(), options(modality, Some(0)));
+        assert_eq!((result.work, result.expanded), (0, 0), "{modality:?}");
+    }
+}

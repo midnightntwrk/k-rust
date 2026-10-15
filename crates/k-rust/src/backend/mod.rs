@@ -400,6 +400,12 @@ pub struct ExecutionResult<K = Value> {
     /// The states the run visited across all its paths, the unit
     /// [`ExecuteRequest::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
+    /// The states the run expanded, those whose successors it computed (their rewrite step
+    /// answered); at most `work`. A visited state that ended before or instead of its step (a
+    /// `state-set` arrival merged into an expanded state of its depth, a state at the depth
+    /// bound, a vacuous or remainder state, one a stop interrupted) is not expanded
+    /// (docs/compatibility.md, "Work budget"). Reported whether or not a budget was set.
+    pub expanded: u64,
     /// The stops for lack of native stack the run met, including those met while a result was
     /// only refined and dismissed there (`k_rust_backend::rewrite::ExecutionResult::stack_stops`);
     /// absent when zero. A run whose count is nonzero is outside the determinism contract

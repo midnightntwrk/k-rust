@@ -358,6 +358,11 @@ export interface ExecutionResult {
   discarded?: UncommittedObservation[]
   /** The states the run visited across all its paths, the unit `maxWork` bounds. */
   work: number
+  /**
+   * The states the run expanded, those whose successors it computed; at most `work`
+   * (docs/compatibility.md, "Work budget").
+   */
+  expanded: number
   /** Present exactly when the request set `collectCoverage`. */
   coverage?: RunCoverage
   /**
