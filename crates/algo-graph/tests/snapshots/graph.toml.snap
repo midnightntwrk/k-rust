@@ -2477,6 +2477,10 @@ mode = "trace storage"
 bound = "O(1) per fork and per appended entry: a path shares its trace with the paths it forked from (rewrite::path_trace); O(entries) per leaf to materialise the trace it returns"
 
 [[node.cost]]
+mode = "effect journal and console storage"
+bound = "O(1) per fork: a path shares its effect journal and console transcript with the paths it forked from (transition::SharedLog); O(1) plus the effect's or write's length per committed effect or console write, which folds the running digest; O(1) per fingerprint (EffectJournal::fingerprint, ExecutionIoState::observable_fingerprint); O(entries) per leaf to materialise its effects, and once per state whose transcript is read"
+
+[[node.cost]]
 mode = "trace storage with retain_trace false"
 bound = "O(1) rewrite entries per active path, excluding transient simplification entries"
 
