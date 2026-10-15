@@ -7,9 +7,11 @@
 //! The corpus is every in-repository `[[compile]]` case of `scripts/reference-differential.toml`
 //! (source under `${workspace}`, not expected to be rejected), so the test needs no reference
 //! checkout. Each case is compiled once as written, once under another resolver identity, and
-//! once per layout edit it is given; to keep the run short, case `i` gets the edits `i`, `i + 1`
-//! and `i + 2` (modulo their number) of [`LAYOUT_EDITS`], so every edit is applied to several
-//! cases and every case to three edits, and the cases are compiled in parallel.
+//! once per layout edit it is given. The edits move lines, columns and positions inside
+//! sentences. To keep the run short the test checks a rotating sample: case `i` gets the
+//! [`EDITS_PER_CASE`] edits from `i * EDITS_PER_CASE` on (modulo their number) of
+//! [`LAYOUT_EDITS`], so every edit is applied to several cases, and the cases are compiled in
+//! parallel.
 
 use std::{
     collections::BTreeSet,
@@ -180,8 +182,13 @@ fn before_last(text: &str, prefix: &str, insert: &str) -> Option<String> {
 
 type LayoutEdit = fn(&str) -> Option<String>;
 
+/// `edited` when it differs from `text`: an edit with nowhere to apply is not applied.
+fn changed(text: &str, edited: String) -> Option<String> {
+    (edited != text).then_some(edited)
+}
+
 /// Edits that change only layout and comments; `None` when a case has no place for one.
-const LAYOUT_EDITS: [(&str, LayoutEdit); 6] = [
+const LAYOUT_EDITS: [(&str, LayoutEdit); 14] = [
     ("blank lines at the start", |text| {
         Some(format!("\n\n\n{text}"))
     }),
@@ -205,7 +212,35 @@ const LAYOUT_EDITS: [(&str, LayoutEdit); 6] = [
     ("blank lines before the last rule", |text| {
         before_last(text, "rule ", "\n\n\n")
     }),
+    // Edits that move columns and positions inside a sentence.
+    ("indent every line by two spaces", |text| {
+        Some(text.lines().map(|line| format!("  {line}\n")).collect())
+    }),
+    ("doubled spaces around =>", |text| {
+        changed(text, text.replace(" => ", "  =>  "))
+    }),
+    ("a line break before =>", |text| {
+        changed(text, text.replace(" => ", "\n          => "))
+    }),
+    ("a block comment before =>", |text| {
+        changed(text, text.replace(" => ", " /* c */ => "))
+    }),
+    ("productions on new lines", |text| {
+        changed(text, text.replace(" | ", "\n      | "))
+    }),
+    ("attributes on a new line", |text| {
+        changed(text, text.replace(" [", "\n        ["))
+    }),
+    ("a line break after rule", |text| {
+        changed(text, text.replace("rule ", "rule\n    "))
+    }),
+    ("CRLF line endings", |text| {
+        changed(text, text.replace('\n', "\r\n"))
+    }),
 ];
+
+/// How many of [`LAYOUT_EDITS`] each case gets.
+const EDITS_PER_CASE: usize = 4;
 
 /// The layout edits applied to case `index` and the cases whose digest moved, as
 /// `(edit indexes applied, failure descriptions)`.
@@ -233,8 +268,8 @@ fn check_case(index: usize, case: &Case) -> (Vec<usize>, Vec<String>) {
         text.clone(),
     )];
     let mut applied = Vec::new();
-    for offset in 0..3 {
-        let which = (index + offset) % LAYOUT_EDITS.len();
+    for offset in 0..EDITS_PER_CASE {
+        let which = (index * EDITS_PER_CASE + offset) % LAYOUT_EDITS.len();
         let (name, edit) = LAYOUT_EDITS[which];
         if let Some(edited) = edit(&text) {
             applied.push(which);
@@ -352,7 +387,7 @@ endmodule
 "#;
 
 /// One mutation per operator class changes the digest; an attribute that compiled KORE does not
-/// carry (`group`) does not.
+/// carry (`group` on a rule) does not.
 #[test]
 fn mutation_operators_change_the_digest() {
     let digest_of = |text: &str| {
@@ -385,7 +420,7 @@ fn mutation_operators_change_the_digest() {
         ("drop-priority", " [priority(40)]", ""),
         (
             "delete-rule",
-            "  rule <k> pick(I) => out(I) </k> [priority(50)]\n",
+            "  rule <k> pick(I) => out(I +Int 1) </k> [priority(40)]\n",
             "",
         ),
         (
@@ -402,7 +437,9 @@ fn mutation_operators_change_the_digest() {
             "{operator} keeps the digest"
         );
     }
-    // `group` is a K attribute that compiled KORE does not carry: no digest change.
+    // `group` on a rule is a K attribute that compiled KORE does not carry: no digest change.
+    // (On a production, `group` can change parsing through syntax priorities, which the digest
+    // of `definition.kore` does not see.)
     assert_eq!(
         digest_of(&MUTABLE.replacen(" [priority(50)]", " [priority(50), group(g)]", 1)),
         base

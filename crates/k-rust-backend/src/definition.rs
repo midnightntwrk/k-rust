@@ -301,8 +301,9 @@ pub enum ExecutionDigestError {
     /// Some application of an origin attribute, on some attribute list, is not exactly the
     /// attribute applied without sort parameters to one UTF-8 string. Every definition the
     /// backend refuses for an unreadable origin is refused here too, and so are some it loads
-    /// (the backend reads origins only on the axioms of the selected module's imports, and on
-    /// declarations only to cite them in an error); a definition refused here only misses.
+    /// (the backend reads origins at load only on the axioms and claims of the selected module's
+    /// imports, and on declarations only to cite them in an error); a definition refused here
+    /// only misses.
     MalformedOrigin {
         /// The origin attribute (`Source` or `Location`).
         attribute: KoreAttribute,
@@ -352,9 +353,10 @@ impl Error for ExecutionDigestError {}
 ///   includes the origin;
 /// - the rule catalog's origins.
 ///
-/// The promise has the exclusions of the backend's determinism contract (a request bounded by
-/// the clock or cancelled, a stop for lack of stack, and in Z3 builds an SMT query that can time
-/// out). Unequal digests imply nothing.
+/// The promise has the exclusions of the backend's determinism contract: a request bounded by
+/// the clock or cancelled; a stop for lack of stack, including an `InsufficientStack` depth
+/// refusal and a load-time stack stop; a `Bytes` result refused at the memory allowance; and in
+/// Z3 builds an SMT query that can time out. Unequal digests imply nothing.
 ///
 /// Why: equal digests mean equal printed texts (up to a SHA-256 collision), and a digest exists
 /// only when the definition without its origins parses back from its print, so equal digests
