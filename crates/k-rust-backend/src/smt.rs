@@ -263,7 +263,11 @@ impl TranslationState {
             // A term-level `\and` denotes the intersection of its operands' values, `\bottom` where
             // they differ, not their Boolean conjunction: `true /\ false` is `\bottom`, not
             // `false`. A Boolean one is therefore an unrelated constant, as any term without a
-            // translation.
+            // translation. That over-approximates only where the intersection is defined: under
+            // a negation, `\not(c = true) /\ \not(c = false)` has no model while it holds in K
+            // where the operands differ. A request with such an atom is refused (`Admitted`), and
+            // K source never writes one in a condition, so only a condition written in KORE can
+            // reach this unfaithful reading.
             TermKind::And(left, right)
                 if left.sort().is_builtin(BuiltinSort::Bool)
                     && right.sort().is_builtin(BuiltinSort::Bool) =>

@@ -1111,4 +1111,56 @@ endmodule
             "{result:?}"
         );
     }
+
+    /// An `\equals` whose operands are not both terms would be read as the `\iff` of its
+    /// operands taken as predicates, with a term read as `t = true`. That is not what
+    /// `\equals(B1 /\ B2, false)` (the intersection of two Boolean values, `\bottom` where they
+    /// differ) or `\equals(B, \top)` (false, since `Bool` has two elements) mean, so in both
+    /// builds such a request is refused, by `execute`, `simplify` and `implies` alike.
+    #[test]
+    fn a_request_that_equates_a_term_read_as_a_predicate_is_refused() {
+        let mut backend = backend();
+        let boolean =
+            |left: &str, right: &str| format!("\\equals{{SortBool{{}}, {SORT}}}({left}, {right})");
+        let (b1, b2) = ("B1:SortBool{}", "B2:SortBool{}");
+        let (yes, no) = ("\\dv{SortBool{}}(\"true\")", "\\dv{SortBool{}}(\"false\")");
+        let cases = [
+            (
+                "an intersection equated to false",
+                and(
+                    &and(&and(&pos(), &boolean(b1, yes)), &boolean(b2, no)),
+                    &not(&boolean(&format!("\\and{{SortBool{{}}}}({b1}, {b2})"), no)),
+                ),
+            ),
+            (
+                "a variable equated to top",
+                and(&pos(), &boolean(b1, "\\top{SortBool{}}()")),
+            ),
+        ];
+        let refused = |result: Result<String, BackendError>| {
+            result.is_err_and(|error| error.0.contains("cannot be read faithfully"))
+        };
+        for (case, pattern) in cases {
+            let implies = backend
+                .implies(ImplicationRequest::new(
+                    parse(&pattern),
+                    parse(&format!("\\bottom{{{SORT}}}()")),
+                ))
+                .map(|result| result.status);
+            let execute = backend
+                .execute(ExecuteRequest::new(parse(&pattern)))
+                .map(|result| format!("{} leaves", result.leaves.len()));
+            let simplify = backend
+                .simplify(PatternRequest::new(parse(&pattern)))
+                .map(|result| result.to_string());
+            for (route, result) in [
+                ("implies", implies),
+                ("execute", execute),
+                ("simplify", simplify),
+            ] {
+                let shown = format!("{result:?}");
+                assert!(refused(result), "{case}, {route}: {shown}");
+            }
+        }
+    }
 }

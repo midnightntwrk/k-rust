@@ -291,6 +291,7 @@ impl<'a> Admitted<'a> {
     ///
     /// The constraints are definedness-explicit (`Admitted::explicit_constraints`).
     pub fn internalize_pattern(self) -> Result<Pattern, DefinitionError> {
+        self.refuse_terms_read_as_predicates()?;
         let pattern = self
             .definition
             .internalize_pattern(self.pattern, self.sort_variables)?;
@@ -302,6 +303,7 @@ impl<'a> Admitted<'a> {
     /// The constraints, or the predicate, are definedness-explicit
     /// (`Admitted::explicit_constraints`).
     pub fn internalize_pattern_or_predicate(self) -> Result<PatternOrPredicate, DefinitionError> {
+        self.refuse_terms_read_as_predicates()?;
         Ok(
             match self
                 .definition
@@ -321,6 +323,7 @@ impl<'a> Admitted<'a> {
     ///
     /// The predicate is definedness-explicit (`Admitted::explicit_constraints`).
     pub fn internalize_predicate(self) -> Result<(crate::rule::Predicate, Sort), DefinitionError> {
+        self.refuse_terms_read_as_predicates()?;
         let (predicate, sort) = self
             .definition
             .internalize_predicate(self.pattern, self.sort_variables)?;
@@ -333,6 +336,7 @@ impl<'a> Admitted<'a> {
     pub fn internalize_model_predicate(
         self,
     ) -> Result<Option<(crate::rule::Predicate, Sort)>, DefinitionError> {
+        self.refuse_terms_read_as_predicates()?;
         self.definition
             .internalize_model_predicate(self.pattern, self.sort_variables)?
             .map(|(predicate, sort)| Ok((self.explicit_predicate(predicate)?, sort)))
@@ -345,6 +349,7 @@ impl<'a> Admitted<'a> {
     pub fn internalize_implication_pattern(
         self,
     ) -> Result<(Pattern, BTreeSet<Variable>), DefinitionError> {
+        self.refuse_terms_read_as_predicates()?;
         let (pattern, existentials) = self
             .definition
             .internalize_implication_pattern(self.pattern, self.sort_variables)?;
@@ -356,6 +361,7 @@ impl<'a> Admitted<'a> {
     /// The constraints of each alternative are definedness-explicit
     /// (`Admitted::explicit_constraints`).
     pub fn internalize_disjunction(self) -> Result<Vec<Pattern>, DefinitionError> {
+        self.refuse_terms_read_as_predicates()?;
         self.definition
             .internalize_disjunction(self.pattern, self.sort_variables)?
             .into_iter()
@@ -402,6 +408,65 @@ impl<'a> Admitted<'a> {
                 }
             })
         })
+    }
+
+    /// Refuse a request that equates a pattern holding a term in predicate position, such as
+    /// `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or `\equals{Bool, R}(B, \top{Bool}())`.
+    ///
+    /// An `\equals` whose operands are not both terms is internalized as the `\iff` of its
+    /// operands read as predicates, and a term read as a predicate means `t = true`. That is the
+    /// meaning of neither example: `B1 /\ B2` of two Boolean values is their intersection,
+    /// `\bottom` where they differ, and `B = \top` is false, since a sort with two elements is not
+    /// a singleton. Such a request has no reading k-rust decides faithfully, so it is refused
+    /// before internalization. The operands are searched through the connectives that read
+    /// their arguments as predicates, not below `\equals`, `\ceil`, `\floor` or `\in`, whose
+    /// arguments are terms.
+    fn refuse_terms_read_as_predicates(self) -> Result<(), DefinitionError> {
+        fn reads_a_term(pattern: &kore::Pattern) -> bool {
+            use kore::Pattern as P;
+            match pattern {
+                pattern if crate::rule::is_term_pattern(pattern) => true,
+                P::And { arguments, .. } | P::Or { arguments, .. } => {
+                    arguments.iter().any(reads_a_term)
+                }
+                P::Not { argument, .. } => reads_a_term(argument),
+                P::Implies { left, right, .. } | P::Iff { left, right, .. } => {
+                    reads_a_term(left) || reads_a_term(right)
+                }
+                P::Exists { body, .. } | P::Forall { body, .. } => reads_a_term(body),
+                _ => false,
+            }
+        }
+        fn equates_a_term_read_as_predicate(pattern: &kore::Pattern) -> bool {
+            use kore::Pattern as P;
+            match pattern {
+                P::Equals { left, right, .. } => {
+                    let terms =
+                        crate::rule::is_term_pattern(left) && crate::rule::is_term_pattern(right);
+                    (!terms && (reads_a_term(left) || reads_a_term(right)))
+                        || equates_a_term_read_as_predicate(left)
+                        || equates_a_term_read_as_predicate(right)
+                }
+                P::And { arguments, .. } | P::Or { arguments, .. } => {
+                    arguments.iter().any(equates_a_term_read_as_predicate)
+                }
+                P::Not { argument, .. } => equates_a_term_read_as_predicate(argument),
+                P::Implies { left, right, .. } | P::Iff { left, right, .. } => {
+                    equates_a_term_read_as_predicate(left)
+                        || equates_a_term_read_as_predicate(right)
+                }
+                P::Exists { body, .. } | P::Forall { body, .. } => {
+                    equates_a_term_read_as_predicate(body)
+                }
+                _ => false,
+            }
+        }
+        if equates_a_term_read_as_predicate(self.pattern) {
+            return Err(DefinitionError::UnstatedDefinedness(
+                UnstatedDefinedness::TermReadAsPredicate,
+            ));
+        }
+        Ok(())
     }
 
     fn explicit_pattern(self, mut pattern: Pattern) -> Result<Pattern, DefinitionError> {
@@ -1086,6 +1151,11 @@ pub enum UnstatedDefinedness {
     /// definedness is more than its operands' (`Y /\ Z` of two variables is empty unless
     /// `Y = Z`), so the atom's definedness cannot be stated beside it.
     TermConjunction,
+    /// An `\equals` whose operands are not both terms holds a term where a predicate is read
+    /// (`\equals{Bool, R}(\and{Bool}(B1, B2), false)`, `\equals{Bool, R}(B, \top{Bool}())`):
+    /// that equality would be read as the `\iff` of its operands taken as predicates, which is
+    /// not its meaning.
+    TermReadAsPredicate,
 }
 
 impl fmt::Display for DefinitionError {
@@ -1337,6 +1407,11 @@ impl fmt::Display for DefinitionError {
                 formatter,
                 "The definedness of a predicate of the request cannot be stated: {detail} ({hook})"
             ),
+            Self::UnstatedDefinedness(UnstatedDefinedness::TermReadAsPredicate) => formatter
+                .write_str(
+                    "The predicates of the request cannot be read faithfully: an \\equals whose \
+                     operands are not both terms holds a term where a predicate is read",
+                ),
             Self::UnstatedDefinedness(UnstatedDefinedness::TermConjunction) => formatter.write_str(
                 "The definedness of a predicate of the request cannot be stated: an atom holds a \
                  term-level \\and",
