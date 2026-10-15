@@ -451,7 +451,9 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
             return Ok(Folded::Term(node));
         }
         Ok(match evaluate_pure_hook(definition, &node)? {
-            Ok(BuiltinResult::Value(_))
+            // Outside an execution the entry leaves a value only an execution chooses
+            // unevaluated (`builtin::evaluate_declared`); no equation step stands in for it.
+            Ok(BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. }))
                 if crate::evaluation::current() == EvaluationMode::Proof
                     && implementation_chosen(&node).is_some() =>
             {

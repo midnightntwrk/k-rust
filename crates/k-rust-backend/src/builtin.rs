@@ -10,6 +10,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 mod bytes;
 mod collection_item;
+mod declaration_facts;
 mod float;
 #[cfg(test)]
 mod hook_models;
@@ -23,6 +24,7 @@ mod set;
 mod string;
 mod substitution;
 
+pub use declaration_facts::DeclarationFacts;
 pub(crate) use hook_signature::LoadedSorts;
 pub use hook_signature::{CollectionShape, SortFacts, misfit as collection_hook_misfit};
 pub(crate) use result_collection::{ResultCollection, stored_at};
@@ -33,6 +35,7 @@ use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     allowance::Allowance,
     definition::BackendDefinition,
+    evaluation::EvaluationMode,
     matching::{InjectionEquality, SortGraph, match_injection_equality},
     stop::{Layered, Stoppable, Unwind},
     term::{
@@ -210,14 +213,79 @@ impl From<Option<Term>> for BuiltinResult {
 /// }
 /// ```
 pub fn evaluate(term: &Term) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
-    evaluate_with_sort_graph(term, None).layered()
+    evaluate_with_context(term, None, None, None, None).layered()
 }
 
+/// Evaluate a hooked application of `definition` in the evaluation mode of the thread
+/// (`crate::evaluation::current`), as term simplification does.
 pub(crate) fn evaluate_in_definition(
     term: &Term,
     definition: &BackendDefinition,
 ) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
-    evaluate_with_definition(term, Some(definition)).layered()
+    evaluate_with_context(
+        term,
+        Some(definition.sort_graph()),
+        Some(definition),
+        None,
+        Some(crate::evaluation::current()),
+    )
+    .layered()
+}
+
+/// Evaluate an application of `hook` to `arguments`, declared at `result_sort` (`total` when its
+/// symbol is declared `total`), in a definition whose declarations are `facts`, in the
+/// evaluation mode `mode`: the composition the evaluation entry applies to every hooked
+/// application of a loaded definition, over facts that need no loaded definition.
+///
+/// It is the entry's composition, not a second one: the entry calls the same function, with the
+/// loaded definition as its facts. In order, it
+/// - refuses `FLOAT` operands of `SortFloat` where the facts give that sort another kind than
+///   `Float` (an unhooked `SortFloat` is a token sort whose texts are its values);
+/// - runs the hook's evaluator with the declared result sort and the facts;
+/// - keeps a value only if it is of exactly the declared sort and every domain value the hook
+///   built has the kind the facts give its sort (a builtin hook declared at a sort that is not
+///   its builtin's gives no value of the application's sort);
+/// - in [`EvaluationMode::Proof`], leaves unevaluated a value the definition leaves to the
+///   implementation ([`implementation_chosen`]), which only an execution computes.
+///
+/// So a caller that computes an application here, such as the frontend's constant fold, gets
+/// the outcome an evaluation of the same application in the loaded definition gets. That holds
+/// for the hooks whose evaluators read no more of a definition than these facts: the `BOOL`,
+/// `INT`, `STRING`, `FLOAT`, `BYTES` and `MINT` hooks. The others read a loaded definition
+/// (`KEQUAL` and the collection hooks its sort graph and collection metadata, `KRYPTO` and
+/// `SUBSTITUTION` its symbols, `IO` an execution's console), so here their applications are not
+/// evaluated (`NotApplicable`).
+pub fn evaluate_declared(
+    hook: &str,
+    arguments: &[Term],
+    result_sort: &Sort,
+    total: bool,
+    facts: &dyn DeclarationFacts<Sort = Sort>,
+    mode: EvaluationMode,
+) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
+    if !matches!(
+        HookName::parse(hook).map(HookName::kind),
+        Some(
+            HookNamespace::Bool
+                | HookNamespace::Int
+                | HookNamespace::String
+                | HookNamespace::Float
+                | HookNamespace::Bytes
+                | HookNamespace::MInt
+        )
+    ) {
+        return Ok(Ok(BuiltinResult::NotApplicable));
+    }
+    evaluate_composed(
+        hook,
+        arguments,
+        result_sort,
+        total,
+        Some(facts),
+        Loaded::default(),
+        Some(mode),
+    )
+    .layered()
 }
 
 /// Why the definition admits several values of `term`, a hooked application whose evaluator
@@ -260,7 +328,11 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     else {
         return None;
     };
-    let hook = symbol.attributes.hook.as_deref()?;
+    implementation_chosen_in(symbol.attributes.hook.as_deref()?, arguments)
+}
+
+/// [`implementation_chosen`] of an application of `hook` to `arguments`.
+fn implementation_chosen_in(hook: &str, arguments: &[Term]) -> Option<String> {
     let (several, what) = match hook {
         "MAP.keys_list" | "MAP.values" => (
             map::lists_several_items(arguments),
@@ -306,34 +378,31 @@ pub(crate) fn evaluate_in_execution(
         Some(definition.sort_graph()),
         Some(definition),
         Some(execution),
+        Some(crate::evaluation::current()),
     )
     .layered()
 }
 
-fn evaluate_with_sort_graph(
-    term: &Term,
-    sort_graph: Option<&SortGraph>,
-) -> HookResult<BuiltinResult> {
-    evaluate_with_context(term, sort_graph, None, None)
+/// What a loaded definition gives an evaluation beyond its declarations
+/// ([`DeclarationFacts`]): the sort graph (`KEQUAL`, the collection hooks), the applied symbol's
+/// collection metadata, the definition itself (`KRYPTO`, `IO`, `SUBSTITUTION`) and an
+/// execution's console.
+#[derive(Default)]
+struct Loaded<'a> {
+    sort_graph: Option<&'a SortGraph>,
+    result_collection: Option<&'a crate::term::CollectionMetadata>,
+    definition: Option<&'a BackendDefinition>,
+    execution: Option<&'a mut ExecutionEvaluationContext>,
 }
 
-fn evaluate_with_definition(
-    term: &Term,
-    definition: Option<&BackendDefinition>,
-) -> HookResult<BuiltinResult> {
-    evaluate_with_context(
-        term,
-        definition.map(|definition| definition.sort_graph()),
-        definition,
-        None,
-    )
-}
-
+/// `mode`: the evaluation mode of a definition's evaluation, `None` for the context-free
+/// [`evaluate`], which computes the evaluator's own value.
 fn evaluate_with_context(
     term: &Term,
     sort_graph: Option<&SortGraph>,
     definition: Option<&BackendDefinition>,
     execution: Option<&mut ExecutionEvaluationContext>,
+    mode: Option<EvaluationMode>,
 ) -> HookResult<BuiltinResult> {
     let TermKind::Application {
         symbol, arguments, ..
@@ -344,36 +413,64 @@ fn evaluate_with_context(
     let Some(hook) = symbol.attributes.hook.as_deref() else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let result_sort = term.sort();
+    evaluate_composed(
+        hook,
+        arguments,
+        &term.sort(),
+        symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total),
+        definition.map(|definition| definition as &dyn DeclarationFacts<Sort = Sort>),
+        Loaded {
+            sort_graph,
+            result_collection: symbol.attributes.result_collection.as_ref(),
+            definition,
+            execution,
+        },
+        mode,
+    )
+}
+
+/// The composition [`evaluate_declared`] describes. Without `facts` (the context-free
+/// [`evaluate`]) neither the kind checks nor `STRING.string2token` read a declaration; without
+/// `mode` no value is withheld.
+fn evaluate_composed(
+    hook: &str,
+    arguments: &[Term],
+    result_sort: &Sort,
+    total: bool,
+    facts: Option<&dyn DeclarationFacts<Sort = Sort>>,
+    loaded: Loaded<'_>,
+    mode: Option<EvaluationMode>,
+) -> HookResult<BuiltinResult> {
     // The `FLOAT` hooks read a domain value of `SortFloat` as a Float. It is one only where the
     // definition gives that sort the `Float` kind: an unhooked `SortFloat` is a token sort, whose
     // texts `1.0` and `1.00` are two values, so no Float hook reads them, whatever its result.
-    if let Some(definition) = definition
+    if let Some(facts) = facts
         && hook.starts_with("FLOAT.")
         && arguments.iter().any(|argument| {
             matches!(argument.kind(), TermKind::DomainValue { sort, .. }
                 if sort.is_builtin(BuiltinSort::Float)
-                    && definition.domain_kind(sort) != Some(crate::term::DomainKind::Float))
+                    && facts.domain_kind(sort) != Some(crate::term::DomainKind::Float))
         })
     {
         return Ok(BuiltinResult::NotApplicable);
     }
-    // With a definition, every domain value the hook builds is recorded with the kind it is
-    // built with, for the checks below.
-    let built = definition.map(|_| BuiltDomainValues::record());
+    // With a definition's declarations, every domain value the hook builds is recorded with the
+    // kind it is built with, for the checks below.
+    let built = facts.map(|_| BuiltDomainValues::record());
     let result = evaluate_hook_with_context(
         hook,
         arguments,
-        Some(&result_sort),
-        ResultCollection::declared(symbol.attributes.result_collection.as_ref(), sort_graph),
-        sort_graph,
-        definition,
-        execution,
-        symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total),
+        Some(result_sort),
+        ResultCollection::declared(loaded.result_collection, loaded.sort_graph),
+        loaded.sort_graph,
+        facts,
+        loaded.definition,
+        loaded.execution,
+        total,
     )?;
     if let BuiltinResult::Value(value) = &result {
-        if let (Some(definition), Some(built)) = (definition, &built)
-            && !(value.sort() == result_sort && built.of_their_sorts_kinds(definition))
+        if let (Some(facts), Some(built)) = (facts, &built)
+            && !(value.sort() == *result_sort && built.of_their_sorts_kinds(facts))
         {
             // A builtin hook declared at a sort that is not its builtin's (a sort hooked
             // `FLOAT.Float` under another name, a token sort for a `STRING` result) gives a value
@@ -382,7 +479,29 @@ fn evaluate_with_context(
             return Ok(BuiltinResult::NotApplicable);
         }
         #[cfg(debug_assertions)]
-        debug_assert_value_of_sort(hook, value, &result_sort);
+        debug_assert_value_of_sort(hook, value, result_sort);
+        // A value the definition leaves to the implementation (the order of `keys_list`,
+        // `values` and `Set2List` of two or more items, the result format of a Float operation
+        // over a binary32 and a binary64 operand, the sign of a NaN) is computed only inside an
+        // execution, which runs a program and may take any value the definition admits.
+        // Elsewhere a verdict that read it would hold only in k-rust's choice, not in every model
+        // of the definition, so the application stays unevaluated as the defined value it is
+        // (`crate::evaluation`). The outcome is `Unsupported`, not `NotApplicable`, so that a
+        // simplifier records no normal-form certificate for it: its value claim would let
+        // apartness tell it from a written list.
+        if mode == Some(EvaluationMode::Proof)
+            && let Some(detail) = implementation_chosen_in(hook, arguments)
+        {
+            return Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::Unspecified {
+                    detail,
+                    // The hook's description gives the application a value, whichever it is, so
+                    // it is defined whatever its symbol's declaration says
+                    // (`implementation_chosen`).
+                    defined: true,
+                },
+            ));
+        }
     }
     Ok(result)
 }
@@ -474,6 +593,7 @@ pub fn evaluate_hook(
         None,
         None,
         None,
+        None,
         false,
     )
     .layered()
@@ -492,6 +612,7 @@ pub(crate) fn evaluate_hook_into(
         arguments,
         None,
         ResultCollection::declared(result, None),
+        None,
         None,
         None,
         None,
@@ -525,6 +646,10 @@ fn member_in_result(
 /// an application to which the hook's description gives no value is defined all the same
 /// (`MINT.integer` and `MINT.bitwidth` at a sort that names no width). An evaluation without an
 /// applied symbol has no declaration, so it is not `total`.
+///
+/// `facts`: the declarations of the definition the application belongs to, which the `STRING`
+/// evaluator reads; `definition`: the loaded definition, which the `KRYPTO`, `IO` and
+/// `SUBSTITUTION` evaluators read. A loaded definition is always its own facts.
 #[allow(clippy::too_many_arguments)]
 fn evaluate_hook_with_context(
     hook: &str,
@@ -532,6 +657,7 @@ fn evaluate_hook_with_context(
     result_sort: Option<&Sort>,
     result_collection: ResultCollection<'_>,
     sort_graph: Option<&SortGraph>,
+    facts: Option<&dyn DeclarationFacts<Sort = Sort>>,
     definition: Option<&BackendDefinition>,
     execution: Option<&mut ExecutionEvaluationContext>,
     total: bool,
@@ -622,7 +748,7 @@ fn evaluate_hook_with_context(
                     arguments,
                     string::Declaration {
                         result_sort,
-                        definition,
+                        facts,
                         total,
                     },
                 ),

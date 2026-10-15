@@ -1315,6 +1315,31 @@ impl Term {
         )
     }
 
+    /// The domain value of `sort` that `value` names under the declarations `facts` states: built
+    /// with the kind they give the sort ([`DomainKind::of_declared_sort`]), validated for it and
+    /// stored in its canonical text, as a definition reads a literal `\dv{sort}(value)` at load.
+    /// So `07` at a sort hooked `INT.Int` is `7`, and a text at a token sort (`Id`) is itself.
+    ///
+    /// `None` when the sort has no kind there (it has no domain values, or it is hooked
+    /// `MINT.MInt` and names no width), when `value` names no element of the sort, and when the
+    /// element's canonical text is beyond a bound of k-rust: no domain value of `sort` is that
+    /// text. `value` is the payload a KORE literal of the sort carries, in the encoding of the
+    /// sort's name (`LiteralEncoding::of_domain_value`).
+    ///
+    /// This is how a caller without a loaded definition, such as the frontend's constant fold,
+    /// builds the arguments of an application it evaluates with
+    /// [`crate::builtin::evaluate_declared`].
+    pub fn domain_value_in(
+        facts: &dyn crate::builtin::DeclarationFacts<Sort = Sort>,
+        sort: Sort,
+        value: impl Into<KoreString>,
+    ) -> Option<Self> {
+        let value = value.into();
+        let kind = facts.domain_kind(&sort)?;
+        domain::validate_text(kind, &sort, &value).ok()?;
+        Some(Self::domain_value_of(kind, sort, value))
+    }
+
     /// The domain value of `sort` holding `value` as given, without a kind: not validated and
     /// not canonicalized. For tests that build values without a definition (the backend's and
     /// the k-rust crate's test suites, the Lean bridge generators, the hook-model harness);
@@ -2902,6 +2927,44 @@ pub enum DomainKind {
     /// Every other sort with domain values (an unhooked token sort, `Id`, an unhooked
     /// `SortFloat`, ...): a text is its own value.
     Token,
+}
+
+impl DomainKind {
+    /// The kind of the domain values of `sort` in a definition that declares the sort's head
+    /// with the `hasDomainValues` attribute exactly when `has_domain_values` holds, and with the
+    /// hook `hook`. This is the rule [`crate::definition::BackendDefinition::domain_kind`]
+    /// states, and every reader of a definition's declarations applies it to the facts it has
+    /// ([`crate::builtin::DeclarationFacts`]).
+    ///
+    /// A sort without domain values has no kind, and neither has a sort hooked `MINT.MInt` that
+    /// names no width or whose width argument is still a sort variable.
+    pub fn of_declared_sort(
+        sort: &Sort,
+        has_domain_values: bool,
+        hook: Option<&str>,
+    ) -> Option<Self> {
+        if !has_domain_values {
+            return None;
+        }
+        if sort.is_builtin(BuiltinSort::Int) {
+            return Some(Self::Int);
+        }
+        if sort.is_builtin(BuiltinSort::Bool) {
+            return Some(Self::Bool);
+        }
+        Some(match hook {
+            Some("INT.Int") => Self::Int,
+            Some("BOOL.Bool") => Self::Bool,
+            Some("STRING.String") => Self::String,
+            Some("BYTES.Bytes") => Self::Bytes,
+            Some("FLOAT.Float") => Self::Float,
+            Some("MINT.MInt") => match mint_width(sort)? {
+                MIntWidth::NoWidth => return None,
+                width => Self::MInt(width),
+            },
+            _ => Self::Token,
+        })
+    }
 }
 
 /// The width of `sort` when it is a machine-integer sort `SortMInt{A}`: `Bits(n)` when `A` is

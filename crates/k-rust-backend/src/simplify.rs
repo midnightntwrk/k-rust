@@ -5204,29 +5204,9 @@ fn simplify_root(
         None => evaluate_builtin(term, definition),
     }?
     .map_err(SimplificationError::Builtin)?;
-    // A value the definition leaves to the implementation (the order of `keys_list`, `values`
-    // and `Set2List` of two or more items, the result format of a Float operation over a
-    // binary32 and a binary64 operand, the sign of a NaN) is computed only inside an execution, which runs a
-    // program and may take any value the definition admits. Elsewhere a verdict that read it
-    // would hold only in k-rust's choice, not in every model of the definition, so the
-    // application stays unevaluated as the defined value it is (`crate::evaluation`). The
-    // outcome is `Unsupported`, not `NotApplicable`, so that no normal-form certificate is
-    // recorded for it below: its value claim would let apartness tell it from a written list.
-    let builtin = match builtin {
-        BuiltinResult::Value(_) if crate::evaluation::current() == EvaluationMode::Proof => {
-            match crate::builtin::implementation_chosen(term) {
-                Some(detail) => BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
-                    detail,
-                    // The hook's description gives the application a value, whichever it is, so
-                    // it is defined whatever its symbol's declaration says
-                    // (`implementation_chosen`).
-                    defined: true,
-                }),
-                None => builtin,
-            }
-        }
-        builtin => builtin,
-    };
+    // Outside an execution the entry leaves a value the definition leaves to the
+    // implementation unevaluated, as `Unsupported`, so that no normal-form certificate is
+    // recorded for it below (`builtin::evaluate_declared`).
     let unsupported = match builtin {
         BuiltinResult::NotApplicable => None,
         BuiltinResult::Unsupported(reason) => Some(reason),

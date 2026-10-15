@@ -6,9 +6,12 @@ use indoc::indoc;
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
-    builtin::{BuiltinResult, UnsupportedHookReason, evaluate, evaluate_in_definition},
+    builtin::{
+        BuiltinResult, UnsupportedHookReason, evaluate, evaluate_declared, evaluate_in_definition,
+    },
     definition::BackendDefinition,
-    term::{Sort, Term, TermKind},
+    evaluation::{EvaluationMode, with_evaluation},
+    term::{FunctionType, Sort, SymbolType, Term, TermKind},
 };
 
 /// String-to-token functions at a sort hooked `INT.Int` under its own name, at machine-integer
@@ -642,5 +645,165 @@ fn float_hooks_read_no_token_of_an_unhooked_sort_float() {
     assert_eq!(
         evaluated(&load(UNHOOKED_FLOAT_DEFINITION), equal),
         BuiltinResult::NotApplicable
+    );
+}
+
+/// `INT.add` at its natural sorts, at a token sort and at a sort hooked `INT.Int` under another
+/// name, `FLOAT.sign`, and `STRING.token2string` of a token.
+const DECLARED_DEFINITION: &str = indoc! {r#"
+    []
+    module MAIN
+        hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+        hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+        hooked-sort SortMyInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        sort SortTok{} [hasDomainValues{}()]
+        sort SortId{} [hasDomainValues{}()]
+        hooked-symbol LbladdInt{}(SortInt{}, SortInt{}) : SortInt{}
+            [function{}(), total{}(), hook{}("INT.add")]
+        hooked-symbol LbladdTok{}(SortInt{}, SortInt{}) : SortTok{}
+            [function{}(), total{}(), hook{}("INT.add")]
+        hooked-symbol LbladdMyInt{}(SortMyInt{}, SortMyInt{}) : SortMyInt{}
+            [function{}(), total{}(), hook{}("INT.add")]
+        hooked-symbol LblsignFloat{}(SortFloat{}) : SortBool{}
+            [function{}(), total{}(), hook{}("FLOAT.sign")]
+        hooked-symbol LblId2String{}(SortId{}) : SortString{}
+            [function{}(), total{}(), hook{}("STRING.token2string")]
+    endmodule []
+"#};
+
+/// `evaluate_declared` over a loaded definition's own declarations is the evaluation entry for
+/// the hooks those declarations decide: in both evaluation modes it gives every application below
+/// the outcome the entry gives it in the definition. The applications reach each outcome: a value, no value of the declared sort, a
+/// value only an execution chooses, a value the definition does not determine, `\bottom`, and a
+/// value beyond a bound.
+#[test]
+fn evaluate_declared_agrees_with_the_entry() {
+    let int = |text: &str| format!(r#"\dv{{SortInt{{}}}}("{text}")"#);
+    let float = |text: &str| format!(r#"\dv{{SortFloat{{}}}}("{text}")"#);
+    let cases = [
+        (
+            DEFINITION,
+            vec![
+                string_to("LblString2MyInt", "07"),
+                string_to("LblString2MyInt", "abc"),
+                string_to("LblString2MyIntPartial", "abc"),
+                string_to("LblString2Word", "-1p8"),
+                string_to("LblString2Id", "_42"),
+                string_to("LblString2Wide", "-1p33554432"),
+                format!(
+                    "LblInt2MyFloat{{}}({}, {}, {})",
+                    int("3"),
+                    int("53"),
+                    int("11")
+                ),
+                r#"LblconcatText{}(\dv{SortString{}}("a"), \dv{SortString{}}("b"))"#.to_owned(),
+            ],
+        ),
+        (
+            FLOAT_DEFINITION,
+            vec![
+                format!(
+                    r"Lbl'Unds'plusFloat'Unds'{{}}({}, {})",
+                    float("1.0"),
+                    float("1.00")
+                ),
+                format!(
+                    r"Lbl'Unds'plusFloat'Unds'{{}}({}, {})",
+                    float("1.0f"),
+                    float("1.0")
+                ),
+            ],
+        ),
+        (
+            UNHOOKED_FLOAT_DEFINITION,
+            vec![format!(
+                r"Lbl'Unds'plusFloat'Unds'{{}}({}, {})",
+                float("1.0"),
+                float("1.00")
+            )],
+        ),
+        (
+            DECLARED_DEFINITION,
+            vec![
+                format!("LbladdInt{{}}({}, {})", int("1"), int("2")),
+                format!("LbladdTok{{}}({}, {})", int("1"), int("2")),
+                r#"LbladdMyInt{}(\dv{SortMyInt{}}("1"), \dv{SortMyInt{}}("2"))"#.to_owned(),
+                format!("LblsignFloat{{}}({})", float("NaN")),
+                format!("LblsignFloat{{}}({})", float("-1.0")),
+                r#"LblId2String{}(\dv{SortId{}}("x"))"#.to_owned(),
+            ],
+        ),
+    ];
+    let mut outcomes = std::collections::BTreeSet::new();
+    for (source, patterns) in cases {
+        let definition = load(source);
+        for pattern in patterns {
+            let application = term(&definition, &pattern);
+            let TermKind::Application {
+                symbol, arguments, ..
+            } = application.kind()
+            else {
+                panic!("{pattern} is no application");
+            };
+            let hook = symbol.attributes.hook.as_deref().unwrap();
+            let total = symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total);
+            for mode in [EvaluationMode::Proof, EvaluationMode::Execution] {
+                let entry =
+                    with_evaluation(mode, || evaluate_in_definition(&application, &definition))
+                        .unwrap()
+                        .unwrap();
+                let declared = evaluate_declared(
+                    hook,
+                    arguments,
+                    &application.sort(),
+                    total,
+                    &definition,
+                    mode,
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(declared, entry, "{pattern} in {mode:?}");
+                outcomes.insert(match (mode, &declared) {
+                    (_, BuiltinResult::Value(_)) => "value",
+                    (_, BuiltinResult::NotApplicable) => "no value of the sort",
+                    (
+                        EvaluationMode::Proof,
+                        BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                            defined: true,
+                            ..
+                        }),
+                    ) if hook.starts_with("FLOAT.") => "chosen only in an execution",
+                    (_, BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })) => {
+                        "not determined"
+                    }
+                    (_, BuiltinResult::Bottom) => "undefined",
+                    (
+                        _,
+                        BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
+                            ..
+                        }),
+                    ) => "beyond a bound",
+                    (_, other) => panic!("{pattern}: {other:?}"),
+                });
+            }
+        }
+    }
+    assert_eq!(outcomes.len(), 6, "{outcomes:?}");
+
+    // A hook whose evaluator reads more of a loaded definition than its declarations (here
+    // `KEQUAL`, which reads the sort graph) is not evaluated over the declarations alone.
+    let definition = load(DECLARED_DEFINITION);
+    assert_eq!(
+        evaluate_declared(
+            "KEQUAL.eq",
+            &[Term::int(1), Term::int(1)],
+            &Sort::builtin(k_rust_kore::names::BuiltinSort::Bool),
+            true,
+            &definition,
+            EvaluationMode::Proof,
+        ),
+        Ok(Ok(BuiltinResult::NotApplicable))
     );
 }

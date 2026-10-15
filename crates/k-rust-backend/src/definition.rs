@@ -94,10 +94,9 @@ use crate::{
     smt::{SExpr, SmtType},
     term::{
         AlgebraicAxioms, CollectionMetadata, CollectionSymbols, DomainKind, FunctionType, HeadRole,
-        ListDefinition, MIntWidth, MapDefinition, Name, Sort, Symbol, SymbolAttributes,
-        SymbolDeclaration, SymbolType, Term, TermKind, Variable,
+        ListDefinition, MapDefinition, Name, Sort, Symbol, SymbolAttributes, SymbolDeclaration,
+        SymbolType, Term, TermKind, Variable,
         domain::{TextRejection, validate_text},
-        mint_width,
         names::{HookName, variable_name_problems},
     },
 };
@@ -3050,27 +3049,7 @@ pub(crate) fn domain_kind_in(sorts: &BTreeMap<Name, SortInfo>, sort: &Sort) -> O
         return None;
     };
     let info = sorts.get(name)?;
-    if !info.has_domain_values {
-        return None;
-    }
-    if sort.is_builtin(BuiltinSort::Int) {
-        return Some(DomainKind::Int);
-    }
-    if sort.is_builtin(BuiltinSort::Bool) {
-        return Some(DomainKind::Bool);
-    }
-    Some(match info.hook.as_deref() {
-        Some("INT.Int") => DomainKind::Int,
-        Some("BOOL.Bool") => DomainKind::Bool,
-        Some("STRING.String") => DomainKind::String,
-        Some("BYTES.Bytes") => DomainKind::Bytes,
-        Some("FLOAT.Float") => DomainKind::Float,
-        Some("MINT.MInt") => match mint_width(sort)? {
-            MIntWidth::NoWidth => return None,
-            width => DomainKind::MInt(width),
-        },
-        _ => DomainKind::Token,
-    })
+    DomainKind::of_declared_sort(sort, info.has_domain_values, info.hook.as_deref())
 }
 
 /// The least fixed point described at [`BackendDefinition::sort_is_inhabited`]; each round
