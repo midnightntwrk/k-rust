@@ -1781,6 +1781,31 @@ The reference's search mode states the obligation on every state it reports, the
 For a wholly undefined initial configuration, the reference's execute mode returns it unchanged (`sti(1 /Int 0)`, or `stm(\bottom)` for a map with a repeated key) and its search returns `\bottom`; k-rust's execution and search both return `\bottom` with the warning above.
 `an_undefined_instance_of_the_initial_configuration_has_no_result` in [execution_semantics.rs](../crates/k-rust/tests/execution_semantics.rs) covers execution, search and `krun`'s run driver, and `constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_to_name` the established and refuted cases (execution, state and path search), `krun_warns_when_the_initial_configuration_is_bottom` in [cli.rs](../crates/k-rust/tests/cli.rs) `krun`'s warning on execution and search; `updating_a_map_value_beside_an_opaque_rest_keeps_the_absence_obligation` and `updating_a_value_through_requires_or_hooks_restates_one_absence` in [rewrite.rs](../crates/k-rust-backend/tests/backend/rewrite.rs) cover a consumed map.
 
+## Determinism and concurrency
+
+Nothing in what k-rust computes is random: every choice it makes (the order of rules and candidates, generated names, the order of results) is a function of its inputs, except where the paragraphs below name another dependence.
+This section states which inputs count, so that a host can cache, compare and parallelise compiles.
+
+### Compile
+
+For one build of k-rust (one revision with its `Cargo.lock`, built by one toolchain for one target, with one feature set and build profile), loading (`load_for_compilation`, `load_with_options`, `load_structured`, `LoadedDefinition::with_definition`) and compiling (`compile_loaded_definition`) equal inputs gives equal results, in any process, on any thread and on every call: the three KORE texts byte for byte, every other field of `CompiledKoreArtifacts` by equality, and a `LoadError` (a definition that fails to load) or a `CompileError` (one that loads and fails to compile) by equality.
+The inputs are:
+
+- each source's text and its resolver identity (`ResolvedSource::source`, the name the resolver returns for it): the identity is what `Source` attributes, load diagnostics and `LoadError`s carry and decides whether the text is Markdown, so the same text under `/checkout-a/legacy.k` and under `/checkout-b/legacy.k` gives different KORE. The logical name (`ResolvedSource::logical`, or the identity with `LoadOptions::project_root` stripped) is not an input of the artifacts or errors: it reaches only the loaded definition's source table (`LoadedDefinition::source_table()`, and the provenance of its definition JSON). So `project_root` does not change the `Source` attributes, and artifacts that must not depend on the checkout need resolver identities that do not (resolution from a fixed root);
+- the resolver's answers;
+- for `load_structured`, the `Definition` value it is given, and for `LoadedDefinition::with_definition`, the receiver and the `Definition` value;
+- `LoadOptions` and `CompileOptions`;
+- the environment variable `KRUST_PARSE_DIAGNOSTIC_WORK`, read once per process, which bounds the work spent explaining a failed parse (`DiagnosticWork`; it changes which diagnostic a failed load reports, never whether a load succeeds).
+
+The `*_timed` and `*_with_timings` variants return the same artifacts or errors; the timings they also return are wall-clock and are not covered.
+
+Builds with Z3 type inference also take `KRUST_TYPE_INFERENCE_MODE` and the Z3 library as inputs; the diagnostic reported when every candidate typing of a rule fails names the first failure in Z3's enumeration order, so in those builds the promise covers accepted compiles and not the text of that diagnostic.
+
+An input deep enough that a compile pass needs a mapped stack segment is refused (a `TermTooDeep` error, citing `LargestSegment` or `MappingRefused`) or not depending also on the calling thread's remaining stack and on whether the host maps the segment, so such refusals are outside the promise; a host out of memory may also panic in a guarded recursion, which is no result at all.
+
+The order and representation of the artifacts may change between builds; a host that caches them keys the cache on the build (or on the binary's identity).
+[compile_determinism.rs](../crates/k-rust/tests/compile_determinism.rs) compiles representative definitions twice in one process, on a small-stack thread, on concurrent threads and in two child processes, whose hash seeds and address layouts differ, and requires equal artifacts and identical bytes, an identical failure for a definition that fails to load and for one that fails to compile, different `Source` attributes for two resolver identities of one text, and equal artifacts for two logical names under one identity.
+
 ## Observation events
 
 Observed execution and search (`executeObserved` and the `*Observed` search methods of the host API) report three event kinds, a closed union tagged by `kind`.
