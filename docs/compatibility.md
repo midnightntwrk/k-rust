@@ -1783,6 +1783,41 @@ The reference's search mode states the obligation on every state it reports, the
 For a wholly undefined initial configuration, the reference's execute mode returns it unchanged (`sti(1 /Int 0)`, or `stm(\bottom)` for a map with a repeated key) and its search returns `\bottom`; k-rust's execution and search both return `\bottom` with the warning above.
 `an_undefined_instance_of_the_initial_configuration_has_no_result` in [execution_semantics.rs](../crates/k-rust/tests/execution_semantics.rs) covers execution, search and `krun`'s run driver, and `constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_to_name` the established and refuted cases (execution, state and path search), `krun_warns_when_the_initial_configuration_is_bottom` in [cli.rs](../crates/k-rust/tests/cli.rs) `krun`'s warning on execution and search; `updating_a_map_value_beside_an_opaque_rest_keeps_the_absence_obligation` and `updating_a_value_through_requires_or_hooks_restates_one_absence` in [rewrite.rs](../crates/k-rust-backend/tests/backend/rewrite.rs) cover a consumed map.
 
+### Run coverage
+
+An execute request that sets `collectCoverage` (`ExecuteRequest::collect_coverage`; off by default) receives `coverage`, two sorted lists of `UNIQUE_ID`s (`RunCoverageOutput`); without it the result has no `coverage` key and every other field is unchanged, and collecting changes no other field either.
+`execute`, `executeObserved` and their JSON and writer forms accept it; `search`, `prove` and `simplify` do not take the option yet and may adopt it later.
+`BackendCapabilities::coverage` advertises it; a server without it rejects `collectCoverage`, since the request rejects unknown fields.
+The change is additive and optional, so the backend schema version stays 1.
+
+- `applied` holds every axiom an instance of which the run used:
+  - a function, simplification, `anywhere` or overload equation whose instance gave a result: its instantiated right-hand side, or the subject stated `#Bottom` by a refuted binding obligation, `ensures` or `#Bottom` right-hand side; and a `#Top` lemma that dropped an operand of a term-level `#And`. This holds wherever the run applied it: state, constraint and remainder simplification, a rule's `requires`, `ensures`, right-hand side and definedness obligations, and another equation's condition at any depth;
+  - a ceil or predicate equation whose instance gave its instantiated right-hand side or refuted its subject;
+  - an unconditional `#Ceil` equation whose instance the definedness analysis took as the condition of a partial application in a configuration or a right-hand side;
+  - an equation from which the run decided the definedness of an operand that `#if`, `andThenBool` or `orElseBool` does not evaluate, such as `pd(A)` in `#if A >=Int 0 #then A #else pd(A) #fi`: the value of one function-equation step on literal arguments (D1), an unconditional `#Ceil` equation whose instantiated condition refuted or established the operand's definedness, or was stated in its place over builtin arithmetic (D2, D2'), or one function-equation step selected by matching alone that refuted or established it (D4);
+  - a rewrite rule for which a step built a successor or an undefined step (a `trivial` leaf or entry), whether or not the step kept it;
+  - for every rewrite rule whose `requires` the run began to decide, every equation that the load-time discharge of the rule's definedness applied (unconditional `#Ceil` equations, and the function or simplification equations that decided their conditions): the discharge removed the obligations the run would otherwise decide, and moved the evaluation of the rule's right-hand side out of the step into state simplification.
+- `matched` holds `applied`, plus every axiom whose condition the run began to decide for an instance whose left-hand side matched, whatever the verdict (held, refuted, undecided, or cut short by a stop):
+  - a rewrite rule whose `requires` phase was entered: its left-hand side matched, or unified with the state under a narrowing condition the solver did not refute;
+  - an equation whose condition was evaluated for a matching instance; and, where a lower-priority function equation follows the equation's group, an instance the evaluator does not use but whose condition decides whether that lower equation may apply: an instance that matches only where variables of the subject equal the terms it binds them to, evaluated with those equalities, and an instance a `concrete` or `symbolic` attribute set aside, when its `requires` is not empty. A set-aside instance with an empty `requires` and no such equalities decides nothing and is not counted;
+  - an equation instance a definedness decision of an unevaluated operand considered: the function equation selected for one step (D1, D4), whose condition is then checked, and every usable instance of an unconditional `#Ceil` equation (D2), whose condition is then folded;
+  - for every rewrite rule whose `requires` the run began to decide, every equation whose condition the rule's load-time discharge began to decide.
+  An instance whose attempt failed after its condition held (a disjunctive right-hand side, or an error) is in `matched` only.
+- Both lists ignore whether the run kept the result: an application inside an attempt the backend later undid counts.
+  An axiom without an id (a compiler-generated one) is listed as `UNKNOWN`.
+
+The lists cover every state the run explored, including the leaves a `state-set` result merges into one: they are equal for `state-set` and `path-set` results and for `execute` and `executeObserved`, whatever the rule filter.
+They are a deterministic function of the definition, the request, the solver profile and the k-rust version, and do not depend on earlier requests to the backend: the collection opens inside the execution, after the request's module has been selected, so the work of building a module on the first request that names it (its confluence check and definedness discharge) is never collected, and a discharge's equations are reported by every run of the rule alike.
+They depend on the backend's trial order and stopping rules, so a cache of them must be keyed on the k-rust version.
+A run that a stop, a timeout, the depth or the breadth bound cut short reports what it collected before it ended, which depends on where it stopped; a refused request has no result.
+
+They never contain a builtin hook (not a sentence; the rule that calls it is covered), an `smt-lemma` axiom (used only by the solver), a macro or alias rule (expanded before execution, [Macro applications that survive expansion](#macro-applications-that-survive-expansion)), a claim, or an equation used only by the load-time confluence check (a use of `anywhere` and overload equations by the definition, outside every run); matching modulo overloads consults the `symbol-overload` relation the compiler generates from production attributes, which is no author sentence and is not listed (an overload equation applied as an equation is).
+No list reaches an edit of a rule's or an equation's priority, its `owise`, its `concrete` or `symbolic` attribute, or its left-hand side, where the backend never tried the losing instance: a scan of equations stops at the first that applies, and a rewrite step at the first priority group that applies, so a rule of a lower group whose left-hand side matches the state is in neither list.
+Equal sentences share one `UNIQUE_ID` (the catalog marks them `sharedIdentity`), so an id covers each of them.
+
+The leaf `trace` is a diagnostic, not a coverage surface: it holds the rewrite steps of one path and the equations that normalized its states, misses the equations applied inside conditions, right-hand sides and the definedness analysis, and a `state-set` merge keeps the trace of one merged path only.
+`crates/k-rust/tests/run_coverage.rs` and [coverage.rs](../crates/k-rust-backend/src/tests/coverage.rs) pin the lists.
+
 ## Determinism and concurrency
 
 Nothing in what k-rust computes is random: every choice it makes (the order of rules and candidates, generated names, the order of results) is a function of its inputs, except where the paragraphs below name another dependence.

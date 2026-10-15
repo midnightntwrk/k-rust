@@ -120,6 +120,9 @@ pub struct BackendCapabilities {
     pub step_timeouts: bool,
     pub search: bool,
     pub observation: bool,
+    /// `execute` and `execute_observed` report the run's coverage when the request sets
+    /// `collect_coverage` ([`ExecuteRequest::collect_coverage`]).
+    pub coverage: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -168,6 +171,11 @@ pub struct ExecuteRequest {
     /// branch identity, and observations. The result reports the modality it was produced under.
     #[serde(default = "default_result_modality")]
     pub result_modality: ResultModalityOutput,
+    /// Report the run's coverage as [`ExecutionResult::coverage`]: the rules and equations the
+    /// run applied, and those whose condition it began to decide for a matched instance
+    /// ([`RunCoverageOutput`]). Off by default; collecting changes no other field of the result.
+    #[serde(default)]
+    pub collect_coverage: bool,
     #[serde(default = "default_backend_schema_version")]
     pub schema_version: u32,
 }
@@ -189,6 +197,7 @@ impl ExecuteRequest {
             moving_average_timeout: false,
             assume_state_defined: false,
             result_modality: ResultModalityOutput::StateSet,
+            collect_coverage: false,
             schema_version: BACKEND_SCHEMA_VERSION,
         }
     }
@@ -214,6 +223,51 @@ pub struct ExecutionResult<K = Value> {
     pub effects: Vec<EffectOutput>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub discarded: Vec<ObservationEventOutput<K>>,
+    /// The run's coverage, present exactly when the request set `collect_coverage`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<RunCoverageOutput>,
+}
+
+/// The rules and equations an execution used, by `UNIQUE_ID`, each list sorted and without
+/// repeats (docs/compatibility.md, "Run coverage").
+///
+/// - `applied`: every rewrite rule for which a step built a successor or an undefined step;
+///   every equation of any kind (function, simplification, `anywhere`, overload, ceil,
+///   predicate, `#Top` lemma) whose instance gave a result (its instantiated right-hand side, or
+///   its subject stated bottom), wherever the run applied it (state simplification, a rule's
+///   `requires`, `ensures`, right-hand side and definedness, another equation's condition, the
+///   definedness analysis); every equation from which the run decided the definedness of an
+///   operand that `#if`, `andThenBool` or `orElseBool` does not evaluate (one function-equation
+///   step, or an unconditional ceil equation); and, for every rule whose `requires` the run
+///   began to decide, every equation that the load-time discharge of its definedness applied.
+/// - `matched`: `applied`, plus every rule and equation whose condition the run began to decide
+///   for an instance whose left-hand side matched (for a rewrite rule, or unified under a
+///   narrowing condition the solver did not refute), whatever the verdict, including the
+///   instances a definedness decision of an unevaluated operand considered and, for every rule
+///   whose `requires` the run began to decide, every equation whose condition its load-time
+///   discharge began to decide.
+///
+/// The lists cover every state the run explored, including leaves a `state-set` result merges
+/// away, and are equal for `execute` and `execute_observed`, for both result modalities, and
+/// for every earlier request to the backend. They are a deterministic function of the
+/// definition, the request, the solver profile and the k-rust version. They never name a
+/// builtin hook, an `smt-lemma`, macro or alias rule, a claim, or an equation that only the
+/// load-time confluence check uses. A run that a stop, a timeout or a bound cut short reports
+/// what it collected before it ended, which depends on where it stopped.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunCoverageOutput {
+    pub applied: Vec<String>,
+    pub matched: Vec<String>,
+}
+
+impl From<k_rust_backend::coverage::RunCoverage> for RunCoverageOutput {
+    fn from(coverage: k_rust_backend::coverage::RunCoverage) -> Self {
+        Self {
+            applied: coverage.applied.into_iter().collect(),
+            matched: coverage.matched.into_iter().collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -785,6 +839,7 @@ impl Backend {
             step_timeouts: !cfg!(target_arch = "wasm32"),
             search: true,
             observation: true,
+            coverage: true,
         }
     }
 
@@ -944,8 +999,10 @@ impl Backend {
                 request_names: RequestNames::of_received(&[&syntax]),
                 // `execute` runs a program, so it lists collections in k-rust's order.
                 evaluation: EvaluationMode::Execution,
-                // The request has no field asking for the run's coverage yet.
-                collect_coverage: false,
+                // The backend opens the collection inside its execute entry, after this
+                // operation has selected (and possibly built) the module, so the sets never hold
+                // what building a module applied.
+                collect_coverage: request.collect_coverage,
             };
             let result = match observation_rules {
                 Some(rules) => {

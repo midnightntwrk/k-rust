@@ -213,6 +213,8 @@ export interface BackendCapabilities {
   stepTimeouts: boolean
   search: boolean
   observation: boolean
+  /** `execute` and `executeObserved` accept `collectCoverage`. */
+  coverage: boolean
 }
 
 export interface CreateBackendOptions {
@@ -241,6 +243,11 @@ export interface ExecuteOptions {
    * observations.
    */
   resultModality?: 'state-set' | 'path-set'
+  /**
+   * Report the run's coverage as `ExecutionResult.coverage`: the rules and equations it applied,
+   * and those whose condition it began to decide (docs/compatibility.md, "Run coverage").
+   */
+  collectCoverage?: boolean
   schemaVersion?: number
 }
 
@@ -322,6 +329,18 @@ export interface ExecutionResult {
   /** Compatibility copy of effects when execution retains exactly one leaf. */
   effects: BackendEffect[]
   discarded?: UncommittedObservation[]
+  /** Present exactly when the request set `collectCoverage`. */
+  coverage?: RunCoverage
+}
+
+/**
+ * The `UNIQUE_ID`s of the rules and equations a run used, each list sorted: `applied` those it
+ * applied, `matched` those plus every one whose condition it began to decide for a matched
+ * instance. Both cover every explored path, whatever the result modality.
+ */
+export interface RunCoverage {
+  applied: string[]
+  matched: string[]
 }
 
 export interface TransitionId {
