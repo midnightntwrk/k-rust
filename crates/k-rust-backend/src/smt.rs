@@ -193,15 +193,16 @@ impl<'a> SExprParser<'a> {
 /// translation becomes an unrelated fresh constant (no congruence or constructor injectivity), a
 /// free or quantified variable of a sort other than `Int` or `Bool` ranges over an
 /// uninterpreted sort that need not have the K sort's values, and an `smtlib` symbol becomes an
-/// uninterpreted function that retains only congruence. Every K valuation that satisfies the
-/// predicates therefore induces a model of the translation, so `Unsat` refutes the predicates
-/// whatever the exactness. A model is a K valuation of the predicates only when the translation
-/// is `Exact`.
+/// uninterpreted function that retains only congruence. Abstraction alone therefore lets every K
+/// valuation that satisfies the predicates induce a model of the translation. A model is a K
+/// valuation of the predicates only when the translation is `Exact`.
 ///
 /// A partial function translated as a total SMT operation is not an over-approximation: an atom
 /// over an undefined term denotes `\bottom` in K and some value in SMT. It is `Approximate` for
-/// the purpose of reading a model; `Unsat` stays conclusive for it only under the definedness
-/// premise that `translation_exactness` documents.
+/// the purpose of reading a model, and `Unsat` refutes the predicates only when they are
+/// definedness-faithful: each atom over a partial term has that term's definedness beside it
+/// under the same connective, or is about a term the predicates show defined
+/// (docs/compatibility.md, "Solver decisions over partial operations").
 /// SMT hook translations, SMT lemma axioms and the user prelude are trusted, except that a power
 /// is read as itself only where an integer is its value (`guard_powers`).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -900,11 +901,15 @@ impl SmtPrelude {
 /// A `Sat` answer for `predicates` shows a K valuation of them only when this is `Exact`
 /// (see [`Exactness`]).
 ///
-/// The partial-function approximation also affects `SmtSolver::check_predicates`: a `Valid`
-/// answer holds for the total operation, including on instances where the partial function has
-/// no value. It is sound for a predicate only when the definedness of its partial terms is
-/// explicit in the predicate. The rewrite and equation condition callers make it explicit before
-/// deciding (`definedness::condition_definedness` on every `requires` and `ensures`).
+/// The partial-function approximation also affects `SmtSolver::is_sat` and
+/// `SmtSolver::check_predicates`: an `Unsat`, `Valid` or `Refuted` answer holds for the total
+/// operation, including on instances where the partial function has no value. It is sound for a
+/// predicate only when the predicate is definedness-faithful (see [`Exactness`]). The rewrite and
+/// equation condition callers make it so before deciding (`definedness::condition_definedness`
+/// on every `requires` and `ensures`), and so does the admission of a request's predicates
+/// (`definition::Admitted`, `definedness::request_definedness`); docs/compatibility.md, "Solver
+/// decisions over partial operations", lists every source and the one gap, an `\equals` of two
+/// possibly undefined terms in a definition's condition.
 #[must_use]
 pub fn translation_exactness(predicates: &[Predicate]) -> Exactness {
     translate_query(predicates, &Substitution::new(), &[])
@@ -1127,7 +1132,9 @@ pub enum Satisfiability {
     /// The translation has a model. It is a K valuation of the predicates only when the
     /// translation is exact (`translation_exactness`).
     Sat,
-    /// The predicates have no K valuation.
+    /// No K valuation satisfies the predicates, when they are definedness-faithful
+    /// (docs/compatibility.md, "Solver decisions over partial operations"), as every predicate
+    /// the backend poses is; otherwise only the translation has no model.
     Unsat,
     /// The solver ran within its own per-query bounds (its timeout, resource limit and retries)
     /// and did not decide the query; the payload is its reason. Never a stop: a query that stopped (a
