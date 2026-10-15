@@ -23,12 +23,19 @@
 //! An operation that stops does so for a [`StopCause`], and an error it returns for a stop names
 //! that cause ([`BackendError::stop_cause`]).
 //!
-//! 1. Every operation runs inside one operation boundary ([`Backend::with_solver`]), in both
-//!    builds. A request cancelled before its operation starts does not run: the operation returns
-//!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`. This holds for every
-//!    operation, and for constructing a [`Backend`] inside the token's scope; only an error the
-//!    request has before the boundary (an unsupported schema version, an unknown module, a state
-//!    too deep for the backend) is reported instead.
+//! 1. The operations that link to this section ([`Backend::execute`], [`Backend::search`] and
+//!    their variants, [`Backend::simplify`], [`Backend::implies`], [`Backend::get_model`],
+//!    [`Backend::prove`]), [`Backend::match_patterns`] and any operation run through
+//!    [`Backend::with_solver`] run inside one operation boundary, in both builds. A request
+//!    cancelled before its operation starts does not run: the operation returns `Err(e)` with
+//!    `e.stop_cause() == Some(&StopCause::Cancelled)`. Constructing a [`Backend`] inside the
+//!    token's scope fails the same way. An error the request has before the boundary is reported
+//!    instead: an unsupported schema version, an operation this build does not provide
+//!    ([`Backend::get_model`] without the `z3-inference` feature, step timeouts on wasm32), an
+//!    unknown module or a module that fails to load, and a state too deep for the backend.
+//!    [`Backend::add_module`], [`Backend::rule_catalog`], [`Backend::select_definition`] and the
+//!    internalizing constructors ([`Backend::internalize_definition`],
+//!    [`Backend::internalize_source_definition`]) have no boundary and do not observe the token.
 //! 2. A cancellation observed while [`Backend::execute`] or a search ([`Backend::search`] and its
 //!    path and pattern variants) explores ends the whole run, and the run reports it in its
 //!    result. `execute` returns `Ok` with the leaves completed before the cancellation and the
@@ -36,12 +43,19 @@
 //!    states still pending. A search returns `Ok` with a `cancelled` incomplete entry
 //!    ([`IncompleteSearchOutput::Cancelled`]) for the stopped state. Such a result is incomplete
 //!    and makes no coverage claim.
-//! 3. Every other operation ([`Backend::simplify`], [`Backend::implies`], [`Backend::get_model`],
-//!    [`Backend::prove`]) reports a cancellation observed at any point as
-//!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`. A proof cancelled while it
-//!    runs is this error even when its leaves had already decided a verdict.
+//! 3. [`Backend::simplify`], [`Backend::implies`] and [`Backend::get_model`] report a
+//!    cancellation observed at any point, including one a refinement observed and set aside, as
+//!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`: each polls once more after
+//!    its work returns. [`Backend::prove`] reports a cancellation as that `Err` unless the proof's
+//!    verdict no longer depends on the work the cancellation prevented: it keeps `Ok` when the
+//!    status is `disproved` (a certified refutation, which further exploration cannot change),
+//!    when no state was left unexplored, or when the leaves that are not proven reached
+//!    `max_counterexamples`. Any other cancelled proof (`indeterminate`, `depth-bound`,
+//!    `breadth-bound`, or `failed` below the limit) could change status if it went on, so it is
+//!    the `Err`. A failed solver prelude is always an `Err`.
 //!    So a cancelled operation answers `Err` with the `Cancelled` cause, except a cancellation
-//!    observed during an `execute` or search run, which is a `cancelled` leaf or entry.
+//!    observed during an `execute` or search run, which is a `cancelled` leaf or entry, and a
+//!    proof whose verdict it could not change.
 //! 4. A cancellation that lands after the boundary's entry poll and before the run's first poll
 //!    still gives `Ok` with a depth-0 `cancelled` leaf (a search: a `cancelled` entry for its
 //!    initial state), in both builds. Which shape a host gets depends only on timing, so a host
@@ -50,10 +64,18 @@
 //! 5. The step deadline of a request ([`ExecuteRequest::step_timeout_ms`],
 //!    [`ProveRequest::step_timeout_ms`]) is not a cancellation: a step that passes it ends its own
 //!    state as a `timeout` leaf, and execution goes on with the other states while a proof ends.
-//! 6. Loading a module's definition (internalizing it, including its load-time critical-pair
-//!    check) happens before the boundary and reads neither the token nor the request's step
-//!    deadline, so a cancellation does not interrupt it. A [`Backend`] constructed inside a
-//!    cancelled scope loads its default module and then fails at the boundary as in point 1.
+//! 6. Loading a module's definition (on construction, or on a module's first use) happens before
+//!    the boundary and is not cancellable: a cancellation does not interrupt it, and a
+//!    [`Backend`] constructed inside a cancelled scope loads its default module and then fails at
+//!    the boundary as in point 1. The load-time critical-pair check does not read the token.
+//!    The discharge of rewrite rules' definedness obligations at load does read it: a module
+//!    first loaded while its request's token is cancelled may be cached with rewrite rules whose
+//!    definedness is left undischarged. Such a definition is sound, but later requests on it pay
+//!    for the obligations at run time and may record different traces and diagnostics. A host
+//!    therefore constructs its backends, and selects every module it will use
+//!    ([`Backend::select_definition`]), outside a token's scope.
+//!    The rewrite rules' definedness discharge reads the token during a load; this is what
+//!    makes a load under a cancelled token weaker.
 //!
 //! With the `z3-inference` feature, a solver whose prelude failed stops every operation that uses
 //! it, as `Err(e)` with a `SolverPrelude` cause, at the boundary or during the run.
@@ -64,7 +86,7 @@
 //! use std::{thread, time::Duration};
 //!
 //! use k_rust::backend::{
-//!     Backend, BackendOptions, CancellationToken, ExecuteRequest, HaltReasonOutput,
+//!     Backend, BackendOptions, CancellationToken, ExecuteRequest, HaltReasonOutput, StopCause,
 //! };
 //! use k_rust::kore::parser::parse_pattern;
 //!
@@ -92,11 +114,19 @@
 //!         token.cancel();
 //!     })
 //! };
-//! let result = token.scope(|| backend.execute(ExecuteRequest::new(start)))?;
+//! let outcome = token.scope(|| backend.execute(ExecuteRequest::new(start)));
 //! watchdog.join().unwrap();
 //!
-//! assert_eq!(result.leaves.len(), 1);
-//! assert!(matches!(result.leaves[0].reason, HaltReasonOutput::Cancelled));
+//! // Both shapes are a cancellation (points 1, 2 and 4): which one a run gives depends on when
+//! // the cancellation lands.
+//! let cancelled = match outcome {
+//!     Err(error) => error.stop_cause() == Some(&StopCause::Cancelled),
+//!     Ok(result) => result
+//!         .leaves
+//!         .iter()
+//!         .any(|leaf| matches!(leaf.reason, HaltReasonOutput::Cancelled)),
+//! };
+//! assert!(cancelled);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -1464,7 +1494,7 @@ impl Backend {
         {
             let _ = (request, finish);
             Err(BackendError::new(
-                "model generation requires an SMT-enabled native build; this WebAssembly build has no Z3",
+                "model generation requires the SMT-enabled build (the `z3-inference` feature); this build has no Z3",
             ))
         }
         #[cfg(feature = "z3-inference")]
@@ -1579,14 +1609,38 @@ impl Backend {
             )
             .map_err(error("could not prove claim"))?;
             // A cancelled request or a failed solver prelude ends the proof without a leaf for
-            // the state it stopped, so no leaf names it; the operation reports it as its error,
-            // as it reports one on a leaf (`proof_leaf_outcome`). A passed step deadline and an
-            // exhausted stack stop one state, which their leaves report.
+            // the state it stopped, so no leaf names it. No answer of the solver means anything
+            // under a failed prelude, so that is the operation's error. A cancellation is too,
+            // unless the verdict no longer depends on the work it prevented
+            // (`cancellation_keeps_verdict`). A passed step deadline and an exhausted stack stop
+            // one state, which their leaves report.
             match &result.stopped {
-                Some(cause @ (StopCause::Cancelled | StopCause::SolverPrelude(_))) => {
+                Some(cause @ StopCause::SolverPrelude(_)) => {
                     return Err(BackendError::from(cause.clone()));
                 }
-                Some(StopCause::Deadline(_) | StopCause::StackExhausted(_)) | None => {}
+                Some(cause @ StopCause::Cancelled)
+                    if !cancellation_keeps_verdict(
+                        result.status,
+                        result
+                            .leaves
+                            .iter()
+                            .filter(|leaf| {
+                                !matches!(
+                                    leaf.outcome,
+                                    ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Trusted
+                                )
+                            })
+                            .count(),
+                        result.unexplored_states,
+                        request.max_counterexamples,
+                    ) =>
+                {
+                    return Err(BackendError::from(cause.clone()));
+                }
+                Some(
+                    StopCause::Cancelled | StopCause::Deadline(_) | StopCause::StackExhausted(_),
+                )
+                | None => {}
             }
             Ok(ProofResultOutput {
                 claim: claim
@@ -1625,8 +1679,9 @@ impl Backend {
     /// caller as its [`StopCause`] (re-exported in this module), through `E`'s `From<StopCause>`;
     /// see the module docs, "Bounding an operation".
     ///
-    /// The definition of `module` is loaded, on first use, before the boundary; loading reads no
-    /// request stop.
+    /// The definition of `module` is loaded, on first use, before the boundary; a cancellation
+    /// does not interrupt the load, but a load under a cancelled token may leave rewrite rules'
+    /// definedness undischarged (module docs, "Bounding an operation", point 6).
     ///
     /// The operation runs on a stack that holds the definition's recursive passes over its own
     /// patterns and terms (`BackendDefinition::with_stack_for`); an operation over a request's
@@ -1913,6 +1968,24 @@ fn implication_failure(failure: ImplicationFailure) -> ImplicationFailureOutput 
         ImplicationFailure::PartialCoverage => ImplicationFailureOutput::PartialCoverage,
         ImplicationFailure::ConsequentCondition => ImplicationFailureOutput::ConsequentCondition,
     }
+}
+
+/// Whether a proof that a cancellation ended keeps its verdict: the status is one that further
+/// exploration cannot change, or the exploration had finished when the cancellation was
+/// observed. A certified refutation (`Disproved`) is a fact about the definition; with no state
+/// left unexplored, or with as many leaves that are not proven as the request allows
+/// counterexamples, the proof would have ended there without the cancellation. Every other
+/// status could change if the proof went on.
+///
+/// `not_proven` counts the proof's leaves that are neither proven nor trusted, as the proof
+/// counts counterexamples.
+fn cancellation_keeps_verdict(
+    status: ProofStatus,
+    not_proven: usize,
+    unexplored_states: u64,
+    max_counterexamples: usize,
+) -> bool {
+    status == ProofStatus::Disproved || unexplored_states == 0 || not_proven >= max_counterexamples
 }
 
 /// The published outcome of a proof leaf, with the words of its reason; a predicate they name is
@@ -4654,5 +4727,36 @@ endmodule
         assert_eq!(error.stop_cause(), None);
         assert_eq!(error.message(), "could not select backend module: none");
         assert_eq!(error.to_string(), "could not select backend module: none");
+    }
+
+    /// A cancelled proof keeps its verdict exactly when no further exploration could change it.
+    #[test]
+    fn a_cancelled_proof_keeps_only_a_verdict_further_work_cannot_change() {
+        // A certified refutation stands whatever remains.
+        assert!(cancellation_keeps_verdict(ProofStatus::Disproved, 1, 5, 2));
+        // The exploration had finished: nothing unexplored, or the counterexample limit reached.
+        assert!(cancellation_keeps_verdict(ProofStatus::Failed, 1, 0, 2));
+        assert!(cancellation_keeps_verdict(ProofStatus::Failed, 1, 3, 1));
+        assert!(cancellation_keeps_verdict(
+            ProofStatus::Indeterminate,
+            2,
+            1,
+            2
+        ));
+        // Anything else could change if the proof went on.
+        for status in [
+            ProofStatus::Failed,
+            ProofStatus::Indeterminate,
+            ProofStatus::DepthBound,
+            ProofStatus::BreadthBound,
+        ] {
+            assert!(!cancellation_keeps_verdict(status, 1, 1, 2), "{status:?}");
+        }
+        assert!(!cancellation_keeps_verdict(
+            ProofStatus::Indeterminate,
+            0,
+            1,
+            1
+        ));
     }
 }

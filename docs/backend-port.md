@@ -204,12 +204,16 @@ The exception is the output normalisation of an execution or proof leaf whose ou
 ## Cancellation
 
 An in-process host cancels a request with a `CancellationToken` (re-exported as `k_rust::backend::CancellationToken`): it runs the request inside `token.scope(..)` on the thread that performs it and calls `cancel` from any thread.
-Every facade operation runs inside one operation boundary (`stop::operation`, through `Backend::with_solver`), in the portable and the Z3 build alike, so a request cancelled before its operation starts does not run and answers `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`; constructing a `Backend` inside a cancelled scope fails the same way.
+Every facade operation that executes, searches, simplifies, decides an implication, generates a model or proves runs inside one operation boundary (`stop::operation`, through `Backend::with_solver`), in the portable and the Z3 build alike, so a request cancelled before its operation starts does not run and answers `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`; constructing a `Backend` inside a cancelled scope fails the same way.
+Errors found before the boundary (an unsupported schema version, an operation the build does not provide, an unknown or failing module, a state too deep for the backend) are reported instead; `add_module`, `rule_catalog`, `select_definition` and the internalizing constructors have no boundary and do not observe the token.
 A cancellation observed while `execute` or a search explores ends the whole run, which reports it in its result: `execute` returns the leaves completed before it and the stopped state as a `cancelled` leaf, without the states still pending, and a search returns a `cancelled` incomplete entry for the stopped state; such a result is incomplete and makes no coverage claim.
-`simplify`, `implies`, `get_model` and `prove` report a cancellation observed at any point as that `Err`; a proof that a cancellation ends has no leaf for the state it stopped, so `prove` answers the error even when its leaves had already decided a verdict.
+`simplify`, `implies` and `get_model` report a cancellation observed at any point as that `Err`; each polls once more after its work returns.
+A proof that a cancellation ends has no leaf for the state it stopped, so `prove` answers the `Err` unless its verdict no longer depends on the work the cancellation prevented: it keeps `Ok` when the status is `disproved` (a certified refutation), when no state was left unexplored, or when the leaves that are not proven reached `max_counterexamples`; a failed solver prelude is always an `Err`.
 A cancellation that lands after the boundary's entry poll and before the run's first poll still gives a depth-0 `cancelled` leaf or entry, so a host treats both shapes as a cancellation; which one it gets depends only on timing.
 The step deadline (`step_timeout_ms`) is not a cancellation: a step that passes it ends its own state as a `timeout` leaf.
-Loading a module's definition, including its load-time critical-pair check, happens before the boundary and reads neither the request's token nor its step deadline, so a cancellation does not interrupt it.
+Loading a module's definition happens before the boundary and is not cancellable.
+The load-time critical-pair check does not read the token, but the discharge of rewrite rules' definedness obligations does: a module first loaded while its request's token is cancelled may be cached with those obligations left undischarged, which is sound but moves their cost to run time and can change traces and diagnostics of later requests, so a host constructs its backends and selects the modules it will use outside a token's scope.
+The rewrite rules' definedness discharge reads the token during a load; this is what makes a load under a cancelled token weaker.
 
 ## Stack bounds
 

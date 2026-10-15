@@ -49,12 +49,17 @@ fn assert_cancelled(error: &BackendError) {
 /// Run `operation` inside a token's scope and cancel the token from another thread after
 /// 100 ms, unless `operation` has returned by then.
 fn with_watchdog<T>(operation: impl FnOnce() -> T) -> T {
+    with_watchdog_after(Duration::from_millis(100), operation)
+}
+
+/// [`with_watchdog`] with the cancellation after `delay`.
+fn with_watchdog_after<T>(delay: Duration, operation: impl FnOnce() -> T) -> T {
     let token = CancellationToken::new();
     let (finished, done) = mpsc::channel::<()>();
     let watchdog = {
         let token = token.clone();
         thread::spawn(move || {
-            if done.recv_timeout(Duration::from_millis(100)).is_err() {
+            if done.recv_timeout(delay).is_err() {
                 token.cancel();
             }
         })
@@ -101,13 +106,21 @@ fn a_cancelled_execution_reports_the_stopped_state_as_its_one_cancelled_leaf() {
         ResultModalityOutput::StateSet,
     ] {
         let mut backend = backend();
-        let result = with_watchdog(|| {
+        let outcome = with_watchdog(|| {
             backend.execute(ExecuteRequest {
                 result_modality: modality,
                 ..ExecuteRequest::new(start())
             })
-        })
-        .unwrap();
+        });
+        // A cancellation that lands before the boundary's entry poll is the entry error
+        // instead (contract point 4).
+        let result = match outcome {
+            Ok(result) => result,
+            Err(error) => {
+                assert_cancelled(&error);
+                continue;
+            }
+        };
         assert_eq!(result.leaves.len(), 1, "{modality:?}");
         assert!(
             matches!(result.leaves[0].reason, HaltReasonOutput::Cancelled),
@@ -120,7 +133,11 @@ fn a_cancelled_execution_reports_the_stopped_state_as_its_one_cancelled_leaf() {
 #[test]
 fn a_cancelled_search_reports_the_stopped_state_as_a_cancelled_entry() {
     let mut backend = backend();
-    let response = with_watchdog(|| backend.search(SearchRequest::new(start()))).unwrap();
+    // As for execution, a cancellation before the entry poll is the entry error.
+    let response = match with_watchdog(|| backend.search(SearchRequest::new(start()))) {
+        Ok(response) => response,
+        Err(error) => return assert_cancelled(&error),
+    };
     assert_eq!(response.incomplete.len(), 1, "{:?}", response.incomplete);
     assert!(
         matches!(
@@ -137,4 +154,62 @@ fn a_proof_cancelled_while_it_runs_answers_the_cancellation() {
     let mut backend = backend();
     let error = with_watchdog(|| backend.prove(ProveRequest::default())).unwrap_err();
     assert_cancelled(&error);
+}
+
+/// An all-path claim `start => done` whose `start` steps either to a stuck state, which certifies
+/// a refutation, or into a counter that never ends.
+const REFUTED: &str = r#"[]
+module REFUTED
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  sort SortS{} []
+  symbol start{}() : SortS{} [constructor{}(), functional{}()]
+  symbol stuck{}() : SortS{} [constructor{}(), functional{}()]
+  symbol done{}() : SortS{} [constructor{}(), functional{}()]
+  symbol count{}(SortInt{}) : SortS{} [constructor{}(), functional{}()]
+  hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+  alias weakAlwaysFinally{S}(S) : S where weakAlwaysFinally{S}(@X:S) := @X:S []
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(start{}(), \top{SortS{}}()), \and{SortS{}}(stuck{}(), \top{SortS{}}())
+  ) [label{}("to-stuck")]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(start{}(), \top{SortS{}}()),
+    \and{SortS{}}(count{}(\dv{SortInt{}}("0")), \top{SortS{}}())
+  ) [label{}("to-count")]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(count{}(I:SortInt{}), \top{SortS{}}()),
+    \and{SortS{}}(count{}(add{}(I:SortInt{}, \dv{SortInt{}}("1"))), \top{SortS{}}())
+  ) [label{}("count")]
+  claim{} \implies{SortS{}}(
+    \and{SortS{}}(\top{SortS{}}(), start{}()),
+    weakAlwaysFinally{SortS{}}(\and{SortS{}}(done{}(), \top{SortS{}}()))
+  ) [label{}("all-done")]
+endmodule []"#;
+
+/// A certified refutation found before the cancellation stands: the proof asked for two
+/// counterexamples, found the stuck one at once, and was cancelled while it counted, with
+/// states left unexplored.
+#[test]
+fn a_proof_cancelled_after_a_certified_refutation_keeps_its_verdict() {
+    let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::default()).unwrap();
+    // The backend is built and its module loaded, so the operation reaches its entry poll at
+    // once; the delay leaves the proof time to find the stuck leaf.
+    let result = with_watchdog_after(Duration::from_millis(300), || {
+        backend.prove(ProveRequest {
+            max_counterexamples: 2,
+            ..ProveRequest::default()
+        })
+    })
+    .unwrap();
+    assert_eq!(result.status, "disproved");
+    assert!(result.unexplored_states > 0, "{result:?}");
+}
+
+/// With the default limit of one counterexample, the stuck leaf ends the proof; a watchdog that
+/// fires later, or a cancellation the last leaf's refinement observed, leaves that verdict.
+#[test]
+fn a_proof_that_reached_its_counterexample_limit_keeps_its_verdict() {
+    let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::default()).unwrap();
+    let result = with_watchdog(|| backend.prove(ProveRequest::default())).unwrap();
+    assert_eq!(result.status, "disproved");
 }
