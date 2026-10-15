@@ -7972,6 +7972,84 @@ fn a_state_set_leaf_keeps_the_diagnostics_of_every_merged_path() {
     }
 }
 
+/// A terminal-rule leaf records the rule by which its path arrived, not a property of its
+/// configuration: `c` reached by `a-to-c` (terminal) ends there, but `c` reached through `b` and
+/// `e` goes on to `d`. So under `StateSet` a later depth-bound leaf of `c` is not absorbed by the
+/// terminal leaf of `c`; absorbing it would make the bounded result `{c}` read as complete,
+/// while the complete result also holds `d`.
+#[test]
+fn a_terminal_leaf_does_not_absorb_a_bound_leaf() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortT{} []
+                symbol a{}() : SortT{} [constructor{}()]
+                symbol b{}() : SortT{} [constructor{}()]
+                symbol c{}() : SortT{} [constructor{}()]
+                symbol d{}() : SortT{} [constructor{}()]
+                symbol e{}() : SortT{} [constructor{}()]
+                axiom{} \rewrites{SortT{}}(\and{SortT{}}(a{}(), \top{SortT{}}()), c{}())
+                    [label{}("a-to-c")]
+                axiom{} \rewrites{SortT{}}(\and{SortT{}}(b{}(), \top{SortT{}}()), e{}())
+                    [label{}("b-to-e")]
+                axiom{} \rewrites{SortT{}}(\and{SortT{}}(e{}(), \top{SortT{}}()), c{}())
+                    [label{}("e-to-c")]
+                axiom{} \rewrites{SortT{}}(\and{SortT{}}(c{}(), \top{SortT{}}()), d{}())
+                    [label{}("c-to-d")]
+            endmodule []"#,
+    )
+    .unwrap();
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+    let constant = |name: &str| Pattern {
+        term: internal_term(&definition, &format!("{name}{{}}()")),
+        constraints: Vec::new(),
+    };
+    let run = |max_depth, result_modality| {
+        execute_disjunction_with_solver_and_observer(
+            &definition,
+            vec![constant("a"), constant("b")],
+            ExecutionOptions {
+                max_depth,
+                result_modality,
+                terminal_rules: BTreeSet::from(["a-to-c".to_owned()]),
+                ..ExecutionOptions::default()
+            },
+            &NoSolver,
+            |_| {},
+        )
+        .leaves
+        .into_iter()
+        .map(|leaf| {
+            let TermKind::Application { symbol, .. } = leaf.pattern.term.kind() else {
+                panic!("expected a constant: {:?}", leaf.pattern);
+            };
+            (symbol.name.to_string(), leaf.depth, leaf.halt_reason)
+        })
+        .collect::<Vec<_>>()
+    };
+    let terminal = || HaltReason::TerminalRule {
+        rule: "a-to-c".to_owned(),
+    };
+
+    for modality in [ResultModality::PathSet, ResultModality::StateSet] {
+        assert_eq!(
+            run(2, modality),
+            [
+                ("c".to_owned(), 1, terminal()),
+                ("c".to_owned(), 2, HaltReason::DepthBound)
+            ],
+            "{modality:?}"
+        );
+    }
+    assert_eq!(
+        run(100, ResultModality::StateSet),
+        [
+            ("c".to_owned(), 1, terminal()),
+            ("d".to_owned(), 3, HaltReason::Stuck)
+        ]
+    );
+}
+
 #[test]
 fn bottom_leaves_are_not_merged() {
     let definition = definition(
