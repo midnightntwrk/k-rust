@@ -102,6 +102,111 @@ use crate::{
     },
 };
 
+/// What the backend reads a KORE attribute for ([`execution_role`]).
+///
+/// The contract: for a KORE definition D, let D' be D with every attribute whose role is
+/// [`Self::Origin`] or [`Self::RuleName`] removed from the definition, from every module and from
+/// every sentence, and with each axiom that is exactly equal to an earlier axiom of its module
+/// removed. For every request on a backend built from the definition alone (`Backend::new`,
+/// `Backend::from_definition`: execute, execute_observed, search and its variants) whose
+/// `cut_point_rules` and `terminal_rules` are empty and whose observation rule list, if any,
+/// names no rule, D and D' give the same set of reachable states and, under strategy `all`, the
+/// same set of terminal leaf states with the same halt reasons.
+/// They may differ in rule names (trace labels, a leaf's `rule_label`, observation events), in
+/// the origins and texts of diagnostics, in the rule catalog's origins and entry count, and in the
+/// multiplicity and order of path-set leaves.
+///
+/// Why it holds: an origin feeds only a rule's or declaration's origin, which names it in
+/// diagnostics and in the catalog. A label is a rule's name, the fallback of its unique id when it
+/// has no `UNIQUE_ID`, the key by which a request's cut-point and terminal rules select rules, and
+/// part of the equality that collapses equal axioms into one rule. A request that names rules
+/// selects by exactly these names, so it is outside the contract; the collapse keeps two axioms
+/// that differ only in their labels as two rules, because such a request can tell them apart,
+/// which adds a path but no state. Removing an axiom equal to an earlier one leaves the rewrite
+/// relation, a set of axioms, unchanged, and the first occurrence keeps the order of distinct
+/// rules.
+///
+/// The execution order a source-compiled definition supplies
+/// (`internalize_for_source_execution`) is outside this contract.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ExecutionRole {
+    /// A position in the source (`Source`, `Location`): it names a rule or a declaration in
+    /// diagnostics and the rule catalog, and nothing else.
+    Origin,
+    /// Names a rule (`label`); requests that select rules by name observe it.
+    RuleName,
+    /// May affect execution. The class is conservative: it claims nothing about attributes the
+    /// backend happens not to read.
+    Semantic,
+}
+
+/// The role of `attribute` in execution ([`ExecutionRole`], whose rustdoc states the contract).
+#[deny(clippy::wildcard_enum_match_arm)]
+pub const fn execution_role(attribute: KoreAttribute) -> ExecutionRole {
+    match attribute {
+        KoreAttribute::Source | KoreAttribute::Location => ExecutionRole::Origin,
+        KoreAttribute::Label => ExecutionRole::RuleName,
+        KoreAttribute::Concrete
+        | KoreAttribute::Symbolic
+        | KoreAttribute::Token
+        | KoreAttribute::Hook
+        | KoreAttribute::Comm
+        | KoreAttribute::Priority
+        | KoreAttribute::Circularity
+        | KoreAttribute::Trusted
+        | KoreAttribute::Depends
+        | KoreAttribute::Cool
+        | KoreAttribute::NonExecutable
+        | KoreAttribute::Owise
+        | KoreAttribute::PreservesDefinedness
+        | KoreAttribute::SmtLemma
+        | KoreAttribute::Anywhere
+        | KoreAttribute::Simplification
+        | KoreAttribute::Syntactic
+        | KoreAttribute::Colors
+        | KoreAttribute::Element
+        | KoreAttribute::Format
+        | KoreAttribute::Klabel
+        | KoreAttribute::Smtlib
+        | KoreAttribute::SmtHook
+        | KoreAttribute::Unit
+        | KoreAttribute::Update
+        | KoreAttribute::Symbol
+        | KoreAttribute::Alias
+        | KoreAttribute::AliasRec
+        | KoreAttribute::Assoc
+        | KoreAttribute::Binder
+        | KoreAttribute::Bracket
+        | KoreAttribute::Cell
+        | KoreAttribute::Constructor
+        | KoreAttribute::Deprecated
+        | KoreAttribute::FreshGenerator
+        | KoreAttribute::Function
+        | KoreAttribute::Functional
+        | KoreAttribute::Idem
+        | KoreAttribute::Impure
+        | KoreAttribute::Injective
+        | KoreAttribute::Macro
+        | KoreAttribute::MacroRec
+        | KoreAttribute::Memo
+        | KoreAttribute::NoEvaluators
+        | KoreAttribute::Total
+        | KoreAttribute::Concat
+        | KoreAttribute::CoolLike
+        | KoreAttribute::HasDomainValues
+        | KoreAttribute::Nat
+        | KoreAttribute::Priorities
+        | KoreAttribute::SymbolOverload
+        | KoreAttribute::Terminals
+        | KoreAttribute::UniqueId
+        | KoreAttribute::ValueProduction
+        | KoreAttribute::SortInjection
+        | KoreAttribute::Subsort
+        | KoreAttribute::TopCellInitializer
+        | KoreAttribute::Overload => ExecutionRole::Semantic,
+    }
+}
+
 /// Why a domain value names no element of its sort.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InvalidDomainValueReason {
@@ -3903,6 +4008,27 @@ mod tests {
     use crate::term::TermKind;
 
     use super::*;
+
+    /// Exactly `Source` and `Location` are origins and exactly `label` names rules; every other
+    /// attribute may affect execution.
+    #[test]
+    fn execution_roles_partition_the_kore_attributes() {
+        let with_role = |role: ExecutionRole| {
+            KoreAttribute::ALL
+                .into_iter()
+                .filter(|attribute| execution_role(*attribute) == role)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            with_role(ExecutionRole::Origin),
+            [KoreAttribute::Source, KoreAttribute::Location]
+        );
+        assert_eq!(with_role(ExecutionRole::RuleName), [KoreAttribute::Label]);
+        assert_eq!(
+            with_role(ExecutionRole::Semantic).len(),
+            KoreAttribute::ALL.len() - 3
+        );
+    }
 
     fn algebraic_symbol_definition(
         attributes: &str,

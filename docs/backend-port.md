@@ -53,6 +53,10 @@ Equivalent written axioms form one entry with all origins in declaration order.
 If distinct entries share an id, both have `sharedIdentity: true`, and the observation filter refuses that id as ambiguous.
 The Node-API and WebAssembly TypeScript facades expose the same catalog through `backend.ruleCatalog(moduleName?)`.
 
+Of the KORE attributes, `Source` and `Location` are origins: they name a rule or declaration in diagnostics and in this catalog, and nothing else. `label` is a rule's name: it names the rule in traces, leaves and observations, stands in for a missing `UNIQUE_ID`, is how a request's `cut_point_rules` and `terminal_rules` select rules, and keeps two otherwise equal axioms apart as two entries.
+`k_rust::backend::execution_role` classifies every attribute (`Origin`, `RuleName` or `Semantic`), and the rustdoc of `ExecutionRole` states the contract: removing the origin and rule-name attributes and identifying exactly equal axioms keeps the reachable states and the terminal states under strategy `all` for every request that names no rule; rule names, diagnostic origins, catalog origins and entry count, and the multiplicity and order of path-set leaves may change.
+The execution order of a source-compiled definition (`Backend::internalize_source_definition`) is outside that contract.
+
 ## Module map
 
 Run `cargo run -p algo-graph -- render module-map` to write the generated backend module-map projection to `target/algo/module-map.md`; it groups source-card algorithm IDs by their declared `k-rust-backend` site module and derives each module's counters from the graph's `measured-by` edges.
