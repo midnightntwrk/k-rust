@@ -204,6 +204,8 @@ export interface BackendCapabilities {
   observation: boolean
   /** `execute` and `executeObserved` accept `collectCoverage`. */
   coverage: boolean
+  /** `execute` and `executeObserved` report `stackStops`. */
+  stackStops: boolean
 }
 
 export interface CreateBackendOptions {
@@ -298,7 +300,7 @@ export interface ExecutionLeaf {
    * contradicts the attribute on that input. Diagnostic only; reason and state are unaffected.
    */
   contradictedTotal?: ContradictedTotal
-  /** The stopped step's cause, present exactly for an indeterminate halt; same encoding as search's indeterminate reason. */
+  /** The stopped step's cause: for an indeterminate halt, and `{ kind: 'stack-exhausted' }` for a 'simplification-error' leaf whose state ran out of stack; same encoding as search's failures. */
   cause?: SearchFailure
   /** Legacy human-readable context only; use cause, candidates and remainder for halt evidence. */
   detail?: string
@@ -334,6 +336,12 @@ export interface ExecutionResult {
   work: number
   /** Present exactly when the request set `collectCoverage`. */
   coverage?: RunCoverage
+  /**
+   * The stops for lack of native stack the run met, those that ended a state and those met while
+   * a result was only refined; absent when none. A run that reports any is outside the
+   * determinism contract (docs/compatibility.md, "Determinism and concurrency").
+   */
+  stackStops?: number
 }
 
 /**

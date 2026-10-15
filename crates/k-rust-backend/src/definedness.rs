@@ -1645,6 +1645,60 @@ mod tests {
     use crate::rewrite::{Pattern, RewriteResult, rewrite_step};
     use crate::term::Sort;
 
+    /// The instance of a ceil equation's condition is simplified only to refine the ceil; a
+    /// simplification that runs out of native stack is dismissed (the condition is kept as it is)
+    /// and still counted (`stop::counting_stack_stops`).
+    #[test]
+    fn a_ceil_condition_that_runs_out_of_stack_is_kept_and_counted() {
+        let source = r#"[] module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.sub"), smt-hook{}("-")]
+            hooked-symbol addInt{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+            hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+            hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+            symbol deep{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+            sort SortS{} []
+            axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("0")), \top{R}())), \equals{SortInt{}, R}(deep{}(X0:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))) []
+            axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(gtInt{}(VarN:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarN:SortInt{}), \top{R}())), \equals{SortInt{}, R}(deep{}(X0:SortInt{}), \and{SortInt{}}(addInt{}(deep{}(subInt{}(VarN:SortInt{}, \dv{SortInt{}}("1"))), \dv{SortInt{}}("1")), \top{SortInt{}}()))) []
+        endmodule []"#;
+        let definition = BackendDefinition::internalize(
+            &parse_definition(source).expect("the definition parses"),
+            "MAIN",
+        )
+        .expect("the definition internalizes");
+        let (condition, _) = definition
+            .admit_unverified(
+                &parse_pattern(
+                    r#"\equals{SortBool{}, SortS{}}(eqInt{}(deep{}(\dv{SortInt{}}("100000")), \dv{SortInt{}}("100000")), \dv{SortBool{}}("true"))"#,
+                )
+                .expect("the condition parses"),
+                &[],
+            )
+            .internalize_predicate()
+            .expect("the condition internalizes");
+        let (kept, stops) = std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .stack_size(8 << 20)
+                .spawn_scoped(scope, || {
+                    crate::stop::with_segment_budget(0, || {
+                        crate::stop::counting_stack_stops(|| {
+                            simplified_ceil_condition(&definition, vec![condition.clone()])
+                        })
+                    })
+                })
+                .expect("the thread starts")
+                .join()
+                .expect("the simplification does not panic")
+        });
+        assert!(stops >= 1, "no stack stop was counted");
+        assert_eq!(kept, vec![condition]);
+    }
+
     #[test]
     fn definedness_deduplication_preserves_first_occurrence_order() {
         let sort = Sort::simple("SortS");

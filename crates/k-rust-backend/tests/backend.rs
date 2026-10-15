@@ -15,6 +15,8 @@ mod deferred_definedness;
 mod definedness_classes;
 #[path = "backend/evaluation_mode.rs"]
 mod evaluation_mode;
+#[path = "backend/execution_stack_stops.rs"]
+mod execution_stack_stops;
 #[path = "backend/hook_result_sorts.rs"]
 mod hook_result_sorts;
 #[path = "backend/issue_4114_overload.rs"]
