@@ -1142,6 +1142,13 @@ fn a_sentence_whose_module_lacks_k_types_in_the_main_view() {
         .unwrap();
     let typing = main_typer(&loaded).typing(rule).unwrap();
     assert_eq!(at(&typing, &[0, 0]).sort, Some(Sort::new("Foo")));
+    // B's own view has no `K` to join `Foo` with, so typing the rule there is not compilation's
+    // typing of it.
+    let own = SentenceTyper::new(loaded.resolved(), "B")
+        .unwrap()
+        .typing(rule)
+        .unwrap_err();
+    assert!(own.to_string().contains("least upper bound"), "{own}");
 }
 
 // A module that declares its own `isFoo` keeps it: the generated helpers are added only for
@@ -1270,8 +1277,47 @@ fn every_sentence_of_a_compiled_definition_types_in_the_main_view() {
             }
         }
     }
+    // typed.k with its own prelude (portable-prelude.k), which the earlier tests load.
+    let typed = load();
+    assert_compiles(&typed, "TYPED");
+    assert_closure_types(&typed, "TYPED");
     assert!(failures.is_empty(), "{failures:#?}");
     assert!(compiled.len() >= 25, "only {compiled:?} compiled");
+}
+
+// An exception to the typing contract until local functions are typed as their lowering:
+// compilation computes the lambda of `#let X:A = c() #in X` in B, where `D1` is the one common
+// supersort of `A` and `C`; the main module adds a second, `D2`, so the main view instantiates
+// the parametric `#let` ambiguously although the definition compiles.
+#[test]
+fn a_local_function_typed_in_the_main_view_may_fail_where_compilation_succeeds() {
+    let source = r#"
+module MAIN
+  imports B
+  syntax D2 ::= A | C
+endmodule
+
+module B
+  imports INT
+  imports BOOL
+  syntax A ::= a()
+  syntax C ::= c()
+  syntax D1 ::= A | C
+  syntax KItem ::= h(K) | g(K)
+  rule [lam]: h(_) => g(#let X:A = c() #in X)
+endmodule
+"#;
+    let loaded = load_main("local-function-view.k", source, "MAIN", None);
+    assert_compiles(&loaded, "MAIN");
+    let error = main_typer(&loaded)
+        .typing(labelled(loaded.definition(), "B.lam"))
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("several incomparable least instantiations"),
+        "{error}"
+    );
 }
 
 // `for_compilation` is the typer of the main module.
@@ -1283,4 +1329,43 @@ fn the_compilation_typer_is_the_main_modules() {
     for (_, sentence) in closure_sentences(&loaded) {
         assert_eq!(typer.typing(sentence), main.typing(sentence));
     }
+}
+
+// The rule grammar offers the helpers of the parse-only RULE-CELLS cell sorts, but compilation
+// declares helpers over the closure alone, so it has no `isGeneratedCounterCell`; neither has the
+// typer.
+#[test]
+fn a_helper_of_a_parse_only_cell_sort_is_not_typed() {
+    let loaded = load_main(
+        "generated-rule-syntax.k",
+        GENERATED_RULE_SYNTAX,
+        "TYPER-PROBE",
+        None,
+    );
+    let sentence = edited(
+        &loaded,
+        "TYPER-PROBE.pred-int",
+        &[1],
+        Term::apply("isGeneratedCounterCell", vec![var("X", None)]),
+    );
+    let error = main_typer(&loaded).typing(&sentence).unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            SentenceTypingError::Sort {
+                error: SortInjectionError::UnknownLabel(label),
+                ..
+            } if label == "isGeneratedCounterCell"
+        ),
+        "{error}"
+    );
+    assert!(
+        compiled_kore(&relinked(
+            &loaded,
+            "TYPER-PROBE",
+            "TYPER-PROBE.pred-int",
+            sentence
+        ))
+        .is_err()
+    );
 }

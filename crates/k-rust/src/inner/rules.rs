@@ -670,7 +670,8 @@ fn generated_helper_attributes() -> Attributes {
 ///
 /// They are the ML-SYNTAX connectives and the RULE-CELLS cells the rule grammar adds to a view
 /// ([`rule_grammar_view_and_signature`]), the sort helpers compilation declares over the closure
-/// ([`helper_productions`]), and the rule-language constructs `#fun2`, `#fun3`, `#let`, `:=K`
+/// ([`helper_productions`] over the closure alone, so not those of the parse-only cell sorts such
+/// as `GeneratedCounterCell`, which compilation never declares), and the rule-language constructs `#fun2`, `#fun3`, `#let`, `:=K`
 /// and `:/=K`, which compilation lowers before it injects ([`k_rule_productions`]). The rewrite
 /// and `#as` productions of the Z3 rule grammar are not among them: a loaded term holds
 /// [`Term::Rewrite`] and [`Term::As`], never an application of their labels. The connectives
@@ -688,7 +689,9 @@ pub(crate) fn rule_language_productions(
         .iter()
         .map(|sentence| (*sentence).clone())
         .collect::<Vec<_>>();
-    added.extend(helper_productions(&view, &Attributes::default()));
+    // Compilation declares the helpers over the closure alone: the connectives and the
+    // parse-only cells add no sort it declares a helper for.
+    added.extend(helper_productions(&view[..closure], &Attributes::default()));
     let labels = view
         .iter()
         .copied()
@@ -2051,7 +2054,12 @@ endmodule
             );
             assert!(closure.contains(label), "compilation declares {label}");
         }
-        assert!(signature.is_subset(&closure), "{signature:?} {closure:?}");
+        // The parse-only cell sorts of RULE-CELLS are in the rule grammar's view, not in the
+        // closure compilation declares helpers over.
+        for label in ["isGeneratedCounterCell", "project:GeneratedCounterCell"] {
+            assert!(signature.contains(label), "{signature:?}");
+            assert!(!closure.contains(label), "compilation declares no {label}");
+        }
     }
 
     /// A module that sees the kernel syntax of KSEQ, whose sorts include `KItem`, `KConfigVar`,

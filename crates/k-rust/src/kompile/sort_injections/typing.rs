@@ -22,9 +22,10 @@
 //! sentence when some macro rule has a parametric head.
 //!
 //! Building a typer computes the productions compilation adds to the module's closure, one scan
-//! of the closure's V sentences and its sort universe (O(V log V)), and, when it adds any, one
+//! of the closure's V sentences and its sort universe (O(V log V)), and builds its own
 //! production catalog over the closure and the added productions (O(P log P) for P
-//! productions) in place of the module's cached one.
+//! productions) in place of the module's cached one: no definition declares the rule-language
+//! constructs, so something is always added.
 
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -358,8 +359,16 @@ pub fn sentence_typing(
 /// typing of every rule and claim of that closure: if compilation accepts the definition, every
 /// such sentence the source declares types, and a typing error is an error compilation stops at.
 /// A sentence's own module may see fewer sorts, overloads or helpers than the main module, so
-/// its typer is not compilation's typing of the sentence. A function rule with configuration
-/// context (`#withConfig`) is not typed yet.
+/// its typer is not compilation's typing of the sentence.
+///
+/// Two constructs are exceptions to that contract. A function rule with configuration context
+/// (`#withConfig`) is not typed. A local function (`#let`, `#fun2`, `#fun3`) is typed as an
+/// application of its parametric rule-language production in the module's view, while
+/// compilation computes the lambda's sorts with the injector of the sentence's own module: a
+/// typing error under a local function does not imply a compile error (a main module that adds
+/// a second common supersort of the pattern's and the value's sorts makes the instance
+/// ambiguous here only), and the positions inside one report the production's instance, not the
+/// lambda's sorts.
 ///
 /// The typing is a read of compilation's own computation. Semantic casts are resolved by the
 /// resolution pass (its variable sorts and errors), a body with a rewrite is projected into its
@@ -394,7 +403,6 @@ pub struct SentenceTyper<'a> {
 ///
 /// The label filter also keeps a typer built on a definition that already declares the sort
 /// helpers (macro expansion runs one after the generating passes) from meeting a second one.
-/// When nothing is added the cached catalog of the module is shared.
 fn compilation_catalog<'a>(
     definition: &'a ResolvedDefinition,
     module: ModuleId,
@@ -421,9 +429,6 @@ fn compilation_catalog<'a>(
         })
         .map(Arc::new)
         .collect::<Vec<_>>();
-    if added.is_empty() {
-        return View::Shared(base);
-    }
     let mut sentences = definition.sentence_arcs(module);
     sentences.extend(added);
     View::Owned(ProductionCatalog::from_deduplicated_arcs(
