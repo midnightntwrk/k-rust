@@ -5173,7 +5173,7 @@ fn a_collection_role_production_without_its_role_signature_is_a_located_error() 
             "ROLE-UNION",
             "module ROLE-UNION\n  imports INT\n  syntax LS [hook(SET.Set)]\n  syntax LS ::= LS LS [left, function, total, assoc, comm, idem, symbol(_LS_), element(lsItem), unit(.LS), hook(SET.union)]\n  syntax LS ::= \".LS\" [function, total, symbol(.LS), hook(SET.unit)]\n  syntax LS ::= lsItem(Int) [function, total, symbol(lsItem), hook(SET.element)]\nendmodule\n".to_owned(),
             None,
-            &["Production _LS_ : LS LS -> LS carries the element attribute, so it is the concat of collection sort LS, but it is hooked SET.union, but a set concat symbol carries no hook or SET.concat; the concat of collection sort LS must have result sort LS and two arguments of sort LS, with no hook or SET.concat."],
+            &["Production _LS_ : LS LS -> LS carries the element attribute, which makes it the concat of collection sort LS; it is hooked SET.union, but a set concat symbol carries no hook or SET.concat; the concat of collection sort LS must have result sort LS and two arguments of sort LS, with no hook or SET.concat."],
             "symbol(_LS_)",
         ),
         (

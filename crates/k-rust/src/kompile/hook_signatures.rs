@@ -182,10 +182,11 @@ pub(super) fn collection_hook_misfit_diagnostics(
 /// emission writes (`interpreted_hook`: a `function`'s hook whose namespace is builtin or in
 /// `admitted`). So kcompile refuses a definition here only when the loader would refuse the KORE
 /// it emits (as a role misfit, or a map element of the wrong arity as a malformed collection), and
-/// it refuses every definition whose KORE the loader would refuse as a role misfit. Each error is located at the concat production, which writes
-/// the attributes, and names the unit or element production with its own position. A sort with
-/// parameters, a role production with parameters, and a label naming no single production are
-/// refused by emission or the parametric checks and are skipped here.
+/// it refuses every definition whose KORE the loader would refuse as a role misfit. Each error is
+/// located at the concat production, which writes the attributes, and names the unit or element
+/// production with its own position. A sort with parameters, a role production with parameters,
+/// and a label naming no single production are refused by emission or the parametric checks and
+/// are skipped here.
 pub(super) fn collection_role_misfit_diagnostics(
     definition: &ResolvedDefinition,
     admitted: &[String],
@@ -340,7 +341,7 @@ fn role_misfit_message(
             )
         }
         CollectionRole::Concat => format!(
-            "Production {concat} : {signature} carries the element attribute, so it is the concat of collection sort {collection}, but it {reason}; {required}."
+            "Production {concat} : {signature} carries the element attribute, which makes it the concat of collection sort {collection}; it {reason}; {required}."
         ),
     }
 }
