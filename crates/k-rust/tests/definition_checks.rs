@@ -5047,3 +5047,126 @@ endmodule
         [0; 0]
     );
 }
+
+/// Compile `source` with the prelude, as `kcompile` does, under main module `main`.
+fn compile_with_prelude(
+    source: &str,
+    main: &str,
+) -> Result<k_rust::kompile::CompiledKoreArtifacts, k_rust::kompile::CompileError> {
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let backend = k_rust::kompile::CompilationBackend::Rust;
+    let loaded = k_rust::outer::load_with_options(
+        k_rust::outer::ResolvedSource::new("roles.k", source),
+        main,
+        &mut resolver,
+        &k_rust::outer::LoadOptions {
+            implicit_sources: vec![k_rust::builtin::embedded("prelude.md").unwrap()],
+            excluded_module_attributes: vec![backend.excluded_module_attribute().into()],
+            ..k_rust::outer::LoadOptions::default()
+        },
+    )
+    .expect("the definition loads");
+    k_rust::kompile::compile_loaded_definition(&loaded, k_rust::kompile::CompileOptions::default())
+}
+
+/// A collection sort's attributes make its unit, element and concat symbols build values of the
+/// sort, so a production they name must have its role's signature: kcompile refuses one that
+/// does not at the production that carries the `element` attribute, before it writes KORE the
+/// loader would refuse.
+#[test]
+fn a_collection_role_production_without_its_role_signature_is_a_located_error() {
+    let header = "  imports INT\n  imports BOOL\n  imports K-EQUAL\n";
+    let element_of_foo = "  syntax Foo ::= mkFoo(Int) [symbol(mkFoo)]\n";
+    let list = "  syntax LI [hook(LIST.List)]\n  syntax LI ::= LI LI [function, total, left, assoc, symbol(_LI_), element(mkFoo), unit(.LI)]\n  syntax LI ::= \".LI\" [function, total, symbol(.LI)]\n";
+    let probe = "  rule [hit]: chk(_F:Foo) => done(1)\n  rule [range]: chk(X:KItem) => done(7) requires X ==K X [priority(60)]\n  rule chk(_) => done(0) [owise]\n";
+    let cases = [
+        (
+            // The handoff's reproducer: the rule writes mkFoo under an injection.
+            "ROLE",
+            format!(
+                "module ROLE\n{header}{element_of_foo}  syntax Prog ::= start(Int) | chk(KItem) | done(Int)\n{list}  configuration <k> $PGM:Prog </k>\n  rule start(I) => chk(mkFoo(I))\n{probe}endmodule\n"
+            ),
+            "mkFoo",
+            "result sort Foo",
+        ),
+        (
+            // mkFoo reached only through a function equation.
+            "ROLE-FN",
+            format!(
+                "module ROLE-FN\n{header}{element_of_foo}  syntax Foo ::= g(Int) [function, total, symbol(g)]\n  syntax Prog ::= start(Int) | chk(KItem) | done(Int)\n{list}  configuration <k> $PGM:Prog </k>\n  rule g(I) => mkFoo(I)\n  rule start(I) => chk(g(I))\n{probe}endmodule\n"
+            ),
+            "mkFoo",
+            "result sort Foo",
+        ),
+        (
+            // The unit takes an argument.
+            "ROLE-UNIT-ARITY",
+            "module ROLE-UNIT-ARITY\n  imports INT\n  imports BOOL\n  syntax Prog ::= start(Int) | chk(LI) | done(Int)\n  syntax LI [hook(LIST.List)]\n  syntax LI ::= LI LI [function, total, left, assoc, symbol(_LI_), element(liItem), unit(u)]\n  syntax LI ::= u(Int) [function, total, symbol(u)]\n  syntax LI ::= liItem(Int) [function, total, symbol(liItem)]\n  configuration <k> $PGM:Prog </k>\n  rule start(I) => chk(u(I) liItem(I))\nendmodule\n".to_owned(),
+            "u",
+            "takes 1 argument",
+        ),
+    ];
+    let mut compiled = Vec::new();
+    for (main, source, symbol, reason) in cases {
+        let error = match compile_with_prelude(&source, main) {
+            Ok(artifacts) => {
+                let load = k_rust::backend::Backend::new(
+                    &artifacts.definition_kore,
+                    main,
+                    k_rust::backend::BackendOptions::default(),
+                )
+                .err()
+                .map(|error| error.to_string());
+                compiled.push(format!(
+                    "{main}: the definition compiled; loading it: {load:?}"
+                ));
+                continue;
+            }
+            Err(error) => error,
+        };
+        assert_eq!(error.stage, "definition checks", "{main}: {error:#?}");
+        let errors = error
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{main}: {errors:#?}");
+        let error = errors[0];
+        assert_eq!(
+            error.code,
+            DiagnosticCode::InvalidAttribute,
+            "{main}: {error:#?}"
+        );
+        assert!(
+            error.message.contains(&format!("names {symbol} :")) && error.message.contains(reason),
+            "{main}: {}",
+            error.message
+        );
+        let concat_line = source
+            .lines()
+            .position(|line| line.contains("symbol(_LI_)"))
+            .unwrap()
+            + 1;
+        let concat_line = u32::try_from(concat_line).unwrap();
+        let location = error.location.expect("the diagnostic is located");
+        assert_eq!(location.start_line, concat_line, "{main}: {error:#?}");
+    }
+    assert!(compiled.is_empty(), "{}", compiled.join("\n"));
+}
+
+/// Hooks on role productions are optional: a well-sorted hookless collection compiles, and the
+/// loader accepts what kcompile writes.
+#[test]
+fn a_hookless_well_sorted_collection_compiles_and_loads() {
+    let source = "module ROLE-OK\n  imports INT\n  syntax Prog ::= start(Int) | chk(LI) | done(Int)\n  syntax LI [hook(LIST.List)]\n  syntax LI ::= LI LI [function, total, left, assoc, symbol(_LI_), element(liItem), unit(.LI)]\n  syntax LI ::= \".LI\" [function, total, symbol(.LI)]\n  syntax LI ::= liItem(Int) [function, total, symbol(liItem)]\n  configuration <k> $PGM:Prog </k>\n  rule start(I) => chk(liItem(I))\nendmodule\n";
+    let compiled = compile_with_prelude(source, "ROLE-OK")
+        .unwrap_or_else(|error| panic!("the definition should compile: {error:#?}"));
+    k_rust::backend::Backend::new(
+        &compiled.definition_kore,
+        "ROLE-OK",
+        k_rust::backend::BackendOptions::default(),
+    )
+    .unwrap_or_else(|error| panic!("the compiled definition should load: {error}"));
+}

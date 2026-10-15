@@ -1,4 +1,5 @@
-//! Collection metadata names one symbol for each role, so a production schema cannot fill it.
+//! Collection metadata names one symbol for each role, so a production schema cannot fill it,
+//! and that symbol must have its role's signature (`builtin::collection_role_misfit`).
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -8,6 +9,9 @@ use crate::definition::{
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Sort;
+use k_rust_backend::builtin::{
+    CollectionKind, CollectionRole, RoleDeclaration, collection_role_misfit,
+};
 
 const COLLECTION_ROLES: [&str; 15] = [
     "LIST.element",
@@ -128,6 +132,7 @@ pub(crate) fn check_collection_productions(
                 ));
             }
         }
+        diagnostics.extend(role_misfits(sentence, productions, sorts));
         if hook == Some("MAP.in_keys")
             && items
                 .iter()
@@ -149,6 +154,139 @@ pub(crate) fn check_collection_productions(
         }
     }
     diagnostics
+}
+
+/// One error for each role symbol of a `LIST`, `SET` or `MAP` collection sort, named by
+/// `sentence` (the production that carries the `element` attribute, which is the sort's concat),
+/// whose production does not have its role's signature. kcompile emits each production as a
+/// symbol whose sorts are its sorts' KORE names and whose hook is its hook, so this decides
+/// exactly what the loader decides on the emitted KORE; the error is reported at the production
+/// that writes the attributes. A role production with sort parameters, or a label naming no single
+/// production, is reported elsewhere and skipped here.
+fn role_misfits(
+    sentence: &Sentence,
+    productions: &ProductionCatalog<'_>,
+    sorts: &SortCatalog<'_>,
+) -> Vec<Diagnostic> {
+    let Sentence::Production {
+        label,
+        parameters,
+        sort,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return Vec::new();
+    };
+    let Some(element) = attributes.string(AttributeKey::Element) else {
+        return Vec::new();
+    };
+    let Some(kind) = sorts
+        .attributes_for(&SortHead::from(sort))
+        .and_then(|attributes| attributes.string(AttributeKey::Hook))
+        .and_then(CollectionKind::of_sort_hook)
+    else {
+        return Vec::new();
+    };
+    if !parameters.is_empty() || !sort.parameters.is_empty() {
+        return Vec::new();
+    }
+    let concat = label
+        .as_ref()
+        .map_or("<unlabelled>", |label| label.name.as_str());
+    let named = |name: &str| single_production(productions, name);
+    let roles = [
+        (
+            CollectionRole::Unit,
+            attributes
+                .string(AttributeKey::Unit)
+                .and_then(|unit| Some((unit, named(unit)?))),
+        ),
+        (
+            CollectionRole::Element,
+            named(element).map(|production| (element, production)),
+        ),
+        (CollectionRole::Concat, Some((concat, sentence))),
+    ];
+    let mut diagnostics = Vec::new();
+    for (role, named) in roles {
+        let Some((
+            name,
+            Sentence::Production {
+                parameters: role_parameters,
+                sort: result_sort,
+                items,
+                attributes: role_attributes,
+                ..
+            },
+        )) = named
+        else {
+            continue;
+        };
+        if !role_parameters.is_empty() {
+            continue;
+        }
+        let argument_sorts = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        let hook = role_attributes.string(AttributeKey::Hook);
+        let declaration = RoleDeclaration {
+            sort_parameters: 0,
+            argument_sorts: &argument_sorts,
+            result_sort,
+            hook,
+        };
+        let Some(reason) =
+            collection_role_misfit(kind, role, sort, &declaration, ToString::to_string)
+        else {
+            continue;
+        };
+        let signature = argument_sorts
+            .iter()
+            .map(ToString::to_string)
+            .chain(["->".to_owned(), result_sort.to_string()])
+            .collect::<Vec<_>>()
+            .join(" ");
+        let arguments = match role {
+            CollectionRole::Unit => "no argument".to_owned(),
+            CollectionRole::Element if kind.element_arity() == 1 => "one argument".to_owned(),
+            CollectionRole::Element => "two arguments, a key and a value".to_owned(),
+            CollectionRole::Concat => format!("two arguments of sort {sort}"),
+        };
+        let own = format!("{}.{}", kind.namespace(), role.name());
+        let required = format!(
+            "the {role} of collection sort {sort} must have result sort {sort} and {arguments}, with no hook or {own}"
+        );
+        let message = match role {
+            CollectionRole::Unit | CollectionRole::Element => format!(
+                "The {role} attribute of production {concat} names {name} : {signature}, which {reason}; {required}."
+            ),
+            CollectionRole::Concat => format!(
+                "Production {concat} : {signature} carries the element attribute, so it is the concat of collection sort {sort}, but it {reason}; {required}."
+            ),
+        };
+        diagnostics.push(Diagnostic::error(
+            DiagnosticCode::InvalidAttribute,
+            message,
+            sentence,
+        ));
+    }
+    diagnostics
+}
+
+/// The one production labelled `name`, if exactly one is.
+fn single_production<'a>(
+    productions: &'a ProductionCatalog<'_>,
+    name: &str,
+) -> Option<&'a Sentence> {
+    let [id] = productions.productions_for(&LabelHead::new(name)) else {
+        return None;
+    };
+    Some(productions.production(*id))
 }
 
 fn parameter_names(parameters: &[Sort]) -> String {
