@@ -255,9 +255,82 @@ fn definition() -> BackendDefinition {
             "",
             "",
         ),
+        // Definedness decisions about an operand a conditional does not evaluate.
+        equation(
+            "pdEq",
+            "pd",
+            "SortInt{}",
+            X,
+            &format!("geInt{{}}({X}, {zero})"),
+            "",
+        ),
+        format!(
+            r#"
+            axiom{{R}} \implies{{R}}(
+                \top{{R}}(),
+                \equals{{R, R}}(
+                    \ceil{{SortInt{{}}, R}}(pq{{}}({X})),
+                    \and{{R}}(\equals{{SortBool{{}}, R}}(geInt{{}}({X}, {zero}), {TRUE}), \top{{R}}())
+                )
+            ) [label{{}}("pqCeil"), simplification{{}}()]"#
+        ),
+        equation("prEq", "pr", "SortInt{}", X, "", ""),
+        rule(
+            "d1",
+            &format!("d1{{}}({A})"),
+            &format!("val{{}}(ite{{}}(geInt{{}}({A}, {zero}), {A}, pd{{}}({A})))"),
+            "",
+            "",
+            "",
+        ),
+        rule(
+            "d2",
+            &format!("d2{{}}({A})"),
+            &format!("val{{}}(ite{{}}(ltInt{{}}({A}, {zero}), {zero}, pq{{}}({A})))"),
+            "",
+            "",
+            "",
+        ),
+        rule(
+            "d4",
+            &format!("d4{{}}({A})"),
+            &format!("val{{}}(ite{{}}({TRUE}, {zero}, pr{{}}({A})))"),
+            "",
+            "",
+            "",
+        ),
+        // A discharge that decides one equation's condition and applies another.
+        format!(
+            r#"
+            axiom{{R}} \implies{{R}}(
+                \top{{R}}(),
+                \equals{{R, R}}(
+                    \ceil{{SortInt{{}}, R}}(pw{{}}({X})),
+                    \and{{R}}(\equals{{SortBool{{}}, R}}(gate{{}}({X}), {TRUE}), \top{{R}}())
+                )
+            ) [label{{}}("pwCeil"), simplification{{}}()]"#
+        ),
+        equation(
+            "gateNo",
+            "gate",
+            "SortBool{}",
+            r#"\dv{SortBool{}}("false")"#,
+            r#"\dv{SortBool{}}("false")"#,
+            "",
+        ),
+        equation("gateYes", "gate", "SortBool{}", TRUE, "", r#", owise{}()"#),
+        rule(
+            "rw",
+            &format!("rw{{}}({A})"),
+            &format!("val{{}}(pw{{}}({A}))"),
+            "",
+            "",
+            "",
+        ),
     ];
     let unary = [
-        "val", "load", "ens", "rhsp", "rhst", "eqreq", "rej", "ow", "ru", "rv", "rc", "rp",
+        "val", "load", "ens", "rhsp", "rhst", "eqreq", "rej", "ow", "ru", "rv", "rc", "rp", "d1",
+        "d2", "d4", "rw",
     ]
     .map(|name| {
         format!(
@@ -277,7 +350,7 @@ fn definition() -> BackendDefinition {
         format!("symbol {name}{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]")
     })
     .join("\n");
-    let partial = ["part", "pu", "pv", "pc"]
+    let partial = ["part", "pu", "pv", "pc", "pd", "pq", "pr", "pw"]
         .map(|name| format!("symbol {name}{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]"))
         .join("\n");
     let source = format!(
@@ -295,6 +368,9 @@ fn definition() -> BackendDefinition {
                 [function{{}}(), total{{}}(), hook{{}}("INT.lt"), smt-hook{{}}("<")]
             hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
                 [function{{}}(), total{{}}(), hook{{}}("INT.eq"), smt-hook{{}}("=")]
+            hooked-symbol ite{{}}(SortBool{{}}, SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), total{{}}(), hook{{}}("KEQUAL.ite")]
+            symbol gate{{}}(SortInt{{}}) : SortBool{{}} [function{{}}(), total{{}}()]
             symbol wp{{}}(SortInt{{}}) : SortW{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             symbol nw{{}}(SortW{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
             {unary}
@@ -516,13 +592,22 @@ fn a_ceil_equation_that_discharged_a_rule_at_load_is_applied() {
             .flat_map(|groups| groups.values().flatten())
             .find(|rule| rule.rule.attributes.label.as_deref() == Some(label))
             .map(|rule| rule.rule.computed_attributes.discharged_by.clone())
+            .map(|discharge| (discharge.applied, discharge.matched))
             .expect("the rule is in the definition")
     };
-    assert_eq!(discharged_by("rv"), vec!["pvCeil".to_owned()]);
+    assert_eq!(discharged_by("rv"), (ids(&["pvCeil"]), ids(&["pvCeil"])));
     // `puCeil` leaves `ru` an obligation, so the load does not discharge it; `rhst` has no
     // partial symbol, so there was nothing to discharge.
-    assert_eq!(discharged_by("ru"), Vec::<String>::new());
-    assert_eq!(discharged_by("rhst"), Vec::<String>::new());
+    assert_eq!(discharged_by("ru"), Default::default());
+    assert_eq!(discharged_by("rhst"), Default::default());
+    // The discharge of `rw` decided `gateNo`'s condition (refuted) and applied `gateYes`.
+    assert_eq!(
+        discharged_by("rw"),
+        (
+            ids(&["pwCeil", "gateYes"]),
+            ids(&["pwCeil", "gateYes", "gateNo"])
+        )
+    );
 
     let program = format!("rv{{}}({})", int(-1));
     let (result, coverage) = covered(&definition, &program);
@@ -532,6 +617,62 @@ fn a_ceil_equation_that_discharged_a_rule_at_load_is_applied() {
         halt_reasons(&result)
     );
     assert_coverage(&coverage, &["rv", "pvCeil"], &["rv", "pvCeil"], &program);
+
+    let program = format!("rw{{}}({})", int(1));
+    let (_, coverage) = covered(&definition, &program);
+    assert_coverage(
+        &coverage,
+        &["rw", "pwCeil", "gateYes"],
+        &["rw", "pwCeil", "gateYes", "gateNo"],
+        &program,
+    );
+}
+
+/// D1: the value of one function-equation step decides the definedness of an operand that
+/// `KEQUAL.ite` does not evaluate (`deferred::decide_defined`).
+#[test]
+fn an_equation_step_deciding_a_deferred_operand_is_applied() {
+    let definition = definition();
+    let program = format!("d1{{}}({})", int(5));
+    let (result, coverage) = covered(&definition, &program);
+    assert!(
+        matches!(halt_reasons(&result)[..], [HaltReason::Stuck]),
+        "{:?}",
+        halt_reasons(&result)
+    );
+    assert_coverage(&coverage, &["d1", "pdEq"], &["d1", "pdEq"], &program);
+}
+
+/// D2: an unconditional ceil equation refutes the definedness of an operand that `KEQUAL.ite`
+/// does not evaluate.
+#[test]
+fn a_ceil_equation_deciding_a_deferred_operand_is_applied() {
+    let definition = definition();
+    let program = format!("d2{{}}({})", int(-5));
+    let (result, coverage) = covered(&definition, &program);
+    assert!(
+        halt_reasons(&result)
+            .iter()
+            .all(|reason| matches!(reason, HaltReason::Trivial { .. })),
+        "{:?}",
+        halt_reasons(&result)
+    );
+    assert_coverage(&coverage, &["d2", "pqCeil"], &["d2", "pqCeil"], &program);
+}
+
+/// D4: one function-equation step establishes the definedness of a symbolic operand that
+/// `KEQUAL.ite` does not evaluate.
+#[test]
+fn a_single_equation_step_deciding_a_deferred_operand_is_applied() {
+    let definition = definition();
+    let initial = ground(&definition, &format!("d4{{}}({A})"));
+    let result = execute(&definition, initial, collecting());
+    assert!(
+        matches!(halt_reasons(&result)[..], [HaltReason::Stuck]),
+        "{:?}",
+        halt_reasons(&result)
+    );
+    assert_coverage(coverage(&result), &["d4", "prEq"], &["d4", "prEq"], "d4(A)");
 }
 
 /// (g2) A conditional ceil equation, which the definedness analysis does not use, is applied by

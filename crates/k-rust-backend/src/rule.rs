@@ -408,13 +408,15 @@ pub struct ComputedRuleAttributes {
     /// when the subject map is `ceil_free` (`matching::match_equation_in_definition`).
     pub unread_map_frames: BTreeSet<Variable>,
     /// For a rewrite rule whose definedness the definition's load discharged
-    /// (`BackendDefinition::discharge_rewrite_definedness`), the ids of the equations the
-    /// discharge applied: the unconditional ceil equations that stated its terms defined, and
-    /// those that simplified their conditions. Empty for any other rule, and for a rule declared
-    /// `preserves-definedness`, whose definedness the author asserted. A run that begins deciding
-    /// the rule's `requires` reports them as applied (`crate::coverage::RunCoverage`): the
-    /// discharge removed the obligations it would otherwise decide.
-    pub discharged_by: Vec<String>,
+    /// (`BackendDefinition::discharge_rewrite_definedness`), the coverage of that discharge: in
+    /// `applied`, the equations it used (the unconditional ceil equations that stated the rule's
+    /// terms defined, and those that simplified or decided their conditions); in `matched`, those
+    /// and every equation whose condition it began to decide. Empty for any other rule, and for a
+    /// rule declared `preserves-definedness`, whose definedness the author asserted. A run that
+    /// begins deciding the rule's `requires` reports both sets as its own
+    /// (`crate::coverage::RunCoverage`): the discharge removed the obligations the run would
+    /// otherwise decide, and a change to any of these equations can change the discharge.
+    pub discharged_by: crate::coverage::RunCoverage,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

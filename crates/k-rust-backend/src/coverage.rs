@@ -8,14 +8,15 @@
 //! applies an axiom or begins deciding a matched instance's condition, not where a caller keeps
 //! a result, so every caller is covered alike: state, constraint and remainder simplification, a
 //! rule's `requires`, `ensures`, definedness and narrowing phases and its right-hand side,
-//! another equation's condition at any depth, the definedness analysis (`definedness::ceil_term`),
+//! another equation's condition at any depth, the definedness analysis (`definedness::ceil_term`)
+//! and its decisions about operands a conditional does not evaluate (`deferred::decide_defined`),
 //! and attempts that are later rewound or discarded.
 //!
 //! A rewrite rule's definedness may be discharged when the definition is loaded, before any run
-//! (`BackendDefinition::discharge_rewrite_definedness`): the ceil equations the discharge used
-//! are collected there and kept on the rule (`ComputedRuleAttributes::discharged_by`), and a run
-//! that begins deciding the rule's `requires` reports them as applied, since the discharge
-//! removed the obligations that run would otherwise decide. Equations only the load-time
+//! (`BackendDefinition::discharge_rewrite_definedness`): the discharge's own coverage is
+//! collected there and kept on the rule (`ComputedRuleAttributes::discharged_by`), and a run that
+//! begins deciding the rule's `requires` reports its sets as its own, since the discharge removed
+//! the obligations that run would otherwise decide. Equations only the load-time
 //! confluence check uses are uses by the definition, not by a run, and appear in no run's sets.
 //!
 //! The collection is per thread. Everything an execution evaluates runs on its own thread before
@@ -37,31 +38,52 @@ use rustc_hash::FxHashSet;
 
 /// The axioms a run used, by `UNIQUE_ID`.
 ///
-/// `applied` holds the id of every axiom an instance of which the backend used while the
-/// collection was open:
-/// - an equation of any theory (function, simplification, `anywhere`, overload, ceil or
-///   predicate) whose result replaced its subject, or made the subject bottom, wherever it was
-///   applied, the definedness analysis included;
-/// - a rewrite rule that produced a successor or an undefined-step entry;
-/// - every id in `ComputedRuleAttributes::discharged_by` of a rewrite rule whose `requires`
-///   phase was entered.
+/// Each set is defined by the places the backend reports to it (the recording sites, listed
+/// here by what they record); nothing else adds to them.
 ///
-/// `matched` holds `applied`, plus every axiom at whose condition-evaluation site the backend
-/// arrived for an instance whose left-hand side matched:
-/// - for a rewrite rule, the entry of its `requires` phase, reached when the left-hand side
-///   matched, or unified with a narrowing condition the solver did not refute;
-/// - for an equation, the entry of its condition's evaluation, which also covers a conditional
-///   instance evaluated together with its subject equalities, and an instance that a `concrete`
-///   or `symbolic` attribute set aside when its `requires` is non-empty and the scan decides it
-///   (`simplify::scan::SetAsideRequires::Decide`). A set-aside instance with an empty `requires`
-///   and no subject equalities is not used and not decided, and is not counted.
+/// `applied` holds the id of an axiom when, while the collection was open:
+/// - a function, simplification, `anywhere` or overload equation's instance gave a result: the
+///   instantiated right-hand side, or the subject stated empty by a refuted binding obligation,
+///   `ensures` or a `#Bottom` right-hand side (`Simplification::equation`,
+///   `Simplification::bottom_subject`), even where the scan then reads a result equal to the
+///   application as no value; or a `#Top` lemma dropped an operand of a term-level `#And`;
+/// - a ceil or predicate equation's instance gave its instantiated right-hand side or refuted
+///   its subject (`apply_ceil_equation_instance`, `apply_predicate_equation`);
+/// - the definedness analysis took an unconditional ceil equation's instance as the condition of
+///   a partial application (`definedness::ceil_theory_condition`);
+/// - a decision about the definedness of an operand that a conditional does not evaluate came
+///   from one equation (`deferred::decide_defined`): the value of one function-equation step
+///   (D1), an unconditional ceil equation that refuted, established or restated the atom (D2,
+///   D2'), or one function-equation step that refuted or established it (D4);
+/// - a rewrite step built a successor of a rule (`AppliedRule`) or an undefined-step entry of it
+///   (`TrivialApplication`), whether or not the step kept it;
+/// - a rewrite rule's `requires` phase was entered: the `applied` ids of its
+///   `ComputedRuleAttributes::discharged_by`.
+///
+/// `matched` holds `applied`, plus the id of an axiom when the backend began deciding a
+/// condition of an instance whose left-hand side matched:
+/// - a rewrite rule's `requires` phase was entered, which happens when its left-hand side
+///   matched, or unified under a narrowing condition the solver did not refute; the
+///   `matched` ids of its `discharged_by` are added then too;
+/// - an equation's condition evaluation was entered (`simplify::evaluate_equation_condition`):
+///   for a usable instance of a term, ceil, predicate or `#Top` equation; and, in a function
+///   scan where a lower group follows (`simplify::scan::SetAsideRequires::Decide`), for an
+///   instance that matches only under equalities of the subject's variables, with those
+///   equalities, and for one a `concrete` or `symbolic` attribute set aside whose `requires`
+///   is not empty. A set-aside instance with an empty `requires` and no such equalities is not
+///   decided and not counted;
+/// - a definedness decision considered an equation instance (`deferred::decide_defined`): the
+///   function equation selected for one step, whose condition is then checked, and every usable
+///   instance of an unconditional ceil equation, whose condition is then folded.
 ///
 /// `matched` is noted on entry, before any verdict: an instance whose condition was refuted, left
-/// undecided, or cut short by a stop is in it.
+/// undecided, or cut short by a stop is in it, and so is one whose attempt then failed without a
+/// result (a disjunctive right-hand side, or an error after the condition held).
 ///
-/// Both sets ignore whether the caller kept the result: an application in an attempt that was
-/// later rewound or discarded counts. A compiler-generated axiom without an id is recorded as
-/// `UNKNOWN`. Builtin hooks are not axioms and are never recorded.
+/// Neither set depends on whether the caller kept what was recorded: an application in an
+/// attempt that was later rewound or discarded counts. A compiler-generated axiom without an id
+/// is recorded as `UNKNOWN`. Builtin hooks are not axioms and are never recorded. Claims, macro
+/// and alias rules, and `smt-lemma` axioms have no recording site.
 ///
 /// The sets are a deterministic function of the definition, the request, the solver profile and
 /// the k-rust version. They depend on the backend's trial order and stopping rules (an equation

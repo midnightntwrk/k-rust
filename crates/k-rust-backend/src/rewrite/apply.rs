@@ -1371,10 +1371,14 @@ fn requires(
 ) -> Phase<(Vec<Predicate>, Vec<Predicate>)> {
     let rule = context.rule;
     crate::coverage::note_matched(&rule.attributes.unique_id);
-    // The ceil equations that discharged the rule's definedness at load stand for the
-    // obligations this attempt would otherwise decide (`ComputedRuleAttributes::discharged_by`).
-    for id in &rule.computed_attributes.discharged_by {
+    // The equations that discharged the rule's definedness at load stand for the obligations
+    // this attempt would otherwise decide (`ComputedRuleAttributes::discharged_by`).
+    let discharge = &rule.computed_attributes.discharged_by;
+    for id in &discharge.applied {
         crate::coverage::note_applied(id);
+    }
+    for id in &discharge.matched {
+        crate::coverage::note_matched(id);
     }
     let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
