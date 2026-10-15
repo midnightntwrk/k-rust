@@ -5115,13 +5115,23 @@ const ROLE_HEADER: &str = "  imports INT\n  imports BOOL\n  imports K-EQUAL\n";
 const ROLE_LIST: &str = "  syntax LI [hook(LIST.List)]\n  syntax LI ::= LI LI [function, total, left, assoc, symbol(_LI_), element(mkFoo), unit(.LI)]\n  syntax LI ::= \".LI\" [function, total, symbol(.LI)]\n";
 const ROLE_PROBE: &str = "  rule [hit]: chk(_F:Foo) => done(1)\n  rule [range]: chk(X:KItem) => done(7) requires X ==K X [priority(60)]\n  rule chk(_) => done(0) [owise]\n";
 
+/// A role misfit case: main module, source, extra hook namespaces, the expected messages, and a
+/// text on the line of the concatenation production.
+type RoleMisfitCase = (
+    &'static str,
+    String,
+    Option<Vec<String>>,
+    &'static [&'static str],
+    &'static str,
+);
+
 /// A collection sort's attributes make its unit, element and concat symbols build values of the
 /// sort, so the symbol emitted for each must have its role's signature: kcompile refuses one that
 /// does not, at the production that carries the `element` attribute and with the named
 /// production's own position, before it writes KORE the loader would refuse.
 #[test]
 fn a_collection_role_production_without_its_role_signature_is_a_located_error() {
-    let cases: [(&str, String, Option<Vec<String>>, &[&str], &str); 7] = [
+    let cases: [RoleMisfitCase; 7] = [
         (
             // The handoff's reproducer: the rule writes mkFoo under an injection.
             "ROLE",
