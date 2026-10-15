@@ -104,27 +104,46 @@ use crate::{
 
 /// What the backend reads a KORE attribute for ([`execution_role`]).
 ///
-/// The contract: for a KORE definition D, let D' be D with every attribute whose role is
-/// [`Self::Origin`] or [`Self::RuleName`] removed from the definition, from every module and from
-/// every sentence, and with each axiom that is exactly equal to an earlier axiom of its module
-/// removed. For every request on a backend built from the definition alone (`Backend::new`,
-/// `Backend::from_definition`: execute, execute_observed, search and its variants) whose
-/// `cut_point_rules` and `terminal_rules` are empty and whose observation rule list, if any,
-/// names no rule, D and D' give the same set of reachable states and, under strategy `all`, the
-/// same set of terminal leaf states with the same halt reasons.
-/// They may differ in rule names (trace labels, a leaf's `rule_label`, observation events), in
-/// the origins and texts of diagnostics, in the rule catalog's origins and entry count, and in the
-/// multiplicity and order of path-set leaves.
+/// The contract. Let D be a KORE definition the backend accepts (every `Origin` and `RuleName`
+/// attribute in it is well formed; a malformed one refuses D, while D' below would not carry it).
+/// Let D' be D with:
+/// - every [`Self::Origin`] attribute removed from the definition, every module and every
+///   sentence;
+/// - every [`Self::RuleName`] attribute removed from each axiom that carries a `UNIQUE_ID`
+///   (a label on an axiom without one is that rule's id, and stays);
+/// - each axiom that is exactly equal to an earlier axiom of its module removed.
+///
+/// Then a backend built from D alone and one built from D' alone (`Backend::new`,
+/// `Backend::from_definition`, or `Backend::from_internalized` of
+/// `Backend::internalize_definition`) answer the requests below alike, up to a renaming of the
+/// variables the backend mints (existentials and fresh variables are numbered by a counter that
+/// extra paths advance):
+/// - `execute` and `execute_observed` give the same set of (leaf state, halt reason) pairs under
+///   strategy `all`, and the same leaves under strategy `any`;
+/// - `search` and `search_pattern` give the same set of result states.
+///
+/// The requests covered are those whose `cut_point_rules` and `terminal_rules` are empty, whose
+/// observation rule list, if any, names no rule, with `stop_at_branch` false, no `max_breadth`,
+/// no `max_results`, no step timeout and no cancellation; `max_depth` is covered. The excluded
+/// fields count branches, paths, witnesses or work, or stop on the clock, and identifying equal
+/// axioms changes how many paths reach a state, so they may stop D and D' at different states.
+/// The same holds for any other bound that counts states visited or work done. The path-search
+/// routes (`search_paths`, `search_pattern_paths`), which report a witness per path, and `prove`,
+/// whose claims are selected by label, are outside the contract.
+/// Within it, D and D' may differ in rule names (trace labels, a leaf's `rule_label`, observation
+/// events), in the origins and texts of diagnostics, in the rule catalog's origins and entry
+/// count, and in the multiplicity and order of path-set leaves.
 ///
 /// Why it holds: an origin feeds only a rule's or declaration's origin, which names it in
 /// diagnostics and in the catalog. A label is a rule's name, the fallback of its unique id when it
 /// has no `UNIQUE_ID`, the key by which a request's cut-point and terminal rules select rules, and
-/// part of the equality that collapses equal axioms into one rule. A request that names rules
-/// selects by exactly these names, so it is outside the contract; the collapse keeps two axioms
-/// that differ only in their labels as two rules, because such a request can tell them apart,
-/// which adds a path but no state. Removing an axiom equal to an earlier one leaves the rewrite
-/// relation, a set of axioms, unchanged, and the first occurrence keeps the order of distinct
-/// rules.
+/// part of the equality that collapses equal axioms into one rule. As a rule's id it also keys the
+/// guard that keeps a rule's side condition from re-entering itself during simplification, so it
+/// is removed only where a `UNIQUE_ID` is the id. A request that names rules selects by exactly
+/// these names, so it is outside the contract; the collapse keeps two axioms that differ only in
+/// their labels as two rules, because such a request can tell them apart, which adds a path but
+/// no state. Removing an axiom equal to an earlier one leaves the rewrite relation, a set of
+/// axioms, unchanged, and the first occurrence keeps the order of distinct rules.
 ///
 /// The execution order a source-compiled definition supplies
 /// (`internalize_for_source_execution`) is outside this contract.

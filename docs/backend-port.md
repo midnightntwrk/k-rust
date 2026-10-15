@@ -54,8 +54,10 @@ If distinct entries share an id, both have `sharedIdentity: true`, and the obser
 The Node-API and WebAssembly TypeScript facades expose the same catalog through `backend.ruleCatalog(moduleName?)`.
 
 Of the KORE attributes, `Source` and `Location` are origins: they name a rule or declaration in diagnostics and in this catalog, and nothing else. `label` is a rule's name: it names the rule in traces, leaves and observations, stands in for a missing `UNIQUE_ID`, is how a request's `cut_point_rules` and `terminal_rules` select rules, and keeps two otherwise equal axioms apart as two entries.
-`k_rust::backend::execution_role` classifies every attribute (`Origin`, `RuleName` or `Semantic`), and the rustdoc of `ExecutionRole` states the contract: removing the origin and rule-name attributes and identifying exactly equal axioms keeps the reachable states and the terminal states under strategy `all` for every request that names no rule; rule names, diagnostic origins, catalog origins and entry count, and the multiplicity and order of path-set leaves may change.
-The execution order of a source-compiled definition (`Backend::internalize_source_definition`) is outside that contract.
+`k_rust::backend::execution_role` classifies every attribute (`Origin`, `RuleName` or `Semantic`), and the rustdoc of `ExecutionRole` states the contract: for a definition the backend accepts, removing the origin attributes, removing labels from the axioms that carry a `UNIQUE_ID`, and identifying exactly equal axioms keeps, up to a renaming of the variables the backend mints, the (leaf state, halt reason) set of `execute` under strategy `all`, its leaves under strategy `any`, and the result states of `search` and `search_pattern`.
+It covers requests that name no rule and set no `stop_at_branch`, `max_breadth`, `max_results`, step timeout or cancellation (`max_depth` is covered): those bounds count branches, paths, witnesses or work, or stop on the clock, and identifying equal axioms changes how many paths reach a state; the same holds for any bound that counts states visited or work done. The path searches, which report a witness per path, and `prove`, whose claims are selected by label, are outside it.
+A label on an axiom without a `UNIQUE_ID` is that rule's id, which keys the guard against a side condition re-entering its own rule, so it is kept.
+The execution order of a source-compiled definition (`Backend::internalize_source_definition`) is outside the contract.
 
 ## Module map
 

@@ -1,14 +1,14 @@
-//! The contract of `k_rust::backend::ExecutionRole`: removing every attribute whose role is
-//! `Origin` or `RuleName` and identifying exactly equal axioms keeps the reachable states and the
-//! terminal states, under strategy `all`, of every request that names no rule. A request that
-//! names rules selects by those names, so it is outside the contract.
+//! The contract of `k_rust::backend::ExecutionRole`: removing the `Origin` attributes, the
+//! `RuleName` attributes of axioms that carry a `UNIQUE_ID`, and exactly equal axioms keeps what
+//! `execute` and `search` answer to a request that names no rule and sets no bound that counts
+//! branches, paths, witnesses or work. The requests outside the contract are pinned here too.
 
 use std::collections::BTreeSet;
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionRole, HaltReasonOutput,
-        ResultModalityOutput, SearchRequest, SearchTypeArg, execution_role,
+        Backend, BackendOptions, ExecuteRequest, ExecutionRole, ExecutionStrategy,
+        HaltReasonOutput, ResultModalityOutput, SearchRequest, SearchTypeArg, execution_role,
     },
     builtin::embedded,
     kast::Sort,
@@ -24,7 +24,9 @@ use k_rust::{
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 
-/// IMP of the K tutorial (pl-tutorial/1_k/2_imp/lesson_4).
+/// IMP of the K tutorial: a byte-identical copy of
+/// `k-distribution/tests/regression-new/pl-tutorial/1_k/2_imp/lesson_4/imp.k` from K at commit
+/// `4a46d1231473b599c699160132fd6e76a5c46406`, with its copyright header.
 const IMP: &str = include_str!("fixtures/kink/imp-lesson-4.k");
 
 struct Compiled {
@@ -102,6 +104,14 @@ fn strip(attributes: &mut Attributes, roles: &[ExecutionRole]) {
     });
 }
 
+/// Whether `attributes` names a `UNIQUE_ID`.
+fn has_unique_id(attributes: &Attributes) -> bool {
+    attributes
+        .0
+        .iter()
+        .any(|attribute| kore_attribute(attribute) == Some(KoreAttribute::UniqueId))
+}
+
 /// Remove the `roles` attributes everywhere.
 fn strip_definition(definition: &mut Definition, roles: &[ExecutionRole]) {
     strip(&mut definition.attributes, roles);
@@ -121,12 +131,19 @@ fn strip_definition(definition: &mut Definition, roles: &[ExecutionRole]) {
     }
 }
 
-/// D' of the contract.
+/// D' of the contract: no origins anywhere, no labels on axioms that carry a `UNIQUE_ID`, and
+/// no axiom equal to an earlier one of its module.
 fn reduce(mut definition: Definition) -> Definition {
-    strip_definition(
-        &mut definition,
-        &[ExecutionRole::Origin, ExecutionRole::RuleName],
-    );
+    strip_definition(&mut definition, &[ExecutionRole::Origin]);
+    for module in &mut definition.modules {
+        for sentence in &mut module.sentences {
+            if let Sentence::Axiom { attributes, .. } = sentence
+                && has_unique_id(attributes)
+            {
+                strip(attributes, &[ExecutionRole::RuleName]);
+            }
+        }
+    }
     for module in &mut definition.modules {
         let mut kept: Vec<Sentence> = Vec::new();
         for sentence in std::mem::take(&mut module.sentences) {
@@ -203,12 +220,40 @@ fn assert_roles_keep_execution(
             path_set_counts = (left_count, right_count);
         }
     }
+    // Strategy `any` follows one path, so its leaves show the order in which rules are tried.
+    let any = ExecuteRequest {
+        max_depth: Some(depth),
+        strategy: ExecutionStrategy::Any,
+        ..ExecuteRequest::new(initial.clone())
+    };
+    assert_eq!(
+        leaf_list(&mut original, any.clone()),
+        leaf_list(&mut reduced, any),
+        "{program}, any"
+    );
     assert_eq!(
         reachable(&mut original, &initial, depth),
         reachable(&mut reduced, &initial, depth),
         "{program}"
     );
     path_set_counts
+}
+
+/// The (state, halt reason, depth) leaves of a run, in order.
+fn leaf_list(backend: &mut Backend, request: ExecuteRequest) -> Vec<(String, String, u64)> {
+    backend
+        .execute(request)
+        .unwrap()
+        .leaves
+        .into_iter()
+        .map(|leaf| {
+            (
+                leaf.state.to_string(),
+                format!("{:?}", leaf.reason),
+                leaf.depth,
+            )
+        })
+        .collect()
 }
 
 /// A blank line inserted in IMP moves only the origins of `definition.kore` and
@@ -347,4 +392,151 @@ endmodule
         summary(&mut reduced, cut_point),
         [(HaltReasonOutput::Stuck, 2)]
     );
+}
+
+/// Two rules equal but for their labels, then one more step.
+const DUPLICATE: &str = r"
+module DUP
+  imports INT
+  syntax KItem ::= a() | b() | c() | d()
+  configuration <k> $PGM:KItem </k>
+  rule [x]: <k> a() => b() </k>
+  rule [y]: <k> a() => b() </k>
+  rule <k> b() => c() </k>
+endmodule
+";
+
+/// Bounds that count branches, paths or witnesses see the extra path that the label variants
+/// make, so they stop D and D' differently: the contract excludes them.
+#[test]
+fn bounds_that_count_paths_are_outside_the_contract() {
+    let duplicate = Compiled::new(DUPLICATE, "DUP");
+    let initial = duplicate.initial("KItem", "a()");
+    let mut original = duplicate.backend(duplicate.definition());
+    let mut reduced = duplicate.backend(duplicate.reduced());
+    let reasons = |backend: &mut Backend, request: ExecuteRequest| {
+        leaf_list(backend, request)
+            .into_iter()
+            .map(|(_, reason, depth)| (reason, depth))
+            .collect::<Vec<_>>()
+    };
+    let stuck = vec![("Stuck".to_owned(), 2)];
+    // Without a counting bound both run to `c()`.
+    let plain = ExecuteRequest::new(initial.clone());
+    assert_eq!(reasons(&mut original, plain.clone()), stuck);
+    assert_eq!(reasons(&mut reduced, plain), stuck);
+    // `stop_at_branch`: the label variants are a branch in D only.
+    let branch = ExecuteRequest {
+        stop_at_branch: true,
+        ..ExecuteRequest::new(initial.clone())
+    };
+    assert_eq!(
+        reasons(&mut original, branch.clone()),
+        [("Branch".to_owned(), 0)]
+    );
+    assert_eq!(reasons(&mut reduced, branch), stuck);
+    // `max_breadth`: two paths in D exceed a breadth of one; D' has one path.
+    for modality in [
+        ResultModalityOutput::StateSet,
+        ResultModalityOutput::PathSet,
+    ] {
+        let breadth = ExecuteRequest {
+            max_breadth: Some(1),
+            result_modality: modality,
+            ..ExecuteRequest::new(initial.clone())
+        };
+        assert!(
+            reasons(&mut original, breadth.clone())
+                .iter()
+                .all(|leaf| *leaf == ("BreadthBound".to_owned(), 1)),
+            "{modality:?}"
+        );
+        assert_eq!(reasons(&mut reduced, breadth), stuck, "{modality:?}");
+    }
+    // A search under `max_breadth` reaches fewer states in D.
+    let search_breadth = |backend: &mut Backend| {
+        backend
+            .search(SearchRequest {
+                search_type: SearchTypeArg::All,
+                max_breadth: Some(1),
+                ..SearchRequest::new(initial.clone())
+            })
+            .unwrap()
+            .states
+            .len()
+    };
+    assert!(search_breadth(&mut original) < search_breadth(&mut reduced));
+    // A path search counts witnesses: with `max_results` the duplicate path of D uses the
+    // quota that D' spends on another result.
+    let branching = Compiled::new(
+        &DUPLICATE.replace("rule <k> b() => c() </k>", "rule <k> a() => d() </k>"),
+        "DUP",
+    );
+    let initial = branching.initial("KItem", "a()");
+    let witnesses = |backend: &mut Backend| {
+        backend
+            .search_paths(SearchRequest {
+                search_type: SearchTypeArg::Final,
+                max_results: Some(2),
+                ..SearchRequest::new(initial.clone())
+            })
+            .unwrap()
+            .witnesses
+            .iter()
+            .map(|witness| serde_json::to_string(&witness.state).unwrap())
+            .collect::<BTreeSet<_>>()
+            .len()
+    };
+    assert_eq!(witnesses(&mut branching.backend(branching.definition())), 1);
+    assert_eq!(witnesses(&mut branching.backend(branching.reduced())), 2);
+}
+
+/// D with every `UNIQUE_ID` removed, so that each labelled axiom's label is its id.
+fn without_unique_ids(mut definition: Definition) -> Definition {
+    for module in &mut definition.modules {
+        for sentence in &mut module.sentences {
+            if let Sentence::Axiom { attributes, .. } = sentence {
+                attributes
+                    .0
+                    .retain(|attribute| kore_attribute(attribute) != Some(KoreAttribute::UniqueId));
+            }
+        }
+    }
+    definition
+}
+
+/// A label on an axiom without a `UNIQUE_ID` is the rule's id, which keys the guard against a
+/// side condition re-entering its own rule: D' keeps it, and removing it changes the result.
+#[test]
+fn a_label_that_is_a_rules_id_is_kept() {
+    let compiled = Compiled::new(
+        r"
+module RE
+  imports INT
+  syntax KItem ::= run(Int) | res(Int)
+  syntax Int ::= f(Int) [function]
+  syntax Int ::= g(Int) [function, total]
+  configuration <k> $PGM:KItem </k>
+  rule g(_) => 0
+  rule <k> run(I) => res(f(I)) </k>
+  rule [s1]: f(X) => 20 requires g(X) ==Int 0 [simplification(40)]
+  rule [s2]: f(X) => 10 requires f(X) ==Int 20 [simplification(30)]
+endmodule
+",
+        "RE",
+    );
+    let request = ExecuteRequest::new(compiled.initial("KItem", "run(0)"));
+    let result = |definition: Definition| {
+        leaf_list(&mut compiled.backend(definition), request.clone())
+            .into_iter()
+            .map(|(state, ..)| state)
+            .collect::<Vec<_>>()
+    };
+    let labels_as_ids = without_unique_ids(compiled.definition());
+    let expected = result(compiled.definition());
+    assert_eq!(result(labels_as_ids.clone()), expected);
+    assert_eq!(result(reduce(labels_as_ids.clone())), expected);
+    let mut unlabelled = labels_as_ids;
+    strip_definition(&mut unlabelled, &[ExecutionRole::RuleName]);
+    assert_ne!(result(unlabelled), expected);
 }
