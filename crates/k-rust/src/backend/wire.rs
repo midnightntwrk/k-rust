@@ -1696,6 +1696,9 @@ pub(super) fn execution_response<K: WireKore>(
                     HaltReason::Indeterminate(reason) => {
                         Some(indeterminate_failure_output(reason.clone(), &result_sort)?)
                     }
+                    HaltReason::Stopped(StopCause::StackExhausted(_)) => {
+                        Some(SearchFailureOutput::StackExhausted)
+                    }
                     HaltReason::Stopped(_)
                     | HaltReason::Stuck
                     | HaltReason::Trivial { .. }
@@ -1736,6 +1739,7 @@ pub(super) fn execution_response<K: WireKore>(
             .collect(),
         coverage: result.coverage.map(Into::into),
         work: result.work,
+        stack_stops: result.stack_stops,
     })
 }
 

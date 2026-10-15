@@ -123,8 +123,8 @@ pub const STACK_LIMIT: usize = 256 << 20;
 ///
 /// The budget is counted beyond the thread's own stack, so how deep a recursion goes before it
 /// stops depends on the size of the thread's stack, which is not an input of the request: a run
-/// that stops with `StackExhausted` is outside the promise that equal requests give equal results
-/// (`docs/compatibility.md`, "Determinism and concurrency").
+/// that meets such a stop (`StackExhausted`) is outside the promise that equal requests give equal
+/// results (`docs/compatibility.md`, "Determinism and concurrency").
 #[cfg(target_pointer_width = "64")]
 pub const SIMPLIFICATION_STACK_BUDGET: usize = 1 << 30;
 #[cfg(not(target_pointer_width = "64"))]
@@ -142,9 +142,9 @@ pub const SIMPLIFICATION_STACK_BUDGET: usize = STACK_LIMIT;
 /// threads recurse hundreds of thousands of levels at once. The count is one atomic update when a
 /// segment is granted and one when it is released, nothing on a recursion within its thread.
 /// Whether a recursion stops at this bound therefore depends on what the other threads of the
-/// process hold at the time, which is why a run that stops with `StackExhausted` is outside the
-/// promise that equal requests give equal results (`docs/compatibility.md`, "Determinism and
-/// concurrency").
+/// process hold at the time, which is why a run that meets such a stop (`StackExhausted`) is
+/// outside the promise that equal requests give equal results (`docs/compatibility.md`,
+/// "Determinism and concurrency").
 pub const SIMPLIFICATION_STACK_PROCESS_BUDGET: usize = STACK_LIMIT;
 
 /// Run `work` with `bytes` as the budget of [`SIMPLIFICATION_STACK_BUDGET`] on this thread, and

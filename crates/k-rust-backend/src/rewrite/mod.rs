@@ -812,6 +812,14 @@ pub struct ExecutionResult {
     /// The states the run visited across all its paths, the unit
     /// [`ExecutionOptions::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
+    /// The stops for lack of native stack the run met: those that ended a state (a leaf halted
+    /// with [`crate::stop::StopCause::StackExhausted`]) and those met while a result was only
+    /// refined (normalising a leaf's state, simplifying a definedness condition, folding a
+    /// hook, deciding an undefined instance), which a site dismisses, keeping the sound but less
+    /// simplified result. Whether such a stop happens depends on the thread's stack, on
+    /// `nesting::with_simplification_stack_budget`, and on the stack other threads of the process
+    /// hold, so a run's result is a function of its inputs only when this is zero.
+    pub stack_stops: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

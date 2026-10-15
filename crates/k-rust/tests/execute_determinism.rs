@@ -76,6 +76,7 @@ struct Compiled {
 /// Index of `go` and of `conv` in [`Compiled::states`].
 const GO: usize = 0;
 const CONV: usize = 1;
+const SYMBOLIC: usize = 3;
 
 /// The fixture compiled once per process, with the embedded prelude, for the Rust backend.
 fn compiled() -> &'static Compiled {
@@ -294,6 +295,35 @@ fn execute_results_are_equal_across_runs_and_backends() {
         last.map(|leaf| &leaf["reason"]),
         Some(&serde_json::json!("work-bound"))
     );
+    // The symbolic integer branches on its sign: the Z3 build decides both conditions, so each
+    // rule gives a leaf; the portable build decides neither, so the state is one indeterminate
+    // leaf.
+    let symbolic = run(
+        &mut backend(),
+        Request {
+            state: SYMBOLIC,
+            modality: ResultModalityOutput::PathSet,
+            entry: Entry::Execute,
+            max_work: None,
+        },
+    );
+    let symbolic =
+        serde_json::from_str::<serde_json::Value>(&symbolic).expect("the result is JSON");
+    let reasons = symbolic["leaves"]
+        .as_array()
+        .expect("the result has leaves")
+        .iter()
+        .map(|leaf| leaf["reason"].as_str().unwrap_or_default().to_owned())
+        .collect::<Vec<_>>();
+    if cfg!(feature = "z3-inference") {
+        assert_eq!(reasons.len(), 2, "{reasons:?}");
+        assert!(
+            reasons.iter().all(|reason| reason != "indeterminate"),
+            "{reasons:?}"
+        );
+    } else {
+        assert_eq!(reasons, ["indeterminate"]);
+    }
     let expected = fresh_results();
     let mut reused = backend();
     for round in 0..3 {

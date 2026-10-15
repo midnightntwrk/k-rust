@@ -92,6 +92,33 @@ pub(super) fn execute_using(
     solver: &dyn SmtSolver,
     initial_io: Option<ExecutionIoState>,
     observation: Option<&ObservationOptions>,
+    observe: impl FnMut(&BuiltinEffect),
+) -> (ExecutionResult, InitialSimplificationStatus) {
+    // Every stack stop of the run is counted, those that end a state and those a refinement
+    // dismisses alike (`ExecutionResult::stack_stops`).
+    let ((mut result, status), stack_stops) = crate::stop::counting_stack_stops(|| {
+        execute_counted(
+            definition,
+            initial,
+            options,
+            solver,
+            initial_io,
+            observation,
+            observe,
+        )
+    });
+    result.stack_stops = stack_stops;
+    (result, status)
+}
+
+/// [`execute_using`] inside its count of stack stops.
+fn execute_counted(
+    definition: &BackendDefinition,
+    initial: Vec<Pattern>,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    initial_io: Option<ExecutionIoState>,
+    observation: Option<&ObservationOptions>,
     mut observe: impl FnMut(&BuiltinEffect),
 ) -> (ExecutionResult, InitialSimplificationStatus) {
     let _span = measure::algorithm_span(Algorithm::BackendRewriteExecute);
@@ -273,6 +300,7 @@ impl<'a> Execution<'a> {
                 discarded: self.discarded,
                 coverage: None,
                 work: self.work.visited(),
+                stack_stops: 0,
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: false,
@@ -1331,6 +1359,7 @@ impl<'a> Execution<'a> {
                 discarded: self.discarded,
                 coverage: None,
                 work: self.work.visited(),
+                stack_stops: 0,
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: self.initial_input_count != 0
@@ -2738,6 +2767,90 @@ mod tests {
         assert_eq!(
             halts(vec![leaf(1, terminal.clone()), leaf(2, terminal.clone())]),
             [(1, terminal)]
+        );
+    }
+
+    /// A leaf whose reason is decided is normalised before it is published; a normalisation
+    /// that runs out of native stack is dismissed (the leaf keeps its reason and its unsimplified
+    /// pattern) and still counted (`stop::counting_stack_stops`).
+    #[test]
+    fn a_leaf_normalisation_that_runs_out_of_stack_keeps_the_leaf_and_is_counted() {
+        let source = r#"[] module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.sub"), smt-hook{}("-")]
+            hooked-symbol addInt{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+            hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+            symbol deep{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+            sort SortS{} []
+            symbol done{}(SortInt{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+            axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("0")), \top{R}())), \equals{SortInt{}, R}(deep{}(X0:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))) []
+            axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(gtInt{}(VarN:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarN:SortInt{}), \top{R}())), \equals{SortInt{}, R}(deep{}(X0:SortInt{}), \and{SortInt{}}(addInt{}(deep{}(subInt{}(VarN:SortInt{}, \dv{SortInt{}}("1"))), \dv{SortInt{}}("1")), \top{SortInt{}}()))) []
+        endmodule []"#;
+        let syntax = parse_definition(source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let pattern = Pattern {
+            term: definition
+                .internalize_term(
+                    &parse_pattern(r#"done{}(deep{}(\dv{SortInt{}}("100000")))"#)
+                        .expect("the leaf parses"),
+                    &[],
+                )
+                .expect("the leaf internalizes"),
+            constraints: Vec::new(),
+        };
+        let (kept_reason, kept_pattern, stops) = std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .stack_size(8 << 20)
+                .spawn_scoped(scope, || {
+                    // The state holds thread-confined values, so it is made on the thread.
+                    let state = ExecutionState {
+                        pattern: pattern.clone(),
+                        depth: 0,
+                        trace: PathTrace::default(),
+                        retain_trace: false,
+                        kind: ExecutionStateKind::Rewritable,
+                        observation: None,
+                        effects: EffectJournal::default(),
+                        io: ExecutionIoState::default(),
+                        io_enabled: false,
+                        is_initial_input: true,
+                        defined_where: Vec::new(),
+                        diagnostics: PathDiagnostics::new_request(),
+                    };
+                    let (leaf, stops) = crate::stop::with_segment_budget(0, || {
+                        crate::stop::counting_stack_stops(|| {
+                            externalise_leaf(
+                                &definition,
+                                state,
+                                pattern.clone(),
+                                HaltReason::Stuck,
+                                64,
+                                &crate::smt::NoSolver,
+                                &mut ObservationLog::default(),
+                                None,
+                            )
+                        })
+                    });
+                    (
+                        leaf.halt_reason == HaltReason::Stuck,
+                        leaf.pattern == pattern,
+                        stops,
+                    )
+                })
+                .expect("the thread starts")
+                .join()
+                .expect("the normalisation does not panic")
+        });
+        assert!(stops >= 1, "no stack stop was counted");
+        assert!(kept_reason, "the leaf did not keep its reason");
+        assert!(
+            kept_pattern,
+            "the leaf did not keep its unsimplified pattern"
         );
     }
 }

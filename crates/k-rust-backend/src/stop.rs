@@ -350,6 +350,9 @@ struct Registry {
     deadline: Option<(Instant, StepTimeoutMode)>,
     /// The budget of polls of the enclosing [`with_poll_budget`] scope, if any.
     polls: Option<PollBudget>,
+    /// The stops for lack of native stack minted in the enclosing [`counting_stack_stops`]
+    /// scope so far, if one is open.
+    stack_stops: Option<Cell<usize>>,
 }
 
 /// A budget of polls ([`with_poll_budget`]): a bound on the work of a computation that is a
@@ -388,6 +391,7 @@ impl Registry {
         #[cfg(not(target_arch = "wasm32"))]
         deadline: None,
         polls: None,
+        stack_stops: None,
     };
 
     /// The raised cause of widest scope, if any: the signals are read in decreasing
@@ -433,6 +437,9 @@ impl Registry {
                 stack_exhausted: true,
                 ..budget.record.get()
             });
+        }
+        if let Some(count) = &self.stack_stops {
+            count.set(count.get() + 1);
         }
     }
 
@@ -787,6 +794,35 @@ pub fn operation<T>(solver: &dyn SmtSolver, body: impl FnOnce() -> T) -> Stoppab
     }
 }
 
+/// Runs `action` and counts the stops for lack of native stack ([`StopCause::StackExhausted`])
+/// minted on this thread while it runs, whether they end a computation or a site that only
+/// refines a sound outcome dismisses them ([`Stop::forgo_refinement`]): such a stop leaves no
+/// trace in the outcome, and whether it happens depends on the thread's stack and on the stack
+/// other threads hold, so a caller that promises its outcome is a function of its inputs needs
+/// the count. A scope opened inside another adds its count to the outer one when it ends; a
+/// [`detached`] computation inside (a definition loaded on first use) counts in neither.
+pub(crate) fn counting_stack_stops<T>(action: impl FnOnce() -> T) -> (T, usize) {
+    struct Restore(Option<Cell<usize>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            REGISTRY.with(|registry| {
+                let mut registry = registry.borrow_mut();
+                let inner = registry.stack_stops.take().map_or(0, Cell::into_inner);
+                registry.stack_stops = previous.map(|outer| Cell::new(outer.get() + inner));
+            });
+        }
+    }
+    let previous =
+        REGISTRY.with(|registry| registry.borrow_mut().stack_stops.replace(Cell::new(0)));
+    let restore = Restore(previous);
+    let value = action();
+    let count =
+        REGISTRY.with(|registry| registry.borrow().stack_stops.as_ref().map_or(0, Cell::get));
+    drop(restore);
+    (value, count)
+}
+
 /// Runs `action` with at most `polls` polls of [`check`] passing on this thread: every later poll
 /// raises `StopCause::Deadline(mode)`, as a passed deadline of that mode would, so every site the
 /// stop crosses treats it as it treats a deadline. Unlike a deadline, the budget is spent by the
@@ -1052,6 +1088,7 @@ mod tests {
                 && registry.solvers.is_empty()
                 && no_deadline
                 && registry.polls.is_none()
+                && registry.stack_stops.is_none()
         })
     }
 

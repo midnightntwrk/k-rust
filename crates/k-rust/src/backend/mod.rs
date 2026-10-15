@@ -235,6 +235,9 @@ pub struct BackendCapabilities {
     /// `execute` and `execute_observed` report the run's coverage when the request sets
     /// `collect_coverage` ([`ExecuteRequest::collect_coverage`]).
     pub coverage: bool,
+    /// `execute` and `execute_observed` report the stack stops the run met
+    /// ([`ExecutionResult::stack_stops`]).
+    pub stack_stops: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -372,6 +375,12 @@ pub struct ExecutionResult<K = Value> {
     /// The states the run visited across all its paths, the unit
     /// [`ExecuteRequest::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
+    /// The stops for lack of native stack the run met, including those met while a result was
+    /// only refined and dismissed there (`k_rust_backend::rewrite::ExecutionResult::stack_stops`);
+    /// absent when zero. A run whose count is nonzero is outside the determinism contract
+    /// (docs/compatibility.md, "Determinism and concurrency").
+    #[serde(skip_serializing_if = "is_zero")]
+    pub stack_stops: usize,
 }
 
 /// The rules and equations an execution used, by `UNIQUE_ID`, each list sorted and without
@@ -414,6 +423,10 @@ impl From<k_rust_backend::coverage::RunCoverage> for RunCoverageOutput {
             matched: coverage.matched.into_iter().collect(),
         }
     }
+}
+
+fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 /// One leaf of an execution: a configuration `state` (a term under constraints) and how its
@@ -471,8 +484,10 @@ pub struct ExecutionLeaf<K = Value> {
     /// leaf's reason and state are the same with or without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contradicted_total: Option<ContradictedTotalOutput<K>>,
-    /// The stopped step's structured cause, present exactly for an indeterminate halt.
-    /// This uses the same encoding as `IncompleteSearchOutput::Indeterminate.reason`.
+    /// The stopped step's structured cause: for an indeterminate halt, and for a
+    /// `simplification-error` halt whose state ran out of native stack (`stack-exhausted`).
+    /// This uses the same encoding as `IncompleteSearchOutput::Indeterminate.reason` and the
+    /// failure of `IncompleteSearchOutput::Simplification`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<SearchFailureOutput<K>>,
     /// Legacy human-readable diagnostic context.
@@ -1028,6 +1043,7 @@ impl Backend {
             search: true,
             observation: true,
             coverage: true,
+            stack_stops: true,
         }
     }
 
@@ -1132,9 +1148,9 @@ impl Backend {
     /// The result is a function of the backend's inputs and the request, the same on a fresh
     /// `Backend` and on this one after other requests, in any process and on any thread, outside
     /// the exclusions of docs/compatibility.md, "Determinism and concurrency" (cancellation, step
-    /// timeouts, any stack stop, which the result does not always show, a `Bytes` result the
-    /// memory allowance bounds, a load-time check stopped for lack of stack, and SMT timeouts in
-    /// builds with Z3).
+    /// timeouts, a result whose `stack_stops` is nonzero, a `Bytes` hook the memory allowance
+    /// made refuse a result, a load-time check or discharge stopped for lack of stack, and SMT
+    /// timeouts in builds with Z3).
     ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     ///
@@ -2072,7 +2088,8 @@ fn halt_reason(
 
 /// The published reason of a leaf whose state stopped. A cancelled state is `cancelled` and a
 /// passed step deadline `timeout`; an exhausted stack keeps the `simplification-error` kind the
-/// failure it used to be spelled as had, with the stop as its detail. A failed solver prelude
+/// failure it used to be spelled as had, with the stop as its detail and `stack-exhausted` as
+/// its structured cause (`ExecutionLeaf::cause`). A failed solver prelude
 /// leaves no answer of the operation meaningful, so it is the operation's error, not a leaf.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn stopped_halt_reason(
