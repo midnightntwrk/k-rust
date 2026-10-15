@@ -822,7 +822,9 @@ impl RpcService {
                         ("vacuous", None, None)
                     }
                     HaltReason::DepthBound => ("depth-bound", None, None),
-                    HaltReason::BreadthBound => ("aborted", None, None),
+                    // An RPC request sets no work budget; a budget-stopped run is incomplete as
+                    // a breadth-bound one is.
+                    HaltReason::BreadthBound | HaltReason::WorkBound => ("aborted", None, None),
                     HaltReason::Simplification(
                         error @ SimplificationError::UnsupportedHook { term, .. },
                     ) => return Err(RpcFault::runtime(error.to_string(), Some(term))),
@@ -1688,7 +1690,8 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
         | HaltReason::CutPointRule { .. }
         | HaltReason::TerminalRule { .. }
         | HaltReason::DepthBound
-        | HaltReason::BreadthBound => return None,
+        | HaltReason::BreadthBound
+        | HaltReason::WorkBound => return None,
     };
     let mut result = Map::from_iter([
         ("tag".into(), Value::String("failure".into())),

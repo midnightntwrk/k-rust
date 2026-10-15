@@ -18,6 +18,7 @@ mod predicates;
 mod recover;
 mod roles;
 mod step;
+mod work;
 
 use apply::{
     BooleanSplit, EqualitySplit, MapNotInKeysSplit, PartialRuleMatch, RuleAttempt, apply_rule,
@@ -546,6 +547,26 @@ pub struct ExecutionOptions {
     /// modality, so the sets include what was applied on paths whose leaves a state-set merge
     /// drops.
     pub collect_coverage: bool,
+    /// The most states the run may visit across all its paths (`None`, the default: no bound).
+    ///
+    /// A state is visited when the run takes it from its worklist, whatever becomes of it, so an
+    /// initial state taken from the worklist, a state that ends as a leaf and a state that
+    /// reaches a configuration another path reached each count once; the count is
+    /// [`ExecutionResult::work`]. The run takes states in a fixed order, so it stops at the same
+    /// state, with the same leaves finished before it, wherever its result is the same: within
+    /// the execution determinism contract and its exclusions (docs/compatibility.md,
+    /// "Determinism and concurrency", "Execute"), which leave out, among others, a run in which
+    /// an SMT query timed out. When a state remains after `max_work` states, that state becomes
+    /// the one [`HaltReason::WorkBound`] leaf, the last of the result, and the other pending
+    /// states are dropped unexplored; a budget at least the unbounded run's count changes
+    /// nothing, and a budget of 0 makes the first initial state, as given, that leaf.
+    ///
+    /// The budget bounds the states, the leaves and the worklist; it does not bound the work of
+    /// one state's step (a ground function evaluation runs to its value), the size of values, or
+    /// the length of traces. Under `StateSet` a leaf finished before the stop carries the
+    /// diagnostics of the paths merged into it before the stop only, so they may differ from the
+    /// same leaf's in a run with a larger budget.
+    pub max_work: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -578,6 +599,7 @@ impl Default for ExecutionOptions {
             request_names: RequestNames::default(),
             evaluation: EvaluationMode::Proof,
             collect_coverage: false,
+            max_work: None,
         }
     }
 }
@@ -648,6 +670,12 @@ pub enum HaltReason {
     },
     DepthBound,
     BreadthBound,
+    /// The request's `ExecutionOptions::max_work` was reached before this state was visited: the
+    /// leaf's pattern is the state where exploration stopped, as it was taken from the worklist,
+    /// unexpanded and unnormalised. It is no result: its term may be unnormalised and its
+    /// constraints unsatisfiable. The states still pending were not explored, so the result is
+    /// incomplete; the leaf is the last of the result and never merged with another.
+    WorkBound,
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
 }
@@ -781,6 +809,9 @@ pub struct ExecutionResult {
     /// otherwise. A run that a stop or a bound cut short carries what it collected before it
     /// ended.
     pub coverage: Option<crate::coverage::RunCoverage>,
+    /// The states the run visited across all its paths, the unit
+    /// [`ExecutionOptions::max_work`] bounds; reported whether or not a budget was set.
+    pub work: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

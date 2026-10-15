@@ -65,3 +65,5 @@ mod unspecified_oracle;
 mod value_contract;
 #[path = "backend/variables_api.rs"]
 mod variables_api;
+#[path = "backend/work_budget.rs"]
+mod work_budget;

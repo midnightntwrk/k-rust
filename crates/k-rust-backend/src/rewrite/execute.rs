@@ -5,7 +5,7 @@
 //! variable = "d = maximum depth; b = maximum breadth; L = final leaves"
 //! counters = ["RewriteSteps"]
 //! span = "per problem"
-//! invariant = "pending holds unexpanded states of depth <= max_depth; leaves only grows. When retain_trace is false, commit_applied keeps only the latest rewrite entry needed for halt metadata, and leaf returns no trace."
+//! invariant = "pending holds unexpanded states of depth <= max_depth; leaves only grows; work counts the states taken from pending, at most max_work. When retain_trace is false, commit_applied keeps only the latest rewrite entry needed for halt metadata, and leaf returns no trace."
 //! consumes = [
 //!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
 //!   { type = "k_rust_backend::rewrite::Pattern", role = "internalized pattern" },
@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "bounded execution"
-//! bound = "O(states), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None); each state performs one term simplification, predicate pass, and rewrite step, plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step, and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
+//! bound = "O(min(states, max_work)), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step, plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step, and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
@@ -75,6 +75,7 @@ use crate::{
     },
 };
 
+use super::work::Work;
 use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionOptions, ExecutionResult, HaltReason,
     IndeterminateReason, InitialDefinedness, InitialSimplificationStatus, Pattern, RemainderBranch,
@@ -158,6 +159,8 @@ struct Execution<'a> {
     discarded: Vec<UncommittedObservation>,
     completed_initial_simplifications: usize,
     bottom_initial_simplifications: usize,
+    /// The states visited and the budget (`work::Work`).
+    work: Work,
 }
 
 impl<'a> Execution<'a> {
@@ -233,6 +236,7 @@ impl<'a> Execution<'a> {
                 validated.push_back(state);
             }
         }
+        let work = Work::new(options.max_work);
         Self {
             definition,
             options,
@@ -247,6 +251,7 @@ impl<'a> Execution<'a> {
             discarded: Vec::new(),
             completed_initial_simplifications: 0,
             bottom_initial_simplifications: 0,
+            work,
         }
     }
 
@@ -267,6 +272,7 @@ impl<'a> Execution<'a> {
                 effects: Vec::new(),
                 discarded: self.discarded,
                 coverage: None,
+                work: self.work.visited(),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: false,
@@ -309,6 +315,14 @@ impl<'a> Execution<'a> {
         // terminates.
         // Invariant: `pending` holds unexpanded states of depth <= `max_depth`; `leaves` only grows.
         while let Some(state) = self.pending.pop_front() {
+            // The work budget: a run that has visited `max_work` states ends at the next one,
+            // which is reported unvisited; the other pending states are dropped (`work`).
+            if !self.work.visit() {
+                self.leaves
+                    .push(state.leaf(HaltReason::WorkBound, &self.observation_log));
+                self.pending.clear();
+                break;
+            }
             measure::bump(Counter::RewriteSteps);
             let mut step_timer = timeout_controller.begin_step();
             match self.expand(state) {
@@ -1316,6 +1330,7 @@ impl<'a> Execution<'a> {
                 effects,
                 discarded: self.discarded,
                 coverage: None,
+                work: self.work.visited(),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: self.initial_input_count != 0
@@ -1390,9 +1405,9 @@ fn final_leaves(
 ///
 /// Merging drops a leaf, which is sound only when an equal leaf that stays means everything the
 /// dropped one meant; a leaf's halt can mean more than its configuration ([`merge_class`]).
-/// The leaf of a stop that ended the run (`MergeClass::RunEnding`) also stands for the pending
-/// states the run dropped, which no other leaf carries, so it is never merged, in either
-/// direction. A bound or stop local to one state (`MergeClass::Unexplored`) means that its
+/// The leaf of a stop or of the work budget that ended the run (`MergeClass::RunEnding`) also
+/// stands for the pending states the run dropped, which no other leaf carries, so it is never
+/// merged, in either direction. A bound or stop local to one state (`MergeClass::Unexplored`) means that its
 /// configuration's subtree was not explored; an earlier leaf of that configuration represents
 /// that subtree only when its own halt is determined by the configuration (stuck, branching,
 /// undecided, failed, or itself a bound or stop). A terminal-rule leaf's halt is not: it records
@@ -1481,8 +1496,8 @@ fn merge_equal_final_leaves(
 enum MergeClass {
     /// `Trivial` and `Vacuous`: the leaf carries no configuration.
     NoConfiguration,
-    /// A stop that ended the whole run: the leaf also stands for the pending states the run
-    /// dropped.
+    /// A stop, or the work budget, that ended the whole run: the leaf also stands for the
+    /// pending states the run dropped.
     RunEnding,
     /// A bound or a stop local to the state: the configuration's subtree was not explored.
     Unexplored,
@@ -1514,6 +1529,8 @@ fn merge_class(halt: &HaltReason) -> MergeClass {
             }
         }
         HaltReason::DepthBound | HaltReason::BreadthBound => MergeClass::Unexplored,
+        // The budget ended the run: the leaf also stands for the pending states it dropped.
+        HaltReason::WorkBound => MergeClass::RunEnding,
         HaltReason::Stuck
         | HaltReason::Branch { .. }
         | HaltReason::CutPointRule { .. }

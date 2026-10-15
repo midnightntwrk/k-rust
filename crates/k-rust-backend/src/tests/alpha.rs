@@ -1486,6 +1486,9 @@ impl AlphaComparable for ExecutionResult {
         if self.modality != other.modality {
             return Err("execution result modalities differ".into());
         }
+        if self.work != other.work {
+            return Err("execution work counts differ".into());
+        }
         if self.effects != other.effects || self.discarded != other.discarded {
             return Err(
                 "execution effects or discarded transitions differ; discarded targets are not retained"
@@ -1506,6 +1509,7 @@ impl AlphaComparable for ExecutionResult {
             effects: self.effects.clone(),
             discarded: self.discarded.clone(),
             coverage: self.coverage.clone(),
+            work: self.work,
         })
     }
 }
@@ -1551,6 +1555,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
     };
     ExecutionResult {
         coverage: None,
+        work: 0,
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {
             pattern: after.clone(),

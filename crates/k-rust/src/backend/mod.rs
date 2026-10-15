@@ -77,6 +77,12 @@
 //!    (`crates/k-rust/tests/load_cancellation.rs`). Both are bounded by a budget of polls
 //!    instead, so a load ends however its definition's conditions evaluate
 //!    (`docs/backend-port.md`, the critical-pair check).
+//! 7. The work budget of an execution ([`ExecuteRequest::max_work`]) is not a cancellation and
+//!    never an `Err`: a run that reaches it returns `Ok`, and like a cancelled run it reports the
+//!    leaves completed before the stop and the state it did not visit as one leaf, a
+//!    `work-bound` one ([`HaltReasonOutput::WorkBound`]), and drops the states still pending.
+//!    Unlike a cancellation it is deterministic: the run stops at the same state wherever its
+//!    result is the same (docs/compatibility.md, "Work budget").
 //!
 //! With the `z3-inference` feature, a solver whose prelude failed stops every operation that uses
 //! it, as `Err(e)` with a `SolverPrelude` cause, at the boundary or during the run.
@@ -283,6 +289,26 @@ pub struct ExecuteRequest {
     /// ([`RunCoverageOutput`]). Off by default; collecting changes no other field of the result.
     #[serde(default)]
     pub collect_coverage: bool,
+    /// The most states the run may visit across all its paths (wire `maxWork`; absent: no
+    /// bound). A state is visited when the run takes it from its worklist, whatever becomes of
+    /// it; [`ExecutionResult::work`] reports the count. The run takes states in a fixed order, so
+    /// it stops at the same state, with the same leaves finished before it, wherever its result
+    /// is the same: within the execution determinism contract and its exclusions
+    /// (docs/compatibility.md, "Determinism and concurrency", "Execute"), which leave out, among
+    /// others, a run in which an SMT query timed out in a build with Z3 (docs/compatibility.md,
+    /// "Work budget"). When a state remains after `max_work` states, it becomes the one
+    /// `work-bound` leaf ([`HaltReasonOutput::WorkBound`]), the last of the result, and the other
+    /// pending states are not explored or reported; a budget at least the unbounded run's `work`
+    /// changes nothing, and a budget of 0 makes the first initial state, as the request gave it,
+    /// that leaf.
+    ///
+    /// It bounds the states, the leaves and the pending states; it does not bound the work of one
+    /// state's step (a ground function evaluation runs to its value), the size of values, or the
+    /// length of traces, so a host keeps its own time and memory limits. Under `state-set` a leaf
+    /// finished before the stop carries the diagnostics of the paths merged into it before the
+    /// stop only, so they may differ from the same leaf's in a run with a larger budget.
+    #[serde(default)]
+    pub max_work: Option<u64>,
     #[serde(default = "default_backend_schema_version")]
     pub schema_version: u32,
 }
@@ -305,6 +331,7 @@ impl ExecuteRequest {
             assume_state_defined: false,
             result_modality: ResultModalityOutput::StateSet,
             collect_coverage: false,
+            max_work: None,
             schema_version: BACKEND_SCHEMA_VERSION,
         }
     }
@@ -333,6 +360,9 @@ pub struct ExecutionResult<K = Value> {
     /// The run's coverage, present exactly when the request set `collect_coverage`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage: Option<RunCoverageOutput>,
+    /// The states the run visited across all its paths, the unit
+    /// [`ExecuteRequest::max_work`] bounds; reported whether or not a budget was set.
+    pub work: u64,
 }
 
 /// The rules and equations an execution used, by `UNIQUE_ID`, each list sorted and without
@@ -516,6 +546,12 @@ pub enum HaltReasonOutput {
     Terminal,
     DepthBound,
     BreadthBound,
+    /// The request's `max_work` was reached before this state was visited. The leaf's state is
+    /// the state where exploration stopped, as it was taken from the worklist, unexpanded and
+    /// unnormalised: it is not a reached result, its term may be unnormalised and its constraint
+    /// unsatisfiable. The states still pending were not explored, so the result is incomplete.
+    /// It is the last leaf of its result and never merged with another under `state-set`.
+    WorkBound,
     /// Rule applicability or a remainder could not be decided; no stuckness claim is made.
     Indeterminate,
     UnsupportedHook,
@@ -524,7 +560,7 @@ pub enum HaltReasonOutput {
 }
 
 impl HaltReasonOutput {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Cancelled,
         Self::Stuck,
         Self::Trivial,
@@ -534,6 +570,7 @@ impl HaltReasonOutput {
         Self::Terminal,
         Self::DepthBound,
         Self::BreadthBound,
+        Self::WorkBound,
         Self::Indeterminate,
         Self::UnsupportedHook,
         Self::SimplificationError,
@@ -1065,7 +1102,7 @@ impl Backend {
     /// the initial state that satisfies its constraint. Some leaf's constraint is satisfied by
     /// that instance extended with values for the variables the path introduced. This holds in
     /// both solver profiles under strategy `all`, when no leaf is `depth-bound`,
-    /// `breadth-bound`, `branch`, `cut-point`, `timeout` or `cancelled` and no leaf carries
+    /// `breadth-bound`, `work-bound`, `branch`, `cut-point`, `timeout` or `cancelled` and no leaf carries
     /// diagnostics.
     /// Every step covers its instances. The applied candidates take the instances where
     /// their result is defined, the remainder takes the instances no rule of the productive
@@ -1160,6 +1197,7 @@ impl Backend {
                 // operation has selected (and possibly built) the module, so the sets never hold
                 // what building a module applied.
                 collect_coverage: request.collect_coverage,
+                max_work: request.max_work,
             };
             let result = match observation_rules {
                 Some(rules) => {
@@ -2007,6 +2045,7 @@ fn halt_reason(
         HaltReason::TerminalRule { .. } => (HaltReasonOutput::Terminal, detail()),
         HaltReason::DepthBound => (HaltReasonOutput::DepthBound, None),
         HaltReason::BreadthBound => (HaltReasonOutput::BreadthBound, None),
+        HaltReason::WorkBound => (HaltReasonOutput::WorkBound, None),
         HaltReason::Indeterminate(_) => (HaltReasonOutput::Indeterminate, detail()),
         HaltReason::Simplification(error @ SimplificationError::UnsupportedHook { .. }) => {
             (HaltReasonOutput::UnsupportedHook, Some(error.to_string()))
