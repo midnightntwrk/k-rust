@@ -418,9 +418,9 @@ impl<'a> Admitted<'a> {
     /// meaning of neither example: `B1 /\ B2` of two Boolean values is their intersection,
     /// `\bottom` where they differ, and `B = \top` is false, since a sort with two elements is not
     /// a singleton. Such a request has no reading k-rust decides faithfully, so it is refused
-    /// before internalization. The operands are searched through the connectives that read
-    /// their arguments as predicates, not below `\equals`, `\ceil`, `\floor` or `\in`, whose
-    /// arguments are terms.
+    /// before internalization, its aliases unfolded as the internalizer unfolds them. The
+    /// operands are searched through the connectives that read their arguments as predicates,
+    /// not below `\equals`, `\ceil`, `\floor` or `\in`, whose arguments are terms.
     fn refuse_terms_read_as_predicates(self) -> Result<(), DefinitionError> {
         fn reads_a_term(pattern: &kore::Pattern) -> bool {
             use kore::Pattern as P;
@@ -461,7 +461,10 @@ impl<'a> Admitted<'a> {
                 _ => false,
             }
         }
-        if equates_a_term_read_as_predicate(self.pattern) {
+        // An alias applied in the request is read as its body, so the walk reads the unfolded
+        // pattern, as the internalizer does next.
+        let expanded = expand_aliases(self.pattern, &self.definition.aliases)?;
+        if equates_a_term_read_as_predicate(&expanded) {
             return Err(DefinitionError::UnstatedDefinedness(
                 UnstatedDefinedness::TermReadAsPredicate,
             ));

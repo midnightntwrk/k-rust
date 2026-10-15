@@ -1163,4 +1163,59 @@ endmodule
             }
         }
     }
+
+    /// An alias applied in a request is read as its body. With `both(X, Y) := X /\ Y` and
+    /// `eqfalse(X, Y) := \equals(X /\ Y, false)` added to the definition, a request whose alias
+    /// unfolds to an `\equals` that reads a term as a predicate is refused by `simplify` and
+    /// `get_model`, the routes that accept aliases, as the unfolded request is.
+    #[test]
+    fn a_request_whose_alias_unfolds_to_a_term_read_as_a_predicate_is_refused() {
+        static KORE: shared::Shared<String> = shared::Shared::new();
+        let kore = KORE.get(|| {
+            let aliases = r#"
+  alias both{}(SortBool{}, SortBool{}) : SortBool{} where both{}(X:SortBool{}, Y:SortBool{}) := \and{SortBool{}}(X:SortBool{}, Y:SortBool{}) []
+  alias eqfalse{R}(SortBool{}, SortBool{}) : R where eqfalse{R}(X:SortBool{}, Y:SortBool{}) := \equals{SortBool{}, R}(\and{SortBool{}}(X:SortBool{}, Y:SortBool{}), \dv{SortBool{}}("false")) []
+"#;
+            let kore = super::compile(SOURCE);
+            let header = "module DEFPROBE\n";
+            let at = kore.find(header).expect("the main module") + header.len();
+            format!("{}{aliases}{}", &kore[..at], &kore[at..])
+        });
+        let mut backend = super::backend_over(&kore);
+        let boolean =
+            |left: &str, right: &str| format!("\\equals{{SortBool{{}}, {SORT}}}({left}, {right})");
+        let (b1, b2) = ("B1:SortBool{}", "B2:SortBool{}");
+        let (yes, no) = ("\\dv{SortBool{}}(\"true\")", "\\dv{SortBool{}}(\"false\")");
+        let facts = and(&and(&pos(), &boolean(b1, yes)), &boolean(b2, no));
+        for (case, constraint) in [
+            (
+                "an alias for the intersection",
+                not(&boolean(&format!("both{{}}({b1}, {b2})"), no)),
+            ),
+            (
+                "an alias for the equality",
+                not(&format!("eqfalse{{{SORT}}}({b1}, {b2})")),
+            ),
+        ] {
+            let pattern = and(&facts, &constraint);
+            let simplify = backend
+                .simplify(PatternRequest::new(parse(&pattern)))
+                .map(|result| result.to_string());
+            let mut routes = vec![("simplify", simplify)];
+            // Without a solver `get_model` answers no request.
+            if backend.capabilities().smt {
+                let model = backend
+                    .get_model(PatternRequest::new(parse(&pattern)))
+                    .map(|result| format!("{result:?}"));
+                routes.push(("get_model", model));
+            }
+            for (route, result) in routes {
+                let shown = format!("{result:?}");
+                assert!(
+                    result.is_err_and(|error| error.0.contains("cannot be read faithfully")),
+                    "{case}, {route}: {shown}"
+                );
+            }
+        }
+    }
 }
