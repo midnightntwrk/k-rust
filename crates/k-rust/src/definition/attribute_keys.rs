@@ -61,12 +61,30 @@ pub enum KeyClass {
     Krust,
 }
 
+/// What an attribute key's value records ([`AttributeKey::record`]).
+///
+/// A `SourcePosition` or `Provenance` value is written by the loader or the compiler, never by
+/// user source, and never changes what the sentence that carries it means; two loads of one
+/// definition from texts that differ only in the position of its sentences differ only in these
+/// keys.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum KeyRecord {
+    /// Part of what the sentence, module or definition says.
+    Content,
+    /// A position in the text the loader read: the file, its identity, the span, or the start
+    /// of the sentence's content. The value moves when text before it moves.
+    SourcePosition,
+    /// krust's own record of how the sentence was built: its origin receipt, its offsets in the
+    /// input, and the input sentences it derives from.
+    Provenance,
+}
+
 const fn builtin(parameter: KeyParameter, targets: u16) -> KeyClass {
     KeyClass::Builtin { parameter, targets }
 }
 
 macro_rules! attribute_keys {
-    ($($variant:ident = $spelling:literal ($class:expr, $emits:literal $(, sorts = $sorts:ident)?)),+ $(,)?) => {
+    ($($variant:ident = $spelling:literal ($class:expr, $emits:literal, $record:ident $(, sorts = $sorts:ident)?)),+ $(,)?) => {
         /// A well-known attribute key; `as_str` is its spelling in K source, KAST JSON, and the
         /// `Attributes` map.
         #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -90,6 +108,15 @@ macro_rules! attribute_keys {
             pub const fn class(self) -> KeyClass {
                 match self {
                     $(Self::$variant => $class),+
+                }
+            }
+
+            /// What the key's value records: the sentence's content, the position in the text
+            /// the loader read it from, or krust's construction history ([`KeyRecord`]).
+            /// The column is mandatory, so a key cannot be added without a record.
+            pub const fn record(self) -> KeyRecord {
+                match self {
+                    $(Self::$variant => KeyRecord::$record),+
                 }
             }
 
@@ -127,160 +154,161 @@ use KeyParameter::{Forbidden, Optional, Required};
 
 attribute_keys! {
     // K built-in keys (user-visible).
-    Group = "group" (builtin(Required, ALL_SENTENCES), false),
-    Label = "label" (builtin(Required, ALL_SENTENCES), true),
-    AllPath = "all-path" (builtin(Forbidden, CLAIM | MODULE), false),
-    OnePath = "one-path" (builtin(Forbidden, CLAIM | MODULE), false),
-    Concrete = "concrete" (builtin(Optional, MODULE | PRODUCTION | RULE), true),
-    Symbolic = "symbolic" (builtin(Optional, MODULE | PRODUCTION | RULE), true),
-    CellCollection = "cellCollection" (builtin(Forbidden, PRODUCTION | SYNTAX_SORT), false),
-    Token = "token" (builtin(Forbidden, PRODUCTION | SYNTAX_SORT), true),
-    Hook = "hook" (builtin(Required, PRODUCTION | SYNTAX_SORT), true),
-    Comm = "comm" (builtin(Forbidden, PRODUCTION | RULE), true),
-    Initializer = "initializer" (builtin(Forbidden, PRODUCTION | RULE), false),
-    Priority = "priority" (builtin(Required, CONTEXT | CONTEXT_ALIAS | PRODUCTION | RULE), true),
-    Result = "result" (builtin(Required, CONTEXT | CONTEXT_ALIAS | PRODUCTION | RULE), false, sorts = One),
-    Private = "private" (builtin(Forbidden, MODULE | PRODUCTION), false),
-    Public = "public" (builtin(Forbidden, MODULE | PRODUCTION), false),
-    Stream = "stream" (builtin(Optional, PRODUCTION | RULE), false),
+    Group = "group" (builtin(Required, ALL_SENTENCES), false, Content),
+    Label = "label" (builtin(Required, ALL_SENTENCES), true, Content),
+    AllPath = "all-path" (builtin(Forbidden, CLAIM | MODULE), false, Content),
+    OnePath = "one-path" (builtin(Forbidden, CLAIM | MODULE), false, Content),
+    Concrete = "concrete" (builtin(Optional, MODULE | PRODUCTION | RULE), true, Content),
+    Symbolic = "symbolic" (builtin(Optional, MODULE | PRODUCTION | RULE), true, Content),
+    CellCollection = "cellCollection" (builtin(Forbidden, PRODUCTION | SYNTAX_SORT), false, Content),
+    Token = "token" (builtin(Forbidden, PRODUCTION | SYNTAX_SORT), true, Content),
+    Hook = "hook" (builtin(Required, PRODUCTION | SYNTAX_SORT), true, Content),
+    Comm = "comm" (builtin(Forbidden, PRODUCTION | RULE), true, Content),
+    Initializer = "initializer" (builtin(Forbidden, PRODUCTION | RULE), false, Content),
+    Priority = "priority" (builtin(Required, CONTEXT | CONTEXT_ALIAS | PRODUCTION | RULE), true, Content),
+    Result = "result" (builtin(Required, CONTEXT | CONTEXT_ALIAS | PRODUCTION | RULE), false, Content, sorts = One),
+    Private = "private" (builtin(Forbidden, MODULE | PRODUCTION), false, Content),
+    Public = "public" (builtin(Forbidden, MODULE | PRODUCTION), false, Content),
+    Stream = "stream" (builtin(Optional, PRODUCTION | RULE), false, Content),
     UnboundVariables = "unboundVariables" (
         builtin(Required, CONTEXT | CONTEXT_ALIAS | PRODUCTION | RULE | CLAIM),
-        false
+        false,
+        Content
     ),
-    Circularity = "circularity" (builtin(Forbidden, CLAIM), true),
-    Trusted = "trusted" (builtin(Forbidden, CLAIM), true),
-    Depends = "depends" (builtin(Required, CLAIM), true),
-    Context = "context" (builtin(Required, CONTEXT_ALIAS), false),
-    Cool = "cool" (builtin(Forbidden, RULE), true),
-    Heat = "heat" (builtin(Forbidden, RULE), false),
-    NonExecutable = "non-executable" (builtin(Forbidden, RULE), true),
-    Owise = "owise" (builtin(Forbidden, RULE), true),
-    PreservesDefinedness = "preserves-definedness" (builtin(Forbidden, RULE), true),
-    SmtLemma = "smt-lemma" (builtin(Forbidden, RULE), true),
-    Anywhere = "anywhere" (builtin(Forbidden, RULE), true),
-    Simplification = "simplification" (builtin(Optional, RULE), true),
-    Syntactic = "syntactic" (builtin(Required, RULE), true),
-    Haskell = "haskell" (builtin(Forbidden, MODULE), false),
-    NotLr1 = "not-lr1" (builtin(Forbidden, MODULE), false),
-    Locations = "locations" (builtin(Forbidden, SYNTAX_SORT), false),
-    ApplyPriority = "applyPriority" (builtin(Required, PRODUCTION), false),
-    CellName = "cellName" (builtin(Required, PRODUCTION), false),
-    Color = "color" (builtin(Required, PRODUCTION), false),
-    Colors = "colors" (builtin(Required, PRODUCTION), true),
-    Element = "element" (builtin(Required, PRODUCTION), true),
-    Format = "format" (builtin(Required, PRODUCTION), true),
-    Index = "index" (builtin(Required, PRODUCTION), false),
-    Klabel = "klabel" (builtin(Required, PRODUCTION), true),
-    Latex = "latex" (builtin(Required, PRODUCTION), false),
-    Multiplicity = "multiplicity" (builtin(Required, PRODUCTION), false),
-    Overload = "overload" (builtin(Required, PRODUCTION), false),
-    Parser = "parser" (builtin(Required, PRODUCTION), false),
-    Prec = "prec" (builtin(Required, PRODUCTION), false),
-    Smtlib = "smtlib" (builtin(Required, PRODUCTION), true),
-    SmtHook = "smt-hook" (builtin(Required, PRODUCTION), true),
-    TerminatorSymbol = "terminator-symbol" (builtin(Required, PRODUCTION), false),
-    Type = "type" (builtin(Required, PRODUCTION), false),
-    Unit = "unit" (builtin(Required, PRODUCTION), true),
-    Update = "update" (builtin(Required, PRODUCTION), true),
-    WrapElement = "wrapElement" (builtin(Required, PRODUCTION), false),
-    Hybrid = "hybrid" (builtin(Optional, PRODUCTION), false, sorts = List),
-    Seqstrict = "seqstrict" (builtin(Optional, PRODUCTION), false),
-    Strict = "strict" (builtin(Optional, PRODUCTION), false),
-    Symbol = "symbol" (builtin(Optional, PRODUCTION), true),
-    Alias = "alias" (builtin(Forbidden, PRODUCTION), true),
-    AliasRec = "alias-rec" (builtin(Forbidden, PRODUCTION), true),
-    Assoc = "assoc" (builtin(Forbidden, PRODUCTION), true),
-    Avoid = "avoid" (builtin(Forbidden, PRODUCTION), false),
-    Bag = "bag" (builtin(Forbidden, PRODUCTION), false),
-    Binder = "binder" (builtin(Forbidden, PRODUCTION), true),
-    Bracket = "bracket" (builtin(Forbidden, PRODUCTION), true),
-    Cell = "cell" (builtin(Forbidden, PRODUCTION), true),
-    Constructor = "constructor" (builtin(Forbidden, PRODUCTION), true),
-    Deprecated = "deprecated" (builtin(Forbidden, PRODUCTION), true),
-    Exit = "exit" (builtin(Forbidden, PRODUCTION), false),
-    FreshGenerator = "freshGenerator" (builtin(Forbidden, PRODUCTION), true),
-    Function = "function" (builtin(Forbidden, PRODUCTION), true),
-    Functional = "functional" (builtin(Forbidden, PRODUCTION), true),
-    Idem = "idem" (builtin(Forbidden, PRODUCTION), true),
-    Impure = "impure" (builtin(Forbidden, PRODUCTION), true),
-    Initial = "initial" (builtin(Forbidden, PRODUCTION), false),
-    Injective = "injective" (builtin(Forbidden, PRODUCTION), true),
-    Internal = "internal" (builtin(Forbidden, PRODUCTION), false),
+    Circularity = "circularity" (builtin(Forbidden, CLAIM), true, Content),
+    Trusted = "trusted" (builtin(Forbidden, CLAIM), true, Content),
+    Depends = "depends" (builtin(Required, CLAIM), true, Content),
+    Context = "context" (builtin(Required, CONTEXT_ALIAS), false, Content),
+    Cool = "cool" (builtin(Forbidden, RULE), true, Content),
+    Heat = "heat" (builtin(Forbidden, RULE), false, Content),
+    NonExecutable = "non-executable" (builtin(Forbidden, RULE), true, Content),
+    Owise = "owise" (builtin(Forbidden, RULE), true, Content),
+    PreservesDefinedness = "preserves-definedness" (builtin(Forbidden, RULE), true, Content),
+    SmtLemma = "smt-lemma" (builtin(Forbidden, RULE), true, Content),
+    Anywhere = "anywhere" (builtin(Forbidden, RULE), true, Content),
+    Simplification = "simplification" (builtin(Optional, RULE), true, Content),
+    Syntactic = "syntactic" (builtin(Required, RULE), true, Content),
+    Haskell = "haskell" (builtin(Forbidden, MODULE), false, Content),
+    NotLr1 = "not-lr1" (builtin(Forbidden, MODULE), false, Content),
+    Locations = "locations" (builtin(Forbidden, SYNTAX_SORT), false, Content),
+    ApplyPriority = "applyPriority" (builtin(Required, PRODUCTION), false, Content),
+    CellName = "cellName" (builtin(Required, PRODUCTION), false, Content),
+    Color = "color" (builtin(Required, PRODUCTION), false, Content),
+    Colors = "colors" (builtin(Required, PRODUCTION), true, Content),
+    Element = "element" (builtin(Required, PRODUCTION), true, Content),
+    Format = "format" (builtin(Required, PRODUCTION), true, Content),
+    Index = "index" (builtin(Required, PRODUCTION), false, Content),
+    Klabel = "klabel" (builtin(Required, PRODUCTION), true, Content),
+    Latex = "latex" (builtin(Required, PRODUCTION), false, Content),
+    Multiplicity = "multiplicity" (builtin(Required, PRODUCTION), false, Content),
+    Overload = "overload" (builtin(Required, PRODUCTION), false, Content),
+    Parser = "parser" (builtin(Required, PRODUCTION), false, Content),
+    Prec = "prec" (builtin(Required, PRODUCTION), false, Content),
+    Smtlib = "smtlib" (builtin(Required, PRODUCTION), true, Content),
+    SmtHook = "smt-hook" (builtin(Required, PRODUCTION), true, Content),
+    TerminatorSymbol = "terminator-symbol" (builtin(Required, PRODUCTION), false, Content),
+    Type = "type" (builtin(Required, PRODUCTION), false, Content),
+    Unit = "unit" (builtin(Required, PRODUCTION), true, Content),
+    Update = "update" (builtin(Required, PRODUCTION), true, Content),
+    WrapElement = "wrapElement" (builtin(Required, PRODUCTION), false, Content),
+    Hybrid = "hybrid" (builtin(Optional, PRODUCTION), false, Content, sorts = List),
+    Seqstrict = "seqstrict" (builtin(Optional, PRODUCTION), false, Content),
+    Strict = "strict" (builtin(Optional, PRODUCTION), false, Content),
+    Symbol = "symbol" (builtin(Optional, PRODUCTION), true, Content),
+    Alias = "alias" (builtin(Forbidden, PRODUCTION), true, Content),
+    AliasRec = "alias-rec" (builtin(Forbidden, PRODUCTION), true, Content),
+    Assoc = "assoc" (builtin(Forbidden, PRODUCTION), true, Content),
+    Avoid = "avoid" (builtin(Forbidden, PRODUCTION), false, Content),
+    Bag = "bag" (builtin(Forbidden, PRODUCTION), false, Content),
+    Binder = "binder" (builtin(Forbidden, PRODUCTION), true, Content),
+    Bracket = "bracket" (builtin(Forbidden, PRODUCTION), true, Content),
+    Cell = "cell" (builtin(Forbidden, PRODUCTION), true, Content),
+    Constructor = "constructor" (builtin(Forbidden, PRODUCTION), true, Content),
+    Deprecated = "deprecated" (builtin(Forbidden, PRODUCTION), true, Content),
+    Exit = "exit" (builtin(Forbidden, PRODUCTION), false, Content),
+    FreshGenerator = "freshGenerator" (builtin(Forbidden, PRODUCTION), true, Content),
+    Function = "function" (builtin(Forbidden, PRODUCTION), true, Content),
+    Functional = "functional" (builtin(Forbidden, PRODUCTION), true, Content),
+    Idem = "idem" (builtin(Forbidden, PRODUCTION), true, Content),
+    Impure = "impure" (builtin(Forbidden, PRODUCTION), true, Content),
+    Initial = "initial" (builtin(Forbidden, PRODUCTION), false, Content),
+    Injective = "injective" (builtin(Forbidden, PRODUCTION), true, Content),
+    Internal = "internal" (builtin(Forbidden, PRODUCTION), false, Content),
     // K declares `left` and `right` in both tables; `is_internal_key` keeps that.
-    Left = "left" (builtin(Forbidden, PRODUCTION), false),
-    Macro = "macro" (builtin(Forbidden, PRODUCTION), true),
-    MacroRec = "macro-rec" (builtin(Forbidden, PRODUCTION), true),
-    Maincell = "maincell" (builtin(Forbidden, PRODUCTION), false),
-    Memo = "memo" (builtin(Forbidden, PRODUCTION), true),
-    MlBinder = "mlBinder" (builtin(Forbidden, PRODUCTION), false),
-    MlOp = "mlOp" (builtin(Forbidden, PRODUCTION), false),
-    NonAssoc = "non-assoc" (builtin(Forbidden, PRODUCTION), false),
-    NoEvaluators = "no-evaluators" (builtin(Forbidden, PRODUCTION), true),
-    Prefer = "prefer" (builtin(Forbidden, PRODUCTION), false),
-    ReturnsUnit = "returnsUnit" (builtin(Forbidden, PRODUCTION), false),
-    Right = "right" (builtin(Forbidden, PRODUCTION), false),
-    Total = "total" (builtin(Forbidden, PRODUCTION), true),
-    UnparseAvoid = "unparseAvoid" (builtin(Forbidden, PRODUCTION), false),
-    Unused = "unused" (builtin(Forbidden, PRODUCTION), false),
+    Left = "left" (builtin(Forbidden, PRODUCTION), false, Content),
+    Macro = "macro" (builtin(Forbidden, PRODUCTION), true, Content),
+    MacroRec = "macro-rec" (builtin(Forbidden, PRODUCTION), true, Content),
+    Maincell = "maincell" (builtin(Forbidden, PRODUCTION), false, Content),
+    Memo = "memo" (builtin(Forbidden, PRODUCTION), true, Content),
+    MlBinder = "mlBinder" (builtin(Forbidden, PRODUCTION), false, Content),
+    MlOp = "mlOp" (builtin(Forbidden, PRODUCTION), false, Content),
+    NonAssoc = "non-assoc" (builtin(Forbidden, PRODUCTION), false, Content),
+    NoEvaluators = "no-evaluators" (builtin(Forbidden, PRODUCTION), true, Content),
+    Prefer = "prefer" (builtin(Forbidden, PRODUCTION), false, Content),
+    ReturnsUnit = "returnsUnit" (builtin(Forbidden, PRODUCTION), false, Content),
+    Right = "right" (builtin(Forbidden, PRODUCTION), false, Content),
+    Total = "total" (builtin(Forbidden, PRODUCTION), true, Content),
+    UnparseAvoid = "unparseAvoid" (builtin(Forbidden, PRODUCTION), false, Content),
+    Unused = "unused" (builtin(Forbidden, PRODUCTION), false, Content),
     // K internal keys.
-    Anonymous = "anonymous" (Internal, false),
-    BracketLabel = "bracketLabel" (Internal, false),
-    CellFragment = "cellFragment" (Internal, false),
-    CellOptAbsent = "cellOptAbsent" (Internal, false),
-    CellSort = "cellSort" (Internal, false),
-    Concat = "concat" (Internal, true),
-    ContentStartColumn = "contentStartColumn" (Internal, false),
-    ContentStartLine = "contentStartLine" (Internal, false),
-    ContentStartOffset = "contentStartOffset" (Internal, false),
-    CoolLike = "cool-like" (Internal, true),
-    Denormal = "denormal" (Internal, false),
-    Digest = "digest" (Internal, false),
-    DummyCell = "dummy_cell" (Internal, false),
-    FilterElement = "filterElement" (Internal, false),
-    Fresh = "fresh" (Internal, false),
-    HasDomainValues = "hasDomainValues" (Internal, true),
-    Nat = "nat" (Internal, true),
-    NotInjection = "notInjection" (Internal, false),
-    NotLr1Modules = "not-lr1-modules" (Internal, false),
-    OriginalPrd = "originalPrd" (Internal, false),
-    Predicate = "predicate" (Internal, false),
-    PrettyPrintWithSortAnnotation = "prettyPrintWithSortAnnotation" (Internal, false),
-    Priorities = "priorities" (Internal, true),
-    ProductionClass = "org.kframework.definition.Production" (Internal, false),
-    Projection = "projection" (Internal, false),
-    RecordPrd = "recordPrd" (Internal, false),
-    RecordPrdZero = "recordPrd-zero" (Internal, false),
-    RecordPrdOne = "recordPrd-one" (Internal, false),
-    RecordPrdMain = "recordPrd-main" (Internal, false),
-    RecordPrdEmpty = "recordPrd-empty" (Internal, false),
-    RecordPrdSubsort = "recordPrd-subsort" (Internal, false),
-    RecordPrdRepeat = "recordPrd-repeat" (Internal, false),
-    RecordPrdItem = "recordPrd-item" (Internal, false),
-    Refreshed = "refreshed" (Internal, false),
-    SmtPrelude = "smt-prelude" (Internal, false),
-    SortClass = "org.kframework.kore.Sort" (Internal, false),
-    SortParams = "sortParams" (Internal, false),
-    Source = "org.kframework.attributes.Source" (Internal, true),
-    SourceId = "org.kframework.attributes.SourceId" (Internal, false),
-    Location = "org.kframework.attributes.Location" (Internal, true),
-    SymbolOverload = "symbol-overload" (Internal, true),
-    SyntaxModule = "syntaxModule" (Internal, false),
-    TemporaryCellSortDecl = "temporary-cell-sort-decl" (Internal, false),
-    Terminals = "terminals" (Internal, true),
-    UniqueId = "UNIQUE_ID" (Internal, true),
-    UserList = "userList" (Internal, false),
-    UserListTerminator = "userListTerminator" (Internal, false),
-    WithConfig = "withConfig" (Internal, false),
+    Anonymous = "anonymous" (Internal, false, Content),
+    BracketLabel = "bracketLabel" (Internal, false, Content),
+    CellFragment = "cellFragment" (Internal, false, Content),
+    CellOptAbsent = "cellOptAbsent" (Internal, false, Content),
+    CellSort = "cellSort" (Internal, false, Content),
+    Concat = "concat" (Internal, true, Content),
+    ContentStartColumn = "contentStartColumn" (Internal, false, SourcePosition),
+    ContentStartLine = "contentStartLine" (Internal, false, SourcePosition),
+    ContentStartOffset = "contentStartOffset" (Internal, false, SourcePosition),
+    CoolLike = "cool-like" (Internal, true, Content),
+    Denormal = "denormal" (Internal, false, Content),
+    Digest = "digest" (Internal, false, Content),
+    DummyCell = "dummy_cell" (Internal, false, Content),
+    FilterElement = "filterElement" (Internal, false, Content),
+    Fresh = "fresh" (Internal, false, Content),
+    HasDomainValues = "hasDomainValues" (Internal, true, Content),
+    Nat = "nat" (Internal, true, Content),
+    NotInjection = "notInjection" (Internal, false, Content),
+    NotLr1Modules = "not-lr1-modules" (Internal, false, Content),
+    OriginalPrd = "originalPrd" (Internal, false, Content),
+    Predicate = "predicate" (Internal, false, Content),
+    PrettyPrintWithSortAnnotation = "prettyPrintWithSortAnnotation" (Internal, false, Content),
+    Priorities = "priorities" (Internal, true, Content),
+    ProductionClass = "org.kframework.definition.Production" (Internal, false, Content),
+    Projection = "projection" (Internal, false, Content),
+    RecordPrd = "recordPrd" (Internal, false, Content),
+    RecordPrdZero = "recordPrd-zero" (Internal, false, Content),
+    RecordPrdOne = "recordPrd-one" (Internal, false, Content),
+    RecordPrdMain = "recordPrd-main" (Internal, false, Content),
+    RecordPrdEmpty = "recordPrd-empty" (Internal, false, Content),
+    RecordPrdSubsort = "recordPrd-subsort" (Internal, false, Content),
+    RecordPrdRepeat = "recordPrd-repeat" (Internal, false, Content),
+    RecordPrdItem = "recordPrd-item" (Internal, false, Content),
+    Refreshed = "refreshed" (Internal, false, Content),
+    SmtPrelude = "smt-prelude" (Internal, false, Content),
+    SortClass = "org.kframework.kore.Sort" (Internal, false, Content),
+    SortParams = "sortParams" (Internal, false, Content),
+    Source = "org.kframework.attributes.Source" (Internal, true, SourcePosition),
+    SourceId = "org.kframework.attributes.SourceId" (Internal, false, SourcePosition),
+    Location = "org.kframework.attributes.Location" (Internal, true, SourcePosition),
+    SymbolOverload = "symbol-overload" (Internal, true, Content),
+    SyntaxModule = "syntaxModule" (Internal, false, Content),
+    TemporaryCellSortDecl = "temporary-cell-sort-decl" (Internal, false, Content),
+    Terminals = "terminals" (Internal, true, Content),
+    UniqueId = "UNIQUE_ID" (Internal, true, Content),
+    UserList = "userList" (Internal, false, Content),
+    UserListTerminator = "userListTerminator" (Internal, false, Content),
+    WithConfig = "withConfig" (Internal, false, Content),
     // Keys krust mints.
-    Origin = "org.krust.provenance.Origin" (Krust, false),
-    SentenceStartOffset = "org.krust.provenance.SentenceStartOffset" (Krust, false),
-    SentenceEndOffset = "org.krust.provenance.SentenceEndOffset" (Krust, false),
-    InputAddresses = "org.krust.provenance.InputAddresses" (Krust, false),
-    GeneratedRuleSyntax = "generatedRuleSyntax" (Krust, false),
-    BisonParsingOnlySubsort = "#bisonParsingOnlySubsort" (Krust, false),
+    Origin = "org.krust.provenance.Origin" (Krust, false, Provenance),
+    SentenceStartOffset = "org.krust.provenance.SentenceStartOffset" (Krust, false, Provenance),
+    SentenceEndOffset = "org.krust.provenance.SentenceEndOffset" (Krust, false, Provenance),
+    InputAddresses = "org.krust.provenance.InputAddresses" (Krust, false, Provenance),
+    GeneratedRuleSyntax = "generatedRuleSyntax" (Krust, false, Content),
+    BisonParsingOnlySubsort = "#bisonParsingOnlySubsort" (Krust, false, Content),
     // The `owise` equation local-function lowering adds to make a lambda `\bottom` off its
     // pattern; the LLVM target leaves it out.
-    LambdaRefutation = "org.krust.LambdaRefutation" (Krust, false),
+    LambdaRefutation = "org.krust.LambdaRefutation" (Krust, false, Content),
 }
 
 impl AttributeKey {
@@ -296,15 +324,17 @@ impl AttributeKey {
     /// The keys that make a production or rule macro-like.
     pub const MACRO_LIKE: [Self; 4] = [Self::Macro, Self::MacroRec, Self::Alias, Self::AliasRec];
 
-    /// Keys krust writes for its own provenance and never reports as semantic content.
-    pub(crate) const fn is_provenance_only(self) -> bool {
-        matches!(
-            self,
-            Self::Origin
-                | Self::SentenceStartOffset
-                | Self::SentenceEndOffset
-                | Self::InputAddresses
-        )
+    /// Keys krust writes for its own provenance and never reports as semantic content
+    /// ([`KeyRecord::Provenance`]). `Attributes` equality ignores exactly these keys.
+    pub const fn is_provenance_only(self) -> bool {
+        matches!(self.record(), KeyRecord::Provenance)
+    }
+
+    /// Keys whose value is a position in the text the loader read
+    /// ([`KeyRecord::SourcePosition`]). `Attributes` equality keeps them: a sentence's identity
+    /// within k-rust includes where it was read.
+    pub const fn is_source_position(self) -> bool {
+        matches!(self.record(), KeyRecord::SourcePosition)
     }
 }
 
@@ -345,6 +375,54 @@ mod tests {
                 (AttributeKey::Hybrid, SortValues::List),
             ]
         );
+    }
+
+    /// The keys that record where the loader read a sentence, and the keys that record krust's
+    /// construction history; every other key is content.
+    #[test]
+    fn source_position_and_provenance_keys_are_frozen() {
+        let positions = AttributeKey::ALL
+            .into_iter()
+            .filter(|key| key.is_source_position())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            positions,
+            [
+                AttributeKey::ContentStartColumn,
+                AttributeKey::ContentStartLine,
+                AttributeKey::ContentStartOffset,
+                AttributeKey::Source,
+                AttributeKey::SourceId,
+                AttributeKey::Location,
+            ]
+        );
+        let provenance = AttributeKey::ALL
+            .into_iter()
+            .filter(|key| key.is_provenance_only())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            provenance,
+            [
+                AttributeKey::Origin,
+                AttributeKey::SentenceStartOffset,
+                AttributeKey::SentenceEndOffset,
+                AttributeKey::InputAddresses,
+            ]
+        );
+        for key in AttributeKey::ALL {
+            let expected = if positions.contains(&key) {
+                KeyRecord::SourcePosition
+            } else if provenance.contains(&key) {
+                KeyRecord::Provenance
+            } else {
+                KeyRecord::Content
+            };
+            assert_eq!(key.record(), expected, "{key:?}");
+            assert!(
+                !(key.is_source_position() && key.is_provenance_only()),
+                "{key:?}"
+            );
+        }
     }
 
     #[test]
