@@ -374,13 +374,26 @@ fn read_index(term: &Term) -> Option<Option<usize>> {
     read_int(term).map(|value| value.to_usize())
 }
 
-/// A nonnegative `length` as the length of a `Bytes` result, or `ResultTooLarge` above `cap`:
-/// the value exists, and the backend does not build it.
+/// A nonnegative `length` as the length of a `Bytes` result, or `ResultTooLarge` above `cap`, or
+/// above the caller's result bound (`super::result_bound`): the value exists, and the backend
+/// does not build it.
 fn bounded_length(length: &BigInt, cap: &ResultCap<'_>) -> Result<usize, UnsupportedHookReason> {
     debug_assert!(
         length.sign() != Sign::Minus,
         "callers reject a negative length"
     );
+    if let Some(bound) = super::result_bound()
+        && length
+            .to_u64()
+            .is_none_or(|length| length.saturating_mul(8) > bound)
+    {
+        return Err(UnsupportedHookReason::ResultTooLarge {
+            detail: format!(
+                "a Bytes result of length {} is longer than the caller's bound of {bound} bits",
+                describe_int(length)
+            ),
+        });
+    }
     let limit = cap.bytes();
     length
         .to_u64()

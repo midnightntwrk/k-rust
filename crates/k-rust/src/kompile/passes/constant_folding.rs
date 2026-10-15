@@ -261,9 +261,14 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         };
         let hook = attributes.string(AttributeKey::Hook)?;
         // Only a `function` production is emitted as a hooked symbol, which the backend evaluates
-        // (`interpreted_hook`), and an `impure` one depends on more than its arguments.
+        // (`interpreted_hook`), and an `impure` one depends on more than its arguments. A `macro`
+        // or `alias` production means its expansion, which the definition's rules state and
+        // macro expansion, after this pass, substitutes; the hook does not compute it.
         if !attributes.has(AttributeKey::Function)
             || attributes.has(AttributeKey::Impure)
+            || AttributeKey::MACRO_LIKE
+                .iter()
+                .any(|key| attributes.has(*key))
             || !matches!(
                 hook.split_once('.').map(|pair| pair.0),
                 Some("BOOL" | "INT" | "STRING" | "FLOAT")
@@ -345,6 +350,7 @@ impl<'view, 'definition> Folder<'view, 'definition> {
             application.total,
             self.facts,
             EvaluationMode::Proof,
+            Some(MAX_FOLDED_BITS),
         ) else {
             return None;
         };

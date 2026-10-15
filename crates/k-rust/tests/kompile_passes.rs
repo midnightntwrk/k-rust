@@ -4007,15 +4007,19 @@ fn folds_string_and_token_conversions() {
 /// (`addT`), at a supersort of `Int` (`addV`, whose value is an `Int`) and at a sort hooked
 /// `INT.Int` under another name (`+MyInt`, whose operands the `INT` hooks do not read), a
 /// `String2Token` of a text that names no element of its `Int`-kinded sort, and `findChar`,
-/// whose meaning is the definition's equations. `String2MyInt("07")` is the integer 7, written in
-/// its canonical text, and `1 +Int 2` folds to 3.
+/// whose meaning is the definition's equations. A `macro` or `alias` hooked production means its
+/// expansion (`myAdd(1, 2)` is `1 -Int 2`), which no hook evaluation gives, and a literal of a
+/// strict subsort of its argument's declared sort is injected there, where the `INT` and `STRING`
+/// hooks read no value (`addVV`, `tok2s`). `String2MyInt("07")` is the integer 7, written in its
+/// canonical text, and `1 +Int 2` folds to 3.
 const FOLD_PARITY: &str = r#"
 module FOLD-PARITY-SYNTAX
   imports INT-SYNTAX
   imports STRING-SYNTAX
   syntax Tok ::= r"tok[0-9]+" [token]
   syntax Op ::= "f1" [symbol(f1)] | "f2" [symbol(f2)] | "f3" [symbol(f3)] | "f4" [symbol(f4)]
-              | "f5" [symbol(f5)] | "f6" [symbol(f6)] | "f7" [symbol(f7)]
+              | "f5" [symbol(f5)] | "f6" [symbol(f6)] | "f7" [symbol(f7)] | "f8" [symbol(f8)]
+              | "f9" [symbol(f9)] | "f10" [symbol(f10)] | "f11" [symbol(f11)]
 endmodule
 
 module FOLD-PARITY
@@ -4036,6 +4040,17 @@ module FOLD-PARITY
   rule f5 => res(#token("1", "MyInt") +MyInt #token("2", "MyInt"))
   rule f6 => res(findChar("abc", "c", 0))
   rule f7 => res(1 +Int 2)
+  syntax Int ::= myAdd(Int, Int) [function, hook(INT.add), macro, symbol(myAdd)]
+  rule myAdd(X, Y) => X -Int Y
+  syntax Int ::= myMul(Int, Int) [function, hook(INT.mul), alias, symbol(myMul)]
+  rule myMul(X, Y) => X +Int Y
+  rule f8 => res(myAdd(1, 2))
+  rule f9 => res(myMul(3, 4))
+  syntax Val ::= Tok
+  syntax Int ::= addVV(Val, Val) [function, total, hook(INT.add), symbol(addVV)]
+  syntax String ::= tok2s(Val) [function, total, hook(STRING.token2string), symbol(tok2s)]
+  rule f10 => res(addVV(1, 2))
+  rule f11 => res(tok2s(#token("tok7", "Tok")))
 endmodule
 "#;
 
@@ -4071,6 +4086,10 @@ fn folds_exactly_what_the_backend_computes() {
             r#"res(addMyInt(#token("1","MyInt"),#token("2","MyInt")))"#,
             r#"res(`findChar(_,_,_)_STRING-COMMON_Int_String_String_Int`(#token("\"abc\"","String"),#token("\"c\"","String"),#token("0","Int")))"#,
             r#"res(#token("3","Int"))"#,
+            r#"res(myAdd(#token("1","Int"),#token("2","Int")))"#,
+            r#"res(myMul(#token("3","Int"),#token("4","Int")))"#,
+            r#"res(addVV(#token("1","Int"),#token("2","Int")))"#,
+            r#"res(tok2s(#token("tok7","Tok")))"#,
         ]
     );
 
@@ -4079,6 +4098,67 @@ fn folds_exactly_what_the_backend_computes() {
     let kore = k_rust::kore::parser::parse_definition(&compiled.definition_kore).unwrap();
     k_rust_backend::definition::BackendDefinition::internalize(&kore, "FOLD-PARITY")
         .expect("the emitted definition loads");
+}
+
+/// A constant whose value is larger than the fold's bound is left as written, and the fold
+/// decides that before computing it: the outer `replaceAll` of
+/// `replaceAll(replaceAll(A, "a", A), "a", replaceAll(A, "a", A))`, with `A` 300 `a`s, would be
+/// a string of 8.1 * 10^9 characters, while each inner application folds to 90,000 characters;
+/// `2 ^Int 16777215` would have 2^24 bits. A compile spends no time or memory on either.
+#[test]
+fn leaves_a_constant_larger_than_the_fold_bound_unfolded_without_computing_it() {
+    let a = format!("\"{}\"", "a".repeat(300));
+    let source = format!(
+        r#"
+        module MAIN-SYNTAX
+          syntax Op ::= "result" [symbol(result)] | "power" [symbol(power)]
+        endmodule
+        module MAIN
+          imports MAIN-SYNTAX
+          imports DOMAINS
+          configuration <k> $PGM:Op </k>
+          syntax KItem ::= res(K) [symbol(res)]
+          rule result => res(replaceAll(replaceAll({a}, "a", {a}), "a", replaceAll({a}, "a", {a})))
+          rule power => res(2 ^Int 16777215)
+        endmodule
+        "#
+    );
+    let loaded = load_fixture("fold-bound.k", &source, "MAIN");
+    let folded = constant_fold(&resolve_semantic_casts(loaded.definition()).unwrap()).unwrap();
+    let right_hand_sides = folded
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => match body.unannotated() {
+                Term::Rewrite { right, .. } => match right.unannotated() {
+                    Term::Apply { label, arguments } if label.name == "res" => {
+                        Some(arguments[0].unannotated().clone())
+                    }
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let [replaced, power] = right_hand_sides.as_slice() else {
+        panic!("two rules: {right_hand_sides:?}");
+    };
+    let Term::Apply { label, arguments } = replaced else {
+        panic!("the outer replaceAll stays as written: {replaced:?}");
+    };
+    assert!(label.name.starts_with("replaceAll"), "{label:?}");
+    let inner = format!("\"{}\"", "a".repeat(90_000));
+    assert!(
+        matches!(arguments[0].unannotated(), Term::Token { token, .. } if *token == inner),
+        "the inner replaceAll folds"
+    );
+    let Term::Apply { label, .. } = power else {
+        panic!("the power stays as written: {power:?}");
+    };
+    assert!(label.name.starts_with("_^Int_"), "{label:?}");
 }
 
 /// Hooks the fold has no implementation for, such as the deprecated `STRING.category` and

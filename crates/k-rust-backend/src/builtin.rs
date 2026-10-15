@@ -255,6 +255,13 @@ pub(crate) fn evaluate_in_definition(
 /// (`KEQUAL` and the collection hooks its sort graph and collection metadata, `KRYPTO` and
 /// `SUBSTITUTION` its symbols, `IO` an execution's console), so here their applications are not
 /// evaluated (`NotApplicable`).
+///
+/// `result_bound`, when given, is a bound in bits on the results the caller uses (an `Int`'s bit
+/// length, eight times a `String`'s or `Bytes`' length): a hook whose result can outgrow its
+/// arguments (`^Int`, `<<Int`, `bitRangeInt`, `replaceAll`, the `Bytes` padding and `Int2Bytes`,
+/// the `MINT` results) refuses a larger result before computing it, as too large. The evaluation
+/// entry has no such bound beyond its own, so this only lets a caller that discards large results
+/// anyway, such as the frontend's constant fold, not pay for them.
 pub fn evaluate_declared(
     hook: &str,
     arguments: &[Term],
@@ -262,6 +269,7 @@ pub fn evaluate_declared(
     total: bool,
     facts: &dyn DeclarationFacts<Sort = Sort>,
     mode: EvaluationMode,
+    result_bound: Option<u64>,
 ) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
     if !matches!(
         HookName::parse(hook).map(HookName::kind),
@@ -276,6 +284,7 @@ pub fn evaluate_declared(
     ) {
         return Ok(Ok(BuiltinResult::NotApplicable));
     }
+    let _bound = ResultBoundScope::enter(result_bound);
     evaluate_composed(
         hook,
         arguments,
@@ -286,6 +295,43 @@ pub fn evaluate_declared(
         Some(mode),
     )
     .layered()
+}
+
+thread_local! {
+    /// The `result_bound` of the innermost [`evaluate_declared`] running on this thread.
+    static RESULT_BOUND: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// The `result_bound` of an [`evaluate_declared`] call while it runs; the previous one (none,
+/// outside such a call) is restored when it ends, also by unwinding.
+struct ResultBoundScope {
+    previous: Option<u64>,
+}
+
+impl ResultBoundScope {
+    fn enter(bound: Option<u64>) -> Self {
+        Self {
+            previous: RESULT_BOUND.with(|current| current.replace(bound)),
+        }
+    }
+}
+
+impl Drop for ResultBoundScope {
+    fn drop(&mut self) {
+        RESULT_BOUND.with(|current| current.set(self.previous));
+    }
+}
+
+/// The bound in bits the caller of [`evaluate_declared`] puts on the results it uses, if any
+/// (none in the evaluation entry).
+pub(crate) fn result_bound() -> Option<u64> {
+    RESULT_BOUND.with(std::cell::Cell::get)
+}
+
+/// `floor`, the floor of a hook's own result size bound (`result_size_limit`), lowered to the
+/// caller's [`result_bound`] when that is smaller.
+pub(crate) fn bounded_floor(floor: u64) -> u64 {
+    result_bound().map_or(floor, |bound| bound.min(floor))
 }
 
 /// Why the definition admits several values of `term`, a hooked application whose evaluator
@@ -1385,7 +1431,7 @@ fn power_size(base: &BigInt, exponent: u64, bound: u64) -> PowerSize {
 }
 
 fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
-    int_pow_within(arguments, MAX_INT_RESULT_BITS)
+    int_pow_within(arguments, bounded_floor(MAX_INT_RESULT_BITS))
 }
 
 /// `^Int` with `floor` as the floor of its result bound (`result_size_limit`).
@@ -1521,7 +1567,7 @@ fn int_log2(arguments: &[Term]) -> HookResult<BuiltinResult> {
 }
 
 fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinResult> {
-    int_shift_within(hook, arguments, right, MAX_INT_RESULT_BITS)
+    int_shift_within(hook, arguments, right, bounded_floor(MAX_INT_RESULT_BITS))
 }
 
 /// `<<Int` (or `>>Int`, when `right`) with `floor` as the floor of a left shift's result bound
@@ -1636,7 +1682,7 @@ fn int_bit_range(arguments: &[Term]) -> HookResult<BuiltinResult> {
     // A nonnegative value longer than the range is masked to LEN bits, fewer than it has; a
     // negative one leaves a result of LEN bits, computed only within the result bound.
     let limit = result_size_limit(
-        MAX_INT_RESULT_BITS,
+        bounded_floor(MAX_INT_RESULT_BITS),
         value
             .bits()
             .saturating_add(index.bits())

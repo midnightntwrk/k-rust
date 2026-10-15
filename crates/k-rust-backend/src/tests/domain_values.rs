@@ -761,6 +761,7 @@ fn evaluate_declared_agrees_with_the_entry() {
                     total,
                     &definition,
                     mode,
+                    None,
                 )
                 .unwrap()
                 .unwrap();
@@ -803,7 +804,78 @@ fn evaluate_declared_agrees_with_the_entry() {
             true,
             &definition,
             EvaluationMode::Proof,
+            None,
         ),
         Ok(Ok(BuiltinResult::NotApplicable))
+    );
+}
+
+/// A caller's bound on the results it uses refuses a larger result before it is built, and the
+/// evaluation entry, which has none, still computes it: `2 ^Int (2^20)` and a `replaceAll` of
+/// 2^17 + 1 bytes are too large for a bound of 2^20 bits and computed by the entry.
+#[test]
+fn a_result_bound_refuses_a_larger_result_before_it_is_built() {
+    let definition = load(DECLARED_DEFINITION);
+    let bound = Some(1 << 20);
+    let declared = |hook: &str, arguments: &[Term], sort: k_rust_kore::names::BuiltinSort| {
+        evaluate_declared(
+            hook,
+            arguments,
+            &Sort::builtin(sort),
+            false,
+            &definition,
+            EvaluationMode::Proof,
+            bound,
+        )
+        .unwrap()
+        .unwrap()
+    };
+    let too_large = |result: &BuiltinResult| {
+        matches!(
+            result,
+            BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge { .. })
+        )
+    };
+    let power = [Term::int(2), Term::int(1 << 20)];
+    assert!(too_large(&declared(
+        "INT.pow",
+        &power,
+        k_rust_kore::names::BuiltinSort::Int
+    )));
+    let small = declared(
+        "INT.pow",
+        &[Term::int(2), Term::int(10)],
+        k_rust_kore::names::BuiltinSort::Int,
+    );
+    assert_eq!(small, BuiltinResult::Value(Term::int(1024)));
+    let haystack = Term::string("a".repeat(1 << 9));
+    let replaced = |replacement: usize| {
+        declared(
+            "STRING.replaceAll",
+            &[
+                haystack.clone(),
+                Term::string("a"),
+                Term::string("a".repeat(replacement)),
+            ],
+            k_rust_kore::names::BuiltinSort::String,
+        )
+    };
+    assert!(matches!(replaced(1 << 8), BuiltinResult::Value(_)));
+    assert!(too_large(&replaced((1 << 8) + 1)));
+    // Without a bound, as in the evaluation entry, both results are computed.
+    let unbounded = evaluate_declared(
+        "INT.pow",
+        &power,
+        &Sort::builtin(k_rust_kore::names::BuiltinSort::Int),
+        false,
+        &definition,
+        EvaluationMode::Proof,
+        None,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(
+        matches!(unbounded, BuiltinResult::Value(_)),
+        "{unbounded:?}"
     );
 }

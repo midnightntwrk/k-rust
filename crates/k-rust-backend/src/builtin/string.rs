@@ -186,6 +186,24 @@ fn replace_all(arguments: &[Term]) -> HookResult<BuiltinResult> {
     ) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // The result's length follows from the number of occurrences, which a caller with a bound on
+    // the results it uses (`super::result_bound`) checks before the result is built: it can be
+    // quadratic in the arguments' length.
+    if let Some(bound) = super::result_bound() {
+        let count = haystack.matches(needle).count() as u64;
+        let bytes = (haystack.len() as u64 - count * needle.len() as u64)
+            .saturating_add(count.saturating_mul(replacement.len() as u64));
+        if bytes.saturating_mul(8) > bound {
+            return Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::ResultTooLarge {
+                    detail: format!(
+                        "replaceAll gives a string of {bytes} bytes, beyond the caller's bound of \
+                         {bound} bits"
+                    ),
+                },
+            ));
+        }
+    }
     Ok(BuiltinResult::Value(string_term(
         haystack.replace(needle, replacement),
     )))
