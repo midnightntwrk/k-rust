@@ -353,6 +353,8 @@ test('searches and observes the persistent native backend graph', () => {
     applied: ['a-to-b', 'b-to-c'],
     matched: ['a-to-b', 'b-to-c'],
   })
+  assert.ok(backend.execute({ state: a }).leaves.every(({ trace }) => trace.length > 0))
+  assert.ok(backend.execute({ state: a, trace: false }).leaves.every(({ trace }) => trace.length === 0))
 
   assert.throws(() => backend.search({ state: a, schemaVersion: 99 }), /schema version 99/)
   assert.throws(() => backend.search({ state: a, maxDeph: 1 }), /unknown field.*maxDeph/i)

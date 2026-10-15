@@ -309,6 +309,14 @@ pub struct ExecuteRequest {
     /// stop only, so they may differ from the same leaf's in a run with a larger budget.
     #[serde(default)]
     pub max_work: Option<u64>,
+    /// Whether each leaf carries its path's trace ([`ExecutionLeaf::trace`]), O(depth) entries
+    /// per leaf; `true` when omitted. A caller that does not read traces sets `false`: every
+    /// leaf's `trace` is then empty and every other field of the result is unchanged, so the
+    /// traces no longer grow with the total path length. An observed run's `branch` and
+    /// `observations` stay O(depth) per leaf, so only an unobserved branching run's output is
+    /// then linear in its leaves (state sizes aside).
+    #[serde(default = "default_trace")]
+    pub trace: bool,
     #[serde(default = "default_backend_schema_version")]
     pub schema_version: u32,
 }
@@ -332,6 +340,7 @@ impl ExecuteRequest {
             result_modality: ResultModalityOutput::StateSet,
             collect_coverage: false,
             max_work: None,
+            trace: true,
             schema_version: BACKEND_SCHEMA_VERSION,
         }
     }
@@ -472,6 +481,9 @@ pub struct ExecutionLeaf<K = Value> {
     /// `cause`, `candidates`, `remainder`, `branch`, and `observations` for structured evidence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// The rewrite, remainder and simplification entries of this leaf's path, in order, ending
+    /// with the simplifications of the leaf's own pattern; empty when the request set
+    /// `trace: false` ([`ExecuteRequest::trace`]).
     pub trace: Vec<TraceEntry>,
     /// Committed transition identities, independent of the observation rule filter.
     /// Unobserved execution leaves this empty; an empty allowlist retains every identity.
@@ -1187,7 +1199,7 @@ impl Backend {
                 moving_average_timeout: request.moving_average_timeout,
                 assume_initial_defined: request.assume_state_defined,
                 result_modality: request.result_modality.into(),
-                retain_trace: true,
+                retain_trace: request.trace,
                 // The state as received, before its aliases are unfolded: none here, since an
                 // executable state has none, but every path names its request the same way.
                 request_names: RequestNames::of_received(&[&syntax]),
@@ -1977,6 +1989,10 @@ fn bounded_search_options(
 
 fn default_backend_schema_version() -> u32 {
     BACKEND_SCHEMA_VERSION
+}
+
+fn default_trace() -> bool {
+    true
 }
 
 fn default_result_modality() -> ResultModalityOutput {

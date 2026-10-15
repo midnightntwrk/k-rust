@@ -254,6 +254,12 @@ export interface ExecuteOptions {
    * and does not explore the other pending states (docs/compatibility.md, "Work budget").
    */
   maxWork?: number
+   * Whether each leaf carries its path's `trace` (default `true`). With `false` every leaf's
+   * `trace` is empty and every other field is unchanged, so the traces no longer grow with the
+   * total path length. An observed run's `branch` and `observations` stay proportional to each
+   * leaf's depth, so only an unobserved branching run's output is then linear in its leaves.
+   */
+  trace?: boolean
   schemaVersion?: number
 }
 
