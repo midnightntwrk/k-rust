@@ -285,6 +285,9 @@ runs every program of O on each mutation, then each program that has a cached ou
 and compares every cached outcome (and the status the cache would have given) with the live ones.
 A difference gives the mutation status `error`, reason `outcome-mismatch:<program id>`, and an entry `{mutation, program, cached, live}`
 in the top-level `mismatches` (`program` null for a status difference); the run goes on and exits 1. It writes no outcome and no hint.
+Known gap at the k-rust pin: a run's result can depend on the thread's stack (a stack-exhausted refinement is dismissed
+silently, k-rust KINK-06/4 and KINK-06/5), for live and cached kills alike; `--verify` does not remove it, and the re-pin
+(RP-01) closes it by making a comparison with a nonzero `stackStops` on either side unknown (root README, "Using kink-flow").
 
 | Status | Meaning | What to do |
 | --- | --- | --- |

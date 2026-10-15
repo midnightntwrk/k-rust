@@ -2,7 +2,7 @@
 //! `run_definition`, and summaries are computed by `summarize`.
 
 use crate::{
-    CorpusSource, ProgramSource, load_source,
+    CorpusSource, ProgramSource, SourceFile, load_source,
     manifest::{CorpusInput, CorpusManifest, DefinitionSpec, exclusion_applies, path_excluded},
     resolver::read_under_root,
     runner::{CLASSIFIER, all_normal, run_definition},
@@ -519,15 +519,6 @@ fn verify_sources(
         md_selector: definition.md_selector.clone(),
     })
     .map_err(|e| invalid(e.to_string()))?;
-    // Every loaded source, as admission checks it (flow F-16): a store admitted before that
-    // check cannot resume a definition that reads a below-floor source.
-    crate::admission::check_loaded_exclusions(
-        corpus.exclusions(),
-        Path::new(&definition.root.path),
-        &root,
-        &loaded.files,
-    )
-    .map_err(|_| invalid("stored definition is excluded"))?;
     let mut expected = BTreeMap::new();
     for file in &loaded.files {
         if !definition.files.iter().any(|pin| pin == file) {
@@ -573,6 +564,24 @@ fn verify_sources(
             }
         }
     }
+    // Every file admission read, definition sources and file-backed test inputs alike, is
+    // checked against the exclusions, as admission checks its record's file list (flow F-16,
+    // F-17): a store admitted before that check cannot resume a definition that reads a
+    // below-floor file.
+    let read = expected
+        .iter()
+        .map(|(name, sha256)| SourceFile {
+            name: name.clone(),
+            sha256: *sha256,
+        })
+        .collect::<Vec<_>>();
+    crate::admission::check_loaded_exclusions(
+        corpus.exclusions(),
+        Path::new(&definition.root.path),
+        &root,
+        &read,
+    )
+    .map_err(|_| invalid("stored definition is excluded"))?;
     let files = expected
         .into_iter()
         .map(|(name, sha256)| json!({"name":name,"sha256":sha256.to_string()}))

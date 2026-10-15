@@ -162,6 +162,9 @@ fn admit(
     let (loaded, input_texts) = pinned_load(d, workspace, record)?;
     // Every file the load read, not only the entry (corpus-scale CS-12 review 1, flow F-16):
     // a wrapper entry cannot bring a below-floor source in by a require or an include dir.
+    // The record's file list holds the definition sources and the file-backed test inputs
+    // (program files and kore_state files), so both are checked; the resume binding
+    // (cli.rs `verify_sources`) checks the same set (flow F-17).
     check_loaded_exclusions(
         &manifest.exclusions,
         Path::new(&d.root.path),
@@ -257,8 +260,11 @@ pub fn check_exclusions(
 /// refuses with its reason and citation, exactly as for an excluded entry. Each file is named
 /// by its logical name under the definition root and is matched both lexically under
 /// `lexical_root` (the root as the manifest names it) and once links are resolved under
-/// `canonical_root`. So no require, include directory or link can bring a below-floor source
-/// into a definition whose entry lies outside every case directory.
+/// `canonical_root`. Admission and the resume binding pass the same set (flow F-17): every
+/// file admission read, that is the definition's sources and its file-backed test inputs
+/// (program files and kore_state files). So no require, include directory, link or test input
+/// can bring a below-floor file into a definition whose entry lies outside every case
+/// directory.
 pub fn check_loaded_exclusions(
     exclusions: &[Exclusion],
     lexical_root: &Path,

@@ -261,6 +261,21 @@ fn write_json(path: &Path, value: &Value) {
     fs::write(path, serde_json::to_string_pretty(value).unwrap()).unwrap();
 }
 
+/// A result record without its host-measured timing (`wall_ms`, the live baseline's wall
+/// time, outside the key; flow F-17): a re-run gives the same record up to that field. The
+/// field must be present, as an integer or null, so a test that compares the rest still
+/// pins the record's shape.
+fn without_wall_ms(record: &Value) -> Value {
+    let wall_ms = &record["wall_ms"];
+    assert!(
+        record.get("wall_ms").is_some() && (wall_ms.is_u64() || wall_ms.is_null()),
+        "{record:#}"
+    );
+    let mut record = record.clone();
+    record.as_object_mut().unwrap().remove("wall_ms");
+    record
+}
+
 /// The program ids of the records of mutation `id`'s outcome file, with their outcomes.
 fn records(manifest: &Path, document: &Value, id: &str) -> BTreeMap<String, String> {
     let path = outcome_file(manifest, document, id);
@@ -1321,7 +1336,11 @@ fn a_timeout_record_named_by_a_hint_is_rerun_once() {
     assert_eq!(add["rerun"], "timeout");
     assert_eq!(add["class"], "comparable");
     assert_eq!(add["cached"], false);
-    assert_eq!(read_json(&record), original);
+    // The replaced record is the original up to the re-run's measured wall time (F-16 review
+    // 1 minor 3: a whole-record comparison failed when the two runs' times differed).
+    let replaced = read_json(&record);
+    assert!(replaced["wall_ms"].is_u64() && original["wall_ms"].is_u64());
+    assert_eq!(without_wall_ms(&replaced), without_wall_ms(&original));
     assert_eq!(statuses(&rerun), statuses_of(&cold, &only));
     assert_eq!(mutation(&rerun, "add-becomes-sub")["killer_source"], "hint");
     assert_eq!(calls(&rerun, "add-becomes-sub"), vec![strings(&["add"])]);

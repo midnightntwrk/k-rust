@@ -606,3 +606,50 @@ fn leading_dash_definition_is_admitted_and_replayed_after_option_terminator() {
         "Reproduced"
     );
 }
+
+/// F-16 review 1 minor 2 (flow F-17): the resume binding checks the same file set as
+/// admission, test inputs included. After a completed run, the program file is replaced by
+/// a link to the same bytes inside a below-floor case directory; resume refuses at the
+/// exclusion check (before F-17 it checked definition sources only and refused later, on the
+/// file list) and writes nothing.
+#[cfg(unix)]
+#[test]
+fn resume_refuses_a_test_input_that_now_lies_in_a_below_floor_case_directory() {
+    let scratch = Scratch::new("input-exclusion");
+    let ws = scratch.0.join("workspace");
+    let root = ws.join("definition");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("clean.k"),
+        include_bytes!("../../../testdata/corpus/store-v1/clean.k"),
+    )
+    .unwrap();
+    let program = include_bytes!("../../../testdata/corpus/store-v1/program.txt");
+    fs::write(root.join("program.txt"), program).unwrap();
+    let mut value = clean();
+    value["definitions"][0]["root"]["path"] = json!("definition");
+    let (path, _) = scratch.manifest(&value);
+    let store = Store::new(scratch.0.join("store"));
+    success(command_at("run", &path, &store, &ws).output().unwrap());
+    let resumed = success(command_at("run", &path, &store, &ws).output().unwrap());
+    assert!(resumed.contains("clean: resumed"), "{resumed}");
+
+    let case = root.join("k-distribution/tests/regression-new/let-test");
+    fs::create_dir_all(&case).unwrap();
+    fs::write(case.join("program.txt"), program).unwrap();
+    fs::remove_file(root.join("program.txt")).unwrap();
+    std::os::unix::fs::symlink(case.join("program.txt"), root.join("program.txt")).unwrap();
+    let before = all_stored_bytes(store.root());
+    let output = command_at("run", &path, &store, &ws).output().unwrap();
+    assert!(
+        !output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("stored definition is excluded"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(all_stored_bytes(store.root()), before);
+}

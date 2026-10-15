@@ -541,3 +541,39 @@ fn a_wrapper_requiring_a_source_outside_every_case_is_admitted() {
     );
     fs::remove_dir_all(dir).unwrap();
 }
+
+const CASE_INPUT: &str = "k-distribution/tests/regression-new/let-test/program.txt";
+
+/// F-16 review 1 minor 2 (flow F-17): admission checks every file it read, test inputs
+/// included, against the exclusions. A clean definition outside every case directory whose
+/// program file lies in a below-floor case directory, named directly or reached through a
+/// link, is refused at the exclusion stage with the below-floor reason, as a below-floor
+/// source is; the same program outside the case directory is admitted.
+#[test]
+fn a_test_input_in_a_below_floor_case_directory_is_excluded() {
+    let dir = probe_workspace("input", &[("program.txt", "true")]);
+    fs::write(dir.join(CASE_INPUT), "true").unwrap();
+    let with_input = |input: &str, pinned: &[&str]| {
+        let mut v = probe_manifest(&dir, "clean", "clean.k", &[], pinned);
+        v["definitions"][0]["tests"][0]["input"]["program"] = json!({"file": input});
+        v
+    };
+    let r = admit_in(
+        &dir,
+        &with_input("program.txt", &["clean.k", "program.txt"]),
+    );
+    assert!(r.admitted.is_some(), "{}", r.record.text());
+    let v = with_input(CASE_INPUT, &["clean.k", CASE_INPUT]);
+    let r = admit_in(&dir, &v);
+    assert_below_floor(&r);
+    assert_eq!(r.record.value()["files"], v["definitions"][0]["files"]);
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(dir.join(CASE_INPUT), dir.join("linked.txt")).unwrap();
+        assert_below_floor(&admit_in(
+            &dir,
+            &with_input("linked.txt", &["clean.k", CASE_INPUT]),
+        ));
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
