@@ -892,6 +892,19 @@ pub enum DefinitionError {
         position: Option<String>,
         reason: String,
     },
+    /// A symbol that a collection sort's `unit`, `element` or `concat` attribute names
+    /// (`role`), whose declaration does not have that role's signature
+    /// (`builtin::collection_role_misfit`): every application of the symbol is built as a
+    /// value of the collection sort `sort`, so its declaration must give it that sort, the
+    /// role's arguments and no other hook than the role's own. Reported with the symbol's
+    /// written position (`path:line:column`).
+    CollectionRoleMisfit {
+        sort: String,
+        role: String,
+        symbol: String,
+        position: Option<String>,
+        reason: String,
+    },
     MalformedAlias(String),
     AliasCycle(Vec<String>),
     /// Unfolding the aliases of a request pattern, or of the axioms of a definition or of a
@@ -1076,6 +1089,22 @@ impl fmt::Display for DefinitionError {
                     "Malformed collection hook: the hooked symbol {symbol} denotes no value of \
                      its result sort: {reason}"
                 )
+            }
+            Self::CollectionRoleMisfit {
+                sort,
+                role,
+                symbol,
+                position,
+                reason,
+            } => {
+                write!(
+                    formatter,
+                    "collection sort {sort}: its {role} symbol {symbol} "
+                )?;
+                if let Some(position) = position {
+                    write!(formatter, "({position}) ")?;
+                }
+                write!(formatter, "{reason}")
             }
             Self::MalformedAlias(error) => write!(formatter, "Malformed alias: {error}"),
             Self::AliasCycle(aliases) => {
@@ -1884,6 +1913,9 @@ impl BackendDefinition {
         }
 
         attach_collection_metadata(&sorts, &mut symbols)?;
+        // Before any axiom is internalized through a role symbol, which builds a value of the
+        // collection sort wherever it is applied.
+        reject_collection_role_misfits(ordered, &sorts, &symbols)?;
         let verified = crate::verify::verify_definition(
             ordered,
             &definition.modules,
@@ -3653,6 +3685,85 @@ fn closed_element_sort(element: &Name, sort: &Sort) -> Result<(), DefinitionErro
         )));
     }
     Ok(())
+}
+
+/// Rejects a collection sort whose unit, element or concat attribute names a symbol without that
+/// role's signature (`builtin::collection_role_misfit`): every application of the symbol is
+/// built as a value of the collection sort, so a declaration that gives it another sort,
+/// other arguments or another hook gives a role application two sorts. Runs after
+/// `attach_collection_metadata`, whose refusals come first, and decides the collection sorts in
+/// name order and each one's unit, element and concat in that order. Reported where the symbol
+/// is declared.
+fn reject_collection_role_misfits(
+    ordered: &[&kore::Module],
+    sorts: &BTreeMap<Name, SortInfo>,
+    symbols: &BTreeMap<Name, Arc<Symbol>>,
+) -> Result<(), DefinitionError> {
+    use crate::builtin::{CollectionKind, CollectionRole, RoleDeclaration};
+    for (sort_name, info) in sorts {
+        let (kind, names) = match &info.collection {
+            Some(CollectionSort::List(names)) => (CollectionKind::List, names),
+            Some(CollectionSort::Set(names)) => (CollectionKind::Set, names),
+            Some(CollectionSort::Map(names)) => (CollectionKind::Map, names),
+            None => continue,
+        };
+        let collection = Sort::Application {
+            name: sort_name.clone(),
+            arguments: Vec::new(),
+        };
+        for role in CollectionRole::ALL {
+            let name = match role {
+                CollectionRole::Unit => &names.unit,
+                CollectionRole::Element => &names.element,
+                CollectionRole::Concat => &names.concat,
+            };
+            // `attach_collection_metadata` has refused a collection whose symbol is missing.
+            let Some(symbol) = symbols.get(name) else {
+                continue;
+            };
+            let declaration = RoleDeclaration {
+                sort_parameters: symbol.sort_variables.len(),
+                argument_sorts: &symbol.argument_sorts,
+                result_sort: &symbol.result_sort,
+                hook: symbol.attributes.hook.as_deref(),
+            };
+            if let Some(reason) = crate::builtin::collection_role_misfit(
+                kind,
+                role,
+                &collection,
+                &declaration,
+                crate::builtin::render_sort,
+            ) {
+                return Err(DefinitionError::CollectionRoleMisfit {
+                    sort: sort_name.to_string(),
+                    role: role.to_string(),
+                    symbol: name.to_string(),
+                    position: declared_position(ordered, name)?,
+                    reason,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The written position of the declaration of the symbol `name` in `ordered`, if it has one.
+fn declared_position(
+    ordered: &[&kore::Module],
+    name: &Name,
+) -> Result<Option<String>, DefinitionError> {
+    for module in ordered {
+        for sentence in &module.sentences {
+            if let kore::Sentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } = sentence
+                && symbol.name.as_str() == name.as_ref()
+            {
+                return written_position(attributes);
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Rejects a symbol hooked to a collection hook under whose declaration the hook gives no value

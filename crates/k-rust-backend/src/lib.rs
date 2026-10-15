@@ -1,6 +1,7 @@
 //! In-process concrete and symbolic execution for KORE definitions.
 
 mod alias;
+mod collection_role;
 mod instance_normal;
 mod ite;
 pub mod nesting;

@@ -5,6 +5,8 @@
 mod anywhere_matching;
 #[path = "backend/collection_item_sorts.rs"]
 mod collection_item_sorts;
+#[path = "backend/collection_roles.rs"]
+mod collection_roles;
 #[path = "backend/deferred_definedness.rs"]
 mod deferred_definedness;
 #[path = "backend/definedness_classes.rs"]
