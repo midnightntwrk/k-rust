@@ -86,6 +86,8 @@ impl Backend {
         self.with_solver_over(module, &[antecedent, consequent], |definition, solver| {
             let (verdict, sort) =
                 check_kore(definition, solver, antecedent, consequent, admission)?;
+            // As in `simplify_kore_with`: a cancellation set aside during the work is the answer.
+            k_rust_backend::stop::check().map_err(stopped_operation)?;
             finish(verdict, sort)
         })
     }

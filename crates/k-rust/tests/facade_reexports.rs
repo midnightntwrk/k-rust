@@ -106,10 +106,8 @@ fn the_reexports_are_the_backend_items() {
     assert!(matches!(error, HostError::Stopped(StopCause::Cancelled)));
 }
 
-/// An `execute` under a token cancelled before the call does not run, and its error carries the
-/// cause. The portable build answers the same way once its operations pass the operation
-/// boundary.
-#[cfg(feature = "z3-inference")]
+/// An `execute` under a token cancelled before the call does not run, in either build, and its
+/// error carries the cause.
 #[test]
 fn an_execute_cancelled_before_it_starts_reports_the_cancelled_cause() {
     use k_rust::backend::ExecuteRequest;

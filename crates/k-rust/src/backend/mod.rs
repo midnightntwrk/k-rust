@@ -17,13 +17,122 @@
 //!
 //! # Bounding an operation
 //!
-//! A host bounds a request with a [`CancellationToken`]: it runs the request inside
-//! [`CancellationToken::scope`] on the thread that performs it, and calls
+//! A host bounds a request with a [`CancellationToken`]: it runs the request inside the token's
+//! scope on the thread that performs it (`token.scope(|| backend.execute(request))`) and calls
 //! [`CancellationToken::cancel`] from any thread.
-//! An operation that stops does so for a [`StopCause`].
-//! With the `z3-inference` feature, a stop that [`Backend::with_solver`]'s operation boundary
-//! observes (a request cancelled before the operation starts, or a failed solver prelude) reaches
-//! the caller of [`Backend::with_solver`] as `Err(E::from(cause))`; see [`Backend::with_solver`].
+//! An operation that stops does so for a [`StopCause`], and an error it returns for a stop names
+//! that cause ([`BackendError::stop_cause`]).
+//!
+//! 1. The operations that link to this section ([`Backend::execute`], [`Backend::search`] and
+//!    their variants, [`Backend::simplify`], [`Backend::implies`], [`Backend::get_model`],
+//!    [`Backend::prove`]), [`Backend::match_patterns`] and any operation run through
+//!    [`Backend::with_solver`] run inside one operation boundary, in both builds. A request
+//!    cancelled before its operation starts does not run: the operation returns `Err(e)` with
+//!    `e.stop_cause() == Some(&StopCause::Cancelled)`. Constructing a [`Backend`] inside the
+//!    token's scope fails the same way. An error the request has before the boundary is reported
+//!    instead: an unsupported schema version, an operation this build does not provide
+//!    ([`Backend::get_model`] without the `z3-inference` feature, step timeouts on wasm32), an
+//!    unknown module or a module that fails to load, and a state too deep for the backend.
+//!    [`Backend::add_module`], [`Backend::rule_catalog`], [`Backend::select_definition`] and the
+//!    internalizing constructors ([`Backend::internalize_definition`],
+//!    [`Backend::internalize_source_definition`]) have no boundary and never answer `Cancelled`;
+//!    those that load a definition (`select_definition`, the internalizing constructors) read
+//!    the token during the load, as point 6 says.
+//! 2. A cancellation observed while [`Backend::execute`] or a search ([`Backend::search`] and its
+//!    path and pattern variants) explores ends the whole run, and the run reports it in its
+//!    result. `execute` returns `Ok` with the leaves completed before the cancellation and the
+//!    stopped state as a `cancelled` leaf ([`HaltReasonOutput::Cancelled`]); it does not list the
+//!    states still pending. A search returns `Ok` with a `cancelled` incomplete entry
+//!    ([`IncompleteSearchOutput::Cancelled`]) for the stopped state. Such a result is incomplete
+//!    and makes no coverage claim.
+//! 3. [`Backend::simplify`], [`Backend::implies`] and [`Backend::get_model`] report a
+//!    cancellation observed at any point, including one a refinement observed and set aside, as
+//!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`: each polls once more after
+//!    its work returns. [`Backend::prove`] reports a cancellation as that `Err` unless the proof's
+//!    verdict no longer depends on the work the cancellation prevented: it keeps `Ok` when the
+//!    status is `disproved` (a certified refutation, which further exploration cannot change),
+//!    when no state was left unexplored, or when the leaves that are not proven reached
+//!    `max_counterexamples`. Any other cancelled proof (`indeterminate`, `depth-bound`,
+//!    `breadth-bound`, or `failed` below the limit) could change status if it went on, so it is
+//!    the `Err`. A failed solver prelude is always an `Err`.
+//!    So a cancelled operation answers `Err` with the `Cancelled` cause, except a cancellation
+//!    observed during an `execute` or search run, which is a `cancelled` leaf or entry, and a
+//!    proof whose verdict it could not change.
+//! 4. A cancellation that lands after the boundary's entry poll and before the run's first poll
+//!    still gives `Ok` with a depth-0 `cancelled` leaf (a search: a `cancelled` entry for its
+//!    initial state), in both builds. Which shape a host gets depends only on timing, so a host
+//!    treats both `Err` with the `Cancelled` cause and a `cancelled` leaf or entry as a
+//!    cancellation; point 1 does not mean that a depth-0 `cancelled` leaf cannot occur.
+//! 5. The step deadline of a request ([`ExecuteRequest::step_timeout_ms`],
+//!    [`ProveRequest::step_timeout_ms`]) is not a cancellation: a step that passes it ends its own
+//!    state as a `timeout` leaf, and execution goes on with the other states while a proof ends.
+//! 6. Loading a module's definition (on construction, or on a module's first use) happens before
+//!    the boundary and is not cancellable: a cancellation does not interrupt it, and a
+//!    [`Backend`] constructed inside a cancelled scope loads its default module and then fails at
+//!    the boundary as in point 1. The load-time critical-pair check does not read the token.
+//!    The discharge of rewrite rules' definedness obligations at load does read it: a definition
+//!    loaded while a token is cancelled, whether a module first used by a cancelled request and
+//!    then cached, or one an internalizing constructor returns, may keep rewrite rules whose
+//!    definedness is left undischarged. Such a definition is sound, but requests on it pay for
+//!    the obligations at run time and may record different traces and diagnostics and, where
+//!    run-time simplification cannot decide an obligation, different leaves. A host therefore
+//!    constructs its backends, calls the internalizing constructors, and selects every module it
+//!    will use ([`Backend::select_definition`]) outside a token's scope.
+//!    The rewrite rules' definedness discharge reads the token during a load; this is what
+//!    makes a load under a cancelled token weaker.
+//!
+//! With the `z3-inference` feature, a solver whose prelude failed stops every operation that uses
+//! it, as `Err(e)` with a `SolverPrelude` cause, at the boundary or during the run.
+//!
+//! An execution cancelled by a watchdog thread, with names from `k_rust` alone:
+//!
+//! ```
+//! use std::{thread, time::Duration};
+//!
+//! use k_rust::backend::{
+//!     Backend, BackendOptions, CancellationToken, ExecuteRequest, HaltReasonOutput, StopCause,
+//! };
+//! use k_rust::kore::parser::parse_pattern;
+//!
+//! // `count(I) => count(I +Int 1)`: a run that never ends by itself.
+//! let definition = r#"[]
+//! module LOOP
+//!   hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+//!   sort SortS{} []
+//!   symbol count{}(SortInt{}) : SortS{} [constructor{}(), functional{}()]
+//!   hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+//!     [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+//!   axiom{} \rewrites{SortS{}}(
+//!     \and{SortS{}}(count{}(I:SortInt{}), \top{SortS{}}()),
+//!     \and{SortS{}}(count{}(add{}(I:SortInt{}, \dv{SortInt{}}("1"))), \top{SortS{}}())
+//!   ) [label{}("count")]
+//! endmodule []"#;
+//! let mut backend = Backend::new(definition, "LOOP", BackendOptions::default())?;
+//! let start = parse_pattern(r#"count{}(\dv{SortInt{}}("0"))"#)?;
+//!
+//! let token = CancellationToken::new();
+//! let watchdog = {
+//!     let token = token.clone();
+//!     thread::spawn(move || {
+//!         thread::sleep(Duration::from_millis(100));
+//!         token.cancel();
+//!     })
+//! };
+//! let outcome = token.scope(|| backend.execute(ExecuteRequest::new(start)));
+//! watchdog.join().unwrap();
+//!
+//! // Both shapes are a cancellation (points 1, 2 and 4): which one a run gives depends on when
+//! // the cancellation lands.
+//! let cancelled = match outcome {
+//!     Err(error) => error.stop_cause() == Some(&StopCause::Cancelled),
+//!     Ok(result) => result
+//!         .leaves
+//!         .iter()
+//!         .any(|leaf| matches!(leaf.reason, HaltReasonOutput::Cancelled)),
+//! };
+//! assert!(cancelled);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -36,7 +145,6 @@ use std::{
 use k_rust_backend::smt::NoSolver;
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::smt::{ModelResult, Z3Options, Z3Solver};
-#[cfg(feature = "z3-inference")]
 use k_rust_backend::stop;
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::substitution::Substitution;
@@ -935,6 +1043,8 @@ impl Backend {
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
         self.execute_using(request, None)
     }
@@ -945,6 +1055,8 @@ impl Backend {
     /// every identity and no observation events.
     ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn execute_observed(
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
@@ -1021,11 +1133,15 @@ impl Backend {
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search(&mut self, request: SearchRequest) -> Result<SearchResponse, BackendError> {
         self.search_using(request, None)
     }
 
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_observed(
         &mut self,
         request: ObservedRequest<SearchRequest>,
@@ -1075,6 +1191,8 @@ impl Backend {
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_paths(
         &mut self,
         request: SearchRequest,
@@ -1083,6 +1201,8 @@ impl Backend {
     }
 
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_paths_observed(
         &mut self,
         request: ObservedRequest<SearchRequest>,
@@ -1132,6 +1252,8 @@ impl Backend {
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern(
         &mut self,
         request: SearchPatternRequest,
@@ -1140,6 +1262,8 @@ impl Backend {
     }
 
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern_observed(
         &mut self,
         request: ObservedRequest<SearchPatternRequest>,
@@ -1193,6 +1317,8 @@ impl Backend {
     }
 
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern_paths(
         &mut self,
         request: SearchPatternRequest,
@@ -1201,6 +1327,8 @@ impl Backend {
     }
 
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern_paths_observed(
         &mut self,
         request: ObservedRequest<SearchPatternRequest>,
@@ -1336,6 +1464,8 @@ impl Backend {
     }
 
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::simplify_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
         self.simplify_with(request, |pattern| encode_pattern(&pattern))
     }
@@ -1363,6 +1493,8 @@ impl Backend {
     }
 
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::implies_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn implies(
         &mut self,
         request: ImplicationRequest,
@@ -1409,6 +1541,8 @@ impl Backend {
     }
 
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::get_model_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn get_model(
         &mut self,
         request: PatternRequest,
@@ -1431,7 +1565,7 @@ impl Backend {
         {
             let _ = (request, finish);
             Err(BackendError::new(
-                "model generation requires an SMT-enabled native build; this WebAssembly build has no Z3",
+                "model generation requires the SMT-enabled build (the `z3-inference` feature); this build has no Z3",
             ))
         }
         #[cfg(feature = "z3-inference")]
@@ -1474,6 +1608,8 @@ impl Backend {
     }
 
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::prove_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn prove(&mut self, request: ProveRequest) -> Result<ProofResultOutput, BackendError> {
         self.prove_using(request)
     }
@@ -1543,6 +1679,40 @@ impl Backend {
                 solver,
             )
             .map_err(error("could not prove claim"))?;
+            // A cancelled request or a failed solver prelude ends the proof without a leaf for
+            // the state it stopped, so no leaf names it. No answer of the solver means anything
+            // under a failed prelude, so that is the operation's error. A cancellation is too,
+            // unless the verdict no longer depends on the work it prevented
+            // (`cancellation_keeps_verdict`). A passed step deadline and an exhausted stack stop
+            // one state, which their leaves report.
+            match &result.stopped {
+                Some(cause @ StopCause::SolverPrelude(_)) => {
+                    return Err(BackendError::from(cause.clone()));
+                }
+                Some(cause @ StopCause::Cancelled)
+                    if !cancellation_keeps_verdict(
+                        result.status,
+                        result
+                            .leaves
+                            .iter()
+                            .filter(|leaf| {
+                                !matches!(
+                                    leaf.outcome,
+                                    ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Trusted
+                                )
+                            })
+                            .count(),
+                        result.unexplored_states,
+                        request.max_counterexamples,
+                    ) =>
+                {
+                    return Err(BackendError::from(cause.clone()));
+                }
+                Some(
+                    StopCause::Cancelled | StopCause::Deadline(_) | StopCause::StackExhausted(_),
+                )
+                | None => {}
+            }
             Ok(ProofResultOutput {
                 claim: claim
                     .attributes
@@ -1572,12 +1742,17 @@ impl Backend {
         })
     }
 
-    /// Run `operation` on the definition of `module` with that definition's solver. With the
-    /// `z3-inference` feature the run is one operation boundary: a request stopped before it
-    /// starts, or a solver whose prelude already failed, does not run it, and a prelude failure
+    /// Run `operation` on the definition of `module` with that definition's solver, as one
+    /// operation boundary in both builds: a request stopped before it starts does not run
+    /// `operation`. With the `z3-inference` feature the boundary also sees the solver's prelude:
+    /// a solver whose prelude already failed does not run `operation`, and a prelude failure
     /// found while it runs is its result even when `operation` returned. Such a stop reaches the
     /// caller as its [`StopCause`] (re-exported in this module), through `E`'s `From<StopCause>`;
     /// see the module docs, "Bounding an operation".
+    ///
+    /// The definition of `module` is loaded, on first use, before the boundary; a cancellation
+    /// does not interrupt the load, but a load under a cancelled token may leave rewrite rules'
+    /// definedness undischarged (module docs, "Bounding an operation", point 6).
     ///
     /// The operation runs on a stack that holds the definition's recursive passes over its own
     /// patterns and terms (`BackendDefinition::with_stack_for`); an operation over a request's
@@ -1673,7 +1848,11 @@ impl Backend {
         E: From<BackendError> + From<StopCause>,
     {
         let _ = self.options;
-        operation(&definition, &NoSolver)
+        // The operation boundary, as in the Z3 build: a request stopped before it starts does
+        // not run. `NoSolver` has no prelude signal, so the boundary sees only the request's own
+        // stops on entry and nothing on exit.
+        stop::operation(&NoSolver, || operation(&definition, &NoSolver))
+            .map_err(|stop| E::from(stop.into_cause()))?
     }
 }
 
@@ -1860,6 +2039,24 @@ fn implication_failure(failure: ImplicationFailure) -> ImplicationFailureOutput 
         ImplicationFailure::PartialCoverage => ImplicationFailureOutput::PartialCoverage,
         ImplicationFailure::ConsequentCondition => ImplicationFailureOutput::ConsequentCondition,
     }
+}
+
+/// Whether a proof that a cancellation ended keeps its verdict: the status is one that further
+/// exploration cannot change, or the exploration had finished when the cancellation was
+/// observed. A certified refutation (`Disproved`) is a fact about the definition; with no state
+/// left unexplored, or with as many leaves that are not proven as the request allows
+/// counterexamples, the proof would have ended there without the cancellation. Every other
+/// status could change if the proof went on.
+///
+/// `not_proven` counts the proof's leaves that are neither proven nor trusted, as the proof
+/// counts counterexamples.
+fn cancellation_keeps_verdict(
+    status: ProofStatus,
+    not_proven: usize,
+    unexplored_states: u64,
+    max_counterexamples: usize,
+) -> bool {
+    status == ProofStatus::Disproved || unexplored_states == 0 || not_proven >= max_counterexamples
 }
 
 /// The published outcome of a proof leaf, with the words of its reason; a predicate they name is
@@ -4601,5 +4798,36 @@ endmodule
         assert_eq!(error.stop_cause(), None);
         assert_eq!(error.message(), "could not select backend module: none");
         assert_eq!(error.to_string(), "could not select backend module: none");
+    }
+
+    /// A cancelled proof keeps its verdict exactly when no further exploration could change it.
+    #[test]
+    fn a_cancelled_proof_keeps_only_a_verdict_further_work_cannot_change() {
+        // A certified refutation stands whatever remains.
+        assert!(cancellation_keeps_verdict(ProofStatus::Disproved, 1, 5, 2));
+        // The exploration had finished: nothing unexplored, or the counterexample limit reached.
+        assert!(cancellation_keeps_verdict(ProofStatus::Failed, 1, 0, 2));
+        assert!(cancellation_keeps_verdict(ProofStatus::Failed, 1, 3, 1));
+        assert!(cancellation_keeps_verdict(
+            ProofStatus::Indeterminate,
+            2,
+            1,
+            2
+        ));
+        // Anything else could change if the proof went on.
+        for status in [
+            ProofStatus::Failed,
+            ProofStatus::Indeterminate,
+            ProofStatus::DepthBound,
+            ProofStatus::BreadthBound,
+        ] {
+            assert!(!cancellation_keeps_verdict(status, 1, 1, 2), "{status:?}");
+        }
+        assert!(!cancellation_keeps_verdict(
+            ProofStatus::Indeterminate,
+            0,
+            1,
+            1
+        ));
     }
 }

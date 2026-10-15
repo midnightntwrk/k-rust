@@ -133,6 +133,9 @@ impl Backend {
                     externalize::ml_pattern(&simplified, &result_sort)
                 }
             };
+            // A cancellation a refinement observed and set aside is still the operation's
+            // answer: poll once after the work returns.
+            k_rust_backend::stop::check().map_err(stopped_operation)?;
             finish(simplified)
         })
     }
@@ -176,6 +179,8 @@ impl Backend {
             let result = model_of(definition, &predicate, solver)
                 .map_err(stopped_operation)?
                 .map_err(BackendError::from)?;
+            // As in `simplify_kore_with`: a cancellation set aside during the work is the answer.
+            k_rust_backend::stop::check().map_err(stopped_operation)?;
             finish(result, Some(result_sort))
         })
     }
