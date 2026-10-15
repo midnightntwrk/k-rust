@@ -7855,44 +7855,59 @@ fn path_set_keeps_each_converging_path_with_its_own_observations() {
     assert_eq!(path_set.discarded, state_set.discarded);
 }
 
+/// `d` is reached at the depth bound through `b` (`a -> b -> d`) and stuck directly (`a -> d`). A
+/// depth-bound leaf says only that `d`'s subtree was not explored, so it does not stand for the
+/// stuck leaf, which says the subtree is `d` alone: when the bound leaf comes first both are kept.
+/// A stuck leaf says everything about `d`'s subtree, so when it comes first it absorbs the bound
+/// leaf. Depth-first order follows rule declaration order.
 #[test]
-fn equal_configurations_with_different_halt_reasons_merge_to_the_first() {
-    let definition = definition(
-        r#"
-            axiom{} \rewrites{SortS{}}(
-                \and{SortS{}}(wrap{}(\dv{SortS{}}("a")), \top{SortS{}}()),
-                wrap{}(\dv{SortS{}}("b"))
-            ) [label{}("a-b")]
-            axiom{} \rewrites{SortS{}}(
-                \and{SortS{}}(wrap{}(\dv{SortS{}}("a")), \top{SortS{}}()),
-                wrap{}(\dv{SortS{}}("d"))
-            ) [label{}("a-d")]
-            axiom{} \rewrites{SortS{}}(
-                \and{SortS{}}(wrap{}(\dv{SortS{}}("b")), \top{SortS{}}()),
-                wrap{}(\dv{SortS{}}("d"))
-            ) [label{}("b-d")]
-            "#,
-    );
-    let result = execute(
-        &definition,
-        subject(&definition, "a"),
-        ExecutionOptions {
-            max_depth: 2,
-            ..ExecutionOptions::default()
-        },
-    );
-
-    let [leaf] = result.leaves.as_slice() else {
-        panic!(
-            "expected the first final configuration only: {:?}",
-            result.leaves
-        );
+fn a_stuck_leaf_absorbs_a_later_bound_leaf_of_its_configuration_but_not_the_reverse() {
+    let rule = |label: &str, from: &str, to: &str| {
+        format!(
+            r#"
+            axiom{{}} \rewrites{{SortS{{}}}}(
+                \and{{SortS{{}}}}(wrap{{}}(\dv{{SortS{{}}}}("{from}")), \top{{SortS{{}}}}()),
+                wrap{{}}(\dv{{SortS{{}}}}("{to}"))
+            ) [label{{}}("{label}")]"#
+        )
     };
-    // Depth-first order reaches `a -> b -> d` (at the bound) before `a -> d` (stuck); the equal
-    // configurations merge into that first leaf.
-    assert_eq!(leaf.pattern, subject(&definition, "d"));
-    assert_eq!(leaf.depth, 2);
-    assert_eq!(leaf.halt_reason, HaltReason::DepthBound);
+    let through_b = [rule("a-b", "a", "b"), rule("b-d", "b", "d")].concat();
+    let direct = rule("a-d", "a", "d");
+    for (rules, expected) in [
+        (
+            [through_b.as_str(), direct.as_str()].concat(),
+            vec![(2, HaltReason::DepthBound), (1, HaltReason::Stuck)],
+        ),
+        (
+            [direct.as_str(), through_b.as_str()].concat(),
+            vec![(1, HaltReason::Stuck)],
+        ),
+    ] {
+        let definition = definition(&rules);
+        let result = execute(
+            &definition,
+            subject(&definition, "a"),
+            ExecutionOptions {
+                max_depth: 2,
+                ..ExecutionOptions::default()
+            },
+        );
+        assert!(
+            result
+                .leaves
+                .iter()
+                .all(|leaf| leaf.pattern == subject(&definition, "d")),
+            "{result:#?}"
+        );
+        assert_eq!(
+            result
+                .leaves
+                .iter()
+                .map(|leaf| (leaf.depth, leaf.halt_reason.clone()))
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
 }
 
 /// Two paths end in the one configuration `c`: `start => c` (`to-c`), and `start => norm(a)`

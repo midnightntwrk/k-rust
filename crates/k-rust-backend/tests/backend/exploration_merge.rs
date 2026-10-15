@@ -198,6 +198,26 @@ fn bottom(leaf: &ExecutionLeaf) -> Option<(u64, Pattern, Predicate)> {
     }
 }
 
+/// Whether an earlier leaf of halt `retained` stands for a later leaf of halt `later` of the same
+/// configuration, by the state-set contract (docs/compatibility.md): a stuck, branch or cut-point
+/// leaf stands for any later leaf but a terminal-rule one; a leaf that leaves its configuration's
+/// subtree unexplored or undecided only for another such leaf; a terminal-rule leaf only for, and
+/// only by, a stuck or terminal-rule leaf. The fixtures have no run-ending stop.
+fn stands_for(retained: &HaltReason, later: &HaltReason) -> bool {
+    let decided = |halt: &HaltReason| {
+        matches!(
+            halt,
+            HaltReason::Stuck | HaltReason::Branch { .. } | HaltReason::CutPointRule { .. }
+        )
+    };
+    let terminal = |halt: &HaltReason| matches!(halt, HaltReason::TerminalRule { .. });
+    if terminal(retained) || terminal(later) {
+        let final_ = |halt: &HaltReason| matches!(halt, HaltReason::Stuck) || terminal(halt);
+        return final_(retained) && final_(later);
+    }
+    decided(retained) || !decided(later)
+}
+
 fn witness(leaf: &ExecutionLeaf) -> (Pattern, u64, HaltReason, Vec<TraceEntry>) {
     (
         leaf.pattern.clone(),
@@ -229,9 +249,8 @@ fn same_set<T: PartialEq + std::fmt::Debug>(left: &[T], right: &[T], what: &str,
 /// the path-set result's, deduplicated:
 /// - its leaves carrying a configuration, as a set of (state, effects, console), are the
 ///   path-set leaves', and each has the depth and halt reason of a path-set leaf of its key;
-/// - in order, they are the path-set leaves deduplicated by key, each the first of its key,
-///   with that leaf's depth, halt reason and trace (the fixtures have no terminal rule and no
-///   stop, under which the final merge keeps some equal leaves apart);
+/// - in order, they are the path-set leaves the final merge keeps (each retained leaf the first of
+///   the leaves it stands for, [`stands_for`]), with that leaf's depth, halt reason and trace;
 /// - leaves without a configuration denote the same (depth, state, obligation) set;
 /// - the union of the leaves' diagnostics is the same;
 /// - the state-set run pops no more states than the path-set run.
@@ -283,19 +302,23 @@ pub(crate) fn assert_merged_state_set_agrees(
             "{context}: no path-set leaf has the state-set leaf's depth and halt: {leaf:#?}"
         );
     }
-    let mut first_of_key = Vec::<(Key, ExecutionLeaf)>::new();
+    // The final merge of the path-set leaves, as the state-set contract states it: a leaf is
+    // dropped when an earlier retained leaf of its key stands for it.
+    let mut retained = Vec::<(Key, ExecutionLeaf)>::new();
     for leaf in &path_leaves {
-        if !first_of_key.iter().any(|(seen, _)| *seen == key(leaf)) {
-            first_of_key.push((key(leaf), leaf.clone()));
+        if !retained.iter().any(|(seen, kept)| {
+            *seen == key(leaf) && stands_for(&kept.halt_reason, &leaf.halt_reason)
+        }) {
+            retained.push((key(leaf), leaf.clone()));
         }
     }
     assert_eq!(
         state_leaves.iter().map(witness).collect::<Vec<_>>(),
-        first_of_key
+        retained
             .iter()
             .map(|(_, leaf)| witness(leaf))
             .collect::<Vec<_>>(),
-        "{context}: the state-set leaves are the first path-set leaf of each key, in order"
+        "{context}: the state-set leaves are the path-set leaves of the final merge, in order"
     );
 
     let bottoms = |result: &ExecutionResult| distinct(result.leaves.iter().filter_map(bottom));

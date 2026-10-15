@@ -1887,17 +1887,17 @@ fn final_leaves(
 /// Merging drops a leaf, which is sound only when an equal leaf that stays stands for it
 /// ([`may_absorb`]); a leaf's halt can mean more than its configuration ([`merge_class`]). The leaf
 /// of a stop or of the work budget that ended the run (`MergeClass::RunEnding`) also stands for the pending states the
-/// run dropped, which no other leaf carries, so it is never merged, in either direction. A bound or
-/// stop local to one state (`MergeClass::Unexplored`) means that its configuration's subtree was
-/// not explored; an earlier leaf of that configuration represents that subtree only when its own
-/// halt is determined by the configuration (stuck, branching, undecided, failed, or itself a bound
-/// or stop). A terminal-rule leaf's halt is not: it records the rule by which its path arrived, and
-/// the same configuration reached by another rule has successors. A terminal leaf says the
-/// configuration is final; it absorbs, and is absorbed by, only leaves that say so too (stuck or
-/// terminal), and is kept beside any other equal leaf, which says the configuration goes on, is
-/// undecided, or was not explored. A later leaf merges into the first retained leaf of its
-/// configuration that may absorb it, and is otherwise retained itself, so a state-set result may
-/// show one configuration more than once, each with a different meaning.
+/// run dropped, which no other leaf carries, so it is never merged, in either direction. A leaf
+/// whose halt the decided configuration determines (stuck, branching, cut point) stands for any
+/// later leaf of its configuration but a terminal-rule one. A leaf that marks its configuration's
+/// subtree unexplored or undecided (a bound, a stop local to the state, an undecided step, a
+/// failed simplification) stands only for another such leaf, and is kept beside a later leaf that
+/// says what the subtree holds. A terminal-rule leaf's halt records the rule by which its path
+/// arrived, and the same configuration reached by another rule may have successors: it says the
+/// configuration is final, absorbs and is absorbed by only leaves that say so too (stuck or
+/// terminal), and is kept beside any other equal leaf. A later leaf merges into the first retained
+/// leaf of its configuration that may absorb it, and is otherwise retained itself, so a state-set
+/// result may show one configuration more than once, each with a different meaning.
 ///
 /// A retained leaf is the first of the leaves merged into it, the witness: it keeps its own
 /// pattern, depth, halt reason, trace, branch, observations, effects, and console transcript, which
@@ -1981,9 +1981,11 @@ enum MergeClass {
     /// A stop, or the work budget, that ended the whole run: the leaf also stands for the
     /// pending states the run dropped.
     RunEnding,
-    /// A bound or a stop local to the state: the configuration's subtree was not explored.
+    /// A bound, a stop local to the state, an undecided step or a failed simplification: the
+    /// configuration's subtree was not explored or not decided.
     Unexplored,
-    /// The halt is determined by the configuration.
+    /// The halt is determined by the configuration, which was decided: stuck, branching, or
+    /// stopped at a cut point.
     ByConfiguration,
     /// The halt records the rule by which the path arrived (`TerminalRule`).
     ByArrival,
@@ -2010,14 +2012,15 @@ fn merge_class(halt: &HaltReason) -> MergeClass {
                 MergeClass::Unexplored
             }
         }
-        HaltReason::DepthBound | HaltReason::BreadthBound => MergeClass::Unexplored,
         // The budget ended the run: the leaf also stands for the pending states it dropped.
         HaltReason::WorkBound => MergeClass::RunEnding,
-        HaltReason::Stuck
-        | HaltReason::Branch { .. }
-        | HaltReason::CutPointRule { .. }
+        HaltReason::DepthBound
+        | HaltReason::BreadthBound
         | HaltReason::Indeterminate(_)
-        | HaltReason::Simplification(_) => MergeClass::ByConfiguration,
+        | HaltReason::Simplification(_) => MergeClass::Unexplored,
+        HaltReason::Stuck | HaltReason::Branch { .. } | HaltReason::CutPointRule { .. } => {
+            MergeClass::ByConfiguration
+        }
         HaltReason::TerminalRule { .. } => MergeClass::ByArrival,
     }
 }
@@ -2026,14 +2029,16 @@ fn merge_class(halt: &HaltReason) -> MergeClass {
 /// configuration and halt `later` in a state-set result. Only leaves that take part in merging
 /// are asked.
 ///
-/// - A leaf whose halt the configuration determines (stuck, branching, cut point, undecided,
-///   failed) has the same halt on every path to that configuration, so two such leaves of one
-///   configuration agree. They differ only where the configuration's step came out differently on
-///   two paths (a solver that answered one query differently, as when it timed out), and the first
-///   then stands for both: either outcome is a correct reading of the configuration.
-/// - A bound or stop leaf says that its configuration's subtree was not explored, which stands for
-///   whatever any other leaf of the configuration says about it: a consumer that explores the
-///   subtree reaches it.
+/// - A leaf whose halt the decided configuration determines (stuck, branching, cut point) says
+///   everything about the configuration's subtree: it stands for any later leaf of the
+///   configuration but a terminal-rule one, including one that marks the subtree unexplored or
+///   undecided. Two such leaves differ only where the configuration's step came out differently
+///   on two paths (a solver that answered one query differently, as when it timed out), and the
+///   first then stands for both.
+/// - A leaf that marks its configuration's subtree unexplored or undecided (a bound, a stop local
+///   to the state, an undecided step, a failed simplification) stands only for another such leaf:
+///   it does not say what the subtree holds, so it does not stand for a later stuck, branching or
+///   cut-point leaf, which does.
 /// - A terminal-rule leaf's halt records the rule by which its path arrived, not a property of the
 ///   configuration, which reached otherwise may have successors: exploring from another leaf of
 ///   it does not recover that it is final. A terminal-rule leaf therefore absorbs, and is absorbed
@@ -2045,8 +2050,10 @@ fn may_absorb(retained: &HaltReason, later: &HaltReason) -> bool {
         (MergeClass::ByArrival, _) | (_, MergeClass::ByArrival) => {
             final_in_its_own_right(retained) && final_in_its_own_right(later)
         }
-        (MergeClass::Unexplored | MergeClass::ByConfiguration, _) => true,
-        (MergeClass::NoConfiguration | MergeClass::RunEnding, _) => false,
+        (MergeClass::ByConfiguration, _) | (MergeClass::Unexplored, MergeClass::Unexplored) => true,
+        (MergeClass::Unexplored, _) | (MergeClass::NoConfiguration | MergeClass::RunEnding, _) => {
+            false
+        }
     }
 }
 
@@ -3078,10 +3085,10 @@ mod tests {
         );
     }
 
-    // Three leaves of one configuration merge into the first, which keeps its own depth and halt
-    // reason and collects every merged leaf's diagnostics, its own first, then each new one in
-    // the order the merged leaves are met; a leaf of another configuration between them keeps
-    // only its own.
+    // Three leaves of one configuration merge into the first, a stuck leaf that stands for the
+    // later stuck and depth-bound ones: it keeps its own depth and halt reason and collects every
+    // merged leaf's diagnostics, its own first, then each new one in the order the merged leaves
+    // are met; a leaf of another configuration between them keeps only its own.
     #[test]
     fn a_merged_final_leaf_collects_the_diagnostics_of_every_merged_leaf() {
         let definition = definition("");
@@ -3104,7 +3111,7 @@ mod tests {
         let leaves = merge_equal_final_leaves(
             &RequestNames::default(),
             vec![
-                leaf("same", 1, HaltReason::DepthBound, vec![exhausted(1)]),
+                leaf("same", 1, HaltReason::Stuck, vec![exhausted(1)]),
                 leaf("other", 2, HaltReason::Stuck, vec![exhausted(4)]),
                 leaf(
                     "same",
@@ -3112,7 +3119,7 @@ mod tests {
                     HaltReason::Stuck,
                     vec![exhausted(2), exhausted(1)],
                 ),
-                leaf("same", 3, HaltReason::Stuck, vec![exhausted(3)]),
+                leaf("same", 3, HaltReason::DepthBound, vec![exhausted(3)]),
             ],
         );
 
@@ -3120,10 +3127,7 @@ mod tests {
             panic!("expected one leaf per configuration: {leaves:?}");
         };
         assert_eq!(same.pattern, subject(&definition, "same"));
-        assert_eq!(
-            (same.depth, &same.halt_reason),
-            (1, &HaltReason::DepthBound)
-        );
+        assert_eq!((same.depth, &same.halt_reason), (1, &HaltReason::Stuck));
         assert_eq!(same.diagnostics, [exhausted(1), exhausted(2), exhausted(3)]);
         assert_eq!(other.pattern, subject(&definition, "other"));
         assert_eq!(other.diagnostics, [exhausted(4)]);
@@ -3546,25 +3550,49 @@ mod tests {
             halts(vec![leaf(1, terminal.clone()), leaf(2, terminal.clone())]),
             [(1, terminal)]
         );
-        // An undecided, failed or bound leaf stands for a later stuck leaf of its configuration:
-        // the two differ only where one configuration's step came out differently on two paths,
-        // and exploring from the first reaches what the second says.
-        for earlier in [
-            HaltReason::Indeterminate(IndeterminateReason::SurvivingMacroOrAlias {
-                symbol: "m".into(),
-            }),
-            HaltReason::Simplification(SimplificationError::IterationLimit {
-                limit: 1,
-                term: subject(&definition, "same").term,
-            }),
+        // An undecided, failed, bound or stopped leaf does not say what its configuration's
+        // subtree holds, so it does not stand for a later stuck leaf of it, which does; a stuck
+        // leaf first stands for it; and two leaves that both leave the subtree open merge.
+        let undecided = HaltReason::Indeterminate(IndeterminateReason::SurvivingMacroOrAlias {
+            symbol: "m".into(),
+        });
+        let failed = HaltReason::Simplification(SimplificationError::IterationLimit {
+            limit: 1,
+            term: subject(&definition, "same").term,
+        });
+        let deadline = HaltReason::Stopped(StopCause::Deadline(
+            crate::timeout::StepTimeoutMode::Manual(std::time::Duration::from_millis(1)),
+        ));
+        for open in [
+            undecided.clone(),
+            failed.clone(),
             HaltReason::DepthBound,
+            deadline.clone(),
         ] {
             assert_eq!(
-                halts(vec![leaf(1, earlier.clone()), leaf(2, HaltReason::Stuck)]),
-                [(1, earlier.clone())],
-                "{earlier:?}"
+                halts(vec![leaf(1, open.clone()), leaf(2, HaltReason::Stuck)]),
+                [(1, open.clone()), (2, HaltReason::Stuck)],
+                "{open:?}"
+            );
+            assert_eq!(
+                halts(vec![leaf(1, HaltReason::Stuck), leaf(2, open.clone())]),
+                [(1, HaltReason::Stuck)],
+                "{open:?}"
             );
         }
+        assert_eq!(
+            halts(vec![leaf(1, undecided.clone()), leaf(2, failed.clone())]),
+            [(1, undecided)]
+        );
+        assert_eq!(
+            halts(vec![leaf(1, deadline), leaf(2, HaltReason::DepthBound)]),
+            [(
+                1,
+                HaltReason::Stopped(StopCause::Deadline(
+                    crate::timeout::StepTimeoutMode::Manual(std::time::Duration::from_millis(1)),
+                ))
+            )]
+        );
     }
 
     /// `wrap("s{i}")` rewrites to `wrap("l{i}")` and `wrap("r{i}")`, both of which rewrite to
