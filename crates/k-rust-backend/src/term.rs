@@ -727,16 +727,53 @@ pub enum TermKind {
         target: Sort,
         term: Term,
     },
+    /// A map of the collection sort `definition` describes: the concatenation of one binding per
+    /// entry and of `rest`, defined only when the keys are pairwise distinct and none is a key of
+    /// `rest`. A key bound twice is kept, never merged, and makes the term `\bottom`
+    /// ([`Term::map`]). Each key and value is held at exactly the definition's key and value sort,
+    /// an item of a strict subsort as its injection in normal form. `rest`, when present, is not
+    /// a map of the same definition; it may be a raw application of the concat symbol holding two
+    /// opaque parts. A rest-free map with pairwise distinct keys whose keys and values are
+    /// constructor-like (domain values, free constructor applications, their normal-form
+    /// injections, and collections of them) denotes exactly the finite map of its entries. The
+    /// entries are in k-rust's term order (`order_collection`), a structural order that is a
+    /// function of the entries alone and not part of what the map denotes.
+    ///
+    /// A term of a collection sort may also be such a raw concat application itself; it is never
+    /// rest-free and never a ground value. What a collection denotes holds for a definition whose
+    /// collection role symbols have their roles' signatures, which the loader requires
+    /// ([`crate::definition::DefinitionError::CollectionRoleMisfit`]), and that has no axiom
+    /// rooted at a role symbol (a function or anywhere equation, `concrete`, `symbolic` or
+    /// neither, or a `simplification`); the load reports the executable equations among them
+    /// without `symbolic` as [`crate::confluence::ViolationKind::IndexedAt`] of a collection index.
+    /// A map read back from the state of an execution leaf whose state was normalised binds no
+    /// key twice; a leaf whose state was taken before it was normalised (work-bound,
+    /// breadth-bound, stopped, or one whose normalisation failed) keeps the state as given or
+    /// built, repeated key included (`docs/compatibility.md`, "Collections in results").
     Map {
         definition: Arc<MapDefinition>,
         entries: Items<(Term, Term)>,
         rest: Option<Term>,
     },
+    /// A list of the collection sort `definition` describes: `heads`, then the middle, then the
+    /// tails of `rest`, in order. Each element is held at exactly the definition's element sort,
+    /// an element of a strict subsort as its injection in normal form. The middle is never a list
+    /// of the same definition; it may be a raw application of the concat symbol holding two opaque
+    /// parts. A list may hold equal elements: it is a sequence, and `ListItem(1) ListItem(1)` has
+    /// two. A list without a middle whose elements are constructor-like denotes exactly the
+    /// sequence of its elements, under the conditions stated on [`TermKind::Map`].
     List {
         definition: Arc<ListDefinition>,
         heads: Items<Term>,
         rest: Option<(Term, Items<Term>)>,
     },
+    /// A set of the collection sort `definition` describes: the concatenation of one element
+    /// application per element and of `rest`, defined only when the elements are pairwise distinct
+    /// and none is an element of `rest`; an element held twice is kept, never merged, and makes the
+    /// term `\bottom`. Elements are held at exactly the element sort, in injection normal form, and
+    /// `rest` is as for [`TermKind::Map`]. A rest-free set with pairwise distinct elements that are
+    /// constructor-like denotes exactly the finite set of its elements, under the conditions
+    /// stated on [`TermKind::Map`]; its order is k-rust's term order, not part of what it denotes.
     Set {
         definition: Arc<SetDefinition>,
         elements: Items<Term>,
