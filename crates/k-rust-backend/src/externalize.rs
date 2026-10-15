@@ -194,6 +194,11 @@ pub fn predicates_pattern(
     )
 }
 
+/// The KORE pattern of `term`. A collection term is written with its sort's own symbols, each
+/// item in one element application and the items and rest folded right-nested with the concat
+/// symbol, the unit only when there is nothing; a raw concat application is written as itself.
+/// Nothing is dropped or added, so reading the pattern back gives an equal term (what each
+/// collection denotes: [`TermKind::Map`]).
 pub fn term(term: &Term) -> kore::Pattern {
     match term.kind() {
         TermKind::And(left, right) => kore::Pattern::And {

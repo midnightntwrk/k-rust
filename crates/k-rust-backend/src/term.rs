@@ -727,16 +727,45 @@ pub enum TermKind {
         target: Sort,
         term: Term,
     },
+    /// A map of the collection sort `definition` describes: the concatenation of one binding per
+    /// entry and of `rest`, defined only when the keys are pairwise distinct and none is a key of
+    /// `rest`. A key bound twice is kept, never merged, and makes the term `\bottom`
+    /// ([`Term::map`]). Each key and value is held at exactly the definition's key and value sort,
+    /// an item of a strict subsort as its injection in normal form. `rest`, when present, is not
+    /// a map of the same definition; it may be a raw application of the concat symbol holding two
+    /// opaque parts. A rest-free map whose keys and values are values denotes exactly the finite
+    /// map of its entries. The entries are in k-rust's term order (`order_collection`), which is
+    /// not part of what the map denotes.
+    ///
+    /// A term of a collection sort may also be such a raw concat application itself; it is never
+    /// rest-free and never a ground value. What a collection denotes holds for a definition whose
+    /// collection role symbols have their roles' signatures, which the loader requires
+    /// ([`crate::definition::DefinitionError::CollectionRoleMisfit`]), and that has no executable
+    /// equation rooted at a role symbol, which the load reports as
+    /// [`crate::confluence::ViolationKind::IndexedAt`] of a collection index.
     Map {
         definition: Arc<MapDefinition>,
         entries: Items<(Term, Term)>,
         rest: Option<Term>,
     },
+    /// A list of the collection sort `definition` describes: `heads`, then the middle, then the
+    /// tails of `rest`, in order. Each element is held at exactly the definition's element sort,
+    /// an element of a strict subsort as its injection in normal form. The middle is never a list
+    /// of the same definition; it may be a raw application of the concat symbol holding two opaque
+    /// parts. A list without a middle whose elements are values denotes exactly the sequence of its
+    /// elements, under the conditions stated on [`TermKind::Map`].
     List {
         definition: Arc<ListDefinition>,
         heads: Items<Term>,
         rest: Option<(Term, Items<Term>)>,
     },
+    /// A set of the collection sort `definition` describes: the concatenation of one element
+    /// application per element and of `rest`, defined only when the elements are pairwise distinct
+    /// and none is an element of `rest`; an element held twice is kept, never merged, and makes the
+    /// term `\bottom`. Elements are held at exactly the element sort, in injection normal form, and
+    /// `rest` is as for [`TermKind::Map`]. A rest-free set whose elements are values denotes exactly
+    /// the finite set of its elements, under the conditions stated on [`TermKind::Map`]; its order
+    /// is k-rust's term order, not part of what it denotes.
     Set {
         definition: Arc<SetDefinition>,
         elements: Items<Term>,
