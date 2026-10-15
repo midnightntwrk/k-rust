@@ -1,6 +1,7 @@
 //! Tests of `pub(crate)` entry points: the compiler stops them from naming a private item.
 
 mod constructor_schemas;
+mod coverage;
 mod definedness;
 mod definedness_oracle;
 mod domain_values;

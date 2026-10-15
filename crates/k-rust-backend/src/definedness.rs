@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition (BackendDefinition::discharge_rewrite_definedness)"
-//! bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons"
+//! bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons, each under a coverage collection (crate::coverage) that keeps the ids of the equations it applies, at most one per equation, and stores them on a rule it discharges"
 //! ```
 //!
 //! Structural definedness (ceil) constraint generation and rewrite-rule definedness discharge, one
@@ -951,6 +951,9 @@ fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<
                     definition,
                     substitute_predicates(predicates, &substitution),
                 );
+                // The instance gives the condition: the equation is used, at run time inside the
+                // run's collection, at load inside the discharge's (`crate::coverage`).
+                crate::coverage::note_applied(&rule.attributes.unique_id);
                 return Some(
                     predicates
                         .into_iter()

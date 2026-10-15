@@ -407,6 +407,14 @@ pub struct ComputedRuleAttributes {
     /// attribute constrains it (`unread_map_frames`). An equation's match leaves them unbound
     /// when the subject map is `ceil_free` (`matching::match_equation_in_definition`).
     pub unread_map_frames: BTreeSet<Variable>,
+    /// For a rewrite rule whose definedness the definition's load discharged
+    /// (`BackendDefinition::discharge_rewrite_definedness`), the ids of the equations the
+    /// discharge applied: the unconditional ceil equations that stated its terms defined, and
+    /// those that simplified their conditions. Empty for any other rule, and for a rule declared
+    /// `preserves-definedness`, whose definedness the author asserted. A run that begins deciding
+    /// the rule's `requires` reports them as applied (`crate::coverage::RunCoverage`): the
+    /// discharge removed the obligations it would otherwise decide.
+    pub discharged_by: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3339,6 +3347,7 @@ where
             unbound_variables: rename_set(&computed.unbound_variables),
             unbound_result_variables: computed.unbound_result_variables.clone(),
             unread_map_frames: rename_set(&computed.unread_map_frames),
+            discharged_by: computed.discharged_by.clone(),
         },
         existentials: rename_set(&rule.existentials),
     };

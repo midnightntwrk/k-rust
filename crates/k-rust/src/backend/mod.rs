@@ -883,6 +883,8 @@ impl Backend {
                 request_names: RequestNames::of_received(&[&syntax]),
                 // `execute` runs a program, so it lists collections in k-rust's order.
                 evaluation: EvaluationMode::Execution,
+                // The request has no field asking for the run's coverage yet.
+                collect_coverage: false,
             };
             let result = match observation_rules {
                 Some(rules) => {

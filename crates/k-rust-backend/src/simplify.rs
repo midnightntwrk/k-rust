@@ -1749,6 +1749,7 @@ fn evaluate_equation_condition(
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationCondition> {
     let rule_id = rule.unique_id.as_str();
+    crate::coverage::note_matched(rule_id);
     let (requires, matched) = instance.into_requires();
     // `R[t]` must hold on the element `t` denotes, and holds there only where its terms are
     // defined, so their definedness joins the requires. The definedness of the bound terms
@@ -3020,8 +3021,12 @@ fn apply_ceil_equation_instance(
         solver,
     )? {
         DecidedEquation::Defined(defined) => defined,
-        DecidedEquation::Refuted(_) => return Ok(EquationAttempt::Applied(Predicate::False)),
+        DecidedEquation::Refuted(_) => {
+            crate::coverage::note_applied(&rule.attributes.unique_id);
+            return Ok(EquationAttempt::Applied(Predicate::False));
+        }
     };
+    crate::coverage::note_applied(&rule.attributes.unique_id);
     Ok(EquationAttempt::Applied(normalize_predicate(
         Predicate::And(defined.into_result(rhs)),
     )))
@@ -3204,6 +3209,7 @@ fn apply_predicate_equation(
                     ));
                 }
             }
+            crate::coverage::note_applied(&rule.attributes.unique_id);
             Ok(EquationAttempt::Applied(normalize_predicate(
                 Predicate::And(defined.into_result(&rule.rhs)),
             )))
@@ -3213,6 +3219,7 @@ fn apply_predicate_equation(
             if !obligated.is_subset(&strict) || !consumed_strict {
                 return Ok(EquationAttempt::NotApplicable(()));
             }
+            crate::coverage::note_applied(&rule.attributes.unique_id);
             Ok(EquationAttempt::Applied(Predicate::False))
         }
     }

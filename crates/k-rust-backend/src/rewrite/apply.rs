@@ -172,6 +172,7 @@ fn trivial_application(
     effects: Vec<BuiltinEffect>,
     contradicted_total: Option<Box<ContradictedTotal>>,
 ) -> TrivialApplication {
+    crate::coverage::note_applied(&rule.attributes.unique_id);
     TrivialApplication {
         rule_id: rule.attributes.unique_id.clone(),
         label: rule.attributes.label.clone(),
@@ -198,6 +199,7 @@ fn carried_trivial_application(
     application: &RuleApplication,
     obligation: Predicate,
 ) -> TrivialApplication {
+    crate::coverage::note_applied(&rule.attributes.unique_id);
     let undefined = applicability.outside(&application.defined);
     TrivialApplication {
         rule_id: rule.attributes.unique_id.clone(),
@@ -1368,6 +1370,12 @@ fn requires(
     path_knowledge: Vec<Predicate>,
 ) -> Phase<(Vec<Predicate>, Vec<Predicate>)> {
     let rule = context.rule;
+    crate::coverage::note_matched(&rule.attributes.unique_id);
+    // The ceil equations that discharged the rule's definedness at load stand for the
+    // obligations this attempt would otherwise decide (`ComputedRuleAttributes::discharged_by`).
+    for id in &rule.computed_attributes.discharged_by {
+        crate::coverage::note_applied(id);
+    }
     let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
     // The instance satisfies `requires` only where its terms are defined; state that before the
@@ -1970,6 +1978,7 @@ fn apply_rhs_alternative(
     };
     let mut constraints = pattern.constraints.clone();
     extend_unique(&mut constraints, rule_predicates.iter().cloned());
+    crate::coverage::note_applied(&rule.attributes.unique_id);
     Ok(RhsAlternativeAttempt::Applied(RuleApplication {
         applied: AppliedRule {
             before: pattern.clone(),

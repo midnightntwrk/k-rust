@@ -96,20 +96,31 @@ pub(super) fn execute_using(
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,
     });
-    let mut execution = Execution::seed(
-        definition,
-        initial,
-        options,
-        solver,
-        initial_io,
-        observation,
-        &mut observe,
-    );
-    if execution.options.max_breadth == Some(0) {
-        return execution.collect_at_breadth_zero();
+    let collect_coverage = options.collect_coverage;
+    let run = || {
+        let mut execution = Execution::seed(
+            definition,
+            initial,
+            options,
+            solver,
+            initial_io,
+            observation,
+            &mut observe,
+        );
+        if execution.options.max_breadth == Some(0) {
+            return execution.collect_at_breadth_zero();
+        }
+        execution.run(&timeout_controller);
+        execution.collect()
+    };
+    if !collect_coverage {
+        return run();
     }
-    execution.run(&timeout_controller);
-    execution.collect()
+    // The definition is selected and internalized before this call, so the collection holds
+    // what the run applied and nothing a module's construction did (`crate::coverage`).
+    let ((mut result, status), coverage) = crate::coverage::collect(run);
+    result.coverage = Some(coverage);
+    (result, status)
 }
 
 /// A phase either hands the state on or ends it as a leaf.
@@ -247,6 +258,7 @@ impl<'a> Execution<'a> {
                 leaves,
                 effects: Vec::new(),
                 discarded: self.discarded,
+                coverage: None,
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: false,
@@ -1277,8 +1289,9 @@ impl<'a> Execution<'a> {
         for effect in &effects {
             // An observer is the caller's code, not part of the run: whatever it evaluates is
             // outside the execution, in `Proof` mode.
+            // Nor does it report to the run's coverage.
             crate::evaluation::with_evaluation(crate::evaluation::EvaluationMode::Proof, || {
-                (self.observe)(effect);
+                crate::coverage::suspend(|| (self.observe)(effect));
             });
         }
         (
@@ -1287,6 +1300,7 @@ impl<'a> Execution<'a> {
                 leaves,
                 effects,
                 discarded: self.discarded,
+                coverage: None,
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: self.initial_input_count != 0

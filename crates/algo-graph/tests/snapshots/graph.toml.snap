@@ -1728,7 +1728,7 @@ bound = "one ceil_term call per Boolean atom and per atom side tested for provab
 
 [[node.cost]]
 mode = "one definition (BackendDefinition::discharge_rewrite_definedness)"
-bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons"
+bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons, each under a coverage collection (crate::coverage) that keeps the ids of the equations it applies, at most one per equation, and stores them on a rule it discharges"
 
 [[node]]
 kind = "algorithm"
