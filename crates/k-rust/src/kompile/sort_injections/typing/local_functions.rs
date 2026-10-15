@@ -18,7 +18,9 @@
 //!
 //! Cost: one walk of the sentence and of each scope it creates (N nodes in all), one sort
 //! computation of each local function's pattern, value and body, and one semantic-cast
-//! resolution per scope; O(N) besides those.
+//! resolution per scope; O(N) besides those. The walks that type the scopes then type each
+//! equation once per placement walk that reaches its construct: the walks that only compute a
+//! sort do not type the equations below them (`typing.rs`, `Walk::types_equations`).
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -44,10 +46,17 @@ pub(super) struct LoweredLocal {
     pub(super) sorts: LambdaSorts,
     /// The value the lambda is applied to, resolved in the enclosing scope.
     pub(super) argument: Term,
-    /// The pattern of the generated equation, resolved in the equation's scope.
-    pub(super) pattern: Term,
-    /// The body of the generated equation, resolved in its scope; `None` for a match.
-    pub(super) body: Option<Term>,
+    /// The generated equation, resolved in its own scope.
+    pub(super) equation: Equation,
+}
+
+/// A local function's equation, resolved in its own scope.
+pub(super) enum Equation {
+    /// The pattern and the body of a `#fun3` or a `#let`, which hold them apart.
+    Split { pattern: Term, body: Term },
+    /// The first argument of a `#fun2` or a match, whose left projection is the pattern and
+    /// whose right projection is the body (a match has no body).
+    Whole(Term),
 }
 
 /// The local functions of a sentence, by the name of their stand-in variable.
@@ -218,13 +227,19 @@ pub(super) fn lower(
             clippy::wildcard_enum_match_arm,
             reason = "Term is syntax; the left side is the stand-in application"
         )]
-        let pattern = match left.unannotated() {
+        let first = match left.unannotated() {
             Term::Apply { arguments, .. } if !arguments.is_empty() => arguments[0].clone(),
-            _ => unreachable!("an equation's left side applies its stand-in to the pattern"),
+            _ => unreachable!("an equation's left side applies its stand-in to its first term"),
         };
-        let pattern = stand_in_variables(pattern, &pending, &mut arguments);
-        let body = right.map(|right| stand_in_variables(right, &pending, &mut arguments));
-        parts.insert(name, (pattern, body));
+        let first = stand_in_variables(first, &pending, &mut arguments);
+        let equation = match right {
+            Some(body) => Equation::Split {
+                pattern: first,
+                body: stand_in_variables(body, &pending, &mut arguments),
+            },
+            None => Equation::Whole(first),
+        };
+        parts.insert(name, equation);
     }
     let locals = pending
         .into_iter()
@@ -232,7 +247,7 @@ pub(super) fn lower(
             let argument = arguments
                 .remove(&name)
                 .expect("every stand-in is applied in one scope");
-            let (pattern, body) = parts
+            let equation = parts
                 .remove(&name)
                 .expect("every local function has an equation");
             (
@@ -241,8 +256,7 @@ pub(super) fn lower(
                     local,
                     sorts,
                     argument,
-                    pattern,
-                    body,
+                    equation,
                 },
             )
         })
@@ -310,10 +324,13 @@ impl Lowering<'_, '_, '_> {
             .into_iter()
             .map(|variable| variable.term())
             .collect::<Vec<_>>();
-        let ((pattern, _), body) = local.equation_parts(arguments);
         let value = self.term(&arguments[local.argument_index()]);
-        let pattern = self.term(pattern);
-        let body = body.map(|(body, _)| self.term(body));
+        // The equation's sentence: `stand-in(P, C1..Cn) => B` for a split equation, else
+        // `stand-in(E, C1..Cn)` with the equation term `E`, whose rewrite separates its sides.
+        let (pattern, body) = match local.split_parts(arguments) {
+            Some(((pattern, _), (body, _))) => (self.term(pattern), Some(self.term(body))),
+            None => (self.term(&arguments[0]), None),
+        };
         let mut equation_arguments = vec![pattern];
         equation_arguments.extend(closure.iter().cloned());
         let left = Term::Apply {

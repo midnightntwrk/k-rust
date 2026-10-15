@@ -1298,10 +1298,19 @@ fn every_sentence_of_a_compiled_definition_types_in_the_main_view() {
 
 /// The signatures `(arguments, result)` of the lambda symbols of a compiled definition's KORE.
 fn lambda_signatures(kore: &str) -> Vec<(Vec<String>, String)> {
-    kore.lines()
-        .map(str::trim_start)
-        .filter(|line| line.starts_with("symbol Lbl'Hash'lambda"))
-        .map(|line| {
+    // A long declaration wraps over several lines; the parsed one is printed on one.
+    let definition = k_rust::kore::parser::parse_definition(kore).expect("compiled KORE parses");
+    definition
+        .modules
+        .into_iter()
+        .flat_map(|module| module.sentences)
+        .filter(|sentence| {
+            matches!(sentence, k_rust::kore::ast::Sentence::SymbolDeclaration { symbol, .. }
+                if symbol.name.starts_with("Lbl'Hash'lambda"))
+        })
+        .map(|sentence| {
+            let line = k_rust::kore::printer::Printer::pretty(100_000).print_sentence(&sentence);
+            let line = line.trim();
             let open = line.find("}(").expect("a symbol's argument sorts") + 2;
             let close = open
                 + line[open..]
@@ -1733,4 +1742,170 @@ fn a_configuration_context_with_a_k_cell_frame_types() {
     let typing = typer.typing(with_config[0].1).unwrap();
     assert_eq!(at(&typing, &[0, 0, 0]), &sorted(Some("Int"), Some("Int")));
     assert_eq!(at(&typing, &[0, 0, 1]), &sorted(Some("Int"), Some("Int")));
+}
+
+// The typer is `Send`: a consumer may build it once and type on a worker thread.
+const _: fn() = || {
+    fn send<T: Send>() {}
+    send::<SentenceTyper<'static>>();
+};
+
+/// `rules` as the module `MAIN` over `h(K)`, `g(K)`, `m(Int)` and the sorts `A`, `C` with two
+/// common supersorts `D1` and `D2`: every rule that compiles types with `typing_in` in `MAIN`,
+/// each local function at its compiled lambda's result sort.
+fn assert_rules_type_as_compiled(rules: &[(&str, &str)]) {
+    let source = format!(
+        "module MAIN\n  imports INT\n  imports BOOL\n  syntax A ::= a()\n  syntax C ::= c()\n  \
+         syntax D1 ::= A | C\n  syntax D2 ::= A | C\n  \
+         syntax KItem ::= h(K) | g(K) | m(Int) | w(KItem)\n  {}\nendmodule\n",
+        rules
+            .iter()
+            .map(|(label, rule)| format!("rule [{label}]: {rule}"))
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+    let loaded = load_main("local-function-shapes.k", &source, "MAIN", None);
+    let kore = compiled_kore(&loaded).unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(lambda_signatures(&kore).len(), rules.len(), "{kore}");
+    let typer = main_typer(&loaded);
+    for (label, rule) in rules {
+        typer
+            .typing_in(
+                labelled(loaded.definition(), &format!("MAIN.{label}")),
+                "MAIN",
+            )
+            .unwrap_or_else(|error| panic!("{rule}: {error}"));
+    }
+}
+
+// A semantic cast around a local function: resolution puts the cast's sort on the stand-in for
+// the construct, and the typer types the construct below the cast.
+#[test]
+fn a_local_function_under_a_semantic_cast_types() {
+    assert_rules_type_as_compiled(&[
+        ("r", "h(_) => g((#let X:Int = 1 #in X +Int 1):Int)"),
+        ("s", "h(_) => m((#let X = 1 #in X):Int)"),
+        (
+            "t",
+            "h(Y) => g(Y) requires (#let X:Int = 1 #in X >Int 0):Bool",
+        ),
+    ]);
+}
+
+// A structured cast around a local function that compilation refuses (`Int` cast to `Bool`) or
+// accepts (`Int` cast to `KItem`): the typer reports an error exactly where compilation does,
+// and never panics.
+#[test]
+fn a_structured_cast_around_a_local_function_types_as_compilation_does() {
+    let source = "module MAIN\n  imports INT\n  imports BOOL\n  syntax KItem ::= h(K) | g(K)\n  rule [r]: h(_) => g(#let X:Int = 1 #in X +Int 1)\nendmodule\n";
+    let loaded = load_main("cast-local-function.k", source, "MAIN", None);
+    for sort in ["Bool", "KItem", "Int"] {
+        let original = labelled(loaded.definition(), "MAIN.r").clone();
+        let Sentence::Rule { body, .. } = &original else {
+            panic!("a rule")
+        };
+        let Term::Rewrite { right, .. } = body.unannotated() else {
+            panic!("{body}")
+        };
+        let Term::Apply { arguments, .. } = right.unannotated() else {
+            panic!("{body}")
+        };
+        let cast_let = cast(sort, arguments[0].clone());
+        let sentence = edited(&loaded, "MAIN.r", &[0, 1, 0], cast_let);
+        let compiled = compiled_kore(&relinked(&loaded, "MAIN", "MAIN.r", sentence.clone()));
+        let typed = main_typer(&loaded).typing_in(&sentence, "MAIN");
+        assert_eq!(
+            typed.is_ok(),
+            compiled.is_ok(),
+            "{sort}: typing {typed:?}, compilation {:?}",
+            compiled.as_ref().map(|_| ()).map_err(ToString::to_string)
+        );
+    }
+}
+
+// A `#fun` whose rewrite lies below the top of its equation, `#fun(w(_:A => c()))(X)`: the
+// lowering's pattern and body are the equation's left and right projections, `w(_:A)` and
+// `w(c())`, each typed alone, so `A` and `C` are never joined (they have two least upper
+// bounds here). The portable rule grammar reads the text; the Z3 one does not, and the
+// structured `#fun2` takes the same path.
+#[test]
+fn a_rewrite_below_the_top_of_a_fun_equation_is_typed_per_projection() {
+    #[cfg(not(feature = "z3-inference"))]
+    assert_rules_type_as_compiled(&[("r", "h(X) => g(#fun(w(_:A => c()))(X))")]);
+    let source = "module MAIN\n  imports INT\n  imports BOOL\n  syntax A ::= a()\n  syntax C ::= c()\n  syntax D1 ::= A | C\n  syntax D2 ::= A | C\n  syntax KItem ::= h(K) | g(K) | w(KItem)\n  rule [r]: h(X) => g(X)\nendmodule\n";
+    let loaded = load_main("nested-equation.k", source, "MAIN", None);
+    let original = labelled(loaded.definition(), "MAIN.r").clone();
+    let Sentence::Rule { body, .. } = &original else {
+        panic!("a rule")
+    };
+    let Term::Rewrite { left, right } = body.unannotated() else {
+        panic!("{body}")
+    };
+    let (
+        Term::Apply {
+            label: h,
+            arguments: h_arguments,
+        },
+        Term::Apply { label: g, .. },
+    ) = (left.unannotated(), right.unannotated())
+    else {
+        panic!("{body}")
+    };
+    let label_of = |prefix: &str| {
+        loaded
+            .definition()
+            .modules
+            .iter()
+            .find(|module| module.name == "MAIN")
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match &**sentence {
+                Sentence::Production {
+                    label: Some(label), ..
+                } if label.name.starts_with(prefix) => Some(label.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no production {prefix}"))
+    };
+    let w = label_of("w(");
+    let c = Term::Apply {
+        label: label_of("c("),
+        arguments: Vec::new(),
+    };
+    let x = h_arguments[0].clone();
+    let equation = Term::Apply {
+        label: w,
+        arguments: vec![rewrite(cast("A", var("_Y", None)), c)],
+    };
+    let sentence = edited(
+        &loaded,
+        "MAIN.r",
+        &[0],
+        rewrite(
+            Term::Apply {
+                label: h.clone(),
+                arguments: vec![x.clone()],
+            },
+            Term::Apply {
+                label: g.clone(),
+                arguments: vec![Term::apply("#fun2", vec![equation, x])],
+            },
+        ),
+    );
+    let compiled = compiled_kore(&relinked(&loaded, "MAIN", "MAIN.r", sentence.clone()));
+    let typed = main_typer(&loaded).typing_in(&sentence, "MAIN");
+    assert!(
+        compiled.is_ok() && typed.is_ok(),
+        "typing {typed:?}, compilation {:?}",
+        compiled.as_ref().map(|_| ()).map_err(ToString::to_string)
+    );
+    let typing = typed.unwrap();
+    // The equation `w(_:A => c())` at [0, 1, 0, 0] is `w(_:A)` on the left and `w(c())` on the
+    // right; the rewrite below it is `A` on the left and `C` on the right.
+    assert!(
+        typing.branches.get(&[0, 1, 0, 0, 0]).is_some(),
+        "{:#?}",
+        typing.branches
+    );
 }

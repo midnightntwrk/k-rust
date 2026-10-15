@@ -914,28 +914,22 @@ impl LocalFunction {
         }
     }
 
-    /// The pattern and the body of the equation as they stand in the construct's `arguments`,
-    /// each with its path below the construct; the body is `None` for a match, whose lambda is a
-    /// predicate. A `#fun2` equation and a match's pattern are the first argument: when it is a
-    /// rewrite, its left side is the pattern and its right side the body (the lowering's
-    /// `rewrite_left` and `rewrite_right` of it); otherwise it is both.
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is syntax; only a rewrite separates an equation's sides"
-    )]
-    pub(crate) fn equation_parts(
+    /// The pattern and the body of a `#fun3` or a `#let`, which hold them in arguments of their
+    /// own, as they stand in the construct's `arguments`, each with its path below the construct.
+    ///
+    /// `None` for the other forms: their equation is their first argument, a term holding the
+    /// rewrite `P => B` somewhere (`#fun2`), or the pattern alone (a match), and the lowering's
+    /// pattern and body are that term's left and right projections (`rewrite_left`,
+    /// `rewrite_right`).
+    pub(crate) fn split_parts(
         self,
         arguments: &[Term],
-    ) -> (EquationPart<'_>, Option<EquationPart<'_>>) {
-        let (pattern, body) = match self.form {
-            LocalFunctionForm::Fun3 => ((&arguments[0], vec![0]), (&arguments[1], vec![1])),
-            LocalFunctionForm::Let => ((&arguments[0], vec![0]), (&arguments[2], vec![2])),
-            LocalFunctionForm::Equation => match arguments[0].unannotated() {
-                Term::Rewrite { left, right } => ((&**left, vec![0, 0]), (&**right, vec![0, 1])),
-                _ => ((&arguments[0], vec![0]), (&arguments[0], vec![0])),
-            },
-        };
-        (pattern, (!self.predicate).then_some(body))
+    ) -> Option<(EquationPart<'_>, EquationPart<'_>)> {
+        match self.form {
+            LocalFunctionForm::Fun3 => Some(((&arguments[0], vec![0]), (&arguments[1], vec![1]))),
+            LocalFunctionForm::Let => Some(((&arguments[0], vec![0]), (&arguments[2], vec![2]))),
+            LocalFunctionForm::Equation => None,
+        }
     }
 
     /// Whether the lambda is a predicate (a match), whose result sort is `Bool`.
