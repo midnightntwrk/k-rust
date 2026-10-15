@@ -1759,7 +1759,7 @@ For a wholly undefined initial configuration, the reference's execute mode retur
 ## Determinism and concurrency
 
 Nothing in what k-rust computes is random: every choice it makes (the order of rules and candidates, generated names, the order of results) is a function of its inputs, except where the paragraphs below name another dependence.
-This section states which inputs count, so that a host can cache, compare and parallelise compiles.
+This section states which inputs count, so that a host can cache, compare and parallelise compiles and runs.
 
 ### Compile
 
@@ -1780,6 +1780,21 @@ An input deep enough that a compile pass needs a mapped stack segment is refused
 
 The order and representation of the artifacts may change between builds; a host that caches them keys the cache on the build (or on the binary's identity).
 [compile_determinism.rs](../crates/k-rust/tests/compile_determinism.rs) compiles representative definitions twice in one process, on a small-stack thread, on concurrent threads and in two child processes, whose hash seeds and address layouts differ, and requires equal artifacts and identical bytes, an identical failure for a definition that fails to load and for one that fails to compile, different `Source` attributes for two resolver identities of one text, and equal artifacts for two logical names under one identity.
+
+### Execute
+
+For one build of k-rust (as for compiles), the result of `Backend::execute`, `execute_observed` or `execute_observed_to_writer` (its leaves and their order, states, predicates, halt reasons, traces, branch identities, observations and diagnostics) is a function of the KORE definition, the module, `BackendOptions` and the request: it is the same on a fresh `Backend` and on one that ran other requests before, in any process and on any thread.
+The promise excludes:
+
+- a request that sets `step_timeout_ms` or `moving_average_timeout`, whose stops depend on the clock;
+- a cancelled request;
+- a run any state of which stopped with `StackExhausted`: the simplifier's per-thread stack budget is counted beyond the calling thread's own stack, so the thread's stack size is an input, its process-wide budget is shared with every other thread of the process, and the stack a level of the simplifier takes, with the red zone it keeps, is fixed by the build ([`docs/backend-port.md`](backend-port.md#simplification-stack-depth), "Simplification stack depth");
+- a run that computes a `Bytes` value near the memory allowance, which is read from the machine ([Resource bounds](#resource-bounds));
+- a definition whose load-time critical-pair check stopped a condition for lack of stack (`CheckCounts::condition_stack_stops > 0`, read through `Backend::internalize_definition` and `BackendDefinition::value_claims().counts()`): its value claims, which execution reads, depend on the loading thread's stack and on the stack other threads hold. A stop of that check's poll budget (`condition_budget_stops`) is a function of the definition and is not excluded.
+
+In builds with Z3 the promise does not hold when an SMT query can time out (by default after 125 ms, with retries), and a `Backend` keeps a cache of satisfiability answers and a failed prelude across requests, so a reused `Backend` may answer where a fresh one times out.
+Search output keeps the order stated in [Search results](#search-results).
+[execute_determinism.rs](../crates/k-rust/tests/execute_determinism.rs) runs a definition that explores several paths, in path-set and state-set modality, through `execute` and `execute_observed`, on fresh and reused backends, on four threads and in two child processes, and requires identical serialized results.
 
 ## Observation events
 
