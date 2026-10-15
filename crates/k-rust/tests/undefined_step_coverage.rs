@@ -45,9 +45,14 @@ const SOURCE: &str = r#"module UNDEF-SYNTAX
                 | low(Int) [symbol(low)]
                 | tdiv(Int) [symbol(tdiv)]
                 | tdarg(Int) [symbol(tdarg)]
+                | pdup(Int) [symbol(pdup)]
+                | mapv(Map) [symbol(mapv)]
+                | sib(Int) [symbol(sib)]
+                | sibr(Int) [symbol(sibr)]
   syntax Int ::= g(Int) [function, total, symbol(g)]
                | f(Int) [function, total, symbol(f)]
                | td(Int) [function, total, symbol(td)]
+  syntax Map ::= dup(Int) [function, total, symbol(dup)]
 endmodule
 
 module UNDEF
@@ -55,6 +60,7 @@ module UNDEF
   imports BASIC-K
   imports INT
   imports BOOL
+  imports MAP
   configuration <k> $PGM:Prog </k>
 
   rule [apart]:   <k> apart(A, B) => halt </k> ensures A =/=Int B
@@ -81,6 +87,12 @@ module UNDEF
   rule [tdeq]:    td(I) => 10 /Int I
   rule [tdiv]:    <k> tdiv(I) => val(td(I)) </k>
   rule [tdarg]:   <k> tdarg(I) => val(td(10 /Int I)) </k>
+  rule [dupeq]:   dup(I) => (I |-> 1) (I |-> 2)
+  rule [pdup]:    <k> pdup(I) => mapv(dup(I)) </k>
+  rule [sibtd]:   <k> sib(_) => val(td(0)) </k>
+  rule [sibok]:   <k> sib(_) => done </k>
+  rule [sibrtd]:  <k> sibr(_) => val(td(0)) </k>
+  rule [sibrok]:  <k> sibr(I) => done </k> requires I >Int 0
 endmodule
 "#;
 
@@ -683,6 +695,14 @@ fn a_ground_undefined_step_through_a_total_function_names_the_contradicted_attri
         summary(&ground)
     );
     assert_trivial_rule(&backend, &ground.leaves[0], "tdiv");
+    // The step is undefined on the configuration it was taken from: the leaf is that
+    // configuration, before the step, not the empty successor.
+    assert_eq!(
+        (ground.leaves[0].depth, text(&ground.leaves[0])),
+        (0, top(&format!("Lbltdiv{{}}({})", int(0)))),
+        "{:#?}",
+        summary(&ground)
+    );
     let contradicted = ground.leaves[0]
         .contradicted_total
         .as_ref()
@@ -734,4 +754,102 @@ fn a_ground_undefined_step_through_a_total_function_names_the_contradicted_attri
         summary(&argument)
     );
     assert!(argument.leaves[0].contradicted_total.is_none());
+}
+
+/// `dup(1)` is declared `total`, but its equation builds `(1 |-> 1) (1 |-> 2)`, a map with a
+/// repeated key, which is bottom. The step `pdup(1) => mapv(dup(1))` is therefore undefined on
+/// `pdup(1)`, a defined configuration: its leaf is `pdup(1)` itself at depth 0, as for an
+/// undefined right-hand side the step detects, and it names the contradicted attribute.
+#[test]
+fn a_repeated_key_built_by_a_total_function_is_a_trivial_step_of_the_pre_step_configuration() {
+    let mut backend = backend();
+    for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+        let mut ground = request(&format!("Lblpdup{{}}({})", int(1)));
+        ground.strategy = strategy;
+        let ground = backend.execute(ground).unwrap();
+        assert_eq!(
+            reasons(&ground),
+            [HaltReasonOutput::Trivial],
+            "{strategy:?}: {:#?}",
+            summary(&ground)
+        );
+        assert_trivial_rule(&backend, &ground.leaves[0], "pdup");
+        assert_eq!(
+            (ground.leaves[0].depth, text(&ground.leaves[0])),
+            (0, top(&format!("Lblpdup{{}}({})", int(1)))),
+            "{strategy:?}: {:#?}",
+            summary(&ground)
+        );
+        assert!(
+            ground.leaves[0].contradicted_total.is_some(),
+            "{strategy:?}: {:#?}",
+            summary(&ground)
+        );
+    }
+}
+
+/// Two rules of one priority apply to `sib(I)`: `sibtd`'s result `val(td(0))` is bottom (a
+/// contradicted `total`), found only when its successor is normalized, and `sibok` gives
+/// `done`. Every instance has a defined successor, so there is no undefined step and no
+/// `Trivial` leaf. When `sibok` applies only where `I >Int 0` (`sibr`), the instances where it
+/// does not are an undefined step of `sibr(I)`, and only those.
+#[test]
+fn an_undefined_successor_found_after_the_step_is_trivial_only_where_no_sibling_is_defined() {
+    let mut backend = backend();
+    for program in [
+        format!("Lblsib{{}}({X})"),
+        format!("Lblsib{{}}({})", int(0)),
+    ] {
+        let result = execute(&mut backend, &program);
+        assert_eq!(
+            reasons(&result),
+            [HaltReasonOutput::Stuck],
+            "{program}: {:#?}",
+            summary(&result)
+        );
+        assert!(text(&result.leaves[0]).contains("Lbldone{}()"));
+    }
+    let ground = execute(&mut backend, &format!("Lblsibr{{}}({})", int(1)));
+    assert_eq!(
+        reasons(&ground),
+        [HaltReasonOutput::Stuck],
+        "{:#?}",
+        summary(&ground)
+    );
+    let ground = execute(&mut backend, &format!("Lblsibr{{}}({})", int(0)));
+    assert_eq!(
+        summary(&ground),
+        [(
+            HaltReasonOutput::Trivial,
+            0,
+            top(&format!("Lblsibr{{}}({})", int(0)))
+        )],
+    );
+    assert_trivial_rule(&backend, &ground.leaves[0], "sibrtd");
+    if !backend.capabilities().smt {
+        return;
+    }
+    let symbolic = execute(&mut backend, &format!("Lblsibr{{}}({X})"));
+    let [trivial] = trivial_leaves(&symbolic)[..] else {
+        panic!("one Trivial leaf: {:#?}", summary(&symbolic));
+    };
+    assert_eq!(trivial.depth, 0, "{:#?}", summary(&symbolic));
+    assert!(is_pre_step(trivial, "Lblsibr{}(X:SortInt{})"));
+    // Its instances are those where `sibrok` does not apply.
+    let excluded = format!(
+        "\\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(\\dv{{SortBool{{}}}}(\"true\"), Lbl'Unds-GT-'Int'Unds'{{}}({X}, {}))",
+        int(0)
+    );
+    assert!(
+        text(trivial).contains(&format!("\\not{{SortGeneratedTopCell{{}}}}({excluded})")),
+        "{:#?}",
+        summary(&symbolic)
+    );
+    assert!(
+        symbolic.leaves.iter().any(
+            |leaf| leaf.reason == HaltReasonOutput::Stuck && text(leaf).contains("Lbldone{}()")
+        ),
+        "{:#?}",
+        summary(&symbolic)
+    );
 }
