@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Any"
-//! bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), one SAT check per step, and one normalization (a predicate simplification and a term simplification, execute::successor_undefinedness) of each applied candidate's successor, which the successor's own normalization repeats when the candidate is kept"
+//! bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), one SAT check per step, and one normalization (a predicate simplification and a term simplification, execute::normalize_successor) of each applied candidate's successor when a later application group of its rule or a later rule of its priority is left, which a kept candidate's successor takes instead of normalizing itself (the one-path proof route normalizes it again)"
 //!
 //! [[cost]]
 //! mode = "Any with dropped-successor tracking (SequentialDeterminism)"
@@ -37,8 +37,9 @@
 //! O(c) rule attempts per step for the c candidates of `rule::applicable_rewrite_groups` plus one
 //! SAT check per productive group (`All`) or one predicate simplification per applied application
 //! group, one SAT check per candidate of a rule's application group after its first, one SAT
-//! check per step, and one normalization of each applied candidate's successor, which decides
-//! whether its result is undefined before the step commits to it (`Any`);
+//! check per step, and one normalization of each applied candidate's successor that a later
+//! group or rule could stand in for, which decides whether its result is undefined before the
+//! step commits to it and which the successor reuses (`Any`);
 //! `Counter::RewriteRulesApplied`. A one-path proof step also asks `Any` whether it may have
 //! dropped a successor (`SequentialDeterminism`): a rule of a priority that already applied is
 //! attempted once more on the whole subject, and the sub-cases of one priority are compared
@@ -64,11 +65,12 @@ use crate::{
 };
 
 use super::{
-    AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RemainderSimplification,
-    RewriteResult, RuleAttempt, SubjectDefinedness, TrivialApplication, Truth, UndecidedStep,
+    AppliedRule, IndeterminateReason, NormalizedSuccessor, Pattern, RemainderBranch,
+    RemainderSimplification, RewriteResult, RuleAttempt, SubjectDefinedness, TrivialApplication,
+    Truth, UndecidedStep,
     apply::{exclude_defined, restrict_to_undefined, undefined_successor_application},
     apply_rule,
-    execute::successor_undefinedness,
+    execute::normalize_successor,
     extend_unique, predicates_truth, restricted_to,
     roles::{DefinedSubcase, SequentialSubject},
     stuck, violates_finite_constructor_domain,
@@ -942,10 +944,15 @@ pub(super) fn rewrite_step_any(
     let mut blocked_diagnostics = Vec::new();
     // Where the current priority's trivial entries start in `trivial`.
     let mut priority_trivial = 0;
-    let rules = priority_groups
-        .iter()
-        .flat_map(|(priority, rules)| rules.iter().map(move |rule| (*priority, rule)));
-    for (priority, rule) in rules {
+    // Each rule with whether it is its priority's last, after which no rule of the priority is
+    // left to take the instances an undefined result leaves.
+    let rules = priority_groups.iter().flat_map(|(priority, rules)| {
+        rules
+            .iter()
+            .enumerate()
+            .map(move |(index, rule)| (*priority, rule, index + 1 == rules.len()))
+    });
+    for (priority, rule, last_of_priority) in rules {
         if remaining.priority() != Some(priority) {
             if let Err(error) = close_priority(
                 definition,
@@ -1021,7 +1028,8 @@ pub(super) fn rewrite_step_any(
                 // them, and a candidate with no instance left is dropped.
                 let mut excluded = Vec::new();
                 let mut earlier_defined = Vec::new();
-                for group in groups {
+                let group_count = groups.len();
+                for (group_index, group) in groups.into_iter().enumerate() {
                     if predicates_truth(&remaining.pattern().constraints) == Truth::False {
                         // The earlier groups took every instance.
                         break;
@@ -1031,32 +1039,49 @@ pub(super) fn rewrite_step_any(
                     // A candidate the step took as defined may still be undefined: an equation
                     // of a `total` symbol, trusted as total, may reduce its result to `\bottom`,
                     // which only its successor's normalization finds. The sequential step
-                    // commits to the candidates it keeps, so it decides that here: an undefined
-                    // candidate is an undefined result like those above, whose instances are
-                    // offered to the later rules of the priority.
+                    // commits to the candidates it keeps, so it decides that here when a later
+                    // application group of the rule or a later rule of the priority is left: an
+                    // undefined candidate is then an undefined result like those above, whose
+                    // instances are offered to them. With none left the instances have no other
+                    // successor, so the candidate is kept and its successor's normalization
+                    // reports the undefined step, with the same instances. A kept candidate
+                    // carries its normalization, which its successor takes instead of repeating
+                    // it.
+                    let later_alternative = !last_of_priority || group_index + 1 < group_count;
                     let mut applied_group = Vec::with_capacity(group.applied.len());
                     let mut undefined_work = Vec::new();
-                    for application in group.applied {
-                        let (undefined, work) = diagnostic::collect(|| {
-                            successor_undefinedness(
-                                definition,
-                                &application.applied.pattern,
-                                simplification_options,
-                                solver,
-                                application.applied.io.as_ref().or(io),
-                            )
-                        });
-                        match undefined? {
+                    for mut application in group.applied {
+                        if !later_alternative {
+                            applied_group.push(application);
+                            continue;
+                        }
+                        let checked = normalize_successor(
+                            definition,
+                            &application.applied.pattern,
+                            &application.applied.before.constraints,
+                            simplification_options,
+                            solver,
+                            application.applied.io.as_ref().or(io),
+                        )?;
+                        match checked.undefined {
                             Some(undefined) => {
-                                extend_distinct(&mut undefined_work, &work);
+                                if let Some(normalization) = &checked.normalization {
+                                    extend_distinct(
+                                        &mut undefined_work,
+                                        &normalization.diagnostics(),
+                                    );
+                                }
                                 group_trivial.push(undefined_successor_application(
                                     application,
                                     undefined.obligation,
                                     undefined.contradicted_total,
                                 ));
                             }
-                            // The successor's own normalization does this work again.
-                            None => applied_group.push(application),
+                            None => {
+                                application.applied.normalized =
+                                    NormalizedSuccessor(checked.normalization.map(Arc::new));
+                                applied_group.push(application);
+                            }
                         }
                     }
                     restrict_to_undefined(&mut group_trivial, &applied_group);
@@ -1073,6 +1098,8 @@ pub(super) fn rewrite_step_any(
                                     excluded.iter().cloned(),
                                 );
                             }
+                            // The normalization is of the unrestricted successor.
+                            application.applied.normalized = NormalizedSuccessor::default();
                             if !may_have_instance(
                                 definition,
                                 &application.applied.pattern.constraints,

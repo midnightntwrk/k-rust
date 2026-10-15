@@ -9,6 +9,8 @@
 //! an instance ends `Trivial` too, so every symbolic leaf agrees with the ground runs of its
 //! instances.
 
+use k_rust_kore::measure::{self, Counter};
+
 use k_rust::{
     backend::{
         Backend, BackendOptions, ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy,
@@ -54,10 +56,12 @@ const SOURCE: &str = r#"module UNDEF-SYNTAX
                 | w(Int) [symbol(w)]
                 | rem(Int, Int) [symbol(rem)]
                 | rem2(Int, Int) [symbol(rem2)]
+                | cnt(Int, Int) [symbol(cnt)]
   syntax Int ::= g(Int) [function, total, symbol(g)]
                | f(Int) [function, total, symbol(f)]
                | td(Int) [function, total, symbol(td)]
                | f2(Int) [function, total, symbol(f2)]
+               | fib(Int) [function, total, symbol(fib)]
   syntax Map ::= dup(Int) [function, total, symbol(dup)]
 endmodule
 
@@ -109,6 +113,10 @@ module UNDEF
   rule [remlo]:   <k> rem(_, J) => val(td(J -Int 2)) </k> [priority(50)]
   rule [rem2hi]:  <k> rem2(X, _) => done </k> requires X >Int 0 [priority(10)]
   rule [rem2lo]:  <k> rem2(_, J) => val(10 /Int (J -Int 2)) </k> [priority(50)]
+  rule [fibbase]: fib(N) => N requires N <Int 2
+  rule [fibrec]:  fib(N) => fib(N -Int 1) +Int fib(N -Int 2) requires N >=Int 2
+  rule [cntstep]: <k> cnt(N, A) => cnt(N -Int 1, A +Int fib(8)) </k> requires N >Int 0
+  rule [cntdone]: <k> cnt(N, A) => val(A) </k> requires N <=Int 0
 endmodule
 "#;
 
@@ -1087,14 +1095,17 @@ fn stopping_at_branches_reports_a_candidate_undefined_after_the_step() {
 /// Two candidates of one step, `s3a` and `s3b`, are both undefined only after the step, where
 /// `I ==Int 0`. Each is an undefined step of `s3(X)` under `X = 0`, under either strategy and
 /// whether or not the run stops at branches, and the other instances are the stuck remainder:
-/// no instance is lost. On `s3(0)` every leaf is the undefined step of `s3(0)`: exploring all
-/// paths reports one per candidate, as its successors are expanded, and strategy `any`, whose
-/// step finds both candidates undefined, reports one for the step as a whole, as for any step
-/// with no defined candidate.
+/// no instance is lost. Every leaf on `s3(0)` is the undefined step of `s3(0)`. Exploring all
+/// paths reports one per candidate, as its successors are expanded. Strategy `any` reports one:
+/// its step finds `s3a` undefined and offers its instances to `s3b`, the priority's last rule,
+/// whose successor's normalization then reports the undefined step of them all.
 #[test]
 fn two_candidates_undefined_after_the_step_are_each_an_undefined_step() {
     let mut backend = backend();
-    for (strategy, leaves) in [(ExecutionStrategy::All, 2), (ExecutionStrategy::Any, 1)] {
+    for (strategy, leaves, rule) in [
+        (ExecutionStrategy::All, 2, "s3a"),
+        (ExecutionStrategy::Any, 1, "s3b"),
+    ] {
         let ground = execute_both(
             &mut backend,
             request_with(&format!("Lbls3{{}}({})", int(0)), |request| {
@@ -1113,15 +1124,15 @@ fn two_candidates_undefined_after_the_step_are_each_an_undefined_step() {
             ],
             "{strategy:?}"
         );
-        assert_trivial_rule(&backend, &ground.leaves[0], "s3a");
+        assert_trivial_rule(&backend, &ground.leaves[0], rule);
     }
     if !backend.capabilities().smt {
         return;
     }
-    for (strategy, stop_at_branch) in [
-        (ExecutionStrategy::All, false),
-        (ExecutionStrategy::All, true),
-        (ExecutionStrategy::Any, false),
+    for (strategy, stop_at_branch, leaves) in [
+        (ExecutionStrategy::All, false, 2),
+        (ExecutionStrategy::All, true, 2),
+        (ExecutionStrategy::Any, false, 1),
     ] {
         let result = execute_both(
             &mut backend,
@@ -1132,7 +1143,7 @@ fn two_candidates_undefined_after_the_step_are_each_an_undefined_step() {
         );
         let context = format!("{strategy:?} {stop_at_branch}: {:#?}", summary(&result));
         let trivial = trivial_leaves(&result);
-        assert_eq!(trivial.len(), 2, "{context}");
+        assert_eq!(trivial.len(), leaves, "{context}");
         let zero = format!(
             "\\equals{{SortInt{{}}, SortGeneratedTopCell{{}}}}({X}, {})",
             int(0)
@@ -1187,4 +1198,40 @@ fn an_undefined_step_on_a_simplified_remainder_traces_the_simplification() {
     assert_eq!(after.trace, within.trace);
     assert_eq!(after.observations.len(), within.observations.len());
     assert!(!after.observations.is_empty());
+}
+
+/// Strategy `any` decides whether a candidate's result is undefined by normalizing its successor
+/// within the step when a later rule of the priority could take its instances, as `cntdone` could
+/// for `cntstep`; the successor then takes that normalization instead of repeating it. So a
+/// concrete run whose cost is the successor's evaluation (`fib(8)` at each of ten steps) applies
+/// as many equations under `any` as under `all`, which does no such check.
+#[test]
+fn strategy_any_normalizes_each_committed_successor_once() {
+    let mut backend = backend();
+    let mut equations = |strategy| {
+        let before = measure::snapshot();
+        let result = backend
+            .execute(request_with(
+                &format!("Lblcnt{{}}({}, {})", int(10), int(0)),
+                |request| request.strategy = strategy,
+            ))
+            .unwrap();
+        let attempts = measure::snapshot()
+            .delta(&before)
+            .get(Counter::SimplifyEquationAttempts);
+        assert_eq!(
+            summary(&result),
+            [(
+                HaltReasonOutput::Stuck,
+                11,
+                top(&format!("Lblval{{}}({})", int(210)))
+            )],
+            "{strategy:?}"
+        );
+        attempts
+    };
+    let all = equations(ExecutionStrategy::All);
+    let any = equations(ExecutionStrategy::Any);
+    assert!(all > 0, "the run evaluates `fib`");
+    assert_eq!(any, all, "equation attempts under any and all");
 }

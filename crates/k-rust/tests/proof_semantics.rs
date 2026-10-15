@@ -2255,3 +2255,82 @@ fn an_owise_equation_does_not_apply_where_only_the_written_split_of_a_concatenat
     );
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+/// `td` is declared `total`, but `td(0)` is `10 /Int 0`, bottom: only the normalization of a
+/// successor holding it finds the result undefined.
+const TOTAL_SIBLING: &str = r#"
+module TSIB-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= "done" [symbol(done)]
+                | val(Int) [symbol(val)]
+                | sib(Int) [symbol(sib)]
+                | bis(Int) [symbol(bis)]
+                | sibr(Int) [symbol(sibr)]
+                | one(Int) [symbol(one)]
+  syntax Int ::= td(Int) [function, total, symbol(td)]
+endmodule
+
+module TSIB
+  imports TSIB-SYNTAX
+  imports INT
+  configuration <k> $PGM:Prog </k>
+
+  rule [tdeq]:   td(I) => 10 /Int I
+  rule [sibtd]:  <k> sib(_) => val(td(0)) </k>
+  rule [sibok]:  <k> sib(_) => done </k>
+  rule [bisok]:  <k> bis(_) => done </k>
+  rule [bistd]:  <k> bis(_) => val(td(0)) </k>
+  rule [sibrtd]: <k> sibr(_) => val(td(0)) </k>
+  rule [sibrok]: <k> sibr(I) => done </k> requires I >Int 0
+  rule [onetd]:  <k> one(I) => val(td(I)) </k>
+endmodule
+
+module TSIB-SPEC
+  imports TSIB
+
+  claim [sib-one]:       <k> sib(0) => done </k> [one-path]
+  claim [bis-one]:       <k> bis(0) => done </k> [one-path]
+  claim [sibr-one]:      <k> sibr(X) => done </k> requires X >Int 0 [one-path]
+  claim [sibr-zero-one]: <k> sibr(0) => done </k> [one-path]
+  claim [one-zero-one]:  <k> one(0) => done </k> [one-path]
+  claim [sib-all]:       <k> sib(0) => done </k>
+  claim [bis-all]:       <k> bis(0) => done </k>
+endmodule
+"#;
+
+/// A one-path claim steps by the first rule of a priority that gives its configuration a
+/// defined result, as strategy `any` does, so a result found undefined only by normalizing the
+/// successor leaves the configuration to the later rules of the priority: `sib(0)` reaches `done`
+/// by `sibok` although `sibtd` comes first, as `bis(0)` does in the other order, and so does
+/// `sibr(X)` where `X >Int 0`. Where no rule gives a defined result (`sibr(0)`, `one(0)`) the
+/// step is undefined and the claim is not proven.
+#[test]
+fn a_one_path_claim_takes_a_later_rule_where_a_result_is_undefined_after_the_step() {
+    let statuses = claim_statuses(
+        TOTAL_SIBLING,
+        "TSIB-SPEC",
+        "TSIB",
+        &[
+            "sib-one",
+            "bis-one",
+            "sibr-one",
+            "sibr-zero-one",
+            "one-zero-one",
+            "sib-all",
+            "bis-all",
+        ],
+    );
+    assert_eq!(
+        statuses,
+        [
+            ("sib-one", "proven"),
+            ("bis-one", "proven"),
+            ("sibr-one", "proven"),
+            ("sibr-zero-one", "failed"),
+            ("one-zero-one", "failed"),
+            ("sib-all", "failed"),
+            ("bis-all", "failed"),
+        ]
+        .map(|(claim, status)| (claim.to_owned(), status.to_owned()))
+    );
+}

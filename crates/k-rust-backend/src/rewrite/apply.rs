@@ -68,8 +68,8 @@ use crate::{
 };
 
 use super::{
-    AppliedRule, GeneralUnificationRecovery, IndeterminateReason, Pattern, RecoveredMatch,
-    StateNames, TrivialApplication, Truth, collection_unification_definedness,
+    AppliedRule, GeneralUnificationRecovery, IndeterminateReason, NormalizedSuccessor, Pattern,
+    RecoveredMatch, StateNames, TrivialApplication, Truth, collection_unification_definedness,
     conjunctively_contains_alpha_equivalent, extend_unique, freshen_unbound_rule_variables,
     predicates_truth, recover_boolean_matches, recover_equality_matches,
     recover_function_equality_match, recover_functional_symbolic_match,
@@ -2019,6 +2019,7 @@ fn apply_rhs_alternative(
             effects,
             remainder_simplifications: Vec::new(),
             io: io_evaluation.map(|execution| execution.commit()),
+            normalized: NormalizedSuccessor::default(),
             diagnostics: Vec::new(),
             observations: Vec::new(),
         },

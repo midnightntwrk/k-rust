@@ -46,7 +46,7 @@ use roles::{Applicability, Remainder};
 pub(crate) use step::rewrite_step_all_first_group_for_tests;
 use step::{rewrite_step_all, rewrite_step_any};
 
-use std::{collections::BTreeSet, hash::Hash, time::Duration};
+use std::{collections::BTreeSet, hash::Hash, sync::Arc, time::Duration};
 
 use crate::{
     builtin::BuiltinEffect,
@@ -145,7 +145,7 @@ pub(crate) fn retain_substitution_predicates(
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct AppliedRule {
     /// The constrained pattern against which this application was constructed.
     pub before: Pattern,
@@ -164,6 +164,8 @@ pub struct AppliedRule {
     pub(crate) remainder_simplifications: Vec<RemainderSimplification>,
     /// Console state tentatively produced while evaluating this candidate's right-hand side.
     pub(crate) io: Option<ExecutionIoState>,
+    /// The normalization of `pattern` its step already did, which the successor state reuses.
+    pub(crate) normalized: NormalizedSuccessor,
     /// The backend diagnostics of the work this candidate's path went through in the step that
     /// produced it: its own construction and simplification, the step work on the part of the
     /// subject it was derived from (a lower-priority candidate inherits its remainder's), and
@@ -174,6 +176,48 @@ pub struct AppliedRule {
     /// evaluations of its higher-priority remainder, its transition, and the evaluations of its
     /// normalization, anchored as on the branch it would extend. Empty otherwise.
     pub observations: Vec<ObservationEvent>,
+}
+
+/// Every field but the `normalized` cache, which is work derived from `pattern`.
+impl std::fmt::Debug for AppliedRule {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AppliedRule")
+            .field("before", &self.before)
+            .field("pattern", &self.pattern)
+            .field("label", &self.label)
+            .field("unique_id", &self.unique_id)
+            .field("substitution", &self.substitution)
+            .field("rule_substitution", &self.rule_substitution)
+            .field("rule_predicates", &self.rule_predicates)
+            .field("effects", &self.effects)
+            .field("remainder_simplifications", &self.remainder_simplifications)
+            .field("io", &self.io)
+            .field("diagnostics", &self.diagnostics)
+            .field("observations", &self.observations)
+            .finish()
+    }
+}
+
+/// The normalization of an applied candidate's successor that its step already did
+/// ([`execute::SuccessorNormalization`]), for the successor state to take instead of repeating
+/// it. It is a cache of work derived from the candidate's `pattern`: equality ignores it, and a
+/// step that changes the pattern after the normalization drops it.
+#[derive(Clone, Default)]
+pub(crate) struct NormalizedSuccessor(pub(crate) Option<Arc<execute::SuccessorNormalization>>);
+
+impl PartialEq for NormalizedSuccessor {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for NormalizedSuccessor {}
+
+impl std::fmt::Debug for NormalizedSuccessor {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(if self.0.is_some() { "Some(..)" } else { "None" })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
