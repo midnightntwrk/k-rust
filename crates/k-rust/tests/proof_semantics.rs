@@ -2255,3 +2255,46 @@ fn an_owise_equation_does_not_apply_where_only_the_written_split_of_a_concatenat
     );
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+/// A claim whose left-hand side is a disjunction is one claim per disjunct, all under the claim's
+/// label and unique id, and it holds only if every disjunct does. A prove request proves one
+/// disjunct, so a label or unique id that names such a claim is refused with the `#index`
+/// selectors of its disjuncts, and each disjunct is proven through its own.
+#[test]
+fn a_disjunctive_claim_is_proven_one_disjunct_at_a_time() {
+    let source = r#"
+module DEFPROBE
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Res ::= yes(Int) [symbol(yes)] | pos(Int, Int) [symbol(pos)]
+  configuration <k> $PGM:Res </k>
+  rule [pos]: pos(X, Y) => yes(X /Int Y) requires X /Int Y >Int 0
+endmodule
+module DISJ-SPEC
+  imports DEFPROBE
+  claim [disj]: <k> (pos(X, 1) #Or pos(X, 0)) => yes(?_) </k> requires X >Int 0
+endmodule
+"#;
+    let kore = compile(source, "DISJ-SPEC", "DEFPROBE");
+    let mut backend = Backend::new(&kore, "DISJ-SPEC", BackendOptions::default()).unwrap();
+    let selector = "DISJ-SPEC.disj";
+    let error = backend
+        .prove(ProveRequest {
+            claim: Some(selector.to_owned()),
+            ..ProveRequest::default()
+        })
+        .expect_err(selector);
+    assert!(
+        error.message().contains("2 left-hand disjuncts") && error.message().contains("#0, #1"),
+        "{selector}: {error:?}"
+    );
+    assert_eq!(
+        prove(&kore, "DISJ-SPEC", "#0", ProveRequest::default()).status,
+        "proven"
+    );
+    assert_ne!(
+        prove(&kore, "DISJ-SPEC", "#1", ProveRequest::default()).status,
+        "proven"
+    );
+}

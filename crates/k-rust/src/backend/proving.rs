@@ -28,12 +28,20 @@ use super::BackendError;
 #[doc(hidden)]
 pub const SAVED_PROOFS_MODULE: &str =
     "haskell-backend-saved-claims-43943e50-f723-47cd-99fd-07104d664c6d";
-const MODALITY_SAFE_PROOFS: &str = "kRustModalitySafeProofsV1";
+/// The version of the saved-proof format, which a saved-proof file carries as an attribute of its
+/// module and must carry to be read.
+///
+/// `kRustModalitySafeProofsV1` keyed a proof by its claim's unique id and modality, but recorded a
+/// claim with a left-hand disjunction, one claim per disjunct under one id, as soon as its first
+/// disjunct was proven, so a V1 file may record a claim that is not proven and is rejected. `V2`
+/// records a claim only once every disjunct is proven. A later change of what a saved proof
+/// certifies defines `V3` and rejects `V2` files the same way.
+const SAVED_PROOFS_FORMAT: &str = "kRustSavedProofsV2";
 
-fn modality_safe_proofs_attribute() -> Pattern {
+fn saved_proofs_format_attribute() -> Pattern {
     Pattern::Application {
         symbol: Symbol {
-            name: MODALITY_SAFE_PROOFS.into(),
+            name: SAVED_PROOFS_FORMAT.into(),
             sort_parameters: Vec::new(),
         },
         arguments: Vec::new(),
@@ -114,9 +122,13 @@ pub fn resolve_claim_labels(
             continue;
         }
         let suffix = format!(".{requested}");
+        // The disjuncts of one claim share its label, so a label counts once: only distinct
+        // claims make a request ambiguous.
         let matches = labels
             .iter()
             .filter(|label| label.ends_with(&suffix))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .collect::<Vec<_>>();
         match matches.as_slice() {
             [] => {
@@ -175,11 +187,15 @@ impl SavedProofs {
         if !module
             .attributes
             .0
-            .contains(&modality_safe_proofs_attribute())
+            .contains(&saved_proofs_format_attribute())
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "saved proof file predates modality-aware proof identities; remove it and rerun kprove",
+                format!(
+                    "saved proof file predates the saved-proof format {SAVED_PROOFS_FORMAT}, which \
+                     records a claim with a left-hand disjunction only once every disjunct is \
+                     proven; remove it and rerun kprove"
+                ),
             )
             .into());
         }
@@ -242,7 +258,7 @@ pub fn saved_proof_definition(
         modules: vec![Module {
             name: SAVED_PROOFS_MODULE.into(),
             sentences: declarations.chain(claims).collect(),
-            attributes: Attributes(vec![modality_safe_proofs_attribute()]),
+            attributes: Attributes(vec![saved_proofs_format_attribute()]),
         }],
     }
 }
@@ -326,6 +342,30 @@ fn saved_claim_supports(saved: &Sentence, target: &Sentence) -> bool {
         && (saved_mode == ReachabilityMode::AllPath || target_mode == ReachabilityMode::OnePath)
 }
 
+/// Whether `left` and `right` are disjuncts of one claim sentence: a sentence with a left-hand
+/// disjunction is internalized as one claim per disjunct, each with the sentence's attributes
+/// (label, unique id, origin) and modality. The unique id alone does not tell sentences apart: two
+/// claims with one body, one all-path and one one-path, share it.
+fn same_sentence(left: &ReachabilityClaim, right: &ReachabilityClaim) -> bool {
+    left.attributes == right.attributes && left.mode == right.mode
+}
+
+/// The position of each claim among the disjuncts of its claim sentence, as (1-based index,
+/// count): the disjuncts of a sentence are internalized in order and consecutively.
+pub fn disjunct_positions(claims: &[ReachabilityClaim]) -> Vec<(usize, usize)> {
+    let mut positions = Vec::with_capacity(claims.len());
+    let mut start = 0;
+    while start < claims.len() {
+        let count = claims[start..]
+            .iter()
+            .take_while(|claim| same_sentence(claim, &claims[start]))
+            .count();
+        positions.extend((1..=count).map(|index| (index, count)));
+        start += count;
+    }
+    positions
+}
+
 pub(super) fn select_claim<'a>(
     definition: &'a BackendDefinition,
     selector: Option<&str>,
@@ -343,15 +383,23 @@ pub(super) fn select_claim<'a>(
                     BackendError::new(format!("no reachability claim at index {index}"))
                 });
         }
-        return definition
-            .reachability_claims()
-            .iter()
-            .enumerate()
-            .find(|(_, claim)| {
-                claim.attributes.label.as_deref() == Some(selector)
-                    || claim.attributes.unique_id == selector
-            })
-            .ok_or_else(|| BackendError::new(format!("no reachability claim named {selector:?}")));
+        // A claim with a left-hand disjunction is one claim per disjunct under one label and
+        // unique id, and it holds only if every disjunct does; a request proves one claim, so a
+        // name that selects several disjuncts is refused with their `#index` selectors.
+        let named = select_claims(definition, selector)?;
+        return match named.as_slice() {
+            [claim] => Ok(*claim),
+            disjuncts => Err(BackendError::new(format!(
+                "claim {selector:?} has {} left-hand disjuncts, which a proof request proves one \
+                 at a time; select each by its index: {}",
+                disjuncts.len(),
+                disjuncts
+                    .iter()
+                    .map(|(index, _)| format!("#{index}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))),
+        };
     }
     match definition.reachability_claims() {
         [claim] => Ok((0, claim)),
@@ -363,6 +411,38 @@ pub(super) fn select_claim<'a>(
             claims.len()
         ))),
     }
+}
+
+/// Every claim `selector` names: the claim at `#index`, or each disjunct of the first claim
+/// sentence with that label or unique id.
+pub(super) fn select_claims<'a>(
+    definition: &'a BackendDefinition,
+    selector: &str,
+) -> Result<Vec<(usize, &'a ReachabilityClaim)>, BackendError> {
+    if let Some(index) = selector
+        .strip_prefix('#')
+        .and_then(|value| value.parse().ok())
+    {
+        return definition
+            .reachability_claims()
+            .get(index)
+            .map(|claim| vec![(index, claim)])
+            .ok_or_else(|| BackendError::new(format!("no reachability claim at index {index}")));
+    }
+    let claims = definition.reachability_claims();
+    let Some(first) = claims.iter().find(|claim| {
+        claim.attributes.label.as_deref() == Some(selector)
+            || claim.attributes.unique_id == selector
+    }) else {
+        return Err(BackendError::new(format!(
+            "no reachability claim named {selector:?}"
+        )));
+    };
+    Ok(claims
+        .iter()
+        .enumerate()
+        .filter(|(_, claim)| same_sentence(claim, first))
+        .collect())
 }
 
 /// Run the backend proof algorithm; selection and presentation remain caller contracts.

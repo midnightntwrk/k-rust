@@ -3568,6 +3568,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         .iter()
         .find(|module| module.name == options.module)
         .ok_or_else(|| format!("compiled KORE has no module `{}`", options.module))?;
+    // The claims proven by a saved proof, and those all of whose disjuncts this run proves.
     let mut proven_ids = saved_proofs.proven_ids(spec_module);
     if definition.reachability_claims().is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
@@ -3614,13 +3615,28 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let mut all_proven = true;
     let proof_phase =
         tracing::info_span!("phase", name = tracing::field::display("proof")).entered();
-    // Invariant: proven_ids contains each proof's claim ID and modality.
+    // A claim with a left-hand disjunction is one claim per disjunct, consecutive and with one
+    // label, unique id and origin; it holds only if every disjunct does, so it is proven, and
+    // saved, only when all its disjuncts are proven in this run.
+    let positions = k_rust::backend::proving::disjunct_positions(&kept);
+    let mut disjuncts_proven = 0;
+    // Invariant: proven_ids contains the saved proofs and the claim ID and modality of each claim
+    // all of whose disjuncts this run proved.
     for (index, claim) in kept.iter().enumerate() {
-        let name = claim
+        let (disjunct, disjuncts) = positions[index];
+        if disjunct == 1 {
+            disjuncts_proven = 0;
+        }
+        let label = claim
             .attributes
             .label
             .as_deref()
             .map_or_else(|| format!("#{}", index + 1), str::to_owned);
+        let name = if disjuncts > 1 {
+            format!("{label} (disjunct {disjunct} of {disjuncts})")
+        } else {
+            label
+        };
         if claim.attributes.trusted {
             writeln!(output, "claim {name}: proven (trusted)")?;
             timings.claims.push(ClaimTiming {
@@ -3685,7 +3701,10 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             result.unexplored_states,
         )?;
         if result.status == ProofStatus::Proven {
-            proven_ids.insert(k_rust::backend::proving::ProvenClaim::from_claim(claim));
+            disjuncts_proven += 1;
+            if disjuncts_proven == disjuncts {
+                proven_ids.insert(k_rust::backend::proving::ProvenClaim::from_claim(claim));
+            }
         } else {
             all_proven = false;
             for leaf in result.leaves.iter().filter(|leaf| {
@@ -5374,6 +5393,56 @@ mod tests {
         let labels = vec!["FIRST.same".to_owned(), "SECOND.same".to_owned()];
         let error = resolve_claim_labels(&labels, &["same".into()]).unwrap_err();
         assert!(error.to_string().contains("is ambiguous"), "{error}");
+    }
+
+    /// A claim with a left-hand disjunction is one claim per disjunct, in order, under the
+    /// claim's unique id and label: `disjunct_positions` numbers them within their claim, and
+    /// selecting the label keeps every disjunct rather than finding it ambiguous.
+    #[test]
+    fn the_disjuncts_of_a_claim_are_numbered_in_order_and_selected_together() {
+        let syntax = parse_kore_definition(
+            r#"[]
+            module SPEC
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                symbol c{}() : SortS{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(a{}())
+                ) [label{}("SPEC.single")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(\or{SortS{}}(b{}(), c{}()), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(a{}())
+                ) [label{}("SPEC.both")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "SPEC").unwrap();
+        let claims = definition.reachability_claims();
+        assert_eq!(
+            k_rust::backend::proving::disjunct_positions(claims),
+            [(1, 1), (1, 2), (2, 2)]
+        );
+        let terms = claims[1..]
+            .iter()
+            .map(|claim| format!("{:?}", claim.lhs.term))
+            .collect::<Vec<_>>();
+        assert!(
+            terms[0].contains("\"b\"") && terms[1].contains("\"c\""),
+            "{terms:?}"
+        );
+        let kept = filter_claims(
+            claims,
+            &ClaimFilter {
+                selected: vec!["both".into()],
+                ..ClaimFilter::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(kept.len(), 2);
     }
 
     #[test]

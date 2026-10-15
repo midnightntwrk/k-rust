@@ -11604,6 +11604,149 @@ fn kore_rpc_serves_execute_and_simplify_on_an_ephemeral_port() {
     drop(server);
 }
 
+/// `pos(X, Y) => yes(X /Int Y) requires X /Int Y >Int 0`, and a specification module `DISJ-SPEC`
+/// with one claim `disj` whose left-hand side is the disjunction `left`, under `requires`.
+fn disjunctive_claim_source(left: &str, requires: &str) -> String {
+    format!(
+        r#"
+module DEFPROBE
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Res ::= yes(Int) [symbol(yes)] | pos(Int, Int) [symbol(pos)]
+  configuration <k> $PGM:Res </k>
+  rule [pos]: pos(X, Y) => yes(X /Int Y) requires X /Int Y >Int 0
+endmodule
+module DISJ-SPEC
+  imports DEFPROBE
+  claim [disj]: <k> ({left}) => yes(?_) </k> requires {requires}
+endmodule
+"#
+    )
+}
+
+/// A claim whose left-hand side is a disjunction holds only if it holds for every disjunct, so
+/// `kprove` reports each disjunct and counts, and saves, the claim as proven only when every
+/// disjunct is proven in the run. Here `pos(X, 0)` is stuck: its rule's condition `X /Int 0 >Int 0`
+/// is undefined. The claim is selected whole by its label.
+#[test]
+fn kprove_proves_a_disjunctive_claim_only_when_every_disjunct_is_proven() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        disjunctive_claim_source("pos(X, 1) #Or pos(X, 0)", "X >Int 0"),
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "DISJ-SPEC", "DEFPROBE", &compiled);
+    let saved = root.join("proofs.kore");
+    for selection in [&[][..], &["--claim", "disj"][..]] {
+        let _ = fs::remove_file(&saved);
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kprove", "--compiled-definition"])
+            .arg(&compiled)
+            .args(["--main-module", "DISJ-SPEC", "--save-proofs"])
+            .arg(&saved)
+            .args(selection)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success(),
+            "{selection:?}: {stdout}\n{stderr}"
+        );
+        let claims = stdout
+            .lines()
+            .filter(|line| line.starts_with("claim "))
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(claims.as_slice(), [first, second]
+                if first.starts_with("claim DISJ-SPEC.disj (disjunct 1 of 2): proven (")
+                    && second.starts_with("claim DISJ-SPEC.disj (disjunct 2 of 2): ")
+                    && !second.contains("proven")),
+            "{selection:?}: {stdout}\n{stderr}"
+        );
+        let file = parse_definition(&fs::read_to_string(&saved).unwrap()).unwrap();
+        assert!(
+            !file.modules[0]
+                .sentences
+                .iter()
+                .any(|sentence| matches!(sentence, k_rust::kore::ast::Sentence::Claim { .. })),
+            "{selection:?}: the unproven claim was saved"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A disjunctive claim whose disjuncts are all proven is saved, and a rerun reports each
+/// disjunct from the saved proof. A file in an earlier saved-proof format, which may record such
+/// a claim after only its first disjunct was proven, is rejected.
+#[test]
+fn kprove_saves_a_disjunctive_claim_once_every_disjunct_is_proven() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        disjunctive_claim_source("pos(X, 1) #Or pos(X, 2)", "X >Int 3"),
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "DISJ-SPEC", "DEFPROBE", &compiled);
+    let saved = root.join("proofs.kore");
+    let kprove = || {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kprove", "--compiled-definition"])
+            .arg(&compiled)
+            .args(["--main-module", "DISJ-SPEC", "--save-proofs"])
+            .arg(&saved)
+            .output()
+            .unwrap()
+    };
+    let first = kprove();
+    let stdout = String::from_utf8(first.stdout).unwrap();
+    assert!(first.status.success(), "{stdout}");
+    let claims = stdout
+        .lines()
+        .filter(|line| line.starts_with("claim "))
+        .collect::<Vec<_>>();
+    assert!(
+        matches!(claims.as_slice(), [first, second]
+            if first.starts_with("claim DISJ-SPEC.disj (disjunct 1 of 2): proven (")
+                && second.starts_with("claim DISJ-SPEC.disj (disjunct 2 of 2): proven (")),
+        "{stdout}"
+    );
+    let rerun = kprove();
+    let stdout = String::from_utf8(rerun.stdout).unwrap();
+    assert!(rerun.status.success(), "{stdout}");
+    assert_eq!(
+        stdout,
+        "claim DISJ-SPEC.disj (disjunct 1 of 2): proven (saved)\n\
+         claim DISJ-SPEC.disj (disjunct 2 of 2): proven (saved)\n"
+    );
+
+    let mut earlier = parse_definition(&fs::read_to_string(&saved).unwrap()).unwrap();
+    earlier.modules[0].attributes =
+        k_rust::kore::ast::Attributes(vec![k_rust::kore::ast::Pattern::Application {
+            symbol: k_rust::kore::ast::Symbol {
+                name: "kRustModalitySafeProofsV1".into(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        }]);
+    fs::write(
+        &saved,
+        k_rust::kore::printer::Printer::pretty(100).print_definition(&earlier),
+    )
+    .unwrap();
+    let rejected = kprove();
+    assert!(!rejected.status.success(), "{rejected:?}");
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains("predates the saved-proof format"),
+        "{rejected:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn modal_claim_fixture() -> (PathBuf, PathBuf, PathBuf) {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");
@@ -11826,7 +11969,7 @@ fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
     let old_file = selected(&deterministic_one_first, "one");
     assert!(!old_file.status.success(), "{old_file:?}");
     assert!(
-        String::from_utf8_lossy(&old_file.stderr).contains("predates modality-aware"),
+        String::from_utf8_lossy(&old_file.stderr).contains("predates the saved-proof format"),
         "{old_file:?}"
     );
 

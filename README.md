@@ -464,7 +464,8 @@ part is closed and the rest continues rewriting in either mode; if it cannot mov
 leaf that carries the failing condition. When the solver cannot decide them, the state
 continues rewriting and, if it cannot move, ends indeterminate.
 `--save-proofs` reuses a proven all-path claim for the same one-path body, but does not reuse a one-path proof for an all-path claim.
-Saved proof files written before modality-aware proof identities are rejected; remove the old file and rerun `kprove` to regenerate it.
+A claim whose left-hand side is a disjunction (`(A #Or B) => C`) holds only if it holds for each disjunct: `kprove` proves and reports each disjunct on its own line, `claim <label> (disjunct <i> of <n>): <verdict>`, selects all of them by the claim's label, and counts and saves the claim as proven only when every disjunct is proven.
+A saved proof file carries the format marker `kRustSavedProofsV2`; a file without it, such as one written before disjunctive claims were saved only once fully proven (`kRustModalitySafeProofsV1`) or before modality-aware proof identities, is rejected; remove the old file and rerun `kprove` to regenerate it.
 
 Each selected claim prints `claim <label>: <verdict>`, followed by its unproven leaves, each as
 `<outcome> at depth <n>` with the outcome named as the host bindings name it (below), then its
