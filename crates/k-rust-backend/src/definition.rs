@@ -2783,7 +2783,8 @@ impl BackendDefinition {
         result.reachability_claims = result
             .claims
             .iter()
-            .map(|claim| internalize_reachability_claim(&result, claim))
+            .enumerate()
+            .map(|(sentence, claim)| internalize_reachability_claim(&result, sentence, claim))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()

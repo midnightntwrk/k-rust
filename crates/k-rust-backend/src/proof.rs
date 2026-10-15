@@ -2253,6 +2253,7 @@ mod tests {
                 trusted: false,
                 source: None,
                 location: None,
+                sentence: 0,
             },
         }
     }
@@ -5163,6 +5164,7 @@ mod tests {
                 trusted: false,
                 source: None,
                 location: None,
+                sentence: 0,
             },
         };
         let prove = |cancels| {

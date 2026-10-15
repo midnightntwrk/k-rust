@@ -11765,6 +11765,609 @@ fn kore_rpc_serves_execute_and_simplify_on_an_ephemeral_port() {
     drop(server);
 }
 
+/// `pos(X, Y) => yes(X /Int Y) requires X /Int Y >Int 0`, and a specification module `DISJ-SPEC`
+/// with one claim `disj` whose left-hand side is the disjunction `left`, under `requires`.
+fn disjunctive_claim_source(left: &str, requires: &str) -> String {
+    format!(
+        r#"
+module DEFPROBE
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Res ::= yes(Int) [symbol(yes)] | pos(Int, Int) [symbol(pos)]
+  configuration <k> $PGM:Res </k>
+  rule [pos]: pos(X, Y) => yes(X /Int Y) requires X /Int Y >Int 0
+endmodule
+module DISJ-SPEC
+  imports DEFPROBE
+  claim [disj]: <k> ({left}) => yes(?_) </k> requires {requires}
+endmodule
+"#
+    )
+}
+
+/// A claim whose left-hand side is a disjunction holds only if it holds for every disjunct, so
+/// `kprove` reports each disjunct and counts, and saves, the claim as proven only when every
+/// disjunct is proven in the run. Here `pos(X, 0)` is stuck: its rule's condition `X /Int 0 >Int 0`
+/// is undefined. The claim is selected whole by its label.
+#[test]
+fn kprove_proves_a_disjunctive_claim_only_when_every_disjunct_is_proven() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        disjunctive_claim_source("pos(X, 1) #Or pos(X, 0)", "X >Int 0"),
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "DISJ-SPEC", "DEFPROBE", &compiled);
+    let saved = root.join("proofs.kore");
+    for selection in [&[][..], &["--claim", "disj"][..]] {
+        let _ = fs::remove_file(&saved);
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kprove", "--compiled-definition"])
+            .arg(&compiled)
+            .args(["--main-module", "DISJ-SPEC", "--save-proofs"])
+            .arg(&saved)
+            .args(selection)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success(),
+            "{selection:?}: {stdout}\n{stderr}"
+        );
+        let claims = stdout
+            .lines()
+            .filter(|line| line.starts_with("claim "))
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(claims.as_slice(), [first, second]
+                if first.starts_with("claim DISJ-SPEC.disj (disjunct 1 of 2): proven (")
+                    && second.starts_with("claim DISJ-SPEC.disj (disjunct 2 of 2): ")
+                    && !second.contains("proven")),
+            "{selection:?}: {stdout}\n{stderr}"
+        );
+        let file = parse_definition(&fs::read_to_string(&saved).unwrap()).unwrap();
+        assert!(
+            !file.modules[0]
+                .sentences
+                .iter()
+                .any(|sentence| matches!(sentence, k_rust::kore::ast::Sentence::Claim { .. })),
+            "{selection:?}: the unproven claim was saved"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A disjunctive claim whose disjuncts are all proven is saved, and a rerun reports each
+/// disjunct from the saved proof. A file in an earlier saved-proof format, which may record such
+/// a claim after only its first disjunct was proven, is rejected.
+#[test]
+fn kprove_saves_a_disjunctive_claim_once_every_disjunct_is_proven() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        disjunctive_claim_source("pos(X, 1) #Or pos(X, 2)", "X >Int 3"),
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "DISJ-SPEC", "DEFPROBE", &compiled);
+    let saved = root.join("proofs.kore");
+    let kprove = || {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kprove", "--compiled-definition"])
+            .arg(&compiled)
+            .args(["--main-module", "DISJ-SPEC", "--save-proofs"])
+            .arg(&saved)
+            .output()
+            .unwrap()
+    };
+    let first = kprove();
+    let stdout = String::from_utf8(first.stdout).unwrap();
+    assert!(first.status.success(), "{stdout}");
+    let claims = stdout
+        .lines()
+        .filter(|line| line.starts_with("claim "))
+        .collect::<Vec<_>>();
+    assert!(
+        matches!(claims.as_slice(), [first, second]
+            if first.starts_with("claim DISJ-SPEC.disj (disjunct 1 of 2): proven (")
+                && second.starts_with("claim DISJ-SPEC.disj (disjunct 2 of 2): proven (")),
+        "{stdout}"
+    );
+    let rerun = kprove();
+    let stdout = String::from_utf8(rerun.stdout).unwrap();
+    assert!(rerun.status.success(), "{stdout}");
+    assert_eq!(
+        stdout,
+        "claim DISJ-SPEC.disj (disjunct 1 of 2): proven (saved)\n\
+         claim DISJ-SPEC.disj (disjunct 2 of 2): proven (saved)\n"
+    );
+
+    let mut earlier = parse_definition(&fs::read_to_string(&saved).unwrap()).unwrap();
+    earlier.modules[0].attributes =
+        k_rust::kore::ast::Attributes(vec![k_rust::kore::ast::Pattern::Application {
+            symbol: k_rust::kore::ast::Symbol {
+                name: "kRustModalitySafeProofsV1".into(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        }]);
+    fs::write(
+        &saved,
+        k_rust::kore::printer::Printer::pretty(100).print_definition(&earlier),
+    )
+    .unwrap();
+    let rejected = kprove();
+    assert!(!rejected.status.success(), "{rejected:?}");
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("is in the earlier saved-proof format kRustModalitySafeProofsV1"),
+        "{rejected:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The specification `UK-SPEC`: `go(1) => done()` (true), `[mid] s(1) => done()` (true,
+/// one-path), in that order or `mid` first, and `go(0) => done()` (false: `go(0)` steps to
+/// `s(0)`, which is stuck), compiled for proving, then rewritten as a client writing KORE could:
+/// `edit` receives the three claim sentences' attributes in order. Returns the fixture root and
+/// the compiled directory.
+fn hand_written_claims(
+    mid_first: bool,
+    edit: impl FnOnce(&mut [&mut k_rust::kore::ast::Attributes]),
+) -> (PathBuf, PathBuf) {
+    let go_one = "  claim <k> go(1) => done() </k>\n";
+    let mid = "  claim [mid]: <k> s(1) => done() </k> [one-path]\n";
+    let claims = if mid_first {
+        format!("{mid}{go_one}")
+    } else {
+        format!("{go_one}{mid}")
+    };
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module UK
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Res ::= go(Int) [symbol(go)] | s(Int) [symbol(s)] | done() [symbol(done)]
+  configuration <k> $PGM:Res </k>
+  rule <k> go(X) => s(X) </k>
+  rule <k> s(1) => done() </k>
+endmodule
+module UK-SPEC
+  imports UK
+CLAIMS  claim <k> go(0) => done() </k>
+endmodule
+"#
+        .replace("CLAIMS", &claims),
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "UK-SPEC", "UK", &compiled);
+    let path = compiled.join("definition.kore");
+    let mut kore = parse_definition(&fs::read_to_string(&path).unwrap()).unwrap();
+    let mut attributes = kore
+        .modules
+        .iter_mut()
+        .flat_map(|module| module.sentences.iter_mut())
+        .filter_map(|sentence| match sentence {
+            k_rust::kore::ast::Sentence::Claim { attributes, .. } => Some(attributes),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(attributes.len(), 3);
+    edit(&mut attributes);
+    fs::write(
+        &path,
+        k_rust::kore::printer::Printer::pretty(100).print_definition(&kore),
+    )
+    .unwrap();
+    (root, compiled)
+}
+
+fn label_attribute(label: &str) -> Pattern {
+    parse_pattern(&format!("label{{}}(\"{label}\")")).unwrap()
+}
+
+fn kprove_compiled(compiled: &Path, module: &str, extra: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kprove", "--compiled-definition"])
+        .arg(compiled)
+        .args(["--main-module", module])
+        .args(extra)
+        .output()
+        .unwrap()
+}
+
+fn claim_lines(output: &std::process::Output) -> Vec<String> {
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.starts_with("claim "))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A claim written in KORE may carry no unique id (every such claim then has the backend's id
+/// `UNKNOWN`) or another claim's label (the label is the id then), and no origin. Such an id
+/// names no single claim, so a proof under it is neither reused nor saved, and two such claims
+/// are two claims, never the disjuncts of one: `go(0) => done()` is proven or failed on its own.
+#[test]
+fn kprove_reuses_and_saves_a_proof_only_under_an_id_that_names_one_claim() {
+    let strip = |attributes: &mut [&mut k_rust::kore::ast::Attributes]| {
+        attributes[0].0.clear();
+        attributes[2].0.clear();
+    };
+    // Two claims without an id, separated by another claim.
+    let (root, compiled) = hand_written_claims(false, strip);
+    let saved = root.join("proofs.kore");
+    let separated = kprove_compiled(
+        &compiled,
+        "UK-SPEC",
+        &["--save-proofs", saved.to_str().unwrap()],
+    );
+    let lines = claim_lines(&separated);
+    assert!(!separated.status.success(), "{lines:?}");
+    assert!(
+        lines.len() == 3
+            && lines[0].starts_with("claim #1: proven (")
+            && lines[1].starts_with("claim UK-SPEC.mid: proven (")
+            && lines[2].starts_with("claim #3: ")
+            && !lines[2].contains("proven"),
+        "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+
+    // The same two claims next to each other are still two claims.
+    let (root, compiled) = hand_written_claims(true, |attributes| {
+        attributes[1].0.clear();
+        attributes[2].0.clear();
+    });
+    let consecutive = kprove_compiled(&compiled, "UK-SPEC", &[]);
+    let lines = claim_lines(&consecutive);
+    assert!(
+        lines.iter().all(|line| !line.contains("disjunct")),
+        "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+
+    // Two claims under one label: the false one is neither reported from the true one's proof
+    // nor saved, whatever claims are selected.
+    let (root, compiled) = hand_written_claims(false, |attributes| {
+        strip(attributes);
+        attributes[0].0.push(label_attribute("UK-SPEC.dup"));
+        attributes[2].0.push(label_attribute("UK-SPEC.dup"));
+    });
+    let saved = root.join("proofs.kore");
+    for selection in [&[][..], &["--claim", "dup"][..]] {
+        let mut arguments = vec!["--save-proofs", saved.to_str().unwrap()];
+        arguments.extend(selection);
+        let output = kprove_compiled(&compiled, "UK-SPEC", &arguments);
+        let lines = claim_lines(&output);
+        assert!(!output.status.success(), "{selection:?}: {lines:?}");
+        assert!(
+            lines
+                .iter()
+                .all(|line| !line.contains("(saved)") && !line.contains("disjunct")),
+            "{selection:?}: {lines:?}"
+        );
+        let file = parse_definition(&fs::read_to_string(&saved).unwrap()).unwrap();
+        assert!(
+            !file.modules[0]
+                .sentences
+                .iter()
+                .any(|sentence| matches!(sentence, k_rust::kore::ast::Sentence::Claim { .. })),
+            "{selection:?}: a claim was saved"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The claims of one run are proven together, each available to the others' proofs as a
+/// circularity. `a: go(0) => done()` is false, but its proof closes by applying the unproven
+/// second disjunct `s(0) => done()` of `disj`. A run in which not every claim is proven therefore
+/// saves none of its proofs, and says so, so `a` is not reported `proven (saved)` later.
+#[test]
+fn kprove_saves_no_proof_of_a_run_whose_circularities_are_not_all_proven() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module CIRC
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Res ::= go(Int) [symbol(go)] | s(Int) [symbol(s)] | done() [symbol(done)]
+  configuration <k> $PGM:Res </k>
+  rule <k> go(X) => s(X) </k>
+  rule <k> s(1) => done() </k>
+endmodule
+module CIRC-SPEC
+  imports CIRC
+  claim [disj]: <k> (s(1) #Or s(0)) => done() </k>
+  claim [a]: <k> go(0) => done() </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "CIRC-SPEC", "CIRC", &compiled);
+    let saved = root.join("proofs.kore");
+    let run = kprove_compiled(
+        &compiled,
+        "CIRC-SPEC",
+        &["--save-proofs", saved.to_str().unwrap()],
+    );
+    assert!(!run.status.success(), "{:?}", claim_lines(&run));
+    assert!(
+        String::from_utf8_lossy(&run.stderr).contains("are not saved"),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let file = parse_definition(&fs::read_to_string(&saved).unwrap()).unwrap();
+    assert!(
+        !file.modules[0]
+            .sentences
+            .iter()
+            .any(|sentence| matches!(sentence, k_rust::kore::ast::Sentence::Claim { .. })),
+        "a proof of the run was saved"
+    );
+    let alone = kprove_compiled(
+        &compiled,
+        "CIRC-SPEC",
+        &["--claim", "a", "--save-proofs", saved.to_str().unwrap()],
+    );
+    let lines = claim_lines(&alone);
+    assert!(!alone.status.success(), "{lines:?}");
+    assert!(
+        matches!(lines.as_slice(), [line] if line.starts_with("claim CIRC-SPEC.a: ")
+            && !line.contains("proven")),
+        "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A saved-proof file is bound to the compiled definition its proofs were made under: changing
+/// the semantics so that the claim is false makes the file's proof unused, with a warning, and
+/// the claim is proven again (here, disproved).
+#[test]
+fn kprove_reuses_saved_proofs_only_under_the_definition_they_were_made_under() {
+    let source = |rule: &str| {
+        format!(
+            r#"
+module D
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Res ::= go(Int) [symbol(go)] | s(Int) [symbol(s)] | done() [symbol(done)]
+  configuration <k> $PGM:Res </k>
+  rule <k> {rule} </k>
+endmodule
+module D-SPEC
+  imports D
+  claim [p]: <k> go(0) => done() </k>
+endmodule
+"#
+        )
+    };
+    let (root, definition) = fixture();
+    let saved = root.join("proofs.kore");
+    fs::write(&definition, source("go(X) => done()")).unwrap();
+    let first = root.join("first");
+    kcompile_for_proving(&definition, "D-SPEC", "D", &first);
+    let proven = kprove_compiled(
+        &first,
+        "D-SPEC",
+        &["--save-proofs", saved.to_str().unwrap()],
+    );
+    assert!(proven.status.success(), "{:?}", claim_lines(&proven));
+    fs::write(&definition, source("go(X) => s(X)")).unwrap();
+    let second = root.join("second");
+    kcompile_for_proving(&definition, "D-SPEC", "D", &second);
+    let changed = kprove_compiled(
+        &second,
+        "D-SPEC",
+        &["--save-proofs", saved.to_str().unwrap()],
+    );
+    let lines = claim_lines(&changed);
+    assert!(!changed.status.success(), "{lines:?}");
+    assert!(
+        matches!(lines.as_slice(), [line] if !line.contains("proven")),
+        "{lines:?}"
+    );
+    assert!(
+        String::from_utf8_lossy(&changed.stderr)
+            .contains("written for another compiled definition"),
+        "{}",
+        String::from_utf8_lossy(&changed.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Compile `source` (specification module `spec` over `module`) into `root/<name>` and run
+/// `kprove` on it with `--save-proofs <root>/proofs.kore` and `arguments`.
+fn kprove_saving(
+    root: &Path,
+    definition: &Path,
+    source: &str,
+    (spec, module): (&str, &str),
+    name: &str,
+    arguments: &[&str],
+) -> std::process::Output {
+    fs::write(definition, source).unwrap();
+    let compiled = root.join(name);
+    kcompile_for_proving(definition, spec, module, &compiled);
+    let saved = root.join("proofs.kore");
+    let mut all = vec!["--save-proofs", saved.to_str().unwrap()];
+    all.extend_from_slice(arguments);
+    kprove_compiled(&compiled, spec, &all)
+}
+
+/// A trusted claim is an assumption of every proof of its run, so a saved proof is bound to the
+/// claims its run trusted. `t: s(0) => done()` is false, and `a: go(0) => done()` is proven by
+/// applying it. Once `t` is no longer trusted (its attribute removed, the claim deleted, or the
+/// `--trusted` option dropped), the saved proof of `a` is not reused, and `a` is not proven.
+#[test]
+fn kprove_reuses_a_saved_proof_only_under_the_claims_its_run_trusted() {
+    let source = |t: &str| {
+        format!(
+            r#"
+module T
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Res ::= go(Int) [symbol(go)] | s(Int) [symbol(s)] | done() [symbol(done)]
+  configuration <k> $PGM:Res </k>
+  rule <k> go(X) => s(X) </k>
+  rule <k> s(1) => done() </k>
+endmodule
+module T-SPEC
+  imports T
+  {t}
+  claim [a]: <k> go(0) => done() </k>
+endmodule
+"#
+        )
+    };
+    let trusted = source("claim [t]: <k> s(0) => done() </k> [trusted]");
+    let untrusted = source("claim [t]: <k> s(0) => done() </k>");
+    let deleted = source("");
+    let modules = ("T-SPEC", "T");
+    for (case, first, first_arguments, second, second_arguments) in [
+        (
+            "untrusted in source",
+            &trusted,
+            &[][..],
+            &untrusted,
+            &["--claim", "a"][..],
+        ),
+        ("deleted", &trusted, &[][..], &deleted, &[][..]),
+        (
+            "--trusted dropped",
+            &untrusted,
+            &["--trusted", "t"][..],
+            &untrusted,
+            &["--claim", "a"][..],
+        ),
+    ] {
+        let (root, definition) = fixture();
+        let run = kprove_saving(&root, &definition, first, modules, "first", first_arguments);
+        let lines = claim_lines(&run);
+        assert!(run.status.success(), "{case}: {lines:?}");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("claim T-SPEC.a: proven (")),
+            "{case}: {lines:?}"
+        );
+        let run = kprove_saving(
+            &root,
+            &definition,
+            second,
+            modules,
+            "second",
+            second_arguments,
+        );
+        let lines = claim_lines(&run);
+        assert!(!run.status.success(), "{case}: {lines:?}");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("claim T-SPEC.a: ") && !line.contains("proven")),
+            "{case}: {lines:?}"
+        );
+        assert!(
+            String::from_utf8_lossy(&run.stderr).contains("under other assumptions"),
+            "{case}: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// The SMT prelude's assertions are axioms of the proofs made with it, and `--allow-vacuous`
+/// accepts branches that reach no configuration, so a saved proof is bound to both. `p` holds
+/// only by the prelude's axiom on `ff`; `c` only by accepting its undefined step (`half(0)`). A
+/// rerun without the prelude, or without the option, does not reuse the saved proof.
+#[test]
+fn kprove_reuses_a_saved_proof_only_under_its_smt_prelude_and_vacuity_policy() {
+    let prelude_source = r#"
+module PR
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Int ::= f(Int) [function, total, smtlib(ff), no-evaluators, symbol(f)]
+  syntax Res ::= go(Int) [symbol(go)] | done() [symbol(done)]
+  configuration <k> $PGM:Res </k>
+  rule <k> go(X) => done() </k> requires f(X) >Int 0
+endmodule
+module PR-SPEC
+  imports PR
+  claim [p]: <k> go(X) => done() </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    let prelude = root.join("pre.smt2");
+    fs::write(&prelude, "(assert (forall ((x Int)) (> (ff x) 0)))\n").unwrap();
+    let modules = ("PR-SPEC", "PR");
+    let with = kprove_saving(
+        &root,
+        &definition,
+        prelude_source,
+        modules,
+        "with",
+        &["--smt-prelude", prelude.to_str().unwrap()],
+    );
+    assert!(with.status.success(), "{:?}", claim_lines(&with));
+    let without = kprove_saving(&root, &definition, prelude_source, modules, "without", &[]);
+    let lines = claim_lines(&without);
+    assert!(!without.status.success(), "{lines:?}");
+    assert!(
+        matches!(lines.as_slice(), [line] if !line.contains("proven")),
+        "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+
+    let vacuous_source = r#"
+module AV
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Int ::= half(Int) [function, symbol(half)]
+  syntax Res ::= h(Int) [symbol(h)] | yes(Int) [symbol(yes)]
+  configuration <k> $PGM:Res </k>
+  rule half(X) => X /Int 2 requires X >Int 0
+  rule <k> h(X) => yes(half(X)) </k>
+endmodule
+module AV-SPEC
+  imports AV
+  claim [c]: <k> h(0) => yes(?_) </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    let modules = ("AV-SPEC", "AV");
+    let with = kprove_saving(
+        &root,
+        &definition,
+        vacuous_source,
+        modules,
+        "with",
+        &["--allow-vacuous"],
+    );
+    assert!(with.status.success(), "{:?}", claim_lines(&with));
+    let without = kprove_saving(&root, &definition, vacuous_source, modules, "without", &[]);
+    let lines = claim_lines(&without);
+    assert!(!without.status.success(), "{lines:?}");
+    assert!(
+        matches!(lines.as_slice(), [line] if !line.contains("proven")),
+        "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn modal_claim_fixture() -> (PathBuf, PathBuf, PathBuf) {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");
@@ -11987,7 +12590,7 @@ fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
     let old_file = selected(&deterministic_one_first, "one");
     assert!(!old_file.status.success(), "{old_file:?}");
     assert!(
-        String::from_utf8_lossy(&old_file.stderr).contains("predates modality-aware"),
+        String::from_utf8_lossy(&old_file.stderr).contains("carries no saved-proof format marker"),
         "{old_file:?}"
     );
 

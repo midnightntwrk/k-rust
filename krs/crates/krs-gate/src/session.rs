@@ -95,12 +95,55 @@ fn execute(
     Ok((output, retained))
 }
 
+/// A claim whose left-hand side is a disjunction is proven one disjunct per backend request; it
+/// holds only if every disjunct does, so its result has the weakest of their statuses, all of
+/// their leaves and the sums of their state counts.
 fn prove(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Error>> {
-    let result = backend.prove(ProveRequest {
-        claim: Some(required_string(request, "claim")?.to_owned()),
-        ..ProveRequest::default()
-    })?;
-    Ok(serde_json::to_value(result)?)
+    let claim = required_string(request, "claim")?;
+    let disjuncts = backend.claim_disjuncts(None, claim)?;
+    if disjuncts.len() <= 1 {
+        let result = backend.prove(ProveRequest {
+            claim: Some(claim.to_owned()),
+            ..ProveRequest::default()
+        })?;
+        return Ok(serde_json::to_value(result)?);
+    }
+    let mut combined: Option<k_rust::backend::ProofResultOutput> = None;
+    for selector in disjuncts {
+        let result = backend.prove(ProveRequest {
+            claim: Some(selector),
+            ..ProveRequest::default()
+        })?;
+        combined = Some(match combined {
+            None => result,
+            Some(mut combined) => {
+                if status_rank(&result.status) < status_rank(&combined.status) {
+                    combined.status = result.status;
+                }
+                combined.explored_states += result.explored_states;
+                combined.unexplored_states += result.unexplored_states;
+                combined.leaves.extend(result.leaves);
+                combined
+            }
+        });
+    }
+    let mut combined = combined.expect("a disjunctive claim has disjuncts");
+    claim.clone_into(&mut combined.claim);
+    Ok(serde_json::to_value(combined)?)
+}
+
+/// How weak a proof status is: a counterexample before a failure, a failure before an
+/// undecided result, and an undecided result before a bound; an unknown status is weakest.
+fn status_rank(status: &str) -> u8 {
+    match status {
+        "disproved" => 1,
+        "failed" => 2,
+        "indeterminate" => 3,
+        "depth-bound" => 4,
+        "breadth-bound" => 5,
+        "proven" => 6,
+        _ => 0,
+    }
 }
 
 /// A search result and the states a `keep` or `keep_each` request retains.

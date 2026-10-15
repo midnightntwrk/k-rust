@@ -739,6 +739,10 @@ pub struct ModelResultOutput {
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct ProveRequest {
     pub module_name: Option<String>,
+    /// The claim to prove: a label, a unique id, or `#index`. A claim whose left-hand side is a
+    /// disjunction is one claim per disjunct under one label and unique id, and holds only if
+    /// every disjunct does; a request proves one disjunct, so a label or unique id that names
+    /// such a claim is refused with the `#index` selectors of its disjuncts.
     pub claim: Option<String>,
     /// Claims available as guarded circularities, selected by label, unique id, or `#index`.
     /// By default the selected claim and every trusted claim are available.
@@ -1744,6 +1748,28 @@ impl Backend {
         }
     }
 
+    /// The `#index` selector of every claim `selector` names (a label, a unique id or an
+    /// `#index`): one per disjunct of a claim whose left-hand side is a disjunction, which a proof
+    /// request proves one at a time, and one for any other claim.
+    pub fn claim_disjuncts(
+        &self,
+        module_name: Option<&str>,
+        selector: &str,
+    ) -> Result<Vec<String>, BackendError> {
+        let definition = self
+            .session
+            .definition(module_name)
+            .map_err(error("could not select backend module"))?;
+        Ok(proving::select_claims(&definition, selector)?
+            .into_iter()
+            .map(|(index, _)| format!("#{index}"))
+            .collect())
+    }
+
+    /// Prove one claim, selected by [`ProveRequest::claim`]. A claim whose left-hand side is a
+    /// disjunction is proven one disjunct per request, each selected by its `#index`; it holds
+    /// only if every disjunct is proven, and a label or unique id that names it is refused.
+    ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::prove_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
@@ -1773,13 +1799,16 @@ impl Backend {
         let _proof = EvaluationScope::enter(EvaluationMode::Proof);
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
             let (claim_index, claim) = proving::select_claim(definition, request.claim.as_deref())?;
+            // Circularities are claims, each disjunct of a disjunctive claim its own; a name
+            // selects every disjunct of the claim it names.
             let mut seen = BTreeSet::new();
             let circularities = if let Some(selectors) = &request.circularities {
                 let mut circularities = Vec::new();
                 for selector in selectors {
-                    let (_, candidate) = proving::select_claim(definition, Some(selector))?;
-                    if seen.insert(proving::ProvenClaim::from_claim(candidate)) {
-                        circularities.push(candidate);
+                    for (index, candidate) in proving::select_claims(definition, selector)? {
+                        if seen.insert(index) {
+                            circularities.push(candidate);
+                        }
                     }
                 }
                 circularities
@@ -1787,10 +1816,12 @@ impl Backend {
                 definition
                     .reachability_claims()
                     .iter()
-                    .filter(|candidate| {
+                    .enumerate()
+                    .filter(|(index, candidate)| {
                         (std::ptr::eq(*candidate, claim) || candidate.attributes.trusted)
-                            && seen.insert(proving::ProvenClaim::from_claim(candidate))
+                            && seen.insert(*index)
                     })
+                    .map(|(_, candidate)| candidate)
                     .collect()
             };
             let result = proving::run_claim(

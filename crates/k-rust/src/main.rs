@@ -3562,13 +3562,13 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let setup_phase =
         tracing::info_span!("phase", name = tracing::field::display("proof_setup")).entered();
     let setup_started = Instant::now();
-    let saved_proofs = SavedProofs::load(options.save_proofs.as_deref())?;
     let spec_module = syntax
         .modules
         .iter()
         .find(|module| module.name == options.module)
         .ok_or_else(|| format!("compiled KORE has no module `{}`", options.module))?;
-    let mut proven_ids = saved_proofs.proven_ids(spec_module);
+    // A proof is recorded, reused and saved only under an id that names one claim body.
+    let reusable = k_rust::backend::proving::reusable_proof_ids(definition.reachability_claims());
     if definition.reachability_claims().is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
@@ -3597,6 +3597,32 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     if kept.is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
+    // Saved proofs are bound to the compiled definition and to the assumptions they were made
+    // under: the claims the run trusts, the SMT prelude and the vacuity policy.
+    let trusted_ids = kept
+        .iter()
+        .filter(|claim| claim.attributes.trusted)
+        .map(|claim| claim.attributes.unique_id.clone())
+        .collect::<BTreeSet<_>>();
+    let proofs_digest = options
+        .save_proofs
+        .as_ref()
+        .map(|_| {
+            k_rust::backend::proving::saved_proofs_digest(
+                &syntax,
+                &options.module,
+                &k_rust::backend::proving::ProofAssumptions {
+                    trusted: &trusted_ids,
+                    smt_prelude: smt_prelude.as_deref(),
+                    allow_vacuous: options.allow_vacuous,
+                },
+            )
+        })
+        .unwrap_or_default();
+    let saved_proofs = SavedProofs::load(options.save_proofs.as_deref(), &proofs_digest)?;
+    // The claims proven by a saved proof, and those all of whose disjuncts this run proves.
+    let saved_ids = saved_proofs.proven_ids(spec_module, &reusable);
+    let mut proven_ids = saved_ids.clone();
     let circularities = kept.iter().collect::<Vec<_>>();
     let mut backend = Backend::from_internalized_with_prelude(
         definition,
@@ -3614,13 +3640,31 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let mut all_proven = true;
     let proof_phase =
         tracing::info_span!("phase", name = tracing::field::display("proof")).entered();
-    // Invariant: proven_ids contains each proof's claim ID and modality.
+    // A claim with a left-hand disjunction is one claim per disjunct, consecutive and with one
+    // label, unique id and origin; it holds only if every disjunct does, so it is proven, and
+    // saved, only when all its disjuncts are proven in this run.
+    let positions = k_rust::backend::proving::disjunct_positions(&kept);
+    let mut disjuncts_proven = 0;
+    // The claims this run proves that no saved proof supported, by name.
+    let mut proven_in_run = Vec::new();
+    // Invariant: proven_ids contains the saved proofs and the claim ID and modality of each claim
+    // with a reusable id all of whose disjuncts this run proved.
     for (index, claim) in kept.iter().enumerate() {
-        let name = claim
+        let (disjunct, disjuncts) = positions[index];
+        if disjunct == 1 {
+            disjuncts_proven = 0;
+        }
+        // An unlabelled claim is named by the position of its first disjunct.
+        let label = claim
             .attributes
             .label
             .as_deref()
-            .map_or_else(|| format!("#{}", index + 1), str::to_owned);
+            .map_or_else(|| format!("#{}", index + 2 - disjunct), str::to_owned);
+        let name = if disjuncts > 1 {
+            format!("{label} (disjunct {disjunct} of {disjuncts})")
+        } else {
+            label.clone()
+        };
         if claim.attributes.trusted {
             writeln!(output, "claim {name}: proven (trusted)")?;
             timings.claims.push(ClaimTiming {
@@ -3685,7 +3729,11 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             result.unexplored_states,
         )?;
         if result.status == ProofStatus::Proven {
-            proven_ids.insert(k_rust::backend::proving::ProvenClaim::from_claim(claim));
+            disjuncts_proven += 1;
+            if disjuncts_proven == disjuncts && reusable.contains(&claim.attributes.unique_id) {
+                proven_ids.insert(k_rust::backend::proving::ProvenClaim::from_claim(claim));
+                proven_in_run.push(label);
+            }
         } else {
             all_proven = false;
             for leaf in result.leaves.iter().filter(|leaf| {
@@ -3761,7 +3809,22 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         }
     }
     drop(proof_phase);
-    saved_proofs.save(spec_module, &proven_ids)?;
+    // Every claim of the run is a circularity of every proof of it, so a proof is sound on its
+    // own only when every claim it could assume is proven, saved or trusted: otherwise none of
+    // this run's proofs is saved, and the file keeps the proofs it had.
+    let saved = if all_proven {
+        &proven_ids
+    } else {
+        if !proven_in_run.is_empty() && options.save_proofs.is_some() {
+            eprintln!(
+                "warning: the claims proven in this run are not saved ({}): the run's claims are \
+                 circularities of each other's proofs, and not all of them are proven",
+                proven_in_run.join(", ")
+            );
+        }
+        &saved_ids
+    };
+    saved_proofs.save(spec_module, saved, &proofs_digest)?;
     timings.write(options.timings.as_deref())?;
     // The claim results and the timings are written; `output` and `_trace` still drop normally.
     release_at_exit(circularities);
@@ -5376,6 +5439,56 @@ mod tests {
         assert!(error.to_string().contains("is ambiguous"), "{error}");
     }
 
+    /// A claim with a left-hand disjunction is one claim per disjunct, in order, under the
+    /// claim's unique id and label: `disjunct_positions` numbers them within their claim, and
+    /// selecting the label keeps every disjunct rather than finding it ambiguous.
+    #[test]
+    fn the_disjuncts_of_a_claim_are_numbered_in_order_and_selected_together() {
+        let syntax = parse_kore_definition(
+            r#"[]
+            module SPEC
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                symbol c{}() : SortS{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(a{}())
+                ) [label{}("SPEC.single")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(\or{SortS{}}(b{}(), c{}()), \top{SortS{}}()),
+                    weakAlwaysFinally{SortS{}}(a{}())
+                ) [label{}("SPEC.both")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "SPEC").unwrap();
+        let claims = definition.reachability_claims();
+        assert_eq!(
+            k_rust::backend::proving::disjunct_positions(claims),
+            [(1, 1), (1, 2), (2, 2)]
+        );
+        let terms = claims[1..]
+            .iter()
+            .map(|claim| format!("{:?}", claim.lhs.term))
+            .collect::<Vec<_>>();
+        assert!(
+            terms[0].contains("\"b\"") && terms[1].contains("\"c\""),
+            "{terms:?}"
+        );
+        let kept = filter_claims(
+            claims,
+            &ClaimFilter {
+                selected: vec!["both".into()],
+                ..ClaimFilter::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(kept.len(), 2);
+    }
+
     #[test]
     fn filter_claims_follows_k_filter_semantics() {
         let syntax = parse_kore_definition(
@@ -6037,6 +6150,7 @@ mod tests {
                 id: "second".into(),
                 mode: ReachabilityMode::AllPath,
             }]),
+            "digest",
         );
         let module = &saved.modules[0];
 

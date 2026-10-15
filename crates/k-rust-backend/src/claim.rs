@@ -28,6 +28,11 @@ pub struct ClaimAttributes {
     pub trusted: bool,
     pub source: Option<String>,
     pub location: Option<String>,
+    /// The position of the claim sentence among the definition's claims. A sentence whose
+    /// left-hand side is a disjunction is one claim per disjunct, all with its position; no two
+    /// sentences share one, whatever their attributes say (a claim written in KORE may carry no
+    /// unique id, no origin, or another claim's label).
+    pub sentence: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,6 +74,7 @@ impl std::fmt::Display for ClaimError {
 
 pub(crate) fn internalize_reachability_claim(
     definition: &BackendDefinition,
+    sentence: usize,
     claim: &PendingAxiom,
 ) -> Result<Vec<ReachabilityClaim>, DefinitionError> {
     let kore::Pattern::Implies { left, right, .. } = &claim.pattern else {
@@ -122,6 +128,7 @@ pub(crate) fn internalize_reachability_claim(
         trusted: claim.attributes.has(KoreAttribute::Trusted),
         source: origin.source,
         location: origin.location,
+        sentence,
     };
     term_disjuncts(left)
         .into_iter()

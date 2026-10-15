@@ -519,3 +519,63 @@ fn the_spec_module_proof_definition_is_reused_from_the_stage_cache() {
     assert_eq!(fresh.stdout, cold.stdout);
     assert_eq!(stage_entries(&cache), entries);
 }
+
+/// Two claims whose left-hand side is an or-pattern, `foo | bar`, which is a disjunction in K: one
+/// backend claim per disjunct. `krs prove` proves each disjunct and reports the claim proven
+/// only if every disjunct is (`either-reaches-bar`), with the weakest verdict otherwise
+/// (`either-reaches-foo`: `bar` is stuck), beside the run's other claims.
+#[test]
+fn a_disjunctive_claim_is_proven_disjunct_by_disjunct() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let claim = |label: &str, function: &str, result: &str| {
+        format!(
+            r#"
+    #[krs::claim(all_paths, label = "{label}")]
+    fn {function}(
+        krs::cells! {{
+            k: krs::configuration::KCell(Object::Foo() | Object::Bar(), tail @ ..),
+            state @ ..
+        }}: Machine,
+    ) -> Machine {{
+        krs::cells! {{
+            k: krs::configuration::KCell(Object::{result}(), ..tail),
+            ..state
+        }}
+    }}
+"#
+        )
+    };
+    let end = CLAIMS.rfind('}').unwrap();
+    let source = format!(
+        "{}{}{}}}\n",
+        &CLAIMS[..end],
+        claim("either-reaches-bar", "either_reaches_bar", "Bar"),
+        claim("either-reaches-foo", "either_reaches_foo", "Foo"),
+    );
+    let manifest = materialize(temporary.path(), &source);
+
+    let prove = krs(target.path(), &manifest, "prove", &["--output", "json"]);
+    assert_eq!(prove.status.code(), Some(1), "{}", stderr(&prove));
+    let verdicts = json(&prove)["prove"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|report| {
+            (
+                report["claim"].as_str().unwrap().to_owned(),
+                report["verdict"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        verdicts,
+        [
+            ("bar-reaches-foo", "disproved"),
+            ("either-reaches-bar", "proven"),
+            ("either-reaches-foo", "disproved"),
+            ("foo-reaches-bar", "proven"),
+        ]
+        .map(|(claim, verdict)| (format!("ORG-KRS-CLI-EXEC-SPEC.{claim}"), verdict.to_owned()))
+    );
+}
