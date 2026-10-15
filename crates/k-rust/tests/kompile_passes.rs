@@ -4162,6 +4162,139 @@ fn leaves_a_constant_larger_than_the_fold_bound_unfolded_without_computing_it() 
     assert!(label.name.starts_with("_^Int_"), "{label:?}");
 }
 
+/// The right-hand sides `res(..)` of the rules of `source` (main module `MAIN`, with the
+/// prelude) after constant folding, printed.
+fn folded_results(source: &str) -> Vec<String> {
+    let loaded = load_fixture("floats.k", source, "MAIN");
+    let folded = constant_fold(&resolve_semantic_casts(loaded.definition()).unwrap()).unwrap();
+    folded
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => match body.unannotated() {
+                Term::Rewrite { right, .. } => Some(Printer::new().print_term(right)),
+                _ => None,
+            },
+            _ => None,
+        })
+        .filter(|right| right.starts_with("res("))
+        .collect()
+}
+
+/// The fold computes a `FLOAT` application through the backend's evaluation entry in every
+/// build: `1.5 +Float 2.0` is binary64 arithmetic, which the backend evaluates, so it folds to
+/// the canonical text of 3.5, and `precisionFloat` of a binary128 literal, which the backend
+/// reads in every format, folds to 113.
+#[test]
+fn folds_binary64_float_constants_in_every_build() {
+    assert_eq!(
+        folded_results(indoc! {r#"
+            module MAIN-SYNTAX
+              syntax Op ::= "go" [symbol(go)] | "p" [symbol(p)]
+            endmodule
+            module MAIN
+              imports MAIN-SYNTAX
+              imports DOMAINS
+              imports FLOAT
+              configuration <k> $PGM:Op </k>
+              syntax KItem ::= res(K) [symbol(res)]
+              rule go => res(1.5 +Float 2.0)
+              rule p => res(precisionFloat(1.0p113x15))
+            endmodule
+        "#}),
+        [
+            r#"res(#token("3.5000000000000000e+00p53x11","Float"))"#,
+            r#"res(#token("113","Int"))"#,
+        ]
+    );
+}
+
+/// The fold leaves as written every `FLOAT` application the backend does not compute outside an
+/// execution, in every build: the 13 hooks it has no evaluator for, arithmetic in a format other
+/// than binary32 and binary64, an operation over a binary32 and a binary64 operand and the sign of
+/// a NaN (values only an execution chooses), and `Float2Int` of a NaN (a value the definition does
+/// not determine). Execution does not compute them either outside a run, so a fold evaluated in
+/// the execution mode, which would write k-rust's choices, fails here.
+#[test]
+fn leaves_float_hooks_the_backend_does_not_evaluate_unfolded() {
+    let applications = [
+        "expFloat(1.0)",
+        "logFloat(2.0)",
+        "sinFloat(1.0)",
+        "cosFloat(1.0)",
+        "tanFloat(1.0)",
+        "asinFloat(0.5)",
+        "acosFloat(0.5)",
+        "atanFloat(1.0)",
+        "atan2Float(1.0, 2.0)",
+        "2.0 ^Float 0.5",
+        "5.0 %Float 3.0",
+        "exponentFloat(1.0)",
+        "minValueFloat(53, 11)",
+        "1.0p113x15 +Float 2.0p113x15",
+        "roundFloat(1.0, 113, 15)",
+        "1.0f +Float 2.0",
+        "signFloat(NaN)",
+        "Float2Int(NaN)",
+    ];
+    let rules = applications
+        .iter()
+        .enumerate()
+        .map(|(index, application)| format!("  rule go({index}) => res({application})\n"))
+        .collect::<String>();
+    let results = folded_results(&format!(
+        r#"
+module MAIN-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= go(Int) [symbol(go)]
+endmodule
+module MAIN
+  imports MAIN-SYNTAX
+  imports DOMAINS
+  imports FLOAT
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K) [symbol(res)]
+{rules}endmodule
+"#
+    ));
+    assert_eq!(results.len(), applications.len(), "{results:?}");
+    let folded = applications
+        .iter()
+        .zip(&results)
+        .filter(|(_, result)| result.starts_with("res(#token("))
+        .map(|(application, result)| format!("{application} folded to {result}"))
+        .collect::<Vec<_>>();
+    assert!(folded.is_empty(), "{folded:#?}");
+}
+
+/// `A ^%Int B C` with a 131,072-bit exponent and modulus is a square-and-multiply of 131,072
+/// steps on 131,072-bit numbers, far more work than one product of two values of the fold's
+/// bound, so the fold leaves it as written at once, while its folded operands are written.
+#[test]
+fn leaves_a_costly_powmod_unfolded() {
+    let results = folded_results(indoc! {r#"
+        module MAIN-SYNTAX
+          syntax Op ::= "go" [symbol(go)]
+        endmodule
+        module MAIN
+          imports MAIN-SYNTAX
+          imports DOMAINS
+          configuration <k> $PGM:Op </k>
+          syntax KItem ::= res(K) [symbol(res)]
+          rule go => res((2 ^Int 131071) ^%Int ((2 ^Int 131071) -Int 1) ((2 ^Int 131071) +Int 3))
+        endmodule
+    "#});
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert!(
+        results[0].starts_with("res(`_^%Int__"),
+        "{}",
+        &results[0][..80]
+    );
+    assert!(!results[0].contains("^Int_"), "the operands fold");
+}
+
 /// Hooks the fold has no implementation for, such as the deprecated `STRING.category` and
 /// `STRING.directionality` whose meaning `domains.md` does not give, stay as written.
 #[test]
@@ -4179,46 +4312,6 @@ fn leaves_hooks_without_a_fold_implementation_unfolded() {
         Printer::new().print_term(&constant_folded_right_hand_side(source)),
         r#"categoryChar(directionalityChar(#token("\"a\"","String")))"#
     );
-}
-
-#[cfg(feature = "mpfr-folding")]
-#[test]
-fn folds_mpfr_float_constants_with_their_declared_contexts() {
-    let source = indoc! {r#"
-        module MAIN
-          syntax Float [hook(FLOAT.Float)]
-          syntax Int [hook(INT.Int)]
-          syntax Float ::= r"([\\+\\-]?[0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][\\+\\-]?[0-9]+)?([fFdD]|([pP][0-9]+[xX][0-9]+))?" [token, prec(1)]
-          syntax Float ::= "add(" Float "," Float ")" [function, hook(FLOAT.add), symbol(addFloat)]
-          syntax Int ::= "exponent(" Float ")" [function, hook(FLOAT.exponent), symbol(floatExponent)]
-          syntax Float ::= "floatResult" [symbol(floatResult)]
-          syntax Int ::= "intResult" [symbol(intResult)]
-
-          rule floatResult => add(0.1, 0.2)
-          rule floatResult => add(3.4028235e38p24x8, 3.4028235e38p24x8)
-          rule intResult => exponent(1.40129846e-45p24x8)
-        endmodule
-    "#};
-    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
-    let transformed = constant_fold(&definition).unwrap();
-    let output = transformed
-        .main_module()
-        .unwrap()
-        .local_sentences
-        .iter()
-        .filter_map(|sentence| match &**sentence {
-            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-
-    insta::with_settings!({
-        description => format!("K definition:\n\n{source}"),
-        omit_expression => true,
-        prepend_module_to_snapshot => true,
-    }, {
-        insta::assert_debug_snapshot!(output);
-    });
 }
 
 /// The sort `String` has literals (`token`), so the emitted definition holds its domain values.
@@ -4417,67 +4510,6 @@ fn leaves_an_undefined_constant_operation_unfolded() {
     assert_eq!(
         Printer::new().print_term(right),
         r#"divide(#token("1","Int"),#token("0","Int"))"#
-    );
-}
-
-/// A Float result whose token the fold cannot write (a 500,000-bit sum, whose text MPFR's
-/// formatting would make about 150,000 digits long, beyond the fold's 2^20-bit bound on a
-/// written value) leaves the application as written: the fold never aborts a compile.
-#[cfg(feature = "mpfr-folding")]
-#[test]
-fn leaves_a_float_result_it_cannot_write_unfolded() {
-    let float = || Term::Token {
-        token: "1.0p500000x20".into(),
-        sort: Sort::new("Float"),
-    };
-    let definition = Definition {
-        main_module: "MAIN".into(),
-        modules: vec![module(
-            "MAIN",
-            vec![
-                Sentence::SyntaxSort {
-                    parameters: Vec::new(),
-                    sort: Sort::new("Float"),
-                    attributes: attributes(&[("hook", json!("FLOAT.Float"))]),
-                },
-                Sentence::Production {
-                    label: Some(Label::new("plus")),
-                    parameters: Vec::new(),
-                    sort: Sort::new("Float"),
-                    items: vec![
-                        ProductionItem::NonTerminal {
-                            sort: Sort::new("Float"),
-                            name: None,
-                        },
-                        ProductionItem::NonTerminal {
-                            sort: Sort::new("Float"),
-                            name: None,
-                        },
-                    ],
-                    attributes: attributes(&[("hook", json!("FLOAT.add"))]),
-                },
-                rule(
-                    rewrite(
-                        application("result", Vec::new()),
-                        application("plus", vec![float(), float()]),
-                    ),
-                    Attributes::default(),
-                ),
-            ],
-        )],
-        attributes: Attributes::default(),
-    };
-    let transformed = constant_fold(&definition).unwrap();
-    let Sentence::Rule { body, .. } = &*transformed.main_module().unwrap().local_sentences[2]
-    else {
-        unreachable!()
-    };
-    let Term::Rewrite { right, .. } = body.unannotated() else {
-        unreachable!()
-    };
-    assert_eq!(
-        Printer::new().print_term(right),
-        r#"plus(#token("1.0p500000x20","Float"),#token("1.0p500000x20","Float"))"#
     );
 }
 

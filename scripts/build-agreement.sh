@@ -76,8 +76,8 @@ unset BUILD_AGREEMENT_RECORD BUILD_AGREEMENT_COMPARE BUILD_AGREEMENT_REFUSED
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# Only the inference engine differs between the two runs: neither enables `mpfr-folding` or the
-# CLI, which the native build's default features would add.
+# Only the inference engine differs between the two runs: neither enables the CLI, which the
+# native build's default features would add.
 agreement() {
   cargo test --release --locked --manifest-path "$workspace/Cargo.toml" --target-dir "$target_dir" \
     -p k-rust --no-default-features "$@" --test build_agreement \

@@ -14,11 +14,10 @@
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
-//! Compile-time evaluation of pure `BOOL`, `INT` and `STRING` hooks on literals, through the
-//! backend's evaluation entry ([`k_rust_backend::builtin::evaluate_declared`]): the fold writes
-//! the value the backend computes for an application outside an execution, at the application's
-//! declared sort, and computes nothing itself. With MPFR, `FLOAT` hooks are folded by the MPFR
-//! module (`constant_folding_float.rs`).
+//! Compile-time evaluation of pure `BOOL`, `INT`, `STRING` and `FLOAT` hooks on literals, through
+//! the backend's evaluation entry ([`k_rust_backend::builtin::evaluate_declared`]): the fold
+//! writes the value the backend computes for an application outside an execution, at the
+//! application's declared sort, and computes nothing itself, in every build.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{collections::BTreeMap, fmt};
@@ -45,10 +44,6 @@ use crate::{
     kore::{ast::KoreString, string::LiteralEncoding},
     provenance::GeneratingPass,
 };
-
-#[cfg(feature = "mpfr-folding")]
-#[path = "constant_folding_float.rs"]
-mod float;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConstantFoldingError {
@@ -146,8 +141,6 @@ enum Position {
 
 struct Folder<'view, 'definition> {
     productions: &'view ProductionCatalog<'definition>,
-    #[cfg(feature = "mpfr-folding")]
-    sorts: &'view crate::definition::SortCatalog<'definition>,
     facts: &'view EmittedDeclarations<'view, 'definition>,
 }
 
@@ -159,8 +152,6 @@ impl<'view, 'definition> Folder<'view, 'definition> {
     ) -> Self {
         Self {
             productions: views.production_catalog(module),
-            #[cfg(feature = "mpfr-folding")]
-            sorts: views.sort_catalog(module),
             facts,
         }
     }
@@ -213,30 +204,6 @@ impl<'view, 'definition> Folder<'view, 'definition> {
     /// exactly the declared result sort, within `MAX_FOLDED_BITS`.
     fn try_fold(&self, label: &Label, arguments: &[Term]) -> Option<Term> {
         let application = self.application(label, arguments)?;
-        #[cfg(feature = "mpfr-folding")]
-        if float::folds(application.hook) {
-            return float::fold(
-                self.sorts,
-                application.hook,
-                &application.tokens,
-                &application.result_sort,
-            )
-            .ok()
-            .map(|token| Term::Token {
-                token,
-                sort: application.result_sort,
-            });
-        }
-        // The `FLOAT` hooks and the `STRING` conversions to and from `Float` are folded by the
-        // MPFR module only.
-        if application.hook.starts_with("FLOAT.")
-            || matches!(
-                application.hook,
-                "STRING.float2string" | "STRING.floatFormat" | "STRING.string2float"
-            )
-        {
-            return None;
-        }
         self.evaluate(&application)
     }
 
@@ -407,9 +374,9 @@ fn emitted(sort: &Sort) -> (BackendSort, LiteralEncoding) {
     )
 }
 
-/// The largest value the fold writes into a definition, in bits: an `Int`'s bit length, eight
-/// times the length of any other domain value's payload (a `String`'s UTF-8), a `Float`'s
-/// precision. A compile must not spend memory unrelated to the size of its input on what it
+/// The largest value the fold writes into a definition, in bits: an `Int`'s bit length, and eight
+/// times the length of any other domain value's payload (a `String`'s UTF-8, a `Float`'s
+/// canonical text). A compile must not spend memory unrelated to the size of its input on what it
 /// emits, and a folded token is part of the emitted definition, read on every load, so a larger
 /// value is left for execution: 2^20 bits is 315,653 decimal digits. The backend's bound on
 /// `^Int` and `<<Int` results is never below this one (asserted below), so the fold never writes
@@ -489,7 +456,3 @@ mod tests {
         );
     }
 }
-
-#[cfg(all(test, feature = "mpfr-folding"))]
-#[path = "constant_folding_oracle.rs"]
-mod oracle;

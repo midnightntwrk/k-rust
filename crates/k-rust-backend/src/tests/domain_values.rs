@@ -862,6 +862,32 @@ fn a_result_bound_refuses_a_larger_result_before_it_is_built() {
     };
     assert!(matches!(replaced(1 << 8), BuiltinResult::Value(_)));
     assert!(too_large(&replaced((1 << 8) + 1)));
+    // `^%Int` is refused when its work exceeds a sixteenth of the bound squared: a 1,024-bit
+    // exponent with a 65,536-bit modulus is 2^42 bit operations, above 2^36, and a 15-bit one is
+    // below it.
+    let powmod = |exponent: u32| {
+        [
+            Term::int(3),
+            Term::int((num_bigint::BigInt::from(1) << exponent) - 1),
+            Term::int((num_bigint::BigInt::from(1) << 65_535u32) + 1),
+        ]
+    };
+    assert_eq!(
+        declared(
+            "INT.powmod",
+            &powmod(1024),
+            k_rust_kore::names::BuiltinSort::Int
+        ),
+        BuiltinResult::NotApplicable
+    );
+    assert!(matches!(
+        declared(
+            "INT.powmod",
+            &powmod(15),
+            k_rust_kore::names::BuiltinSort::Int
+        ),
+        BuiltinResult::Value(_)
+    ));
     // Without a bound, as in the evaluation entry, both results are computed.
     let unbounded = evaluate_declared(
         "INT.pow",

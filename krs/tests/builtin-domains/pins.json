@@ -10,8 +10,8 @@
     "krs-builtin-int-sign-unsigned": "a1b724f11e7a58c236d6651b21645d08f23b31e991dc814fe60c44350bed7448",
     "krs-builtin-strings": "acd3d4df499c5de0289e99945fa5e7ee4809c84c497c51eb9c9de76e14809b35",
     "krs-builtin-k-equal": "b60322a703e2d37c1758791f4993e3e94a1c84eb3d85e7511558a441d4a6800f",
-    "krs-builtin-floats": "5c895fcad626bf7020b00482f48e9ceb455dec60dc8742c969fdbe532665e2a2",
-    "krs-builtin-float-java-only": "65ef7a40141e832aaf5757b254ddc09938d5fe2a833b8fdd15d7fe3ffee98ebd",
+    "krs-builtin-floats": "247813e120a0f4d665c42058912a85f9845c16408ebdc443880a86b659b4adbf",
+    "krs-builtin-float-java-only": "b34aeb0d65e6aac48bc1abbe4bd9b867dad43a9e6586b5b6cdbfe1e4663fed7a",
     "krs-builtin-io": "0240434b269985643cd8d980003bd6403d88a7073ba38d1cbad9c1913f50daaf",
     "krs-builtin-raw-k": "77df98c8479bf964d8b3ca2ce807e7af4108a7247146f4aed386c7886b642d1b",
     "krs-builtin-raw-hook": "6aae83077dbd4ae0146cf99dd9a2e2e4edbf8dcca8d26f726c81b6bc6a7244ca",
@@ -901,9 +901,9 @@
     }
   },
   "capability_refusals": {
-    "native-rust": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the native frontend folds ground Float applications only with MPFR; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
-    "native-llvm": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the native frontend folds ground Float applications only with MPFR; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
-    "browser": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the native frontend folds ground Float applications only with MPFR; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
+    "native-rust": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the native frontend folds ground Float applications through k-rust's backend, which no native run of KRS has been checked against yet; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
+    "native-llvm": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the native frontend folds ground Float applications through k-rust's backend, which no native run of KRS has been checked against yet; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
+    "browser": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the native frontend folds ground Float applications through k-rust's backend, which no native run of KRS has been checked against yet; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
     "browser-console-io": "error[krs::capability::unavailable]: definition contains console input or output [<input>, <output>]; the browser route has no standard input or output; run it with `krs run` or Java K's krun"
   },
   "console_io": {

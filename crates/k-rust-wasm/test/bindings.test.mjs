@@ -196,23 +196,29 @@ test('reports both readings of an ambiguous rule', () => {
   )
 })
 
-test('reports the compiler MPFR folding boundary', () => {
-  assert.throws(
-    () =>
-      compileDefinition({
-        definition: String.raw`
-          module MAIN
-            syntax Float [hook(FLOAT.Float)]
-            syntax Float ::= r"[0-9]+\\.[0-9]+" [token]
-            syntax Float ::= "add(" Float "," Float ")" [function, hook(FLOAT.add), symbol(addFloat)]
-            syntax Float ::= "result" [function, symbol(result)]
-            rule result => add(0.1, 0.2)
-          endmodule
-        `,
-        moduleName: 'MAIN',
-      }),
-    /native MPFR implementation/i,
+test('folds binary64 Float constants in the portable build', () => {
+  // The constant fold computes a FLOAT application through the backend's evaluation entry in
+  // every build, so the portable package writes the value a run computes: 0.1 + 0.2 in binary64.
+  const compiled = compileDefinition({
+    definition: String.raw`
+      module MAIN
+        syntax Float [hook(FLOAT.Float)]
+        syntax Float ::= r"[0-9]+\\.[0-9]+" [token]
+        syntax Float ::= "add(" Float "," Float ")" [function, hook(FLOAT.add), symbol(addFloat)]
+        syntax Float ::= "result" [function, symbol(result)]
+        rule result => add(0.1, 0.2)
+      endmodule
+    `,
+    moduleName: 'MAIN',
+  })
+  assert.deepEqual(compiled.diagnostics, [])
+  // The function rule's right-hand side, as the equation `result() = 3.0000000000000004e-01`.
+  const rule = compiled.definitionKore.match(
+    /\\equals\{SortFloat\{\},\s*R\}\(\s*Lblresult\{\}\(\),[^]*?\)\s*\)\s*\[/,
   )
+  assert.ok(rule, 'the rule for result is emitted')
+  assert.match(rule[0], /\\dv\{SortFloat\{\}\}\("3\.0000000000000004e-01p53x11"\)/)
+  assert.doesNotMatch(rule[0], /LbladdFloat/)
 })
 
 test('executes the portable parser inside WebAssembly', () => {

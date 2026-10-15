@@ -45,8 +45,8 @@ jobs:
         with:
           tool: cargo-nextest@0.9.143
 
-      # Every test of the crates the WebAssembly package ships, built without Z3 inference, MPFR
-      # constant folding or the backend's Z3 solver.
+      # Every test of the crates the WebAssembly package ships, built without Z3 inference or the
+      # backend's Z3 solver.
       - name: Test the portable feature set
         run: >-
           cargo nextest run --locked --no-fail-fast --profile ci --no-default-features

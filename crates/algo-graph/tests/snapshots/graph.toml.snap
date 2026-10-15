@@ -5713,16 +5713,6 @@ crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/constant_folding.rs"
 symbol = "Folder::try_fold"
 
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/kompile/passes/constant_folding_float.rs"
-symbol = "evaluate"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/kompile/passes/constant_folding_float.rs"
-symbol = "KFloat::parse"
-
 [[node.cost]]
 mode = "one definition"
 bound = "O(N x h) plus hook-specific arithmetic cost"

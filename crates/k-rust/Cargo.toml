@@ -25,7 +25,6 @@ required-features = ["cli", "generative-harness"]
 
 [dependencies]
 clap = { workspace = true, optional = true }
-gmp-mpfr-sys = { workspace = true, optional = true }
 k-rust-backend.workspace = true
 k-rust-kore.workspace = true
 k-rust-regex.workspace = true
@@ -36,7 +35,6 @@ num-traits.workspace = true
 petgraph.workspace = true
 regex.workspace = true
 regex-automata.workspace = true
-rug = { workspace = true, optional = true }
 rustc-hash.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -73,7 +71,6 @@ cli = [
   "dep:socket2",
   "dep:tracing-chrome",
   "dep:tracing-subscriber",
-  "mpfr-folding",
   "z3-inference",
 ]
 # Run the kompile invariant checkers (docs in k-rust/src/kompile/invariants.rs) in builds without
@@ -83,7 +80,6 @@ kompile-invariant-checks = []
 # that example, so `cargo test` and `cargo clippy --all-targets` skip it unless requested.
 generative-harness = []
 measure = ["k-rust-kore/measure", "k-rust-backend/measure", "dep:libc"]
-mpfr-folding = ["dep:gmp-mpfr-sys", "dep:rug"]
 z3-inference = ["dep:z3", "k-rust-backend/z3"]
 z3-inference-gh-release = [
   "z3-inference",

@@ -100,10 +100,6 @@ fn pin_and_portable_capabilities_are_explicit() {
         matches!(capabilities.z3_inference, CapabilityAvailability::Available),
         k_rust::Z3_INFERENCE
     );
-    assert_eq!(
-        matches!(capabilities.mpfr_folding, CapabilityAvailability::Available),
-        k_rust::MPFR_FOLDING
-    );
     assert!(matches!(
         capabilities.structured_definition_preparation,
         CapabilityAvailability::Available

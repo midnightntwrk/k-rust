@@ -275,7 +275,7 @@ fn stage<T, E: fmt::Display>(
 /// [`CompilationBackend::excluded_module_attribute`] left out) before calling this function. No filesystem or external backend process is used here.
 ///
 /// Compilation reads only its arguments and the process-wide inputs `docs/compatibility.md`
-/// names (in builds with `mpfr-folding`, the process's `LC_NUMERIC`): several threads may
+/// names, and no locale: several threads may
 /// compile one shared [`LoadedDefinition`] (or distinct ones) at once, and each call returns the
 /// artifacts, or the [`CompileError`], that the same call returns alone on one thread. Every
 /// stage runs on a stack sized from the definition's deepest term, so the artifacts do not depend

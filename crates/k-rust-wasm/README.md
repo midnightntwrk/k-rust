@@ -114,7 +114,7 @@ an SMT decision report an indeterminate/error result instead of pretending to ha
 Step timeouts are also unavailable because `wasm32-unknown-unknown` has no host monotonic clock;
 inspect `backend.capabilities` before enabling optional behavior.
 
-This portable build intentionally excludes native Z3 inference and MPFR folding. Parsing or
+This portable build intentionally excludes native Z3 inference. Parsing or
 compilation that needs Z3 returns an explicit error instead of silently changing semantics.
 `includePrelude: true` loads the embedded standard prelude before the definition, with the same
 result as the native build: it needs no Z3, and a definition importing its modules compiles to the

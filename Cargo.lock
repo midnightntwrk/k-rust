@@ -1118,7 +1118,6 @@ name = "k-rust"
 version = "0.6.0"
 dependencies = [
  "clap",
- "gmp-mpfr-sys",
  "indexmap",
  "indoc",
  "insta",
@@ -1134,7 +1133,6 @@ dependencies = [
  "proptest",
  "regex",
  "regex-automata",
- "rug",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -1166,6 +1164,7 @@ dependencies = [
  "petgraph",
  "proptest",
  "ripemd",
+ "rug",
  "rustc-hash",
  "serde_json",
  "sha2 0.11.0",
