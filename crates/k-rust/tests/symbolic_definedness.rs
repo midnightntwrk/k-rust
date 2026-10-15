@@ -534,8 +534,7 @@ mod request_constraints {
         kore::{ast::Pattern as KorePattern, codec, parser::parse_pattern, printer::Printer},
     };
     use k_rust_backend::{
-        externalize, rule::Predicate, smt::Satisfiability, stop::StopCause,
-        substitution::Substitution,
+        externalize, smt::Satisfiability, stop::StopCause, substitution::Substitution,
     };
 
     use super::shared;
@@ -1267,51 +1266,56 @@ endmodule
             .collect()
     }
 
-    /// Whether `term` holds an application of `/Int`.
-    fn holds_quotient(term: &k_rust_backend::term::Term) -> bool {
-        format!("{term:?}").contains(r#"name: "Lbl'UndsSlsh'Int'Unds'""#)
+    /// Whether `pattern` holds an application of `/Int`.
+    fn holds_quotient(pattern: &KorePattern) -> bool {
+        print(pattern).contains("Lbl'UndsSlsh'Int'Unds'{}")
     }
 
-    /// The atoms of `predicates` over a quotient whose definedness is neither stated beside them
-    /// (`guard` a conjunct of an enclosing conjunction, the list included) nor implied by the
-    /// atom itself (a top-level atom equating a quotient term with a term free of quotients,
-    /// such as `true = X /Int Y >Int 0`, holds only where the quotient is defined).
-    fn unguarded_atoms(predicates: &[Predicate], guard: &Predicate) -> Vec<String> {
+    /// The atoms over a quotient in the constraints of the printed leaf `state` that are not in
+    /// definedness-explicit form (docs/compatibility.md, "Solver decisions over partial
+    /// operations"): neither a conjunct of a conjunction enclosing them that also holds `guard`
+    /// (the leaf's top-level constraints count as one conjunction), nor a top-level equality
+    /// whose other side is a domain value or a variable, such as `true = X /Int Y >Int 0`, which
+    /// holds only where the quotient is defined.
+    fn unguarded_atoms(state: &KorePattern, guard: &str) -> Vec<String> {
+        fn shown(pattern: &KorePattern) -> bool {
+            matches!(
+                pattern,
+                KorePattern::DomainValue { .. } | KorePattern::Variable(_)
+            )
+        }
         fn visit(
-            predicate: &Predicate,
-            guard: &Predicate,
+            pattern: &KorePattern,
+            guard: &str,
             guarded: bool,
             top: bool,
             found: &mut Vec<String>,
         ) {
-            match predicate {
-                Predicate::Term(term) if holds_quotient(term) && !guarded => {
-                    found.push(format!("{predicate:?}"));
-                }
-                Predicate::Equals(left, right)
+            match pattern {
+                KorePattern::Equals { left, right, .. }
                     if (holds_quotient(left) || holds_quotient(right))
                         && !guarded
-                        && !(top && (!holds_quotient(left) || !holds_quotient(right))) =>
+                        && !(top && (shown(left) || shown(right))) =>
                 {
-                    found.push(format!("{predicate:?}"));
+                    found.push(print(pattern));
                 }
-                Predicate::And(conjuncts) => {
-                    let guarded = guarded || conjuncts.contains(guard);
-                    for conjunct in conjuncts {
-                        visit(conjunct, guard, guarded, top, found);
+                KorePattern::And { arguments, .. } => {
+                    let guarded =
+                        guarded || arguments.iter().any(|argument| print(argument) == guard);
+                    for argument in arguments {
+                        visit(argument, guard, guarded, top, found);
                     }
                 }
-                Predicate::Or(inner) => {
-                    for inner in inner {
-                        visit(inner, guard, guarded, false, found);
+                KorePattern::Or { arguments, .. } => {
+                    for argument in arguments {
+                        visit(argument, guard, guarded, false, found);
                     }
                 }
-                Predicate::Not(inner)
-                | Predicate::Exists(_, inner)
-                | Predicate::Forall(_, inner) => {
-                    visit(inner, guard, guarded, false, found);
+                KorePattern::Not { argument, .. } => visit(argument, guard, guarded, false, found),
+                KorePattern::Exists { body, .. } | KorePattern::Forall { body, .. } => {
+                    visit(body, guard, guarded, false, found);
                 }
-                Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                KorePattern::Implies { left, right, .. } | KorePattern::Iff { left, right, .. } => {
                     visit(left, guard, guarded, false, found);
                     visit(right, guard, guarded, false, found);
                 }
@@ -1319,39 +1323,31 @@ endmodule
             }
         }
         let mut found = Vec::new();
-        let guarded = predicates.contains(guard);
-        for predicate in predicates {
-            visit(predicate, guard, guarded, true, &mut found);
-        }
+        visit(state, guard, false, true, &mut found);
         found
     }
 
-    /// The leaf contract (docs/backend-port.md): the constraints of every leaf are
-    /// definedness-faithful, so a solver `Unsat` on them would show that the leaf has no instance.
-    /// For the rule-produced programs and the requests above, every leaf has an instance (a
-    /// ground run at `X = 7` and `Y` in {0, 1, -1} reaches the same halt through the same rules),
-    /// the solver finds its re-admitted constraints satisfiable, and every atom over `X /Int Y`
-    /// has `Y =/=Int 0` beside it or implies it. With `assume_state_defined: true` the initial
-    /// term's definedness is assumed, which the ground witnesses share.
+    /// The leaf contract (docs/backend-port.md, `ExecutionLeaf`): the constraints of every leaf
+    /// are definedness-explicit, so a solver `Unsat` on them would show that the leaf has no
+    /// instance. For the rule-produced programs and the requests above, every leaf has an
+    /// instance (a ground run at `X = 7` and `Y` in {0, 1, -1} reaches the same halt through the
+    /// same rules), the solver finds its re-admitted constraints satisfiable, and every atom
+    /// over `X /Int Y` in the printed leaf has `\not(Y = 0)` as a conjunct of a conjunction
+    /// enclosing it or shows the quotient defined itself. With `assume_state_defined: true` the
+    /// initial term's definedness is assumed, which the ground witnesses share.
     #[test]
     fn every_leaf_constraint_is_satisfiable_when_the_leaf_has_an_instance() {
         let mut backend = backend();
         if !backend.capabilities().smt {
             return;
         }
-        let guard = backend
-            .with_solver(None, |definition, _| -> Result<_, ProbeError> {
-                let guard = parse(&not(&format!(
-                    "\\equals{{SortInt{{}}, {SORT}}}({Y}, {})",
-                    int(0)
-                )));
-                Ok(definition
-                    .admit_unverified(&guard, &[])
-                    .internalize_predicate()
-                    .map_err(|error| BackendError(error.to_string()))?
-                    .0)
-            })
-            .unwrap();
+        // The guard as k-rust prints it on a leaf.
+        let guard = print(&parse(&not(&format!(
+            "\\equals{{SortInt{{}}, {SORT}}}({Y}, {})",
+            int(0)
+        ))));
+        // The check sees a lost guard: the request as written has two.
+        assert_eq!(unguarded_atoms(&parse(&caller_pattern()), &guard).len(), 2);
         let mut programs = ["pos", "ens", "rhs"]
             .map(|name| top(&format!("Lbl{name}{{}}({X}, {Y})")))
             .to_vec();
@@ -1384,15 +1380,8 @@ endmodule
                     if answer != "sat" && answer != "no constraints" {
                         violations.push(format!("{case}: the solver answers {answer}"));
                     }
-                    let unguarded = backend
-                        .with_solver(None, |definition, _| -> Result<_, ProbeError> {
-                            let internal = definition
-                                .admit_unverified(&state, &[])
-                                .internalize_pattern()
-                                .map_err(|error| BackendError(error.to_string()))?;
-                            Ok(unguarded_atoms(&internal.constraints, &guard))
-                        })
-                        .unwrap();
+                    // The printed leaf, before re-admission would restate a lost guard.
+                    let unguarded = unguarded_atoms(&state, &guard);
                     if !unguarded.is_empty() {
                         violations.push(format!("{case}: unguarded atoms {unguarded:?}"));
                     }

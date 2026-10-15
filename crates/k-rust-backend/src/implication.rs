@@ -264,7 +264,7 @@ pub fn grade_bottom_consequent(
 /// Whether `antecedent` is shown to have no instance: its constraints are syntactically false or
 /// the solver answers `Unsat` for them, or its knowledge, which adds the definedness of the term
 /// and of the constraints' atoms, is contradictory (`knowledge_is_contradictory`). Every instance
-/// satisfies both sets of facts (I7), and both are definedness-faithful (the constraints are
+/// satisfies both sets of facts (I7), and both are definedness-explicit (the constraints are
 /// admitted so, `Admitted`), so an `Unsat` answer refutes them (docs/compatibility.md, "Solver
 /// decisions over partial operations") and either contradiction leaves none.
 fn antecedent_is_empty(
@@ -1520,7 +1520,7 @@ fn empty_unless_consistent(
 /// Whether the facts `knowledge`, which every instance of a pattern satisfies, are shown
 /// contradictory, so that the pattern has no instance: they are syntactically false, they simplify
 /// to `false`, or the solver answers `Unsat` for them. Simplification preserves their meaning, and
-/// an `Unsat` answer refutes them, since facts are definedness-faithful (docs/compatibility.md,
+/// an `Unsat` answer refutes them, since facts are definedness-explicit (docs/compatibility.md,
 /// "Solver decisions over partial operations"). A failed simplification leaves
 /// the facts as they are for the solver.
 fn knowledge_is_contradictory(

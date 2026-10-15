@@ -200,9 +200,10 @@ impl<'a> SExprParser<'a> {
 /// A partial function translated as a total SMT operation is not an over-approximation: an atom
 /// over an undefined term denotes `\bottom` in K and some value in SMT. It is `Approximate` for
 /// the purpose of reading a model, and `Unsat` refutes the predicates only when they are
-/// definedness-faithful: each atom over a partial term has that term's definedness beside it
-/// under the same connective, or is about a term the predicates show defined
-/// (docs/compatibility.md, "Solver decisions over partial operations").
+/// definedness-faithful, which their definedness-explicit form ensures: each atom over a partial
+/// term is a conjunct of a conjunction enclosing it that also holds that term's definedness, or
+/// a top-level atom that shows its term defined (docs/compatibility.md, "Solver decisions over
+/// partial operations").
 /// SMT hook translations, SMT lemma axioms and the user prelude are trusted, except that a power
 /// is read as itself only where an integer is its value (`guard_powers`).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -908,8 +909,10 @@ impl SmtPrelude {
 /// equation condition callers make it so before deciding (`definedness::condition_definedness`
 /// on every `requires` and `ensures`), and so does the admission of a request's predicates
 /// (`definition::Admitted`, `definedness::request_definedness`); docs/compatibility.md, "Solver
-/// decisions over partial operations", lists every source and the one gap, an `\equals` of two
-/// possibly undefined terms in a definition's condition.
+/// decisions over partial operations", lists every source and the remaining gaps: an `\equals` of
+/// two possibly undefined terms in a definition's condition, the prove route, which does not
+/// state a claim's own constraints, and an `\equals` in a definition's axioms that reads a term as
+/// a predicate.
 #[must_use]
 pub fn translation_exactness(predicates: &[Predicate]) -> Exactness {
     translate_query(predicates, &Substitution::new(), &[])
@@ -1133,8 +1136,11 @@ pub enum Satisfiability {
     /// translation is exact (`translation_exactness`).
     Sat,
     /// No K valuation satisfies the predicates, when they are definedness-faithful
-    /// (docs/compatibility.md, "Solver decisions over partial operations"), as every predicate
-    /// the backend poses is; otherwise only the translation has no model.
+    /// (docs/compatibility.md, "Solver decisions over partial operations"); otherwise only the
+    /// translation has no model. Every predicate the backend poses is, except over a definition
+    /// whose rule, equation or claim condition equates two possibly undefined terms or whose
+    /// axioms hold an `\equals` that reads a term as a predicate, and on the prove route, which
+    /// does not state the definedness of a claim's own constraints (that section's gaps).
     Unsat,
     /// The solver ran within its own per-query bounds (its timeout, resource limit and retries)
     /// and did not decide the query; the payload is its reason. Never a stop: a query that stopped (a
