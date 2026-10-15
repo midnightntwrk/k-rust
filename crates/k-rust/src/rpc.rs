@@ -1040,7 +1040,7 @@ impl RpcService {
                     return Ok(json!({ "satisfiable": "Unknown" }));
                 };
                 match model_of(definition, &predicate, solver)
-                    .map_err(|stop| RpcFault::from(BackendError::from(stop.into_cause())))?
+                    .map_err(stopped_request)?
                     .map_err(|failure| RpcFault::from(BackendError::from(failure)))?
                 {
                     ModelResult::Sat(substitution) => {

@@ -1106,6 +1106,12 @@ fn domain_value_bytes<'a, S: PatternSource<'a>>(
 }
 
 impl Backend {
+    /// `krust krun`'s run driver. Its error is for printing: a stop the operation boundary of
+    /// [`Backend::with_solver`] observes (a request cancelled before it starts, or a failed
+    /// solver prelude) is a [`BackendError`] that keeps its [`StopCause`], but
+    /// a stop during the run (a leaf that fails the run, or a stopped match-target or pattern
+    /// simplification) is text. A host that acts on a stop uses [`Backend::execute`] or
+    /// [`Backend::search`] and [`BackendError::stop_cause`].
     pub fn run_cli(
         &mut self,
         module: Option<&str>,

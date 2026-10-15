@@ -579,12 +579,14 @@ impl ProofLeafOutcomeOutput {
 
 /// The error of a facade operation: its text, and the [`StopCause`] when the operation stopped.
 ///
-/// The operations of [`Backend`] whose error is a `BackendError` make the error of a stop only
+/// The operations of [`Backend`] whose error is a `BackendError` make the error of a stop
 /// through `From<StopCause>` (at the operation boundary of [`Backend::with_solver`], for a stop
 /// of simplification, implication or model generation, for a stopped proof leaf, and for an
-/// execution leaf or search entry whose stop leaves no answer), so every such error of an
-/// operation that stopped (cancelled, past its step deadline, out of stack, or under a failed
-/// solver prelude) answers [`Self::stop_cause`]; an error made from text answers `None`.
+/// execution leaf or search entry whose stop leaves no answer), so such an error of an operation
+/// that stopped (cancelled, past its step deadline, out of stack, or under a failed solver
+/// prelude) answers [`Self::stop_cause`]. A stop that an operation's contract excludes (a step
+/// deadline reported by a search, which arms none) is a text error, and an error made from text
+/// answers `None`.
 #[derive(Debug)]
 pub struct BackendError {
     message: String,
@@ -896,8 +898,7 @@ impl Backend {
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
             return Err(BackendError::new(
-                "step timeouts require a host monotonic clock and are unavailable in this WebAssembly build"
-                    .into(),
+                "step timeouts require a host monotonic clock and are unavailable in this WebAssembly build",
             ));
         }
         let syntax = request.state;
@@ -1424,8 +1425,7 @@ impl Backend {
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
             return Err(BackendError::new(
-                "step timeouts require a host monotonic clock and are unavailable in this WebAssembly build"
-                    .into(),
+                "step timeouts require a host monotonic clock and are unavailable in this WebAssembly build",
             ));
         }
         // A proof route, including the definition's first load, whose analyses the proof reads
