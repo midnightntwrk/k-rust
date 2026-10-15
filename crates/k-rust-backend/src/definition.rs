@@ -124,7 +124,9 @@ use crate::{
 ///
 /// The requests covered are those whose `cut_point_rules` and `terminal_rules` are empty, whose
 /// observation rule list, if any, names no rule, with `stop_at_branch` false, no `max_breadth`,
-/// no `max_results`, no step timeout and no cancellation; `max_depth` is covered. The excluded
+/// no `max_results`, no step timeout and no cancellation; `max_depth` and
+/// `max_simplification_iterations` are covered (each condition attempt gets its own
+/// simplification budget, so a duplicated equation adds no pass to it). The excluded
 /// fields count branches, paths, witnesses or work, or stop on the clock, and identifying equal
 /// axioms changes how many paths reach a state, so they may stop D and D' at different states.
 /// The same holds for any other bound that counts states visited or work done. The path-search
