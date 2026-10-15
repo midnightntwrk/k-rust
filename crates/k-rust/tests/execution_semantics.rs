@@ -2556,3 +2556,94 @@ endmodule
         assert!(!state.contains(r#"\dv{SortBool{}}"#), "{program}: {state}");
     }
 }
+
+/// Two paths of a state-set run end in the one configuration `c`: `start => c`, and
+/// `start => norm(a)`, where `norm(a)` evaluates to `c` on a condition whose simplification
+/// exhausts the request's budget of 3 (`g(X) => g(g(X))` never ends), so only that path reports
+/// the exhaustion and the rule decided on its unsimplified condition. The state-set result reports
+/// `c` once, carrying both diagnostics in either rule declaration order, so it is
+/// diagnostic-free exactly when the path-set run of the same request is.
+#[test]
+fn a_state_set_leaf_lists_the_diagnostics_of_every_path_merged_into_it() {
+    use k_rust::backend::{BudgetSubjectOutput, ResultModalityOutput};
+
+    for rules in [
+        ["rule start => c", "rule start => norm(a)"],
+        ["rule start => norm(a)", "rule start => c"],
+    ] {
+        let source = format!(
+            r#"
+module MERGE-DIAGNOSTICS
+  imports INT
+  imports K-EQUAL
+  syntax Pgm ::= "start" | "c" | "a" | norm(Pgm) [function]
+  syntax Int ::= g(Int) [function, total]
+  rule g(X) => g(g(X)) [simplification]
+  rule norm(_) => c requires {{g(0) #Equals g(0)}}
+  {}
+  {}
+endmodule
+"#,
+            rules[0], rules[1]
+        );
+        let compiled = compile(
+            &source,
+            "MERGE-DIAGNOSTICS",
+            "MERGE-DIAGNOSTICS",
+            "Pgm",
+            "start",
+        );
+        let mut backend = Backend::new(
+            &compiled.kore,
+            "MERGE-DIAGNOSTICS",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let mut run = |result_modality| {
+            backend
+                .execute(ExecuteRequest {
+                    max_simplification_iterations: 3,
+                    result_modality,
+                    ..ExecuteRequest::new(compiled.initial.clone())
+                })
+                .unwrap()
+        };
+        let exhausted = |leaf: &k_rust::backend::ExecutionLeaf| {
+            let budget = leaf.diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    diagnostic,
+                    BackendDiagnosticOutput::SimplificationBudgetExhausted {
+                        limit: 3,
+                        subject: BudgetSubjectOutput::Predicates,
+                    }
+                )
+            });
+            let condition = leaf.diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    diagnostic,
+                    BackendDiagnosticOutput::RuleConditionUnsimplified { limit: 3, .. }
+                )
+            });
+            assert_eq!(
+                leaf.diagnostics.len(),
+                usize::from(budget) + usize::from(condition)
+            );
+            budget && condition
+        };
+
+        let state_set = run(ResultModalityOutput::StateSet);
+        let [leaf] = state_set.leaves.as_slice() else {
+            panic!("{rules:?}: expected one state-set leaf: {state_set:#?}");
+        };
+        assert_eq!(leaf.reason, HaltReasonOutput::Stuck, "{rules:?}");
+        assert!(text(&state_set)[0].contains("Lblc'"), "{rules:?}");
+        assert!(exhausted(leaf), "{rules:?}: {:?}", leaf.diagnostics);
+
+        let path_set = run(ResultModalityOutput::PathSet);
+        let [state] = text(&state_set).try_into().unwrap();
+        assert_eq!(text(&path_set), [state.clone(), state], "{rules:?}");
+        let mut diagnosed = path_set.leaves.iter().map(exhausted).collect::<Vec<_>>();
+        diagnosed.sort();
+        assert_eq!(diagnosed, [false, true], "{rules:?}");
+    }
+}
