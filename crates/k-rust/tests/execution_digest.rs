@@ -5,8 +5,8 @@
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionDigest, ExecutionStrategy,
-        ResultModalityOutput, execution_digest,
+        Backend, BackendOptions, ExecuteRequest, ExecutionDigest, ExecutionDigestError,
+        ExecutionStrategy, ResultModalityOutput, execution_digest,
     },
     builtin::embedded,
     kast::Sort,
@@ -183,10 +183,13 @@ fn equal_digests_execute_alike_and_rule_order_is_kept() {
         BackendOptions::default(),
     )
     .unwrap();
-    assert_eq!(
-        base.results(&mut left, "go"),
-        shifted.results(&mut internalized, "go")
-    );
+    for program in ["go", "calc"] {
+        assert_eq!(
+            base.results(&mut left, program),
+            shifted.results(&mut internalized, program),
+            "{program}"
+        );
+    }
 
     let swapped = compile("dig.k", &source([RIGHT, LEFT, ZERO_TWO, ANY_ONE]));
     assert_ne!(base.digest(), swapped.digest());
@@ -200,6 +203,11 @@ fn equal_digests_execute_alike_and_rule_order_is_kept() {
     assert_ne!(
         any(base.results(&mut left, "go")),
         any(swapped.results(&mut swapped_backend, "go"))
+    );
+    // Equations of one priority apply in order: the overlapping pair gives `f(0)` another value.
+    assert_ne!(
+        base.results(&mut left, "calc"),
+        swapped.results(&mut swapped_backend, "calc")
     );
 }
 
@@ -215,6 +223,13 @@ fn compiled_definitions_have_a_digest() {
         let digest = compiled.digest();
         assert_eq!(digest.to_string().parse::<ExecutionDigest>(), Ok(digest));
     }
+    // Text that does not parse as KORE has no digest.
+    let mut unparsable = compile("dig.k", &source([LEFT, RIGHT, ANY_ONE, ZERO_TWO])).artifacts;
+    unparsable.definition_kore = "not a definition".to_owned();
+    assert_eq!(
+        unparsable.execution_digest(),
+        Err(ExecutionDigestError::NotCanonical)
+    );
 }
 
 /// The UNIQUE_ID of the rewrite axiom whose right-hand side prints `name`.
