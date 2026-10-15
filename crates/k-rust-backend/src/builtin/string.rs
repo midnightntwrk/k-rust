@@ -8,10 +8,11 @@ use k_rust_kore::kore::string::LiteralEncoding;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, int_term, read_int,
+    BuiltinResult, DeclarationFacts, HookResult, UnsupportedHookReason, bool_term, expect_arity,
+    int_term, read_int,
 };
 use crate::{
-    definition::{BackendDefinition, DomainValueBound},
+    definition::DomainValueBound,
     externalize,
     term::{
         DomainKind, Sort, Term, TermKind,
@@ -20,11 +21,11 @@ use crate::{
 };
 
 /// The application a `STRING` hook evaluates, beyond its arguments: its declared result sort,
-/// the definition it belongs to, and whether its symbol is declared `total`.
+/// the declarations of the definition it belongs to, and whether its symbol is declared `total`.
 #[derive(Clone, Copy)]
 pub(super) struct Declaration<'a> {
     pub(super) result_sort: Option<&'a Sort>,
-    pub(super) definition: Option<&'a BackendDefinition>,
+    pub(super) facts: Option<&'a dyn DeclarationFacts<Sort = Sort>>,
     pub(super) total: bool,
 }
 
@@ -185,6 +186,24 @@ fn replace_all(arguments: &[Term]) -> HookResult<BuiltinResult> {
     ) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // The result's length follows from the number of occurrences, which a caller with a bound on
+    // the results it uses (`super::result_bound`) checks before the result is built: it can be
+    // quadratic in the arguments' length.
+    if let Some(bound) = super::result_bound() {
+        let count = haystack.matches(needle).count() as u64;
+        let bytes = (haystack.len() as u64 - count * needle.len() as u64)
+            .saturating_add(count.saturating_mul(replacement.len() as u64));
+        if bytes.saturating_mul(8) > bound {
+            return Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::ResultTooLarge {
+                    detail: format!(
+                        "replaceAll gives a string of {bytes} bytes, beyond the caller's bound of \
+                         {bound} bits"
+                    ),
+                },
+            ));
+        }
+    }
     Ok(BuiltinResult::Value(string_term(
         haystack.replace(needle, replacement),
     )))
@@ -394,8 +413,8 @@ fn token_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
 
 /// `String2Token(S)` (`STRING.string2token`, declared at the result sort of its application) is
 /// the domain value of that sort whose text is the code points of `S`, read as the definition
-/// reads a literal of the sort: with the kind the sort's hook gives
-/// ([`BackendDefinition::domain_kind`]), validated and stored in the kind's canonical text, so
+/// reads a literal of the sort: with the kind the sort's declaration gives
+/// ([`DeclarationFacts::domain_kind`]), validated and stored in the kind's canonical text, so
 /// that `"07"` at a sort hooked `INT.Int` is the integer 7. The payload is stored in the encoding
 /// of the sort's KORE name, as every KORE reader stores it (`LiteralEncoding::of_domain_value`).
 ///
@@ -403,15 +422,14 @@ fn token_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
 /// of a `total` declaration has a value the definition does not determine (`Unspecified`), and
 /// that of a partial one is undefined (`\bottom`). A text that names an element whose canonical
 /// text is beyond a bound of k-rust is the resource refusal whatever the declaration's
-/// totality, never `\bottom`. Without a definition, or at a sort without domain values, the
-/// result sort has no kind, and the application is not evaluated.
+/// totality, never `\bottom`. Without the declarations of a definition, or at a sort without
+/// domain values, the result sort has no kind, and the application is not evaluated.
 fn string_to_token(arguments: &[Term], declaration: Declaration<'_>) -> HookResult<BuiltinResult> {
     expect_arity("STRING.string2token", arguments, 1)?;
     let Some(text) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let (Some(result_sort), Some(definition)) = (declaration.result_sort, declaration.definition)
-    else {
+    let (Some(result_sort), Some(facts)) = (declaration.result_sort, declaration.facts) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let names_no_element = || {
@@ -431,14 +449,12 @@ fn string_to_token(arguments: &[Term], declaration: Declaration<'_>) -> HookResu
             BuiltinResult::Bottom
         })
     };
-    let Some(kind) = definition.domain_kind(result_sort) else {
+    let Some(kind) = facts.domain_kind(result_sort) else {
         // A closed sort with domain values and no kind is a sort hooked `MINT.MInt` that names no
         // width, so no text is a literal of it. A sort whose argument is still a sort variable
         // has a width not yet known, and a sort without domain values has no token: neither is
         // decided.
-        let admits_domain_values = matches!(result_sort, Sort::Application { name, .. }
-            if definition.sorts().get(name).is_some_and(|info| info.has_domain_values));
-        return if admits_domain_values && !result_sort.has_variable() {
+        return if facts.has_domain_values(result_sort) && !result_sort.has_variable() {
             names_no_element()
         } else {
             Ok(BuiltinResult::NotApplicable)
@@ -544,7 +560,7 @@ mod tests {
     fn declared(result_sort: Option<&Sort>) -> Declaration<'_> {
         Declaration {
             result_sort,
-            definition: None,
+            facts: None,
             total: false,
         }
     }

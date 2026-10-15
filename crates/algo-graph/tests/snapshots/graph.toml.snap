@@ -5692,7 +5692,7 @@ symbol = "Folder::fold"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/constant_folding.rs"
-symbol = "Folder::evaluate"
+symbol = "Folder::try_fold"
 
 [[node.sites]]
 crate = "k-rust"

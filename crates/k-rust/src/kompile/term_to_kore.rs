@@ -721,34 +721,11 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                     .attributes_for(&SortHead::from(sort))
                     .and_then(|attributes| attributes.string(AttributeKey::Hook))
             });
-        // The token's code points by its sort's hook: a `String` token's characters, a `Bytes`
-        // token's bytes as the code points of their values, any other token its text. A KORE
-        // domain value outside a definition carries only its sort's name, so the payload holds
-        // them by the encoding of that name (`kore::string::LiteralEncoding`), whatever the hook.
-        let invalid = |message| TermConversionError::InvalidToken {
-            sort: sort.clone(),
-            message,
-        };
-        let encoding = LiteralEncoding::of_domain_value(kore_sort);
-        let text = match hook {
-            Some("STRING.String") => kast::string::unquote_text(token).map_err(invalid)?,
-            Some("BYTES.Bytes") => {
-                let bytes = token
-                    .strip_prefix('b')
-                    .ok_or_else(|| invalid("expected a leading `b`".into()))
-                    .and_then(|token| kast::string::unquote_bytes(token).map_err(invalid))?;
-                if encoding == LiteralEncoding::Bytes {
-                    return Ok(bytes.into());
-                }
-                bytes.into_iter().map(char::from).collect()
+        token_payload(token, hook, LiteralEncoding::of_domain_value(kore_sort)).map_err(|message| {
+            TermConversionError::InvalidToken {
+                sort: sort.clone(),
+                message,
             }
-            _ => token.to_owned(),
-        };
-        encoding.store(&text).ok_or_else(|| {
-            invalid(format!(
-                "a code point above U+00FF in a value of {}, whose values are bytes",
-                BuiltinSort::Bytes.kore_name()
-            ))
         })
     }
 
@@ -1012,4 +989,66 @@ fn production_result_sort(parameters: &[Sort], sort: &Sort, label: &Label) -> So
         .zip(label.parameters.iter().cloned())
         .collect::<BTreeMap<_, _>>();
     substitute_sort(sort, &substitution)
+}
+
+/// The payload of the KORE domain value a token `token` of a sort hooked `hook` emits, in the
+/// encoding of the sort's KORE name: a `String` token's characters, a `Bytes` token's bytes as
+/// the code points of their values, any other token its text. A KORE domain value outside a
+/// definition carries only its sort's name, so the payload holds them by the encoding of that
+/// name (`kore::string::LiteralEncoding`), whatever the hook. `Err` names why the token is no
+/// literal of its sort.
+pub(crate) fn token_payload(
+    token: &str,
+    hook: Option<&str>,
+    encoding: LiteralEncoding,
+) -> Result<KoreString, String> {
+    let text = match hook {
+        Some("STRING.String") => kast::string::unquote_text(token)?,
+        Some("BYTES.Bytes") => {
+            let bytes = token
+                .strip_prefix('b')
+                .ok_or_else(|| "expected a leading `b`".to_owned())
+                .and_then(kast::string::unquote_bytes)?;
+            if encoding == LiteralEncoding::Bytes {
+                return Ok(bytes.into());
+            }
+            bytes.into_iter().map(char::from).collect()
+        }
+        _ => token.to_owned(),
+    };
+    encoding.store(&text).ok_or_else(|| {
+        format!(
+            "a code point above U+00FF in a value of {}, whose values are bytes",
+            BuiltinSort::Bytes.kore_name()
+        )
+    })
+}
+
+/// The token of a sort hooked `hook` whose emitted domain value has the payload `payload`, in the
+/// encoding of the sort's KORE name: the inverse of [`token_payload`], so that
+/// `token_payload(token_text(payload), ..)` is `payload`. A `String` token quotes the payload's
+/// code points and a `Bytes` token its bytes; any other token is the payload's text. `None` for a
+/// payload that is no such text (not UTF-8, or a code point above U+00FF in a `Bytes` value).
+pub(crate) fn token_text(
+    payload: &KoreString,
+    hook: Option<&str>,
+    encoding: LiteralEncoding,
+) -> Option<String> {
+    match hook {
+        Some("BYTES.Bytes") => {
+            let bytes = if encoding == LiteralEncoding::Bytes {
+                payload.as_bytes().to_vec()
+            } else {
+                payload
+                    .as_utf8()
+                    .ok()?
+                    .chars()
+                    .map(|character| u8::try_from(u32::from(character)).ok())
+                    .collect::<Option<Vec<_>>>()?
+            };
+            Some(format!("b{}", kast::string::quote_bytes(&bytes)))
+        }
+        Some("STRING.String") => Some(kast::string::quote(payload.as_utf8().ok()?)),
+        _ => payload.as_utf8().ok().map(str::to_owned),
+    }
 }

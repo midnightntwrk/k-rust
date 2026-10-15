@@ -7,6 +7,7 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 mod compile;
+mod declaration_facts;
 mod fresh_names;
 mod hook_signatures;
 pub mod initial_configuration;

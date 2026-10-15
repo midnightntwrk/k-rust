@@ -153,13 +153,16 @@ impl BuiltDomainValues {
         Self { start, outer }
     }
 
-    /// True when every domain value built since [`Self::record`] has the kind `definition`
-    /// gives its sort.
-    pub(crate) fn of_their_sorts_kinds(&self, definition: &BackendDefinition) -> bool {
+    /// True when every domain value built since [`Self::record`] has the kind `facts` give its
+    /// sort.
+    pub(crate) fn of_their_sorts_kinds(
+        &self,
+        facts: &dyn crate::builtin::DeclarationFacts<Sort = Sort>,
+    ) -> bool {
         BUILT.with_borrow(|built| {
             built[self.start..].iter().all(|(term, kind)| {
                 matches!(term.kind(), TermKind::DomainValue { sort, .. }
-                    if definition.domain_kind(sort) == Some(*kind))
+                    if facts.domain_kind(sort) == Some(*kind))
             })
         })
     }
@@ -255,12 +258,13 @@ mod tests {
     const ROUTES: &[(&str, usize, usize)] = &[
         // `Term::int`, `Term::bool`, `Term::string`, `Term::bytes`: the constant kind of their
         // builtin-named sort (`SortInt` and `SortBool` by name, `SortString` and `SortBytes` the
-        // builtin hook's own sort). `domain_value_of` and `domain_value_of_canonical` (for a text
-        // already canonical, with the same kind) and `mint_of_residue` (an `MInt` value written
-        // from its residue) allocate the node; the raw test constructor, the test-only
-        // `unshared_copy` (a copy of a node already built) and the drop sentinel (no value of any
-        // sort) allocate one without a kind.
-        ("term.rs", 4, 6),
+        // builtin hook's own sort), and `Term::domain_value_in`: the kind the declarations it is
+        // given state for the sort (`DomainKind::of_declared_sort`). `domain_value_of` and
+        // `domain_value_of_canonical` (for a text already canonical, with the same kind) and
+        // `mint_of_residue` (an `MInt` value written from its residue) allocate the node; the
+        // raw test constructor, the test-only `unshared_copy` (a copy of a node already built)
+        // and the drop sentinel (no value of any sort) allocate one without a kind.
+        ("term.rs", 5, 6),
         // Internalization of `\dv` and of a KORE string literal, and
         // `BackendDefinition::domain_value`: `domain_kind` of the sort.
         ("definition.rs", 3, 0),

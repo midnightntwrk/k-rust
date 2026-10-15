@@ -196,7 +196,7 @@ fn too_large(operation: &str, sort: &Sort, limit: u64) -> BuiltinResult {
 
 /// The bound on a result computed from operands of `bits` bits in all.
 fn limit(bits: u64) -> u64 {
-    result_size_limit(MAX_INT_RESULT_BITS, bits)
+    result_size_limit(super::bounded_floor(MAX_INT_RESULT_BITS), bits)
 }
 
 /// The outcome of `operation` at a machine-integer sort whose argument names no width

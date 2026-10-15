@@ -26,7 +26,199 @@ use rug::{
     ops::Pow,
 };
 
-use super::{MAX_FOLDED_BITS, Unfolded, Value, int_value, string_value, too_large};
+use k_rust_backend::builtin::{
+    FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, float_canonical_bits_estimate,
+};
+
+use super::MAX_FOLDED_BITS;
+use crate::{
+    definition::{AttributeKey, SortCatalog, SortHead},
+    kast::Sort,
+};
+
+/// Whether the MPFR module folds applications of `hook`: the `FLOAT` hooks and the `STRING`
+/// conversions to and from `Float`.
+pub(super) fn folds(hook: &str) -> bool {
+    hook.starts_with("FLOAT.")
+        || matches!(
+            hook,
+            "STRING.float2string" | "STRING.floatFormat" | "STRING.string2float"
+        )
+}
+
+/// The token an application of `hook` to `tokens` declared at `result_sort` folds to, read and
+/// written by the hooks `sorts` gives the tokens' sorts; `Err` when the application stays as
+/// written.
+pub(super) fn fold(
+    sorts: &SortCatalog<'_>,
+    hook: &str,
+    tokens: &[(&str, &Sort)],
+    result_sort: &Sort,
+) -> Result<String, Unfolded> {
+    let values = tokens
+        .iter()
+        .map(|(token, sort)| read_token(sorts, token, sort))
+        .collect::<Result<Vec<_>, _>>()?;
+    let value = evaluate(hook, &values).unwrap_or_else(|| {
+        Err(Unfolded::Unsupported(format!(
+            "no constant-folding implementation for hook {hook}"
+        )))
+    })?;
+    let bits = value_bits(&value);
+    if bits > MAX_FOLDED_BITS {
+        return Err(Unfolded::TooLarge(format!(
+            "the value of hook {hook} has {bits} bits, more than {MAX_FOLDED_BITS}"
+        )));
+    }
+    let is_float = matches!(value, Value::Float(_));
+    let token = write_token(sorts, value, result_sort)?;
+    if is_float {
+        loadable_float(hook, &token)?;
+    }
+    Ok(token)
+}
+
+fn sort_hook<'a>(sorts: &'a SortCatalog<'_>, sort: &Sort) -> Option<&'a str> {
+    sorts
+        .attributes_for(&SortHead::from(sort))
+        .and_then(|attributes| attributes.string(AttributeKey::Hook))
+}
+
+fn read_token(sorts: &SortCatalog<'_>, token: &str, sort: &Sort) -> Result<Value, Unfolded> {
+    match sort_hook(sorts, sort) {
+        Some("BOOL.Bool") => bool::from_str(token)
+            .map(Value::Bool)
+            .map_err(|_| Unfolded::Unsupported(format!("invalid Bool token {token:?}"))),
+        Some("INT.Int") => BigInt::from_str(token)
+            .map(Value::Int)
+            .map_err(|_| Unfolded::Unsupported(format!("invalid Int token {token:?}"))),
+        Some("STRING.String") => crate::kast::string::unquote(token)
+            .map(Value::String)
+            .map_err(Unfolded::Unsupported),
+        Some("FLOAT.Float") => KFloat::parse(token)
+            .map(Value::Float)
+            .map_err(|unfolded| Unfolded::Unsupported(unfolded.message().to_owned())),
+        _ => Ok(Value::String(token.to_owned())),
+    }
+}
+
+/// The token of `value` at `sort`; `Err` when the fold cannot write it (a Float token beyond
+/// `MAX_FOLDED_BITS`), so the application stays as written.
+fn write_token(sorts: &SortCatalog<'_>, value: Value, sort: &Sort) -> Result<String, Unfolded> {
+    let string_sort =
+        sort_hook(sorts, sort).is_some_and(|hook| matches!(hook, "STRING.String" | "BYTES.Bytes"));
+    Ok(match value {
+        Value::Bool(value) => value.to_string(),
+        Value::Int(value) => value.to_string(),
+        Value::String(value) if string_sort => crate::kast::string::quote(&value),
+        Value::String(value) => value,
+        Value::Float(value) => value.try_token()?,
+    })
+}
+
+/// Why the fold leaves a constant application of a `FLOAT` hook as written. Folding replaces a
+/// term by a token that denotes the same value, so where there is no such token, or the fold does
+/// not compute it, the application stays and execution evaluates it; a definition never fails to
+/// compile because of a constant's value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum Unfolded {
+    /// The hook is undefined (`#Bottom`) on these arguments.
+    Undefined(String),
+    /// The hook is `total` and its documentation gives no value on these arguments, or the
+    /// value is one the definition leaves to a reading k-rust applies only in an execution (a
+    /// Float operation over two formats): the application denotes a value the definition does
+    /// not determine.
+    Unspecified(String),
+    /// The value is defined but larger than `MAX_FOLDED_BITS`.
+    TooLarge(String),
+    /// The fold does not evaluate this hook, or cannot read these arguments.
+    Unsupported(String),
+}
+
+impl Unfolded {
+    fn message(&self) -> &str {
+        match self {
+            Self::Undefined(message)
+            | Self::Unspecified(message)
+            | Self::TooLarge(message)
+            | Self::Unsupported(message) => message,
+        }
+    }
+}
+
+impl From<String> for Unfolded {
+    fn from(message: String) -> Self {
+        Self::Undefined(message)
+    }
+}
+
+impl From<&str> for Unfolded {
+    fn from(message: &str) -> Self {
+        Self::Undefined(message.to_owned())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum Value {
+    Bool(bool),
+    Int(BigInt),
+    String(String),
+    Float(KFloat),
+}
+
+/// The size of a value in the unit of `MAX_FOLDED_BITS`.
+fn value_bits(value: &Value) -> u64 {
+    match value {
+        Value::Bool(_) => 1,
+        Value::Int(value) => value.bits(),
+        Value::String(value) => 8 * value.len() as u64,
+        Value::Float(value) => value.bits(),
+    }
+}
+
+fn too_large(hook: &str, bits: impl std::fmt::Display) -> Unfolded {
+    Unfolded::TooLarge(format!(
+        "the value of hook {hook} has at least {bits} bits, more than {MAX_FOLDED_BITS}"
+    ))
+}
+
+fn int_value(value: &Value) -> Result<BigInt, Unfolded> {
+    match value {
+        Value::Int(value) => Ok(value.clone()),
+        Value::Bool(_) | Value::String(_) | Value::Float(_) => Err(Unfolded::Unsupported(
+            "constant-folding hook expected Int".into(),
+        )),
+    }
+}
+
+fn string_value(value: &Value) -> Result<&str, Unfolded> {
+    match value {
+        Value::String(value) => Ok(value),
+        Value::Bool(_) | Value::Int(_) | Value::Float(_) => Err(Unfolded::Unsupported(
+            "constant-folding hook expected String or token".into(),
+        )),
+    }
+}
+
+/// Whether the backend loads the folded Float token `token`: it reads a Float token as the
+/// canonical text of its value, the exact decimal outside binary32 and binary64, and refuses one
+/// whose canonical text is estimated beyond `MAX_FLOAT_CANONICAL_BITS`, so such a result of
+/// `hook` is left for execution.
+fn loadable_float(hook: &str, token: &str) -> Result<(), Unfolded> {
+    float_canonical_bits_estimate(token)
+        .map(|_| ())
+        .map_err(|refusal| match refusal {
+            FloatTextRefusal::BeyondBound { estimate_bits } => Unfolded::TooLarge(format!(
+                "the canonical text of the value of hook {hook} is estimated at {estimate_bits} \
+                 bits, more than {MAX_FLOAT_CANONICAL_BITS}"
+            )),
+            refusal @ (FloatTextRefusal::NotALiteral
+            | FloatTextRefusal::ZeroFormatField
+            | FloatTextRefusal::UncomputedFormat) => Unfolded::Unsupported(format!(
+                "the value of hook {hook} has no canonical Float text: {refusal:?}"
+            )),
+        })
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct KFloat {
@@ -1525,9 +1717,9 @@ mod tests {
             )
             .token()
         };
-        assert!(super::super::loadable_float("FLOAT.div", &quotient(113)).is_ok());
+        assert!(super::loadable_float("FLOAT.div", &quotient(113)).is_ok());
         assert!(matches!(
-            super::super::loadable_float("FLOAT.div", &quotient(400_000)),
+            super::loadable_float("FLOAT.div", &quotient(400_000)),
             Err(Unfolded::TooLarge(_))
         ));
     }

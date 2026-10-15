@@ -8627,6 +8627,527 @@ fn krun_evaluates_equation_defined_hooks_through_their_equations() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A hook, the sorts of its arguments, its result sort, and argument tuples written as literals.
+type FoldedHookCase = (
+    &'static str,
+    &'static [&'static str],
+    &'static str,
+    &'static [&'static [&'static str]],
+);
+
+/// Every hook the constant fold evaluates (the `BOOL`, `INT` and `STRING` hooks with a backend
+/// evaluator), declared at its natural sorts, with literal arguments at the edges the hook models
+/// draw from (`k-rust-backend/src/builtin/hook_models`): zero, signs, values beyond 64 and 128
+/// bits, the empty string, escapes, and code points beyond ASCII, the Basic Multilingual Plane
+/// and one byte. `STRING.string2token` is declared at `Id` and at a sort hooked `INT.Int` under
+/// another name. Each argument tuple names a value of the hook, so a run of every case at once
+/// ends in one configuration.
+const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
+    (
+        "BOOL.and",
+        &["Bool", "Bool"],
+        "Bool",
+        &[&["true", "false"], &["true", "true"]],
+    ),
+    (
+        "BOOL.andThen",
+        &["Bool", "Bool"],
+        "Bool",
+        &[&["false", "true"], &["true", "true"]],
+    ),
+    (
+        "BOOL.eq",
+        &["Bool", "Bool"],
+        "Bool",
+        &[&["true", "false"], &["false", "false"]],
+    ),
+    (
+        "BOOL.implies",
+        &["Bool", "Bool"],
+        "Bool",
+        &[&["true", "false"], &["false", "true"]],
+    ),
+    (
+        "BOOL.ne",
+        &["Bool", "Bool"],
+        "Bool",
+        &[&["true", "false"], &["true", "true"]],
+    ),
+    ("BOOL.not", &["Bool"], "Bool", &[&["true"], &["false"]]),
+    (
+        "BOOL.or",
+        &["Bool", "Bool"],
+        "Bool",
+        &[&["false", "false"], &["false", "true"]],
+    ),
+    (
+        "BOOL.orElse",
+        &["Bool", "Bool"],
+        "Bool",
+        &[&["true", "false"], &["false", "false"]],
+    ),
+    (
+        "BOOL.xor",
+        &["Bool", "Bool"],
+        "Bool",
+        &[&["true", "false"], &["true", "true"]],
+    ),
+    (
+        "INT.abs",
+        &["Int"],
+        "Int",
+        &[&["-18446744073709551617"], &["0"], &["7"]],
+    ),
+    (
+        "INT.add",
+        &["Int", "Int"],
+        "Int",
+        &[&["18446744073709551615", "1"], &["-5", "3"]],
+    ),
+    (
+        "INT.and",
+        &["Int", "Int"],
+        "Int",
+        &[
+            &["-1", "340282366920938463463374607431768211457"],
+            &["12", "10"],
+        ],
+    ),
+    (
+        "INT.bitRange",
+        &["Int", "Int", "Int"],
+        "Int",
+        &[&["-1", "3", "70"], &["255", "4", "4"]],
+    ),
+    (
+        "INT.ediv",
+        &["Int", "Int"],
+        "Int",
+        &[&["-7", "2"], &["7", "-2"]],
+    ),
+    (
+        "INT.emod",
+        &["Int", "Int"],
+        "Int",
+        &[&["-7", "2"], &["7", "-2"]],
+    ),
+    (
+        "INT.eq",
+        &["Int", "Int"],
+        "Bool",
+        &[&["-0", "0"], &["1", "2"]],
+    ),
+    (
+        "INT.ge",
+        &["Int", "Int"],
+        "Bool",
+        &[&["-1", "-1"], &["-2", "18446744073709551616"]],
+    ),
+    (
+        "INT.gt",
+        &["Int", "Int"],
+        "Bool",
+        &[&["2", "1"], &["1", "1"]],
+    ),
+    (
+        "INT.le",
+        &["Int", "Int"],
+        "Bool",
+        &[&["3", "-3"], &["-3", "3"]],
+    ),
+    (
+        "INT.log2",
+        &["Int"],
+        "Int",
+        &[&["1"], &["18446744073709551616"]],
+    ),
+    (
+        "INT.lt",
+        &["Int", "Int"],
+        "Bool",
+        &[&["-18446744073709551617", "0"], &["0", "0"]],
+    ),
+    (
+        "INT.max",
+        &["Int", "Int"],
+        "Int",
+        &[&["-1", "-2"], &["5", "18446744073709551616"]],
+    ),
+    (
+        "INT.min",
+        &["Int", "Int"],
+        "Int",
+        &[&["-1", "-2"], &["5", "18446744073709551616"]],
+    ),
+    (
+        "INT.mul",
+        &["Int", "Int"],
+        "Int",
+        &[
+            &["-18446744073709551616", "18446744073709551616"],
+            &["0", "-9"],
+        ],
+    ),
+    (
+        "INT.ne",
+        &["Int", "Int"],
+        "Bool",
+        &[&["1", "2"], &["7", "7"]],
+    ),
+    (
+        "INT.not",
+        &["Int"],
+        "Int",
+        &[&["0"], &["-18446744073709551617"]],
+    ),
+    (
+        "INT.or",
+        &["Int", "Int"],
+        "Int",
+        &[&["-8", "5"], &["12", "10"]],
+    ),
+    (
+        "INT.pow",
+        &["Int", "Int"],
+        "Int",
+        &[&["-3", "41"], &["-1", "-5"], &["7", "0"]],
+    ),
+    (
+        "INT.powmod",
+        &["Int", "Int", "Int"],
+        "Int",
+        &[&["-2", "3", "5"], &["3", "200", "-1000000007"]],
+    ),
+    (
+        "INT.shl",
+        &["Int", "Int"],
+        "Int",
+        &[&["-3", "70"], &["0", "5"]],
+    ),
+    (
+        "INT.shr",
+        &["Int", "Int"],
+        "Int",
+        &[&["-7", "1"], &["12345", "18446744073709551616"]],
+    ),
+    (
+        "INT.signExtendBitRange",
+        &["Int", "Int", "Int"],
+        "Int",
+        &[&["255", "0", "8"], &["-6", "1", "70"]],
+    ),
+    (
+        "INT.sub",
+        &["Int", "Int"],
+        "Int",
+        &[&["0", "18446744073709551616"], &["-5", "-5"]],
+    ),
+    (
+        "INT.tdiv",
+        &["Int", "Int"],
+        "Int",
+        &[&["-7", "2"], &["7", "-2"]],
+    ),
+    (
+        "INT.tmod",
+        &["Int", "Int"],
+        "Int",
+        &[&["-7", "2"], &["7", "-2"]],
+    ),
+    (
+        "INT.xor",
+        &["Int", "Int"],
+        "Int",
+        &[&["-1", "5"], &["12", "10"]],
+    ),
+    (
+        "STRING.base2string",
+        &["Int", "Int"],
+        "String",
+        &[&["255", "16"], &["-35", "36"], &["0", "2"]],
+    ),
+    (
+        "STRING.chr",
+        &["Int"],
+        "String",
+        &[&["65"], &["955"], &["128000"], &["255"]],
+    ),
+    (
+        "STRING.concat",
+        &["String", "String"],
+        "String",
+        &[
+            &[r#""λ""#, r#""\U0001f980""#],
+            &[r#""a\"b""#, r#""\\""#],
+            &[r#""""#, r#""""#],
+        ],
+    ),
+    (
+        "STRING.countAllOccurrences",
+        &["String", "String"],
+        "Int",
+        &[&[r#""aaaa""#, r#""aa""#], &[r#""héllo""#, r#""l""#]],
+    ),
+    (
+        "STRING.eq",
+        &["String", "String"],
+        "Bool",
+        &[&[r#""é""#, r#""é""#], &[r#""a""#, r#""b""#]],
+    ),
+    (
+        "STRING.find",
+        &["String", "String", "Int"],
+        "Int",
+        &[
+            &[r#""héllo""#, r#""l""#, "3"],
+            &[r#""abc""#, r#""""#, "-5"],
+            &[r#""abc""#, r#""d""#, "0"],
+        ],
+    ),
+    (
+        "STRING.ge",
+        &["String", "String"],
+        "Bool",
+        &[&[r#""b""#, r#""ab""#], &[r#""""#, r#""a""#]],
+    ),
+    (
+        "STRING.gt",
+        &["String", "String"],
+        "Bool",
+        &[&[r#""\U0001f980""#, r#""￿""#], &[r#""a""#, r#""a""#]],
+    ),
+    (
+        "STRING.int2string",
+        &["Int"],
+        "String",
+        &[&["-340282366920938463463374607431768211456"], &["0"]],
+    ),
+    (
+        "STRING.le",
+        &["String", "String"],
+        "Bool",
+        &[&[r#""ab""#, r#""b""#], &[r#""b""#, r#""ab""#]],
+    ),
+    (
+        "STRING.length",
+        &["String"],
+        "Int",
+        &[&[r#""héllo\U0001f980""#], &[r#""""#]],
+    ),
+    (
+        "STRING.lt",
+        &["String", "String"],
+        "Bool",
+        &[&[r#""""#, r#""\x00""#], &[r#""b""#, r#""a""#]],
+    ),
+    (
+        "STRING.ne",
+        &["String", "String"],
+        "Bool",
+        &[&[r#""\n""#, r#""\t""#], &[r#""x""#, r#""x""#]],
+    ),
+    (
+        "STRING.ord",
+        &["String"],
+        "Int",
+        &[&[r#""\U0001f980""#], &[r#""é""#]],
+    ),
+    (
+        "STRING.replaceAll",
+        &["String", "String", "String"],
+        "String",
+        &[
+            &[r#""abab""#, r#""b""#, r#""λ""#],
+            &[r#""aaa""#, r#""aa""#, r#""""#],
+        ],
+    ),
+    (
+        "STRING.rfind",
+        &["String", "String", "Int"],
+        "Int",
+        &[
+            &[r#""héllo""#, r#""l""#, "100"],
+            &[r#""abc""#, r#""a""#, "-1"],
+        ],
+    ),
+    (
+        "STRING.string2base",
+        &["String", "Int"],
+        "Int",
+        &[&[r#""-fF""#, "16"], &[r#""z""#, "36"]],
+    ),
+    (
+        "STRING.string2int",
+        &["String"],
+        "Int",
+        &[&[r#""-007""#], &[r#""+18446744073709551616""#]],
+    ),
+    (
+        "STRING.string2token",
+        &["String"],
+        "Id",
+        &[&[r#""x""#], &[r#""_42""#]],
+    ),
+    (
+        "STRING.string2token",
+        &["String"],
+        "MyInt",
+        &[&[r#""07""#], &[r#""-0""#]],
+    ),
+    (
+        "STRING.substr",
+        &["String", "Int", "Int"],
+        "String",
+        &[&[r#""héllo""#, "1", "3"], &[r#""abc""#, "3", "3"]],
+    ),
+    (
+        "STRING.token2string",
+        &["Id"],
+        "String",
+        &[&[r#"#token("x", "Id")"#], &[r#"#token("Foo1", "Id")"#]],
+    ),
+];
+
+/// The definition of [`FOLDED_HOOK_CASES`]: for each declaration `n`, a function `hk<n>` hooked
+/// to its hook and an unhooked function `rt<n>` whose one equation applies `hk<n>` to its
+/// variables. The rule for `lits` applies each `hk<n>` to its cases' literals, which the constant
+/// fold computes; the rule for `rts` applies each `rt<n>` to the same literals, which only
+/// execution evaluates, through the equation.
+fn folded_hook_definition() -> String {
+    let mut declarations = String::new();
+    let (mut literal, mut runtime) = (Vec::new(), Vec::new());
+    for (index, (hook, arguments, result, cases)) in FOLDED_HOOK_CASES.iter().enumerate() {
+        let sorts = arguments.join(", ");
+        let variables = (0..arguments.len())
+            .map(|position| format!("X{position}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let typed = arguments
+            .iter()
+            .enumerate()
+            .map(|(position, sort)| format!("X{position}:{sort}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        declarations.push_str(&format!(
+            "  syntax {result} ::= hk{index}({sorts}) [function, hook({hook}), symbol(hk{index})]\n\
+             \x20 syntax {result} ::= rt{index}({sorts}) [function, symbol(rt{index})]\n\
+             \x20 rule rt{index}({typed}) => hk{index}({variables})\n"
+        ));
+        for case in *cases {
+            let case = case.join(", ");
+            literal.push(format!("res(hk{index}({case}))"));
+            runtime.push(format!("res(rt{index}({case}))"));
+        }
+    }
+    format!(
+        r#"
+module FOLDED-HOOKS-SYNTAX
+  syntax Op ::= "lits" [symbol(lits)] | "rts" [symbol(rts)]
+endmodule
+
+module FOLDED-HOOKS
+  imports FOLDED-HOOKS-SYNTAX
+  imports DOMAINS
+  configuration <k> $PGM:Op </k>
+  syntax MyInt [hook(INT.Int), token]
+  syntax KItem ::= res(K) [symbol(res)]
+{declarations}
+  rule lits => {}
+  rule rts => {}
+endmodule
+"#,
+        literal.join(" ~> "),
+        runtime.join(" ~> ")
+    )
+}
+
+/// A hooked application the frontend folds on literals and the same application evaluated at
+/// run time give one value: the fold writes the value the backend's evaluation entry computes,
+/// and the emitted token reads back as that value. Every hook the fold evaluates is exercised,
+/// and the `lits` rule of the compiled definition keeps none of its hooked applications.
+#[test]
+fn folded_and_evaluated_applications_agree() {
+    let manifest: toml::Value =
+        toml::from_str(include_str!("fixtures/hook-capabilities.toml")).unwrap();
+    let folded = manifest["implemented"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|hook| hook.as_str().unwrap())
+        .filter(|hook| matches!(hook.split_once('.'), Some(("BOOL" | "INT" | "STRING", _))))
+        .collect::<BTreeSet<_>>();
+    let exercised = FOLDED_HOOK_CASES
+        .iter()
+        .map(|(hook, ..)| *hook)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        exercised, folded,
+        "every hook the fold evaluates has cases here"
+    );
+
+    let (root, _) = fixture();
+    let path = root.join("folded-hooks.k");
+    fs::write(&path, folded_hook_definition()).unwrap();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            path.to_str().unwrap(),
+            "--main-module",
+            "FOLDED-HOOKS",
+            "--output-directory",
+        ])
+        .arg(&compiled)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let kore =
+        parse_definition(&fs::read_to_string(compiled.join("definition.kore")).unwrap()).unwrap();
+    let literal_rule = kore
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            k_rust::kore::ast::Sentence::Axiom { pattern, .. } => Some(pattern.to_string()),
+            _ => None,
+        })
+        .find(|axiom| axiom.contains("Lbllits{}()") && axiom.contains("Lblres{}("))
+        .expect("the rule for lits is emitted");
+    assert!(
+        !literal_rule.contains("Lblhk"),
+        "the fold leaves a hooked application in {literal_rule}"
+    );
+    let run = |program: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                "--definition",
+                compiled.to_str().unwrap(),
+                "--sort",
+                "Op",
+                "--expression",
+                program,
+                "--io",
+                "off",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{program}: {stderr}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let (literal, runtime) = (run("lits"), run("rts"));
+    assert!(literal.contains("Lblres{}("), "{literal}");
+    assert_eq!(literal, runtime);
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A definition over `STRING-BUFFER`, whose appends are nested to the left so that the sentence
 /// has one reading whichever `+String` a frontend considers.
 const STRING_BUFFER_DEFINITION: &str = r#"
