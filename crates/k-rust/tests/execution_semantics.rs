@@ -2556,3 +2556,26 @@ endmodule
         assert!(!state.contains(r#"\dv{SortBool{}}"#), "{program}: {state}");
     }
 }
+
+/// A local function whose body tests a sort: `#let Y = X #in isInt(Y)` lowers to a lambda over
+/// the sort predicate `isInt`, so `h(1)` rewrites to `m(true)`.
+#[test]
+fn a_local_function_may_test_a_sort() {
+    const SOURCE: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax KItem ::= h(K) [symbol(h)] | m(Bool) [symbol(m)]
+  rule h(X) => m(#let Y = X #in isInt(Y))
+  configuration <k> h($PGM:Int) </k>
+endmodule
+"#;
+    let compiled = compile(SOURCE, "MAIN", "MAIN", "Int", "1");
+    let result = execute(&compiled, "MAIN", None);
+    let leaves = text(&result);
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"Lblm{}(\dv{SortBool{}}("true"))"#),
+        "{leaves:?}"
+    );
+}

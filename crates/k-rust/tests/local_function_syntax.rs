@@ -598,3 +598,64 @@ fn a_lambda_whose_pattern_does_not_cover_its_parameter_is_bottom_off_it() {
         assert_eq!(refutations(covering), [], "{covering}");
     }
 }
+
+/// A module `H` over `h(K)`, `m(Bool)`, `g(Int)` and the named `pair(fst:, snd:)` whose only
+/// rule is `rule`: the definition compiles, its one lambda has the signature `signature`
+/// (`(argument sorts) : result`, KORE sorts), and the main module's typer types the rule in `H`.
+fn assert_helper_lambda(rule: &str, signature: &str) {
+    let source = format!(
+        "module H\n  imports INT\n  imports BOOL\n  \
+         syntax KItem ::= h(K) | m(Bool) | g(Int)\n  \
+         syntax Pair ::= pair(fst: Int, snd: Int) [symbol(pair)]\n  rule [r]: {rule}\nendmodule\n"
+    );
+    let loaded = load("H", &source);
+    let declarations = lambda_declarations(&loaded);
+    let [declaration] = declarations.as_slice() else {
+        panic!("{rule}: {declarations:?}")
+    };
+    assert!(declaration.contains(signature), "{rule}: {declaration}");
+    let sentence = loaded
+        .definition()
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| {
+            sentence
+                .attributes()
+                .string(k_rust::definition::AttributeKey::Label)
+                == Some("H.r")
+        })
+        .unwrap();
+    let typer = k_rust::kompile::SentenceTyper::for_compilation(loaded.resolved()).unwrap();
+    typer
+        .typing_in(sentence, "H")
+        .unwrap_or_else(|error| panic!("{rule}: {error}"));
+}
+
+// A local function may name the sort predicates and projections compilation declares: the
+// lambda's sorts are computed with the productions compilation declares for them, the predicate
+// at `Bool`, the projections at their sorts.
+#[test]
+fn a_let_body_may_test_a_sort() {
+    assert_helper_lambda(
+        "h(X) => m(#let Y = X #in isInt(Y))",
+        "(SortK{}) : SortBool{}",
+    );
+}
+
+#[test]
+fn a_let_value_may_be_a_projection() {
+    assert_helper_lambda(
+        "h(X) => g(#let Y = {X}:>Int #in Y)",
+        "(SortInt{}) : SortInt{}",
+    );
+}
+
+#[test]
+fn a_fun_body_may_read_a_field() {
+    assert_helper_lambda(
+        "h(_X) => g(#fun(P => fst(P))(pair(1, 2)))",
+        "(SortPair{}) : SortInt{}",
+    );
+}

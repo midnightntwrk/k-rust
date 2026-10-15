@@ -539,8 +539,14 @@ impl<'a> SentenceTyper<'a> {
                 .definition
                 .subsorts(module)
                 .map_err(|cycle| SortInjectionError::CircularSubsort(cycle.path))?;
+            // The productions `resolve_fun` types the module's lambdas over.
+            let productions =
+                match crate::kompile::passes::lambda_productions(self.definition, module) {
+                    Some(productions) => View::Owned(productions),
+                    None => View::Shared(self.definition.production_catalog(module)),
+                };
             let injector = SortInjector {
-                productions: View::Shared(self.definition.production_catalog(module)),
+                productions,
                 sorts: View::Owned(self.definition.sort_catalog(module)),
                 subsorts: View::Owned(subsorts),
                 next_sort_parameter: Cell::new(0),
