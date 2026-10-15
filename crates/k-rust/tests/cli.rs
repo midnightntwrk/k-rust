@@ -22,7 +22,7 @@ mod proof_sources;
 use proof_sources::{
     ANYWHERE_OVERLOAD_REMAINDER, DEFPROBE, DEFPROBE_REFUSED_SPEC, DEFPROBE_SPEC,
     LATER_BINDING_KEPT, LATER_BINDING_RECOVERED, LATER_BINDING_RULE, LET_PARTIAL_CONDITION,
-    NEGATIVE_POWER, UNDEFINED_STEP,
+    NEGATIVE_POWER, TERM_READ_AS_PREDICATE_CLAIMS, UNDEFINED_STEP,
 };
 
 /// A `KRUST-PROVENANCE` document written by the version 7 writer (k-rust `480a0d3b`), as an
@@ -12296,6 +12296,66 @@ fn kprove_reports_a_refused_claim_and_proves_the_rest() {
         "{}",
         String::from_utf8_lossy(&run.stderr)
     );
+    // A claim whose meaning cannot be stated is not trusted either.
+    let trusted = kprove_compiled(
+        &compiled,
+        "DEFPROBE-REFUSED-SPEC",
+        &["--trusted", "DEFPROBE-REFUSED-SPEC.crefused"],
+    );
+    let lines = claim_lines(&trusted);
+    assert!(!trusted.status.success(), "{lines:?}");
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("claim DEFPROBE-REFUSED-SPEC.crefused: refused (")),
+        "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Claims written in KORE with an `\equals` that reads a term as a predicate, added to a compiled
+/// specification, are each reported `refused`, never proven or disproved; a trusted refused claim
+/// is not trusted either, so the run fails.
+#[test]
+fn kprove_refuses_a_claim_whose_equality_reads_a_term_as_a_predicate() {
+    let (root, definition) = fixture();
+    fs::write(&definition, format!("{DEFPROBE}{DEFPROBE_SPEC}")).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "DEFPROBE-SPEC", "DEFPROBE", &compiled);
+    let kore = compiled.join("definition.kore");
+    let text = fs::read_to_string(&kore).unwrap();
+    let end = text.rfind("endmodule").unwrap();
+    fs::write(
+        &kore,
+        format!(
+            "{}{TERM_READ_AS_PREDICATE_CLAIMS}\n{}",
+            &text[..end],
+            &text[end..]
+        ),
+    )
+    .unwrap();
+    for claim in ["HAND.eqtop", "HAND.andterm", "HAND.lhseqtop"] {
+        let run = kprove_compiled(&compiled, "DEFPROBE-SPEC", &["--claim", claim]);
+        let lines = claim_lines(&run);
+        assert!(!run.status.success(), "{claim}: {lines:?}");
+        assert!(
+            matches!(lines.as_slice(), [line]
+                if line.starts_with(&format!("claim {claim}: refused ("))
+                    && line.contains("where a predicate is read")),
+            "{claim}: {lines:?}"
+        );
+        let trusted = kprove_compiled(
+            &compiled,
+            "DEFPROBE-SPEC",
+            &["--claim", claim, "--trusted", claim],
+        );
+        let lines = claim_lines(&trusted);
+        assert!(!trusted.status.success(), "{claim} trusted: {lines:?}");
+        assert!(
+            matches!(lines.as_slice(), [line] if line.starts_with(&format!("claim {claim}: refused ("))),
+            "{claim} trusted: {lines:?}"
+        );
+    }
     fs::remove_dir_all(root).unwrap();
 }
 

@@ -271,6 +271,13 @@ pub fn prove_claim(
     if let Some(reason) = &claim.unstated {
         return Err(ProofError::UnstatedDefinedness(reason.clone()));
     }
+    // A claim whose meaning cannot be stated is no assumption either, trusted or not.
+    let circularities = circularities
+        .iter()
+        .copied()
+        .filter(|circularity| circularity.unstated.is_none())
+        .collect::<Vec<_>>();
+    let circularities = circularities.as_slice();
     if options.max_counterexamples == 0 {
         return Err(ProofError::ZeroCounterexampleLimit);
     }

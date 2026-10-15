@@ -506,8 +506,8 @@ detail in words when it has one, then its configuration:
   bound.
 - `refused (<reason>)`: the claim's constraints have no definedness-explicit form (their
   definedness depends on an impure application under `#if`, `andThenBool` or `orElseBool`, or an
-  atom holds a term-level `\and`), so the claim is not proven; the run goes on with the next
-  claim.
+  atom holds a term-level `\and`, or an `\equals` reads a term as a predicate), so the claim is
+  not proven, nor trusted, nor used as a circularity; the run goes on with the next claim.
 
 When leaves disagree the first word of this list applies, in the order `disproved`, `failed`,
 `indeterminate`, `depth bound`, `breadth bound`. The Node.js and WebAssembly `status` field uses the
@@ -529,7 +529,7 @@ backend (`internalize_seconds`), setting up the solver and selecting claims
 For prepared KORE, input preparation means file reading and KORE parsing; for source input it
 includes frontend compilation. Timings exclude process startup/teardown, output formatting,
 checkpoint writes, and the timing-file write. Load-only runs report zero proof time. Saved claims
-report `saved` with zero execution time. Failed verdicts still write timings; errors that abort
+report `saved` with zero execution time, and refused claims report `refused`. Failed verdicts still write timings; errors that abort
 before a verdict do not.
 
 Common source options:

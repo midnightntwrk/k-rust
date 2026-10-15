@@ -24,7 +24,7 @@ mod proof_sources;
 use proof_sources::{
     ANYWHERE_OVERLOAD_REMAINDER, DEFPROBE, DEFPROBE_REFUSED_SPEC, DEFPROBE_SPEC,
     LATER_BINDING_KEPT, LATER_BINDING_RECOVERED, LATER_BINDING_RULE, LET_PARTIAL_CONDITION,
-    NEGATIVE_POWER, UNDEFINED_STEP,
+    NEGATIVE_POWER, TERM_READ_AS_PREDICATE_CLAIMS, UNDEFINED_STEP,
 };
 
 /// The KORE of `source` compiled for proving `spec` against `definition`, as `kprove` compiles a
@@ -2562,4 +2562,40 @@ fn a_claim_whose_constraints_have_no_explicit_form_is_refused_alone() {
         refused.message().contains("cannot be read faithfully"),
         "{refused}"
     );
+}
+
+/// A claim written in KORE with an `\equals` that reads a term as a predicate has no
+/// definedness-explicit form, as a request with one has none, so each of `HAND.eqtop`,
+/// `HAND.andterm` and `HAND.lhseqtop` is refused rather than proven or disproved.
+#[test]
+fn a_claim_with_an_equality_reading_a_term_as_a_predicate_is_refused() {
+    let kore = compile(
+        &format!("{DEFPROBE}{DEFPROBE_SPEC}"),
+        "DEFPROBE-SPEC",
+        "DEFPROBE",
+    );
+    let mut backend = Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::default()).unwrap();
+    let module = backend
+        .add_module(
+            &format!(
+                "module HAND\n import DEFPROBE-SPEC []\n{TERM_READ_AS_PREDICATE_CLAIMS}\nendmodule []"
+            ),
+            false,
+        )
+        .unwrap();
+    for claim in ["HAND.eqtop", "HAND.andterm", "HAND.lhseqtop"] {
+        let refused = backend
+            .prove(ProveRequest {
+                module_name: Some(module.clone()),
+                claim: Some(claim.into()),
+                max_depth: Some(8),
+                ..ProveRequest::default()
+            })
+            .expect_err(claim);
+        assert_eq!(
+            refused.claim_refusal(),
+            Some(&k_rust::backend::UnstatedDefinedness::TermReadAsPredicate),
+            "{claim}: {refused}"
+        );
+    }
 }

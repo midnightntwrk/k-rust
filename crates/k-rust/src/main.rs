@@ -3665,6 +3665,18 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         } else {
             label.clone()
         };
+        // A claim whose constraints have no definedness-explicit form is neither proven nor
+        // trusted: its meaning cannot be stated, so it is no assumption either.
+        if let Some(reason) = &claim.unstated {
+            writeln!(output, "claim {name}: refused ({reason})")?;
+            timings.claims.push(ClaimTiming {
+                label: name,
+                seconds: 0.0,
+                status: "refused".into(),
+            });
+            all_proven = false;
+            continue;
+        }
         if claim.attributes.trusted {
             writeln!(output, "claim {name}: proven (trusted)")?;
             timings.claims.push(ClaimTiming {

@@ -258,3 +258,26 @@ module DEFPROBE-REFUSED-SPEC
   claim [cposctl]: <k> pos(X, Y) => yes(?_) </k> requires X /Int Y >Int 0
 endmodule
 "#;
+
+/// Three claims over [`DEFPROBE`]'s `w3`, written in KORE, each with an `\equals` that reads a
+/// term as a predicate, which K source never emits: `HAND.eqtop`'s destination
+/// `\equals(Y ==Int Y, \top{Bool})` and `HAND.lhseqtop`'s left-hand side are `\bottom` (`Bool` has
+/// two elements), and `HAND.andterm`'s destination `\equals(\and{Bool}(Y ==Int 0, Z ==Int 0),
+/// false)` is false where its operands differ. Read as written, the first two would be decided as
+/// the `\iff` of a term and `\top` and the third as a conjunction of predicates, neither of which
+/// is their meaning, so each is refused. The sentences go in a module that imports
+/// `DEFPROBE-SPEC`, or in that module itself.
+pub const TERM_READ_AS_PREDICATE_CLAIMS: &str = r#"
+  claim{} \implies{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(\top{SortGeneratedTopCell{}}(), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortRes{}, SortKItem{}}(Lblw3{}(VarX:SortInt{}, VarY:SortInt{}, VarZ:SortInt{})), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen0:SortInt{}))),
+      weakAlwaysFinally{SortGeneratedTopCell{}}(\exists{SortGeneratedTopCell{}}(Var'QuesUnds'Gen1:SortInt{}, \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortRes{}, SortKItem{}}(Lblw3{}(VarX:SortInt{}, VarY:SortInt{}, VarZ:SortInt{})), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen1:SortInt{})), \equals{SortBool{}, SortGeneratedTopCell{}}(Lbl'UndsEqlsEqls'Int'Unds'{}(VarY:SortInt{}, VarY:SortInt{}), \top{SortBool{}}())))))
+    [UNIQUE'Unds'ID{}("hand-eqtop"), label{}("HAND.eqtop")]
+  claim{} \implies{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(\equals{SortBool{}, SortGeneratedTopCell{}}(Lbl'Unds'andBool'Unds'{}(Lbl'UndsEqlsSlshEqls'Int'Unds'{}(VarY:SortInt{}, \dv{SortInt{}}("0")), Lbl'UndsEqlsEqls'Int'Unds'{}(VarZ:SortInt{}, \dv{SortInt{}}("0"))), \dv{SortBool{}}("true")), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortRes{}, SortKItem{}}(Lblw3{}(VarX:SortInt{}, VarY:SortInt{}, VarZ:SortInt{})), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen0:SortInt{}))),
+      weakAlwaysFinally{SortGeneratedTopCell{}}(\exists{SortGeneratedTopCell{}}(Var'QuesUnds'Gen1:SortInt{}, \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortRes{}, SortKItem{}}(Lblw3{}(VarX:SortInt{}, VarY:SortInt{}, VarZ:SortInt{})), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen1:SortInt{})), \equals{SortBool{}, SortGeneratedTopCell{}}(\and{SortBool{}}(Lbl'UndsEqlsEqls'Int'Unds'{}(VarY:SortInt{}, \dv{SortInt{}}("0")), Lbl'UndsEqlsEqls'Int'Unds'{}(VarZ:SortInt{}, \dv{SortInt{}}("0"))), \dv{SortBool{}}("false"))))))
+    [UNIQUE'Unds'ID{}("hand-andterm"), label{}("HAND.andterm")]
+  claim{} \implies{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(\equals{SortBool{}, SortGeneratedTopCell{}}(Lbl'UndsEqlsEqls'Int'Unds'{}(VarY:SortInt{}, VarY:SortInt{}), \top{SortBool{}}()), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortRes{}, SortKItem{}}(Lblw3{}(VarX:SortInt{}, VarY:SortInt{}, VarZ:SortInt{})), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen0:SortInt{}))),
+      weakAlwaysFinally{SortGeneratedTopCell{}}(\exists{SortGeneratedTopCell{}}(Var'QuesUnds'Gen1:SortInt{}, \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortRes{}, SortKItem{}}(Lblw3{}(VarX:SortInt{}, VarY:SortInt{}, VarZ:SortInt{})), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen1:SortInt{})), \bottom{SortGeneratedTopCell{}}()))))
+    [UNIQUE'Unds'ID{}("hand-lhseqtop"), label{}("HAND.lhseqtop")]
+"#;

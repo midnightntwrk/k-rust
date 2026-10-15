@@ -410,49 +410,10 @@ impl<'a> Admitted<'a> {
     /// operands are searched through the connectives that read their arguments as predicates,
     /// not below `\equals`, `\ceil`, `\floor` or `\in`, whose arguments are terms.
     fn refuse_terms_read_as_predicates(self) -> Result<(), DefinitionError> {
-        fn reads_a_term(pattern: &kore::Pattern) -> bool {
-            use kore::Pattern as P;
-            match pattern {
-                pattern if crate::rule::is_term_pattern(pattern) => true,
-                P::And { arguments, .. } | P::Or { arguments, .. } => {
-                    arguments.iter().any(reads_a_term)
-                }
-                P::Not { argument, .. } => reads_a_term(argument),
-                P::Implies { left, right, .. } | P::Iff { left, right, .. } => {
-                    reads_a_term(left) || reads_a_term(right)
-                }
-                P::Exists { body, .. } | P::Forall { body, .. } => reads_a_term(body),
-                _ => false,
-            }
-        }
-        fn equates_a_term_read_as_predicate(pattern: &kore::Pattern) -> bool {
-            use kore::Pattern as P;
-            match pattern {
-                P::Equals { left, right, .. } => {
-                    let terms =
-                        crate::rule::is_term_pattern(left) && crate::rule::is_term_pattern(right);
-                    (!terms && (reads_a_term(left) || reads_a_term(right)))
-                        || equates_a_term_read_as_predicate(left)
-                        || equates_a_term_read_as_predicate(right)
-                }
-                P::And { arguments, .. } | P::Or { arguments, .. } => {
-                    arguments.iter().any(equates_a_term_read_as_predicate)
-                }
-                P::Not { argument, .. } => equates_a_term_read_as_predicate(argument),
-                P::Implies { left, right, .. } | P::Iff { left, right, .. } => {
-                    equates_a_term_read_as_predicate(left)
-                        || equates_a_term_read_as_predicate(right)
-                }
-                P::Exists { body, .. } | P::Forall { body, .. } => {
-                    equates_a_term_read_as_predicate(body)
-                }
-                _ => false,
-            }
-        }
         // An alias applied in the request is read as its body, so the walk reads the unfolded
         // pattern, as the internalizer does next.
         let expanded = expand_aliases(self.pattern, &self.definition.aliases)?;
-        if equates_a_term_read_as_predicate(&expanded) {
+        if equates_a_term_read_as_predicate(&expanded, HoldsEncoding::Refused) {
             return Err(DefinitionError::UnstatedDefinedness(
                 UnstatedDefinedness::TermReadAsPredicate,
             ));
@@ -1181,6 +1142,82 @@ pub enum UnstatedDefinedness {
     TermReadAsPredicate,
 }
 
+/// Whether an `\equals` of a predicate `P` and the Boolean `true`, the form in which k-rust's
+/// compiler emits a K `requires P` or `ensures P` whose `P` is an ML predicate
+/// (`{ A #Equals B }`, `#Not(..)`), counts as an equality that reads a term as a predicate.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HoldsEncoding {
+    /// A request's predicates: such an equality is refused like any other.
+    Refused,
+    /// A claim's constraints, which the compiler writes: such an equality is the encoding of
+    /// "`P` holds", and its internalized reading, the `\iff` of `P` and `true = true`, is `P`, so
+    /// it is read faithfully; only `P` itself is searched.
+    Holds,
+}
+
+/// Whether `pattern` holds an `\equals` whose operands are not both terms and that holds a
+/// term where a predicate is read, such as `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or
+/// `\equals{Bool, R}(B, \top{Bool}())`. Such an equality is internalized as the `\iff` of its
+/// operands read as predicates, with a term read as `t = true`, which is not its meaning:
+/// `B1 /\ B2` of two Boolean values is their intersection, `\bottom` where they differ, and
+/// `B = \top` is false, since a sort with two elements is not a singleton. The operands are
+/// searched through the connectives that read their arguments as predicates, not below
+/// `\equals`, `\ceil`, `\floor` or `\in`, whose arguments are terms. `pattern` has its aliases
+/// unfolded.
+pub(crate) fn equates_a_term_read_as_predicate(
+    pattern: &kore::Pattern,
+    holds: HoldsEncoding,
+) -> bool {
+    fn reads_a_term(pattern: &kore::Pattern) -> bool {
+        use kore::Pattern as P;
+        match pattern {
+            pattern if crate::rule::is_term_pattern(pattern) => true,
+            P::And { arguments, .. } | P::Or { arguments, .. } => {
+                arguments.iter().any(reads_a_term)
+            }
+            P::Not { argument, .. } => reads_a_term(argument),
+            P::Implies { left, right, .. } | P::Iff { left, right, .. } => {
+                reads_a_term(left) || reads_a_term(right)
+            }
+            P::Exists { body, .. } | P::Forall { body, .. } => reads_a_term(body),
+            _ => false,
+        }
+    }
+    fn is_true(pattern: &kore::Pattern) -> bool {
+        matches!(
+            pattern,
+            kore::Pattern::DomainValue {
+                sort: kore::Sort::Application { name, arguments },
+                value,
+            } if name == "SortBool" && arguments.is_empty() && value.as_utf8().ok() == Some("true")
+        )
+    }
+    let walk = |pattern: &kore::Pattern| equates_a_term_read_as_predicate(pattern, holds);
+    use kore::Pattern as P;
+    match pattern {
+        P::Equals { left, right, .. }
+            if holds == HoldsEncoding::Holds
+                && ((is_true(right) && !crate::rule::is_term_pattern(left))
+                    || (is_true(left) && !crate::rule::is_term_pattern(right))) =>
+        {
+            if is_true(right) {
+                walk(left)
+            } else {
+                walk(right)
+            }
+        }
+        P::Equals { left, right, .. } => {
+            let terms = crate::rule::is_term_pattern(left) && crate::rule::is_term_pattern(right);
+            (!terms && (reads_a_term(left) || reads_a_term(right))) || walk(left) || walk(right)
+        }
+        P::And { arguments, .. } | P::Or { arguments, .. } => arguments.iter().any(walk),
+        P::Not { argument, .. } => walk(argument),
+        P::Implies { left, right, .. } | P::Iff { left, right, .. } => walk(left) || walk(right),
+        P::Exists { body, .. } | P::Forall { body, .. } => walk(body),
+        _ => false,
+    }
+}
+
 impl From<crate::definedness::RequestDefinednessFailure> for UnstatedDefinedness {
     fn from(failure: crate::definedness::RequestDefinednessFailure) -> Self {
         match failure {
@@ -1592,7 +1629,6 @@ impl Drop for BackendDefinition {
 
 impl BackendDefinition {
     /// The aliases of the definition, by name.
-    #[cfg(test)]
     pub(crate) fn aliases(&self) -> &BTreeMap<String, AliasDefinition> {
         &self.aliases
     }

@@ -7,8 +7,8 @@ use k_rust_kore::names::KoreAttribute;
 
 use crate::{
     definition::{
-        BackendDefinition, DefinitionError, PendingAxiom, UnlicensedInjectionSite,
-        UnstatedDefinedness,
+        BackendDefinition, DefinitionError, HoldsEncoding, PendingAxiom, UnlicensedInjectionSite,
+        UnstatedDefinedness, equates_a_term_read_as_predicate,
     },
     rewrite::Pattern,
     rule::{RuleAttributes, internalize_rule_pattern, term_disjuncts},
@@ -112,6 +112,15 @@ pub(crate) fn internalize_reachability_claim(
     };
 
     let (right, existential_syntax) = extract_existentials(right);
+    // An `\equals` that reads a term as a predicate is not read with its meaning, so a claim that
+    // holds one has no definedness-explicit form, as a request with one has none.
+    let mut reads_a_term_as_predicate = false;
+    for side in [left.as_ref(), right] {
+        let expanded = crate::alias::expand(side, definition.aliases())?;
+        reads_a_term_as_predicate |=
+            equates_a_term_read_as_predicate(&expanded, HoldsEncoding::Holds);
+    }
+    let unstated = reads_a_term_as_predicate.then_some(UnstatedDefinedness::TermReadAsPredicate);
     let existentials = existential_syntax
         .into_iter()
         .map(|variable| definition.internalize_variable(variable, &claim.parameters))
@@ -161,7 +170,7 @@ pub(crate) fn internalize_reachability_claim(
                 existentials: existentials.clone(),
                 mode,
                 attributes: attributes.clone(),
-                unstated: None,
+                unstated: unstated.clone(),
             })
         })
         .collect()
@@ -178,11 +187,19 @@ pub(crate) fn internalize_reachability_claim(
 /// runs once the definition is complete. A side with no such form (an impure application whose
 /// definedness a conditional would decide, an atom over a term-level `\and`) leaves the claim as
 /// written, with the reason in `unstated`, so that the definition still loads and its other
-/// claims and its execution are unaffected.
+/// claims and its execution are unaffected; so does a claim whose KORE holds an `\equals` that
+/// reads a term as a predicate (`internalize_reachability_claim`), which keeps its reason.
+///
+/// The reading this gives a claim's KORE is the one `k_rust::backend::proving::CLAIM_READING`
+/// names in saved-proof digests: a change to it changes what a saved proof certifies, and must
+/// name a new reading there.
 pub(crate) fn with_explicit_definedness(
     definition: &BackendDefinition,
     mut claim: ReachabilityClaim,
 ) -> ReachabilityClaim {
+    if claim.unstated.is_some() {
+        return claim;
+    }
     let stated = |constraints: &[crate::rule::Predicate]| {
         crate::definedness::request_definedness(definition, constraints.to_vec())
             .map_err(UnstatedDefinedness::from)
