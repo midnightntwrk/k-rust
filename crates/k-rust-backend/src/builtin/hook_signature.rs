@@ -159,12 +159,6 @@ fn signature(hook: &str) -> Option<(&'static [Operand], Gives)> {
     })
 }
 
-/// Whether `hook` gives one element of a collection argument (or a default) as its result, which
-/// is then a value of the application's sort once injected ([`member_of_result`]).
-pub(crate) fn gives_member(hook: &str) -> bool {
-    matches!(signature(hook), Some((_, Gives::Member)))
-}
-
 /// `value`, a value a hook gives (an element of a collection argument, a builtin's value, an
 /// `ite` branch), as a value of `result_sort`, the declared result sort of the applied symbol:
 /// itself when its sort is `result_sort`, its injection when that is a strict subsort in the

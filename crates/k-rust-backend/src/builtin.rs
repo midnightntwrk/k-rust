@@ -242,11 +242,13 @@ pub(crate) fn evaluate_in_definition(
 /// - refuses `FLOAT` operands of `SortFloat` where the facts give that sort another kind than
 ///   `Float` (an unhooked `SortFloat` is a token sort whose texts are its values);
 /// - runs the hook's evaluator with the declared result sort and the facts;
-/// - keeps a value only if it is of exactly the declared sort and every domain value the hook
-///   built has the kind the facts give its sort (a builtin hook declared at a sort that is not
-///   its builtin's gives no value of the application's sort);
+/// - keeps a value only if every domain value the hook built has the kind the facts give its
+///   sort (a builtin hook declared at a sort whose hook gives its values another kind gives no
+///   value of the application's sort), and gives it at the declared sort: itself when it is of
+///   exactly that sort, its injection when its sort is a strict subsort of it, and no value
+///   otherwise;
 /// - in [`EvaluationMode::Proof`], leaves unevaluated a value the definition leaves to the
-///   implementation ([`implementation_chosen`]), which only an execution computes.
+///   implementation (`implementation_chosen`), which only an execution computes.
 ///
 /// So a caller that computes an application here, such as the frontend's constant fold, gets
 /// the outcome an evaluation of the same application in the loaded definition gets. That holds
@@ -529,15 +531,11 @@ fn evaluate_composed(
             // sort is a strict subsort of it, for every hook: KORE has no implicit subsorting, so
             // that injection is the one term of the result sort that denotes it. A value of any
             // other sort is no value of the application's sort. Without a definition's
-            // declarations only the hooks that give an element of a collection argument are
-            // checked, at the result sort itself.
-            let value = if facts.is_some() || hook_signature::gives_member(hook) {
-                match hook_signature::member_of_result(value, Some(result_sort), facts) {
-                    Some(value) => value,
-                    None => return Ok(BuiltinResult::NotApplicable),
-                }
-            } else {
-                value
+            // declarations no sort is a strict subsort of another, so only a value of exactly the
+            // result sort is kept.
+            let Some(value) = hook_signature::member_of_result(value, Some(result_sort), facts)
+            else {
+                return Ok(BuiltinResult::NotApplicable);
             };
             BuiltinResult::Value(value)
         }

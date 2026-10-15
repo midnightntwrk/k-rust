@@ -947,3 +947,20 @@ fn a_subsort_hook_value_takes_precedence_over_equations() {
         )
     );
 }
+
+/// The context-free evaluation (`builtin::evaluate`), which reads no definition, knows no subsort
+/// order, so it keeps a hook's value only at exactly the application's declared sort: `addV(2, 3)`
+/// at `Val` has no value there, where the definition's evaluation gives `inj{Int, Val}(5)`.
+#[test]
+fn the_context_free_evaluation_keeps_only_a_value_of_the_declared_sort() {
+    let definition = subsort_results();
+    let evaluated = |source: &str| {
+        k_rust_backend::builtin::evaluate(&internal_term(&definition, source))
+            .expect("the evaluation does not stop")
+            .expect("the evaluation does not fail")
+    };
+    assert_eq!(
+        evaluated(r#"addV{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("3"))"#),
+        k_rust_backend::builtin::BuiltinResult::NotApplicable
+    );
+}
