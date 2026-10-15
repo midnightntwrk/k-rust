@@ -29,8 +29,9 @@ use std::{
 };
 
 use k_rust_backend::{
-    confluence::{CheckCounts, ValueClaims},
+    confluence::{CheckCounts, CheckScope, ConditionMemo, ValueClaims},
     definition::BackendDefinition,
+    nesting::with_simplification_stack_budget,
 };
 use k_rust_kore::kore::{ast as kore, parser::parse_definition};
 
@@ -223,17 +224,19 @@ fn concurrent_loads(syntax: &kore::Definition, threads: usize) -> Vec<Verdict> {
     })
 }
 
-/// 32 concurrent loads give the verdict of one load alone, for a condition decided within the
-/// budget, one over it, and one the former wall-clock deadline decided only on an idle thread.
+/// Concurrent loads give the verdict of one load alone, for a condition decided within the
+/// budget and one the former wall-clock deadline decided only on an idle thread (32 loads each),
+/// and for one over the budget (4 loads: each spends a whole budget, and a budget stop does not
+/// depend on the clock, so more threads would add cost and no case).
 #[test]
 fn the_verdict_does_not_depend_on_concurrency() {
-    for big in [SMALL, HUGE, NEAR_THE_FORMER_DEADLINE] {
+    for (big, threads) in [(SMALL, 32), (NEAR_THE_FORMER_DEADLINE, 32), (HUGE, 4)] {
         let syntax = fixture(big);
         let alone = load(&syntax);
-        for (thread, verdict) in concurrent_loads(&syntax, 32).into_iter().enumerate() {
+        for (thread, verdict) in concurrent_loads(&syntax, threads).into_iter().enumerate() {
             assert_eq!(
                 verdict, alone,
-                "slow({big}): thread {thread} of 32 against one load alone"
+                "slow({big}): thread {thread} of {threads} against one load alone"
             );
         }
         if big == NEAR_THE_FORMER_DEADLINE {
@@ -245,8 +248,8 @@ fn the_verdict_does_not_depend_on_concurrency() {
 
 /// The compiled definitions under `tests/fixtures` record no stop of the check. The definitions
 /// of this crate's confluence unit tests are checked by their own helpers, and the conformance
-/// corpus by the value-contract gate (`scripts/value-contract-corpus.sh`), whose counts include
-/// these.
+/// corpus by the value-contract gate (`scripts/value-contract-corpus.sh`), which expects both
+/// counters to be zero.
 #[test]
 fn the_corpus_definitions_record_no_stops() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -280,4 +283,201 @@ fn the_corpus_definitions_record_no_stops() {
             path.display()
         );
     }
+}
+
+/// Declarations of the fixtures below: `hk`, a hooked function whose hook this backend does not
+/// implement, so that it is evaluated by its equations; `deep`, an ordinary function; the
+/// equation heads `g` and `h`.
+const HOOK_PRELUDE: &str = r#"
+    hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+    hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+    hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{}
+        [function{}(), total{}(), hook{}("INT.sub"), smt-hook{}("-")]
+    hooked-symbol addInt{}(SortInt{}, SortInt{}) : SortInt{}
+        [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+    hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+        [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+    hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+        [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+    hooked-symbol hk{}(SortInt{}) : SortInt{} [function{}(), hook{}("MYHOOK.hk")]
+    symbol deep{}(SortInt{}) : SortInt{} [function{}()]
+    sort SortFoo{} []
+    symbol g{}(SortInt{}) : SortFoo{} [anywhere{}()]
+    symbol h{}(SortInt{}) : SortFoo{} [anywhere{}()]
+    symbol k{}(SortInt{}) : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+    symbol a{}() : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+    symbol b{}() : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+"#;
+
+/// The equations of a function `head` that recurses `N` levels deep, not in tail position:
+/// `head(0) = 0`, `head(N) = head(N -Int 1) +Int 1 requires N >Int 0`.
+fn deep_recursion(head: &str) -> [String; 2] {
+    [
+        equation(
+            head,
+            &["SortInt{}"],
+            "SortInt{}",
+            &[&int(0)],
+            &int(0),
+            r"\top{R}()",
+            "",
+        ),
+        equation(
+            head,
+            &["SortInt{}"],
+            "SortInt{}",
+            &["VarN:SortInt{}"],
+            &format!(
+                "addInt{{}}({head}{{}}(subInt{{}}(VarN:SortInt{{}}, {})), {})",
+                int(1),
+                int(1)
+            ),
+            &holds(&format!("gtInt{{}}(VarN:SortInt{{}}, {})", int(0))),
+            "",
+        ),
+    ]
+}
+
+/// The two `anywhere` equations `g(_) = k(hk(n))` and `g(_) = k(n)`, whose overlap joins exactly
+/// when the join evaluates `hk(n)` to `n`.
+fn hook_overlap(n: u64) -> [String; 2] {
+    [
+        equation(
+            "g",
+            &["SortInt{}"],
+            "SortFoo{}",
+            &["VarX:SortInt{}"],
+            &format!("k{{}}(hk{{}}({}))", int(n)),
+            r"\top{R}()",
+            "anywhere{}()",
+        ),
+        equation(
+            "g",
+            &["SortInt{}"],
+            "SortFoo{}",
+            &["VarX:SortInt{}"],
+            &format!("k{{}}({})", int(n)),
+            r"\top{R}()",
+            "anywhere{}()",
+        ),
+    ]
+}
+
+/// The overlap `head(_) = a requires deep(n) ==Int 1` against `head(_) = b`.
+fn deep_condition(head: &str, n: u64) -> [String; 2] {
+    [
+        equation(
+            head,
+            &["SortInt{}"],
+            "SortFoo{}",
+            &["VarX:SortInt{}"],
+            "a{}()",
+            &holds(&format!("eqInt{{}}(deep{{}}({}), {})", int(n), int(1))),
+            "anywhere{}()",
+        ),
+        equation(
+            head,
+            &["SortInt{}"],
+            "SortFoo{}",
+            &["VarX:SortInt{}"],
+            "b{}()",
+            r"\top{R}()",
+            "anywhere{}()",
+        ),
+    ]
+}
+
+fn hook_module(axioms: &[String]) -> kore::Definition {
+    let source = format!(
+        "[] module MAIN {HOOK_PRELUDE} {} endmodule []",
+        axioms.join("\n")
+    );
+    parse_definition(&source).expect("the fixture parses")
+}
+
+/// `syntax` internalized on an 8 MiB thread that the simplifier may not extend with stack
+/// segments, so that a recursion deeper than that thread's stack stops for lack of stack.
+fn internalize_on_a_bounded_stack(syntax: kore::Definition) -> BackendDefinition {
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(move || {
+            with_simplification_stack_budget(0, || {
+                BackendDefinition::internalize(&syntax, "MAIN").expect("the fixture internalizes")
+            })
+        })
+        .expect("the loading thread starts")
+        .join()
+        .expect("the load does not panic")
+}
+
+/// The join evaluates `hk(100000)` by `hk`'s equations, recursing 100,000 levels: on a thread
+/// whose stack holds fewer, the evaluation stops for lack of stack. The stop is counted, and the
+/// overlap is not joined through it.
+#[test]
+fn a_hook_evaluation_of_the_join_that_runs_out_of_stack_is_counted() {
+    let axioms = [deep_recursion("hk"), hook_overlap(100_000)].concat();
+    let definition = internalize_on_a_bounded_stack(hook_module(&axioms));
+    let verdict = Verdict::of(definition.value_claims());
+    assert!(verdict.counts.condition_stack_stops >= 1, "{verdict:?}");
+    assert_eq!(verdict.counts.joined, 0, "{verdict:?}");
+    assert_eq!(verdict.counts.unjoined, 1, "{verdict:?}");
+    assert!(
+        verdict.tainted_symbols.iter().any(|symbol| symbol == "g"),
+        "{verdict:?}"
+    );
+}
+
+/// The join evaluates `hk(1)` by `hk(N) = hk(N +Int 1)`, which does not end: the budget stops
+/// it, so the load ends, and the stop is counted.
+#[test]
+fn a_hook_evaluation_of_the_join_that_does_not_end_is_stopped_by_the_budget() {
+    let mut axioms = vec![equation(
+        "hk",
+        &["SortInt{}"],
+        "SortInt{}",
+        &["VarN:SortInt{}"],
+        &format!("hk{{}}(addInt{{}}(VarN:SortInt{{}}, {}))", int(1)),
+        r"\top{R}()",
+        "",
+    )];
+    axioms.extend(hook_overlap(1));
+    let definition =
+        BackendDefinition::internalize(&hook_module(&axioms), "MAIN").expect("the fixture loads");
+    let verdict = Verdict::of(definition.value_claims());
+    assert!(verdict.counts.condition_budget_stops >= 1, "{verdict:?}");
+    assert_eq!(verdict.counts.condition_stack_stops, 0, "{verdict:?}");
+    assert_eq!(verdict.counts.unjoined, 1, "{verdict:?}");
+}
+
+/// Two equation heads whose overlaps have the same condition, which stops for lack of stack: the
+/// memo of condition simplifications answers the second from the first, and counts the first's
+/// stop again, so the counts with the memo and without it agree.
+#[test]
+fn the_stop_counts_do_not_depend_on_the_memo() {
+    let axioms = [
+        deep_recursion("deep"),
+        deep_condition("g", 100_000),
+        deep_condition("h", 100_000),
+    ]
+    .concat();
+    let definition = internalize_on_a_bounded_stack(hook_module(&axioms));
+    let with_memo = definition.value_claims().counts();
+    assert!(with_memo.condition_memo_hits >= 1, "{with_memo:?}");
+    assert!(with_memo.condition_stack_stops >= 2, "{with_memo:?}");
+    let without_memo = std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(move || {
+            with_simplification_stack_budget(0, || {
+                definition
+                    .value_claims_checked(CheckScope::Gate, ConditionMemo::Off)
+                    .counts()
+            })
+        })
+        .expect("the checking thread starts")
+        .join()
+        .expect("the check does not panic");
+    assert_eq!(
+        with_memo.without_memo_work(),
+        without_memo.without_memo_work()
+    );
 }

@@ -131,6 +131,10 @@ fn value_contract_corpus() {
             "full_condition_memo_hits": full.counts().condition_memo_hits,
             "condition_memo_refusals": counts.condition_memo_refusals,
             "full_condition_memo_refusals": full.counts().condition_memo_refusals,
+            "condition_budget_stops": counts.condition_budget_stops,
+            "condition_stack_stops": counts.condition_stack_stops,
+            "full_condition_budget_stops": full.counts().condition_budget_stops,
+            "full_condition_stack_stops": full.counts().condition_stack_stops,
         });
         println!("VALUE_CONTRACT {line}");
     }

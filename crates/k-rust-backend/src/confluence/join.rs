@@ -544,11 +544,15 @@ impl Join<'_, '_> {
             .map(|(variable, value)| (variable.clone(), substitute(value, restore)))
             .collect::<Substitution>();
         if !rule.requires.is_empty() {
-            let predicates = rule
-                .requires
-                .instantiate(&substitution)
-                .with_definedness(self.context.definition, &[])
-                .ok()?;
+            let instance = rule.requires.instantiate(&substitution);
+            let definition = self.context.definition;
+            let (predicates, stops) =
+                super::budgeted(|| instance.with_definedness(definition, &[]));
+            self.context.count_stops(stops);
+            if stops.any() {
+                return None;
+            }
+            let predicates = predicates.ok()?;
             if !matches!(
                 self.context
                     .simplify(crate::rule::Predicate::And(predicates)),
@@ -791,16 +795,30 @@ impl Join<'_, '_> {
         Some(branches)
     }
 
-    /// Evaluate a hooked application of domain values with the simplifier.
+    /// Evaluate a hooked application of domain values with the simplifier, under the check's
+    /// budget of polls (`budgeted`): a hooked symbol whose hook this backend does not implement is
+    /// evaluated by its equations, which need not end, nor stay within the stack. An evaluation
+    /// that met a stop is a residual: it refuses the step, which can only lose a join.
     fn hook(&mut self, redex: &Term) -> Step {
-        match simplify(
-            self.context.definition,
-            redex,
-            SimplificationOptions {
-                max_iterations: super::CONDITION_ITERATIONS,
-                ..SimplificationOptions::default()
-            },
-        ) {
+        let definition = self.context.definition;
+        let (simplified, stops) = super::budgeted(|| {
+            simplify(
+                definition,
+                redex,
+                SimplificationOptions {
+                    max_iterations: super::CONDITION_ITERATIONS,
+                    ..SimplificationOptions::default()
+                },
+            )
+        });
+        self.context.count_stops(stops);
+        if stops.any() {
+            if let Err(stop) = simplified {
+                let _ = stop.into_cause();
+            }
+            return Step::Residual;
+        }
+        match simplified {
             Ok(Ok(simplified)) => {
                 if !simplified.effects.is_empty() || simplified.exhausted.is_some() {
                     return Step::Residual;

@@ -35,6 +35,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     rule::{Predicate, rename_predicates},
+    stop::PollBudgetRecord,
     term::{
         Term, TermKind, Variable, VariableKind,
         names::{FreshMarker, with_fresh_marker},
@@ -49,8 +50,8 @@ pub(super) struct Memo {
 
 /// What the memo holds for a key.
 enum Stored {
-    /// The key's answer, `None` for "decides nothing".
-    Answer(Option<Predicate>),
+    /// The key's answer, `None` for "decides nothing", and the stops its simplification met.
+    Answer(Option<Predicate>, PollBudgetRecord),
     /// The key's answer could not be renamed back.
     Refused,
 }
@@ -65,8 +66,9 @@ pub(super) struct Canonical {
 
 /// What the memo says about a predicate.
 pub(super) enum Lookup {
-    /// The stored answer, renamed back to the predicate's names.
-    Hit(Option<Predicate>),
+    /// The stored answer, renamed back to the predicate's names, and the stops its
+    /// simplification met.
+    Hit(Option<Predicate>, PollBudgetRecord),
     /// The key's answer was refused earlier in the check: simplify the predicate as written,
     /// and store nothing.
     AsWritten,
@@ -79,21 +81,22 @@ impl Memo {
     pub(super) fn lookup(&self, predicate: &Predicate) -> Lookup {
         let canonical = Canonical::of(predicate);
         match self.answers.get(&canonical.key) {
-            Some(Stored::Answer(answer)) => {
-                Lookup::Hit(answer.as_ref().map(|answer| canonical.back(answer)))
+            Some(Stored::Answer(answer, stops)) => {
+                Lookup::Hit(answer.as_ref().map(|answer| canonical.back(answer)), *stops)
             }
             Some(Stored::Refused) => Lookup::AsWritten,
             None => Lookup::Miss(canonical),
         }
     }
 
-    /// Store `answer`, the simplification of `canonical.key`, when it may be renamed back, and
-    /// return it renamed back; when it may not be, mark the key refused and return `Err(())`:
-    /// the caller must simplify the predicate as written.
+    /// Store `answer`, the simplification of `canonical.key`, with the stops it met, when it may
+    /// be renamed back, and return it renamed back; when it may not be, mark the key refused and
+    /// return `Err(())`: the caller must simplify the predicate as written.
     pub(super) fn store(
         &mut self,
         canonical: Canonical,
         answer: Option<Predicate>,
+        stops: PollBudgetRecord,
     ) -> Result<Option<Predicate>, ()> {
         if let Some(answer) = &answer {
             let key_variables = canonical.key.free_variables();
@@ -105,7 +108,8 @@ impl Memo {
             }
         }
         let renamed = answer.as_ref().map(|answer| canonical.back(answer));
-        self.answers.insert(canonical.key, Stored::Answer(answer));
+        self.answers
+            .insert(canonical.key, Stored::Answer(answer, stops));
         Ok(renamed)
     }
 }

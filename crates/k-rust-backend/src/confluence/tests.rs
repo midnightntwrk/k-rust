@@ -4,7 +4,7 @@
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use super::{
-    UnjoinedReason,
+    PollBudgetRecord, UnjoinedReason,
     unify::{Families, Unifier, UnresolvedShape},
 };
 use crate::{
@@ -584,13 +584,13 @@ fn the_memo_answers_a_renamed_condition_with_its_answer_renamed_back() {
     };
     let answer = conjuncts[0].clone();
     let renamed = memo
-        .store(canonical, Some(answer))
+        .store(canonical, Some(answer), PollBudgetRecord::default())
         .expect("an answer over the key's variables is stored");
     let Predicate::And(original) = two_conjuncts(&definition, "X", "Y") else {
         unreachable!()
     };
     assert_eq!(renamed, Some(original[0].clone()));
-    let Lookup::Hit(hit) = memo.lookup(&two_conjuncts(&definition, "U", "V")) else {
+    let Lookup::Hit(hit, _) = memo.lookup(&two_conjuncts(&definition, "U", "V")) else {
         panic!("a renamed condition is answered from the memo");
     };
     let Predicate::And(renamed_conjuncts) = two_conjuncts(&definition, "U", "V") else {
@@ -601,10 +601,13 @@ fn the_memo_answers_a_renamed_condition_with_its_answer_renamed_back() {
     let Lookup::Miss(canonical) = memo.lookup(&two_conjuncts(&definition, "U", "U")) else {
         panic!("a condition that is not a renaming is not answered");
     };
-    assert_eq!(memo.store(canonical, None), Ok(None));
+    assert_eq!(
+        memo.store(canonical, None, PollBudgetRecord::default()),
+        Ok(None)
+    );
     assert!(matches!(
         memo.lookup(&two_conjuncts(&definition, "W", "W")),
-        Lookup::Hit(None)
+        Lookup::Hit(None, _)
     ));
 }
 
@@ -623,7 +626,11 @@ fn the_memo_stores_no_answer_a_renaming_could_capture_in() {
         panic!("an empty memo answers nothing");
     };
     assert_eq!(
-        memo.store(canonical, Some(Predicate::Ceil(other.clone()))),
+        memo.store(
+            canonical,
+            Some(Predicate::Ceil(other.clone())),
+            PollBudgetRecord::default()
+        ),
         Err(())
     );
     assert!(
@@ -636,7 +643,14 @@ fn the_memo_stores_no_answer_a_renaming_could_capture_in() {
     let Lookup::Miss(canonical) = memo.lookup(&condition) else {
         panic!("an empty memo answers nothing");
     };
-    assert_eq!(memo.store(canonical, Some(quantified.clone())), Err(()));
+    assert_eq!(
+        memo.store(
+            canonical,
+            Some(quantified.clone()),
+            PollBudgetRecord::default()
+        ),
+        Err(())
+    );
     assert!(matches!(memo.lookup(&condition), Lookup::AsWritten));
     // Keyed as written.
     let with_binder = Predicate::And(vec![condition, quantified.clone()]);
@@ -645,12 +659,16 @@ fn the_memo_stores_no_answer_a_renaming_could_capture_in() {
         panic!("an empty key answers nothing");
     };
     assert_eq!(
-        memo.store(canonical, Some(quantified.clone())),
+        memo.store(
+            canonical,
+            Some(quantified.clone()),
+            PollBudgetRecord::default()
+        ),
         Ok(Some(quantified.clone()))
     );
     assert!(matches!(
         memo.lookup(&with_binder),
-        Lookup::Hit(Some(answer)) if answer == quantified
+        Lookup::Hit(Some(answer), _) if answer == quantified
     ));
 }
 
@@ -668,7 +686,14 @@ fn a_key_whose_answer_was_refused_is_not_simplified_again() {
     let Lookup::Miss(canonical) = memo.lookup(&two_conjuncts(&definition, "X", "Y")) else {
         panic!("an empty memo answers nothing");
     };
-    assert_eq!(memo.store(canonical, Some(Predicate::Ceil(other))), Err(()));
+    assert_eq!(
+        memo.store(
+            canonical,
+            Some(Predicate::Ceil(other)),
+            PollBudgetRecord::default()
+        ),
+        Err(())
+    );
     assert!(
         matches!(
             memo.lookup(&two_conjuncts(&definition, "U", "V")),

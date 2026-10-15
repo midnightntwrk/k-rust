@@ -374,6 +374,13 @@ pub(crate) struct PollBudgetRecord {
     pub(crate) stack_exhausted: bool,
 }
 
+impl PollBudgetRecord {
+    /// Whether the scope met either stop.
+    pub(crate) fn any(self) -> bool {
+        self.budget_exhausted || self.stack_exhausted
+    }
+}
+
 impl Registry {
     const EMPTY: Self = Self {
         request: None,
