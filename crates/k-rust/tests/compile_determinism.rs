@@ -376,3 +376,19 @@ fn the_resolver_identity_of_a_source_is_an_input() {
     assert!(second.contains("Source(/checkout-b/fresh-macro.k)"));
     assert_ne!(first, second);
 }
+
+/// The logical name of a source is not an input of the artifacts: one text under one resolver
+/// identity with two logical names gives equal artifacts (the name reaches only the loaded
+/// definition's source table).
+#[test]
+fn the_logical_name_of_a_source_changes_no_artifact() {
+    let named = |logical: &str| {
+        compile_source(
+            ResolvedSource::new("/checkout-a/fresh-macro.k", FRESH_MACRO.text)
+                .with_logical(logical),
+            &FRESH_MACRO,
+        )
+        .expect("the fixture compiles")
+    };
+    assert!(named("one/fresh-macro.k") == named("two/fresh-macro.k"));
+}
