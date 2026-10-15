@@ -264,8 +264,9 @@ pub fn grade_bottom_consequent(
 /// Whether `antecedent` is shown to have no instance: its constraints are syntactically false or
 /// the solver answers `Unsat` for them, or its knowledge, which adds the definedness of the term
 /// and of the constraints' atoms, is contradictory (`knowledge_is_contradictory`). Every instance
-/// satisfies both sets of facts (I7), and an `Unsat` answer refutes whatever the translation
-/// approximated, so either contradiction leaves none.
+/// satisfies both sets of facts (I7), and both are definedness-explicit (the constraints are
+/// admitted so, `Admitted`), so an `Unsat` answer refutes them (docs/compatibility.md, "Solver
+/// decisions over partial operations") and either contradiction leaves none.
 fn antecedent_is_empty(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -297,7 +298,9 @@ fn antecedent_is_empty(
 /// first, because `(\exists E. A) /\ C` is `\exists E. (A /\ C)` for `E` not free in `C`.
 /// - A unification clash (different constructors, values or sorts, or an occurs cycle below
 ///   constructors), or constraints that with the definedness of the unified term and bindings
-///   are refuted by the solver (`Unsat` is sound under every approximation) or contradictory once
+///   are refuted by the solver (`Unsat` refutes them, since each is stated with its definedness or
+///   is about the unified term, whose definedness is stated: docs/compatibility.md, "Solver
+///   decisions over partial operations") or contradictory once
 ///   simplified (`knowledge_is_contradictory`), show `A /\ C` empty: `Valid` with no binding. An
 ///   empty `A` is one such case.
 /// - A unifier whose instance of `A` with both sides' constraints is shown to have an instance
@@ -1517,7 +1520,8 @@ fn empty_unless_consistent(
 /// Whether the facts `knowledge`, which every instance of a pattern satisfies, are shown
 /// contradictory, so that the pattern has no instance: they are syntactically false, they simplify
 /// to `false`, or the solver answers `Unsat` for them. Simplification preserves their meaning, and
-/// an `Unsat` answer refutes whatever the translation approximated. A failed simplification leaves
+/// an `Unsat` answer refutes them, since facts are definedness-explicit (docs/compatibility.md,
+/// "Solver decisions over partial operations"). A failed simplification leaves
 /// the facts as they are for the solver.
 fn knowledge_is_contradictory(
     definition: &BackendDefinition,

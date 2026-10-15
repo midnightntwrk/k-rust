@@ -221,7 +221,8 @@ impl ObligationRefuted {
     }
 
     /// `Some` only for `Validity::Refuted`: `known ∧ checked` is unsatisfiable, and `Unsat`
-    /// refutes whatever the translation approximated.
+    /// refutes them, since both are definedness-explicit (docs/compatibility.md, "Solver
+    /// decisions over partial operations").
     #[must_use]
     pub(super) fn by_solver(validity: &Validity) -> Option<Self> {
         match validity {

@@ -1218,4 +1218,330 @@ endmodule
             }
         }
     }
+
+    /// A leaf's halt and the rules its path applied, as a ground run that reaches it reports
+    /// them: depth, reason, the unique ids of its rewrite steps, and the rule of a `Trivial`
+    /// halt.
+    #[derive(Debug, PartialEq)]
+    struct Route {
+        depth: u64,
+        reason: HaltReasonOutput,
+        rewrites: Vec<String>,
+        rule_id: Option<String>,
+    }
+
+    fn routes(
+        backend: &mut Backend,
+        pattern: &str,
+        assume_state_defined: bool,
+    ) -> Vec<(Route, KorePattern)> {
+        backend
+            .execute(ExecuteRequest {
+                assume_state_defined,
+                result_modality: ResultModalityOutput::PathSet,
+                max_depth: Some(4),
+                ..ExecuteRequest::new(parse(pattern))
+            })
+            .unwrap()
+            .leaves
+            .into_iter()
+            .map(|leaf| {
+                let rewrites = leaf
+                    .trace
+                    .iter()
+                    .map(|entry| serde_json::to_value(entry).unwrap())
+                    .filter(|entry| entry["kind"] == "rewrite")
+                    .map(|entry| entry["uniqueId"].as_str().unwrap().to_owned())
+                    .collect();
+                (
+                    Route {
+                        depth: leaf.depth,
+                        reason: leaf.reason,
+                        rewrites,
+                        rule_id: leaf.rule_id.clone(),
+                    },
+                    codec::from_value(&leaf.state).unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    /// Whether `pattern` holds an application of `/Int`.
+    fn holds_quotient(pattern: &KorePattern) -> bool {
+        print(pattern).contains("Lbl'UndsSlsh'Int'Unds'{}")
+    }
+
+    /// The atoms over a quotient in the constraints of the printed leaf `state` that are not in
+    /// definedness-explicit form (docs/compatibility.md, "Solver decisions over partial
+    /// operations"): neither a conjunct of a conjunction enclosing them that also holds `guard`
+    /// (the leaf's top-level constraints count as one conjunction), nor a top-level equality
+    /// whose other side is a domain value or a variable, such as `true = X /Int Y >Int 0`, which
+    /// holds only where the quotient is defined.
+    fn unguarded_atoms(state: &KorePattern, guard: &str) -> Vec<String> {
+        fn shown(pattern: &KorePattern) -> bool {
+            matches!(
+                pattern,
+                KorePattern::DomainValue { .. } | KorePattern::Variable(_)
+            )
+        }
+        fn visit(
+            pattern: &KorePattern,
+            guard: &str,
+            guarded: bool,
+            top: bool,
+            found: &mut Vec<String>,
+        ) {
+            match pattern {
+                KorePattern::Equals { left, right, .. }
+                    if (holds_quotient(left) || holds_quotient(right))
+                        && !guarded
+                        && !(top && (shown(left) || shown(right))) =>
+                {
+                    found.push(print(pattern));
+                }
+                KorePattern::And { arguments, .. } => {
+                    let guarded =
+                        guarded || arguments.iter().any(|argument| print(argument) == guard);
+                    for argument in arguments {
+                        visit(argument, guard, guarded, top, found);
+                    }
+                }
+                KorePattern::Or { arguments, .. } => {
+                    for argument in arguments {
+                        visit(argument, guard, guarded, false, found);
+                    }
+                }
+                KorePattern::Not { argument, .. } => visit(argument, guard, guarded, false, found),
+                KorePattern::Exists { body, .. } | KorePattern::Forall { body, .. } => {
+                    visit(body, guard, guarded, false, found);
+                }
+                KorePattern::Implies { left, right, .. } | KorePattern::Iff { left, right, .. } => {
+                    visit(left, guard, guarded, false, found);
+                    visit(right, guard, guarded, false, found);
+                }
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        visit(state, guard, false, true, &mut found);
+        found
+    }
+
+    /// The leaf contract (docs/backend-port.md, `ExecutionLeaf`): the constraints of every leaf
+    /// are definedness-explicit, so a solver `Unsat` on them would show that the leaf has no
+    /// instance. For the rule-produced programs and the requests above, every leaf has an
+    /// instance (a ground run at `X = 7` and `Y` in {0, 1, -1} reaches the same halt through the
+    /// same rules), the solver finds its re-admitted constraints satisfiable, and every atom
+    /// over `X /Int Y` in the printed leaf has `\not(Y = 0)` as a conjunct of a conjunction
+    /// enclosing it or shows the quotient defined itself. With `assume_state_defined: true` the
+    /// initial term's definedness is assumed, which the ground witnesses share.
+    #[test]
+    fn every_leaf_constraint_is_satisfiable_when_the_leaf_has_an_instance() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        // The guard as k-rust prints it on a leaf.
+        let guard = print(&parse(&not(&format!(
+            "\\equals{{SortInt{{}}, {SORT}}}({Y}, {})",
+            int(0)
+        ))));
+        // The check sees a lost guard: the request as written has two.
+        assert_eq!(unguarded_atoms(&parse(&caller_pattern()), &guard).len(), 2);
+        let mut programs = ["pos", "ens", "rhs"]
+            .map(|name| top(&format!("Lbl{name}{{}}({X}, {Y})")))
+            .to_vec();
+        programs.push(top(&format!("Lblsti{{}}({})", quotient())));
+        programs.push(caller_pattern());
+        programs.push(and(&pos(), &undefined_equality()));
+        programs.push(and(&pos(), &holds(&greater(&quotient(), &int(0)))));
+        let mut violations = Vec::new();
+        let mut checked = 0;
+        for program in &programs {
+            for assume in [false, true] {
+                let witnesses = [0, 1, -1]
+                    .into_iter()
+                    .flat_map(|y| {
+                        let ground = program.replace(X, &int(7)).replace(Y, &int(y));
+                        routes(&mut backend, &ground, assume)
+                    })
+                    .map(|(route, _)| route)
+                    .collect::<Vec<_>>();
+                for (route, state) in routes(&mut backend, program, assume) {
+                    let case = format!("{} assume={assume}: {route:?}", print(&state));
+                    if !witnesses.contains(&route) {
+                        violations.push(format!("{case}: no ground run reaches it"));
+                    }
+                    if matches!(state, KorePattern::Bottom { .. }) {
+                        violations.push(format!("{case}: an empty leaf"));
+                        continue;
+                    }
+                    let answer = satisfiability(&mut backend, &state);
+                    if answer != "sat" && answer != "no constraints" {
+                        violations.push(format!("{case}: the solver answers {answer}"));
+                    }
+                    // The printed leaf, before re-admission would restate a lost guard.
+                    let unguarded = unguarded_atoms(&state, &guard);
+                    if !unguarded.is_empty() {
+                        violations.push(format!("{case}: unguarded atoms {unguarded:?}"));
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert!(violations.is_empty(), "{}", violations.join("\n"));
+        assert!(checked >= programs.len() * 2, "{checked}");
+    }
+}
+
+/// A value-production application that no rule reduces is defined, so a run over it does not
+/// stop at the initial configuration: the ground and `V, W` programs of `SYMWRAP` reach `halt`
+/// in two steps with no constraint in both builds, and the symbolic `wrap(s(X))` reaches it under
+/// the obligation `\ceil(wrap(s(X)))`, which the run names as `UndefinedInitialInstances`, with
+/// no leaf left at depth 0 (Z3 build) or, with `assume_state_defined: true`, under none.
+mod symwrap {
+    use k_rust::{
+        backend::{Backend, ExecuteRequest, HaltReasonOutput, ResultModalityOutput},
+        kore::{ast::Pattern as KorePattern, codec, parser::parse_pattern, printer::Printer},
+    };
+
+    use super::shared;
+
+    /// The probe definition of the request (`SYMWRAP`), named as `super::compile` expects.
+    const SOURCE: &str = r#"module DEFPROBE-SYNTAX
+  syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+  syntax Address ::= addr(Nat) [symbol(addr)] | wrap(Nat) [symbol(wrap)]
+  syntax Op ::= write(Address, Nat) [symbol(write)]
+              | load(Address, Nat) [symbol(load)]
+  syntax Prog ::= "halt" [symbol(halt)]
+                | seq(Op, Prog) [symbol(seq)]
+endmodule
+
+module DEFPROBE
+  imports DEFPROBE-SYNTAX
+  imports BASIC-K
+  imports INT-SYNTAX
+  configuration <k> .K </k>
+
+  rule [collapse]: wrap(s(z)) => wrap(z) [anywhere]
+  rule [write]: seq(write(A, V), P) => P
+  rule [load]:  seq(load(A, V), P) => P
+endmodule
+"#;
+
+    fn backend() -> Backend {
+        static KORE: shared::Shared<String> = shared::Shared::new();
+        super::backend_over(&KORE.get(|| super::compile(SOURCE)))
+    }
+
+    fn program(first: &str, v: &str, w: &str) -> String {
+        super::top(&format!(
+            "Lblseq{{}}(Lblwrite{{}}(Lblwrap{{}}({first}), {v}), Lblseq{{}}(Lblload{{}}(Lblwrap{{}}(Lblz{{}}()), {w}), Lblhalt{{}}()))"
+        ))
+    }
+
+    struct Leaf {
+        depth: u64,
+        reason: HaltReasonOutput,
+        state: KorePattern,
+        diagnostics: Vec<String>,
+    }
+
+    impl std::fmt::Debug for Leaf {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                formatter,
+                "depth {} {:?} {:?}: {}",
+                self.depth,
+                self.reason,
+                self.diagnostics,
+                Printer::compact().print_pattern(&self.state)
+            )
+        }
+    }
+
+    fn execute(backend: &mut Backend, pattern: &str, assume_state_defined: bool) -> Vec<Leaf> {
+        backend
+            .execute(ExecuteRequest {
+                assume_state_defined,
+                result_modality: ResultModalityOutput::PathSet,
+                max_depth: Some(8),
+                ..ExecuteRequest::new(parse_pattern(pattern).unwrap())
+            })
+            .unwrap()
+            .leaves
+            .into_iter()
+            .map(|leaf| Leaf {
+                depth: leaf.depth,
+                reason: leaf.reason,
+                state: codec::from_value(&leaf.state).unwrap(),
+                diagnostics: leaf
+                    .diagnostics
+                    .iter()
+                    .map(|diagnostic| {
+                        serde_json::to_value(diagnostic).unwrap()["kind"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_owned()
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// One Stuck leaf at depth 2 at `halt`, whose constraint is `constraint` (none when `None`).
+    fn is_one_stuck_halt(leaves: &[Leaf], constraint: Option<&str>) -> bool {
+        let [leaf] = leaves else {
+            return false;
+        };
+        let text = Printer::compact().print_pattern(&leaf.state);
+        leaf.depth == 2
+            && leaf.reason == HaltReasonOutput::Stuck
+            && text.contains("Lblhalt{}()")
+            && match constraint {
+                None => !matches!(leaf.state, KorePattern::And { .. }),
+                Some(constraint) => text.contains(constraint),
+            }
+    }
+
+    #[test]
+    fn the_symwrap_program_ends_in_one_stuck_leaf() {
+        let mut backend = backend();
+        let z = "Lblz{}()";
+        let sz = format!("Lbls{{}}({z})");
+        for (case, pattern) in [
+            ("ground", program(&sz, z, z)),
+            ("V, W", program(&sz, "V:SortNat{}", "W:SortNat{}")),
+        ] {
+            for assume in [false, true] {
+                let leaves = execute(&mut backend, &pattern, assume);
+                assert!(
+                    is_one_stuck_halt(&leaves, None),
+                    "{case} assume={assume}: {leaves:#?}"
+                );
+            }
+        }
+        if !backend.capabilities().smt {
+            return;
+        }
+        let symbolic = program("Lbls{}(X:SortNat{})", "V:SortNat{}", "W:SortNat{}");
+        let leaves = execute(&mut backend, &symbolic, false);
+        assert!(
+            is_one_stuck_halt(
+                &leaves,
+                Some(
+                    r"\ceil{SortAddress{}, SortGeneratedTopCell{}}(Lblwrap{}(Lbls{}(X:SortNat{})))"
+                )
+            ) && leaves[0]
+                .diagnostics
+                .iter()
+                .any(|kind| kind == "undefined-initial-instances"),
+            "wrap(s(X)) assume=false: {leaves:#?}"
+        );
+        let leaves = execute(&mut backend, &symbolic, true);
+        assert!(
+            is_one_stuck_halt(&leaves, None),
+            "wrap(s(X)) assume=true: {leaves:#?}"
+        );
+    }
 }

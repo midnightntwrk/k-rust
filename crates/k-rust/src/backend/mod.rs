@@ -270,7 +270,8 @@ pub struct ExecuteRequest {
     /// Assume the initial state's definedness instead of adding it to the path predicate.
     /// Other path obligations still apply: an execution leaf's predicate implies the
     /// definedness of every partial term relied on by its conditions, right-hand sides, and
-    /// simplified states in either solver profile.
+    /// simplified states in either solver profile. The leaf contract of [`ExecutionLeaf`] then
+    /// holds relative to the assumed definedness of the initial term.
     #[serde(default)]
     pub assume_state_defined: bool,
     /// `state-set` (the default) merges structurally equal final configurations into one leaf,
@@ -378,6 +379,27 @@ impl From<k_rust_backend::coverage::RunCoverage> for RunCoverageOutput {
     }
 }
 
+/// One leaf of an execution: a configuration `state` (a term under constraints) and how its
+/// path ended.
+///
+/// The constraints of every leaf are definedness-explicit: each atom over a partial term is a
+/// conjunct of a conjunction enclosing it that also holds that term's definedness, or a top-level
+/// atom that shows its term defined, and an equality of two possibly undefined terms not both shown
+/// defined takes the form `(⌈a⌉ /\ ⌈b⌉ /\ a = b) \/ (\not ⌈a⌉ /\ \not ⌈b⌉)`. That form makes every
+/// K valuation that satisfies them extend to a model of their SMT translation (relative to the
+/// definition's trusted `smt-hook`s, `smt-lemma`s and SMT prelude), and it is closed under
+/// conjunction, so a solver `Unsat` on one leaf's constraints, or on their conjunction with other
+/// leaves' constraints and with predicates `Admitted` returns, shows that there is no instance.
+/// With [`ExecuteRequest::assume_state_defined`] the initial term's definedness is assumed and not
+/// restated, and the statement holds relative to that assumption. Partial terms of the leaf's term
+/// need not be stated: on an instance of the leaf they are defined. The constraints the request
+/// brought in are admitted in that form, and a request whose constraints have no such form is
+/// refused. Proof leaves are outside this statement, and so is a definition whose rule, equation or
+/// claim condition holds an `\equals` of two possibly undefined terms, or whose axioms hold an
+/// `\equals` that reads a term as a predicate or a condition over a Boolean term-level `\and`
+/// (docs/compatibility.md, "Solver decisions over partial operations"). For a state a client
+/// writes itself, [`Backend::implies`] with a `\bottom` consequent decides whether it has an
+/// instance.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
@@ -482,7 +504,9 @@ pub enum HaltReasonOutput {
     /// This does not assert that a satisfying instance exists: the constraint is not checked for
     /// satisfiability, and a consumer that needs to know decides it.
     Trivial,
-    /// The path's constraint was shown unsatisfiable, so the leaf has no instance.
+    /// The path's constraint was shown unsatisfiable, so the leaf has no instance: it simplified
+    /// to `false`, or a solver answered `Unsat` for it, which refutes it because the constraint
+    /// is definedness-explicit (see [`ExecutionLeaf`]).
     Vacuous,
     Branch,
     CutPoint,
