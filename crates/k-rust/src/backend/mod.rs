@@ -189,6 +189,7 @@ pub mod simplification;
 mod wire;
 pub use wire::*;
 
+pub use k_rust_backend::definition::{ExecutionRole, execution_role};
 pub use k_rust_backend::nesting::SegmentRefused;
 pub use k_rust_backend::stop::{
     CancellationToken, PreludeFailure, StackLimit, StopCause, StopScope,
