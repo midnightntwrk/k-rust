@@ -232,12 +232,22 @@ pub struct ProofResult {
 pub enum ProofError {
     Implication(ImplicationError),
     ZeroCounterexampleLimit,
+    /// The claim's constraints have no definedness-explicit form
+    /// ([`ReachabilityClaim::unstated`]), so no proof decision on them would answer for the
+    /// instances where one of their terms is undefined: the claim is refused, not proven.
+    UnstatedDefinedness(crate::definition::UnstatedDefinedness),
 }
 
 impl fmt::Display for ProofError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Implication(error) => write!(formatter, "{error}"),
+            Self::UnstatedDefinedness(reason) => {
+                write!(
+                    formatter,
+                    "the claim's constraints cannot be read faithfully: {reason}"
+                )
+            }
             Self::ZeroCounterexampleLimit => formatter.write_str(
                 "the counterexample limit is 0, and a proof needs a limit of at least 1",
             ),
@@ -258,6 +268,16 @@ pub fn prove_claim(
     let _domain = crate::term::domain::DomainScope::enter(definition);
     let _hook_values = crate::deferred::HookValueScope::enter(definition);
     let _span = measure::algorithm_span(Algorithm::BackendProofSearch);
+    if let Some(reason) = &claim.unstated {
+        return Err(ProofError::UnstatedDefinedness(reason.clone()));
+    }
+    // A claim whose meaning cannot be stated is no assumption either, trusted or not.
+    let circularities = circularities
+        .iter()
+        .copied()
+        .filter(|circularity| circularity.unstated.is_none())
+        .collect::<Vec<_>>();
+    let circularities = circularities.as_slice();
     if options.max_counterexamples == 0 {
         return Err(ProofError::ZeroCounterexampleLimit);
     }
@@ -1797,6 +1817,7 @@ fn freshen_claim(
             .collect(),
         mode: claim.mode,
         attributes: claim.attributes.clone(),
+        unstated: claim.unstated.clone(),
     }
 }
 
@@ -2255,6 +2276,7 @@ mod tests {
                 location: None,
                 sentence: 0,
             },
+            unstated: None,
         }
     }
 
@@ -5140,6 +5162,57 @@ mod tests {
     /// stop; the proof publishes it as `stopped`, as it does every cancellation, and does not
     /// fail with a `ProofError`. Only the destination's obligation `f(X) = X` mentions `gtInt`,
     /// so the solver cancels while the implication check simplifies that obligation.
+    /// A claim whose constraints have no definedness-explicit form is refused, not proven, and
+    /// keeps its refusal when it is renamed apart for an application as a circularity.
+    #[test]
+    fn a_refused_claim_is_not_proven_and_its_renaming_keeps_the_refusal() {
+        let definition = conditional_identity_definition();
+        let state = term(&definition, "pair{}(X:SortInt{}, Y:SortInt{})");
+        let claim = ReachabilityClaim {
+            lhs: Pattern {
+                term: state.clone(),
+                constraints: Vec::new(),
+            },
+            rhs: vec![Pattern {
+                term: state.clone(),
+                constraints: Vec::new(),
+            }],
+            existentials: BTreeSet::new(),
+            mode: ReachabilityMode::AllPath,
+            attributes: crate::claim::ClaimAttributes {
+                label: Some("refused".into()),
+                unique_id: "refused".into(),
+                trusted: false,
+                source: None,
+                location: None,
+                sentence: 0,
+            },
+            unstated: Some(crate::definition::UnstatedDefinedness::TermConjunction),
+        };
+        let refused = super::prove_claim(
+            &definition,
+            &claim,
+            &[],
+            ProofOptions::default(),
+            &crate::smt::NoSolver,
+        );
+        assert!(
+            matches!(
+                refused,
+                Err(ProofError::UnstatedDefinedness(
+                    crate::definition::UnstatedDefinedness::TermConjunction
+                ))
+            ),
+            "{refused:?}"
+        );
+        let subject = Pattern {
+            term: state,
+            constraints: Vec::new(),
+        };
+        let renamed = freshen_claim(&claim, &subject, &mut crate::fresh::FreshCounter::default());
+        assert_eq!(renamed.unstated, claim.unstated);
+    }
+
     #[test]
     fn a_cancellation_during_the_implication_check_is_published_as_the_proofs_stop() {
         let definition = conditional_identity_definition();
@@ -5166,6 +5239,7 @@ mod tests {
                 location: None,
                 sentence: 0,
             },
+            unstated: None,
         };
         let prove = |cancels| {
             let token = crate::stop::CancellationToken::new();

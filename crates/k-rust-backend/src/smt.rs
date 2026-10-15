@@ -907,12 +907,12 @@ impl SmtPrelude {
 /// operation, including on instances where the partial function has no value. It is sound for a
 /// predicate only when the predicate is definedness-faithful (see [`Exactness`]). The rewrite and
 /// equation condition callers make it so before deciding (`definedness::condition_definedness`
-/// on every `requires` and `ensures`), and so does the admission of a request's predicates
-/// (`definition::Admitted`, `definedness::request_definedness`); docs/compatibility.md, "Solver
+/// on every `requires` and `ensures`), and so do the admission of a request's predicates
+/// (`definition::Admitted`, `definedness::request_definedness`) and the internalization of a
+/// claim's constraints (`claim::with_explicit_definedness`); docs/compatibility.md, "Solver
 /// decisions over partial operations", lists every source and the remaining gaps: an `\equals` of
-/// two possibly undefined terms in a definition's condition, the prove route, which does not
-/// state a claim's own constraints, and an `\equals` in a definition's axioms that reads a term as
-/// a predicate.
+/// two possibly undefined terms in a rule or equation condition, and an `\equals` in a
+/// definition's axioms that reads a term as a predicate.
 #[must_use]
 pub fn translation_exactness(predicates: &[Predicate]) -> Exactness {
     translate_query(predicates, &Substitution::new(), &[])
@@ -1138,10 +1138,9 @@ pub enum Satisfiability {
     /// No K valuation satisfies the predicates, when they are definedness-faithful
     /// (docs/compatibility.md, "Solver decisions over partial operations"); otherwise only the
     /// translation has no model. Every predicate the backend poses is, except over a definition
-    /// whose rule, equation or claim condition equates two possibly undefined terms or whose
-    /// axioms hold an `\equals` that reads a term as a predicate or a condition over a Boolean
-    /// term-level `\and`, and on the prove route, which does not state the definedness of a
-    /// claim's own constraints (that section's gaps).
+    /// whose rule or equation condition equates two possibly undefined terms or whose axioms hold
+    /// an `\equals` that reads a term as a predicate or a condition over a Boolean term-level
+    /// `\and` (that section's gaps).
     Unsat,
     /// The solver ran within its own per-query bounds (its timeout, resource limit and retries)
     /// and did not decide the query; the payload is its reason. Never a stop: a query that stopped (a

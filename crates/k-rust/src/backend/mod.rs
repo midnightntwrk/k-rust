@@ -163,7 +163,7 @@ use k_rust_backend::{
     externalize,
     fresh::RequestNames,
     implication::{ImplicationFailure, ImplicationStatus},
-    proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
+    proof::{ProofError, ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, TraceKind,
         execute_observed_with_solver, execute_with_solver,
@@ -203,7 +203,7 @@ pub use wire::*;
 
 pub use k_rust_backend::definition::{
     EXECUTION_DIGEST_VERSION, ExecutionDigest, ExecutionDigestError, ExecutionRole,
-    ParseExecutionDigestError, execution_digest, execution_role,
+    ParseExecutionDigestError, UnstatedDefinedness, execution_digest, execution_role,
 };
 pub use k_rust_backend::nesting::SegmentRefused;
 pub use k_rust_backend::stop::{
@@ -469,8 +469,8 @@ fn is_zero(count: &usize) -> bool {
 /// restated, and the statement holds relative to that assumption. Partial terms of the leaf's term
 /// need not be stated: on an instance of the leaf they are defined. The constraints the request
 /// brought in are admitted in that form, and a request whose constraints have no such form is
-/// refused. Proof leaves are outside this statement, and so is a definition whose rule, equation or
-/// claim condition holds an `\equals` of two possibly undefined terms, or whose axioms hold an
+/// refused. Proof leaves are outside this statement, and so is a definition whose rule or
+/// equation condition holds an `\equals` of two possibly undefined terms, or whose axioms hold an
 /// `\equals` that reads a term as a predicate or a condition over a Boolean term-level `\and`
 /// (docs/compatibility.md, "Solver decisions over partial operations"). For a state a client
 /// writes itself, [`Backend::implies`] with a `\bottom` consequent decides whether it has an
@@ -885,6 +885,7 @@ impl ProofLeafOutcomeOutput {
 pub struct BackendError {
     message: String,
     stop: Option<StopCause>,
+    refusal: Option<UnstatedDefinedness>,
 }
 
 impl BackendError {
@@ -893,7 +894,26 @@ impl BackendError {
         Self {
             message: message.into(),
             stop: None,
+            refusal: None,
         }
+    }
+
+    /// The error of a proof request whose claim is refused: its constraints have no
+    /// definedness-explicit form (`ReachabilityClaim::unstated`), so it is not proven.
+    pub fn refused_claim(reason: UnstatedDefinedness) -> Self {
+        Self {
+            message: format!(
+                "could not prove claim: the claim's constraints cannot be read faithfully: {reason}"
+            ),
+            stop: None,
+            refusal: Some(reason),
+        }
+    }
+
+    /// Why the claim of a proof request is refused, when this error refuses one
+    /// ([`Self::refused_claim`]).
+    pub fn claim_refusal(&self) -> Option<&UnstatedDefinedness> {
+        self.refusal.as_ref()
     }
 
     /// The error's text, as its `Display` writes it.
@@ -930,6 +950,7 @@ impl From<StopCause> for BackendError {
             | StopCause::SolverPrelude(_) => Self {
                 message: cause.to_string(),
                 stop: Some(cause),
+                refusal: None,
             },
         }
     }
@@ -1846,7 +1867,10 @@ impl Backend {
                 },
                 solver,
             )
-            .map_err(error("could not prove claim"))?;
+            .map_err(|failure| match failure {
+                ProofError::UnstatedDefinedness(reason) => BackendError::refused_claim(reason),
+                failure => error("could not prove claim")(failure),
+            })?;
             // A cancelled request or a failed solver prelude ends the proof without a leaf for
             // the state it stopped, so no leaf names it. No answer of the solver means anything
             // under a failed prelude, so that is the operation's error. A cancellation is too,
