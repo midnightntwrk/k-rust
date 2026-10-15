@@ -9,7 +9,8 @@
 //! rewrite projected into its left and right branches.
 //!
 //! Cost: the body is walked at most four times (a sort walk and a placement walk per branch of a
-//! body with a rewrite, one of each otherwise) and the conditions once. At every node the walk
+//! body with a rewrite, one of each otherwise), the conditions once, and a `#withConfig`
+//! context once. At every node the walk
 //! names the node's path by its node in a trie the walks share (`PathTrie`, constant time per
 //! step), types the resolved subterm there in place, and asks the injector for the node's sort
 //! and placement as injection does, the injector inferring each node's sort once per expected
@@ -39,8 +40,8 @@ use crate::definition::{
 };
 use crate::kast::{InternalLabel, Sort, Term};
 use crate::kompile::passes::{
-    ResolveSemanticCastsError, resolve_semantic_casts_in_sentence, semantic_cast_variable_sorts,
-    with_kitem_subsorts,
+    FunctionRuleWithContext, ResolveSemanticCastsError, resolve_semantic_casts_in_sentence,
+    semantic_cast_variable_sorts, with_kitem_subsorts,
 };
 use crate::kompile::view::View;
 use crate::names::BuiltinSort;
@@ -361,14 +362,13 @@ pub fn sentence_typing(
 /// A sentence's own module may see fewer sorts, overloads or helpers than the main module, so
 /// its typer is not compilation's typing of the sentence.
 ///
-/// Two constructs are exceptions to that contract. A function rule with configuration context
-/// (`#withConfig`) is not typed. A local function (`#let`, `#fun2`, `#fun3`) is typed as an
-/// application of its parametric rule-language production in the module's view, while
-/// compilation computes the lambda's sorts with the injector of the sentence's own module: a
-/// typing error under a local function does not imply a compile error (a main module that adds
-/// a second common supersort of the pattern's and the value's sorts makes the instance
-/// ambiguous here only), and the positions inside one report the production's instance, not the
-/// lambda's sorts.
+/// Local functions are an exception to that contract. A local function (`#let`, `#fun2`,
+/// `#fun3`) is typed as an application of its parametric rule-language production in the
+/// module's view, while compilation computes the lambda's sorts with the injector of the
+/// sentence's own module: a typing error under a local function does not imply a compile error
+/// (a main module that adds a second common supersort of the pattern's and the value's sorts
+/// makes the instance ambiguous here only), and the positions inside one report the production's
+/// instance, not the lambda's sorts.
 ///
 /// The typing is a read of compilation's own computation. Semantic casts are resolved by the
 /// resolution pass (its variable sorts and errors), a body with a rewrite is projected into its
@@ -385,8 +385,12 @@ pub fn sentence_typing(
 /// The injector runs after cell concretization, which a loaded sentence has not had; the view
 /// keeps the loaded shapes: `#cells`, `#dots` and `#noDots` have no sort and place no
 /// requirement, an authored cell `L(#dots|#noDots, body, #dots|#noDots)` has its production's
-/// sort and places its body at the cell's single content sort. It types in the order injection
-/// runs in, where every non-parser sort is declared below `KItem`.
+/// sort and places its body at the cell's single content sort. A function rule with
+/// configuration context, `#withConfig(F, C)`, which compilation lowers to `F` with the context
+/// as the function's last argument, is typed as that rule: `F` is the rule body, the context `C`
+/// is a cell fragment of the left side typed as above, and the construct has no sort and places
+/// no requirement. It types in the order injection runs in, where every non-parser sort is
+/// declared below `KItem`.
 ///
 /// The view does not infer: a variable nothing types reports no sort, though its position still
 /// reports its requirement. A cast's operand reports the cast's sort as its requirement.
@@ -591,6 +595,21 @@ impl<'a> SentenceTyper<'a> {
         let boolean = Sort::builtin(BuiltinSort::Bool);
         let mut trie = PathTrie::new();
         let projections = Projections::of(resolved[0]);
+        // A function rule with configuration context, `#withConfig(F, C)`, is rule structure:
+        // the function rule `F` is the rule body compilation injects (the lowering only adds the
+        // context as the function's last argument), and the context `C` is a cell fragment of
+        // the left side.
+        let with_config = match (
+            FunctionRuleWithContext::of(loaded[0]),
+            FunctionRuleWithContext::of(resolved[0]),
+        ) {
+            (Some(Ok(loaded)), Some(Ok(resolved))) => Some((loaded, resolved)),
+            _ => None,
+        };
+        let (body_loaded, body_resolved) = match &with_config {
+            Some((loaded, resolved)) => (loaded.rule, resolved.rule),
+            None => (loaded[0], resolved[0]),
+        };
 
         let mut conditions = Walk::new(injector, Branch::Only, &mut trie, &projections);
         for (field, loaded, resolved) in
@@ -601,6 +620,22 @@ impl<'a> SentenceTyper<'a> {
             let slot = conditions.visit(loaded, resolved, &mut path, &boolean)?;
             conditions.place(&path, &slot, &boolean)?;
         }
+        if let Some((loaded, resolved)) = &with_config {
+            // The construct has no sort and places no requirement. The context is typed as an
+            // authored cell or `#cells` fragment is, as a pattern, so a single cell reports its
+            // cell's sort and a `#cells` fragment none.
+            let mut path = Cursor::root();
+            path.push(conditions.trie, 0);
+            conditions.record(&path, None);
+            conditions.child_with(
+                (false, true),
+                loaded.context,
+                resolved.context,
+                &mut path,
+                1,
+                &Sort::builtin(BuiltinSort::KItem),
+            )?;
+        }
         let (mut positions, mut instances) = conditions.finish();
         // As `inject_rule_body`: a body with a rewrite is the rewrite of its two projections,
         // typed at their least upper bound below the top hint, and each projection is
@@ -608,7 +643,7 @@ impl<'a> SentenceTyper<'a> {
         // injected at its own sort. The body's sort comes from a first walk (the injector's
         // `term_sort` cannot type loaded cell fragments), and the second walk types the body at
         // the position injection places it at.
-        let branches: &[Branch] = if has_rewrite(resolved[0]) {
+        let branches: &[Branch] = if has_rewrite(body_resolved) {
             &[Branch::Left, Branch::Right]
         } else {
             &[Branch::Only]
@@ -616,13 +651,19 @@ impl<'a> SentenceTyper<'a> {
         let body = |trie: &mut PathTrie| {
             let mut path = Cursor::root();
             path.push(trie, 0);
+            if with_config.is_some() {
+                path.push(trie, 0);
+            }
             path
         };
         let mut sorts = Vec::new();
         for branch in branches {
             let mut walk = Walk::new(injector, *branch, &mut trie, &projections);
             let mut path = body(walk.trie);
-            sorts.extend(walk.visit(loaded[0], resolved[0], &mut path, &top)?.sort);
+            sorts.extend(
+                walk.visit(body_loaded, body_resolved, &mut path, &top)?
+                    .sort,
+            );
         }
         let position = match branches {
             [Branch::Only] => sorts.first().cloned(),
@@ -635,7 +676,7 @@ impl<'a> SentenceTyper<'a> {
             let mut walk = Walk::new(injector, *branch, &mut trie, &projections);
             let mut path = body(walk.trie);
             let hint = position.clone().unwrap_or_else(|| top.clone());
-            let slot = walk.visit(loaded[0], resolved[0], &mut path, &hint)?;
+            let slot = walk.visit(body_loaded, body_resolved, &mut path, &hint)?;
             if *branch != Branch::Only
                 && let Some(position) = &position
             {

@@ -95,11 +95,11 @@ pub(crate) use resolve_fresh_constants::resolve_fresh_constants_pass;
 pub use resolve_fresh_constants::{ResolveFreshConstantsError, resolve_fresh_constants};
 pub(crate) use resolve_fun::{CoveringLambda, DefinedBody, resolve_fun_pass};
 pub use resolve_fun::{ResolveFunError, resolve_fun};
+pub(crate) use resolve_function_with_config::{
+    FunctionRuleWithContext, resolve_config_var_pass, resolve_function_with_config_pass,
+};
 pub use resolve_function_with_config::{
     ResolveFunctionWithConfigError, resolve_config_var, resolve_function_with_config,
-};
-pub(crate) use resolve_function_with_config::{
-    resolve_config_var_pass, resolve_function_with_config_pass,
 };
 pub(crate) use resolve_heat_cool::resolve_heat_cool_attributes_pass;
 pub use resolve_heat_cool::{ResolveHeatCoolError, resolve_heat_cool_attributes};

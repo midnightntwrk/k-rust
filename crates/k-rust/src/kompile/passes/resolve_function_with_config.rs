@@ -381,27 +381,52 @@ fn contains_exact_configuration_variable(term: &Term) -> bool {
     found
 }
 
+/// A function rule written with configuration context, `[[ F ]] C`, which loads as the rule
+/// body `#withConfig(F, C)`.
+///
+/// `rule`, the first argument, is the function rule: an application of the function, or a
+/// rewrite whose left side is one. `context`, the second, is the configuration context: a cell
+/// fragment that the lowering places below the generated top cell and passes to the function as
+/// its configuration argument. This is the one reading of the two argument roles, shared by the
+/// lowering and the typing view.
+pub(crate) struct FunctionRuleWithContext<'a> {
+    pub(crate) rule: &'a Term,
+    pub(crate) context: &'a Term,
+}
+
+impl<'a> FunctionRuleWithContext<'a> {
+    /// `None` when `body` is not a `#withConfig` application; `Some(Err(arity))` when it is one
+    /// with other than two arguments.
+    pub(crate) fn of(body: &'a Term) -> Option<Result<Self, usize>> {
+        let Term::Apply { label, arguments } = body.unannotated() else {
+            return None;
+        };
+        if !label.is(InternalLabel::WithConfig) {
+            return None;
+        }
+        Some(match arguments.as_slice() {
+            [rule, context] => Ok(Self { rule, context }),
+            _ => Err(arguments.len()),
+        })
+    }
+}
+
 fn resolve_with_config_body(
     body: Term,
     productions: &ProductionCatalog<'_>,
     attributes: &Attributes,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Term {
-    let Term::Apply { label, arguments } = body.unannotated() else {
-        return body;
-    };
-    if !label.is(InternalLabel::WithConfig) {
-        return body;
-    }
-    let [function, cell] = arguments.as_slice() else {
-        diagnostics.push(error_at(
-            format!(
-                "#withConfig expects 2 arguments but received {}",
-                arguments.len()
-            ),
-            attributes,
-        ));
-        return body;
+    let (function, cell) = match FunctionRuleWithContext::of(&body) {
+        None => return body,
+        Some(Err(arity)) => {
+            diagnostics.push(error_at(
+                format!("#withConfig expects 2 arguments but received {arity}"),
+                attributes,
+            ));
+            return body;
+        }
+        Some(Ok(FunctionRuleWithContext { rule, context })) => (rule, context),
     };
 
     #[expect(
