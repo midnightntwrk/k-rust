@@ -25,7 +25,9 @@
 //!    `run_campaign_multi` in this command or cached under an exactly matching key. A cached
 //!    agreement is the fold's bottom, so the assembled status is the cold call's status; a
 //!    live mutant-scope failure that precedes execution next to a cached agreement is the
-//!    corpus error `outcome-conflict`.
+//!    corpus error `outcome-conflict`. A live mutant-scope `Infrastructure` failure is not
+//!    (flow F-16): the status is the live plan's alone (`error`), as a cold call gives it, and
+//!    the cached agreements leave the plan and the row.
 //! 6. After every call, each program's baseline row from that call is compared, by run
 //!    digest, with its cached record. Any difference is a corpus error: the mutation gets the
 //!    status `error` with reason `baseline-mismatch:<program id>` (or
@@ -72,8 +74,8 @@ use crate::{
 };
 use kink_campaign::{
     CallRecording, CampaignFailure, CampaignOptions, CampaignReport, ManifestTest, MutantId,
-    MutantPlan, MutantReport, MutantRun, MutantStatus, OracleOutcome, ScheduleMode, TestCase,
-    TestEvidence, TestPlan, TestRun, derive_mutant_report,
+    MutantPlan, MutantReport, MutantRun, MutantScopeFailure, MutantStatus, OracleOutcome,
+    ScheduleMode, TestCase, TestEvidence, TestPlan, TestRun, derive_mutant_report,
 };
 use kink_corpus::{Store, admission::AdmissionRecord};
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
@@ -143,6 +145,12 @@ pub struct RunOptions {
 /// any killing test and ranks above every other status, and a mutant-scope failure arises
 /// before any test runs (F-05 review 1), so the order changes only which killing program is
 /// found first (and hence becomes the hint and the reported killer) and what the search costs.
+///
+/// Under [`ProgramOrder::Cost`] the order comes from measured wall times, so the killer found
+/// first, the hint, and the SET of tier-1 records written (under FirstKill the programs after
+/// the first kill get none) depend on host timing; no record's content does (flow F-16, F-13
+/// review 1). The byte-equality of `outcomes/` and `hints.json` across runs holds under
+/// [`ProgramOrder::Corpus`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ProgramOrder {
     /// Cheaper killers first (flow F-13): by the result record's `wall_ms` ascending (the wall
@@ -502,11 +510,24 @@ impl Search<'_> {
     /// order, then the live plan's tests (`live`: the call's order and plan), with the live
     /// plan's mutant-scope failure, mutant id and claims; the manifest lists the same ids in
     /// the same order. The fold is kink-campaign's own.
+    ///
+    /// A live mutant-scope `Infrastructure` failure (the equivalence check or the mutant's
+    /// backend failing while the mutant is prepared, before any test runs) is not the
+    /// determinism failure `outcome-conflict` stands for (F-14 review 1 m2, flow F-16): it
+    /// dominates every test's evidence and does not depend on which programs the call has, so
+    /// the status is the live plan's alone, which is the status a cold call gives (`error`,
+    /// with the failure as its reason), and the cached agreements do not enter the plan.
     fn assemble(
         &self,
         cached: &[(usize, OutcomeRecord)],
         live: Option<(&[usize], &MutantPlan)>,
     ) -> Result<MutantReport, CampaignFailure> {
+        let cached = match live {
+            Some((_, plan)) if plan.mutant_failure == Some(MutantScopeFailure::Infrastructure) => {
+                &[][..]
+            }
+            _ => cached,
+        };
         let mut tests = cached
             .iter()
             .map(|(c, record)| TestPlan {
@@ -739,7 +760,17 @@ impl Search<'_> {
                         json!(status_name(live.mutant.report.status)),
                         wall_ms,
                     ));
-                    executed.extend(executed_entries(&live, self.manifest.budget, true));
+                    // Each program is listed once (F-14 review 1 m3, flow F-16): a hinted
+                    // program this call ran again is listed with this call's run, the one the
+                    // status is folded from.
+                    let entries = executed_entries(&live, self.manifest.budget, true);
+                    executed.retain(|entry| {
+                        entry["cached"] == true
+                            || !entries
+                                .iter()
+                                .any(|again| again["program"] == entry["program"])
+                    });
+                    executed.extend(entries);
                     runs.push((live_order.clone(), live.mutant));
                 }
             }
@@ -766,11 +797,20 @@ impl Search<'_> {
                 return self.corpus_error(row, error, &calls, executed);
             }
         };
+        if last.plan.mutant_failure == Some(MutantScopeFailure::Infrastructure) && !agree.is_empty()
+        {
+            // `assemble` left the cached agreements out of the plan (flow F-16): they leave the
+            // row and the counts too, so the row is the cold call's.
+            self.stats.programs_from_cache -= agree.len();
+            executed.retain(|entry| entry["cached"] != true);
+        }
         let reason = last
             .plan
             .mutant_failure
             .map(|failure| kebab(&format!("{failure:?}")));
-        // Step 7: the records of the live calls, then the hint.
+        // Step 7: the records of the live calls, then the hint. A program both calls ran has
+        // one record, the second call's (the store keeps the last of equal program digests and
+        // counts each program once).
         if let (Some(store), Some(identity)) = (&self.tier1, identity) {
             let records = runs
                 .iter()

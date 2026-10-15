@@ -357,3 +357,187 @@ fn corpus_v1_refuses_symbolic_kore_inputs_at_the_input_gate() {
     assert!(refusal.detail.contains("concrete"));
     fs::remove_dir_all(dir).unwrap();
 }
+
+/// A fresh workspace for the CS-12 review 1 probes: a copy of the below-floor case file at
+/// `k-distribution/tests/regression-new/let-test/let-test.k` (module CS12-CLEAN), a copy of
+/// clean.k outside any case directory, and `files` written as given.
+fn probe_workspace(name: &str, files: &[(&str, &str)]) -> PathBuf {
+    let dir =
+        Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("cs12-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let case = dir.join("k-distribution/tests/regression-new/let-test");
+    fs::create_dir_all(&case).unwrap();
+    fs::copy(
+        fixture().join("k-distribution/tests/regression-new/let-test/clean.k"),
+        case.join("let-test.k"),
+    )
+    .unwrap();
+    fs::copy(fixture().join("clean.k"), dir.join("clean.k")).unwrap();
+    for (file, text) in files {
+        fs::write(dir.join(file), text).unwrap();
+    }
+    dir
+}
+
+/// The clean manifest re-rooted at `.` of a probe workspace, as definition `id` with `entry`,
+/// `include_dirs` and the pins of `pinned` (logical names under the root, sorted).
+fn probe_manifest(
+    dir: &Path,
+    id: &str,
+    entry: &str,
+    include_dirs: &[&str],
+    pinned: &[&str],
+) -> Value {
+    let mut v = clean();
+    let d = &mut v["definitions"][0];
+    d["id"] = json!(id);
+    d["root"]["path"] = json!(".");
+    d["entry"] = json!(entry);
+    d["include_dirs"] = json!(include_dirs);
+    let mut pinned = pinned.to_vec();
+    pinned.sort_unstable();
+    d["files"] = json!(
+        pinned
+            .iter()
+            .map(|name| json!({"name":name,"sha256":sha256(&fs::read(dir.join(name)).unwrap()).to_string()}))
+            .collect::<Vec<_>>()
+    );
+    v
+}
+
+fn admit_in(dir: &Path, v: &Value) -> AdmissionResult {
+    let m = CorpusManifest::from_canonical_json(&canonical_json(v)).unwrap();
+    admit_definition(&m, v["definitions"][0]["id"].as_str().unwrap(), dir)
+}
+
+fn assert_below_floor(r: &AdmissionResult) {
+    assert!(r.admitted.is_none(), "{}", r.record.text());
+    let refusal = r.record.refusal.as_ref().unwrap();
+    assert_eq!(
+        (&*refusal.stage, &*refusal.reason, &*refusal.detail),
+        (
+            "exclusion",
+            "below-floor",
+            kink_corpus::admission::BELOW_FLOOR_CITATION
+        ),
+        "{}",
+        r.record.text()
+    );
+    // Nothing after the exclusion stage ran.
+    assert!(r.record.kompile_warnings.is_none(), "{}", r.record.text());
+    assert!(r.record.census.is_none(), "{}", r.record.text());
+}
+
+const CASE_FILE: &str = "k-distribution/tests/regression-new/let-test/let-test.k";
+
+/// CS-12 review 1 major, probe P1 (flow F-16): a wrapper entry under another id, outside the
+/// case directory, that requires a below-floor source by a relative path is refused at the
+/// exclusion stage with the below-floor reason, as the case's own entry is. Admission checks
+/// every file the loader read, not only the entry.
+#[test]
+fn a_wrapper_requiring_a_below_floor_source_by_relative_path_is_excluded() {
+    let wrapper = format!("requires \"{CASE_FILE}\"\n");
+    let dir = probe_workspace("p1", &[("wrapper.k", &wrapper)]);
+    let v = probe_manifest(
+        &dir,
+        "renamed-wrapper",
+        "wrapper.k",
+        &[],
+        &["wrapper.k", CASE_FILE],
+    );
+    assert_below_floor(&admit_in(&dir, &v));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+/// CS-12 review 1 major, probe P2 (flow F-16): the same wrapper reaching the below-floor
+/// source through `include_dirs` is refused at the exclusion stage too.
+#[test]
+fn a_wrapper_requiring_a_below_floor_source_through_include_dirs_is_excluded() {
+    let dir = probe_workspace("p2", &[("wrapper.k", "requires \"let-test.k\"\n")]);
+    let v = probe_manifest(
+        &dir,
+        "renamed-include",
+        "wrapper.k",
+        &["k-distribution/tests/regression-new/let-test"],
+        &["wrapper.k", CASE_FILE],
+    );
+    assert_below_floor(&admit_in(&dir, &v));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+/// CS-12 review 1 control probe P3: an entry that is a symbolic link into the case directory
+/// is still refused at the exclusion stage (the entry's resolved path, as before F-16); and a
+/// wrapper whose required source is reached through a linked directory is refused by the
+/// loaded-file check.
+#[cfg(unix)]
+#[test]
+fn a_symlinked_entry_or_required_source_into_a_below_floor_case_is_excluded() {
+    let dir = probe_workspace("p3", &[]);
+    std::os::unix::fs::symlink(dir.join(CASE_FILE), dir.join("alias.k")).unwrap();
+    let v = probe_manifest(&dir, "renamed-link", "alias.k", &[], &[CASE_FILE]);
+    assert_below_floor(&admit_in(&dir, &v));
+    std::os::unix::fs::symlink(
+        dir.join("k-distribution/tests/regression-new/let-test"),
+        dir.join("linked"),
+    )
+    .unwrap();
+    fs::write(dir.join("wrapper.k"), "requires \"linked/let-test.k\"\n").unwrap();
+    let v = probe_manifest(
+        &dir,
+        "renamed-linked-dir",
+        "wrapper.k",
+        &[],
+        &["wrapper.k", CASE_FILE],
+    );
+    assert_below_floor(&admit_in(&dir, &v));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+/// The loaded-file check refuses only below-floor sources: the same wrapper shape requiring
+/// a source outside every case directory is admitted, with the record of a direct load of
+/// both files, and an author exclusion with another reason refuses a wrapper that requires its
+/// case with that exclusion's own reason, as for a direct entry.
+#[test]
+fn a_wrapper_requiring_a_source_outside_every_case_is_admitted() {
+    let dir = probe_workspace("control", &[("wrapper.k", "requires \"clean.k\"\n")]);
+    let v = probe_manifest(&dir, "wrapper", "wrapper.k", &[], &["clean.k", "wrapper.k"]);
+    let r = admit_in(&dir, &v);
+    assert!(r.admitted.is_some(), "{}", r.record.text());
+    assert_eq!(r.record.value()["files"], v["definitions"][0]["files"]);
+    assert_eq!(r.record.value()["census"]["verdict"], "natural");
+
+    fs::create_dir_all(dir.join("k-distribution/tests/regression-new/own-case")).unwrap();
+    fs::copy(
+        dir.join("clean.k"),
+        dir.join("k-distribution/tests/regression-new/own-case/own.k"),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("own-wrapper.k"),
+        "requires \"k-distribution/tests/regression-new/own-case/own.k\"\n",
+    )
+    .unwrap();
+    let mut v = probe_manifest(
+        &dir,
+        "own-wrapper",
+        "own-wrapper.k",
+        &[],
+        &[
+            "k-distribution/tests/regression-new/own-case/own.k",
+            "own-wrapper.k",
+        ],
+    );
+    v["exclusions"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"case":"own-case","citation":"author note","reason":"other"}));
+    let r = admit_in(&dir, &v);
+    let refusal = r.record.refusal.as_ref().expect("refused");
+    assert_eq!(
+        (&*refusal.stage, &*refusal.reason, &*refusal.detail),
+        ("exclusion", "other", "author note"),
+        "{}",
+        r.record.text()
+    );
+    fs::remove_dir_all(dir).unwrap();
+}

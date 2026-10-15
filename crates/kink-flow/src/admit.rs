@@ -17,8 +17,8 @@ use kink_corpus::{
     CorpusSource, LoadedSource, ProgramSource, TestInputSpec,
     admission::{
         AdmissionRecord, AdmissionRefusal, below_floor_exclusions, check_exclusions,
-        check_initial_state, check_loaded_semantic_input, compile_definition, input_backend,
-        path_names_case, program_input,
+        check_initial_state, check_loaded_exclusions, check_loaded_semantic_input,
+        compile_definition, input_backend, path_names_case, program_input,
     },
     load_source,
     manifest::Exclusion,
@@ -204,13 +204,8 @@ fn admit_definition(
     let loaded = load_source(&corpus_source(manifest)).map_err(load_refusal)?;
     record.files = loaded.files.clone();
     let root = spec_root(manifest)?;
-    for file in &loaded.files {
-        check_below_floor(
-            &exclusions,
-            &manifest.directory.join(&file.name),
-            &root.join(&file.name),
-        )?;
-    }
+    // kink-corpus's loaded-file exclusion stage (shared since flow F-16).
+    check_loaded_exclusions(&exclusions, &manifest.directory, &root, &loaded.files)?;
     let semantic_input = check_loaded_semantic_input(&loaded)?;
     let validator = NativeValidator::bind(loaded.baseline.clone(), Default::default());
     let compiled = compile_definition(&validator, record)?;

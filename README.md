@@ -50,7 +50,9 @@ With identical inputs, a cached proved difference stands without being re-run: t
 on the cache key naming every input of the outcome (kink's build, the k-rust revision, the specification, the mutation, the program, its baseline result and the budget),
 and on the integrity of the cache directory, which is trusted like the build.
 `kink-flow run --verify` re-proves every cached outcome and reports any disagreement as an error.
-A killer hint or a cached result never decides a status: the hint only orders the work, and a cached result detects a corpus that changed under the cache.
+A killer hint never decides a status: it only orders the work.
+When a mutation runs live, the baseline result of each program it runs is compared with that program's cached result, which detects a corpus that changed under the cache.
+A killed mutation decided by a cached outcome, or a survivor whose every outcome is cached, runs nothing and gets no such check: there the programs' cached results are trusted with the rest of the cache directory.
 
 ### Commands
 

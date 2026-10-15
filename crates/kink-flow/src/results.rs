@@ -208,8 +208,8 @@ pub struct BaselineRunner<'a> {
     generations: Vec<CandidateGeneration<'a>>,
     budget: ExecutionBudget,
     authors: RuleAuthors,
-    /// The command's session; it holds the all-normal classifier every call uses, as the one
-    /// reference the session memoises under.
+    /// The command's session (every call uses the all-normal classifier; the session re-applies
+    /// a call's classifier on every reused baseline run, flow F-16).
     session: RefCell<BaselineSession<'a>>,
     /// Diagnostic runs this command made (a refused baseline that did not stop on time).
     diagnostic: Cell<usize>,
@@ -238,7 +238,7 @@ impl<'a> BaselineRunner<'a> {
             generations: vec![generation],
             budget: execution_budget(manifest.budget),
             authors: RuleAuthors::of(&spec.compiled),
-            session: RefCell::new(BaselineSession::new(&spec.validator, &all_normal)),
+            session: RefCell::new(BaselineSession::new(&spec.validator)),
             diagnostic: Cell::new(0),
             observable: OnceCell::new(),
         })
@@ -266,12 +266,11 @@ impl<'a> BaselineRunner<'a> {
         generations: &[CandidateGeneration<'_>],
         options: &CampaignOptions,
     ) -> Result<CampaignRun, CampaignFailure> {
-        let classify = self.session.borrow().classify();
         let campaign = Campaign {
             validator: &self.spec.validator,
             module: &self.module,
             observation: &[],
-            classify,
+            classify: &all_normal,
             tests,
             budget: self.budget,
         };

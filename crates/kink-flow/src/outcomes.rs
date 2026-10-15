@@ -299,8 +299,9 @@ impl OutcomeStore {
 
     /// Add `records` (by program digest) to the mutation's file: read, keep the stored records
     /// that pass the integrity checks (records of programs absent from the corpus are kept),
-    /// replace or add the new ones, and write the file atomically (kink-corpus `Store`).
-    /// Returns the number of records written.
+    /// replace or add the new ones (the last of several with one program digest), and write
+    /// the file atomically (kink-corpus `Store`). Returns the number of records written: the
+    /// number of distinct programs in `records` (flow F-16).
     pub fn write(
         &self,
         store: &Store,
@@ -322,6 +323,11 @@ impl OutcomeStore {
                 )
             })
             .collect::<Map<_, _>>();
+        let written = records
+            .iter()
+            .map(|(program, _)| program)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
         store.write_json(
             &self.path(identity),
             &json!({
@@ -334,6 +340,6 @@ impl OutcomeStore {
                 "records": values,
             }),
         )?;
-        Ok(records.len())
+        Ok(written)
     }
 }

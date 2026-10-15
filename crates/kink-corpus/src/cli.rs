@@ -421,7 +421,7 @@ fn verify_binding(
         SolverProfile::BUILD.name(),
         id,
     )?)?;
-    verify_sources(workspace, definition, &admission, digest)?;
+    verify_sources(workspace, corpus, definition, &admission, digest)?;
     verify_generations(corpus, &baseline, campaign, operators)?;
     let tests = store.rebuild_tests(corpus.digest(), id, &baseline)?;
     let mut rows = Vec::new();
@@ -504,6 +504,7 @@ fn verify_admission_stages(
 
 fn verify_sources(
     workspace: &Path,
+    corpus: &CorpusManifest,
     definition: &DefinitionSpec,
     admission: &Value,
     artifact_digest: Sha256Digest,
@@ -518,6 +519,15 @@ fn verify_sources(
         md_selector: definition.md_selector.clone(),
     })
     .map_err(|e| invalid(e.to_string()))?;
+    // Every loaded source, as admission checks it (flow F-16): a store admitted before that
+    // check cannot resume a definition that reads a below-floor source.
+    crate::admission::check_loaded_exclusions(
+        corpus.exclusions(),
+        Path::new(&definition.root.path),
+        &root,
+        &loaded.files,
+    )
+    .map_err(|_| invalid("stored definition is excluded"))?;
     let mut expected = BTreeMap::new();
     for file in &loaded.files {
         if !definition.files.iter().any(|pin| pin == file) {

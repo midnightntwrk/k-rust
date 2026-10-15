@@ -1,0 +1,28 @@
+# Mutations for the macro fixture (flow F-16).
+
+[[mutation]]
+id = "plus-in-a-group"
+note = "compiles equal to the baseline; with a macro in the specification the equivalence check fails (infrastructure)"
+
+  [[mutation.edit]]
+  rule = "MACRO.plus"
+  find = "I1 +Int I2"
+  replace = "I1 +Int I2 [group(arith)]"
+
+[[mutation]]
+id = "plus-becomes-minus"
+note = "addition evaluates as subtraction"
+
+  [[mutation.edit]]
+  rule = "MACRO.plus"
+  find = "I1 +Int I2"
+  replace = "I1 -Int I2"
+
+[[mutation]]
+id = "plus-unbound"
+note = "the replacement uses a variable the rule does not bind: it loads but does not compile (invalid)"
+
+  [[mutation.edit]]
+  rule = "MACRO.plus"
+  find = "I1 +Int I2"
+  replace = "I1 +Int I3"

@@ -4,8 +4,10 @@
 //! The session must change nothing but the number of live baseline runs: every call through it
 //! returns the `CampaignRun` (or the `CampaignFailure`) a fresh call returns; a campaign over
 //! another validator is refused before anything runs; observation, pattern-oracle and symbolic
-//! campaigns, and a campaign with another classifier, run live and leave the session untouched;
-//! a refused (time-limited) baseline is reused as refused; any change of a key component misses.
+//! campaigns run live and leave the session untouched; a refused (time-limited) baseline is
+//! reused as refused; any change of a key component misses. Flow F-16: the classifier is not
+//! part of the session's identity; a hit re-applies the campaign's classifier, so another,
+//! stateful or panicking classifier gives through the session what it gives in a fresh call.
 //! Flow F-13: the session records each call's runs (wall time, leaf census, baseline coverage)
 //! without changing any of them.
 
@@ -186,9 +188,8 @@ fn options(schedule: ScheduleMode, share_evidence: bool) -> CampaignOptions {
     }
 }
 
-/// A classifier as a campaign holds it. The session binds one such reference: a campaign
-/// memoises only with the very same reference (the same function through another reference may
-/// have another vtable copy, which only misses).
+/// A classifier as a campaign holds it. The session does not bind one (flow F-16): a hit
+/// classifies the stored execution with the campaign's classifier.
 type Classify = dyn Fn(&Pattern) -> ExecutionTerminalKind;
 
 /// A campaign's inputs other than the validator, so one test can vary each of them.
@@ -272,7 +273,7 @@ fn calls_through_one_session_equal_fresh_calls_and_reuse_each_baseline() {
         for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
             for share in [false, true] {
                 let options = options(schedule, share);
-                let mut session = BaselineSession::new(&validator, classify);
+                let mut session = BaselineSession::new(&validator);
                 assert_eq!(counts(&session), (0, 0, 0));
                 let (fresh, first) = both(
                     &validator,
@@ -325,7 +326,7 @@ fn a_campaign_over_another_validator_is_refused() {
             NativeValidator::bind(support::load("counter_bytwo.k"), CompileOptions::default());
         let tests = tests();
         let generation = generation(validator.baseline());
-        let mut session = BaselineSession::new(&validator, classify);
+        let mut session = BaselineSession::new(&validator);
         // The session records its validator's compiled baseline and compile options.
         let compiled = validator.compile_baseline().expect("baseline");
         assert_eq!(
@@ -377,11 +378,13 @@ fn generation_of(validator: &NativeValidator) -> CandidateGeneration<'_> {
     .expect("fold")
 }
 
-/// The session memoises only kink-flow's setting: no observation, no pattern oracle, concrete
-/// tests and the session's own classifier. Any other campaign runs live (it equals the fresh
-/// call) and leaves the session untouched.
+/// The session memoises only kink-flow's setting: no observation, no pattern oracle and
+/// concrete tests. Any other campaign runs live (it equals the fresh call) and leaves the
+/// session untouched. (Before flow F-16 a campaign with another classifier was not memoised
+/// either; it now is, and is judged with its own classifier: see
+/// `another_classifier_is_memoised_and_judged_with_its_own_classifier`.)
 #[test]
-fn observation_pattern_symbolic_and_foreign_classifier_campaigns_are_not_memoised() {
+fn observation_pattern_and_symbolic_campaigns_are_not_memoised() {
     with_stack(|| {
         let classify: &Classify = &normal;
         let validator = validator();
@@ -405,20 +408,15 @@ fn observation_pattern_symbolic_and_foreign_classifier_campaigns_are_not_memoise
         };
         let pattern_only = Inputs::new(&patterned, classify);
         let symbolic = Inputs::new(&symbolic, classify);
-        let foreign_classifier = Inputs {
-            classify: &stuck,
-            ..Inputs::new(&plain, classify)
-        };
-        let cases: [(&str, &Inputs<'_>); 5] = [
+        let cases: [(&str, &Inputs<'_>); 4] = [
             ("observation", &observed),
             ("observation and pattern oracle", &observed_with_pattern),
             ("pattern oracle", &pattern_only),
             ("symbolic test", &symbolic),
-            ("another classifier", &foreign_classifier),
         ];
         for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
             let options = options(schedule, false);
-            let mut session = BaselineSession::new(&validator, classify);
+            let mut session = BaselineSession::new(&validator);
             for (name, inputs) in cases {
                 for _ in 0..2 {
                     let (fresh, shared) = both(&validator, inputs, &options, &mut session);
@@ -426,6 +424,41 @@ fn observation_pattern_symbolic_and_foreign_classifier_campaigns_are_not_memoise
                     assert_eq!(counts(&session), (0, 0, 0), "{name} is not memoised");
                 }
             }
+        }
+    });
+}
+
+/// Flow F-16: a campaign with another classifier than an earlier call's reuses the stored
+/// executions and judges them with its own classifier, so each call gives what a fresh call
+/// gives.
+#[test]
+fn another_classifier_is_memoised_and_judged_with_its_own_classifier() {
+    with_stack(|| {
+        let validator = validator();
+        let tests = tests();
+        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let options = options(schedule, false);
+            let mut session = BaselineSession::new(&validator);
+            let normal_inputs = Inputs::new(&tests, &normal);
+            let stuck_inputs = Inputs::new(&tests, &stuck);
+            let (fresh_normal, first) = both(&validator, &normal_inputs, &options, &mut session);
+            let fresh_normal = fresh_normal.expect("fresh normal");
+            assert_eq!(first.expect("first"), fresh_normal, "{schedule:?}");
+            assert_eq!(counts(&session), (2, 0, 2));
+            let (fresh_stuck, second) = both(&validator, &stuck_inputs, &options, &mut session);
+            let fresh_stuck = fresh_stuck.expect("fresh stuck");
+            assert_eq!(second.expect("second"), fresh_stuck, "{schedule:?}");
+            assert_eq!(
+                counts(&session),
+                (2, 2, 2),
+                "the stored executions are reused"
+            );
+            // The two classifiers judge the same executions differently (the exit stop's
+            // class), so the reused baseline evidence is the requesting campaign's own.
+            assert_ne!(fresh_stuck.baseline, fresh_normal.baseline);
+            let (fresh, third) = both(&validator, &normal_inputs, &options, &mut session);
+            assert_eq!(third.expect("third"), fresh.expect("fresh"), "{schedule:?}");
+            assert_eq!(counts(&session), (2, 4, 2));
         }
     });
 }
@@ -446,7 +479,7 @@ fn a_time_limited_baseline_is_reused_as_refused() {
             ..Inputs::new(&tests, classify)
         };
         let options = options(ScheduleMode::FirstKill, false);
-        let mut session = BaselineSession::new(&validator, classify);
+        let mut session = BaselineSession::new(&validator);
         let (fresh, first) = both(&validator, &expired, &options, &mut session);
         let fresh = fresh.expect_err("an expired budget refuses the baseline");
         assert_eq!(first.expect_err("refused through the session"), fresh);
@@ -477,7 +510,7 @@ fn a_changed_key_component_misses() {
         let validator = validator();
         let tests = tests();
         let options = options(ScheduleMode::FirstKill, false);
-        let mut session = BaselineSession::new(&validator, classify);
+        let mut session = BaselineSession::new(&validator);
         let (_, first) = both(
             &validator,
             &Inputs::new(&tests, classify),
@@ -550,7 +583,7 @@ fn a_session_records_each_calls_runs_without_changing_them() {
         let tests = tests();
         for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
             let options = options(schedule, false);
-            let mut session = BaselineSession::new(&validator, classify);
+            let mut session = BaselineSession::new(&validator);
             assert_eq!(session.last_call(), &CallRecording::default());
             let inputs = Inputs::new(&tests, classify);
             let (fresh, first) = both(&validator, &inputs, &options, &mut session);
@@ -619,7 +652,9 @@ fn a_session_records_each_calls_runs_without_changing_them() {
 
 /// Recording is not memoisation: a campaign the session does not memoise records its live
 /// baseline runs and leaves the store untouched; a baseline stopped by its time budget is a
-/// time stop; a call refused before its baseline runs records nothing.
+/// time stop; a call refused before its baseline runs records nothing. (Before flow F-16 the
+/// unmemoised campaign here was one with another classifier; it is now one with a step
+/// observation, since the classifier no longer decides memoisation.)
 #[test]
 fn time_stops_unmemoised_calls_and_refused_calls_are_recorded_as_such() {
     with_stack(|| {
@@ -627,12 +662,13 @@ fn time_stops_unmemoised_calls_and_refused_calls_are_recorded_as_such() {
         let validator = validator();
         let tests = tests();
         let options = options(ScheduleMode::FirstKill, false);
-        let mut session = BaselineSession::new(&validator, classify);
-        let foreign_classifier = Inputs {
-            classify: &stuck,
+        let mut session = BaselineSession::new(&validator);
+        let specs = step_support::counter(true);
+        let observed = Inputs {
+            observation: &specs,
             ..Inputs::new(&tests, classify)
         };
-        let (fresh, shared) = both(&validator, &foreign_classifier, &options, &mut session);
+        let (fresh, shared) = both(&validator, &observed, &options, &mut session);
         assert_eq!(shared, fresh);
         assert_eq!(counts(&session), (0, 0, 0));
         assert_eq!(
@@ -670,5 +706,151 @@ fn time_stops_unmemoised_calls_and_refused_calls_are_recorded_as_such() {
         )
         .expect_err("another validator is refused");
         assert_eq!(session.last_call(), &CallRecording::default());
+    });
+}
+
+/// F-12 review 1 major (flow F-16): a classifier is a `dyn Fn` and may hold state, so one
+/// reference can classify differently in two calls of one session. A hit must classify the
+/// stored run with the campaign's classifier as it is now, exactly as a fresh call does: the
+/// reviewer's probe (a classifier over a shared flag, `Normal` while it is clear and `Stuck`
+/// once it is set) gives, through one session and one reference, the run a fresh call gives in
+/// both calls, in both schedules. Before F-16 the second call through the session reused the
+/// baseline classified `Normal` against a `Stuck` mutant and reported an unjustified Killed.
+#[test]
+fn a_stateful_classifier_through_one_session_classifies_as_a_fresh_call() {
+    with_stack(|| {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        let validator = validator();
+        let tests = tests();
+        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let flag = Rc::new(Cell::new(false));
+            let seen = Rc::clone(&flag);
+            let stateful = move |_: &Pattern| {
+                if seen.get() {
+                    ExecutionTerminalKind::Stuck
+                } else {
+                    ExecutionTerminalKind::Normal
+                }
+            };
+            let classify: &Classify = &stateful;
+            let options = options(schedule, false);
+            let mut session = BaselineSession::new(&validator);
+            let inputs = Inputs::new(&tests, classify);
+            let (fresh, first) = both(&validator, &inputs, &options, &mut session);
+            let fresh = fresh.expect("fresh call");
+            assert_eq!(first.expect("first call"), fresh, "{schedule:?}");
+            assert_eq!(counts(&session), (2, 0, 2));
+            flag.set(true);
+            let (fresh_after, second) = both(&validator, &inputs, &options, &mut session);
+            let fresh_after = fresh_after.expect("fresh call after the flag");
+            let second = second.expect("second call");
+            assert_eq!(second, fresh_after, "{schedule:?}");
+            // The second call reused both baseline runs; only their classification is new.
+            assert_eq!(counts(&session), (2, 2, 2));
+            // The probe's fresh status: the flag classifies both sides alike, so the mutant
+            // is not killed; the session must not report a kill the fresh call does not.
+            let [mutant] = second.mutants.as_slice() else {
+                panic!("one mutant")
+            };
+            assert_eq!(
+                mutant.report.status, fresh_after.mutants[0].report.status,
+                "{schedule:?}"
+            );
+            assert!(
+                mutant.report.killing_test_ids.is_empty(),
+                "{schedule:?}: {:?}",
+                mutant.report
+            );
+        }
+    });
+}
+
+/// A hit calls the campaign's classifier on the stored run's terminals as a fresh call does,
+/// so a classifier that panics from some point on panics through the session too, instead of
+/// a hit returning evidence it never classified; and a classifier that records its calls sees
+/// the same calls on a hit as in a fresh call.
+#[test]
+fn a_hit_calls_the_classifier_as_a_fresh_call_does() {
+    with_stack(|| {
+        use std::cell::{Cell, RefCell};
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        use std::rc::Rc;
+        let validator = validator();
+        let tests = tests();
+        let options = options(ScheduleMode::Full, false);
+
+        let calls = Rc::new(RefCell::new(Vec::<Pattern>::new()));
+        let log = Rc::clone(&calls);
+        let recording = move |term: &Pattern| {
+            log.borrow_mut().push(term.clone());
+            ExecutionTerminalKind::Normal
+        };
+        let classify: &Classify = &recording;
+        let mut session = BaselineSession::new(&validator);
+        let inputs = Inputs::new(&tests, classify);
+        let generation = generation(validator.baseline());
+        let campaign = inputs.campaign(&validator);
+        run_campaign_multi_with(
+            &campaign,
+            std::slice::from_ref(&generation),
+            &options,
+            &mut session,
+        )
+        .expect("first call");
+        calls.borrow_mut().clear();
+        let fresh = run_campaign_multi(&campaign, std::slice::from_ref(&generation), &options)
+            .expect("fresh call");
+        let fresh_calls = std::mem::take(&mut *calls.borrow_mut());
+        let hit = run_campaign_multi_with(
+            &campaign,
+            std::slice::from_ref(&generation),
+            &options,
+            &mut session,
+        )
+        .expect("hit");
+        assert_eq!(counts(&session), (2, 2, 2));
+        assert_eq!(hit, fresh);
+        assert!(!fresh_calls.is_empty());
+        assert_eq!(
+            *calls.borrow(),
+            fresh_calls,
+            "the hit classifies as a fresh call"
+        );
+
+        let armed = Rc::new(Cell::new(false));
+        let trigger = Rc::clone(&armed);
+        let panicking = move |_: &Pattern| {
+            assert!(!trigger.get(), "the armed classifier panics");
+            ExecutionTerminalKind::Normal
+        };
+        let classify: &Classify = &panicking;
+        let mut session = BaselineSession::new(&validator);
+        let inputs = Inputs::new(&tests, classify);
+        let campaign = inputs.campaign(&validator);
+        run_campaign_multi_with(
+            &campaign,
+            std::slice::from_ref(&generation),
+            &options,
+            &mut session,
+        )
+        .expect("unarmed call");
+        armed.set(true);
+        let fresh = catch_unwind(AssertUnwindSafe(|| {
+            run_campaign_multi(&campaign, std::slice::from_ref(&generation), &options)
+        }));
+        assert!(fresh.is_err(), "a fresh call classifies and panics");
+        let hit = catch_unwind(AssertUnwindSafe(|| {
+            run_campaign_multi_with(
+                &campaign,
+                std::slice::from_ref(&generation),
+                &options,
+                &mut session,
+            )
+        }));
+        assert!(
+            hit.is_err(),
+            "a hit classifies and panics as the fresh call"
+        );
     });
 }

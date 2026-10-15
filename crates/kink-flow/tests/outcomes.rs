@@ -1395,3 +1395,198 @@ fn a_doubly_qualified_label_is_unknown() {
         InvalidReason::UnknownLabel
     );
 }
+
+/// Write an outcome file for mutation `id` holding a forged, correctly sealed `agree` record for
+/// each of `programs` (the file of `template`, another mutation of the same context, gives the
+/// schema and context): what a cache would hold if an earlier command had seen the mutant run.
+fn forge_agreements(
+    manifest: &Path,
+    document: &Value,
+    template: &str,
+    id: &str,
+    programs: &[&str],
+) {
+    let mut file = read_json(&outcome_file(manifest, document, template));
+    let context = file["context_sha256"].as_str().unwrap().to_owned();
+    let identity = mutation(document, id)["identity"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut records = serde_json::Map::new();
+    for program in programs {
+        let digest = program_digest(document, program);
+        let baseline = read_json(&result_record_path(manifest, document, program))["run_sha256"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let sealed = record_sha256(
+            &context,
+            &identity,
+            &digest,
+            &baseline,
+            "agree",
+            &["agree", "agree"],
+            &baseline,
+        );
+        records.insert(
+            digest,
+            json!({
+                "program_id": program,
+                "baseline_run_sha256": baseline,
+                "outcome": "agree",
+                "slots": ["agree", "agree"],
+                "mutant_run_sha256": baseline,
+                "record_sha256": sealed.to_string(),
+            }),
+        );
+    }
+    file["mutation_identity"] = json!(identity);
+    file["mutation_id"] = json!(id);
+    file["records"] = Value::Object(records);
+    let path = outcome_file(manifest, document, id);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    write_json(&path, &file);
+}
+
+/// The macro fixture's cold statuses: with a macro in the specification, a mutant that
+/// compiles equal to the baseline fails kink-native's equivalence check, the runner's
+/// mutant-scope `Infrastructure` failure (status error, reason infrastructure), on every host.
+fn macro_after_cold(test: &str) -> (PathBuf, Value) {
+    let (dir, cold) = after_cold("macro", "FLOW.toml", "MUTATIONS.toml", test);
+    assert_eq!(
+        statuses(&cold),
+        vec![
+            ("plus-in-a-group".into(), "error".into(), None),
+            (
+                "plus-becomes-minus".into(),
+                "killed".into(),
+                Some("sum".into())
+            ),
+            ("plus-unbound".into(), "invalid".into(), None),
+        ]
+    );
+    assert_eq!(
+        mutation(&cold, "plus-in-a-group")["reason"],
+        "infrastructure"
+    );
+    assert_eq!(mutation(&cold, "plus-unbound")["reason"], "rejected");
+    (dir, cold)
+}
+
+/// F-14 review 1 m2 (flow F-16): a mutant-scope infrastructure failure while cached agreements
+/// exist gives the status a cold run gives (error, reason infrastructure), not the corpus
+/// error `outcome-conflict`; the run goes on, the cached agreements do not enter the row, and
+/// nothing is written.
+#[test]
+fn an_infrastructure_failure_next_to_cached_agreements_is_the_cold_status() {
+    let (dir, cold) = macro_after_cold("infrastructure-conflict");
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    forge_agreements(
+        &manifest,
+        &cold,
+        "plus-becomes-minus",
+        "plus-in-a-group",
+        &["seven"],
+    );
+    let before = fs::read_to_string(outcome_file(&manifest, &cold, "plus-in-a-group")).unwrap();
+    let (document, ok) = search(&manifest, &mutations, &["plus-in-a-group"]);
+    assert!(ok, "no corpus error: {document:#}");
+    let row = mutation(&document, "plus-in-a-group");
+    let cold_row = mutation(&cold, "plus-in-a-group");
+    assert_eq!(
+        (&row["status"], &row["reason"]),
+        (&cold_row["status"], &cold_row["reason"])
+    );
+    assert_eq!(row["reason"], "infrastructure");
+    // The live call ran over the program without a record only; the cached agreement left
+    // the row and the counts, so the row's executed list is the cold row's.
+    assert_eq!(calls(&document, "plus-in-a-group"), vec![strings(&["sum"])]);
+    assert_eq!(row["executed"], cold_row["executed"]);
+    assert_eq!(document["outcome_cache"]["programs_from_cache"], 0);
+    assert_eq!(document["outcome_cache"]["records_written"], 0);
+    assert_eq!(
+        fs::read_to_string(outcome_file(&manifest, &cold, "plus-in-a-group")).unwrap(),
+        before
+    );
+    // `run --verify` re-proves the forged agreement and reports it.
+    let (verified, ok) = search_mode(&manifest, &mutations, &["plus-in-a-group"], RunMode::Verify);
+    assert!(!ok);
+    let row = mutation(&verified, "plus-in-a-group");
+    assert_eq!(row["status"], "error");
+    assert!(
+        row["reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("outcome-mismatch:"),
+        "{row:#}"
+    );
+}
+
+/// The determinism failure `outcome-conflict` is meant for stays one (flow F-16): a mutant
+/// that no longer compiles (here `plus-unbound`, rejected) next to a cached agreement, which
+/// says the mutant ran, is the corpus error `outcome-conflict`: no verdict, nothing written,
+/// the run stops.
+#[test]
+fn a_rejected_mutant_next_to_cached_agreements_is_an_outcome_conflict() {
+    let (dir, cold) = macro_after_cold("rejected-conflict");
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    forge_agreements(
+        &manifest,
+        &cold,
+        "plus-becomes-minus",
+        "plus-unbound",
+        &["seven"],
+    );
+    let before = fs::read_to_string(outcome_file(&manifest, &cold, "plus-unbound")).unwrap();
+    let (document, ok) = search(&manifest, &mutations, &["plus-unbound"]);
+    assert!(!ok, "{document:#}");
+    let row = mutation(&document, "plus-unbound");
+    assert_eq!(row["status"], "error");
+    assert_eq!(row["reason"], "outcome-conflict", "{row:#}");
+    assert_eq!(calls(&document, "plus-unbound"), vec![strings(&["sum"])]);
+    assert_eq!(document["outcome_cache"]["records_written"], 0);
+    assert_eq!(
+        fs::read_to_string(outcome_file(&manifest, &cold, "plus-unbound")).unwrap(),
+        before
+    );
+}
+
+/// F-14 review 1 m3 (flow F-16): a hinted program that does not kill runs again in the cold
+/// call; it is listed once in `executed` (with the cold call's run, the one the status folds)
+/// and its record is counted once in `records_written`.
+#[test]
+fn a_hinted_program_run_twice_is_listed_and_counted_once() {
+    let (dir, cold) = calc_after_cold("hint-counted-once");
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    let key = hint_key_of(&manifest, &mutations, "add-swaps-operands");
+    let add = program_digest(&cold, "add");
+    set_hint(&manifest, &key, "add-swaps-operands", "add", &add);
+    forget_outcomes(&manifest);
+    let (document, ok) = search(&manifest, &mutations, &["add-swaps-operands"]);
+    assert!(ok, "{document:#}");
+    assert_eq!(
+        status_only(&document),
+        vec![("add-swaps-operands".into(), "survived".into())]
+    );
+    assert_eq!(
+        calls(&document, "add-swaps-operands"),
+        vec![
+            strings(&["add"]),
+            strings(&["add", "nested", "inline", "sub"])
+        ]
+    );
+    assert_eq!(
+        executed(&document, "add-swaps-operands"),
+        vec![
+            ("add".into(), "agree".into(), false),
+            ("nested".into(), "agree".into(), false),
+            ("inline".into(), "agree".into(), false),
+            ("sub".into(), "agree".into(), false),
+        ]
+    );
+    assert_eq!(document["outcome_cache"]["records_written"], 4);
+    assert_eq!(records(&manifest, &document, "add-swaps-operands").len(), 4);
+}

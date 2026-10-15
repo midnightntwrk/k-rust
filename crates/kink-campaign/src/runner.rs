@@ -373,15 +373,13 @@ pub fn run_campaign_multi(
         campaign,
         generations,
         options,
-        &mut BaselineSession::new(campaign.validator, campaign.classify),
+        &mut BaselineSession::new(campaign.validator),
     )
 }
 
-/// The terminal classifier of a campaign ([`Campaign::classify`]).
-type Classify<'a> = dyn Fn(&Pattern) -> ExecutionTerminalKind + 'a;
-
 /// Every input of one baseline run ([`Runtime::run`] and [`Runtime::prepare`]), besides the
-/// session's validator and classifier: where each is read is listed on its field.
+/// session's validator and the campaign's classifier, which a hit re-applies (flow F-16): where
+/// each is read is listed on its field.
 #[derive(Clone, Debug, PartialEq)]
 struct BaselineKey {
     /// The evidence's and the bridge context's test id (`Runtime::run`).
@@ -398,13 +396,13 @@ struct BaselineKey {
     profile: SolverProfile,
 }
 
-/// A stored live baseline run: the runner's evidence and run cache (stepped evidence and rule
-/// coverage), exactly as [`Runtime::run`] returned them.
-#[derive(Clone)]
+/// A stored live baseline run: its classifier-independent part, exactly as
+/// [`Runtime::execute`] returned it (the adapter's execution and the run cache with its rule
+/// coverage and recording). Its evidence is not stored: a hit judges the stored execution
+/// again with the requesting campaign's classifier (flow F-16).
 struct StoredBaseline {
     key: BaselineKey,
-    evidence: TestEvidence,
-    cache: RunCache,
+    executed: Executed,
 }
 
 /// How a run ended, as a [`BaselineSession`] records it (flow F-13). A recording never enters
@@ -543,25 +541,32 @@ impl CallRecording {
 /// The live baseline runs of one command, each reused by later campaign calls of the same
 /// command (flow F-12, README 6.3).
 ///
-/// A session is created for one validator and one classifier, and lives in memory only: it is
-/// never written to disk, so every verdict compares a mutant with a baseline run live in this
-/// process. [`run_campaign_multi_with`] takes each test's baseline run through it: the first
-/// request with a key runs live and stores the runner's own evidence and run cache; a later
-/// request with an equal key returns them, inserted exactly where the runner produces baseline
-/// evidence, so admission, scheduling, the fold and the comparisons are unchanged. The key is
-/// every input of the run ([`BaselineKey`]: test id, initial state, oracle declarations,
-/// module, budget, solver profile), and the validator and the classifier are fixed per session;
-/// a campaign over another validator is refused, and a campaign with another classifier is not
-/// memoised. The session borrows its validator, so that validator cannot change or move while
-/// the session lives; a validator's baseline and compile options are fixed at bind and its
-/// compiled baseline is memoised, so the session's validator always has the compiled baseline
-/// and options [`BaselineSession::compiled_baseline`] records.
+/// A session is created for one validator, and lives in memory only: it is never written to
+/// disk, so every verdict compares a mutant with a baseline run live in this process.
+/// [`run_campaign_multi_with`] takes each test's baseline run through it: the first request
+/// with a key executes live and stores the execution (the adapter's leaves, before any
+/// classification) with its run cache; a later request with an equal key takes that execution
+/// and judges it again exactly as the live run did, with the requesting campaign's classifier,
+/// on this call's baseline side, so the evidence is inserted exactly where the runner produces
+/// baseline evidence and admission, scheduling, the fold and the comparisons are unchanged.
+/// The key is every input of the execution ([`BaselineKey`]: test id, initial state, oracle
+/// declarations, module, budget, solver profile), and the validator is fixed per session; a
+/// campaign over another validator is refused. The session borrows its validator, so that
+/// validator cannot change or move while the session lives; a validator's baseline and compile
+/// options are fixed at bind and its compiled baseline is memoised, so the session's validator
+/// always has the compiled baseline and options [`BaselineSession::compiled_baseline`] records.
 ///
-/// The session is used only when the baseline run is a function of that key: the campaign has
-/// no step observation, no oracle is a pattern projection, every test is concrete, and its
-/// classifier is the session's. Any other campaign runs every baseline live and leaves the
-/// session untouched. A baseline stopped by a bound (for example `Failed(TimeLimit)`) is stored
-/// and reused like any other run, and admission refuses it again.
+/// The classifier is not part of the session's identity (flow F-16, F-12 review 1): a
+/// `dyn Fn` may hold state, so no reference stands for a behaviour. A hit therefore calls the
+/// campaign's classifier on the stored execution's terminals, as the live run of a fresh call
+/// does, and the evidence of a hit is the evidence a fresh call gives for any classifier,
+/// stateful or panicking ones included. No premise about the classifier is made.
+///
+/// The session is used only when the baseline execution is a function of that key: the
+/// campaign has no step observation, no oracle is a pattern projection, and every test is
+/// concrete. Any other campaign runs every baseline live and leaves the session untouched. A
+/// baseline stopped by a bound (for example `Failed(TimeLimit)`) is stored and reused like any
+/// other run, and admission refuses it again.
 ///
 /// Reuse rests on k-rust execution determinism, the premise replay already rests on: the same
 /// compiled definition, module, budget and state give the same run. For such campaigns no state
@@ -573,7 +578,9 @@ impl CallRecording {
 /// exact query, so a later query reads what re-solving the same query gives (a solver timeout
 /// aside, which is host-dependent between any two live runs); after the baseline runs, the call
 /// reads the baseline `Runtime` only for definition facts and pattern sides, which feed pattern
-/// slots only.
+/// slots only. A hit judges the stored execution on this call's baseline `Runtime` (bridge,
+/// terminal values and state sides read the compiled definition and, with Z3, that same exact
+/// query cache), as a fresh call judges its own execution.
 ///
 /// The session also records (flow F-13) what each call through it ran: the wall time and the
 /// leaf census of every baseline request and every live mutant run of the last call
@@ -582,7 +589,6 @@ impl CallRecording {
 /// recording enters an evidence row, a report encoding, a digest or a key.
 pub struct BaselineSession<'v> {
     validator: &'v NativeValidator,
-    classify: &'v Classify<'v>,
     /// The validator's compiled baseline (`kore_sha256`) and compile options, when it compiles;
     /// recorded on first request, so a fresh session per call ([`run_campaign_multi`]) costs no
     /// hash of the compiled definition.
@@ -595,12 +601,11 @@ pub struct BaselineSession<'v> {
 }
 
 impl<'v> BaselineSession<'v> {
-    /// An empty session for `validator`'s compiled baseline and `classify`.
+    /// An empty session for `validator`'s compiled baseline.
     #[must_use]
-    pub fn new(validator: &'v NativeValidator, classify: &'v Classify<'v>) -> Self {
+    pub fn new(validator: &'v NativeValidator) -> Self {
         Self {
             validator,
-            classify,
             compiled: std::cell::OnceCell::new(),
             runs: Vec::new(),
             live: 0,
@@ -635,14 +640,6 @@ impl<'v> BaselineSession<'v> {
         self.runs.len()
     }
 
-    /// The classifier the session was created with: a campaign memoises only when its
-    /// [`Campaign::classify`] is this very reference (the same function through another
-    /// reference may have another vtable copy, which only misses).
-    #[must_use]
-    pub const fn classify(&self) -> &'v Classify<'v> {
-        self.classify
-    }
-
     /// The session's validator's compiled baseline (`kore_sha256`) and compile options; `None`
     /// when its baseline does not compile.
     pub fn compiled_baseline(&self) -> Option<(Sha256Digest, &k_rust::kompile::CompileOptions)> {
@@ -665,13 +662,11 @@ impl<'v> BaselineSession<'v> {
         }
     }
 
-    /// Whether the campaign's baseline runs are functions of their keys: no step observation,
-    /// no pattern oracle, concrete tests, and the session's classifier.
-    fn memoises(&self, campaign: &Campaign<'_>) -> bool {
-        let session: &Classify<'_> = self.classify;
-        let campaign_classify: &Classify<'_> = campaign.classify;
+    /// Whether the campaign's baseline executions are functions of their keys: no step
+    /// observation, no pattern oracle and concrete tests. The classifier is not consulted: a hit
+    /// re-applies the campaign's own.
+    fn memoises(campaign: &Campaign<'_>) -> bool {
         campaign.observation.is_empty()
-            && std::ptr::eq(session, campaign_classify)
             && campaign.tests.iter().all(|test| {
                 test.initial_state.variable_occurrences().is_empty()
                     && test
@@ -681,8 +676,9 @@ impl<'v> BaselineSession<'v> {
             })
     }
 
-    /// The baseline run of `test` on the call's baseline `runtime`: stored, or live and then
-    /// stored. With `memoise` false it is live and the session is untouched.
+    /// The baseline run of `test` on the call's baseline `runtime`: a stored execution judged
+    /// again with the campaign's classifier, or live and then stored. With `memoise` false it
+    /// is live and the session is untouched.
     fn baseline_run(
         &mut self,
         runtime: &mut Runtime,
@@ -704,19 +700,18 @@ impl<'v> BaselineSession<'v> {
             profile: SolverProfile::BUILD,
         };
         if let Some(stored) = self.runs.iter().find(|stored| stored.key == key) {
+            // The classifier-dependent part of the run, again (flow F-16).
+            let evidence = runtime.judge(campaign, test, &stored.executed);
+            let cache = stored.executed.cache.clone();
             self.reused += 1;
-            let (evidence, cache) = (stored.evidence.clone(), stored.cache.clone());
             self.record_baseline(&cache, true);
             return (evidence, cache);
         }
-        let (evidence, cache) = runtime.run(campaign, test);
+        let (evidence, executed) = runtime.run_keeping(campaign, test);
+        let cache = executed.cache.clone();
         self.record_baseline(&cache, false);
         self.live += 1;
-        self.runs.push(StoredBaseline {
-            key,
-            evidence: evidence.clone(),
-            cache: cache.clone(),
-        });
+        self.runs.push(StoredBaseline { key, executed });
         (evidence, cache)
     }
 
@@ -753,7 +748,7 @@ pub fn run_campaign_multi_with(
 ) -> Result<CampaignRun, CampaignFailure> {
     session.last_call = CallRecording::default();
     session.admit(campaign)?;
-    let memoise = session.memoises(campaign);
+    let memoise = BaselineSession::memoises(campaign);
     if generations.is_empty() {
         return Err(CampaignFailure::new(
             CampaignFailureKind::InvalidDeclaration,
@@ -1442,6 +1437,14 @@ fn run_tests(
     (tests, evidence, recordings)
 }
 
+/// The classifier-independent part of one run ([`Runtime::execute`]): the adapter's execution,
+/// the side a pattern slot gets when stepping failed, and the run cache.
+struct Executed {
+    execution: Result<AdaptedExecution, ExecutionAdapterFailure>,
+    pattern_failure: OracleSide,
+    cache: RunCache,
+}
+
 /// Stepped evidence retained from the primary run, its rule coverage when the side records
 /// it, and the session's recording of the run (wall time and leaf census; recording only).
 #[derive(Clone, Default)]
@@ -1520,7 +1523,33 @@ impl Runtime {
     }
 
     fn run(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> (TestEvidence, RunCache) {
+        let (evidence, executed) = self.run_keeping(campaign, test);
+        (evidence, executed.cache)
+    }
+
+    /// [`Runtime::run`], also returning the classifier-independent part of the run (the
+    /// execution and its run cache), which a [`BaselineSession`] stores.
+    fn run_keeping(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+    ) -> (TestEvidence, Executed) {
         let started = Instant::now();
+        let mut executed = self.execute(campaign, test);
+        let evidence = self.judge(campaign, test, &executed);
+        // Recording only (flow F-13): read from the execution the run already has.
+        executed.cache.recording = Some(RunRecording {
+            test_id: test.id.clone(),
+            wall: started.elapsed(),
+            census: LeafCensus::of(executed.execution.as_ref()),
+        });
+        (evidence, executed)
+    }
+
+    /// The execution of one test and what is read from it alone: the stepped evidence when a
+    /// pattern oracle needs it, and the rule coverage. Nothing here reads the campaign's
+    /// classifier or its oracle declarations other than whether one is a pattern oracle.
+    fn execute(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> Executed {
         let mut cache = RunCache::default();
         let has_pattern = test
             .oracles
@@ -1553,10 +1582,23 @@ impl Runtime {
             Ok(execution) => TestCoverage::of_execution(&test.id, execution, authors),
             Err(_) => TestCoverage::failed(&test.id),
         });
-        // Recording only (flow F-13): read from the execution the run already has.
-        let census = LeafCensus::of(execution.as_ref());
-        let run = match execution {
-            Err(failure) => SideRun::Failed((&failure).into()),
+        Executed {
+            execution,
+            pattern_failure,
+            cache,
+        }
+    }
+
+    /// The evidence of one executed test: its execution bridged with the campaign's classifier
+    /// and decided with this side's definition and solver, one side per oracle declaration.
+    fn judge(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        executed: &Executed,
+    ) -> TestEvidence {
+        let run = match &executed.execution {
+            Err(failure) => SideRun::Failed(failure.into()),
             Ok(execution) if execution.timed_out() => {
                 SideRun::Failed(ExecutionFailureKind::TimeLimit)
             }
@@ -1567,7 +1609,7 @@ impl Runtime {
                     TestInitialState::of_test(&test.initial_state),
                 );
                 Ok::<_, k_rust::backend::BackendError>(paths_from_execution_values(
-                    &execution,
+                    execution,
                     &BridgeContext {
                         test_id: &test.id,
                         classify: campaign.classify,
@@ -1586,24 +1628,16 @@ impl Runtime {
                         .iter()
                         .map(|declaration| match declaration.projection() {
                             Projection::State(projection) => state_side(projection, &bridged),
-                            Projection::Pattern { .. } => pattern_failure.clone(),
+                            Projection::Pattern { .. } => executed.pattern_failure.clone(),
                         })
                         .collect(),
                 },
             },
         };
-        cache.recording = Some(RunRecording {
+        TestEvidence {
             test_id: test.id.clone(),
-            wall: started.elapsed(),
-            census,
-        });
-        (
-            TestEvidence {
-                test_id: test.id.clone(),
-                run,
-            },
-            cache,
-        )
+            run,
+        }
     }
 
     /// The pattern-slot sides of one side's stepped run, evaluated with this (the baseline's)
@@ -2047,7 +2081,8 @@ mod tests {
                     k_rust::kompile::CompileOptions::default(),
                 );
                 let compiled = validator.compile_baseline().unwrap();
-                let classify: &Classify<'_> = &|_| ExecutionTerminalKind::Normal;
+                let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
+                    &|_| ExecutionTerminalKind::Normal;
                 let z = || input_test_support::app("Lblz", vec![]);
                 let test = TestCase {
                     id: "t".into(),
@@ -2084,8 +2119,8 @@ mod tests {
                 let other = campaign("COUNTER-OTHER");
                 let mut runtime = Runtime::prepare(&counter, &compiled)
                     .unwrap_or_else(|_| panic!("baseline runtime"));
-                let mut session = BaselineSession::new(&validator, classify);
-                assert!(session.memoises(&counter) && session.memoises(&other));
+                let mut session = BaselineSession::new(&validator);
+                assert!(BaselineSession::memoises(&counter) && BaselineSession::memoises(&other));
                 let first = session.baseline_run(&mut runtime, &counter, &tests[0], true);
                 assert_eq!((session.live_runs(), session.reused_runs()), (1, 0));
                 let moved = session.baseline_run(&mut runtime, &other, &tests[0], true);

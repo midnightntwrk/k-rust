@@ -160,6 +160,14 @@ fn admit(
         ));
     }
     let (loaded, input_texts) = pinned_load(d, workspace, record)?;
+    // Every file the load read, not only the entry (corpus-scale CS-12 review 1, flow F-16):
+    // a wrapper entry cannot bring a below-floor source in by a require or an include dir.
+    check_loaded_exclusions(
+        &manifest.exclusions,
+        Path::new(&d.root.path),
+        &loaded.root,
+        &record.files,
+    )?;
     let semantic_input = check_loaded_semantic_input(&loaded)?;
     let validator = NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default());
     let compiled = compile_definition(&validator, record)?;
@@ -237,26 +245,54 @@ pub fn check_exclusions(
     applies: impl Fn(&Exclusion) -> bool,
 ) -> Result<(), AdmissionRefusal> {
     for exclusion in exclusions {
-        let canonical = fs::canonicalize(path).ok();
-        let resolved_match = canonical.as_ref().is_some_and(|p| {
-            let parts = p
-                .components()
-                .filter_map(|c| match c {
-                    Component::Normal(n) => n.to_str().map(str::to_owned),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            path_excluded(&parts, &exclusion.case)
-        });
-        if applies(exclusion) || resolved_match {
-            return Err(AdmissionRefusal::new(
-                "exclusion",
-                &exclusion.reason,
-                &exclusion.citation,
-            ));
+        if applies(exclusion) || resolved_names_case(path, &exclusion.case) {
+            return Err(exclusion_refusal(exclusion));
         }
     }
     Ok(())
+}
+
+/// Exclusion stage over the files a load read (corpus-scale CS-12 review 1, flow F-16): the
+/// first exclusion, in list order, whose conformance case directory encloses one of `files`
+/// refuses with its reason and citation, exactly as for an excluded entry. Each file is named
+/// by its logical name under the definition root and is matched both lexically under
+/// `lexical_root` (the root as the manifest names it) and once links are resolved under
+/// `canonical_root`. So no require, include directory or link can bring a below-floor source
+/// into a definition whose entry lies outside every case directory.
+pub fn check_loaded_exclusions(
+    exclusions: &[Exclusion],
+    lexical_root: &Path,
+    canonical_root: &Path,
+    files: &[SourceFile],
+) -> Result<(), AdmissionRefusal> {
+    for exclusion in exclusions {
+        if files.iter().any(|file| {
+            path_names_case(&lexical_root.join(&file.name), &exclusion.case)
+                || resolved_names_case(&canonical_root.join(&file.name), &exclusion.case)
+        }) {
+            return Err(exclusion_refusal(exclusion));
+        }
+    }
+    Ok(())
+}
+
+fn exclusion_refusal(exclusion: &Exclusion) -> AdmissionRefusal {
+    AdmissionRefusal::new("exclusion", &exclusion.reason, &exclusion.citation)
+}
+
+/// Whether `path`, once links are resolved, lies inside the full conformance case directory
+/// `case` (false when it cannot be resolved).
+fn resolved_names_case(path: &Path, case: &str) -> bool {
+    fs::canonicalize(path).ok().is_some_and(|p| {
+        let parts = p
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(n) => n.to_str().map(str::to_owned),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        path_excluded(&parts, case)
+    })
 }
 
 /// Semantic-input stage of a loaded definition: its generated SemanticInput must be canonical.

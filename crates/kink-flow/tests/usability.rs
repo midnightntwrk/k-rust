@@ -535,11 +535,39 @@ fn reverse_costs(manifest: &Path, document: &Value) {
     }
 }
 
+/// Every tier-1 record of a cache, by (context digest, mutation identity, program digest), as
+/// its JSON text.
+fn outcome_records(cache: &Path) -> BTreeMap<(String, String, String), String> {
+    let mut out = BTreeMap::new();
+    for text in files(&cache.join(OUTCOMES_DIRECTORY)).values() {
+        let file: Value = serde_json::from_str(text).unwrap();
+        let context = file["context_sha256"].as_str().unwrap();
+        let identity = file["mutation_identity"].as_str().unwrap();
+        for (program, record) in file["records"].as_object().unwrap() {
+            out.insert(
+                (context.to_owned(), identity.to_owned(), program.clone()),
+                serde_json::to_string(record).unwrap(),
+            );
+        }
+    }
+    out
+}
+
 /// The statuses of every mutation of a fixture list are the same under corpus order, under
 /// the measured cost order and under a forged cost order that reverses corpus order inside
 /// each tier (stop rule 1 of F-13: the order-independence premise of README 6.4). Only the
 /// killers and the costs may differ.
-fn statuses_do_not_depend_on_the_order(name: &str, manifest: &str, mutations: &str) -> [Value; 3] {
+///
+/// F-13 review 1 minor 1 (flow F-16): under cost order the SET of tier-1 records written
+/// depends on host timing (under FirstKill the programs after the first kill get none), but
+/// no record's content does: every record a cost-order run writes (forged or measured costs)
+/// is byte-equal to the corpus-order run's record of the same (mutation, program) when that
+/// run wrote one. Returns the documents and the number of such shared records.
+fn statuses_do_not_depend_on_the_order(
+    name: &str,
+    manifest: &str,
+    mutations: &str,
+) -> ([Value; 3], usize) {
     let slug = format!("{}-{manifest}-{mutations}", name.replace('/', "-"));
     let corpus = fixture(name, &format!("order-corpus-{slug}"));
     let flow = corpus.join(manifest);
@@ -549,6 +577,7 @@ fn statuses_do_not_depend_on_the_order(name: &str, manifest: &str, mutations: &s
     // The same result records with reversed costs; outcomes, hints and report forgotten.
     reverse_costs(&flow, &by_corpus);
     let cache = cache_of(&flow);
+    let corpus_records = outcome_records(&cache);
     let _ = fs::remove_dir_all(cache.join(OUTCOMES_DIRECTORY));
     let _ = fs::remove_file(hints_path(&cache));
     let _ = fs::remove_file(cache.join(REPORT_FILE));
@@ -573,6 +602,18 @@ fn statuses_do_not_depend_on_the_order(name: &str, manifest: &str, mutations: &s
 
     assert_eq!(statuses(&reversed), statuses(&by_corpus), "{name} reversed");
     assert_eq!(statuses(&by_cost), statuses(&by_corpus), "{name} cost");
+    let mut shared = 0;
+    for (label, records) in [
+        ("reversed", outcome_records(&cache)),
+        ("cost", outcome_records(&cache_of(&measured.join(manifest)))),
+    ] {
+        for (key, text) in &records {
+            if let Some(corpus) = corpus_records.get(key) {
+                assert_eq!(text, corpus, "{name} {label}: {key:?}");
+                shared += 1;
+            }
+        }
+    }
     // Each killer is a program that kills (a Distinguish of its own entry).
     for document in [&by_corpus, &reversed, &by_cost] {
         for row in document["mutations"].as_array().unwrap() {
@@ -584,13 +625,14 @@ fn statuses_do_not_depend_on_the_order(name: &str, manifest: &str, mutations: &s
             }
         }
     }
-    [by_corpus, reversed, by_cost]
+    ([by_corpus, reversed, by_cost], shared)
 }
 
 #[test]
 fn calc_statuses_do_not_depend_on_the_order() {
-    let [by_corpus, reversed, _] =
+    let ([by_corpus, reversed, _], shared) =
         statuses_do_not_depend_on_the_order("calc", "FLOW.toml", "MUTATIONS.toml");
+    assert!(shared > 0, "the byte-equality check compared records");
     // The forged costs did reorder the search: inside each tier the survivor ran its programs
     // in reverse corpus order (corpus order: add, nested, sub, inline; add, nested and inline
     // reach the add rule).
