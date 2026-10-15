@@ -3,7 +3,8 @@
 //! `apply` (one-rule conditional rewriting, backend.rewrite.apply),
 //! `recover` (its indeterminate-match recovery ladder, backend.rewrite.apply), `step` (the
 //! priority-grouped step with remainder, backend.rewrite.step), `execute` (depth-first
-//! exploration of the rewrite tree, backend.rewrite.execute), and `predicates` (predicate
+//! exploration of the rewrite tree, backend.rewrite.execute, with `path_trace`, the trace an
+//! execution path shares with the paths it forked from), and `predicates` (predicate
 //! truth, alpha equivalence, and constructor-domain coverage). This file holds the shared
 //! types, the public entry points, and the re-exports that keep every `crate::rewrite::` path
 //! of the tests unchanged; each home's head states its cost and counters. In one line: O(c)
@@ -12,6 +13,7 @@
 
 mod apply;
 mod execute;
+mod path_trace;
 mod predicates;
 mod recover;
 mod roles;
@@ -688,16 +690,14 @@ fn applied_trivial_halt(depth: u64, application: &TrivialApplication) -> HaltRea
     }
 }
 
+/// The `Vacuous` halt of a state at `depth` whose constraints are false, naming `applied`, the
+/// latest rewrite entry of its path, as the rule that produced it.
 fn vacuous_halt(
     depth: u64,
     pattern: &Pattern,
-    trace: &[TraceEntry],
+    applied: Option<&TraceEntry>,
     contradicted_total: Option<Box<ContradictedTotal>>,
 ) -> HaltReason {
-    let applied = trace
-        .iter()
-        .rev()
-        .find(|entry| entry.kind == TraceKind::Rewrite);
     HaltReason::Vacuous {
         depth,
         rule_id: applied.map(|entry| entry.unique_id.clone()),

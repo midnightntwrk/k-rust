@@ -2473,6 +2473,10 @@ mode = "final leaf merge (merge_equal_final_leaves)"
 bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key (backend.fresh.variables) and one console observation (linear in the leaf's transcript) per such leaf, and O(L^2) key comparisons; each merged leaf's diagnostics are appended to the retained leaf's without repeats, in time the product of the two lists' lengths"
 
 [[node.cost]]
+mode = "trace storage"
+bound = "O(1) per fork and per appended entry: a path shares its trace with the paths it forked from (rewrite::path_trace); O(entries) per leaf to materialise the trace it returns"
+
+[[node.cost]]
 mode = "trace storage with retain_trace false"
 bound = "O(1) rewrite entries per active path, excluding transient simplification entries"
 
