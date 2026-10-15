@@ -1,6 +1,11 @@
 //! Stable transition identities and opt-in structured observation contracts.
 
-use std::{collections::BTreeMap, collections::BTreeSet, fmt, io, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    collections::BTreeSet,
+    fmt, io,
+    sync::{Arc, OnceLock},
+};
 
 use k_rust_kore::kore::printer::Printer;
 use sha2::{Digest, Sha256};
@@ -198,20 +203,49 @@ pub struct ConsoleObservation {
 /// Buffered console state owned by one execution branch.
 ///
 /// Input is immutable and shared between forks. The cursor and transcript are values of the
-/// branch, while the transcript storage is copied only when a fork first appends to it.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// branch. The transcript is a shared-prefix list: a fork clones a handle to its newest write in
+/// constant time, and a write appended on one branch is seen by that branch only. It also keeps
+/// the running length and digest of its observable form ([`Self::observable_fingerprint`]). The
+/// transcript is materialised as a slice once per state, when [`Self::transcript`] or
+/// [`Self::observable`] first reads it.
+#[derive(Clone, Default)]
 pub struct ExecutionIoState {
     input: Arc<[u8]>,
     cursor: usize,
-    transcript: Arc<Vec<DescriptorTranscriptEntry>>,
+    transcript: SharedLog<DescriptorTranscriptEntry>,
+    /// The bytes of non-empty writes, and the digest of the observable form, so far.
+    written: usize,
+    digest: RunningDigest,
+    /// The descriptor of the latest non-empty write, which starts the current observable run.
+    last_descriptor: Option<i32>,
+    /// `transcript` as a slice, computed on first read and shared by the clones that hold the
+    /// same transcript; an append replaces it.
+    materialised: Arc<OnceLock<Vec<DescriptorTranscriptEntry>>>,
+}
+
+/// A filter for comparing consoles as a process observes them: equal observations
+/// ([`ExecutionIoState::observable`]) have equal fingerprints. Different fingerprints prove the
+/// observations different; equal ones do not prove them equal, so equality is decided on the
+/// observations themselves.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the state-set exploration merge, which compares states by fingerprint first, is not built yet"
+    )
+)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct ConsoleFingerprint {
+    consumed: usize,
+    written: usize,
+    digest: RunningDigest,
 }
 
 impl ExecutionIoState {
     pub fn new(input: impl Into<Arc<[u8]>>) -> Self {
         Self {
             input: input.into(),
-            cursor: 0,
-            transcript: Arc::default(),
+            ..Self::default()
         }
     }
 
@@ -228,7 +262,7 @@ impl ExecutionIoState {
     }
 
     pub fn transcript(&self) -> &[DescriptorTranscriptEntry] {
-        &self.transcript
+        self.materialised.get_or_init(|| self.transcript.to_vec())
     }
 
     /// This console as a process observes it (see [`ConsoleObservation`]). The transcript keeps
@@ -237,7 +271,7 @@ impl ExecutionIoState {
     pub fn observable(&self) -> ConsoleObservation {
         let mut writes = Vec::<(i32, Arc<[u8]>)>::new();
         let mut entries = self
-            .transcript
+            .transcript()
             .iter()
             .filter(|entry| !entry.bytes.is_empty())
             .peekable();
@@ -261,6 +295,25 @@ impl ExecutionIoState {
         }
     }
 
+    /// The fingerprint of [`Self::observable`], in constant time: the input consumed, the bytes
+    /// written, and a digest folded over the observable form as the writes were appended (each
+    /// run's descriptor, then its bytes), so writes split differently, or with empty writes
+    /// between them, fold to the same digest.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the state-set exploration merge, which compares states by fingerprint first, is not built yet"
+        )
+    )]
+    pub(crate) fn observable_fingerprint(&self) -> ConsoleFingerprint {
+        ConsoleFingerprint {
+            consumed: self.cursor,
+            written: self.written,
+            digest: self.digest,
+        }
+    }
+
     /// Fork a tentative evaluator state from this branch.
     ///
     /// Dropping the context rolls every read and write back. `commit` returns the updated state
@@ -269,6 +322,40 @@ impl ExecutionIoState {
         ExecutionEvaluationContext {
             state: self.clone(),
         }
+    }
+
+    fn append(&mut self, entry: DescriptorTranscriptEntry) {
+        if !entry.bytes.is_empty() {
+            if self.last_descriptor != Some(entry.descriptor) {
+                self.digest.fold_marker(entry.descriptor);
+                self.last_descriptor = Some(entry.descriptor);
+            }
+            self.digest.fold_bytes(&entry.bytes);
+            self.written += entry.bytes.len();
+        }
+        self.transcript.push(entry);
+        self.materialised = Arc::default();
+    }
+}
+
+impl PartialEq for ExecutionIoState {
+    fn eq(&self, other: &Self) -> bool {
+        self.cursor == other.cursor
+            && self.input == other.input
+            && self.transcript == other.transcript
+    }
+}
+
+impl Eq for ExecutionIoState {}
+
+impl fmt::Debug for ExecutionIoState {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ExecutionIoState")
+            .field("input", &self.input)
+            .field("cursor", &self.cursor)
+            .field("transcript", &self.transcript())
+            .finish()
     }
 }
 
@@ -296,7 +383,7 @@ impl ExecutionEvaluationContext {
         descriptor: i32,
         bytes: impl Into<Arc<[u8]>>,
     ) {
-        Arc::make_mut(&mut self.state.transcript).push(DescriptorTranscriptEntry {
+        self.state.append(DescriptorTranscriptEntry {
             hook,
             descriptor,
             bytes: bytes.into(),
@@ -308,7 +395,7 @@ impl ExecutionEvaluationContext {
     }
 
     /// The console state now, for [`Self::restore`]: the cursor and the transcript are values,
-    /// so this copies two shared pointers and a number.
+    /// so this copies a few shared pointers and numbers.
     pub(crate) fn snapshot(&self) -> ExecutionIoState {
         self.state.clone()
     }
@@ -334,21 +421,256 @@ impl ExecutionEvaluationContext {
 /// Effects owned by the committed prefix of one execution branch.
 ///
 /// Simplification and rule application return candidate effects as ordinary vectors. The
-/// execution loop may append them here only when it retains that candidate as a successor. A
-/// branch copies the journal with its semantic state, so effects from sibling, rolled-back, or
-/// pruned candidates cannot enter another branch's transcript.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// execution loop may append them here only when it retains that candidate as a successor. The
+/// journal is a shared-prefix list: a branch clones a handle to its newest effect with its
+/// semantic state in constant time, and an effect committed on one branch is seen by that branch
+/// only, so effects from sibling, rolled-back, or pruned candidates cannot enter another branch's
+/// transcript. It keeps its length and a running digest ([`Self::fingerprint`]) and is
+/// materialised once, when the branch ends in a leaf.
+#[derive(Clone, Default)]
 pub(crate) struct EffectJournal {
-    committed: Vec<BuiltinEffect>,
+    committed: SharedLog<BuiltinEffect>,
+    digest: RunningDigest,
+}
+
+/// A filter for comparing effect journals: equal journals have equal fingerprints, and equality
+/// is decided on the journals themselves.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the state-set exploration merge, which compares states by fingerprint first, is not built yet"
+    )
+)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct JournalFingerprint {
+    len: usize,
+    digest: RunningDigest,
 }
 
 impl EffectJournal {
     pub(crate) fn commit(&mut self, effects: impl IntoIterator<Item = BuiltinEffect>) {
-        self.committed.extend(effects);
+        for effect in effects {
+            self.digest.fold_effect(&effect);
+            self.committed.push(effect);
+        }
     }
 
     pub(crate) fn into_committed(self) -> Vec<BuiltinEffect> {
-        self.committed
+        self.committed.into_vec()
+    }
+
+    /// The fingerprint of the committed effects, in constant time.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the state-set exploration merge, which compares states by fingerprint first, is not built yet"
+        )
+    )]
+    pub(crate) fn fingerprint(&self) -> JournalFingerprint {
+        JournalFingerprint {
+            len: self.committed.len(),
+            digest: self.digest,
+        }
+    }
+}
+
+impl PartialEq for EffectJournal {
+    fn eq(&self, other: &Self) -> bool {
+        self.digest == other.digest && self.committed == other.committed
+    }
+}
+
+impl Eq for EffectJournal {}
+
+impl fmt::Debug for EffectJournal {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("EffectJournal")
+            .field("committed", &self.committed.to_vec())
+            .finish()
+    }
+}
+
+/// A sequence appended at its end and shared, prefix by prefix, by the clones it was forked
+/// into: each node points at its predecessor, so a clone is constant time and an append adds one
+/// node only its appender holds.
+struct SharedLog<T> {
+    newest: Option<Arc<LogNode<T>>>,
+    len: usize,
+}
+
+struct LogNode<T> {
+    /// Always present, except while [`SharedLog::into_vec`] moves it out of a node it owns.
+    item: Option<T>,
+    parent: Option<Arc<LogNode<T>>>,
+}
+
+impl<T> Default for SharedLog<T> {
+    fn default() -> Self {
+        Self {
+            newest: None,
+            len: 0,
+        }
+    }
+}
+
+impl<T> Clone for SharedLog<T> {
+    fn clone(&self) -> Self {
+        Self {
+            newest: self.newest.clone(),
+            len: self.len,
+        }
+    }
+}
+
+impl<T> SharedLog<T> {
+    fn push(&mut self, item: T) {
+        self.newest = Some(Arc::new(LogNode {
+            item: Some(item),
+            parent: self.newest.take(),
+        }));
+        self.len += 1;
+    }
+
+    const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// The items newest first.
+    fn iter_newest_first(&self) -> impl Iterator<Item = &T> {
+        std::iter::successors(self.newest.as_deref(), |node| node.parent.as_deref())
+            .filter_map(|node| node.item.as_ref())
+    }
+
+    /// Whether `self` and `other` hold the same newest node, so that each item is stored once.
+    #[cfg(test)]
+    fn shares_items_with(&self, other: &Self) -> bool {
+        match (&self.newest, &other.newest) {
+            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
+impl<T: Clone> SharedLog<T> {
+    /// The items, oldest first.
+    fn to_vec(&self) -> Vec<T> {
+        let mut items = Vec::with_capacity(self.len);
+        items.extend(self.iter_newest_first().cloned());
+        items.reverse();
+        items
+    }
+
+    /// The items, oldest first, for the owner that ends the log: an item no other clone shares
+    /// is moved out, and only the items shared with another clone are cloned.
+    fn into_vec(mut self) -> Vec<T> {
+        let mut items = Vec::with_capacity(self.len);
+        let mut node = self.newest.take();
+        while let Some(current) = node {
+            match Arc::try_unwrap(current) {
+                Ok(mut owned) => {
+                    items.extend(owned.item.take());
+                    node = owned.parent.take();
+                }
+                Err(shared) => {
+                    let rest = SharedLog {
+                        newest: Some(shared),
+                        len: 0,
+                    };
+                    items.extend(rest.iter_newest_first().cloned());
+                    break;
+                }
+            }
+        }
+        items.reverse();
+        items
+    }
+}
+
+impl<T: PartialEq> PartialEq for SharedLog<T> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+        let mut left = self.newest.as_ref();
+        let mut right = other.newest.as_ref();
+        while let (Some(l), Some(r)) = (left, right) {
+            if Arc::ptr_eq(l, r) {
+                return true;
+            }
+            if l.item != r.item {
+                return false;
+            }
+            left = l.parent.as_ref();
+            right = r.parent.as_ref();
+        }
+        true
+    }
+}
+
+impl<T> Drop for LogNode<T> {
+    /// Unlink a long unshared chain iteratively rather than by recursive drops.
+    fn drop(&mut self) {
+        let mut parent = self.parent.take();
+        while let Some(node) = parent {
+            match Arc::try_unwrap(node) {
+                Ok(mut node) => parent = node.parent.take(),
+                Err(_) => break,
+            }
+        }
+    }
+}
+
+/// A 128-bit digest folded symbol by symbol, in two independent multiply-xor lanes. A filter
+/// only: it is never the reason two sequences are taken as equal.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct RunningDigest {
+    low: u64,
+    high: u64,
+}
+
+impl Default for RunningDigest {
+    fn default() -> Self {
+        Self {
+            low: 0xcbf2_9ce4_8422_2325,
+            high: 0x6c62_272e_07bb_0142,
+        }
+    }
+}
+
+impl RunningDigest {
+    fn fold(&mut self, symbol: u64) {
+        self.low = (self.low ^ symbol).wrapping_mul(0x0000_0100_0000_01b3);
+        self.high = (self.high ^ symbol.rotate_left(29) ^ (symbol >> 7))
+            .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            .rotate_left(31);
+    }
+
+    /// Symbols at or above 2^32 never equal a byte, so a marker cannot be confused with data.
+    fn fold_marker(&mut self, descriptor: i32) {
+        self.fold((1 << 32) | u64::from(descriptor as u32));
+    }
+
+    fn fold_bytes(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.fold(u64::from(*byte));
+        }
+    }
+
+    /// Each effect folds its kind as a marker, then its content and its length, so that a
+    /// sequence of effects folds to one symbol sequence that determines it.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn fold_effect(&mut self, effect: &BuiltinEffect) {
+        match effect {
+            BuiltinEffect::UserLog(text) => {
+                self.fold(2 << 32);
+                self.fold_bytes(text.as_bytes());
+                self.fold((3 << 32) | text.len() as u64);
+            }
+        }
     }
 }
 
@@ -693,10 +1015,11 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::{
-        ConsoleObservation, DescriptorTranscriptEntry, EvaluationClass, ExecutionIoState,
-        ObservationEvent, ObservationOptions,
+        ConsoleObservation, DescriptorTranscriptEntry, EffectJournal, EvaluationClass,
+        ExecutionIoState, ObservationEvent, ObservationOptions,
     };
     use crate::{
+        builtin::BuiltinEffect,
         definition::BackendDefinition,
         rewrite::{ExecutionOptions, Pattern, execute_observed},
     };
@@ -883,5 +1206,193 @@ mod tests {
             empty_only.commit().observable(),
             ConsoleObservation::default()
         );
+    }
+
+    fn console(
+        input: &[u8],
+        consumed: usize,
+        writes: &[(&'static str, i32, &[u8])],
+    ) -> ExecutionIoState {
+        let mut evaluation = ExecutionIoState::new(input.to_vec()).begin_evaluation();
+        evaluation.read(consumed);
+        for (hook, descriptor, bytes) in writes {
+            evaluation.append(hook, *descriptor, bytes.to_vec());
+        }
+        evaluation.commit()
+    }
+
+    fn entry(hook: &'static str, descriptor: i32, bytes: &[u8]) -> DescriptorTranscriptEntry {
+        DescriptorTranscriptEntry {
+            hook,
+            descriptor,
+            bytes: bytes.into(),
+        }
+    }
+
+    // A fork shares its parent's console transcript and effect journal, stored once, and what one
+    // branch appends afterwards is not the other's; each materialises exactly the entries a
+    // vector of its own would hold, also when the parent's transcript was read before the fork.
+    // This pins the representation's contract; it is not a regression test that fails at a base
+    // where forks copied the vectors.
+    #[test]
+    fn a_fork_shares_its_console_and_journal_and_extends_them_apart() {
+        let prefix = (0..200u8)
+            .map(|byte| entry("IO.putc", 1, &[byte]))
+            .collect::<Vec<_>>();
+        let mut evaluation = ExecutionIoState::default().begin_evaluation();
+        for written in &prefix {
+            evaluation.append(written.hook, written.descriptor, written.bytes.clone());
+        }
+        let parent = evaluation.commit();
+        assert_eq!(parent.transcript(), prefix);
+
+        let fork = parent.clone();
+        assert!(fork.transcript.shares_items_with(&parent.transcript));
+        let mut left = fork.begin_evaluation();
+        left.append("IO.write", 2, b"left".to_vec());
+        let left = left.commit();
+        let mut right = parent.begin_evaluation();
+        right.append("IO.write", 1, b"right".to_vec());
+        let right = right.commit();
+        assert!(!left.transcript.shares_items_with(&right.transcript));
+        assert_eq!(parent.transcript(), prefix);
+        assert_eq!(
+            left.transcript(),
+            [prefix.as_slice(), &[entry("IO.write", 2, b"left")]].concat()
+        );
+        assert_eq!(
+            right.transcript(),
+            [prefix.as_slice(), &[entry("IO.write", 1, b"right")]].concat()
+        );
+        assert_ne!(left, right);
+        assert_eq!(left, left.clone());
+
+        let effect = |text: &str| BuiltinEffect::UserLog(text.to_owned());
+        let mut journal = EffectJournal::default();
+        journal.commit((0..200).map(|index| effect(&index.to_string())));
+        let mut first = journal.clone();
+        assert!(first.committed.shares_items_with(&journal.committed));
+        let mut second = journal.clone();
+        first.commit([effect("first")]);
+        second.commit([effect("second")]);
+        assert!(!first.committed.shares_items_with(&second.committed));
+        let expected = (0..200)
+            .map(|index| effect(&index.to_string()))
+            .collect::<Vec<_>>();
+        assert_eq!(journal.clone().into_committed(), expected);
+
+        // A journal that ends moves out the effects it holds alone and clones those another
+        // branch shares: a moved effect keeps its text's buffer, a cloned one gets a new one.
+        let text_buffers = |effects: &mut dyn Iterator<Item = &BuiltinEffect>| {
+            effects
+                .map(|BuiltinEffect::UserLog(text)| text.as_ptr())
+                .collect::<Vec<_>>()
+        };
+        let in_place = |journal: &EffectJournal| {
+            let mut buffers = text_buffers(&mut journal.committed.iter_newest_first());
+            buffers.reverse();
+            buffers
+        };
+        let first_buffers = in_place(&first);
+        let second_buffers = in_place(&second);
+        let first = first.into_committed();
+        assert_eq!(first, [expected.as_slice(), &[effect("first")]].concat());
+        let first_out = text_buffers(&mut first.iter());
+        assert_eq!(first_out.last(), first_buffers.last());
+        assert!(
+            first_out[..expected.len()]
+                .iter()
+                .zip(&first_buffers)
+                .all(|(out, held)| out != held)
+        );
+        drop(journal);
+        let second = second.into_committed();
+        assert_eq!(second, [expected.as_slice(), &[effect("second")]].concat());
+        assert_eq!(text_buffers(&mut second.iter()), second_buffers);
+    }
+
+    // The fingerprint is a filter for `observable()`: over consoles that write the same bytes by
+    // different hooks or calls, add empty writes, interleave descriptors differently, consume
+    // different input, or write bytes that spell a descriptor, two fingerprints agree exactly when
+    // the observations do.
+    #[test]
+    fn console_fingerprints_agree_exactly_when_observations_do() {
+        let consoles = [
+            console(b"", 0, &[]),
+            console(b"", 0, &[("IO.write", 2, b"")]),
+            console(b"", 0, &[("IO.write", 1, b"ab")]),
+            console(b"", 0, &[("IO.putc", 1, b"a"), ("IO.putc", 1, b"b")]),
+            console(
+                b"",
+                0,
+                &[
+                    ("IO.putc", 1, b"a"),
+                    ("IO.write", 2, b""),
+                    ("IO.putc", 1, b"b"),
+                ],
+            ),
+            console(b"", 0, &[("IO.write", 1, b"a"), ("IO.write", 2, b"b")]),
+            console(b"", 0, &[("IO.write", 2, b"b"), ("IO.write", 1, b"a")]),
+            console(b"", 0, &[("IO.write", 2, b"a"), ("IO.write", 2, b"b")]),
+            console(b"", 0, &[("IO.write", 1, b"ba")]),
+            console(b"", 0, &[("IO.write", 1, b"\x00\x00\x00\x01\x02")]),
+            console(
+                b"",
+                0,
+                &[
+                    ("IO.write", 1, b"a"),
+                    ("IO.write", 2, b"b"),
+                    ("IO.write", 1, b"c"),
+                ],
+            ),
+            console(b"", 0, &[("IO.write", 1, b"ac"), ("IO.write", 2, b"b")]),
+            console(b"xy", 1, &[("IO.write", 1, b"ab")]),
+            console(b"xy", 2, &[("IO.write", 1, b"ab")]),
+        ];
+        for left in &consoles {
+            for right in &consoles {
+                assert_eq!(
+                    left.observable_fingerprint() == right.observable_fingerprint(),
+                    left.observable() == right.observable(),
+                    "{:?} and {:?}",
+                    left.observable(),
+                    right.observable()
+                );
+            }
+        }
+    }
+
+    // The same for effect journals: two fingerprints agree exactly when the journals do, also
+    // when the concatenation of their texts is the same.
+    #[test]
+    fn journal_fingerprints_agree_exactly_when_journals_do() {
+        let journal = |texts: &[&str]| {
+            let mut journal = EffectJournal::default();
+            journal.commit(
+                texts
+                    .iter()
+                    .map(|text| BuiltinEffect::UserLog((*text).to_owned())),
+            );
+            journal
+        };
+        let journals = [
+            journal(&[]),
+            journal(&[""]),
+            journal(&["", ""]),
+            journal(&["ab"]),
+            journal(&["a", "b"]),
+            journal(&["b", "a"]),
+            journal(&["ab", ""]),
+            journal(&["a", "b", "c"]),
+        ];
+        for left in &journals {
+            for right in &journals {
+                assert_eq!(left.fingerprint() == right.fingerprint(), left == right);
+                assert_eq!(
+                    left == right,
+                    left.clone().into_committed() == right.clone().into_committed()
+                );
+            }
+        }
     }
 }
