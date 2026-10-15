@@ -1048,7 +1048,9 @@ impl ResultSort<'_> {
 /// the same name returns: [`term`], [`predicate_pattern`], [`ml_pattern`],
 /// [`constrained_pattern`], [`conjunction`], and [`disjunction`]. The builders stay the direct
 /// recursive construction because building a whole tree through nodes costs about half again
-/// as many instructions; `tests::externalize` checks that both agree node for node.
+/// as many instructions; `tests::externalize` checks that both agree node for node. So a
+/// collection written through a source, as an execution leaf's state is, is written as [`term`]
+/// writes it (what each collection denotes: [`TermKind::Map`]).
 #[derive(Clone, Copy, Debug)]
 pub enum External<'t> {
     /// The term.

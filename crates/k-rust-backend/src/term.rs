@@ -733,16 +733,22 @@ pub enum TermKind {
     /// ([`Term::map`]). Each key and value is held at exactly the definition's key and value sort,
     /// an item of a strict subsort as its injection in normal form. `rest`, when present, is not
     /// a map of the same definition; it may be a raw application of the concat symbol holding two
-    /// opaque parts. A rest-free map whose keys and values are values denotes exactly the finite
-    /// map of its entries. The entries are in k-rust's term order (`order_collection`), which is
-    /// not part of what the map denotes.
+    /// opaque parts. A rest-free map with pairwise distinct keys whose keys and values are
+    /// constructor-like (domain values, free constructor applications, their normal-form
+    /// injections, and collections of them) denotes exactly the finite map of its entries. The
+    /// entries are in k-rust's term order (`order_collection`), a structural order that is a
+    /// function of the entries alone and not part of what the map denotes.
     ///
     /// A term of a collection sort may also be such a raw concat application itself; it is never
     /// rest-free and never a ground value. What a collection denotes holds for a definition whose
     /// collection role symbols have their roles' signatures, which the loader requires
-    /// ([`crate::definition::DefinitionError::CollectionRoleMisfit`]), and that has no executable
-    /// equation rooted at a role symbol, which the load reports as
-    /// [`crate::confluence::ViolationKind::IndexedAt`] of a collection index.
+    /// ([`crate::definition::DefinitionError::CollectionRoleMisfit`]), and that has no axiom
+    /// rooted at a role symbol (a function or anywhere equation, `concrete`, `symbolic` or
+    /// neither, or a `simplification`); the load reports the executable equations among them
+    /// without `symbolic` as [`crate::confluence::ViolationKind::IndexedAt`] of a collection index.
+    /// The state of an execution leaf is normalised, so a map read back from it binds no key
+    /// twice, except the state of a `work-bound` leaf, which is taken unnormalised and keeps a
+    /// repeated key as it was given.
     Map {
         definition: Arc<MapDefinition>,
         entries: Items<(Term, Term)>,
@@ -752,8 +758,9 @@ pub enum TermKind {
     /// tails of `rest`, in order. Each element is held at exactly the definition's element sort,
     /// an element of a strict subsort as its injection in normal form. The middle is never a list
     /// of the same definition; it may be a raw application of the concat symbol holding two opaque
-    /// parts. A list without a middle whose elements are values denotes exactly the sequence of its
-    /// elements, under the conditions stated on [`TermKind::Map`].
+    /// parts. A list may hold equal elements: it is a sequence, and `ListItem(1) ListItem(1)` has
+    /// two. A list without a middle whose elements are constructor-like denotes exactly the
+    /// sequence of its elements, under the conditions stated on [`TermKind::Map`].
     List {
         definition: Arc<ListDefinition>,
         heads: Items<Term>,
@@ -763,9 +770,9 @@ pub enum TermKind {
     /// application per element and of `rest`, defined only when the elements are pairwise distinct
     /// and none is an element of `rest`; an element held twice is kept, never merged, and makes the
     /// term `\bottom`. Elements are held at exactly the element sort, in injection normal form, and
-    /// `rest` is as for [`TermKind::Map`]. A rest-free set whose elements are values denotes exactly
-    /// the finite set of its elements, under the conditions stated on [`TermKind::Map`]; its order
-    /// is k-rust's term order, not part of what it denotes.
+    /// `rest` is as for [`TermKind::Map`]. A rest-free set with pairwise distinct elements that are
+    /// constructor-like denotes exactly the finite set of its elements, under the conditions
+    /// stated on [`TermKind::Map`]; its order is k-rust's term order, not part of what it denotes.
     Set {
         definition: Arc<SetDefinition>,
         elements: Items<Term>,

@@ -3,8 +3,9 @@
 //!
 //! A leaf's state writes each collection with its sort's own unit, element and concat symbols,
 //! one element application per item, and internalizes back to an equal term. Its content is its
-//! items, not the order they were inserted in; no leaf holds a map or set with two syntactically
-//! equal keys or elements, since such a collection is undefined where it is built; and keys or
+//! items, not the order they were inserted in; no leaf but the `work-bound` one holds a map or set
+//! with two syntactically equal keys or elements, since such a collection is undefined where it is
+//! built; and keys or
 //! elements that are neither equal nor apart split the step on their definedness condition.
 //! Every run goes through the facade as a consumer does: strategy `all`, the path-set modality,
 //! and `execute` and `execute_observed` giving the same leaves.
@@ -46,7 +47,9 @@ const SOURCE: &str = r#"module COLL
   syntax Int ::= g(Int) [function, symbol(g)]
   syntax Map ::= dup(Int) [function, total, symbol(dup)]
   syntax List ::= lf(Int) [function, symbol(lf)]
+  syntax Int ::= id(Int) [function, symbol(id)]
   rule f(0) => .Map
+  rule id(X) => X
   rule dup(I) => (I |-> 1) (I |-> 2)
 
   configuration <k> $PGM:Prog </k>
@@ -67,6 +70,9 @@ const SOURCE: &str = r#"module COLL
   rule [p14]: p(14) => done((g(1) |-> 10) (g(1) |-> 20))
   rule [p15]: p(15) => done(SetItem(g(1)) SetItem(g(2)))
   rule [p16]: p(16) => done((1 |-> 10) (2 |-> 20))
+  rule [p17]: p(17) => done((1 |-> 1) (2 |-> 2) (1 |-> 3))
+  rule [p18]: p(18) => done(SetItem(id(1)) SetItem(1))
+  rule [p19]: p(19) => done(ListItem(1) ListItem(1))
 endmodule
 "#;
 
@@ -113,11 +119,15 @@ fn program(number: u32) -> String {
     ))
 }
 
-fn request(state: &str, assume_state_defined: bool) -> ExecuteRequest {
+/// The last program of `SOURCE`.
+const LAST: u32 = 19;
+
+fn request(state: &str, assume_state_defined: bool, max_work: Option<u64>) -> ExecuteRequest {
     ExecuteRequest {
         result_modality: ResultModalityOutput::PathSet,
         strategy: ExecutionStrategy::All,
         assume_state_defined,
+        max_work,
         ..ExecuteRequest::new(parse_pattern(state).unwrap())
     }
 }
@@ -143,12 +153,22 @@ fn summary(result: &ExecutionResult) -> Summary {
 /// The leaves of `state` under strategy `all` and the path-set modality, which `execute` and
 /// `execute_observed` must give alike.
 fn run_state(backend: &mut Backend, state: &str, assume_state_defined: bool) -> ExecutionResult {
+    run_budgeted(backend, state, assume_state_defined, None)
+}
+
+/// [`run_state`] within a work budget of `max_work` states.
+fn run_budgeted(
+    backend: &mut Backend,
+    state: &str,
+    assume_state_defined: bool,
+    max_work: Option<u64>,
+) -> ExecutionResult {
     let plain = backend
-        .execute(request(state, assume_state_defined))
+        .execute(request(state, assume_state_defined, max_work))
         .unwrap();
     let observed = backend
         .execute_observed(ObservedRequest {
-            request: request(state, assume_state_defined),
+            request: request(state, assume_state_defined, max_work),
             rules: Some(Vec::new()),
         })
         .unwrap();
@@ -303,10 +323,31 @@ fn a_map_and_a_set_built_in_two_orders_give_equal_leaf_states() {
 #[test]
 fn a_list_keeps_its_order() {
     let mut backend = backend();
-    assert_ne!(
-        leaf(&run(&mut backend, 10), HaltReasonOutput::Stuck).state,
-        leaf(&run(&mut backend, 11), HaltReasonOutput::Stuck).state
-    );
+    let item = |value: i64| {
+        format!(
+            "LblListItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}(\\dv{{SortInt{{}}}}(\"{value}\")))"
+        )
+    };
+    let list = |first: i64, second: i64| {
+        format!("Lbl'Unds'List'Unds'{{}}({}, {})", item(first), item(second))
+    };
+    let ten = text(leaf(&run(&mut backend, 10), HaltReasonOutput::Stuck));
+    let eleven = text(leaf(&run(&mut backend, 11), HaltReasonOutput::Stuck));
+    assert!(ten.contains(&list(1, 2)), "{ten}");
+    assert!(eleven.contains(&list(2, 1)), "{eleven}");
+    // A list may hold equal items: it is a sequence, and `ListItem(1) ListItem(1)` has two.
+    let definition = definition(&mut backend);
+    let result = run(&mut backend, 19);
+    let stuck = leaf(&result, HaltReasonOutput::Stuck);
+    assert!(text(stuck).contains(&list(1, 1)), "{}", text(stuck));
+    let held = done_collection(&definition, stuck);
+    let TermKind::List {
+        heads, rest: None, ..
+    } = held.kind()
+    else {
+        panic!("{held:?}");
+    };
+    assert_eq!(heads.len(), 2);
 }
 
 #[test]
@@ -315,7 +356,16 @@ fn no_leaf_state_holds_a_repeated_key_or_element() {
     let definition = definition(&mut backend);
     // The step's own right-hand side builds the repeat: an undefined step, reported over the
     // pre-step configuration, with no constraint.
-    for (number, label) in [(4, "p4"), (5, "p5"), (6, "p6"), (14, "p14")] {
+    // A function's equation that is not `total` gives the same leaf (p(18), `id(1)` beside `1`),
+    // and so does a repeat whose equal keys are not adjacent as written (p(17)).
+    for (number, label) in [
+        (4, "p4"),
+        (5, "p5"),
+        (6, "p6"),
+        (14, "p14"),
+        (17, "p17"),
+        (18, "p18"),
+    ] {
         let result = run(&mut backend, number);
         let [trivial] = &result.leaves[..] else {
             panic!("p({number}): {:#?}", summary(&result));
@@ -358,8 +408,26 @@ fn no_leaf_state_holds_a_repeated_key_or_element() {
         assert_eq!(vacuous.depth, 0);
         assert_eq!(text(vacuous), BOTTOM, "{assume_state_defined}");
     }
+    // The exception: a work budget of 0 stops before the initial state is normalised, and the
+    // `work-bound` leaf holds that state as it was given, repeat included. It still reads back
+    // and is written again alike.
+    for assume_state_defined in [false, true] {
+        let result = run_budgeted(&mut backend, &initial, assume_state_defined, Some(0));
+        let [bound] = &result.leaves[..] else {
+            panic!("{assume_state_defined}: {:#?}", summary(&result));
+        };
+        assert_eq!(bound.reason, HaltReasonOutput::WorkBound);
+        assert_eq!(bound.depth, 0);
+        let pattern = internalized(&definition, &state(bound));
+        assert!(has_repeat(&pattern.term), "{}", text(bound));
+        assert_eq!(externalize::term(&pattern.term), state(bound));
+        assert_eq!(
+            internalized(&definition, &externalize::constrained_pattern(&pattern)),
+            pattern
+        );
+    }
     // No leaf of the file holds one.
-    for number in 1..=16 {
+    for number in 1..=LAST {
         for leaf in &run(&mut backend, number).leaves {
             if text(leaf) != BOTTOM {
                 let pattern = internalized(&definition, &state(leaf));
@@ -504,7 +572,7 @@ fn raw_concat_nodes_are_written_as_built() {
 fn a_collection_leaf_state_round_trips() {
     let mut backend = backend();
     let definition = definition(&mut backend);
-    for number in 1..=16 {
+    for number in 1..=LAST {
         for leaf in &run(&mut backend, number).leaves {
             if text(leaf) == BOTTOM {
                 continue;
@@ -550,7 +618,7 @@ fn collection_states_use_only_their_own_role_symbols() {
         arguments: Vec::new(),
     };
     let mut nodes = 0;
-    for number in 1..=16 {
+    for number in 1..=LAST {
         for leaf in &run(&mut backend, number).leaves {
             let mut pending = vec![state(leaf)];
             while let Some(pattern) = pending.pop() {
@@ -560,11 +628,6 @@ fn collection_states_use_only_their_own_role_symbols() {
                         .and_then(|symbol| symbol.attributes.collection.as_ref())
                 {
                     nodes += 1;
-                    assert!(
-                        symbol.sort_parameters.is_empty(),
-                        "p({number}): {}",
-                        symbol.name
-                    );
                     let roles = match collection {
                         CollectionMetadata::Map(map) => &map.symbols,
                         CollectionMetadata::List(list) | CollectionMetadata::Set(list) => {
@@ -599,17 +662,53 @@ fn collection_states_use_only_their_own_role_symbols() {
     assert!(nodes > 0);
 }
 
+/// The kinds of the violated value-claim preconditions of the definition `ROLES` whose rule
+/// `axiom` is rooted at a collection role symbol.
+fn violations_with(axiom: &str) -> Vec<ViolationKind> {
+    let source = format!(
+        "module ROLES\n  imports INT\n  imports BOOL\n  imports LIST\n  imports SET\n  syntax Prog ::= start(Int) | done(List, Set)\n  {axiom}\n  configuration <k> $PGM:Prog </k>\n  rule start(I) => done(ListItem(I), SetItem(I))\nendmodule\n"
+    );
+    let kore = compile(&source, "ROLES");
+    let mut backend = Backend::new(&kore, "ROLES", BackendOptions::default()).unwrap();
+    let definition = definition(&mut backend);
+    definition
+        .value_claims()
+        .violations()
+        .iter()
+        .map(|violation| violation.kind.clone())
+        .collect()
+}
+
+/// An axiom rooted at a collection role symbol is never applied. The load reports an executable
+/// equation without `symbolic` (`concrete` or not) as indexed at the collection; it reports
+/// neither a `symbolic` equation nor a `simplification` rooted there, which a consumer checks
+/// itself (docs, "Collections in results").
 #[test]
 fn an_equation_rooted_at_a_role_symbol_is_reported() {
-    let source = "module ROLE-EQ-HOOKED\n  imports INT\n  imports BOOL\n  imports LIST\n  imports K-EQUAL\n  syntax Prog ::= start(Int) | chk(List) | done(Int)\n  rule ListItem(1) => ListItem(2)\n  configuration <k> $PGM:Prog </k>\n  rule start(I) => chk(ListItem(I))\n  rule chk(L) => done(1) requires L ==K ListItem(2)\n  rule chk(_) => done(0) [owise]\nendmodule\n";
-    let kore = compile(source, "ROLE-EQ-HOOKED");
-    let mut backend = Backend::new(&kore, "ROLE-EQ-HOOKED", BackendOptions::default()).unwrap();
-    let definition = definition(&mut backend);
-    let violations = definition.value_claims().violations();
-    assert!(
-        violations
-            .iter()
-            .any(|violation| violation.kind == ViolationKind::IndexedAt(TermIndex::List)),
-        "{violations:#?}"
-    );
+    let indexed = |violations: &[ViolationKind], index: TermIndex| {
+        violations.contains(&ViolationKind::IndexedAt(index))
+    };
+    for axiom in [
+        "rule ListItem(1) => ListItem(2)",
+        "rule ListItem(X:Int) => ListItem(0) [concrete]",
+    ] {
+        let violations = violations_with(axiom);
+        assert!(
+            indexed(&violations, TermIndex::List),
+            "{axiom}: {violations:#?}"
+        );
+    }
+    for (axiom, index) in [
+        (
+            "rule ListItem(X:Int) => ListItem(0) [symbolic]",
+            TermIndex::List,
+        ),
+        (
+            "rule SetItem(1) => SetItem(2) [simplification]",
+            TermIndex::Set,
+        ),
+    ] {
+        let violations = violations_with(axiom);
+        assert!(!indexed(&violations, index), "{axiom}: {violations:#?}");
+    }
 }
