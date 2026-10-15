@@ -1275,10 +1275,9 @@ impl<'a> Execution<'a> {
         }
     }
 
-    /// E8: under `StateSet` leaves pass `merge_equal_final_leaves`; under `PathSet` every leaf
-    /// is kept, one per explored path. A `DepthBound` leaf is kept whatever halt
-    /// reason other leaves carry: a depth-bounded result covers every path up to the bound, so a
-    /// configuration reached at the bound is a result independently of other branches.
+    /// E8: under `StateSet` leaves pass `merge_equal_final_leaves`, which merges a leaf into an
+    /// earlier leaf of its configuration only when that leaf means everything it means; under
+    /// `PathSet` every leaf is kept, one per explored path.
     /// `simplified_to_bottom` holds iff every initial input completed E2 and E3 and ended
     /// `Vacuous`.
     fn collect(self) -> (ExecutionResult, InitialSimplificationStatus) {
@@ -1384,8 +1383,9 @@ fn final_leaves(
 /// that subtree only when its own halt is determined by the configuration (stuck, branching,
 /// undecided, failed, or itself a bound or stop). A terminal-rule leaf's halt is not: it records
 /// the rule by which its path arrived, and the same configuration reached by another rule has
-/// successors, so a terminal leaf absorbs only leaves that are final in their own right (stuck or
-/// terminal) and keeps any other equal leaf beside it. A later leaf merges into the first
+/// successors. A terminal leaf says the configuration is final; it absorbs, and is absorbed by,
+/// only leaves that say so too (stuck or terminal), and is kept beside any other equal leaf, which
+/// says the configuration goes on, is undecided, or was not explored. A later leaf merges into the first
 /// retained leaf of its configuration that may absorb it, and is otherwise retained itself, so
 /// a state-set result may show one configuration more than once, each with a different meaning.
 ///
@@ -1511,13 +1511,21 @@ fn merge_class(halt: &HaltReason) -> MergeClass {
 
 /// Whether the retained leaf, of halt `retained`, means everything a later leaf of the same
 /// configuration and halt `later` means. Only leaves that take part in merging are asked.
+///
+/// A leaf final in its own right (`Stuck`) and a terminal-rule leaf both mean that the
+/// configuration is a final one, and absorb each other; nothing else absorbs a terminal-rule leaf,
+/// and a terminal-rule leaf absorbs nothing else. A branching, cut-point, undecided or failed
+/// leaf says the configuration goes on or is not decided, and a bound or stop leaf that its
+/// subtree was not explored: none of them says that it is final.
 fn may_absorb(retained: &HaltReason, later: &HaltReason) -> bool {
-    match merge_class(retained) {
-        MergeClass::Unexplored | MergeClass::ByConfiguration => true,
-        MergeClass::ByArrival => {
-            matches!(later, HaltReason::Stuck | HaltReason::TerminalRule { .. })
+    let final_in_its_own_right =
+        |halt: &HaltReason| matches!(halt, HaltReason::Stuck | HaltReason::TerminalRule { .. });
+    match (merge_class(retained), merge_class(later)) {
+        (MergeClass::ByArrival, _) | (_, MergeClass::ByArrival) => {
+            final_in_its_own_right(retained) && final_in_its_own_right(later)
         }
-        MergeClass::NoConfiguration | MergeClass::RunEnding => false,
+        (MergeClass::Unexplored | MergeClass::ByConfiguration, _) => true,
+        (MergeClass::NoConfiguration | MergeClass::RunEnding, _) => false,
     }
 }
 
@@ -2656,9 +2664,49 @@ mod tests {
         );
         // An earlier leaf whose halt its configuration determines absorbs a later bound or stop
         // leaf of that configuration, as before.
+        let breadth = HaltReason::BreadthBound;
+        let stack = HaltReason::Stopped(StopCause::StackExhausted(
+            crate::stop::StackLimit::ThreadBudget(1),
+        ));
+        for unexplored in [deadline.clone(), breadth.clone(), stack.clone()] {
+            assert_eq!(
+                halts(vec![
+                    leaf(1, HaltReason::Stuck),
+                    leaf(2, unexplored.clone())
+                ]),
+                [(1, HaltReason::Stuck)],
+                "{unexplored:?}"
+            );
+        }
+        // A terminal leaf says its configuration is final, which a stuck leaf says too and a
+        // bound, stop or branching leaf does not: it is absorbed only by a stuck or terminal
+        // leaf, in either order.
+        for earlier in [
+            HaltReason::DepthBound,
+            breadth,
+            stack,
+            deadline,
+            HaltReason::Indeterminate(IndeterminateReason::SurvivingMacroOrAlias {
+                symbol: "m".into(),
+            }),
+        ] {
+            assert_eq!(
+                halts(vec![leaf(1, earlier.clone()), leaf(2, terminal.clone())]),
+                [(1, earlier.clone()), (2, terminal.clone())],
+                "{earlier:?}"
+            );
+        }
         assert_eq!(
-            halts(vec![leaf(1, HaltReason::Stuck), leaf(2, deadline.clone())]),
+            halts(vec![leaf(1, HaltReason::Stuck), leaf(2, terminal.clone())]),
             [(1, HaltReason::Stuck)]
+        );
+        assert_eq!(
+            halts(vec![leaf(1, terminal.clone()), leaf(2, HaltReason::Stuck)]),
+            [(1, terminal.clone())]
+        );
+        assert_eq!(
+            halts(vec![leaf(1, terminal.clone()), leaf(2, terminal.clone())]),
+            [(1, terminal)]
         );
     }
 }

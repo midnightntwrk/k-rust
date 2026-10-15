@@ -301,8 +301,9 @@ pub enum HaltReasonOutput {
     CutPoint,
     /// The path arrived by one of the request's terminal rules and ends there. The halt records
     /// how the path arrived, not a property of the configuration, which may have successors when
-    /// reached otherwise: under `state-set` a terminal leaf absorbs only stuck and terminal leaves
-    /// of its configuration, and keeps a bound, timeout or other leaf of it beside it.
+    /// reached otherwise: under `state-set` a terminal leaf absorbs, and is absorbed by, only
+    /// stuck and terminal leaves of its configuration, and is kept beside a branch, cut-point,
+    /// bound, timeout or other leaf of it.
     Terminal,
     DepthBound,
     BreadthBound,

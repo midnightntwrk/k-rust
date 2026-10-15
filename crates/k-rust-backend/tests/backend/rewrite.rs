@@ -8050,6 +8050,131 @@ fn a_terminal_leaf_does_not_absorb_a_bound_leaf() {
     );
 }
 
+/// A terminal-rule leaf says its configuration is final; a cut-point, branch or depth-bound leaf
+/// of the same configuration says it goes on or was not explored. Neither means the other, so a
+/// state-set result keeps both, as the path-set result does, whichever comes first: `c` reached
+/// by the terminal rule is a final configuration, and `c` reached otherwise has the successor `d`.
+#[test]
+fn a_terminal_leaf_is_absorbed_only_by_a_leaf_final_in_its_own_right() {
+    let definition = |rules: &[(&str, &str, &str)]| {
+        let mut source = String::from("[]\nmodule MAIN\n sort SortT{} []\n");
+        for name in ["a", "b", "c", "d", "d1", "d2", "e"] {
+            source.push_str(&format!(
+                " symbol {name}{{}}() : SortT{{}} [constructor{{}}()]\n"
+            ));
+        }
+        for (label, from, to) in rules {
+            source.push_str(&format!(
+                " axiom{{}} \\rewrites{{SortT{{}}}}(\\and{{SortT{{}}}}({from}{{}}(), \\top{{SortT{{}}}}()), {to}{{}}()) [label{{}}(\"{label}\")]\n"
+            ));
+        }
+        source.push_str("endmodule []\n");
+        BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN").unwrap()
+    };
+    let run = |definition: &BackendDefinition, initial: &[&str], options: ExecutionOptions| {
+        let initial = initial
+            .iter()
+            .map(|name| Pattern {
+                term: internal_term(definition, &format!("{name}{{}}()")),
+                constraints: Vec::new(),
+            })
+            .collect();
+        let mut leaves = execute_disjunction_with_solver_and_observer(
+            definition,
+            initial,
+            options,
+            &NoSolver,
+            |_| {},
+        )
+        .leaves
+        .into_iter()
+        .map(|leaf| {
+            let TermKind::Application { symbol, .. } = leaf.pattern.term.kind() else {
+                panic!("expected a constant: {:?}", leaf.pattern);
+            };
+            let halt = match &leaf.halt_reason {
+                HaltReason::Branch { branches, .. } => format!("Branch({})", branches.len()),
+                HaltReason::CutPointRule { rule, .. } => format!("CutPointRule({rule})"),
+                other => format!("{other:?}"),
+            };
+            (symbol.name.to_string(), leaf.depth, halt)
+        })
+        .collect::<Vec<_>>();
+        leaves.sort();
+        leaves
+    };
+    let both = |options: &dyn Fn(ResultModality) -> ExecutionOptions,
+                definition: &BackendDefinition,
+                initial: &[&str],
+                context: &str| {
+        let path_set = run(definition, initial, options(ResultModality::PathSet));
+        let state_set = run(definition, initial, options(ResultModality::StateSet));
+        assert_eq!(path_set.len(), 2, "{context}: {path_set:?}");
+        assert_eq!(state_set, path_set, "{context}");
+    };
+
+    // One initial state `e` branching into `a` and `b`, both reaching `c`, which a cut-point rule
+    // leaves; one of `a-to-c` and `b-to-c` is terminal.
+    let cut_point = definition(&[
+        ("e-to-a", "e", "a"),
+        ("e-to-b", "e", "b"),
+        ("a-to-c", "a", "c"),
+        ("b-to-c", "b", "c"),
+        ("c-to-d", "c", "d"),
+    ]);
+    for terminal in ["a-to-c", "b-to-c"] {
+        both(
+            &|result_modality| ExecutionOptions {
+                result_modality,
+                terminal_rules: BTreeSet::from([terminal.to_owned()]),
+                cut_point_rules: BTreeSet::from(["c-to-d".to_owned()]),
+                ..ExecutionOptions::default()
+            },
+            &cut_point,
+            &["e"],
+            &format!("cut point, terminal {terminal}"),
+        );
+    }
+
+    // `c` branches into `d1` and `d2`, which a run stopping at branches reports as a branch leaf.
+    let branching = definition(&[
+        ("a-to-c", "a", "c"),
+        ("b-to-c", "b", "c"),
+        ("c-to-d1", "c", "d1"),
+        ("c-to-d2", "c", "d2"),
+    ]);
+    // `c` is left at the depth bound.
+    let bounded = definition(&[
+        ("a-to-c", "a", "c"),
+        ("b-to-c", "b", "c"),
+        ("c-to-d", "c", "d"),
+    ]);
+    for initial in [["a", "b"], ["b", "a"]] {
+        both(
+            &|result_modality| ExecutionOptions {
+                result_modality,
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                terminal_rules: BTreeSet::from(["b-to-c".to_owned()]),
+                ..ExecutionOptions::default()
+            },
+            &branching,
+            &initial,
+            &format!("branch, initial {initial:?}"),
+        );
+        both(
+            &|result_modality| ExecutionOptions {
+                result_modality,
+                max_depth: 1,
+                terminal_rules: BTreeSet::from(["b-to-c".to_owned()]),
+                ..ExecutionOptions::default()
+            },
+            &bounded,
+            &initial,
+            &format!("depth bound, initial {initial:?}"),
+        );
+    }
+}
+
 #[test]
 fn bottom_leaves_are_not_merged() {
     let definition = definition(
