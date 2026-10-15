@@ -9063,6 +9063,141 @@ fn retained_remainder_evaluation_is_anchored_after_the_remainder_transition() {
     }
 }
 
+/// Decides an implication only under knowledge that negates a condition, which only a
+/// remainder supplies, and calls every constraint set satisfiable: a rule's condition stays
+/// undecided when it is attempted, and a remainder's simplification uses what its negation says.
+struct RemainderKnowledgeSolver;
+
+impl SmtSolver for RemainderKnowledgeSolver {
+    fn is_sat(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        Ok(Ok(Satisfiability::Sat))
+    }
+
+    fn check_predicates(
+        &self,
+        known: &[Predicate],
+        _substitution: &Substitution,
+        _checked: &[Predicate],
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        Ok(Ok(
+            if known
+                .iter()
+                .any(|predicate| matches!(predicate, Predicate::Not(_)))
+            {
+                Validity::Valid
+            } else {
+                Validity::Contingent
+            },
+        ))
+    }
+}
+
+/// A halt of a remainder successor names the rule that produced the state it remains of, the
+/// path's latest rewrite: the remainder adds a remainder entry to the trace, not a rewrite.
+/// `first` rewrites `start(X, divInt(10, d(X)))` to `pair(X, divInt(10, d(X)))`; `matched`
+/// applies to it under the undecided `cond(X)`, and its remainder's knowledge
+/// `\not(cond(X) = true)` lets `d(X) = 0` apply, so the remainder's term divides by zero and
+/// the remainder ends `Trivial`, naming `first`, whether or not the trace is retained.
+#[test]
+fn a_remainder_successors_trivial_halt_names_the_rule_that_produced_its_state() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortT{} []
+                symbol start{}(SortInt{}, SortInt{}) : SortT{} [constructor{}()]
+                symbol pair{}(SortInt{}, SortInt{}) : SortT{} [constructor{}()]
+                symbol done{}() : SortT{} [constructor{}()]
+                hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+                symbol cond{}(SortInt{}) : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+                symbol d{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \equals{SortBool{}, R}(cond{}(X:SortInt{}), \dv{SortBool{}}("false")),
+                    \equals{SortInt{}, R}(
+                        d{}(X:SortInt{}),
+                        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+                    )
+                ) [label{}("zero"), simplification{}()]
+                axiom{} \rewrites{SortT{}}(
+                    \and{SortT{}}(start{}(X:SortInt{}, Y:SortInt{}), \top{SortT{}}()),
+                    \and{SortT{}}(pair{}(X:SortInt{}, Y:SortInt{}), \top{SortT{}}())
+                ) [label{}("first")]
+                axiom{} \rewrites{SortT{}}(
+                    \and{SortT{}}(
+                        pair{}(X:SortInt{}, Y:SortInt{}),
+                        \equals{SortBool{}, SortT{}}(cond{}(X:SortInt{}), \dv{SortBool{}}("true"))
+                    ),
+                    \and{SortT{}}(done{}(), \top{SortT{}}())
+                ) [label{}("matched")]
+            endmodule []"#,
+    )
+    .unwrap();
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+    let initial = Pattern {
+        term: internal_term(
+            &definition,
+            r#"start{}(X:SortInt{}, divInt{}(\dv{SortInt{}}("10"), d{}(X:SortInt{})))"#,
+        ),
+        constraints: Vec::new(),
+    };
+    fn steps(leaf: &ExecutionLeaf) -> Vec<(TraceKind, &str)> {
+        leaf.trace
+            .iter()
+            .filter(|entry| entry.kind != TraceKind::Simplification)
+            .map(|entry| (entry.kind, entry.unique_id.as_str()))
+            .collect()
+    }
+    for retain_trace in [true, false] {
+        let result = execute_with_solver(
+            &definition,
+            initial.clone(),
+            ExecutionOptions {
+                assume_initial_defined: true,
+                retain_trace,
+                ..ExecutionOptions::default()
+            },
+            &RemainderKnowledgeSolver,
+        );
+        let trivial = result
+            .leaves
+            .iter()
+            .filter(|leaf| matches!(leaf.halt_reason, HaltReason::Trivial { depth: 1, .. }))
+            .collect::<Vec<_>>();
+        let [leaf] = trivial.as_slice() else {
+            panic!("{retain_trace}: expected one trivial leaf after the step: {result:#?}");
+        };
+        let HaltReason::Trivial { rule_id, label, .. } = &leaf.halt_reason else {
+            unreachable!()
+        };
+        if retain_trace {
+            assert_eq!(
+                steps(leaf),
+                [
+                    (TraceKind::Rewrite, "first"),
+                    (TraceKind::Remainder, "matched")
+                ],
+                "{result:#?}"
+            );
+        }
+        assert_eq!(
+            rule_id.as_deref(),
+            Some("first"),
+            "{retain_trace}: {result:#?}"
+        );
+        assert_eq!(
+            label.as_deref(),
+            Some("first"),
+            "{retain_trace}: {result:#?}"
+        );
+    }
+}
+
 #[test]
 fn observed_search_anchors_evaluations_into_each_result_branch() {
     use k_rust_backend::search::{SearchOptions, search_graph_observed, search_paths_observed};

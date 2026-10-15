@@ -22,6 +22,10 @@
 //! bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key (backend.fresh.variables) and one console observation (linear in the leaf's transcript) per such leaf, and O(L^2) key comparisons; each merged leaf's diagnostics are appended to the retained leaf's without repeats, in time the product of the two lists' lengths"
 //!
 //! [[cost]]
+//! mode = "trace storage"
+//! bound = "O(1) per fork and per appended entry: a path shares its trace with the paths it forked from (rewrite::path_trace); O(entries) per leaf to materialise the trace it returns"
+//!
+//! [[cost]]
 //! mode = "trace storage with retain_trace false"
 //! bound = "O(1) rewrite entries per active path, excluding transient simplification entries"
 //!
@@ -72,8 +76,8 @@ use super::{
     IndeterminateReason, InitialDefinedness, InitialSimplificationStatus, Pattern, RemainderBranch,
     RewriteResult, SubjectDefinedness, TraceEntry, TraceKind, TrivialApplication, Truth,
     UndecidedStep, applied_trivial_halt, initial_definedness, normalize_pattern_substitution,
-    predicates_truth, retain_substitution_predicates, rewrite_step_with_optional_execution, stuck,
-    trivial_halt, vacuous_halt,
+    path_trace::PathTrace, predicates_truth, retain_substitution_predicates,
+    rewrite_step_with_optional_execution, stuck, trivial_halt, vacuous_halt,
 };
 
 pub(super) fn execute_using(
@@ -169,7 +173,7 @@ impl<'a> Execution<'a> {
                 ExecutionState {
                     pattern,
                     depth: 0,
-                    trace: Vec::new(),
+                    trace: PathTrace::default(),
                     retain_trace: options.retain_trace,
                     kind: ExecutionStateKind::Rewritable,
                     observation: None,
@@ -455,11 +459,7 @@ impl<'a> Execution<'a> {
                     self.completed_initial_simplifications += 1;
                     self.bottom_initial_simplifications += 1;
                 }
-                let applied = state
-                    .trace
-                    .iter()
-                    .rev()
-                    .find(|entry| entry.kind == TraceKind::Rewrite);
+                let applied = state.trace.last_rewrite();
                 let refuted_ceil = pattern_before_constraint_simplification
                     .constraints
                     .iter()
@@ -474,7 +474,12 @@ impl<'a> Execution<'a> {
                         obligation: obligation.clone(),
                         contradicted_total: None,
                     },
-                    _ => vacuous_halt(state.depth, &state.pattern, &state.trace, None),
+                    _ => vacuous_halt(
+                        state.depth,
+                        &state.pattern,
+                        state.trace.last_rewrite(),
+                        None,
+                    ),
                 };
                 return Err(state.leaf(halt_reason, &self.observation_log));
             }
@@ -561,7 +566,7 @@ impl<'a> Execution<'a> {
                 let halt_reason = vacuous_halt(
                     state.depth,
                     &state.pattern,
-                    &state.trace,
+                    state.trace.last_rewrite(),
                     contradicted_total,
                 );
                 return Err(state.leaf(halt_reason, &self.observation_log));
@@ -589,8 +594,12 @@ impl<'a> Execution<'a> {
                     Ok(FactsVerdict::Refuted) => {
                         self.bottom_initial_simplifications += 1;
                         // No equation of a `total` symbol emptied it: its own fact did.
-                        let halt_reason =
-                            vacuous_halt(state.depth, &state.pattern, &state.trace, None);
+                        let halt_reason = vacuous_halt(
+                            state.depth,
+                            &state.pattern,
+                            state.trace.last_rewrite(),
+                            None,
+                        );
                         return Err(state.leaf(halt_reason, &self.observation_log));
                     }
                     Ok(FactsVerdict::NotRefuted(_)) => {}
@@ -604,11 +613,7 @@ impl<'a> Execution<'a> {
         if predicates_truth(&state.pattern.constraints) == Truth::False
             && let Some(term) = undefined_term
         {
-            let applied = state
-                .trace
-                .iter()
-                .rev()
-                .find(|entry| entry.kind == TraceKind::Rewrite);
+            let applied = state.trace.last_rewrite();
             let halt_reason = HaltReason::Trivial {
                 depth: state.depth,
                 rule_id: applied.map(|entry| entry.unique_id.clone()),
@@ -662,7 +667,12 @@ impl<'a> Execution<'a> {
         match definedness {
             Ok(InitialDefinedness::Undefined) => {
                 self.bottom_initial_simplifications += 1;
-                let halt_reason = vacuous_halt(state.depth, &state.pattern, &state.trace, None);
+                let halt_reason = vacuous_halt(
+                    state.depth,
+                    &state.pattern,
+                    state.trace.last_rewrite(),
+                    None,
+                );
                 Err(state.leaf(halt_reason, &self.observation_log))
             }
             Ok(InitialDefinedness::Where(definedness)) => {
@@ -715,7 +725,8 @@ impl<'a> Execution<'a> {
         match rewritten {
             RewriteResult::Stuck(pattern) => match deferred_initial_vacuity {
                 Some(pattern) => {
-                    let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace, None);
+                    let halt_reason =
+                        vacuous_halt(state.depth, &pattern, state.trace.last_rewrite(), None);
                     state.leaf_with_pattern(pattern, halt_reason, &self.observation_log)
                 }
                 None => externalise_leaf(
@@ -743,7 +754,8 @@ impl<'a> Execution<'a> {
                 state.leaf_with_pattern(pattern, halt_reason, &self.observation_log)
             }
             RewriteResult::Vacuous(pattern) => {
-                let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace, None);
+                let halt_reason =
+                    vacuous_halt(state.depth, &pattern, state.trace.last_rewrite(), None);
                 state.leaf_with_pattern(pattern, halt_reason, &self.observation_log)
             }
             RewriteResult::Simplification { pattern, error } => state.leaf_with_pattern(
@@ -1505,7 +1517,7 @@ pub(crate) fn simplify_leaf_pattern(
     max_iterations: usize,
     solver: &dyn SmtSolver,
     depth: u64,
-    trace: &mut Vec<TraceEntry>,
+    trace: &mut impl Extend<TraceEntry>,
 ) -> Stoppable<Result<PatternSimplification, SimplificationError>> {
     let simplified = match simplify_pattern_details_with_solver(
         definition,
@@ -1544,7 +1556,7 @@ pub(crate) fn simplify_result_pattern(
     max_iterations: usize,
     solver: &dyn SmtSolver,
     depth: u64,
-    trace: &mut Vec<TraceEntry>,
+    trace: &mut impl Extend<TraceEntry>,
     observation: Option<&mut ObservationHead>,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
@@ -1841,7 +1853,9 @@ enum ExecutionStateKind {
 struct ExecutionState {
     pattern: Pattern,
     depth: u64,
-    trace: Vec<TraceEntry>,
+    /// The path's trace, shared with the paths it forked from; with `retain_trace` false only
+    /// the entries since the latest rewrite step, which the halts naming that step read.
+    trace: PathTrace,
     retain_trace: bool,
     kind: ExecutionStateKind,
     observation: ObservationHead,
@@ -1866,7 +1880,7 @@ impl ExecutionState {
             pattern: self.pattern,
             depth: self.depth,
             trace: if self.retain_trace {
-                self.trace
+                self.trace.into_vec()
             } else {
                 Vec::new()
             },
@@ -2274,5 +2288,107 @@ mod tests {
             transcript_leaves[1].io.transcript()[0].bytes.as_ref(),
             b"right"
         );
+    }
+
+    // A path's trace is shared, not copied, by a fork: the forked state holds the same entries,
+    // stored once, an entry appended on one path is not an entry of the other, and each path's
+    // leaf returns its entries in order, as a trace kept in a vector of its own would. This pins
+    // the representation's contract (`PathTrace`); it is not a regression test that fails at a
+    // base where forks copied a vector.
+    #[test]
+    fn a_fork_shares_its_parents_trace_and_extends_it_apart() {
+        let definition = definition("");
+        let entry = |depth, kind, unique_id: &str| TraceEntry {
+            depth,
+            kind,
+            label: None,
+            unique_id: unique_id.to_owned(),
+        };
+        let prefix = (1..=500)
+            .flat_map(|depth| {
+                [
+                    entry(depth, TraceKind::Rewrite, &format!("step-{depth}")),
+                    entry(
+                        depth,
+                        TraceKind::Simplification,
+                        &format!("simplified-{depth}"),
+                    ),
+                ]
+            })
+            .collect::<Vec<_>>();
+        let mut parent = state_with_trace(&definition, &prefix, true);
+
+        let mut child = parent.clone();
+        assert!(child.trace.shares_entries_with(&parent.trace));
+
+        let rewrite = entry(501, TraceKind::Rewrite, "child-step");
+        let remainder = entry(500, TraceKind::Remainder, "parent-remainder");
+        child.trace.push(rewrite.clone());
+        parent.trace.push(remainder.clone());
+        assert!(!child.trace.shares_entries_with(&parent.trace));
+        assert_eq!(child.trace.last_rewrite(), Some(&rewrite));
+        // A remainder entry is no rewrite: the parent's latest rewrite is still its own.
+        assert_eq!(parent.trace.last_rewrite(), prefix.iter().rev().nth(1));
+
+        // A leaf moves out the entries its path holds alone and clones those a pending path
+        // shares: a moved entry keeps its text's buffer, a cloned one gets a new buffer.
+        let buffers = |trace: &[TraceEntry]| {
+            trace
+                .iter()
+                .map(|entry| entry.unique_id.as_ptr())
+                .collect::<Vec<_>>()
+        };
+        let child_buffers = child.trace.unique_id_buffers();
+        let parent_buffers = parent.trace.unique_id_buffers();
+        let log = ObservationLog::default();
+        let child_leaf = child.leaf(HaltReason::Stuck, &log);
+        assert_eq!(child_leaf.trace, [prefix.as_slice(), &[rewrite]].concat());
+        let child_leaf_buffers = buffers(&child_leaf.trace);
+        // The parent is still pending: the shared prefix was cloned, the child's own entry moved.
+        assert!(
+            child_leaf_buffers[..prefix.len()]
+                .iter()
+                .zip(&child_buffers)
+                .all(|(leaf, path)| leaf != path)
+        );
+        assert_eq!(child_leaf_buffers.last(), child_buffers.last());
+        // The child has ended, so the parent holds its whole trace alone and moves all of it.
+        let parent_leaf = parent.leaf(HaltReason::Stuck, &log);
+        assert_eq!(
+            parent_leaf.trace,
+            [prefix.as_slice(), &[remainder]].concat()
+        );
+        assert_eq!(buffers(&parent_leaf.trace), parent_buffers);
+
+        // Clearing one path, as a step does when the trace is not retained, leaves the other.
+        let mut kept = state_with_trace(&definition, &prefix, false);
+        let other = kept.clone();
+        kept.trace.clear();
+        assert_eq!(kept.trace.last_rewrite(), None);
+        assert_eq!(other.trace.to_vec(), prefix);
+        assert_eq!(kept.leaf(HaltReason::Stuck, &log).trace, []);
+    }
+
+    fn state_with_trace(
+        definition: &BackendDefinition,
+        prefix: &[TraceEntry],
+        retain_trace: bool,
+    ) -> ExecutionState {
+        let mut trace = PathTrace::default();
+        trace.extend(prefix.iter().cloned());
+        ExecutionState {
+            pattern: subject(definition, "state"),
+            depth: 500,
+            trace,
+            retain_trace,
+            kind: ExecutionStateKind::Rewritable,
+            observation: None,
+            effects: EffectJournal::default(),
+            io: ExecutionIoState::default(),
+            io_enabled: false,
+            is_initial_input: false,
+            defined_where: Vec::new(),
+            diagnostics: PathDiagnostics::new_request(),
+        }
     }
 }
