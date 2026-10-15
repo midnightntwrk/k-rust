@@ -2743,8 +2743,9 @@ endmodule
 /// A branching pair (`start(I)` steps to `left()` and to `right()`) and an undefined step
 /// (`half(0)` divides by zero), whose `trivial` leaf names the rule of the step that is
 /// undefined. And a two-step chain (`gf(0)` to `gd(0)` to `wrap(dv(0))`) whose last rule
-/// `preserves-definedness`: its successor is undefined, and the `trivial` leaf at depth 2 names
-/// the rule it read from the path's latest rewrite entry, which a run without traces must keep.
+/// `preserves-definedness`: only the successor's normalization finds its result undefined, so
+/// the step is undefined on `gd(0)`, whose `trivial` leaf at depth 1 names the rule that step
+/// applied.
 const TRACES: &str = r#"
 module TRACES
   imports INT
@@ -2780,14 +2781,14 @@ fn leaves_without_traces(result: &ExecutionResult) -> (Vec<serde_json::Value>, b
 }
 
 /// A request that asks for no traces gets the same leaves, with every field but `trace` equal
-/// (each `trivial` leaf still names its rule, also one read from the path's latest rewrite
-/// entry), and empty traces; so does an observed run, whose branch identities and observations
-/// are fields of its leaves.
+/// (each `trivial` leaf still names its rule, also one found undefined only after its step), and
+/// empty traces; so does an observed run, whose branch identities and observations are fields
+/// of its leaves.
 #[test]
 fn an_execution_without_traces_keeps_the_halt_metadata() {
     use k_rust::backend::{ObservedRequest, ResultModalityOutput};
 
-    for (program, rule, depth) in [("start(1)", "TRACES.half", 2), ("gf(0)", "TRACES.gd", 2)] {
+    for (program, rule, depth) in [("start(1)", "TRACES.half", 2), ("gf(0)", "TRACES.gd", 1)] {
         let compiled = compile(TRACES, "TRACES", "TRACES", "KItem", program);
         let mut backend =
             Backend::new(&compiled.kore, "TRACES", BackendOptions::default()).unwrap();
