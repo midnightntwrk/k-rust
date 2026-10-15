@@ -78,6 +78,8 @@ thread_local! {
     /// The state keys this thread has computed ([`RequestNames::state_key`]), so a test can
     /// tell whether a caller computed a key it never compares.
     pub(crate) static STATE_KEYS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The shape hashes this thread has computed ([`RequestNames::shape_hash`]).
+    pub(crate) static SHAPE_HASHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The printed spellings of every variable, free or bound, of the patterns of one request.
@@ -183,6 +185,242 @@ impl RequestNames {
             )
         });
         Pattern { term, constraints }
+    }
+
+    /// A hash of `pattern` that every pattern with the same [`RequestNames::state_key`] shares,
+    /// computed without building the key: a filter, so that the keys of two states are built and
+    /// compared only when their hashes agree.
+    ///
+    /// Two patterns with equal keys are renamings of each other that fix the request's names
+    /// and keep each variable's kind and sort, up to the order of conjuncts and disjuncts, a
+    /// repeated one, and the order of the two sides of an equality. The hash reads none of what
+    /// such a renaming changes: a variable the request may not name hashes as one placeholder of
+    /// its kind and sort, a conjunction or disjunction as the set of its operands' hashes, an
+    /// equality as the set of its sides' hashes, and a map's entries and a set's elements, which
+    /// are stored in an order their variables' names decide, as the sum of their hashes. A
+    /// subterm without variables hashes as the hash it already carries. A variable whose
+    /// spelling must be escaped to print is taken for a placeholder, which still agrees on equal
+    /// keys and only lets more patterns share a hash.
+    ///
+    /// The term is walked once with an explicit stack; the predicates recurse as deep as they
+    /// nest, as the key's own sort does.
+    pub(crate) fn shape_hash(&self, pattern: &Pattern) -> u64 {
+        #[cfg(test)]
+        SHAPE_HASHES.with(|hashes| hashes.set(hashes.get() + 1));
+        let mut hasher = rustc_hash::FxHasher::default();
+        self.write_term_shape(&pattern.term, &mut hasher);
+        let mut constraints = pattern
+            .constraints
+            .iter()
+            .map(|predicate| self.predicate_shape(predicate))
+            .collect::<Vec<_>>();
+        constraints.sort_unstable();
+        constraints.dedup();
+        constraints.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Whether the key may rename `variable`, read without allocating: a variable spelled as it
+    /// prints is looked up, and one whose spelling would be escaped is taken as renamable.
+    fn may_rename(&self, variable: &Variable) -> bool {
+        self.0.is_empty()
+            || !crate::term::names::is_variable_identifier(&variable.name)
+            || !self.0.contains(&*variable.name)
+    }
+
+    fn write_variable_shape(&self, variable: &Variable, hasher: &mut impl Hasher) {
+        if self.may_rename(variable) {
+            hasher.write_u8(0);
+            variable.kind.hash(hasher);
+            variable.sort.hash(hasher);
+        } else {
+            hasher.write_u8(1);
+            variable.hash(hasher);
+        }
+    }
+
+    fn term_shape(&self, term: &Term) -> u64 {
+        let mut hasher = rustc_hash::FxHasher::default();
+        self.write_term_shape(term, &mut hasher);
+        hasher.finish()
+    }
+
+    /// The term's nodes in preorder, each as its kind, its head and its number of subterms, so
+    /// that the sequence determines the tree up to the placeholders.
+    fn write_term_shape(&self, term: &Term, hasher: &mut impl Hasher) {
+        let mut pending = vec![term];
+        // Invariant: `pending` holds, last first, the subterms still to write in preorder.
+        while let Some(term) = pending.pop() {
+            if term.attributes().variables.is_empty() {
+                hasher.write_u8(2);
+                term.hash(hasher);
+                continue;
+            }
+            let start = pending.len();
+            match term.kind() {
+                TermKind::Variable(variable) => self.write_variable_shape(variable, hasher),
+                TermKind::DomainValue { sort, value } => {
+                    hasher.write_u8(3);
+                    sort.hash(hasher);
+                    value.hash(hasher);
+                }
+                TermKind::And(left, right) => {
+                    hasher.write_u8(4);
+                    pending.extend([left, right]);
+                }
+                TermKind::Application {
+                    symbol,
+                    sort_arguments,
+                    arguments,
+                } => {
+                    hasher.write_u8(5);
+                    symbol.hash(hasher);
+                    sort_arguments.hash(hasher);
+                    hasher.write_usize(arguments.len());
+                    pending.extend(arguments);
+                }
+                TermKind::Injection {
+                    source,
+                    target,
+                    term,
+                } => {
+                    hasher.write_u8(6);
+                    source.hash(hasher);
+                    target.hash(hasher);
+                    pending.push(term);
+                }
+                TermKind::Map {
+                    definition,
+                    entries,
+                    rest,
+                } => {
+                    hasher.write_u8(7);
+                    definition.hash(hasher);
+                    hasher.write_usize(entries.len());
+                    let sum = entries.iter().fold(0_u64, |sum, (key, value)| {
+                        let entry = (self.term_shape(key), self.term_shape(value));
+                        sum.wrapping_add(hash_of(&entry))
+                    });
+                    hasher.write_u64(sum);
+                    hasher.write_u8(u8::from(rest.is_some()));
+                    pending.extend(rest);
+                }
+                TermKind::List {
+                    definition,
+                    heads,
+                    rest,
+                } => {
+                    hasher.write_u8(8);
+                    definition.hash(hasher);
+                    hasher.write_usize(heads.len());
+                    pending.extend(heads.iter());
+                    match rest {
+                        Some((middle, tails)) => {
+                            hasher.write_u8(1);
+                            hasher.write_usize(tails.len());
+                            pending.push(middle);
+                            pending.extend(tails.iter());
+                        }
+                        None => hasher.write_u8(0),
+                    }
+                }
+                TermKind::Set {
+                    definition,
+                    elements,
+                    rest,
+                } => {
+                    hasher.write_u8(9);
+                    definition.hash(hasher);
+                    hasher.write_usize(elements.len());
+                    let sum = elements.iter().fold(0_u64, |sum, element| {
+                        sum.wrapping_add(hash_of(&self.term_shape(element)))
+                    });
+                    hasher.write_u64(sum);
+                    hasher.write_u8(u8::from(rest.is_some()));
+                    pending.extend(rest);
+                }
+            }
+            pending[start..].reverse();
+        }
+    }
+
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn predicate_shape(&self, predicate: &Predicate) -> u64 {
+        let mut hasher = rustc_hash::FxHasher::default();
+        match predicate {
+            Predicate::True => hasher.write_u8(0),
+            Predicate::False => hasher.write_u8(1),
+            Predicate::Term(term) => {
+                hasher.write_u8(2);
+                self.write_term_shape(term, &mut hasher);
+            }
+            Predicate::Equals(left, right) => {
+                hasher.write_u8(3);
+                let (left, right) = (self.term_shape(left), self.term_shape(right));
+                (left.min(right), left.max(right)).hash(&mut hasher);
+            }
+            Predicate::Ceil(term) => {
+                hasher.write_u8(4);
+                self.write_term_shape(term, &mut hasher);
+            }
+            Predicate::Floor(term) => {
+                hasher.write_u8(5);
+                self.write_term_shape(term, &mut hasher);
+            }
+            Predicate::Defined(term) => {
+                hasher.write_u8(6);
+                self.write_term_shape(term, &mut hasher);
+            }
+            Predicate::In(left, right) => {
+                hasher.write_u8(7);
+                self.write_term_shape(left, &mut hasher);
+                self.write_term_shape(right, &mut hasher);
+            }
+            Predicate::Not(inner) => {
+                hasher.write_u8(8);
+                hasher.write_u64(self.predicate_shape(inner));
+            }
+            Predicate::Implies(left, right) => {
+                hasher.write_u8(9);
+                hasher.write_u64(self.predicate_shape(left));
+                hasher.write_u64(self.predicate_shape(right));
+            }
+            Predicate::Iff(left, right) => {
+                hasher.write_u8(10);
+                hasher.write_u64(self.predicate_shape(left));
+                hasher.write_u64(self.predicate_shape(right));
+            }
+            Predicate::And(operands) | Predicate::Or(operands) => {
+                hasher.write_u8(if matches!(predicate, Predicate::And(_)) {
+                    11
+                } else {
+                    12
+                });
+                let mut shapes = operands
+                    .iter()
+                    .map(|operand| self.predicate_shape(operand))
+                    .collect::<Vec<_>>();
+                shapes.sort_unstable();
+                shapes.dedup();
+                shapes.hash(&mut hasher);
+            }
+            Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+                hasher.write_u8(if matches!(predicate, Predicate::Exists(..)) {
+                    13
+                } else {
+                    14
+                });
+                self.write_variable_shape(variable, &mut hasher);
+                hasher.write_u64(self.predicate_shape(inner));
+            }
+            Predicate::Absent(absence) => {
+                hasher.write_u8(15);
+                absence.collection().hash(&mut hasher);
+                self.write_term_shape(absence.key(), &mut hasher);
+                self.write_term_shape(absence.rest(), &mut hasher);
+            }
+        }
+        hasher.finish()
     }
 
     /// A solution of a pattern search, the substitution of the target's variables and the
@@ -1206,6 +1444,12 @@ mod tests {
         assert!(!names.spells("X"));
     }
 
+    /// A state's key, with its shape hash, which every state of that key shares
+    /// ([`RequestNames::shape_hash`]): the key tests below compare both.
+    fn keyed(request: &RequestNames, pattern: &Pattern) -> (Pattern, u64) {
+        (request.state_key(pattern), request.shape_hash(pattern))
+    }
+
     #[test]
     fn a_state_key_identifies_states_up_to_the_names_the_request_did_not_give() {
         let request = RequestNames::of(&[&pattern("X", "B")]);
@@ -1219,7 +1463,7 @@ mod tests {
                 )),
             )],
         };
-        let key = |term, left, right| request.state_key(&state(term, left, right));
+        let key = |term, left, right| keyed(&request, &state(term, left, right));
         assert_eq!(
             key("Ex#Y!0", "Ex#Y!0", "Ex#Z!1"),
             key("Ex#Y!4", "Ex#Y!4", "Ex#Z!2"),
@@ -1246,6 +1490,11 @@ mod tests {
             constraints: Vec::new(),
         };
         assert_eq!(request.state_key(&named), named);
+        assert_ne!(
+            request.shape_hash(&named),
+            request.shape_hash(&state("Ex#Y!0", "Ex#Y!0", "Ex#Z!1")),
+            "a variable of the request hashes as itself"
+        );
     }
 
     /// The map `{key |-> value}` over element variables named by `entries`' keys and integer
@@ -1284,10 +1533,13 @@ mod tests {
     fn a_state_key_numbers_map_entries_whatever_the_names_of_their_keys() {
         let request = RequestNames::default();
         let key = |entries: &[(&str, &str)]| {
-            request.state_key(&Pattern {
-                term: map(entries),
-                constraints: Vec::new(),
-            })
+            keyed(
+                &request,
+                &Pattern {
+                    term: map(entries),
+                    constraints: Vec::new(),
+                },
+            )
         };
         let first = [
             ("Ex#K!0", "5"),
@@ -1364,21 +1616,21 @@ mod tests {
             &["Ex#K!0", "Ex#K!10", "Ex#K!3", "Ex#K!6"],
             &["Ex#K!0", "Ex#K!3", "Ex#K!6", "Ex#K!10"],
         );
-        assert_eq!(request.state_key(&first), request.state_key(&second));
+        assert_eq!(keyed(&request, &first), keyed(&request, &second));
         let reordered = map_and_list(
             &["Ex#K!0", "Ex#K!3", "Ex#K!6", "Ex#K!9"],
             &["Ex#K!9", "Ex#K!0", "Ex#K!3", "Ex#K!6"],
         );
         assert_eq!(
-            request.state_key(&first),
-            request.state_key(&reordered),
+            keyed(&request, &first),
+            keyed(&request, &reordered),
             "a permutation of the list is a renaming of the map's keys"
         );
         let repeated = map_and_list(
             &["Ex#K!0", "Ex#K!3", "Ex#K!6", "Ex#K!9"],
             &["Ex#K!0", "Ex#K!0", "Ex#K!6", "Ex#K!9"],
         );
-        assert_ne!(request.state_key(&first), request.state_key(&repeated));
+        assert_ne!(keyed(&request, &first), keyed(&request, &repeated));
     }
 
     /// The map `{key |-> value}` over element variables of sort `SortS` on both sides.
@@ -1418,7 +1670,7 @@ mod tests {
     #[test]
     fn a_state_key_tries_each_variable_of_a_group_nothing_orders() {
         let request = RequestNames::default();
-        let key = |entries: &[(&str, &str)]| request.state_key(&variable_map(entries));
+        let key = |entries: &[(&str, &str)]| keyed(&request, &variable_map(entries));
         let first = key(&[("Ex#A!0", "Ex#B!1"), ("Ex#B!1", "Ex#B!1")]);
         let second = key(&[("Ex#B!1", "Ex#A!0"), ("Ex#A!0", "Ex#A!0")]);
         assert_eq!(first, second);
@@ -1476,10 +1728,13 @@ mod tests {
                 .map(|index| format!("Ex#K!{}", index + offset))
                 .collect::<Vec<_>>();
             let map = variable_map(&[(x, y), (y, y)]).term;
-            request.state_key(&Pattern {
-                term: go(vec![variable_set(&set), map]),
-                constraints: Vec::new(),
-            })
+            keyed(
+                &request,
+                &Pattern {
+                    term: go(vec![variable_set(&set), map]),
+                    constraints: Vec::new(),
+                },
+            )
         };
         assert_eq!(key(0, "Ex#A!0", "Ex#B!1"), key(95, "Ex#B!1", "Ex#A!0"),);
     }
@@ -1507,12 +1762,12 @@ mod tests {
             }
         };
         assert_eq!(
-            request.state_key(&state("Ex#A!1", "Ex#B!2", false)),
-            request.state_key(&state("Ex#B!5", "Ex#A!4", true))
+            keyed(&request, &state("Ex#A!1", "Ex#B!2", false)),
+            keyed(&request, &state("Ex#B!5", "Ex#A!4", true))
         );
         assert_ne!(
-            request.state_key(&state("Ex#A!1", "Ex#B!2", false)),
-            request.state_key(&state("Ex#A!1", "Ex#A!1", false))
+            keyed(&request, &state("Ex#A!1", "Ex#B!2", false)),
+            keyed(&request, &state("Ex#A!1", "Ex#A!1", false))
         );
     }
 
@@ -1538,8 +1793,8 @@ mod tests {
             }
         };
         assert_eq!(
-            request.state_key(&numbered("Ex#K!3", "Ex#K!9", false)),
-            request.state_key(&numbered("Ex#K!3", "Ex#K!10", true))
+            keyed(&request, &numbered("Ex#K!3", "Ex#K!9", false)),
+            keyed(&request, &numbered("Ex#K!3", "Ex#K!10", true))
         );
         let unnumbered = |left: &str, right: &str, defined: &str| Pattern {
             term: go(Vec::new()),
@@ -1549,22 +1804,25 @@ mod tests {
             ],
         };
         assert_eq!(
-            request.state_key(&unnumbered("Ex#X!1", "Ex#Y!2", "Ex#Y!2")),
-            request.state_key(&unnumbered("Ex#A!3", "Ex#B!4", "Ex#A!3"))
+            keyed(&request, &unnumbered("Ex#X!1", "Ex#Y!2", "Ex#Y!2")),
+            keyed(&request, &unnumbered("Ex#A!3", "Ex#B!4", "Ex#A!3"))
         );
         assert_eq!(
-            request.state_key(&unnumbered("Ex#X!1", "Ex#Y!2", "Ex#X!1")),
-            request.state_key(&unnumbered("Ex#X!1", "Ex#Y!2", "Ex#Y!2"))
+            keyed(&request, &unnumbered("Ex#X!1", "Ex#Y!2", "Ex#X!1")),
+            keyed(&request, &unnumbered("Ex#X!1", "Ex#Y!2", "Ex#Y!2"))
         );
         assert_ne!(
-            request.state_key(&unnumbered("Ex#X!1", "Ex#Y!2", "Ex#Y!2")),
-            request.state_key(&Pattern {
-                term: go(Vec::new()),
-                constraints: vec![
-                    Predicate::Equals(element("Ex#X!1"), element("Ex#Y!2")),
-                    Predicate::Ceil(element("Ex#Z!3")),
-                ],
-            })
+            keyed(&request, &unnumbered("Ex#X!1", "Ex#Y!2", "Ex#Y!2")),
+            keyed(
+                &request,
+                &Pattern {
+                    term: go(Vec::new()),
+                    constraints: vec![
+                        Predicate::Equals(element("Ex#X!1"), element("Ex#Y!2")),
+                        Predicate::Ceil(element("Ex#Z!3")),
+                    ],
+                }
+            )
         );
     }
 
@@ -1684,10 +1942,13 @@ mod tests {
                     constraints.iter_mut().for_each(reverse_operands);
                 }
                 let elements = keys.iter().map(|key| element(key)).collect();
-                request.state_key(&Pattern {
-                    term: go(vec![Term::list(list.clone(), elements, None)]),
-                    constraints,
-                })
+                keyed(
+                    &request,
+                    &Pattern {
+                        term: go(vec![Term::list(list.clone(), elements, None)]),
+                        constraints,
+                    },
+                )
             };
             let keys = ["Ex#K!0", "Ex#K!3", "Ex#K!6", "Ex#K!9", "Ex#K!15", "Ex#K!18"];
             let values = [

@@ -39,6 +39,9 @@ pub(crate) struct StepTimeoutController {
     options: StepTimeoutOptions,
     #[cfg(not(target_arch = "wasm32"))]
     moving_average_micros: Cell<Option<u64>>,
+    /// The steps whose time the moving average took in.
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) recorded: Cell<usize>,
 }
 
 impl StepTimeoutController {
@@ -50,6 +53,8 @@ impl StepTimeoutController {
             options,
             #[cfg(not(target_arch = "wasm32"))]
             moving_average_micros: Cell::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            recorded: Cell::new(0),
         }
     }
 
@@ -98,6 +103,8 @@ impl StepTimeoutController {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn record(&self, elapsed: Duration) {
+        #[cfg(test)]
+        self.recorded.set(self.recorded.get() + 1);
         let elapsed = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX);
         let next = self.moving_average_micros.get().map_or(elapsed, |average| {
             (PREVIOUS_WEIGHT * average as f64 + (1.0 - PREVIOUS_WEIGHT) * elapsed as f64).floor()

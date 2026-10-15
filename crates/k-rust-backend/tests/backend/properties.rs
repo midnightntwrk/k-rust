@@ -236,40 +236,221 @@ proptest! {
     }
 }
 
-/// A rule graph over the nodes `n0`..`n5`: each edge `(from, to)` is a rule `n{from} => n{to}`.
-fn rule_graph() -> impl Strategy<Value = Vec<(u8, u8)>> {
-    proptest::collection::vec((0u8..6, 0u8..6), 1..12)
+/// What an edge of a generated rule graph does.
+#[derive(Clone, Debug)]
+enum EdgeKind {
+    /// `n{from} => n{to}`.
+    Plain,
+    /// `n{from} => seq(log(text), write(1, "x"), n{to})`, which `n{to}` follows: one of two
+    /// texts, so converging paths log alike or not.
+    Effect(bool),
+    /// `n{from} => n{to}` under a condition no solver decides, which leaves a remainder.
+    Guarded,
+    /// `n{from} => node(\bottom)`, an undefined step.
+    Undefined,
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+/// A generated rule graph over the nodes `n0`..`n6` and its run's options.
+#[derive(Clone, Debug)]
+struct GraphCase {
+    /// Each edge with its kind and whether its rule is terminal (`Some(true)`) or a cut point
+    /// (`Some(false)`).
+    edges: Vec<(u8, u8, EdgeKind, Option<bool>)>,
+    max_depth: u64,
+    max_breadth: Option<usize>,
+    any: bool,
+    retain_trace: bool,
+}
 
-    /// A merged state-set execution over a generated ground rule graph, bounded so that
-    /// cycles end, is the deduplicated path-set execution
-    /// (`exploration_merge::assert_merged_state_set_agrees`).
-    #[test]
-    fn a_merged_state_set_execution_of_a_rule_graph_is_its_deduplicated_path_set(
-        edges in rule_graph(),
-        max_depth in 1u64..7,
-    ) {
-        use crate::exploration_merge::{assert_merged_state_set_agrees, edge, graph_definition, node, pattern};
-        let rules = edges
-            .iter()
-            .enumerate()
-            .map(|(index, (from, to))| {
-                edge(&format!("e{index}"), &format!("n{from}"), &node(&format!("n{to}")))
+fn graph_case() -> impl Strategy<Value = GraphCase> {
+    let edge_kind = prop_oneof![
+        6 => Just(EdgeKind::Plain),
+        2 => any::<bool>().prop_map(EdgeKind::Effect),
+        1 => Just(EdgeKind::Guarded),
+        1 => Just(EdgeKind::Undefined),
+    ];
+    let mark = prop_oneof![
+        12 => Just(None),
+        1 => Just(Some(true)),
+        1 => Just(Some(false)),
+    ];
+    let breadth = prop_oneof![13 => Just(None), 7 => (1usize..8).prop_map(Some)];
+    // Nodes are layered (`n0`; `n1`, `n2`; `n3`, `n4`; `n5`, `n6`) and most edges go one layer
+    // down, so that paths of one length often meet; the others go anywhere, cycles included.
+    // Each node has up to three edges, `n0` and the second layer at least one.
+    let layer = |node: u8| node.div_ceil(2);
+    let target = (0u8..2, 0u8..7, proptest::bool::weighted(0.8));
+    let out_edges = |least| {
+        proptest::collection::vec((target.clone(), edge_kind.clone(), mark.clone()), least..4)
+    };
+    (
+        (
+            out_edges(1),
+            proptest::collection::vec(out_edges(1), 2),
+            proptest::collection::vec(out_edges(0), 4),
+        )
+            .prop_map(move |(first, second, rest)| {
+                std::iter::once(first)
+                    .chain(second)
+                    .chain(rest)
+                    .zip(0u8..)
+                    .flat_map(|(edges, from)| {
+                        edges
+                            .into_iter()
+                            .map(move |((pick, anywhere, down), kind, mark)| {
+                                let to = if down && layer(from) < 3 {
+                                    2 * layer(from) + 1 + pick
+                                } else {
+                                    anywhere
+                                };
+                                (from, to, kind, mark)
+                            })
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        2u64..10,
+        breadth,
+        proptest::bool::weighted(0.2),
+        any::<bool>(),
+    )
+        .prop_map(
+            |(edges, max_depth, max_breadth, any, retain_trace)| GraphCase {
+                edges,
+                max_depth,
+                max_breadth,
+                any,
+                retain_trace,
+            },
+        )
+}
+
+/// A merged state-set execution over a generated rule graph, bounded so that cycles end, is the
+/// deduplicated path-set execution with the same coverage
+/// (`exploration_merge::assert_merged_state_set_agrees`), where the path-set run stays within
+/// its breadth bound; every third case also runs observed, and returns the unobserved run's
+/// leaves. A fixed seed makes the cases the same on every run, and at least a quarter of them
+/// must merge, so the property is not met by runs that never merge.
+#[test]
+fn a_merged_state_set_execution_of_a_rule_graph_is_its_deduplicated_path_set() {
+    use std::cell::Cell;
+
+    use k_rust_backend::{
+        rewrite::{ExecutionMode, ExecutionOptions, HaltReason, execute, execute_observed},
+        search::ResultModality,
+        transition::ObservationOptions,
+    };
+    use proptest::test_runner::{Config, RngAlgorithm, TestRng, TestRunner};
+
+    use crate::exploration_merge::{
+        assert_merged_state_set_agrees, edge, graph_definition, guarded_edge, logging, node,
+        pattern, reaches_breadth_bound, seq_edge,
+    };
+
+    const CASES: u32 = 256;
+    let (cases, merging, beyond_breadth) = (Cell::new(0), Cell::new(0), Cell::new(0));
+    let mut runner = TestRunner::new_with_rng(
+        Config {
+            cases: CASES,
+            failure_persistence: None,
+            ..Config::default()
+        },
+        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+    );
+    let outcome = runner.run(&graph_case(), |case| {
+        let mut rules = (0..7)
+            .map(|index| {
+                let name = format!("n{index}");
+                seq_edge(&format!("s{index}"), &name, &node(&name))
             })
             .collect::<String>();
+        let (mut terminal_rules, mut cut_point_rules) = (Vec::new(), Vec::new());
+        for (index, (from, to, kind, mark)) in case.edges.iter().enumerate() {
+            let (label, from, to) = (format!("e{index}"), format!("n{from}"), format!("n{to}"));
+            rules += &match kind {
+                EdgeKind::Plain => edge(&label, &from, &node(&to)),
+                EdgeKind::Effect(left) => edge(
+                    &label,
+                    &from,
+                    &logging(if *left { "a" } else { "b" }, "x", &to),
+                ),
+                EdgeKind::Guarded => guarded_edge(&label, &from, &node(&to)),
+                EdgeKind::Undefined => edge(&label, &from, r#"node{}(\bottom{SortString{}}())"#),
+            };
+            match mark {
+                Some(true) => terminal_rules.push(label),
+                Some(false) => cut_point_rules.push(label),
+                None => {}
+            }
+        }
         let definition = graph_definition(&rules);
         let initial = pattern(&definition, &node("n0"));
-        assert_merged_state_set_agrees(
-            &definition,
-            &initial,
-            &k_rust_backend::rewrite::ExecutionOptions {
-                max_depth,
-                ..k_rust_backend::rewrite::ExecutionOptions::default()
+        let options = ExecutionOptions {
+            max_depth: case.max_depth,
+            max_breadth: case.max_breadth,
+            mode: if case.any {
+                ExecutionMode::Any
+            } else {
+                ExecutionMode::All
             },
-            &format!("{edges:?}, max_depth {max_depth}"),
-        );
+            terminal_rules: terminal_rules.into_iter().collect(),
+            cut_point_rules: cut_point_rules.into_iter().collect(),
+            retain_trace: case.retain_trace,
+            ..ExecutionOptions::default()
+        };
+        let (state_set, path_set) =
+            assert_merged_state_set_agrees(&definition, &initial, &options, &format!("{case:?}"));
+        cases.set(cases.get() + 1);
+        merging.set(merging.get() + usize::from(state_set.merged > 0));
+        beyond_breadth
+            .set(beyond_breadth.get() + usize::from(reaches_breadth_bound(&path_set.result)));
+        if cases.get() % 3 == 0 {
+            let options = ExecutionOptions {
+                result_modality: ResultModality::StateSet,
+                ..options
+            };
+            let mut observed = execute_observed(
+                &definition,
+                initial.clone(),
+                options.clone(),
+                &ObservationOptions::all(),
+            );
+            observed.discarded.clear();
+            // An observed run adds its observations to each leaf, and to each candidate of a
+            // `Branch` or `CutPointRule` halt.
+            for leaf in &mut observed.leaves {
+                leaf.branch.clear();
+                leaf.observations.clear();
+                if let HaltReason::Branch {
+                    branches: candidates,
+                    ..
+                }
+                | HaltReason::CutPointRule {
+                    next_states: candidates,
+                    ..
+                } = &mut leaf.halt_reason
+                {
+                    for candidate in candidates {
+                        candidate.observations.clear();
+                    }
+                }
+            }
+            assert_eq!(observed, execute(&definition, initial, options), "{case:?}");
+        }
+        Ok(())
+    });
+    if let Err(failure) = outcome {
+        panic!("{failure}");
     }
+    eprintln!(
+        "rule graphs: {} cases, {} merging, {} beyond the path-set breadth bound",
+        cases.get(),
+        merging.get(),
+        beyond_breadth.get()
+    );
+    assert!(
+        4 * merging.get() >= cases.get(),
+        "{} of {} cases merge",
+        merging.get(),
+        cases.get()
+    );
 }

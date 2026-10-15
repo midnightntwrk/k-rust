@@ -23,7 +23,7 @@
 //!
 //! [[cost]]
 //! mode = "state-set exploration merge (Execution::merged)"
-//! bound = "one expansion per distinct (depth, RequestNames::state_key, effects, observed console, console availability) class, times the maximal diagnostic sets recorded for it (one set unless converging paths carry incomparable diagnostics); one E2/E3 simplification and one state_key per arriving state that has company (a pending state or a recorded one); the effects and consoles of two arrivals are compared by fingerprint in O(1) and then back to their shared history; memory: the states recorded at depths not below the shallowest pending state, about 1.4 KiB each on IMP"
+//! bound = "one expansion per distinct (depth, RequestNames::state_key, effects, observed console, console availability) class, times the maximal diagnostic sets recorded for it (one set unless converging paths carry incomparable diagnostics); one E2/E3 simplification per arriving state; nothing computed from a state while it is alone at its depth; once a second state arrives there, one RequestNames::shape_hash per state of the depth (linear in its nodes that hold variables), and one RequestNames::state_key per state whose hash another state of the depth shares, each computed once; the effects and consoles of two arrivals are compared by fingerprint in O(1) and then back to their shared history; memory: the states recorded at depths not below the shallowest pending state, each a record of about 300 bytes (64-bit) and a copy of its constraint list, holding its term by its shared nodes, not a copy"
 //!
 //! [[cost]]
 //! mode = "trace storage"
@@ -204,6 +204,8 @@ struct Execution<'a> {
     /// The state being expanded, as the merge table would record it once its expansion
     /// completes; `None` when it takes no part in merging.
     arrival: Option<Arrival>,
+    /// Whether the state being expanded was merged ([`Execution::merged`]).
+    merged_arrival: bool,
     /// After each expansion: the merge table's size, its shallowest recorded depth, and the
     /// depth of the back of `pending`.
     #[cfg(test)]
@@ -305,6 +307,7 @@ impl<'a> Execution<'a> {
             work,
             merge,
             arrival: None,
+            merged_arrival: false,
             #[cfg(test)]
             merge_census: Vec::new(),
         }
@@ -384,6 +387,10 @@ impl<'a> Execution<'a> {
             self.arrival = None;
             match self.expand(state) {
                 Ok(successors) => {
+                    // A merged arrival took no rewrite step: its time is not a step's time.
+                    if std::mem::take(&mut self.merged_arrival) {
+                        step_timer.discard_measurement();
+                    }
                     self.record_arrival();
                     enqueue_execution_states(&mut self.pending, successors);
                     if let Expansion::BreadthBound = self.breadth_checked() {
@@ -416,10 +423,12 @@ impl<'a> Execution<'a> {
     /// the state unrecorded, so an equal later state is expanded itself.
     ///
     /// Initial inputs (which carry their definedness) and remainder states (which end as leaves
-    /// without a step) take no part. A key is computed only when another path exists: a state
-    /// is pending, or a recorded state may still be met.
+    /// without a step) take no part. The state is kept for comparison only when another path
+    /// exists (a state is pending, or a recorded state may still be met); its shape hash is
+    /// computed only when its depth holds a recorded state, and its key only when a recorded
+    /// state of its hash does.
     fn merged(&mut self, state: &ExecutionState) -> bool {
-        let Some(merge) = &self.merge else {
+        let Some(merge) = &mut self.merge else {
             return false;
         };
         if state.is_initial_input
@@ -428,16 +437,17 @@ impl<'a> Execution<'a> {
         {
             return false;
         }
-        let arrival = Arrival {
-            depth: state.depth,
-            key: self.fresh_counter.request().state_key(&state.pattern),
-            effects: state.effects.clone(),
-            io: state.io.clone(),
-            io_enabled: state.io_enabled,
-            diagnostics: state.diagnostics.clone(),
-        };
-        if merge.absorbs(&arrival) {
+        let mut arrival = Arrival::new(
+            state.depth,
+            state.pattern.clone(),
+            state.effects.clone(),
+            state.io.clone(),
+            state.io_enabled,
+            state.diagnostics.clone(),
+        );
+        if merge.absorbs(&mut arrival, self.fresh_counter.request()) {
             measure::bump(Counter::ExecutionStatesMerged);
+            self.merged_arrival = true;
             return true;
         }
         self.arrival = Some(arrival);
@@ -3679,6 +3689,140 @@ mod tests {
         // Every state of the left spine is recorded while the first right branch is pending.
         assert!(largest >= 400, "{largest}");
         assert_eq!(execution.merge_census.last(), Some(&(0, None, None)));
+    }
+
+    /// A chain that never converges, the configuration holding `vars` variables the run minted:
+    /// `init` rewrites to `st(L, 0)`, `L` the list of the minted variables; `st(B, N)` rewrites
+    /// to `st(B, N + 1)` while `N < chain`, and `st(B, 0)` also to `side`, which stays pending
+    /// while the chain runs to its end.
+    fn minted_chain_definition(vars: usize, chain: usize) -> BackendDefinition {
+        let mut list = String::from("nil{}()");
+        for i in (0..vars).rev() {
+            list = format!("cons{{}}(Y{i}:SortInt{{}}, {list})");
+        }
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                sort SortK{{}} []
+                sort SortL{{}} []
+                symbol nil{{}}() : SortL{{}} [constructor{{}}()]
+                symbol cons{{}}(SortInt{{}}, SortL{{}}) : SortL{{}} [constructor{{}}()]
+                symbol init{{}}() : SortK{{}} [constructor{{}}()]
+                symbol side{{}}() : SortK{{}} [constructor{{}}()]
+                symbol st{{}}(SortL{{}}, SortInt{{}}) : SortK{{}} [constructor{{}}()]
+                hooked-symbol addInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.add"), smt-hook{{}}("+")]
+                hooked-symbol ltInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.lt"), smt-hook{{}}("<")]
+                axiom{{}} \rewrites{{SortK{{}}}}(\and{{SortK{{}}}}(init{{}}(), \top{{SortK{{}}}}()),
+                    \and{{SortK{{}}}}(st{{}}({list}, \dv{{SortInt{{}}}}("0")), \top{{SortK{{}}}}()))
+                    [label{{}}("init")]
+                axiom{{}} \rewrites{{SortK{{}}}}(
+                    \and{{SortK{{}}}}(st{{}}(B:SortL{{}}, N:SortInt{{}}),
+                        \equals{{SortBool{{}}, SortK{{}}}}(
+                            ltInt{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("{chain}")),
+                            \dv{{SortBool{{}}}}("true"))),
+                    \and{{SortK{{}}}}(
+                        st{{}}(B:SortL{{}}, addInt{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("1"))),
+                        \top{{SortK{{}}}}())) [label{{}}("next")]
+                axiom{{}} \rewrites{{SortK{{}}}}(
+                    \and{{SortK{{}}}}(st{{}}(B:SortL{{}}, \dv{{SortInt{{}}}}("0")), \top{{SortK{{}}}}()),
+                    \and{{SortK{{}}}}(side{{}}(), \top{{SortK{{}}}}())) [label{{}}("side")]
+            endmodule []"#
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// On a run in which no two states of one depth are alike, the merge table records every
+    /// state of the chain (the pending `side` keeps them reachable) and computes nothing from
+    /// their patterns while each is alone at its depth. Only `side`, arriving last at the depth
+    /// of `st(L, 1)`, has company: the two are hashed, and their hashes differ, so no key is
+    /// built. The only keys are the final merge's, one per leaf, and the result is the path-set
+    /// run's.
+    #[test]
+    fn a_state_set_run_that_never_converges_computes_nothing_from_its_states() {
+        let (vars, chain) = (20, 60);
+        let definition = minted_chain_definition(vars, chain);
+        let initial = || {
+            let syntax = parse_pattern("init{}()").expect("pattern should parse");
+            Pattern {
+                term: definition
+                    .internalize_term(&syntax, &[])
+                    .expect("pattern should internalize"),
+                constraints: Vec::new(),
+            }
+        };
+        let run = |result_modality| {
+            let mut observe = |_: &BuiltinEffect| {};
+            let keys = crate::fresh::STATE_KEYS.with(std::cell::Cell::get);
+            let hashes = crate::fresh::SHAPE_HASHES.with(std::cell::Cell::get);
+            let execution = explored(
+                &definition,
+                vec![initial()],
+                ExecutionOptions {
+                    result_modality,
+                    ..ExecutionOptions::default()
+                },
+                &crate::smt::NoSolver,
+                &mut observe,
+            );
+            let largest = execution
+                .merge_census
+                .iter()
+                .map(|&(recorded, _, _)| recorded)
+                .max();
+            let configurations =
+                merge_equal_final_leaves(execution.fresh_counter.request(), execution.leaves)
+                    .into_iter()
+                    .map(|leaf| (leaf.pattern, leaf.halt_reason))
+                    .collect::<Vec<_>>();
+            (
+                configurations,
+                largest,
+                crate::fresh::STATE_KEYS.with(std::cell::Cell::get) - keys,
+                crate::fresh::SHAPE_HASHES.with(std::cell::Cell::get) - hashes,
+            )
+        };
+        let (state_set, largest, keys, hashes) = run(ResultModality::StateSet);
+        let (path_set, unmerged, _, _) = run(ResultModality::PathSet);
+        assert_eq!(state_set, path_set);
+        assert_eq!(state_set.len(), 2, "{state_set:?}");
+        assert_eq!(unmerged, None, "a path-set run keeps no merge table");
+        assert!(largest >= Some(chain), "{largest:?}");
+        assert_eq!(hashes, 2, "`side` and `st(L, 1)`");
+        assert_eq!(keys, 2, "one key per final leaf, in the final merge");
+    }
+
+    /// A merged arrival takes no rewrite step, so the moving-average step timeout does not take
+    /// its time in: on a chain of 20 diamonds, every popped state but the 20 merged arrivals is
+    /// recorded.
+    #[test]
+    fn a_merged_arrival_is_not_timed_as_a_step() {
+        let definition = definition(&diamond_chain_axioms(20));
+        let mut observe = |_: &BuiltinEffect| {};
+        // The controller records every step's time whether or not a timeout is set; none is
+        // set, so that no step can time out.
+        let timeout_controller = StepTimeoutController::new(StepTimeoutOptions::default());
+        let before = measure::snapshot();
+        let mut execution = Execution::seed(
+            &definition,
+            vec![subject(&definition, "s0")],
+            ExecutionOptions::default(),
+            &crate::smt::NoSolver,
+            None,
+            None,
+            &mut observe,
+        );
+        execution.run(&timeout_controller);
+        let delta = measure::snapshot().delta(&before);
+        assert_eq!(delta.get(Counter::ExecutionStatesMerged), 20);
+        assert_eq!(
+            timeout_controller.recorded.get() as u64,
+            delta.get(Counter::RewriteSteps) - 20
+        );
     }
 
     /// A run that merged states and is then cancelled ends with the cancelled leaf: merging

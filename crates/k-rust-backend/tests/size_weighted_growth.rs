@@ -1193,3 +1193,79 @@ fn a_state_set_run_of_converging_logging_diamonds_allocates_linearly() {
         })
     });
 }
+
+/// A chain that never converges, its configuration holding `vars` variables the run minted:
+/// `init` rewrites to `st(L, 0)`, `L` the list of the minted variables; `st(B, N)` rewrites to
+/// `st(B, N + 1)` while `N < chain`, and `st(B, 0)` also to `side`, which stays pending while the
+/// chain runs to its end, so a state-set run keeps every state of the chain in its merge table.
+fn minted_chain(vars: u64, chain: u64) -> String {
+    let mut list = String::from("nil{}()");
+    for i in (0..vars).rev() {
+        list = format!("cons{{}}(Y{i}:SortInt{{}}, {list})");
+    }
+    format!(
+        r#"[]
+module MAIN
+    hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+    hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+    sort SortK{{}} []
+    sort SortL{{}} []
+    symbol nil{{}}() : SortL{{}} [constructor{{}}()]
+    symbol cons{{}}(SortInt{{}}, SortL{{}}) : SortL{{}} [constructor{{}}()]
+    symbol init{{}}() : SortK{{}} [constructor{{}}()]
+    symbol side{{}}() : SortK{{}} [constructor{{}}()]
+    symbol st{{}}(SortL{{}}, SortInt{{}}) : SortK{{}} [constructor{{}}()]
+    hooked-symbol addInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+        [function{{}}(), total{{}}(), hook{{}}("INT.add"), smt-hook{{}}("+")]
+    hooked-symbol ltInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+        [function{{}}(), total{{}}(), hook{{}}("INT.lt"), smt-hook{{}}("<")]
+    axiom{{}} \rewrites{{SortK{{}}}}(\and{{SortK{{}}}}(init{{}}(), \top{{SortK{{}}}}()),
+        \and{{SortK{{}}}}(st{{}}({list}, \dv{{SortInt{{}}}}("0")), \top{{SortK{{}}}}())) [label{{}}("init")]
+    axiom{{}} \rewrites{{SortK{{}}}}(
+        \and{{SortK{{}}}}(st{{}}(B:SortL{{}}, N:SortInt{{}}),
+            \equals{{SortBool{{}}, SortK{{}}}}(ltInt{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("{chain}")), \dv{{SortBool{{}}}}("true"))),
+        \and{{SortK{{}}}}(st{{}}(B:SortL{{}}, addInt{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("1"))), \top{{SortK{{}}}}())) [label{{}}("next")]
+    axiom{{}} \rewrites{{SortK{{}}}}(
+        \and{{SortK{{}}}}(st{{}}(B:SortL{{}}, \dv{{SortInt{{}}}}("0")), \top{{SortK{{}}}}()),
+        \and{{SortK{{}}}}(side{{}}(), \top{{SortK{{}}}}())) [label{{}}("side")]
+endmodule []"#
+    )
+}
+
+/// A state-set run in which no two states of one depth are alike explores what a path-set run
+/// explores, and allocates about what it does: the merge table keeps each state's pattern by its
+/// shared nodes and computes nothing from it while the state is alone at its depth. A table
+/// that keeps a renamed copy of every state allocates the configuration's size per step, here
+/// `vars` list cells where the step itself builds a few nodes.
+#[test]
+fn a_state_set_run_that_never_converges_allocates_what_a_path_set_run_does() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let (vars, chain) = (100, 400);
+    let definition = definition(&minted_chain(vars, chain));
+    let bytes = |result_modality| {
+        let initial = pattern(&definition, "init{}()");
+        bytes_of(|| {
+            let result = execute(
+                &definition,
+                initial,
+                ExecutionOptions {
+                    result_modality,
+                    ..ExecutionOptions::default()
+                },
+            );
+            assert_eq!(result.leaves.len(), 2, "{:?}", result.leaves);
+            result
+        })
+    };
+    let path_set = bytes(k_rust_backend::search::ResultModality::PathSet);
+    let state_set = bytes(k_rust_backend::search::ResultModality::StateSet);
+    eprintln!(
+        "minted chain of {chain} steps over {vars} variables: state-set {state_set} bytes, path-set {path_set} bytes"
+    );
+    assert!(
+        state_set <= path_set + path_set / 2,
+        "state-set {state_set} bytes against path-set {path_set}"
+    );
+}

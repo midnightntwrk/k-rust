@@ -564,7 +564,10 @@ pub struct ExecutionOptions {
     /// expansion completed, with the same effects, console and console availability and no
     /// diagnostic the other's path lacks, is merged into it, so converging paths cost the distinct
     /// states; exploration stays depth-first, and the leaves are those of the unmerged run but for
-    /// the duplicates of `Trivial` and `Vacuous` leaves in a merged subtree. `ExecutionMode::Any`
+    /// the duplicates of `Trivial` and `Vacuous` leaves in a merged subtree. Such a run's
+    /// `max_breadth` bounds the pending states of the merged exploration, so where the unmerged run
+    /// exceeds the bound the merged run reaches it later or not at all, and its frontier can lie
+    /// deeper. `ExecutionMode::Any`
     /// gives each configuration the successors of the first rule, in priority then definition
     /// order, that gives it a defined result (and a symbolic remainder where none applies), keeping
     /// that rule's right-hand-side alternatives, so it can yield several leaves; the two readings

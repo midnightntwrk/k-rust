@@ -479,7 +479,9 @@ pub enum Counter {
     /// Grammar and term sort encodings constructed for Z3 inference.
     ParserZ3EncodingBuilds,
     // backend
-    /// States popped by the execution loop, one per rewrite step attempted.
+    /// States popped by the execution loop, merged arrivals included: a state-set execution's
+    /// merged arrival is popped and simplified but takes no rewrite step
+    /// (`ExecutionStatesMerged`).
     RewriteSteps,
     /// States a state-set execution merged into an equal recorded state of the same depth
     /// instead of expanding them, one per merged arrival.

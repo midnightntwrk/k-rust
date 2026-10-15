@@ -64,7 +64,7 @@ pub(crate) fn edge(label: &str, from: &str, to: &str) -> String {
 }
 
 /// A rule `from => to requires cond(from) = true`, which no solver decides.
-fn guarded_edge(label: &str, from: &str, to: &str) -> String {
+pub(crate) fn guarded_edge(label: &str, from: &str, to: &str) -> String {
     format!(
         r#"
             axiom{{}} \rewrites{{SortK{{}}}}(
@@ -167,6 +167,15 @@ pub(crate) fn run(
     }
 }
 
+/// Whether the run exceeded `max_breadth`: it then ends every pending state as a breadth-bound
+/// leaf.
+pub(crate) fn reaches_breadth_bound(result: &ExecutionResult) -> bool {
+    result
+        .leaves
+        .iter()
+        .any(|leaf| leaf.halt_reason == HaltReason::BreadthBound)
+}
+
 fn carries_configuration(leaf: &ExecutionLeaf) -> bool {
     !matches!(
         leaf.halt_reason,
@@ -253,13 +262,24 @@ fn same_set<T: PartialEq + std::fmt::Debug>(left: &[T], right: &[T], what: &str,
 ///   the leaves it stands for, [`stands_for`]), with that leaf's depth, halt reason and trace;
 /// - leaves without a configuration denote the same (depth, state, obligation) set;
 /// - the union of the leaves' diagnostics is the same;
+/// - the run's coverage (`ExecutionOptions::collect_coverage`) is the same;
 /// - the state-set run pops no more states than the path-set run.
+///
+/// Under `max_breadth` this holds where the path-set run never exceeds the bound: the merged
+/// run's pending states are then the path-set run's without the skipped subtrees, so it never
+/// exceeds the bound either. Where the path-set run exceeds it, the merged run reaches the bound
+/// later or not at all and its frontier may lie deeper, and only the path-set run's own
+/// properties are checked.
 pub(crate) fn assert_merged_state_set_agrees(
     definition: &BackendDefinition,
     initial: &Pattern,
     options: &ExecutionOptions,
     context: &str,
 ) -> (Run, Run) {
+    let options = &ExecutionOptions {
+        collect_coverage: true,
+        ..options.clone()
+    };
     let state_set = run(definition, initial, options, ResultModality::StateSet);
     let path_set = run(definition, initial, options, ResultModality::PathSet);
     assert_eq!(
@@ -273,13 +293,17 @@ pub(crate) fn assert_merged_state_set_agrees(
         .chain(&path_set.result.leaves)
     {
         assert!(
-            !matches!(
-                leaf.halt_reason,
-                HaltReason::TerminalRule { .. } | HaltReason::Stopped(_)
-            ),
-            "{context}: the fixture has no terminal rule and no stop: {leaf:#?}"
+            !matches!(leaf.halt_reason, HaltReason::Stopped(_)),
+            "{context}: the fixture has no stop: {leaf:#?}"
         );
     }
+    if reaches_breadth_bound(&path_set.result) {
+        return (state_set, path_set);
+    }
+    assert_eq!(
+        state_set.result.coverage, path_set.result.coverage,
+        "{context}: the coverage differs"
+    );
 
     let configured = |result: &ExecutionResult| {
         result
@@ -352,7 +376,8 @@ pub(crate) fn assert_merged_state_set_agrees(
     (state_set, path_set)
 }
 
-/// Small ground rule graphs, each with and without a depth bound: chains of converging
+/// Small ground rule graphs, each with and without a depth bound and under breadth bounds of 2
+/// and 3 (checked where the path-set run stays within them): chains of converging
 /// diamonds; diamonds of unequal lengths, which meet at different depths; distinct final
 /// states; a cycle; an undefined step after a diamond; a remainder after a diamond; a diamond
 /// whose branches log and write alike, and one whose branches log differently.
@@ -444,16 +469,19 @@ fn a_merged_state_set_result_is_the_deduplicated_path_set_result() {
             &[u64::MAX, 3]
         };
         for &max_depth in depths {
-            let options = ExecutionOptions {
-                max_depth,
-                ..ExecutionOptions::default()
-            };
-            assert_merged_state_set_agrees(
-                &definition,
-                &initial,
-                &options,
-                &format!("{name}, max_depth {max_depth}"),
-            );
+            for max_breadth in [None, Some(2), Some(3)] {
+                let options = ExecutionOptions {
+                    max_depth,
+                    max_breadth,
+                    ..ExecutionOptions::default()
+                };
+                assert_merged_state_set_agrees(
+                    &definition,
+                    &initial,
+                    &options,
+                    &format!("{name}, max_depth {max_depth}, max_breadth {max_breadth:?}"),
+                );
+            }
         }
     }
 
@@ -483,6 +511,91 @@ fn a_merged_state_set_result_is_the_deduplicated_path_set_result() {
                 &format!("{rules:?}, max_depth {max_depth}"),
             );
         }
+    }
+}
+
+/// Under state-set, `max_breadth` bounds the pending states of the merged exploration. A merged
+/// arrival pushes no successors, so where the path-set run exceeds the bound inside a subtree the
+/// merged run skips, the merged run reaches the bound later or not at all: its frontier can lie
+/// deeper, and it can report configurations the path-set result does not. Here `a` reaches `m`
+/// through `p` and through `q`, and `q` has three more successors: with `max_breadth` 4 the
+/// path-set run exceeds the bound when it expands `m` the second time, while the merged run
+/// skips that arrival and runs to the end. With 3 both runs exceed it at the same point, and with
+/// 5 neither does.
+#[test]
+fn under_a_breadth_bound_a_merged_run_can_explore_past_the_path_set_frontier() {
+    let rules = [
+        edge("a-p", "a", &node("p")),
+        edge("a-q", "a", &node("q")),
+        edge("p-m", "p", &node("m")),
+        edge("q-m", "q", &node("m")),
+        edge("q-q1", "q", &node("q1")),
+        edge("q-q2", "q", &node("q2")),
+        edge("q-q3", "q", &node("q3")),
+        edge("m-m1", "m", &node("m1")),
+        edge("m-m2", "m", &node("m2")),
+        edge("q1-z", "q1", &node("z")),
+    ]
+    .concat();
+    let definition = graph_definition(&rules);
+    let initial = pattern(&definition, &node("a"));
+    let leaves = |run: &Run| {
+        run.result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                let name = (["m1", "m2", "m", "q1", "q2", "q3", "z"].into_iter())
+                    .find(|name| leaf.pattern == pattern(&definition, &node(name)))
+                    .unwrap_or("?");
+                (name, leaf.depth, leaf.halt_reason.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    use HaltReason::{BreadthBound, Stuck};
+    let options = |bound| ExecutionOptions {
+        max_breadth: Some(bound),
+        ..ExecutionOptions::default()
+    };
+    let (state_set, path_set) =
+        assert_merged_state_set_agrees(&definition, &initial, &options(4), "max_breadth 4");
+    assert!(reaches_breadth_bound(&path_set.result));
+    assert_eq!(state_set.merged, 1);
+    assert_eq!(
+        leaves(&path_set),
+        [
+            ("m1", 3, Stuck),
+            ("m2", 3, Stuck),
+            ("m1", 3, BreadthBound),
+            ("m2", 3, BreadthBound),
+            ("q1", 2, BreadthBound),
+            ("q2", 2, BreadthBound),
+            ("q3", 2, BreadthBound),
+        ]
+    );
+    assert_eq!(
+        leaves(&state_set),
+        [
+            ("m1", 3, Stuck),
+            ("m2", 3, Stuck),
+            ("z", 3, Stuck),
+            ("q2", 2, Stuck),
+            ("q3", 2, Stuck),
+        ]
+    );
+    for bound in [3, 5] {
+        let (state_set, path_set) = assert_merged_state_set_agrees(
+            &definition,
+            &initial,
+            &options(bound),
+            &format!("max_breadth {bound}"),
+        );
+        assert_eq!(reaches_breadth_bound(&path_set.result), bound == 3);
+        assert_eq!(
+            reaches_breadth_bound(&state_set.result),
+            bound == 3,
+            "{:#?}",
+            leaves(&state_set)
+        );
     }
 }
 
