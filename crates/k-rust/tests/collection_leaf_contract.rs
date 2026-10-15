@@ -236,7 +236,7 @@ fn done_collection(definition: &BackendDefinition, leaf: &ExecutionLeaf) -> Term
     panic!("no collection in {}", text(leaf))
 }
 
-fn leaf<'r>(result: &'r ExecutionResult, reason: HaltReasonOutput) -> &'r ExecutionLeaf {
+fn leaf(result: &ExecutionResult, reason: HaltReasonOutput) -> &ExecutionLeaf {
     let mut found = result.leaves.iter().filter(|leaf| leaf.reason == reason);
     let leaf = found
         .next()
