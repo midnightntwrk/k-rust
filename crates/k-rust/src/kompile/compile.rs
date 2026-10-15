@@ -205,6 +205,23 @@ pub struct CompiledKoreArtifacts {
     pub sentence_provenance: BTreeMap<String, EmittedSentenceProvenance>,
 }
 
+impl CompiledKoreArtifacts {
+    /// The execution digest of `definition_kore` (`k_rust::backend::execution_digest`, whose
+    /// rustdoc states what equal digests mean). It covers `definition.kore` only: not the
+    /// syntax or macros definitions, and not `execution_rewrite_order`. A `definition_kore` that
+    /// does not parse has no digest (`NotCanonical`); compiler output always parses.
+    pub fn execution_digest(
+        &self,
+    ) -> Result<
+        k_rust_backend::definition::ExecutionDigest,
+        k_rust_backend::definition::ExecutionDigestError,
+    > {
+        let definition = crate::kore::parser::parse_definition(&self.definition_kore)
+            .map_err(|_| k_rust_backend::definition::ExecutionDigestError::NotCanonical)?;
+        k_rust_backend::definition::execution_digest(&definition)
+    }
+}
+
 /// Input provenance of one emitted rule or claim identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmittedSentenceProvenance {

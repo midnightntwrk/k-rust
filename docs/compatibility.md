@@ -139,6 +139,16 @@ When that buffer holds more than one character and begins with a delimiter, beca
 The trailing newlines become exactly one for these rules: since nothing extends the buffer, a token is read only when a delimiter already follows it, so the one newline ends the input's last line whether or not standard input ended it, and the further ones are empty lines that hold no token, two of which would make a read past the last token undefined instead of finding the end of the input.
 The two modes therefore agree on a stream program's input only where these forms coincide; this is the input precondition of C9 in the [comparison contract](#comparison-contract).
 
+## Execution digest
+
+`k_rust::backend::execution_digest` hashes a KORE definition with its `Source` and `Location` attributes removed and nothing else changed (`CompiledKoreArtifacts::execution_digest` hashes `definition.kore`); its rustdoc states the contract.
+Within one k-rust build, definitions with equal digests give equal results through `Backend::new`, `Backend::from_definition` and `Backend::internalize_definition` for an equal module, `BackendOptions`, request and simplification stack budget, except in values derived from rule origins (diagnostics, leaf `detail` texts, `contradictedTotal.origin`, the rule catalog's origins, and the descriptive name of a rule with neither label nor id); unequal digests imply nothing.
+The digest is defined only when every origin is readable by the backend and the definition without its origins prints to a text that parses back to it.
+It keeps labels, `UNIQUE_ID`s, duplicate axioms, and the order of modules, sentences and attributes, because execution reads them.
+It is one component of an execution cache key: the build, the module, the options, the stack budget, the initial state as a pattern and the request are the others, and on the route `Backend::internalize_source_definition` the `execution_rewrite_order` is one more.
+It is not a congruence for source edits, since compiling maps several source definitions to one KORE definition.
+Digests are comparable within one build, under `EXECUTION_DIGEST_VERSION`.
+
 ## Frontend policy
 
 The Rust backend uses K's Haskell policies for existential right-hand-side variables, variables bound through `requires`, and excluded module attributes.
