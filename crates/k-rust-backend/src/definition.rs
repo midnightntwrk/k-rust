@@ -123,7 +123,9 @@ use crate::{
 ///
 /// The requests covered are those whose `cut_point_rules` and `terminal_rules` are empty, whose
 /// observation rule list, if any, names no rule, with `stop_at_branch` false, no `max_breadth`,
-/// no `max_results`, no step timeout and no cancellation; `max_depth` is covered. The excluded
+/// no `max_results`, no step timeout and no cancellation; `max_depth` and
+/// `max_simplification_iterations` are covered (each condition attempt gets its own
+/// simplification budget, so a duplicated equation adds no pass to it). The excluded
 /// fields count branches, paths, witnesses or work, or stop on the clock, and identifying equal
 /// axioms changes how many paths reach a state, so they may stop D and D' at different states.
 /// The same holds for any other bound that counts states visited or work done. The path-search
@@ -223,6 +225,241 @@ pub const fn execution_role(attribute: KoreAttribute) -> ExecutionRole {
         | KoreAttribute::TopCellInitializer
         | KoreAttribute::Overload => ExecutionRole::Semantic,
     }
+}
+
+/// The version of the canonical form [`execution_digest`] hashes. It changes when the
+/// [`ExecutionRole::Origin`] attributes, the rule that decides whether an origin is readable, or
+/// the canonical form changes, including a change of the compact KORE printer or the parser
+/// that moves the pinned digest (which then gets a new row in the pin test); a digest is never
+/// compared across versions. A change of what the backend does with a definition does not
+/// change it: the build identity, another component of a cache key, covers that.
+pub const EXECUTION_DIGEST_VERSION: u32 = 1;
+
+/// The execution digest of a KORE definition ([`execution_digest`], whose rustdoc states what
+/// equal digests mean): a SHA-256 value, written as 64 lower-case hexadecimal digits. A host
+/// stores it as that text, through `Display` and `FromStr`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExecutionDigest([u8; 32]);
+
+impl ExecutionDigest {
+    /// The 32 bytes of the digest.
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+/// The digest as 64 lower-case hexadecimal digits.
+impl fmt::Display for ExecutionDigest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            write!(formatter, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+/// A text that is not 64 hexadecimal digits ([`ExecutionDigest`]'s `FromStr`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParseExecutionDigestError;
+
+impl fmt::Display for ParseExecutionDigestError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an execution digest is 64 hexadecimal digits")
+    }
+}
+
+impl Error for ParseExecutionDigestError {}
+
+/// Reads the text [`ExecutionDigest`]'s `Display` writes; upper-case digits are accepted.
+impl std::str::FromStr for ExecutionDigest {
+    type Err = ParseExecutionDigestError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let text = text.as_bytes();
+        if text.len() != 64 {
+            return Err(ParseExecutionDigestError);
+        }
+        let digit = |byte: u8| {
+            char::from(byte)
+                .to_digit(16)
+                .map(|value| value as u8)
+                .ok_or(ParseExecutionDigestError)
+        };
+        let mut bytes = [0; 32];
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            *byte = digit(text[2 * index])? << 4 | digit(text[2 * index + 1])?;
+        }
+        Ok(Self(bytes))
+    }
+}
+
+/// Why a definition has no execution digest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ExecutionDigestError {
+    /// Some application of an origin attribute, on some attribute list, is not exactly the
+    /// attribute applied without sort parameters to one UTF-8 string. Every definition the
+    /// backend refuses for an unreadable origin is refused here too, and so are some it loads
+    /// (the backend reads origins at load only on the axioms and claims of the selected module's
+    /// imports, and on declarations only to cite them in an error); a definition refused here
+    /// only misses.
+    MalformedOrigin {
+        /// The origin attribute (`Source` or `Location`).
+        attribute: KoreAttribute,
+        /// Where: `definition`, `module M`, or `module M sentence i` (counting from 0).
+        at: String,
+    },
+    /// The definition without its origins does not print to a text that parses back to it
+    /// (a string payload that is not UTF-8, or a name the printer cannot spell unambiguously),
+    /// so its print would not identify it. The KORE parser never produces such a definition.
+    NotCanonical,
+}
+
+impl fmt::Display for ExecutionDigestError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MalformedOrigin { attribute, at } => write!(
+                formatter,
+                "the {} attribute of the {at} is not one UTF-8 string",
+                attribute.as_str()
+            ),
+            Self::NotCanonical => formatter.write_str(
+                "the definition without its origins does not print to a text that parses back to it",
+            ),
+        }
+    }
+}
+
+impl Error for ExecutionDigestError {}
+
+/// The execution digest of `definition`: a SHA-256 hash of the definition with its
+/// [`ExecutionRole::Origin`] attributes removed (`Source` and `Location`, from the definition,
+/// every module and every sentence) and nothing else changed, printed in compact KORE, under the
+/// domain tag `k-rust/execution-digest/v` [`EXECUTION_DIGEST_VERSION`].
+///
+/// What equal digests mean. Let D1 and D2 have equal digests. Within one k-rust build, for an
+/// equal module name, `BackendOptions`, request (`ExecuteRequest`, `SearchRequest`, observation
+/// options), added modules (`Backend::add_module`) that a request names, SMT prelude,
+/// simplification stack budget and stack size of the executing thread, and in Z3 builds an
+/// equal Z3 library, a backend built from D1 and one built from D2 by `Backend::new`,
+/// `Backend::from_definition` or `Backend::from_internalized` of
+/// `Backend::internalize_definition` give equal results, except in what rule and declaration
+/// origins reach:
+/// - texts that cite a position: diagnostics and the names they give rules (a rule's name ends
+///   with its position), error messages of a refused load or request, value-claim findings, a
+///   leaf's halt `detail`, and `contradictedTotal.origin`;
+/// - which diagnostics are kept, since equal diagnostics are reported once and their equality
+///   includes the origin;
+/// - the rule catalog's origins.
+///
+/// The promise has the exclusions of the backend's determinism contract: a request bounded by
+/// the clock or cancelled; a stop for lack of stack, including an `InsufficientStack` depth
+/// refusal and a load-time stack stop; a `Bytes` result refused at the memory allowance; and in
+/// Z3 builds an SMT query that can time out. Unequal digests imply nothing.
+///
+/// Why: equal digests mean equal printed texts (up to a SHA-256 collision), and a digest exists
+/// only when the definition without its origins parses back from its print, so equal digests
+/// mean equal definitions without origins. A digest exists only when every application of an
+/// origin attribute, on every attribute list, is the attribute applied without sort parameters
+/// to one UTF-8 string, so D1 and D2 differ from their common form only by such applications.
+/// The backend reads an origin's first application as that string, which reaches only rule and
+/// declaration origins ([`ExecutionRole`]); it also measures the nesting height of every
+/// attribute pattern, which decides whether a load or a request has enough stack, and an
+/// application of this shape is never the deepest pattern of a definition with an axiom. This
+/// check refuses every definition the backend refuses for an unreadable origin, and some it
+/// loads ([`ExecutionDigestError::MalformedOrigin`]); a refused definition only misses.
+/// Everything else the definition says is kept:
+/// - labels, because they name rules, select a request's cut-point and terminal rules, and keep
+///   two otherwise equal axioms apart, which changes path counts;
+/// - `UNIQUE_ID`s, because they identify rules for names, filters and the axiom collapse;
+/// - the order of modules and sentences, because strategy `any` takes the first rule that
+///   applies, equations of one priority apply in order, strategy `all` orders its leaves by it,
+///   and a bound that counts work decides by it what is reached;
+/// - the order of one attribute's applications, because the backend's accessors read the first;
+/// - exact duplicate axioms and the order of distinct attributes, which execution does not
+///   read (a duplicate collapses into one rule), because canonicalising them is not needed for
+///   the promise: keeping them can only cause a miss.
+///
+/// The digest is one component of an execution cache key, not the key: the build, the module,
+/// the options, the added modules a request names, the SMT prelude, the Z3 library in Z3 builds,
+/// the simplification stack budget and the executing thread's stack size, the initial state as
+/// a pattern (not the program text, which another grammar parses differently) and the request
+/// are the others. On the route `Backend::internalize_source_definition`,
+/// `execution_rewrite_order` reorders the rewrite rules of each priority, so it is a further
+/// component there.
+/// The digest is not a congruence for edits: compiling turns several source definitions into one
+/// KORE definition, so one source edit applied to two definitions with one digest can give two
+/// different digests; hash the edited definition.
+/// Digests are comparable within one k-rust build only.
+pub fn execution_digest(
+    definition: &kore::Definition,
+) -> Result<ExecutionDigest, ExecutionDigestError> {
+    let origins = KoreAttribute::ALL
+        .into_iter()
+        .filter(|attribute| execution_role(*attribute) == ExecutionRole::Origin)
+        .collect::<Vec<_>>();
+    // Every application of an origin attribute must be `name{}(s)` for one UTF-8 string `s`:
+    // the backend reads the first one as a string, and the height of every one.
+    let readable = |attributes: &kore::Attributes, at: &dyn Fn() -> String| {
+        for pattern in &attributes.0 {
+            let kore::Pattern::Application { symbol, arguments } = pattern else {
+                continue;
+            };
+            let Some(attribute) = origins.iter().find(|origin| origin.as_str() == symbol.name)
+            else {
+                continue;
+            };
+            let well_formed = symbol.sort_parameters.is_empty()
+                && matches!(arguments.as_slice(),
+                    [kore::Pattern::String(value)] if value.as_utf8().is_ok());
+            if !well_formed {
+                return Err(ExecutionDigestError::MalformedOrigin {
+                    attribute: *attribute,
+                    at: at(),
+                });
+            }
+        }
+        Ok(())
+    };
+    let strip = |attributes: &mut kore::Attributes| {
+        attributes.0.retain(|attribute| {
+            !matches!(attribute, kore::Pattern::Application { symbol, .. }
+                if origins.iter().any(|origin| origin.as_str() == symbol.name))
+        });
+    };
+    readable(&definition.attributes, &|| "definition".to_owned())?;
+    let mut stripped = definition.clone();
+    strip(&mut stripped.attributes);
+    for module in &mut stripped.modules {
+        let name = module.name.clone();
+        readable(&module.attributes, &|| format!("module {name}"))?;
+        strip(&mut module.attributes);
+        for (index, sentence) in module.sentences.iter_mut().enumerate() {
+            let attributes = match sentence {
+                kore::Sentence::Import { attributes, .. }
+                | kore::Sentence::SortDeclaration { attributes, .. }
+                | kore::Sentence::SymbolDeclaration { attributes, .. }
+                | kore::Sentence::AliasDeclaration { attributes, .. }
+                | kore::Sentence::Axiom { attributes, .. }
+                | kore::Sentence::Claim { attributes, .. } => attributes,
+            };
+            readable(attributes, &|| format!("module {name} sentence {index}"))?;
+            strip(attributes);
+        }
+    }
+    let printed = k_rust_kore::kore::printer::Printer::compact().print_definition(&stripped);
+    if !matches!(k_rust_kore::kore::parser::parse_definition(&printed),
+        Ok(parsed) if parsed == stripped)
+    {
+        return Err(ExecutionDigestError::NotCanonical);
+    }
+    use sha2::{Digest as _, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"k-rust/execution-digest/v");
+    hasher.update(EXECUTION_DIGEST_VERSION.to_string().as_bytes());
+    hasher.update([0]);
+    hasher.update(printed.as_bytes());
+    Ok(ExecutionDigest(hasher.finalize().into()))
 }
 
 /// Why a domain value names no element of its sort.
@@ -4385,6 +4622,230 @@ mod tests {
     use crate::term::TermKind;
 
     use super::*;
+
+    /// A small definition whose `Source`/`Location` origins are well formed.
+    const DIGESTED: &str = r#"[org'Stop'kframework'Stop'attributes'Stop'Source{}("whole.k")]
+        module MAIN
+            sort SortS{} []
+            symbol a{}() : SortS{} [constructor{}()]
+            symbol b{}() : SortS{} [constructor{}()]
+            symbol c{}() : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                \and{SortS{}}(b{}(), \top{SortS{}}())
+            ) [label{}("a-to-b"), UNIQUE'Unds'ID{}("one"),
+                org'Stop'kframework'Stop'attributes'Stop'Source{}("main.k"),
+                org'Stop'kframework'Stop'attributes'Stop'Location{}("(1,1,1,9)")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                \and{SortS{}}(c{}(), \top{SortS{}}())
+            ) [UNIQUE'Unds'ID{}("two")]
+        endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("(1,1,20,9)")]"#;
+
+    fn digested() -> kore::Definition {
+        parse_definition(DIGESTED).unwrap()
+    }
+
+    /// The attribute list of sentence `index` of the main module.
+    fn sentence_attributes(
+        definition: &mut kore::Definition,
+        index: usize,
+    ) -> &mut kore::Attributes {
+        match &mut definition.modules[0].sentences[index] {
+            kore::Sentence::Axiom { attributes, .. } => attributes,
+            _ => panic!("sentence {index} is not an axiom"),
+        }
+    }
+
+    fn application(name: &str, arguments: Vec<kore::Pattern>) -> kore::Pattern {
+        kore::Pattern::Application {
+            symbol: kore::Symbol {
+                name: name.to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments,
+        }
+    }
+
+    /// Adding an application of an attribute to an axiom leaves the digest unchanged exactly
+    /// when the attribute's role is `Origin`, so the stripping and the role table cannot drift
+    /// apart.
+    #[test]
+    fn the_digest_ignores_exactly_the_origin_attributes() {
+        let base = execution_digest(&digested()).unwrap();
+        for attribute in KoreAttribute::ALL {
+            let mut definition = digested();
+            sentence_attributes(&mut definition, 4).0.push(application(
+                attribute.as_str(),
+                vec![kore::Pattern::String("x".into())],
+            ));
+            let digest = execution_digest(&definition);
+            if execution_role(attribute) == ExecutionRole::Origin {
+                assert_eq!(digest, Ok(base), "{attribute:?}");
+            } else {
+                assert_ne!(digest, Ok(base), "{attribute:?}");
+            }
+        }
+    }
+
+    /// A malformed origin is refused by the backend and gets no digest; a malformed application
+    /// after a well-formed first one is never read, and is removed like it.
+    #[test]
+    fn a_malformed_origin_has_no_digest() {
+        for attribute in [KoreAttribute::Source, KoreAttribute::Location] {
+            let mut definition = digested();
+            let attributes = sentence_attributes(&mut definition, 4);
+            attributes.0.retain(|pattern| {
+                !matches!(pattern, kore::Pattern::Application { symbol, .. }
+                    if symbol.name == attribute.as_str())
+            });
+            attributes
+                .0
+                .push(application(attribute.as_str(), Vec::new()));
+            assert_eq!(
+                execution_digest(&definition),
+                Err(ExecutionDigestError::MalformedOrigin {
+                    attribute,
+                    at: "module MAIN sentence 4".to_owned(),
+                })
+            );
+            assert!(BackendDefinition::internalize(&definition, "MAIN").is_err());
+        }
+        // An application after a well-formed first one is refused too: the backend never reads
+        // its value, but it measures its height, which can decide whether the definition loads.
+        let deep = (0..200).fold(kore::Pattern::String("x".into()), |inner, _| {
+            application("w", vec![inner])
+        });
+        let malformed_second = [
+            application(KoreAttribute::Source.as_str(), Vec::new()),
+            application(KoreAttribute::Source.as_str(), vec![deep]),
+            kore::Pattern::Application {
+                symbol: kore::Symbol {
+                    name: KoreAttribute::Location.as_str().to_owned(),
+                    sort_parameters: vec![kore::Sort::Application {
+                        name: "SortS".to_owned(),
+                        arguments: Vec::new(),
+                    }],
+                },
+                arguments: vec![kore::Pattern::String("(1,1,1,1)".into())],
+            },
+        ];
+        for second in malformed_second {
+            let mut definition = digested();
+            sentence_attributes(&mut definition, 4)
+                .0
+                .push(second.clone());
+            assert!(
+                matches!(
+                    execution_digest(&definition),
+                    Err(ExecutionDigestError::MalformedOrigin { ref at, .. })
+                        if at == "module MAIN sentence 4"
+                ),
+                "{second:?}"
+            );
+        }
+        // Every attribute list is checked, also those the backend does not read.
+        let mut on_definition = digested();
+        on_definition
+            .attributes
+            .0
+            .push(application(KoreAttribute::Location.as_str(), Vec::new()));
+        assert_eq!(
+            execution_digest(&on_definition),
+            Err(ExecutionDigestError::MalformedOrigin {
+                attribute: KoreAttribute::Location,
+                at: "definition".to_owned(),
+            })
+        );
+        let mut on_module = digested();
+        on_module.modules[0]
+            .attributes
+            .0
+            .push(application(KoreAttribute::Source.as_str(), Vec::new()));
+        assert_eq!(
+            execution_digest(&on_module),
+            Err(ExecutionDigestError::MalformedOrigin {
+                attribute: KoreAttribute::Source,
+                at: "module MAIN".to_owned(),
+            })
+        );
+    }
+
+    /// Nothing but origins is removed: the order of axioms and a label, which execution reads,
+    /// and a duplicate axiom and the order of distinct attributes, which it does not, each change
+    /// the digest.
+    #[test]
+    fn the_digest_removes_nothing_but_origins() {
+        let base = execution_digest(&digested()).unwrap();
+        let mut swapped = digested();
+        swapped.modules[0].sentences.swap(4, 5);
+        let mut unlabelled = digested();
+        sentence_attributes(&mut unlabelled, 4).0.remove(0);
+        let mut duplicated = digested();
+        let copy = duplicated.modules[0].sentences[5].clone();
+        duplicated.modules[0].sentences.push(copy);
+        let mut reordered = digested();
+        sentence_attributes(&mut reordered, 4).0.swap(0, 1);
+        for (name, definition) in [
+            ("swapped", swapped),
+            ("unlabelled", unlabelled),
+            ("duplicated", duplicated),
+            ("reordered", reordered),
+        ] {
+            assert_ne!(execution_digest(&definition), Ok(base), "{name}");
+        }
+    }
+
+    /// A string payload that is not UTF-8 prints like a UTF-8 one, so its print does not
+    /// identify it: no digest.
+    #[test]
+    fn a_definition_whose_print_does_not_parse_back_has_no_digest() {
+        let mut readable = digested();
+        sentence_attributes(&mut readable, 4).0[0] =
+            application("label", vec![kore::Pattern::String("é".into())]);
+        assert!(execution_digest(&readable).is_ok());
+        let mut raw = digested();
+        sentence_attributes(&mut raw, 4).0[0] =
+            application("label", vec![kore::Pattern::String(vec![0xE9_u8].into())]);
+        assert_eq!(
+            execution_digest(&raw),
+            Err(ExecutionDigestError::NotCanonical)
+        );
+    }
+
+    /// The digest of a fixed text, one row per digest version. Historical rows never change; a
+    /// new version adds a row.
+    #[test]
+    fn the_digest_of_a_fixed_text_is_pinned() {
+        const PINNED: &str = r#"[org'Stop'kframework'Stop'attributes'Stop'Source{}("pin.k"), topAttr{}("\t\"q\"")]
+            module PIN
+                sort SortS{} []
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol a{}() : SortS{} [constructor{}(), functional{}()]
+                symbol g{}(SortS{}) : SortS{} [function{}()]
+                alias al{}() : SortS{} where al{}() := a{}() []
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(al{}(), \top{SortS{}}()), a{}()
+                ) [label{}("al"), UNIQUE'Unds'ID{}("u1"),
+                    org'Stop'kframework'Stop'attributes'Stop'Location{}("(2,3,2,9)")]
+                axiom{R} \equals{SortS{}, R}(g{}(X:SortS{}), X:SortS{}) [UNIQUE'Unds'ID{}("u2")]
+                claim{} \implies{SortS{}}(\top{SortS{}}(), a{}()) [label{}("c")]
+            endmodule [moduleAttr{}("m\n")]"#;
+        const ROWS: [(u32, &str); 1] = [(
+            1,
+            "225e3e81ea8a663b09c304c4fe905268a61b644a7686c366e0be2ac76976f1b5",
+        )];
+        let rows = ROWS.iter().map(|(_, hex)| *hex).collect::<BTreeSet<_>>();
+        assert_eq!(rows.len(), ROWS.len(), "rows are pairwise distinct");
+        assert!(
+            ROWS.iter()
+                .map(|(version, _)| *version)
+                .eq(1..=EXECUTION_DIGEST_VERSION)
+        );
+        let digest = execution_digest(&parse_definition(PINNED).unwrap()).unwrap();
+        assert_eq!(digest.to_string(), ROWS[ROWS.len() - 1].1);
+        assert_eq!(digest.to_string().parse(), Ok(digest));
+    }
 
     /// Exactly `Source` and `Location` are origins and exactly `label` names rules; every other
     /// attribute may affect execution.
