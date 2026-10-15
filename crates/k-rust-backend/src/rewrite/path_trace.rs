@@ -7,7 +7,7 @@
 //! constant time whatever the path's depth, and appending one entry adds one node that only the
 //! appending path sees. The latest rewrite entry, which the halts that name the rule producing a
 //! state read, is cached beside the newest node. A leaf materialises its trace once, in time and
-//! memory linear in the entries it returns.
+//! memory linear in the entries it returns, moving out the entries no pending fork shares.
 
 use std::rc::Rc;
 
@@ -53,7 +53,8 @@ impl PathTrace {
         self.last_rewrite.as_deref().map(|node| &node.entry)
     }
 
-    /// The path's entries, oldest first.
+    /// The path's entries, oldest first, leaving the path as it is.
+    #[cfg(test)]
     pub(super) fn to_vec(&self) -> Vec<TraceEntry> {
         let mut entries = Vec::with_capacity(self.len);
         let mut node = self.newest.as_deref();
@@ -63,6 +64,55 @@ impl PathTrace {
         }
         entries.reverse();
         entries
+    }
+
+    /// The path's entries, oldest first, for the leaf that ends the path: an entry no other
+    /// path shares is moved out, and only the entries shared with a pending fork are cloned, so
+    /// a path that never forked returns its trace without holding a second copy of it.
+    pub(super) fn into_vec(mut self) -> Vec<TraceEntry> {
+        let mut entries = Vec::with_capacity(self.len);
+        // The cache is a second handle on a node of the chain; without it, a node this path
+        // holds alone has one owner and can be taken apart.
+        self.last_rewrite = None;
+        let mut node = self.newest.take();
+        while let Some(current) = node {
+            match Rc::try_unwrap(current) {
+                Ok(mut owned) => {
+                    entries.push(std::mem::replace(
+                        &mut owned.entry,
+                        TraceEntry {
+                            depth: 0,
+                            kind: TraceKind::Rewrite,
+                            label: None,
+                            unique_id: String::new(),
+                        },
+                    ));
+                    node = owned.parent.take();
+                }
+                Err(shared) => {
+                    let mut ancestor = Some(&*shared);
+                    while let Some(current) = ancestor {
+                        entries.push(current.entry.clone());
+                        ancestor = current.parent.as_deref();
+                    }
+                    break;
+                }
+            }
+        }
+        entries.reverse();
+        entries
+    }
+
+    /// The address of each entry's `unique_id` text, oldest first, read in place: a moved entry
+    /// keeps its text's buffer and a cloned one does not.
+    #[cfg(test)]
+    pub(super) fn unique_id_buffers(&self) -> Vec<*const u8> {
+        let mut buffers =
+            std::iter::successors(self.newest.as_deref(), |node| node.parent.as_deref())
+                .map(|node| node.entry.unique_id.as_ptr())
+                .collect::<Vec<_>>();
+        buffers.reverse();
+        buffers
     }
 
     /// Whether `self` and `other` hold the same newest node, so that every entry of one is an

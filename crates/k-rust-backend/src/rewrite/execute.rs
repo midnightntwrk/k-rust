@@ -1880,7 +1880,7 @@ impl ExecutionState {
             pattern: self.pattern,
             depth: self.depth,
             trace: if self.retain_trace {
-                self.trace.to_vec()
+                self.trace.into_vec()
             } else {
                 Vec::new()
             },
@@ -2330,14 +2330,35 @@ mod tests {
         // A remainder entry is no rewrite: the parent's latest rewrite is still its own.
         assert_eq!(parent.trace.last_rewrite(), prefix.iter().rev().nth(1));
 
+        // A leaf moves out the entries its path holds alone and clones those a pending path
+        // shares: a moved entry keeps its text's buffer, a cloned one gets a new buffer.
+        let buffers = |trace: &[TraceEntry]| {
+            trace
+                .iter()
+                .map(|entry| entry.unique_id.as_ptr())
+                .collect::<Vec<_>>()
+        };
+        let child_buffers = child.trace.unique_id_buffers();
+        let parent_buffers = parent.trace.unique_id_buffers();
         let log = ObservationLog::default();
         let child_leaf = child.leaf(HaltReason::Stuck, &log);
-        let parent_leaf = parent.leaf(HaltReason::Stuck, &log);
         assert_eq!(child_leaf.trace, [prefix.as_slice(), &[rewrite]].concat());
+        let child_leaf_buffers = buffers(&child_leaf.trace);
+        // The parent is still pending: the shared prefix was cloned, the child's own entry moved.
+        assert!(
+            child_leaf_buffers[..prefix.len()]
+                .iter()
+                .zip(&child_buffers)
+                .all(|(leaf, path)| leaf != path)
+        );
+        assert_eq!(child_leaf_buffers.last(), child_buffers.last());
+        // The child has ended, so the parent holds its whole trace alone and moves all of it.
+        let parent_leaf = parent.leaf(HaltReason::Stuck, &log);
         assert_eq!(
             parent_leaf.trace,
             [prefix.as_slice(), &[remainder]].concat()
         );
+        assert_eq!(buffers(&parent_leaf.trace), parent_buffers);
 
         // Clearing one path, as a step does when the trace is not retained, leaves the other.
         let mut kept = state_with_trace(&definition, &prefix, false);
