@@ -461,7 +461,8 @@ pub fn misfit<F: SortFacts>(
     None
 }
 
-fn render(sort: &Sort) -> String {
+/// `sort` as a reason names it: its name, with its arguments when it has any.
+pub(crate) fn render(sort: &Sort) -> String {
     match sort {
         Sort::Application { name, arguments } if arguments.is_empty() => name.to_string(),
         Sort::Application { name, arguments } => format!(

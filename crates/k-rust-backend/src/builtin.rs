@@ -23,8 +23,11 @@ mod set;
 mod string;
 mod substitution;
 
-pub(crate) use hook_signature::LoadedSorts;
+pub use crate::collection_role::{
+    CollectionKind, CollectionRole, RoleDeclaration, misfit as collection_role_misfit,
+};
 pub use hook_signature::{CollectionShape, SortFacts, misfit as collection_hook_misfit};
+pub(crate) use hook_signature::{LoadedSorts, render as render_sort};
 pub(crate) use result_collection::{ResultCollection, stored_at};
 pub(crate) use substitution::KVarSorts;
 
