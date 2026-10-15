@@ -9,7 +9,7 @@ use kink_flow::{
     cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE},
     report::{MISSING_SCHEMA, RUN_SCHEMA, RUN_VERSION},
     results::CACHE_DIRECTORY,
-    search::{REPORT_FILE, RunOptions, run},
+    search::{ProgramOrder, REPORT_FILE, RunOptions, run},
 };
 use serde_json::{Value, json};
 use std::{
@@ -67,6 +67,9 @@ fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
         &RunOptions {
             only: only.iter().map(|id| (*id).to_owned()).collect(),
             cache: None,
+            // F-05's corpus order, so that the pinned calls and killers do not depend on host
+            // timing (F-13's cost order: tests/usability.rs).
+            order: ProgramOrder::Corpus,
         },
     )
 }
@@ -285,8 +288,19 @@ fn timeouts_unknowns_and_unusable_programs_carry_their_causes() {
         mutation(&document, "countdown-escapes")["status"],
         "timeout"
     );
+    // F-13: a timeout's cause continues with the leaf census of the mutant's run
+    // (host-dependent; tests/usability.rs pins its form).
+    let mut entries = executed(&document, "countdown-escapes");
+    let cause = entries[0].2.as_str().unwrap().to_owned();
+    assert!(
+        cause.starts_with(
+            "the mutant's run did not end within time_ms = 500; when the bound fired "
+        ),
+        "{cause}"
+    );
+    entries[0].2 = json!("the mutant's run did not end within time_ms = 500");
     assert_eq!(
-        executed(&document, "countdown-escapes"),
+        entries,
         triples(&[
             (
                 "countdown",
@@ -330,8 +344,15 @@ fn timeouts_unknowns_and_unusable_programs_carry_their_causes() {
     fs::remove_dir_all(dir.join(CACHE_DIRECTORY)).unwrap();
     let (document, ok) = search(&dir.join("FLOW-timeout.toml"), &mutations, &[]);
     assert!(ok, "{document:#}");
+    let mut unusable = document["unusable_programs"].clone();
+    let cause = unusable[0]["cause"].as_str().unwrap().to_owned();
+    assert!(
+        cause.starts_with("the run did not finish within time_ms = 500; when the bound fired "),
+        "{cause}"
+    );
+    unusable[0]["cause"] = json!("the run did not finish within time_ms = 500");
     assert_eq!(
-        document["unusable_programs"],
+        unusable,
         json!([{"id": "spin", "class": "timeout",
                 "cause": "the run did not finish within time_ms = 500"}])
     );

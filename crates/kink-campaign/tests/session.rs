@@ -6,6 +6,8 @@
 //! another validator is refused before anything runs; observation, pattern-oracle and symbolic
 //! campaigns, and a campaign with another classifier, run live and leave the session untouched;
 //! a refused (time-limited) baseline is reused as refused; any change of a key component misses.
+//! Flow F-13: the session records each call's runs (wall time, leaf census, baseline coverage)
+//! without changing any of them.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -13,6 +15,7 @@ mod support;
 #[path = "../../../testdata/k/step_support.rs"]
 mod step_support;
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use k_rust::definition::AttributeKey;
@@ -21,12 +24,13 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::ast::Pattern;
 use kink_campaign::{
-    BaselineSession, Campaign, CampaignFailure, CampaignFailureKind, CampaignOptions, CampaignRun,
-    CrashPolicy, OracleDeclaration, Projection, ScheduleMode, SelectionPolicy as Selection,
-    StateProjection, TestCase, run_campaign_multi, run_campaign_multi_with,
+    BaselineSession, CallRecording, Campaign, CampaignFailure, CampaignFailureKind,
+    CampaignOptions, CampaignRun, CrashPolicy, MutantId, OracleDeclaration, Projection, RunStop,
+    ScheduleMode, SelectionPolicy as Selection, StateProjection, TestCase, TestRun,
+    run_campaign_multi, run_campaign_multi_with,
 };
 use kink_native::NativeValidator;
-use kink_native::execution::ExecutionBudget;
+use kink_native::execution::{ExecutionBudget, HaltClass};
 use kink_native::step_events::{StepEventSpec, StepObservation};
 use kink_patch::{
     Baseline, CandidateGeneration, Discovery, Edit, Patch, SelectionPolicy, SiteSelector, TermRef,
@@ -522,5 +526,149 @@ fn a_changed_key_component_misses() {
                 "{name} again"
             );
         }
+    });
+}
+
+/// The ids of a call's recorded baseline requests and whether each was reused.
+fn baseline_requests(recording: &CallRecording) -> Vec<(&str, bool)> {
+    recording
+        .baseline
+        .iter()
+        .map(|request| (request.run.test_id.as_str(), request.reused))
+        .collect()
+}
+
+/// Flow F-13: a session records what each call through it ran (recording only): every baseline
+/// request in test order with the live run's wall time, leaf census and coverage, whether it was
+/// reused, and every live mutant run. The call's `CampaignRun` is the fresh call's, and a reused
+/// request carries the recording of the live run it reuses.
+#[test]
+fn a_session_records_each_calls_runs_without_changing_them() {
+    with_stack(|| {
+        let classify: &Classify = &normal;
+        let validator = validator();
+        let tests = tests();
+        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let options = options(schedule, false);
+            let mut session = BaselineSession::new(&validator, classify);
+            assert_eq!(session.last_call(), &CallRecording::default());
+            let inputs = Inputs::new(&tests, classify);
+            let (fresh, first) = both(&validator, &inputs, &options, &mut session);
+            let run = first.expect("first call");
+            assert_eq!(run, fresh.expect("fresh call"), "{schedule:?}");
+            let recording = session.last_call().clone();
+            assert_eq!(
+                baseline_requests(&recording),
+                [("t1", false), ("t2", false)]
+            );
+            for request in &recording.baseline {
+                let census = &request.run.census;
+                assert_eq!(census.stop, RunStop::Finished, "{request:?}");
+                assert!(
+                    census.total() >= 1 && census.deepest.is_some(),
+                    "{request:?}"
+                );
+                assert!(!census.rule_ids.is_empty(), "{request:?}");
+                // The baseline's coverage as the runner returned it.
+                let coverage = run
+                    .baseline_coverage
+                    .iter()
+                    .find(|c| c.test_id == request.run.test_id);
+                assert_eq!(request.coverage.as_ref(), coverage);
+            }
+            // t1 increments its counter three times, then is stuck.
+            let t1 = &recording.baseline[0].run.census;
+            assert_eq!(t1.leaves, BTreeMap::from([(HaltClass::Stuck, 1)]));
+            assert!(t1.deepest.unwrap() >= 3, "{t1:?}");
+            // One mutant; a recorded run for every test it executed, in its order.
+            let [mutant] = run.mutants.as_slice() else {
+                panic!("one mutant")
+            };
+            let executed = mutant
+                .plan
+                .tests
+                .iter()
+                .filter(|test| test.run != TestRun::SkippedAfterKill)
+                .map(|test| test.test_id.as_str())
+                .collect::<Vec<_>>();
+            let [(id, runs)] = recording.mutants.as_slice() else {
+                panic!("one recorded mutant")
+            };
+            assert_eq!(*id, MutantId(0));
+            assert_eq!(
+                runs.iter().map(|r| r.test_id.as_str()).collect::<Vec<_>>(),
+                executed
+            );
+            for test in &executed {
+                assert!(recording.mutant_run(MutantId(0), test).is_some());
+            }
+
+            // The second call reuses both baselines and records the live runs it reuses.
+            let (fresh, second) = both(&validator, &inputs, &options, &mut session);
+            assert_eq!(second.expect("second call"), fresh.expect("fresh call"));
+            let again = session.last_call();
+            assert_eq!(baseline_requests(again), [("t1", true), ("t2", true)]);
+            for (request, live) in again.baseline.iter().zip(&recording.baseline) {
+                assert_eq!(request.run, live.run);
+                assert_eq!(request.coverage, live.coverage);
+            }
+            assert_eq!(again.mutants.len(), 1);
+        }
+    });
+}
+
+/// Recording is not memoisation: a campaign the session does not memoise records its live
+/// baseline runs and leaves the store untouched; a baseline stopped by its time budget is a
+/// time stop; a call refused before its baseline runs records nothing.
+#[test]
+fn time_stops_unmemoised_calls_and_refused_calls_are_recorded_as_such() {
+    with_stack(|| {
+        let classify: &Classify = &normal;
+        let validator = validator();
+        let tests = tests();
+        let options = options(ScheduleMode::FirstKill, false);
+        let mut session = BaselineSession::new(&validator, classify);
+        let foreign_classifier = Inputs {
+            classify: &stuck,
+            ..Inputs::new(&tests, classify)
+        };
+        let (fresh, shared) = both(&validator, &foreign_classifier, &options, &mut session);
+        assert_eq!(shared, fresh);
+        assert_eq!(counts(&session), (0, 0, 0));
+        assert_eq!(
+            baseline_requests(session.last_call()),
+            [("t1", false), ("t2", false)]
+        );
+
+        let expired = Inputs {
+            budget: ExecutionBudget {
+                time: Duration::ZERO,
+                ..BUDGET
+            },
+            ..Inputs::new(&tests, classify)
+        };
+        let (_, refused) = both(&validator, &expired, &options, &mut session);
+        refused.expect_err("an expired budget refuses the baseline");
+        let recording = session.last_call();
+        assert_eq!(baseline_requests(recording), [("t1", false), ("t2", false)]);
+        assert!(
+            recording
+                .baseline
+                .iter()
+                .all(|request| request.run.census.stop == RunStop::Time),
+            "{recording:?}"
+        );
+        assert!(recording.mutants.is_empty());
+
+        let clone = validator.clone();
+        let foreign_generation = generation_of(&clone);
+        run_campaign_multi_with(
+            &Inputs::new(&tests, classify).campaign(&clone),
+            std::slice::from_ref(&foreign_generation),
+            &options,
+            &mut session,
+        )
+        .expect_err("another validator is refused");
+        assert_eq!(session.last_call(), &CallRecording::default());
     });
 }

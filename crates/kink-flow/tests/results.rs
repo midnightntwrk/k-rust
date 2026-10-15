@@ -80,6 +80,7 @@ fn run(manifest: &Path, verify: bool) -> (Value, u8) {
         &ResultsOptions {
             verify,
             cache: None,
+            mutations: None,
         },
     )
 }
@@ -331,9 +332,12 @@ fn a_fresh_cache_fills_every_program_and_a_second_run_computes_nothing() {
         // F-12: the first command ran each program's baseline live once; the second ran none.
         assert_eq!(
             first["baseline_runs"],
-            json!({"live": ids.len(), "reused": 0})
+            json!({"live": ids.len(), "reused": 0, "diagnostic": 0})
         );
-        assert_eq!(second["baseline_runs"], json!({"live": 0, "reused": 0}));
+        assert_eq!(
+            second["baseline_runs"],
+            json!({"live": 0, "reused": 0, "diagnostic": 0})
+        );
         uncached["baseline_runs"] = first["baseline_runs"].clone();
         assert_eq!(uncached, first);
     }
@@ -500,9 +504,12 @@ fn a_non_terminating_program_is_class_timeout() {
             ("countdown", "comparable", false)
         ])
     );
-    assert_eq!(
-        first["programs"][0]["cause"],
-        "the run did not finish within time_ms = 500"
+    // F-13: the cause continues with the leaf census of the run (host-dependent; tests/usability.rs
+    // pins its form).
+    let cause = first["programs"][0]["cause"].as_str().unwrap();
+    assert!(
+        cause.starts_with("the run did not finish within time_ms = 500; when the bound fired "),
+        "{cause}"
     );
     let record = read_json(&record_path(&manifest, &first, "spin"));
     assert_eq!(record["class"], "timeout");
@@ -544,7 +551,7 @@ fn a_ground_map_is_comparable_and_covers_its_rule() {
     assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
 
     // U1: a v1 record is recomputed, never trusted under the v2 value rule.
-    assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v2");
+    assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v3");
     record["key"]["schema_version"] = json!("kink-flow/result/v1");
     fs::write(&path, record.to_string()).unwrap();
     let (recomputed, status) = run(&manifest, false);

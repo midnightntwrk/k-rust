@@ -15,7 +15,7 @@ use kink_flow::{
         markdown_envelope, resolve,
     },
     results::CACHE_DIRECTORY,
-    search::{RunOptions, run},
+    search::{ProgramOrder, RunOptions, run},
 };
 use kink_patch::{Edit, SentenceFingerprint, SentenceRef};
 use serde_json::Value;
@@ -619,6 +619,9 @@ fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
         &RunOptions {
             only: only.iter().map(|id| (*id).to_owned()).collect(),
             cache: None,
+            // F-05's corpus order, so that the pinned calls and killers do not depend on host
+            // timing (F-13's cost order: tests/usability.rs).
+            order: ProgramOrder::Corpus,
         },
     )
 }

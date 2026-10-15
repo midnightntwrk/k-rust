@@ -758,6 +758,65 @@ fn occurrences(haystack: &str, needle: &str) -> Vec<usize> {
         .collect()
 }
 
+/// One authored rule of the specification with its K text, for listings (flow F-13: the rules
+/// no mutation targets).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuleText {
+    pub at: SentenceRef,
+    /// The rule's source file (a source of the specification), when it has one.
+    pub file: Option<String>,
+    pub label: Option<String>,
+    pub start_line: Option<u32>,
+    pub end_line: Option<u32>,
+    /// The rule's text in its file's K view, exactly as a mutation's `before` slices it; `None`
+    /// when the file's view or the rule's span is not usable.
+    pub text: Option<String>,
+}
+
+/// Every authored rule of the specification `loaded`, in sentence order, with its K text
+/// (sliced from its file's K view by the same checked span resolution uses).
+pub fn rule_texts(manifest: &FlowManifest, loaded: &LoadedSource) -> Vec<RuleText> {
+    let mut views = Views {
+        directory: manifest.directory.clone(),
+        md_selector: manifest.spec.md_selector.clone(),
+        loaded,
+        views: BTreeMap::new(),
+    };
+    let file_names = loaded
+        .files
+        .iter()
+        .map(|f| f.name.clone())
+        .collect::<BTreeSet<_>>();
+    loaded
+        .baseline
+        .authored_sentences()
+        .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+        .map(|(at, sentence)| {
+            let attributes = sentence.attributes();
+            let file = attributes
+                .source()
+                .filter(|source| file_names.contains(*source))
+                .map(str::to_owned);
+            let location = attributes.location();
+            let label = attributes.string(AttributeKey::Label).map(str::to_owned);
+            let text = file.as_deref().and_then(|name| {
+                let view = views.view(name).ok()?;
+                indexes_view(sentence, view, name).ok()?;
+                let span = view_span(sentence, &view.text, name).ok()?;
+                Some(view.text[span].to_owned())
+            });
+            RuleText {
+                at,
+                file,
+                label,
+                start_line: location.map(|l| l.start_line),
+                end_line: location.map(|l| l.end_line),
+                text,
+            }
+        })
+        .collect()
+}
+
 /// Resolve `mutation` against the specification `loaded` (kink-corpus `load_source` of the
 /// manifest's specification): one pinned patch, or the reason there is none. Nothing is
 /// compiled.
@@ -1122,7 +1181,8 @@ pub struct Envelope {
     /// so the shift is 0 when the info string is at most one tag; an info string of several
     /// tags adds the spaces between them (the extractor keeps whitespace). At the pin a
     /// selector that selects no single tag also rejects the builtin fences (tagged `k`), so
-    /// such a specification does not load and every shift in practice is 0.
+    /// such a specification cannot be admitted (it loads, but does not compile: F-10 review 1
+    /// m2) and every shift of an admitted specification is 0.
     pub shift: isize,
 }
 

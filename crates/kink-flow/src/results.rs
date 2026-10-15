@@ -39,9 +39,9 @@ use k_rust::{
     names::KoreAttribute,
 };
 use kink_campaign::{
-    BaselineSession, Campaign, CampaignFailure, CampaignFailureKind, CampaignOptions,
-    CampaignReport, CampaignRun, CrashPolicy, FinalResult, OracleDeclaration, OracleSide,
-    OracleValue, Projection, ScheduleMode, SideRun, StateProjection, TestCase,
+    BaselineSession, CallRecording, Campaign, CampaignFailure, CampaignFailureKind,
+    CampaignOptions, CampaignReport, CampaignRun, CrashPolicy, FinalResult, OracleDeclaration,
+    OracleSide, OracleValue, Projection, RunStop, ScheduleMode, SideRun, StateProjection, TestCase,
     run_campaign_multi_with,
 };
 use kink_corpus::{
@@ -58,7 +58,7 @@ use kink_patch::{
 };
 use serde_json::{Value, json};
 use std::{
-    cell::RefCell,
+    cell::{Cell, OnceCell, RefCell},
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
@@ -67,8 +67,10 @@ use std::{
 
 /// The result schema version, the first component of every result key. It changes whenever
 /// kink changes what counts as a comparable result (for example when ground collections are
-/// admitted), so that older records are recomputed rather than trusted.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v2";
+/// admitted) or what a record holds, so that older records are recomputed rather than trusted.
+/// v3 (flow F-13): every record carries `wall_ms`, the wall time of the program's live baseline
+/// run, outside the key and the run digest.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v3";
 /// The `schema` field of a result record.
 pub const RECORD_SCHEMA: &str = "kink-flow-result";
 /// Domain of a run digest: the digest of the `run` part of a baseline row.
@@ -172,6 +174,9 @@ pub struct ProgramResult {
     pub final_configuration: Option<Vec<String>>,
     /// The run's rule coverage; `None` when no run produced any.
     pub coverage: Option<TestCoverage>,
+    /// The wall time of the program's live baseline run in milliseconds (the campaign's run,
+    /// recorded by the command's baseline session); outside the key and the run digest.
+    pub wall_ms: Option<u64>,
 }
 
 impl ProgramResult {
@@ -182,6 +187,7 @@ impl ProgramResult {
             baseline: None,
             final_configuration: None,
             coverage: None,
+            wall_ms: None,
         }
     }
 
@@ -205,6 +211,11 @@ pub struct BaselineRunner<'a> {
     /// The command's session; it holds the all-normal classifier every call uses, as the one
     /// reference the session memoises under.
     session: RefCell<BaselineSession<'a>>,
+    /// Diagnostic runs this command made (a refused baseline that did not stop on time).
+    diagnostic: Cell<usize>,
+    /// The compiled ids of each authored rule a run can observe, for causes; computed on
+    /// first use.
+    observable: OnceCell<Vec<BTreeSet<String>>>,
 }
 
 impl<'a> BaselineRunner<'a> {
@@ -228,7 +239,22 @@ impl<'a> BaselineRunner<'a> {
             budget: execution_budget(manifest.budget),
             authors: RuleAuthors::of(&spec.compiled),
             session: RefCell::new(BaselineSession::new(&spec.validator, &all_normal)),
+            diagnostic: Cell::new(0),
+            observable: OnceCell::new(),
         })
+    }
+
+    /// What the last campaign call of this command ran: wall times, leaf censuses and baseline
+    /// coverage, as the session recorded them (outside every evidence row, digest and key).
+    pub fn last_call(&self) -> CallRecording {
+        self.session.borrow().last_call().clone()
+    }
+
+    /// The compiled ids of each authored rule of the specification a run can observe (a rule
+    /// that compiles to a rewrite rule).
+    pub fn observable_rules(&self) -> &[BTreeSet<String>] {
+        self.observable
+            .get_or_init(|| observable_rules(self.spec, &self.authors))
     }
 
     /// One campaign call of this command over `tests` (their oracles as given): the
@@ -257,11 +283,16 @@ impl<'a> BaselineRunner<'a> {
         )
     }
 
-    /// `{live, reused}`: the baseline runs this command made live, and the baseline requests
-    /// of its campaign calls answered by one of them (outside every digest and key).
+    /// `{live, reused, diagnostic}`: the baseline runs this command made live, the baseline
+    /// requests of its campaign calls answered by one of them, and the diagnostic runs it made
+    /// for refused baselines that did not stop on time (outside every digest and key).
     pub fn baseline_runs(&self) -> Value {
         let session = self.session.borrow();
-        json!({"live": session.live_runs(), "reused": session.reused_runs()})
+        json!({
+            "live": session.live_runs(),
+            "reused": session.reused_runs(),
+            "diagnostic": self.diagnostic.get(),
+        })
     }
 
     /// Run one admitted program (its oracles are replaced by [`fixed_oracles`]). Its baseline
@@ -273,7 +304,11 @@ impl<'a> BaselineRunner<'a> {
             selection: kink_campaign::SelectionPolicy::None,
             share_evidence: true,
         };
-        match self.call(std::slice::from_ref(&test), &self.generations, &options) {
+        let result = self.call(std::slice::from_ref(&test), &self.generations, &options);
+        let recording = self.last_call();
+        let live = recording.baseline_of(&test.id);
+        let wall_ms = live.map(|live| millis(live.run.wall));
+        let mut result = match result {
             Ok(run) => {
                 assert!(run.mutants.is_empty() && run.baseline.len() == 1);
                 let evidence = &run.baseline[0];
@@ -287,10 +322,32 @@ impl<'a> BaselineRunner<'a> {
                     baseline: Some(row),
                     final_configuration: final_terms(&evidence.run),
                     coverage: run.baseline_coverage.first().cloned(),
+                    wall_ms: None,
+                }
+            }
+            // No second full-length run (flow F-13, README 6.4): when this command's live run
+            // of the baseline stopped on time, the class and the cause come from that run. A
+            // session record never makes a program comparable: only the campaign admitting
+            // the baseline does (the arm above).
+            Err(_) if live.is_some_and(|live| live.run.census.stop == RunStop::Time) => {
+                let live = live.expect("checked");
+                ProgramResult {
+                    class: ResultClass::Timeout,
+                    cause: Some(timeout_cause(
+                        self.budget.time.as_millis(),
+                        &live.run.census,
+                        self.observable_rules(),
+                    )),
+                    baseline: None,
+                    final_configuration: None,
+                    coverage: live.coverage.clone(),
+                    wall_ms: None,
                 }
             }
             Err(failure) => self.diagnose(&test, &failure),
-        }
+        };
+        result.wall_ms = wall_ms;
+        result
     }
 
     fn error(&self, cause: String) -> ProgramResult {
@@ -300,12 +357,15 @@ impl<'a> BaselineRunner<'a> {
             baseline: None,
             final_configuration: None,
             coverage: None,
+            wall_ms: None,
         }
     }
 
-    /// The campaign refused the baseline run: run the initial state once more through the
-    /// execution adapter, for the class, the cause, the final states and the coverage.
+    /// The campaign refused the baseline run and it did not stop on time: run the initial state
+    /// once more through the execution adapter, for the class, the cause, the final states and
+    /// the coverage.
     fn diagnose(&self, test: &TestCase, failure: &CampaignFailure) -> ProgramResult {
+        self.diagnostic.set(self.diagnostic.get() + 1);
         let refused = format!("the campaign runner refused the baseline run ({failure})");
         let mut backend = match input_backend(&self.spec.compiled, self.main_module) {
             Ok(backend) => backend,
@@ -322,6 +382,8 @@ impl<'a> BaselineRunner<'a> {
             &self.authors,
         ));
         if execution.timed_out() {
+            // Only when the campaign's own run ended otherwise (or ran no baseline): the
+            // diagnostic run then hit the time bound itself.
             return ProgramResult {
                 class: ResultClass::Timeout,
                 cause: Some(format!(
@@ -331,6 +393,7 @@ impl<'a> BaselineRunner<'a> {
                 baseline: None,
                 final_configuration: None,
                 coverage,
+                wall_ms: None,
             };
         }
         let leaves = execution.leaves();
@@ -386,8 +449,61 @@ impl<'a> BaselineRunner<'a> {
             baseline: None,
             final_configuration,
             coverage,
+            wall_ms: None,
         }
     }
+}
+
+/// A duration in whole milliseconds.
+pub fn millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// The cause of a baseline that this command's live run stopped on time (flow F-13): the
+/// bound, the leaf census of the run when the bound fired, and how many of the rules a run can
+/// observe (`observable`: each rule's compiled ids) the returned leaves had applied. The rule
+/// count comes from the census, not from the record's coverage, which lists nothing for a
+/// timed-out run (kink-native `TestCoverage`); it is a hint, read from the leaves k-rust
+/// returned after the cancel.
+pub fn timeout_cause(
+    time_ms: u128,
+    census: &kink_campaign::LeafCensus,
+    observable: &[BTreeSet<String>],
+) -> String {
+    let reached = if census.total() > 0 {
+        let count = observable
+            .iter()
+            .filter(|ids| !ids.is_disjoint(&census.rule_ids))
+            .count();
+        format!(
+            "; those leaves had applied {count} of the {} rules a run can observe",
+            observable.len()
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "the run did not finish within time_ms = {time_ms}; when the bound fired {}{reached}",
+        crate::report::census_clause(census)
+    )
+}
+
+/// The compiled ids of each authored rule of the specification that compiles to a rewrite rule
+/// (the rules a run's coverage can see).
+fn observable_rules(spec: &AdmittedSpec, authors: &RuleAuthors) -> Vec<BTreeSet<String>> {
+    let rewrites = rewrite_rule_ids(&spec.compiled.artifacts().definition_kore);
+    spec.loaded
+        .baseline
+        .authored_sentences()
+        .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+        .map(|(at, _)| {
+            authors
+                .ids_of(&at)
+                .map(str::to_owned)
+                .collect::<BTreeSet<_>>()
+        })
+        .filter(|ids| ids.iter().any(|id| rewrites.contains(id)))
+        .collect()
 }
 
 pub(crate) fn kebab(name: &str) -> String {
@@ -452,6 +568,7 @@ pub fn record_value(spec: &AdmittedSpec, key: &Value, id: &str, result: &Program
         "run_sha256": result.run_sha256().map(|d| d.to_string()),
         "final_configuration": result.final_configuration,
         "coverage": result.coverage.as_ref().map(|c| coverage_value(spec, c)),
+        "wall_ms": result.wall_ms,
     })
 }
 
@@ -508,6 +625,9 @@ pub struct ResultsOptions {
     pub verify: bool,
     /// The cache directory; default `<directory of FLOW.toml>/.kink-flow`.
     pub cache: Option<PathBuf>,
+    /// A mutation list (`MUTATIONS.toml`): the document then lists the rules no resolving
+    /// mutation of it targets (`untargeted_rules`; flow F-13).
+    pub mutations: Option<PathBuf>,
 }
 
 /// One program's row of the results document, with its record when it has one.
@@ -653,20 +773,39 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
         &cache,
         options.verify,
     );
-    let ok = update.ok();
+    let mut ok = update.ok();
     let rules = rules(&spec, manifest, &update.rows);
     let programs = update.rows.into_iter().map(|row| row.row).collect();
-    (
-        document(
-            &record,
-            Some(update.spec_digest),
-            programs,
-            rules,
-            update.mismatches,
-            runner.baseline_runs(),
-        ),
-        ok,
-    )
+    let mut document = document(
+        &record,
+        Some(update.spec_digest),
+        programs,
+        rules,
+        update.mismatches,
+        runner.baseline_runs(),
+    );
+    // The rules no mutation of the given list targets (flow F-13, informational only).
+    if let Some(path) = &options.mutations {
+        match crate::mutation::MutationList::read(path) {
+            Ok(list) => {
+                let resolutions = list
+                    .mutations
+                    .iter()
+                    .map(|mutation| crate::mutation::resolve(manifest, &spec.loaded, mutation))
+                    .collect::<Vec<_>>();
+                document["untargeted_rules"] = Value::Array(crate::report::untargeted_rules(
+                    &crate::mutation::rule_texts(manifest, &spec.loaded),
+                    &crate::search::targeted(&resolutions),
+                ));
+            }
+            Err(error) => {
+                document["mutation_list"] =
+                    json!({"outcome": "refused", "detail": error.to_string()});
+                ok = false;
+            }
+        }
+    }
+    (document, ok)
 }
 
 struct ProgramContext<'a> {
@@ -725,6 +864,8 @@ fn program_row(
     program: &Program,
     mismatches: &mut Vec<Value>,
 ) -> ProgramRow {
+    // `wall_ms`: the wall time of the program's live baseline run, from the record (outside
+    // the key and the run digest; flow F-13).
     let row = |digest: Option<Sha256Digest>, class: &str, cause: &Value, cached, verify: Value| {
         json!({
             "id": program.id,
@@ -733,7 +874,12 @@ fn program_row(
             "cause": cause,
             "cached": cached,
             "verify": verify,
+            "wall_ms": null,
         })
+    };
+    let with_wall = |mut row: Value, record: &Value| {
+        row["wall_ms"] = record["wall_ms"].clone();
+        row
     };
     let refused = |digest, refusal: kink_corpus::admission::AdmissionRefusal| {
         let result = ProgramResult::refused(format!(
@@ -765,12 +911,15 @@ fn program_row(
     let stored = read_record(&path, &key).flatten();
     if let (Some(record), false, false) = (&stored, context.verify, context.refresh) {
         return ProgramRow {
-            row: row(
-                Some(digest),
-                record["class"].as_str().unwrap_or("error"),
-                &record["cause"],
-                true,
-                Value::Null,
+            row: with_wall(
+                row(
+                    Some(digest),
+                    record["class"].as_str().unwrap_or("error"),
+                    &record["cause"],
+                    true,
+                    Value::Null,
+                ),
+                record,
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: stored,
@@ -793,12 +942,15 @@ fn program_row(
         && unchanged(record)
     {
         return ProgramRow {
-            row: row(
-                Some(digest),
-                record["class"].as_str().unwrap_or("error"),
-                &record["cause"],
-                true,
-                Value::Null,
+            row: with_wall(
+                row(
+                    Some(digest),
+                    record["class"].as_str().unwrap_or("error"),
+                    &record["cause"],
+                    true,
+                    Value::Null,
+                ),
+                record,
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: stored,
@@ -823,12 +975,15 @@ fn program_row(
             "mismatch"
         };
         return ProgramRow {
-            row: row(
-                Some(digest),
-                record["class"].as_str().unwrap_or("error"),
-                &record["cause"],
-                true,
-                json!(verdict),
+            row: with_wall(
+                row(
+                    Some(digest),
+                    record["class"].as_str().unwrap_or("error"),
+                    &record["cause"],
+                    true,
+                    json!(verdict),
+                ),
+                &record,
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: Some(record),
@@ -838,12 +993,15 @@ fn program_row(
         };
     }
     let record = record_value(spec, &key, &program.id, &result);
-    let mut row = row(
-        Some(digest),
-        result.class.as_str(),
-        &json!(result.cause),
-        false,
-        Value::Null,
+    let mut row = with_wall(
+        row(
+            Some(digest),
+            result.class.as_str(),
+            &json!(result.cause),
+            false,
+            Value::Null,
+        ),
+        &record,
     );
     let mut failed = result.class == ResultClass::Error;
     if let Err(e) = context.store.write_json(&path, &record) {
@@ -996,5 +1154,6 @@ fn document(
         "mismatches": mismatches,
         "summary": summary,
         "baseline_runs": baseline_runs,
+        "untargeted_rules": null,
     })
 }

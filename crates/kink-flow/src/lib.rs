@@ -9,7 +9,10 @@
 //! and the `run` command ([`search`]). F-06 adds the survivor report to the run document and the
 //! `report` command ([`report`]). F-14 adds the outcome cache: tier 1, the proved outcome of a
 //! mutation on a program under an exact key ([`outcomes`]), and tier 2, killer hints that
-//! survive specification edits ([`hints`], which replaces F-05's killer cache).
+//! survive specification edits ([`hints`], which replaces F-05's killer cache). F-12 runs each
+//! program's baseline at most once per command; F-13 names the oracle slots of the report,
+//! records timings and leaf censuses, orders the kill search cheapest killer first and lists
+//! the rules no mutation targets.
 
 pub mod admit;
 pub mod cli;
@@ -26,5 +29,5 @@ pub use admit::{AdmittedSpec, FlowAdmission, ProgramAdmission, ProgramInputs, ad
 pub use manifest::{Budget, FlowManifest, ManifestError, Program, SpecSection};
 pub use mutation::{
     EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, Mutation, MutationList,
-    ResolvedMutation, resolve,
+    ResolvedMutation, RuleText, resolve, rule_texts,
 };

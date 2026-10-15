@@ -15,19 +15,27 @@
 //! - `action`: what the status asks of the LLM.
 //!
 //! At the top level, `survivors` names the mutations no program killed that a new program could
-//! kill (status `survived`, `timeout` or `unknown`), and `unusable_programs` lists once every
-//! program that cannot kill (its result class is not `comparable`), with its class and cause.
+//! kill (status `survived`, `timeout` or `unknown`), `unusable_programs` lists once every
+//! program that cannot kill (its result class is not `comparable`), with its class and cause,
+//! and `untargeted_rules` the rules no mutation of the list targets (flow F-13).
+//!
+//! Flow F-13 (version 3): an executed entry's `slots` names each oracle slot
+//! ([`slots_value`]); a stopped run's cause carries its leaf census ([`census_clause`]).
 //!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
 //! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
+use crate::outcomes::slot_name;
 use crate::{
     manifest::{Budget, FlowManifest},
-    mutation::{EditedRule, ResolvedMutation},
-    results::{ORACLE_SLOTS, ResultClass, cache_directory},
+    mutation::{EditedRule, ResolvedMutation, RuleText},
+    results::{ORACLE_SLOTS, ResultClass, cache_directory, kebab},
     search::REPORT_FILE,
 };
-use kink_campaign::{ExecutionFailureKind, OracleOutcome, OracleSide, SideRun, TestRun};
+use kink_campaign::{
+    ExecutionFailureKind, FinalResult, LeafCensus, OracleOutcome, OracleSide, OracleValue, SideRun,
+    TestRun,
+};
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
 use serde_json::{Value, json};
 use std::{
@@ -37,8 +45,9 @@ use std::{
 
 /// The `schema` of the run document, which is also the report.
 pub const RUN_SCHEMA: &str = "kink-flow-run";
-/// The run document's version: 2 since F-06 added the survivor fields.
-pub const RUN_VERSION: u64 = 2;
+/// The run document's version: 2 since F-06 added the survivor fields; 3 since F-13 named the
+/// oracle slots of an executed entry (`slots` is an object keyed by slot name).
+pub const RUN_VERSION: u64 = 3;
 /// The `schema` of the document `report` prints when there is no report to print.
 pub const MISSING_SCHEMA: &str = "kink-flow-report";
 
@@ -121,12 +130,134 @@ fn is_corpus_error(reason: &str) -> bool {
         || reason == "outcome-conflict"
 }
 
+/// The most characters of one final configuration's KORE text the report shows.
+pub const KORE_CAP: usize = 4000;
+
+/// An executed entry's `slots` (flow F-13): an object keyed by slot name
+/// ([`ORACLE_SLOTS`]), each `{outcome}`, and for a distinguishing slot `sides`: for
+/// `exit-stop` each side's exit-stop kinds (`{"baseline": ["stuck"], "mutant":
+/// ["undefined-step"]}`), for `whole-term` each side's number of final configurations and,
+/// when `killer_terms` (the killing program's entry), the mutant's final configurations as
+/// KORE text, each capped at [`KORE_CAP`] characters (`{"text", "truncated"}`). `sides` is
+/// null when the evidence is not at hand (a cached outcome).
+pub fn slots_value(
+    outcomes: &[OracleOutcome],
+    baseline: Option<&SideRun>,
+    mutant: Option<&SideRun>,
+    killer_terms: bool,
+) -> Value {
+    let side = |run: Option<&SideRun>, slot: usize| match run {
+        Some(SideRun::Sides { sides }) => sides.get(slot).cloned(),
+        _ => None,
+    };
+    let mut slots = serde_json::Map::new();
+    for (slot, outcome) in outcomes.iter().enumerate() {
+        let name = ORACLE_SLOTS.get(slot).copied().unwrap_or("slot");
+        let mut value = json!({"outcome": slot_name(*outcome)});
+        if *outcome == OracleOutcome::Distinguish {
+            value["sides"] = slot_sides(side(baseline, slot), side(mutant, slot), killer_terms);
+        }
+        slots.insert(name.to_owned(), value);
+    }
+    Value::Object(slots)
+}
+
+/// The two sides of a distinguishing slot (both are values: a `Distinguish` needs two normal
+/// sides); null when either is missing.
+fn slot_sides(
+    baseline: Option<OracleSide>,
+    mutant: Option<OracleSide>,
+    killer_terms: bool,
+) -> Value {
+    match (baseline, mutant) {
+        (
+            Some(OracleSide::Normal(OracleValue::ExitStop(baseline))),
+            Some(OracleSide::Normal(OracleValue::ExitStop(mutant))),
+        ) => {
+            let kinds = |stops: &std::collections::BTreeSet<kink_campaign::ExitStop>| {
+                stops
+                    .iter()
+                    .map(|stop| kebab(&format!("{:?}", stop.class)))
+                    .collect::<Vec<_>>()
+            };
+            json!({"baseline": kinds(&baseline), "mutant": kinds(&mutant)})
+        }
+        (
+            Some(OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(baseline)))),
+            Some(OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(mutant)))),
+        ) => {
+            let mut mutant_side = json!({"final_configurations": mutant.len()});
+            if killer_terms {
+                mutant_side["kore"] = mutant
+                    .iter()
+                    .map(|term| capped(term.to_string()))
+                    .collect::<Vec<_>>()
+                    .into();
+            }
+            json!({
+                "baseline": {"final_configurations": baseline.len()},
+                "mutant": mutant_side,
+            })
+        }
+        _ => Value::Null,
+    }
+}
+
+/// `{text, truncated}`: `text` cut to [`KORE_CAP`] characters.
+fn capped(text: String) -> Value {
+    match text.char_indices().nth(KORE_CAP) {
+        Some((end, _)) => json!({"text": &text[..end], "truncated": true}),
+        None => json!({"text": text, "truncated": false}),
+    }
+}
+
+/// What a run's leaf census says (flow F-13): `k-rust returned 412 leaves (stuck 400, cancelled
+/// 12), the deepest at depth 1830`, or that it returned none. After a time stop the leaves are
+/// the paths that had ended or were cancelled when the bound fired; many ended paths and a
+/// shallow deepest leaf suggest path explosion, few leaves and a deep one non-termination.
+pub fn census_clause(census: &LeafCensus) -> String {
+    let total = census.total();
+    if total == 0 {
+        return "k-rust returned no leaves, so neither the paths nor the depth reached are known"
+            .to_owned();
+    }
+    let kinds = census
+        .leaves
+        .iter()
+        .map(|(halt, count)| format!("{} {count}", kebab(&format!("{halt:?}"))))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "k-rust returned {total} {} ({kinds}), the deepest at depth {}",
+        if total == 1 { "leaf" } else { "leaves" },
+        census.deepest.unwrap_or_default()
+    )
+}
+
 /// The `cause` of an executed program's outcome on the mutant, from the runner's evidence for
-/// that run: `None` when the outcome is `agree` or `distinguish` (or the test was skipped).
-pub fn executed_cause(run: &TestRun, mutant: Option<&SideRun>, budget: Budget) -> Option<String> {
+/// that run and, when the session recorded it, the leaf census of the mutant's run: `None` when
+/// the outcome is `agree` or `distinguish` (or the test was skipped).
+pub fn executed_cause(
+    run: &TestRun,
+    mutant: Option<&SideRun>,
+    budget: Budget,
+    census: Option<&LeafCensus>,
+) -> Option<String> {
     match run {
         TestRun::SkippedAfterKill => None,
-        TestRun::Failed(kind) => Some(failure_cause(*kind, budget)),
+        TestRun::Failed(kind) => Some(match (kind, census) {
+            (ExecutionFailureKind::TimeLimit, Some(census)) => format!(
+                "{}; when the bound fired {}",
+                failure_cause(*kind, budget),
+                census_clause(census)
+            ),
+            (ExecutionFailureKind::ResourceLimit, Some(census)) => format!(
+                "{}; the mutant's run: {}",
+                failure_cause(*kind, budget),
+                census_clause(census)
+            ),
+            _ => failure_cause(*kind, budget),
+        }),
         TestRun::Compared(outcomes) => {
             if outcomes.contains(&OracleOutcome::Distinguish)
                 || outcomes
@@ -141,6 +272,10 @@ pub fn executed_cause(run: &TestRun, mutant: Option<&SideRun>, budget: Budget) -
             };
             // Slots with the same cause are named together: `exit-stop, whole-term: <cause>`.
             let mut groups: Vec<(Vec<&str>, String)> = Vec::new();
+            // An unknown or timed-out side: the census tells a depth bound from an undecided end.
+            let incomplete = sides
+                .iter()
+                .any(|side| matches!(side, OracleSide::Unknown | OracleSide::Timeout));
             for (slot, outcome) in outcomes.iter().enumerate() {
                 if *outcome == OracleOutcome::Agree {
                     continue;
@@ -152,13 +287,15 @@ pub fn executed_cause(run: &TestRun, mutant: Option<&SideRun>, budget: Budget) -
                     None => groups.push((vec![name], cause)),
                 }
             }
-            Some(
-                groups
-                    .iter()
-                    .map(|(names, cause)| format!("{}: {cause}", names.join(", ")))
-                    .collect::<Vec<_>>()
-                    .join("; "),
-            )
+            let mut cause = groups
+                .iter()
+                .map(|(names, cause)| format!("{}: {cause}", names.join(", ")))
+                .collect::<Vec<_>>()
+                .join("; ");
+            if let (true, Some(census)) = (incomplete, census) {
+                cause.push_str(&format!("; the mutant's run: {}", census_clause(census)));
+            }
+            Some(cause)
         }
     }
 }
@@ -235,6 +372,38 @@ pub fn unusable_programs(programs: &[Value]) -> Vec<Value> {
         .iter()
         .filter(|row| row["class"] != ResultClass::Comparable.as_str())
         .map(|row| json!({"id": row["id"], "class": row["class"], "cause": row["cause"]}))
+        .collect()
+}
+
+/// The authored rules no resolving mutation of the list targets (the mutation-side analogue of
+/// rule coverage; flow F-13, from the F-07 decision), in sentence order: `{module, index, label,
+/// file, start_line, end_line, address, text}`, where `address` is how a mutation edit can
+/// address the rule (`{"rule": label}`, or `{"file", "line"}` for an unlabelled rule) and
+/// `text` its K text in the file's K view (null when the rule has no usable span).
+/// Informational only: outside every digest and key.
+pub fn untargeted_rules(
+    rules: &[RuleText],
+    targeted: &std::collections::BTreeSet<kink_patch::SentenceRef>,
+) -> Vec<Value> {
+    rules
+        .iter()
+        .filter(|rule| !targeted.contains(&rule.at))
+        .map(|rule| {
+            let address = match &rule.label {
+                Some(label) => json!({"rule": label}),
+                None => json!({"file": rule.file, "line": rule.start_line}),
+            };
+            json!({
+                "module": rule.at.module,
+                "index": rule.at.index,
+                "label": rule.label,
+                "file": rule.file,
+                "start_line": rule.start_line,
+                "end_line": rule.end_line,
+                "address": address,
+                "text": rule.text,
+            })
+        })
         .collect()
 }
 

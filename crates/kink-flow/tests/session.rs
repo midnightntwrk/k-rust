@@ -8,7 +8,7 @@ use kink_flow::{
     cli::{EXIT_OK, results},
     outcomes::OUTCOMES_DIRECTORY,
     results::{CACHE_DIRECTORY, ResultsOptions},
-    search::{RunMode, RunOptions, run_with},
+    search::{ProgramOrder, RunMode, RunOptions, run_with},
 };
 use serde_json::{Value, json};
 use std::{
@@ -53,7 +53,12 @@ fn fixture(name: &str, test: &str) -> PathBuf {
 fn run(manifest: &Path, mode: RunMode) -> (Value, bool) {
     let flow = FlowManifest::read(manifest).unwrap();
     let list = MutationList::read(&manifest.with_file_name("MUTATIONS.toml")).unwrap();
-    run_with(&flow, &list, &RunOptions::default(), mode)
+    // F-05's corpus order, so that the pinned calls do not depend on host timing.
+    let options = RunOptions {
+        order: ProgramOrder::Corpus,
+        ..RunOptions::default()
+    };
+    run_with(&flow, &list, &options, mode)
 }
 
 fn results_with(manifest: &Path, verify: bool) -> Value {
@@ -62,6 +67,7 @@ fn results_with(manifest: &Path, verify: bool) -> Value {
         &ResultsOptions {
             verify,
             cache: None,
+            mutations: None,
         },
     );
     assert_eq!(code, EXIT_OK, "{document:#}");
@@ -203,14 +209,23 @@ fn each_program_baseline_runs_live_at_most_once_per_run_command() {
 fn results_runs_each_program_live_and_verify_runs_every_program_live() {
     let manifest = fixture("calc", "results");
     let fresh = results_with(&manifest, false);
-    assert_eq!(fresh["baseline_runs"], json!({"live": 4, "reused": 0}));
+    assert_eq!(
+        fresh["baseline_runs"],
+        json!({"live": 4, "reused": 0, "diagnostic": 0})
+    );
     let cached = results_with(&manifest, false);
     assert_eq!(cached["summary"]["computed"], 0);
-    assert_eq!(cached["baseline_runs"], json!({"live": 0, "reused": 0}));
+    assert_eq!(
+        cached["baseline_runs"],
+        json!({"live": 0, "reused": 0, "diagnostic": 0})
+    );
     // A fresh session per command: `--verify` runs every program live, none is reused.
     let verified = results_with(&manifest, true);
     assert_eq!(verified["summary"]["mismatches"], 0);
-    assert_eq!(verified["baseline_runs"], json!({"live": 4, "reused": 0}));
+    assert_eq!(
+        verified["baseline_runs"],
+        json!({"live": 4, "reused": 0, "diagnostic": 0})
+    );
     assert!(
         verified["programs"]
             .as_array()

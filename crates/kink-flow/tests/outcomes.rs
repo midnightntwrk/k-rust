@@ -18,7 +18,7 @@ use kink_flow::{
     outcomes::{OUTCOMES_DIRECTORY, record_sha256},
     resolve,
     results::{CACHE_DIRECTORY, ResultsOptions},
-    search::{RunMode, RunOptions, drift_reason, run_with},
+    search::{ProgramOrder, RunMode, RunOptions, drift_reason, run_with},
 };
 use kink_patch::{Edit, Patch};
 use serde_json::{Value, json};
@@ -136,6 +136,9 @@ fn search_mode(manifest: &Path, mutations: &Path, only: &[&str], mode: RunMode) 
         &RunOptions {
             only: only.iter().map(|id| (*id).to_owned()).collect(),
             cache: None,
+            // F-05's corpus order, so that the pinned calls and killers do not depend on host
+            // timing (F-13's cost order: tests/usability.rs).
+            order: ProgramOrder::Corpus,
         },
         mode,
     )

@@ -37,6 +37,7 @@ This section is written for the LLM that drives the loop;
    Write programs until no rule is uncovered.
 3. **Mutation list.** Write `MUTATIONS.toml`: edits of rules that are likely to expose bugs,
    either single edits (one `+Int` becomes `-Int`) or correlated edits (several rules changed together as one mutation).
+   `kink-flow results FLOW.toml --mutations MUTATIONS.toml` (and every run report) lists the rules no mutation targets yet (`untargeted_rules`, with each rule's K text and how to address it).
 4. **Kill search with an outcome cache.** `kink-flow run` checks, for each mutation, whether some program's final configuration changes.
    It reports the survivors: mutations no program kills.
    For each survivor, write a program that kills it, or argue that the mutation is equivalent and drop it; then run again.
@@ -61,8 +62,8 @@ and 2 on a usage error (message on stderr).
 | Command | Does |
 | --- | --- |
 | `kink-flow check FLOW.toml` | Loads and admits the specification and parses every program; reports each refusal with its stage and reason. |
-| `kink-flow results FLOW.toml [--verify]` | Fills the result cache for new or changed programs; lists every program's class and every rule's coverage; `--verify` reruns every program and compares it with its cached result. |
-| `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify]` | Updates the result cache, resolves each mutation, runs the kill search, updates the outcome cache and the killer hints, and writes the report. `--verify` decides nothing from the outcome cache: it re-proves every cached outcome, reports each that differs (`mismatches`, exit 1) and writes no outcome and no hint. |
+| `kink-flow results FLOW.toml [--verify] [--mutations MUTATIONS.toml]` | Fills the result cache for new or changed programs; lists every program's class, cause and baseline wall time (`wall_ms`) and every rule's coverage; `--verify` reruns every program and compares it with its cached result; `--mutations` also lists the rules no mutation of that list targets. |
+| `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost\|corpus]` | Updates the result cache, resolves each mutation, runs the kill search, updates the outcome cache and the killer hints, and writes the report. The search tries the programs that reach an edited rule first, each group cheapest first (`--order corpus`: in `FLOW.toml`'s order); the order changes which killer is found first and the cost, never a status. `--verify` decides nothing from the outcome cache: it re-proves every cached outcome, reports each that differs (`mismatches`, exit 1) and writes no outcome and no hint. |
 | `kink-flow report FLOW.toml` | Prints the last run's report again, byte for byte. |
 
 `results`, `run` and `report` take `--cache DIR`; the default cache is `.kink-flow/` next to `FLOW.toml`.
@@ -262,13 +263,19 @@ The survivor's row says what was changed, which programs reach the changed rule,
      "before": "rule [mul]: I1:Int * I2:Int => I1 *Int I2",
      "after": "rule [mul]: I1:Int * I2:Int => I1 +Int I2"}
   ],
-  "reaching": ["square"],
-  "executed": [
-    {"program": "square", "outcome": "agree", "cause": null},
-    {"program": "add", "outcome": "agree", "cause": null},
-    {"program": "sub", "outcome": "agree", "cause": null}
-  ]
+  "reaching": ["square"]
 }
+```
+
+`executed` lists every program the mutant ran on, in the order the search ran them:
+first the programs that reach an edited rule (here `square`), then the others, each group cheapest first
+(by the wall time of the program's baseline run, which `results` records as `wall_ms`).
+Every program agreed with the baseline on both oracle slots, the exit stop and the whole final configuration:
+
+<!-- example: output /mutations/1/executed/0 -->
+```json
+{"program": "square", "outcome": "agree", "cause": null, "cached": false,
+ "slots": {"exit-stop": {"outcome": "agree"}, "whole-term": {"outcome": "agree"}}}
 ```
 
 `kink-flow report` prints the same document again, from `.kink-flow/report.json`:
@@ -318,14 +325,27 @@ Only `mul-becomes-add` ran, on the new program alone (the others had already agr
 [{"programs": ["product"], "status": "killed"}]
 ```
 
+The killing program's entry (after the cached agreements) names the slot that distinguished and its two sides;
+for the whole final configuration it gives each side's number of final configurations and the mutant's as KORE text:
+
+<!-- example: output /mutations/1/executed/3 -->
+```json
+{"program": "product", "outcome": "distinguish", "cached": false,
+ "slots": {"exit-stop": {"outcome": "agree"},
+           "whole-term": {"outcome": "distinguish",
+                          "sides": {"baseline": {"final_configurations": 1},
+                                    "mutant": {"final_configurations": 1, "kore": [{"truncated": false}]}}}}}
+```
+
 A survivor that no program can kill is an equivalent mutant: for example, swapping the operands of `+Int` changes no result.
 Argue why, then drop it from `MUTATIONS.toml`.
 
 ### Reading the report
 
-The report (`run`'s output and `.kink-flow/report.json`) holds the specification digest, the k-rust revision and the solver profile;
+The report (`run`'s output and `.kink-flow/report.json`, version 3) holds the specification digest, the k-rust revision and the solver profile;
 `counts` per status; `survivors`, the ids of the mutations no program killed that a new program could kill;
 `unusable_programs`, every program that cannot kill (`{id, class, cause}`);
+`untargeted_rules`, every rule no mutation of the list targets (`{module, label, file, start_line, end_line, address, text}`, where `address` is the `rule` or `file` and `line` an edit can use);
 and one row per mutation, in the list's order.
 
 A killed row names its `killer` and where the kill came from (`killer_source`):
@@ -337,6 +357,12 @@ Every other row also carries:
 - `rules`: each edited rule's `file`, `start_line`, `end_line`, `label`, and its source text `before` and `after` the edit (`after` is null for a deleted rule);
 - `reaching`: the comparable programs whose cached coverage reaches an edited rule;
 - `executed`: each program the mutant ran on, in order, with its `outcome` (`agree`, `distinguish`, `timeout`, `unknown`, `incomparable` or `error`) and, unless it agreed or distinguished, the `cause`; `cached: true` marks an outcome taken from the outcome cache (it comes first, and only agreements and kills are cached);
+  `slots` names each oracle slot's outcome (`exit-stop`, `whole-term`), and a distinguishing slot's `sides`:
+  for the exit stop each side's kinds (for example `["normal"]` against `["undefined-step"]`: the mutant applies a rule whose result is undefined, such as a division by zero, where the baseline ends),
+  for the whole final configuration each side's number of final configurations and, on the killing program, the mutant's as KORE text (cut at 4000 characters, `truncated`);
+  `wall_ms` is the mutant's run of the program and `baseline_ms` the program's baseline run, in milliseconds;
+  a `timeout` cause says what k-rust returned when the bound fired (how many paths had ended and how deep the deepest went: many shallow paths suggest path explosion, one deep path non-termination), and an `unknown` cause the halt of each returned leaf (a `depth-bound` leaf means `max_depth` stopped it);
+- `calls` and `call_wall_ms`: the programs of each runner call and its wall time;
 - `action`: what the status asks of you.
 
 | Status | What it asks |
@@ -354,11 +380,11 @@ Every other row also carries:
 
 `.kink-flow/` (or `--cache DIR`) holds plain JSON; deleting it, or any file in it, is always safe:
 
-- `results/<spec digest>/<program digest>.json`: one program's cached result (class, cause, baseline evidence, final configuration, rule coverage);
+- `results/<spec digest>/<program digest>.json`: one program's cached result (class, cause, baseline evidence, final configuration, rule coverage, and `wall_ms`, which orders the search and is part of no key);
 - `outcomes/<context digest>/<mutation identity>.json`: one mutation's proved outcomes (`killed` or `agree`) per program, with an integrity digest per record;
   the context is kink's build, the k-rust revision, the solver profile, the specification digest, the budget and the oracles;
   a timeout, an unknown or an error is never cached;
-- `hints.json`: each killed mutation's last killing program, keyed by the mutation's edits and its rules' text (no positions), a scheduling hint only;
+- `hints.json`: each killed mutation's last killing program, keyed by the mutation's edits and its rules' text (no positions), a scheduling hint only (deleting it with `outcomes/` re-runs the searches cheapest killer first);
 - `report.json`: the last run's report.
 
 The specification digest covers every source file the specification loads, so editing the specification reruns every program and every mutation, each killed one first with its hint;

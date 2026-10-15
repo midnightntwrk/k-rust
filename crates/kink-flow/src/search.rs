@@ -5,8 +5,9 @@
 //!
 //! 1. Resolve it into one pinned patch (F-04); an `invalid-mutation` ends there.
 //! 2. Choose the programs O: the comparable programs of the up-to-date result cache, the ones
-//!    whose cached coverage reaches an edited rule first, then the rest, each group in corpus
-//!    order.
+//!    whose cached coverage reaches an edited rule first, then the rest, each group cheapest
+//!    first (the record's `wall_ms`, then corpus order; [`ProgramOrder`], README 6.4). The order
+//!    changes which killing program is found first and the cost, never a status.
 //! 3. Tier 1 (README 7.5.3): the valid outcome records of the programs of O, under a key that
 //!    names every input of the outcome (kink's build, the k-rust revision, the solver profile,
 //!    the specification's execution digest, the budget, the oracles, the mutation's identity,
@@ -41,6 +42,12 @@
 //! still compares every call's baseline rows with the cached records. The run document's
 //! `baseline_runs` counts the live and reused baseline runs.
 //!
+//! Flow F-13: every executed entry names its oracle slots (and, for a distinguishing slot, the
+//! two sides), carries the session's timings (`wall_ms`, `baseline_ms`, `baseline_reused`) and,
+//! for a stopped run, the leaf census in its cause; every row carries `call_wall_ms`; the
+//! document lists the rules no resolving mutation of the list targets. None of these enters an
+//! evidence row, a digest, a key, an outcome record or a hint.
+//!
 //! `run --verify` ([`RunMode::Verify`]) decides nothing from tier 1: it runs the cold call over
 //! O for every mutation, then one call per valid record whose program the cold call did not
 //! execute, and reports every record (and the cached path's status) that differs from the live
@@ -51,29 +58,31 @@ use crate::{
     digest::{execution_digest, hint_key, kink_build_identity, mutation_identity, outcome_context},
     hints::{HintEntry, Hints},
     manifest::{Budget, FlowManifest},
-    mutation::{InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve},
+    mutation::{InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve, rule_texts},
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
     report::{
-        RUN_SCHEMA, RUN_VERSION, action, executed_cause, rules_value, survivors, unusable_programs,
+        RUN_SCHEMA, RUN_VERSION, action, executed_cause, rules_value, slots_value, survivors,
+        untargeted_rules, unusable_programs,
     },
     results::{
         BaselineRunner, ORACLE_SLOTS, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass,
-        cache_directory, fixed_oracles, kebab, rerun_timeout_record, run_digest, runner_refusal,
-        update_results,
+        cache_directory, fixed_oracles, kebab, millis, rerun_timeout_record, run_digest,
+        runner_refusal, update_results,
     },
 };
 use kink_campaign::{
-    CampaignFailure, CampaignOptions, CampaignReport, ManifestTest, MutantId, MutantPlan,
-    MutantReport, MutantRun, MutantStatus, OracleOutcome, ScheduleMode, TestCase, TestPlan,
-    TestRun, derive_mutant_report,
+    CallRecording, CampaignFailure, CampaignOptions, CampaignReport, ManifestTest, MutantId,
+    MutantPlan, MutantReport, MutantRun, MutantStatus, OracleOutcome, ScheduleMode, TestCase,
+    TestEvidence, TestPlan, TestRun, derive_mutant_report,
 };
 use kink_corpus::{Store, admission::AdmissionRecord};
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
-use kink_patch::{CandidateGeneration, Sha256Digest, Withdrawal};
+use kink_patch::{CandidateGeneration, SentenceRef, Sha256Digest, Withdrawal};
 use serde_json::{Map, Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 /// The run document's file in the cache directory, rewritten after every mutation.
@@ -123,6 +132,35 @@ pub struct RunOptions {
     pub only: Vec<String>,
     /// The cache directory; default `<directory of FLOW.toml>/.kink-flow`.
     pub cache: Option<PathBuf>,
+    /// How the programs are ordered inside each tier of the kill search.
+    pub order: ProgramOrder,
+}
+
+/// How the kill search orders the programs inside each tier of O (the programs whose coverage
+/// reaches an edited rule, then the rest; README 5.6 step 2 and 6.4).
+///
+/// The order never changes a status (README 6.4): under FirstKill a Killed status comes from
+/// any killing test and ranks above every other status, and a mutant-scope failure arises
+/// before any test runs (F-05 review 1), so the order changes only which killing program is
+/// found first (and hence becomes the hint and the reported killer) and what the search costs.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ProgramOrder {
+    /// Cheaper killers first (flow F-13): by the result record's `wall_ms` ascending (the wall
+    /// time of the program's live baseline run), then corpus order; a record without `wall_ms`
+    /// comes last in its tier.
+    #[default]
+    Cost,
+    /// Corpus order (F-05's order), for a reproducible search.
+    Corpus,
+}
+
+impl ProgramOrder {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cost => "cost",
+            Self::Corpus => "corpus",
+        }
+    }
 }
 
 /// How `run` uses the outcome cache.
@@ -144,6 +182,8 @@ struct Candidate<'r> {
     digest: Sha256Digest,
     /// The cached record's run digest (a comparable record always has one, unless edited).
     run_sha256: Option<&'r str>,
+    /// The cached record's `wall_ms`: the cost key of [`ProgramOrder::Cost`].
+    wall_ms: Option<u64>,
     /// The `(module, index)` of every baseline sentence its cached coverage reaches.
     reaches: BTreeSet<(String, u64)>,
 }
@@ -169,6 +209,7 @@ fn candidate<'r>(index: usize, id: &'r str, row: &'r ProgramRow) -> Option<Candi
         id,
         digest: row.digest?,
         run_sha256: record["run_sha256"].as_str(),
+        wall_ms: record["wall_ms"].as_u64(),
         reaches,
     })
 }
@@ -189,6 +230,19 @@ struct Stats {
     /// Tier-1 records written.
     records_written: usize,
 }
+
+/// One live campaign call of the kill search: the mutant's run, the call's baseline evidence
+/// (for the sides of a distinguishing slot), what the session recorded (wall times and leaf
+/// censuses) and the call's wall time.
+struct LiveCall {
+    mutant: MutantRun,
+    baseline: Vec<TestEvidence>,
+    recording: CallRecording,
+}
+
+/// The campaign calls of one mutation row: the programs of each call (candidate indices), its
+/// status and its wall time in milliseconds.
+type Calls = Vec<(Vec<usize>, Value, u64)>;
 
 /// A live program's outcome in `run --verify`.
 enum Live {
@@ -218,6 +272,8 @@ struct Search<'a> {
     stats: Stats,
     /// `run --verify`'s disagreements, for the run document's `mismatches`.
     mismatches: Vec<Value>,
+    /// How the programs are ordered inside each tier of O.
+    order: ProgramOrder,
 }
 
 impl Search<'_> {
@@ -249,13 +305,24 @@ impl Search<'_> {
         Ok(test)
     }
 
-    /// One campaign call over `order` (candidate indices), then the drift check. The mutant's
-    /// run, or the corpus error.
+    /// One campaign call over `order` (candidate indices), then the drift check: the call's
+    /// wall time in milliseconds (outside every digest and key), and the live call or the
+    /// corpus error.
     fn call(
         &mut self,
         generation: &CandidateGeneration<'_>,
         order: &[usize],
-    ) -> Result<MutantRun, CorpusError> {
+    ) -> (u64, Result<LiveCall, CorpusError>) {
+        let started = Instant::now();
+        let result = self.call_untimed(generation, order);
+        (millis(started.elapsed()), result)
+    }
+
+    fn call_untimed(
+        &mut self,
+        generation: &CandidateGeneration<'_>,
+        order: &[usize],
+    ) -> Result<LiveCall, CorpusError> {
         let mut tests = Vec::with_capacity(order.len());
         for &candidate in order {
             tests.push(self.test(candidate)?);
@@ -327,7 +394,11 @@ impl Search<'_> {
                 detail: format!("the runner returned {} mutants for one", run.mutants.len()),
             });
         }
-        Ok(run.mutants.remove(0))
+        Ok(LiveCall {
+            mutant: run.mutants.remove(0),
+            baseline: run.baseline,
+            recording: self.runner.last_call(),
+        })
     }
 
     fn ids(&self, order: &[usize]) -> Vec<&str> {
@@ -338,22 +409,32 @@ impl Search<'_> {
         self.candidates.iter().position(|c| c.id == id)
     }
 
-    /// The `calls` of a mutation row: the programs each campaign call ran, and its status.
-    fn calls(&self, calls: &[(Vec<usize>, Value)]) -> Vec<Value> {
+    /// The `calls` of a mutation row (the programs each campaign call ran, and its status) and
+    /// its `call_wall_ms` (each call's wall time, in the same order).
+    fn calls(&self, calls: &Calls) -> (Vec<Value>, Vec<Value>) {
         calls
             .iter()
-            .map(|(order, status)| json!({"programs": self.ids(order), "status": status}))
-            .collect()
+            .map(|(order, status, wall_ms)| {
+                (
+                    json!({"programs": self.ids(order), "status": status}),
+                    json!(wall_ms),
+                )
+            })
+            .unzip()
     }
 
-    /// The executed entry of a valid tier-1 record (`cached: true`).
+    /// The executed entry of a valid tier-1 record (`cached: true`): no run in this command,
+    /// so no sides, timings or cause.
     fn cached_entry(&self, candidate: usize, record: &OutcomeRecord) -> Value {
         json!({
             "program": self.candidates[candidate].id,
             "outcome": compared_outcome(&record.slots),
-            "slots": record.slots.iter().map(|o| slot_name(*o)).collect::<Vec<_>>(),
+            "slots": slots_value(&record.slots, None, None, false),
             "cause": null,
             "cached": true,
+            "wall_ms": null,
+            "baseline_ms": null,
+            "baseline_reused": null,
         })
     }
 
@@ -500,28 +581,32 @@ impl Search<'_> {
 
     /// The kill search for one mutation: its row of the run document, and whether it ended in
     /// a corpus error (the run then stops, and nothing is written to tier 1 for it).
-    fn search_one(&mut self, mutation: &Mutation) -> (Value, bool) {
+    fn search_one(
+        &mut self,
+        mutation: &Mutation,
+        resolution: &Result<ResolvedMutation, InvalidMutation>,
+    ) -> (Value, bool) {
         let mut row = Map::new();
         row.insert("id".into(), json!(mutation.id));
         row.insert("note".into(), json!(mutation.note));
-        let resolved = match resolve(self.manifest, &self.spec.loaded, mutation) {
+        let resolved = match resolution {
             Ok(resolved) => resolved,
-            Err(e) => return (invalid(row, e, Value::Null), false),
+            Err(e) => return (invalid(row, e.clone(), Value::Null), false),
         };
         let digest = resolved.digest;
         row.insert("digest".into(), json!(digest.to_string()));
         // The survivor report's rule texts (README 5.7); a killed mutation drops them below.
-        row.insert("rules".into(), rules_value(&resolved));
+        row.insert("rules".into(), rules_value(resolved));
         // The generation must derive from the validator's own baseline (the runner refuses any
         // other); the patch is pinned, so it applies to it as to the loaded baseline.
         let generation = match resolved.generation(self.spec.validator.baseline()) {
             Ok(generation) => generation,
             Err(e) => return (invalid(row, e, json!(digest.to_string())), false),
         };
-        let order = order(&self.candidates, &resolved);
+        let order = order(&self.candidates, resolved, self.order);
         let reaching = order
             .iter()
-            .filter(|&&c| reaches(&self.candidates[c], &resolved))
+            .filter(|&&c| reaches(&self.candidates[c], resolved))
             .map(|&c| self.candidates[c].id.to_owned())
             .collect::<Vec<_>>();
         row.insert("reaching".into(), json!(reaching));
@@ -530,7 +615,7 @@ impl Search<'_> {
             "identity".into(),
             json!(identity.map(|identity| identity.to_string())),
         );
-        let key = hint_key(mutation, &resolved);
+        let key = hint_key(mutation, resolved);
         let records = self.valid_records(identity, &order, &mut row);
         // Tier 2: the hint, when it names a comparable program; otherwise it is removed.
         let mut hint = None;
@@ -564,7 +649,10 @@ impl Search<'_> {
             if self.mode == RunMode::Search {
                 self.hints.remove(key);
             }
-            return (finish(row, None, None, Vec::new(), Vec::new()), false);
+            return (
+                finish(row, None, None, RowCalls::default(), Vec::new()),
+                false,
+            );
         }
         if self.mode == RunMode::Verify {
             return self.verify_one(row, mutation, &generation, &order, &records);
@@ -588,7 +676,7 @@ impl Search<'_> {
                     &report,
                     None,
                     Some(SOURCE_OUTCOME_CACHE),
-                    Vec::new(),
+                    RowCalls::default(),
                     executed,
                 ),
                 false,
@@ -613,41 +701,46 @@ impl Search<'_> {
             self.stats.mutations_from_cache += 1;
             self.hints.remove(key);
             return (
-                verdict_row(row, &report, None, None, Vec::new(), executed),
+                verdict_row(row, &report, None, None, RowCalls::default(), executed),
                 false,
             );
         }
 
         // Step 4: live calls, the hinted program alone first.
-        let mut calls = Vec::new();
+        let mut calls = Calls::new();
         let mut runs = Vec::<(Vec<usize>, MutantRun)>::new();
         let mut source = SOURCE_SEARCH;
         if let Some(h) = hint.filter(|h| live_order.contains(h)) {
             match self.call(&generation, &[h]) {
-                Err(error) => {
-                    calls.push((vec![h], json!("error")));
+                (wall_ms, Err(error)) => {
+                    calls.push((vec![h], json!("error"), wall_ms));
                     return self.corpus_error(row, error, &calls, executed);
                 }
-                Ok(run) => {
-                    calls.push((vec![h], json!(status_name(run.report.status))));
-                    executed.extend(executed_entries(&run, self.manifest.budget));
-                    if run.report.status == MutantStatus::Killed {
+                (wall_ms, Ok(live)) => {
+                    let status = live.mutant.report.status;
+                    calls.push((vec![h], json!(status_name(status)), wall_ms));
+                    executed.extend(executed_entries(&live, self.manifest.budget, true));
+                    if status == MutantStatus::Killed {
                         source = SOURCE_HINT;
                     }
-                    runs.push((vec![h], run));
+                    runs.push((vec![h], live.mutant));
                 }
             }
         }
         if source != SOURCE_HINT {
             match self.call(&generation, &live_order) {
-                Err(error) => {
-                    calls.push((live_order.clone(), json!("error")));
+                (wall_ms, Err(error)) => {
+                    calls.push((live_order.clone(), json!("error"), wall_ms));
                     return self.corpus_error(row, error, &calls, executed);
                 }
-                Ok(run) => {
-                    calls.push((live_order.clone(), json!(status_name(run.report.status))));
-                    executed.extend(executed_entries(&run, self.manifest.budget));
-                    runs.push((live_order.clone(), run));
+                (wall_ms, Ok(live)) => {
+                    calls.push((
+                        live_order.clone(),
+                        json!(status_name(live.mutant.report.status)),
+                        wall_ms,
+                    ));
+                    executed.extend(executed_entries(&live, self.manifest.budget, true));
+                    runs.push((live_order.clone(), live.mutant));
                 }
             }
         }
@@ -722,17 +815,23 @@ impl Search<'_> {
         order: &[usize],
         records: &[(usize, OutcomeRecord)],
     ) -> (Value, bool) {
-        let mut calls = Vec::new();
+        let mut calls = Calls::new();
         let mut executed = Vec::new();
         let cold = match self.call(generation, order) {
-            Err(error) => {
-                calls.push((order.to_vec(), json!("error")));
+            (wall_ms, Err(error)) => {
+                calls.push((order.to_vec(), json!("error"), wall_ms));
                 return self.corpus_error(row, error, &calls, executed);
             }
-            Ok(run) => run,
+            (wall_ms, Ok(live)) => {
+                calls.push((
+                    order.to_vec(),
+                    json!(status_name(live.mutant.report.status)),
+                    wall_ms,
+                ));
+                executed.extend(executed_entries(&live, self.manifest.budget, true));
+                live.mutant
+            }
         };
-        calls.push((order.to_vec(), json!(status_name(cold.report.status))));
-        executed.extend(executed_entries(&cold, self.manifest.budget));
         let mut live = BTreeMap::new();
         self.collect_live(&cold, &mut live);
         for (c, _) in records {
@@ -740,16 +839,17 @@ impl Search<'_> {
                 continue;
             }
             match self.call(generation, &[*c]) {
-                Err(error) => {
-                    calls.push((vec![*c], json!("error")));
+                (wall_ms, Err(error)) => {
+                    calls.push((vec![*c], json!("error"), wall_ms));
                     return self.corpus_error(row, error, &calls, executed);
                 }
-                Ok(run) => {
-                    calls.push((vec![*c], json!(status_name(run.report.status))));
-                    executed.extend(executed_entries(&run, self.manifest.budget));
-                    self.collect_live(&run, &mut live);
-                    live.entry(*c)
-                        .or_insert(Live::NotRun(status_name(run.report.status)));
+                (wall_ms, Ok(one)) => {
+                    let status = status_name(one.mutant.report.status);
+                    calls.push((vec![*c], json!(status), wall_ms));
+                    // An audit call: its kill is not the row's killer, so it shows no KORE.
+                    executed.extend(executed_entries(&one, self.manifest.budget, false));
+                    self.collect_live(&one.mutant, &mut live);
+                    live.entry(*c).or_insert(Live::NotRun(status));
                 }
             }
         }
@@ -875,7 +975,7 @@ impl Search<'_> {
         &self,
         mut row: Map<String, Value>,
         error: CorpusError,
-        calls: &[(Vec<usize>, Value)],
+        calls: &Calls,
         executed: Vec<Value>,
     ) -> (Value, bool) {
         row.insert("status".into(), json!("error"));
@@ -908,9 +1008,15 @@ fn mutant_run_sha256(run: &MutantRun, test_id: &str) -> Option<String> {
     run_digest(&row).map(|digest| digest.to_string())
 }
 
-/// The programs a live mutant run ran on, in the runner's order, each with its outcome and,
-/// unless it agreed or distinguished, the cause the runner's evidence gives (`cached: false`).
-fn executed_entries(mutant: &MutantRun, budget: Budget) -> Vec<Value> {
+/// The programs a live mutant run ran on, in the runner's order (`cached: false`), each with
+/// its outcome, its named slots (README 6.4: for a distinguishing slot the sides; on the call's
+/// killing program, when `killer_terms`, the mutant's final configurations as KORE text),
+/// unless it agreed or distinguished the cause the runner's evidence and the session's leaf
+/// census give, and the session's timings: `wall_ms` (the mutant's run), `baseline_ms` (the
+/// program's live baseline run in this command) and `baseline_reused`.
+fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<Value> {
+    let mutant = &live.mutant;
+    let killer = mutant.report.killing_test_ids.first();
     mutant
         .plan
         .tests
@@ -921,24 +1027,42 @@ fn executed_entries(mutant: &MutantRun, budget: Budget) -> Vec<Value> {
                 .iter()
                 .find(|evidence| evidence.test_id == test.test_id)
                 .map(|evidence| &evidence.run);
-            let cause = executed_cause(&test.run, evidence, budget);
-            match &test.run {
-                TestRun::SkippedAfterKill => None,
-                TestRun::Compared(outcomes) => Some(json!({
+            let baseline = live
+                .baseline
+                .iter()
+                .find(|evidence| evidence.test_id == test.test_id)
+                .map(|evidence| &evidence.run);
+            let run = live
+                .recording
+                .mutant_run(mutant.plan.mutant_id, &test.test_id);
+            let baseline_run = live.recording.baseline_of(&test.test_id);
+            let cause = executed_cause(&test.run, evidence, budget, run.map(|run| &run.census));
+            let mut entry = match &test.run {
+                TestRun::SkippedAfterKill => return None,
+                TestRun::Compared(outcomes) => json!({
                     "program": test.test_id,
                     "outcome": compared_outcome(outcomes),
-                    "slots": outcomes.iter().map(|o| slot_name(*o)).collect::<Vec<_>>(),
+                    "slots": slots_value(
+                        outcomes,
+                        baseline,
+                        evidence,
+                        killer_terms && killer == Some(&test.test_id),
+                    ),
                     "cause": cause,
                     "cached": false,
-                })),
-                TestRun::Failed(kind) => Some(json!({
+                }),
+                TestRun::Failed(kind) => json!({
                     "program": test.test_id,
                     "outcome": status_name(kind.status()),
                     "failure": kebab(&format!("{kind:?}")),
                     "cause": cause,
                     "cached": false,
-                })),
-            }
+                }),
+            };
+            entry["wall_ms"] = json!(run.map(|run| millis(run.wall)));
+            entry["baseline_ms"] = json!(baseline_run.map(|b| millis(b.run.wall)));
+            entry["baseline_reused"] = json!(baseline_run.map(|b| b.reused));
+            Some(entry)
         })
         .collect()
 }
@@ -1075,6 +1199,7 @@ pub fn run_with(
         store: Store::new(&cache),
         stats: Stats::default(),
         mismatches: Vec::new(),
+        order: options.order,
     };
     let outcome_cache = |search: &Search<'_>| {
         json!({
@@ -1092,16 +1217,29 @@ pub fn run_with(
             "records_written": search.stats.records_written,
         })
     };
+    // Every mutation of the list is resolved first (resolution only loads), so that the report
+    // lists, from its first write on, the rules no resolving mutation of the list targets
+    // (flow F-13, informational only); `--only` limits the search, not this list.
+    let resolutions = list
+        .mutations
+        .iter()
+        .map(|mutation| resolve(manifest, &spec.loaded, mutation))
+        .collect::<Vec<_>>();
+    let untargeted = Value::Array(untargeted_rules(
+        &rule_texts(manifest, &spec.loaded),
+        &targeted(&resolutions),
+    ));
     let mut rows = Vec::new();
     let mut stopped = None;
     let selected = list
         .mutations
         .iter()
-        .filter(|mutation| options.only.is_empty() || options.only.contains(&mutation.id));
+        .zip(&resolutions)
+        .filter(|(mutation, _)| options.only.is_empty() || options.only.contains(&mutation.id));
     // The document as last written to the report file, if it was.
     let mut written = None;
-    for mutation in selected {
-        let (mut row, corpus_error) = search.search_one(mutation);
+    for (mutation, resolution) in selected {
+        let (mut row, corpus_error) = search.search_one(mutation, resolution);
         if corpus_error {
             stopped = Some(json!({"mutation": mutation.id, "reason": row["reason"]}));
             ok = false;
@@ -1127,6 +1265,8 @@ pub fn run_with(
                 outcome_cache: outcome_cache(&search),
                 mismatches: &search.mismatches,
                 baseline_runs: runner.baseline_runs(),
+                order: json!(options.order.as_str()),
+                untargeted_rules: untargeted.clone(),
             },
         );
         match store.write_json(&report_path, &document) {
@@ -1155,6 +1295,8 @@ pub fn run_with(
             outcome_cache: outcome_cache(&search),
             mismatches: &search.mismatches,
             baseline_runs: runner.baseline_runs(),
+            order: json!(options.order.as_str()),
+            untargeted_rules: untargeted,
         },
     );
     // The stored report is the document the command prints: write it unless the last write
@@ -1173,7 +1315,7 @@ fn invalid(mut row: Map<String, Value>, invalid: InvalidMutation, digest: Value)
     row.insert("edit".into(), json!(invalid.edit));
     row.insert("detail".into(), json!(invalid.detail));
     row.insert("rules".into(), Value::Null);
-    finish(row, None, None, Vec::new(), Vec::new())
+    finish(row, None, None, RowCalls::default(), Vec::new())
 }
 
 /// The row of a verdict: the report's status, its first killing program as the killer, the
@@ -1183,7 +1325,7 @@ fn verdict_row(
     report: &MutantReport,
     reason: Option<String>,
     source: Option<&str>,
-    calls: Vec<Value>,
+    calls: RowCalls,
     executed: Vec<Value>,
 ) -> Value {
     row.insert("status".into(), json!(status_name(report.status)));
@@ -1198,13 +1340,17 @@ fn verdict_row(
     finish(row, killer, source, calls, executed)
 }
 
-/// Complete a mutation row: killer, killer_source, killer_from_cache, executed, calls and the
-/// survivor report's action (`rules` is null unless the mutation resolved and was not killed).
+/// A row's `calls` and `call_wall_ms` (the same order).
+type RowCalls = (Vec<Value>, Vec<Value>);
+
+/// Complete a mutation row: killer, killer_source, killer_from_cache, executed, calls, their
+/// wall times and the survivor report's action (`rules` is null unless the mutation resolved
+/// and was not killed).
 fn finish(
     mut row: Map<String, Value>,
     killer: Option<String>,
     source: Option<&str>,
-    calls: Vec<Value>,
+    (calls, call_wall_ms): RowCalls,
     executed: Vec<Value>,
 ) -> Value {
     row.entry("reason").or_insert(Value::Null);
@@ -1228,6 +1374,7 @@ fn finish(
     );
     row.insert("executed".into(), json!(executed));
     row.insert("calls".into(), json!(calls));
+    row.insert("call_wall_ms".into(), json!(call_wall_ms));
     Value::Object(row)
 }
 
@@ -1239,28 +1386,44 @@ fn reaches(candidate: &Candidate<'_>, resolved: &ResolvedMutation) -> bool {
     })
 }
 
-/// The chosen order O (README 5.6 step 2): the comparable programs whose cached coverage
-/// reaches an edited rule, in corpus order, then the rest, in corpus order.
-fn order(candidates: &[Candidate<'_>], resolved: &ResolvedMutation) -> Vec<usize> {
+/// The chosen order O (README 5.6 step 2, 6.4): the comparable programs whose cached coverage
+/// reaches an edited rule, then the rest; inside each tier by cost (the record's `wall_ms`
+/// ascending, then corpus order) or in corpus order ([`ProgramOrder`]). The order changes only
+/// which killing program is found first and the cost, never a status (README 6.4).
+fn order(
+    candidates: &[Candidate<'_>],
+    resolved: &ResolvedMutation,
+    program_order: ProgramOrder,
+) -> Vec<usize> {
     let mut order = Vec::with_capacity(candidates.len());
     for first in [true, false] {
-        order.extend(
-            candidates
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| reaches(c, resolved) == first)
-                .map(|(index, _)| index),
-        );
+        let mut tier = candidates
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| reaches(c, resolved) == first)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if program_order == ProgramOrder::Cost {
+            tier.sort_by_key(|&c| {
+                (
+                    candidates[c].wall_ms.unwrap_or(u64::MAX),
+                    candidates[c].index,
+                )
+            });
+        }
+        order.extend(tier);
     }
     order
 }
 
-/// The run document's accounting of the command's caches: `outcome_cache`, `mismatches` and
-/// `baseline_runs` (outside every digest and key).
+/// The run document's accounting of the command: `outcome_cache`, `mismatches`,
+/// `baseline_runs`, the program `order` and `untargeted_rules` (outside every digest and key).
 struct Accounting<'m> {
     outcome_cache: Value,
     mismatches: &'m [Value],
     baseline_runs: Value,
+    order: Value,
+    untargeted_rules: Value,
 }
 
 impl Accounting<'_> {
@@ -1268,7 +1431,20 @@ impl Accounting<'_> {
         outcome_cache: Value::Null,
         mismatches: &[],
         baseline_runs: Value::Null,
+        order: Value::Null,
+        untargeted_rules: Value::Null,
     };
+}
+
+/// The rules the resolving mutations address.
+pub fn targeted(
+    resolutions: &[Result<ResolvedMutation, InvalidMutation>],
+) -> BTreeSet<SentenceRef> {
+    resolutions
+        .iter()
+        .flatten()
+        .flat_map(|resolved| resolved.rules.iter().map(|rule| rule.at.clone()))
+        .collect()
 }
 
 fn document(
@@ -1317,6 +1493,8 @@ fn document(
         "outcome_cache": accounting.outcome_cache,
         "mismatches": accounting.mismatches,
         "baseline_runs": accounting.baseline_runs,
+        "order": accounting.order,
+        "untargeted_rules": accounting.untargeted_rules,
     })
 }
 

@@ -1,0 +1,10 @@
+# kink-flow mutation list for the cost order (flow F-13).
+
+[[mutation]]
+id = "done-returns-one"
+note = "countdown(0) ends in 1 instead of 0: every countdown program kills it"
+
+  [[mutation.edit]]
+  rule = "done"
+  find = "=> 0"
+  replace = "=> 1"

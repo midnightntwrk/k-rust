@@ -51,6 +51,7 @@
 //! initial-state admission guard. Undecided evidence stays Unknown.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::{Duration, Instant};
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kore::{
@@ -64,8 +65,8 @@ use kink_native::bridge::{
 };
 use kink_native::coverage::{RuleAuthors, TestCoverage};
 use kink_native::execution::{
-    ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, SolverProfile, StepRunFailure,
-    SteppedExecution,
+    AdaptedExecution, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, HaltClass,
+    SolverProfile, StepRunFailure, SteppedExecution,
 };
 use kink_native::feasibility::{BackendRelations, TestInitialState};
 use kink_native::representation::validate_representation;
@@ -406,6 +407,139 @@ struct StoredBaseline {
     cache: RunCache,
 }
 
+/// How a run ended, as a [`BaselineSession`] records it (flow F-13). A recording never enters
+/// an evidence row, a report encoding, a digest or a key.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RunStop {
+    /// The execution ended without the watchdog: every path ended or stopped at a bound of the
+    /// request (depth, simplification).
+    Finished,
+    /// The watchdog cancelled the execution at the budget's time.
+    Time,
+    /// The execution adapter returned no execution (an adapter or backend failure).
+    Failed,
+}
+
+/// The leaves one execution returned, read from its `AdaptedExecution`: leaves per halt class,
+/// the deepest leaf's depth, the rule ids their branches and traces name, and how the run
+/// ended. After a cancellation k-rust may return some leaves (the paths that had ended, and
+/// cancelled ones) or none. Unlike rule coverage (kink-native `TestCoverage`, which lists
+/// nothing for a timed-out run because where the watchdog stopped it depends on the host), the
+/// census keeps what a stopped run returned: it is a hint for a reader, never a key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LeafCensus {
+    pub stop: RunStop,
+    pub leaves: BTreeMap<HaltClass, usize>,
+    /// The depth of the deepest leaf; `None` without leaves.
+    pub deepest: Option<u64>,
+    /// The compiled rule ids (`UNIQUE_ID`s) the leaves' branch transitions and `rewrite` or
+    /// `remainder` trace entries name, as rule coverage reads them.
+    pub rule_ids: BTreeSet<String>,
+}
+
+impl LeafCensus {
+    fn of(execution: Result<&AdaptedExecution, &ExecutionAdapterFailure>) -> Self {
+        let Ok(execution) = execution else {
+            return Self {
+                stop: RunStop::Failed,
+                leaves: BTreeMap::new(),
+                deepest: None,
+                rule_ids: BTreeSet::new(),
+            };
+        };
+        let mut leaves = BTreeMap::new();
+        let mut rule_ids = BTreeSet::new();
+        let mut insert = |entry: &str| {
+            let entry = entry.strip_prefix("remainder:").unwrap_or(entry);
+            rule_ids.extend(
+                entry
+                    .split(',')
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_owned),
+            );
+        };
+        for leaf in execution.leaves() {
+            *leaves.entry(leaf.halt).or_insert(0) += 1;
+            for transition in &leaf.branch.identity {
+                insert(&transition.rule);
+            }
+            for entry in &leaf.branch.trace {
+                if matches!(entry.kind.as_str(), "rewrite" | "remainder") {
+                    insert(&entry.unique_id);
+                }
+            }
+        }
+        Self {
+            stop: if execution.timed_out() {
+                RunStop::Time
+            } else {
+                RunStop::Finished
+            },
+            leaves,
+            deepest: execution
+                .leaves()
+                .iter()
+                .map(|leaf| leaf.branch.depth)
+                .max(),
+            rule_ids,
+        }
+    }
+
+    /// The number of leaves.
+    #[must_use]
+    pub fn total(&self) -> usize {
+        self.leaves.values().sum()
+    }
+}
+
+/// One execution of one test on one compiled side, as the session records it: its wall time
+/// (the whole of the runner's run of the test: execution, bridge and oracle sides) and its
+/// leaf census. Outside every evidence row, digest and key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RunRecording {
+    pub test_id: String,
+    pub wall: Duration,
+    pub census: LeafCensus,
+}
+
+/// One baseline request of a campaign call: the recording of the live run that answered it
+/// (for a reused run, the run it reuses), whether it was reused, and that run's rule coverage.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BaselineRecording {
+    pub run: RunRecording,
+    pub reused: bool,
+    pub coverage: Option<TestCoverage>,
+}
+
+/// What one campaign call through a session ran: every baseline request, in test order, and
+/// every live mutant run, per mutant in run order (a test skipped after a kill, a test of a
+/// mutant stopped before execution, a shared piece of evidence and an unsupported symbolic
+/// side have none).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CallRecording {
+    pub baseline: Vec<BaselineRecording>,
+    pub mutants: Vec<(MutantId, Vec<RunRecording>)>,
+}
+
+impl CallRecording {
+    /// The baseline request of the test `test_id`, if the call made one.
+    #[must_use]
+    pub fn baseline_of(&self, test_id: &str) -> Option<&BaselineRecording> {
+        self.baseline
+            .iter()
+            .find(|recording| recording.run.test_id == test_id)
+    }
+
+    /// The live run of the mutant `mutant` on the test `test_id`, if there was one.
+    #[must_use]
+    pub fn mutant_run(&self, mutant: MutantId, test_id: &str) -> Option<&RunRecording> {
+        self.mutants
+            .iter()
+            .find(|(id, _)| *id == mutant)
+            .and_then(|(_, runs)| runs.iter().find(|run| run.test_id == test_id))
+    }
+}
+
 /// The live baseline runs of one command, each reused by later campaign calls of the same
 /// command (flow F-12, README 6.3).
 ///
@@ -440,6 +574,12 @@ struct StoredBaseline {
 /// aside, which is host-dependent between any two live runs); after the baseline runs, the call
 /// reads the baseline `Runtime` only for definition facts and pattern sides, which feed pattern
 /// slots only.
+///
+/// The session also records (flow F-13) what each call through it ran: the wall time and the
+/// leaf census of every baseline request and every live mutant run of the last call
+/// ([`BaselineSession::last_call`]). Recording is not memoisation: every call records, a
+/// campaign that is not memoised included, and nothing recorded is read by the runner. No
+/// recording enters an evidence row, a report encoding, a digest or a key.
 pub struct BaselineSession<'v> {
     validator: &'v NativeValidator,
     classify: &'v Classify<'v>,
@@ -450,6 +590,8 @@ pub struct BaselineSession<'v> {
     runs: Vec<StoredBaseline>,
     live: usize,
     reused: usize,
+    /// The recording of the last call; reset when a call starts.
+    last_call: CallRecording,
 }
 
 impl<'v> BaselineSession<'v> {
@@ -463,7 +605,16 @@ impl<'v> BaselineSession<'v> {
             runs: Vec::new(),
             live: 0,
             reused: 0,
+            last_call: CallRecording::default(),
         }
+    }
+
+    /// What the last call through this session ran (empty before the first call, and for a
+    /// call refused before its baseline runs): wall times, leaf censuses and baseline coverage,
+    /// outside every evidence row, digest and key.
+    #[must_use]
+    pub const fn last_call(&self) -> &CallRecording {
+        &self.last_call
     }
 
     /// Baseline runs this session made live (and stored).
@@ -540,7 +691,9 @@ impl<'v> BaselineSession<'v> {
         memoise: bool,
     ) -> (TestEvidence, RunCache) {
         if !memoise {
-            return runtime.run(campaign, test);
+            let (evidence, cache) = runtime.run(campaign, test);
+            self.record_baseline(&cache, false);
+            return (evidence, cache);
         }
         let key = BaselineKey {
             test_id: test.id.clone(),
@@ -552,9 +705,12 @@ impl<'v> BaselineSession<'v> {
         };
         if let Some(stored) = self.runs.iter().find(|stored| stored.key == key) {
             self.reused += 1;
-            return (stored.evidence.clone(), stored.cache.clone());
+            let (evidence, cache) = (stored.evidence.clone(), stored.cache.clone());
+            self.record_baseline(&cache, true);
+            return (evidence, cache);
         }
         let (evidence, cache) = runtime.run(campaign, test);
+        self.record_baseline(&cache, false);
         self.live += 1;
         self.runs.push(StoredBaseline {
             key,
@@ -562,6 +718,17 @@ impl<'v> BaselineSession<'v> {
             cache: cache.clone(),
         });
         (evidence, cache)
+    }
+
+    /// Records one baseline request of the current call (recording only).
+    fn record_baseline(&mut self, cache: &RunCache, reused: bool) {
+        if let Some(run) = &cache.recording {
+            self.last_call.baseline.push(BaselineRecording {
+                run: run.clone(),
+                reused,
+                coverage: cache.coverage.clone(),
+            });
+        }
     }
 }
 
@@ -584,6 +751,7 @@ pub fn run_campaign_multi_with(
     options: &CampaignOptions,
     session: &mut BaselineSession<'_>,
 ) -> Result<CampaignRun, CampaignFailure> {
+    session.last_call = CallRecording::default();
     session.admit(campaign)?;
     let memoise = session.memoises(campaign);
     if generations.is_empty() {
@@ -752,6 +920,10 @@ pub fn run_campaign_multi_with(
             support.as_ref(),
             &mut observations,
         );
+        session
+            .last_call
+            .mutants
+            .push((MutantId(index), execution.recordings));
         let plan = MutantPlan {
             mutant_id: MutantId(index),
             tests: execution.tests,
@@ -880,6 +1052,8 @@ struct MutantExecution {
     evidence: Vec<TestEvidence>,
     claims: Withdrawal,
     selection: Option<MutantSelection>,
+    /// The session's recordings of the live mutant runs (recording only).
+    recordings: Vec<RunRecording>,
 }
 
 /// A mutant's tests, its mutant-scope failure, its runs and its claim withdrawal. Under
@@ -909,6 +1083,7 @@ fn run_mutant(
             evidence: Vec::new(),
             claims: Withdrawal::default(),
             selection: None,
+            recordings: Vec::new(),
         },
         Ok((mut sides, claims)) => {
             let selection = mutant_selection(
@@ -923,7 +1098,7 @@ fn run_mutant(
                 || campaign.tests.iter().map(|test| test.id.clone()).collect(),
                 |selection| selection.order.clone(),
             );
-            let (tests, evidence) = run_tests(
+            let (tests, evidence, recordings) = run_tests(
                 campaign,
                 &mut sides,
                 paired,
@@ -937,6 +1112,7 @@ fn run_mutant(
                 evidence,
                 claims,
                 selection,
+                recordings,
             }
         }
     }
@@ -1139,7 +1315,8 @@ impl MutantSides {
     }
 }
 
-/// A prepared mutant's test plans and runs, in manifest order.
+/// A prepared mutant's test plans and runs, in manifest order, and the session's recordings of
+/// its live runs (recording only: nothing here reads them).
 fn run_tests(
     campaign: &Campaign<'_>,
     sides: &mut MutantSides,
@@ -1147,9 +1324,10 @@ fn run_tests(
     order: &[String],
     schedule: ScheduleMode,
     observations: &mut BaselineObservations<'_>,
-) -> (Vec<TestPlan>, Vec<TestEvidence>) {
+) -> (Vec<TestPlan>, Vec<TestEvidence>, Vec<RunRecording>) {
     let mut tests = Vec::with_capacity(campaign.tests.len());
     let mut evidence = Vec::with_capacity(campaign.tests.len());
+    let mut recordings = Vec::new();
     let mut killed = false;
     for id in order {
         let pair = &paired[id.as_str()];
@@ -1173,10 +1351,14 @@ fn run_tests(
                 RunCache {
                     stepped: cached.stepped.clone(),
                     coverage: None,
+                    recording: None,
                 },
             ),
             None => sides.run(campaign, test, symbolic),
         };
+        if let Some(recording) = &cache.recording {
+            recordings.push(recording.clone());
+        }
         // Initialize facts on both paths, including each newly prepared mutant backend.
         let signatures_match = observations
             .runtime
@@ -1257,15 +1439,16 @@ fn run_tests(
         });
         evidence.push(mutant);
     }
-    (tests, evidence)
+    (tests, evidence, recordings)
 }
 
-/// Stepped evidence retained from the primary run, and its rule coverage when the side
-/// records it.
+/// Stepped evidence retained from the primary run, its rule coverage when the side records
+/// it, and the session's recording of the run (wall time and leaf census; recording only).
 #[derive(Clone, Default)]
 struct RunCache {
     stepped: Option<SteppedExecution>,
     coverage: Option<TestCoverage>,
+    recording: Option<RunRecording>,
 }
 
 fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
@@ -1337,6 +1520,7 @@ impl Runtime {
     }
 
     fn run(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> (TestEvidence, RunCache) {
+        let started = Instant::now();
         let mut cache = RunCache::default();
         let has_pattern = test
             .oracles
@@ -1369,6 +1553,8 @@ impl Runtime {
             Ok(execution) => TestCoverage::of_execution(&test.id, execution, authors),
             Err(_) => TestCoverage::failed(&test.id),
         });
+        // Recording only (flow F-13): read from the execution the run already has.
+        let census = LeafCensus::of(execution.as_ref());
         let run = match execution {
             Err(failure) => SideRun::Failed((&failure).into()),
             Ok(execution) if execution.timed_out() => {
@@ -1406,6 +1592,11 @@ impl Runtime {
                 },
             },
         };
+        cache.recording = Some(RunRecording {
+            test_id: test.id.clone(),
+            wall: started.elapsed(),
+            census,
+        });
         (
             TestEvidence {
                 test_id: test.id.clone(),
@@ -2044,7 +2235,7 @@ mod tests {
                     assert!(matches!(sides_a.symbolic, SymbolicSide::Patched));
                     assert!(matches!(sides_b.symbolic, SymbolicSide::Withdrawn(_)));
                     let order = tests.iter().map(|test| test.id.clone()).collect::<Vec<_>>();
-                    let (_, first) = run_tests(
+                    let (_, first, _) = run_tests(
                         &campaign,
                         &mut sides_a,
                         &paired,
@@ -2077,7 +2268,7 @@ mod tests {
                     cached.evidence.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
                     let (mut repeated, _) =
                         prepare_mutant(&campaign, &a, &compiled, Some(&support)).unwrap();
-                    let (_, hit) = run_tests(
+                    let (_, hit, _) = run_tests(
                         &campaign,
                         &mut repeated,
                         &paired,
