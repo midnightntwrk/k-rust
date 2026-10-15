@@ -8551,9 +8551,10 @@ fn cut_point_leaf_observes_only_the_transitions_that_produced_its_state() {
     );
 }
 
-/// A cut-point successor that normalizes to bottom ends the path as a `Trivial` leaf reporting
-/// the successor's pattern, so the leaf's branch holds the transition that produced it and the
-/// evaluation of its normalization.
+/// A cut-point successor that normalizes to bottom (`dead` is declared total, and its equation
+/// reduces it to bottom) is an undefined step of the state it was proposed from: the path ends
+/// in a `Trivial` leaf over that state, on its branch, which the step's transition is not on;
+/// the transition is rolled back.
 #[test]
 fn a_bottom_cut_point_successor_leaf_observes_the_rule_that_produced_it() {
     let definition = definition(
@@ -8591,13 +8592,14 @@ fn a_bottom_cut_point_successor_leaf_observes_the_rule_that_produced_it() {
         leaf.halt_reason
     );
     assert_observations_anchor_into_branch(leaf);
-    assert_eq!(
-        observed(leaf),
-        [
-            Observed::Transition("stop", TransitionClass::Rewrite),
-            Observed::Evaluation("dead", EvaluationClass::Simplification, 1),
-        ]
-    );
+    assert_eq!(leaf.depth, 0, "{leaf:?}");
+    assert_eq!(leaf.pattern, subject(&definition, "start"));
+    assert_eq!(observed(leaf), []);
+    let [discarded] = result.discarded.as_slice() else {
+        panic!("expected one discarded transition: {:?}", result.discarded);
+    };
+    assert_eq!(discarded.rule_label.as_deref(), Some("stop"));
+    assert_eq!(discarded.reason, UncommittedReason::RolledBack);
 }
 
 /// A cut-point candidate owns the work done for it: the diagnostics and the evaluations of its
