@@ -1250,6 +1250,7 @@ fn corpus() -> Vec<(String, String, String, Option<std::path::PathBuf>)> {
         ("regression/withConfig.k", "TEST"),
         ("configuration-context.k", "TYPER-CFG"),
         ("transaction-data.k", "TX-DATA"),
+        ("collection-cell-content.k", "TEST"),
         ("private-configuration-context.k", "P"),
     ] {
         let path = root.join("sentence-typing").join(file);
@@ -1908,4 +1909,47 @@ fn a_rewrite_below_the_top_of_a_fun_equation_is_typed_per_projection() {
         "{:#?}",
         typing.branches
     );
+}
+
+const COLLECTION_CELL_CONTENT: &str =
+    include_str!("fixtures/sentence-typing/collection-cell-content.k");
+
+// The content of a cell whose one child is a `multiplicity="*"` collection is that collection:
+// a variable written there with no cell sort (the rule parser casts it to `Bag`) is a term of the
+// collection sort, and `.Bag` its empty value, as cell completion builds them. KEVM's
+// `#pushWorldState` and KWasm's `<moduleInstances> _ => .Bag </moduleInstances>` have this shape.
+#[test]
+fn a_variable_holding_a_collection_cell_content_has_the_collection_sort() {
+    let loaded = load_main(
+        "collection-cell-content.k",
+        COLLECTION_CELL_CONTENT,
+        "TEST",
+        None,
+    );
+    assert_compiles(&loaded, "TEST");
+    assert_closure_types(&loaded, "TEST");
+    let typer = main_typer(&loaded);
+    let save = typer
+        .typing_in(labelled(loaded.definition(), "TEST.save"), "TEST")
+        .unwrap();
+    // `<accounts> A </accounts>`: the cast the parser wrote and the variable below it.
+    let collection = typing_sorts(&save, "AccountCellMap");
+    assert!(collection >= 2, "{:#?}", save.positions);
+}
+
+/// The positions of `typing` whose sort is `sort`.
+fn typing_sorts(typing: &SentenceTyping, sort: &str) -> usize {
+    typing
+        .positions
+        .iter()
+        .filter(|(_, position)| position.sort == Some(Sort::new(sort)))
+        .count()
+        + typing
+            .branches
+            .iter()
+            .filter(|(_, branches)| {
+                branches.left.sort == Some(Sort::new(sort))
+                    || branches.right.sort == Some(Sort::new(sort))
+            })
+            .count()
 }

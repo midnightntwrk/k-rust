@@ -53,6 +53,7 @@ use super::{
     SortInjectionError, SortInjector, SortMismatch, has_rewrite, render_term, rewrite_projection,
 };
 
+mod cell_content;
 mod local_functions;
 
 #[cfg(test)]
@@ -655,6 +656,42 @@ impl<'a> SentenceTyper<'a> {
                     .map_err(SentenceTypingError::SemanticCasts)?;
                 (variables, resolved, Locals::new())
             };
+        // Cell completion gives a variable written as a cell's whole content the cell's content
+        // sort; the injector types the position as the compiled term has it.
+        let resolved = match resolved {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes,
+            } => Sentence::Rule {
+                body: cell_content::sort_cell_contents(body, &self.injector),
+                requires: cell_content::sort_cell_contents(requires, &self.injector),
+                ensures: cell_content::sort_cell_contents(ensures, &self.injector),
+                attributes,
+            },
+            Sentence::Claim {
+                body,
+                requires,
+                ensures,
+                attributes,
+            } => Sentence::Claim {
+                body: cell_content::sort_cell_contents(body, &self.injector),
+                requires: cell_content::sort_cell_contents(requires, &self.injector),
+                ensures: cell_content::sort_cell_contents(ensures, &self.injector),
+                attributes,
+            },
+            other @ (Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. }) => other,
+        };
         let (Sentence::Rule {
             body: resolved_body,
             requires: resolved_requires,
