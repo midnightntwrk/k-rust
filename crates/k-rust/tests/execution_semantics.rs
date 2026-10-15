@@ -2579,3 +2579,56 @@ endmodule
         "{leaves:?}"
     );
 }
+
+/// A sort predicate in a local function's pattern (`isInt(X) :=K true`, `:/=K`,
+/// `#let isInt(_) = X #in true`) lands on the generated equation's left-hand side below its root,
+/// as `f(isInt(_)) => true` does outside a local function: the definition compiles, the backend
+/// warns that the equation applies only where its argument spells the application, and the
+/// lambda's application to the value the predicate computes is never evaluated.
+#[test]
+fn a_sort_predicate_in_a_local_function_pattern_matches_only_its_spelling() {
+    const SOURCE: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax KItem ::= m2(Bool) [symbol(m2)] | wL(K) | wN(K) | wP(K) | run(Int)
+  rule wL(X) => m2(isInt(X) :=K true)
+  rule wN(X) => m2(isInt(X) :/=K true)
+  rule wP(X) => m2(#let isInt(_) = X #in true)
+  rule run(0) => wL(1)
+  rule run(1) => wN(1)
+  rule run(2) => wP(true)
+  configuration <k> run($PGM:Int) </k>
+endmodule
+"#;
+    for program in ["0", "1", "2"] {
+        let compiled = compile(SOURCE, "MAIN", "MAIN", "Int", program);
+        let syntax = k_rust::kore::parser::parse_definition(&compiled.kore).unwrap();
+        let definition =
+            k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let warnings = k_rust::backend::execution::value_claim_warnings(&definition);
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|warning| warning
+                    .contains("is applied only where its argument spells the application"))
+                .count(),
+            3,
+            "{warnings:?}"
+        );
+        // The lambda is never evaluated: no leaf holds `m2` of a Boolean value, and the run keeps
+        // the application (its definedness open where the step branches on it).
+        let leaves = text(&execute(&compiled, "MAIN", None));
+        assert!(
+            leaves
+                .iter()
+                .all(|leaf| !leaf.contains(r"Lblm2{}(\dv{SortBool{}}")),
+            "{program}: {leaves:?}"
+        );
+        assert!(
+            leaves.iter().any(|leaf| leaf.contains("Lbl'Hash'lambda")),
+            "{program}: {leaves:?}"
+        );
+    }
+}

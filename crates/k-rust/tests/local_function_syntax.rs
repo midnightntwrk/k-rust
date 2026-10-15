@@ -659,3 +659,58 @@ fn a_fun_body_may_read_a_field() {
         "(SortPair{}) : SortInt{}",
     );
 }
+
+// A local function in an imported module that names a helper of a sort declared there, while
+// the main module holds none: the lambda is typed over that module's closure and its helpers.
+#[test]
+fn a_local_function_of_an_imported_module_may_test_a_sort_declared_there() {
+    let source = "module MAIN\n  imports LIB\nendmodule\n\nmodule LIB\n  imports BOOL\n  \
+                  syntax Foo ::= foo()\n  syntax KItem ::= h(K) | m(Bool)\n  \
+                  rule [r]: h(X) => m(#let Y = X #in isFoo(Y))\nendmodule\n";
+    let loaded = load("MAIN", source);
+    let declarations = lambda_declarations(&loaded);
+    let [declaration] = declarations.as_slice() else {
+        panic!("{declarations:?}")
+    };
+    assert!(
+        declaration.contains("(SortK{}) : SortBool{}"),
+        "{declaration}"
+    );
+    let sentence = loaded
+        .definition()
+        .modules
+        .iter()
+        .find(|module| module.name == "LIB")
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| {
+            sentence
+                .attributes()
+                .string(k_rust::definition::AttributeKey::Label)
+                == Some("LIB.r")
+        })
+        .unwrap();
+    k_rust::kompile::SentenceTyper::for_compilation(loaded.resolved())
+        .unwrap()
+        .typing_in(sentence, "LIB")
+        .unwrap_or_else(|error| panic!("{error}"));
+}
+
+// A projection in a local function's pattern lands on the generated equation's left-hand side,
+// where a projection is refused, as on any left-hand side.
+#[test]
+fn a_projection_in_a_local_function_pattern_is_refused() {
+    let source = "module H\n  imports INT\n  imports BOOL\n  syntax KItem ::= h(K) | m(Bool)\n  \
+                  rule [r]: h(X) => m(#let {_}:>Int = X #in true)\nendmodule\n";
+    let loaded = load("H", source);
+    let error = compile_loaded_definition(&loaded, CompileOptions::default())
+        .expect_err("a projection on a left-hand side is refused");
+    assert!(
+        error.diagnostics.iter().any(|diagnostic| diagnostic.code
+            == k_rust::diagnostic::DiagnosticCode::IllegalFunctionOnLhs
+            && diagnostic.message.contains("project:Int")),
+        "{error} {:?}",
+        error.diagnostics
+    );
+}
