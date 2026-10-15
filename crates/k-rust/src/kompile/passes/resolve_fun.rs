@@ -926,7 +926,7 @@ impl LocalFunction {
     pub(crate) fn equation_parts(
         self,
         arguments: &[Term],
-    ) -> ((&Term, Vec<u32>), Option<(&Term, Vec<u32>)>) {
+    ) -> (EquationPart<'_>, Option<EquationPart<'_>>) {
         let (pattern, body) = match self.form {
             LocalFunctionForm::Fun3 => ((&arguments[0], vec![0]), (&arguments[1], vec![1])),
             LocalFunctionForm::Let => ((&arguments[0], vec![0]), (&arguments[2], vec![2])),
@@ -943,6 +943,10 @@ impl LocalFunction {
         self.predicate
     }
 }
+
+/// A part of a local function's equation as it stands in the construct, with its path below the
+/// construct.
+pub(crate) type EquationPart<'t> = (&'t Term, Vec<u32>);
 
 /// The parameter and result sorts of the lambda a local function lowers to.
 #[derive(Clone, Debug, Eq, PartialEq)]
