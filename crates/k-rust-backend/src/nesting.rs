@@ -120,6 +120,11 @@ pub const STACK_LIMIT: usize = 256 << 20;
 /// segments are reserved address space whose pages are committed as the recursion touches them,
 /// so a runaway recursion commits up to the budget before it stops. 1 GiB is a quarter of
 /// [`STACK_LIMIT`], so it stays under the same reservation bounds.
+///
+/// The budget is counted beyond the thread's own stack, so how deep a recursion goes before it
+/// stops depends on the size of the thread's stack, which is not an input of the request: a run
+/// that stops with `StackExhausted` is outside the promise that equal requests give equal results
+/// (`docs/compatibility.md`, "Determinism and concurrency").
 #[cfg(target_pointer_width = "64")]
 pub const SIMPLIFICATION_STACK_BUDGET: usize = 1 << 30;
 #[cfg(not(target_pointer_width = "64"))]
@@ -136,6 +141,10 @@ pub const SIMPLIFICATION_STACK_BUDGET: usize = STACK_LIMIT;
 /// threads at their full budget fit, so a thread stops below its own budget only when several
 /// threads recurse hundreds of thousands of levels at once. The count is one atomic update when a
 /// segment is granted and one when it is released, nothing on a recursion within its thread.
+/// Whether a recursion stops at this bound therefore depends on what the other threads of the
+/// process hold at the time, which is why a run that stops with `StackExhausted` is outside the
+/// promise that equal requests give equal results (`docs/compatibility.md`, "Determinism and
+/// concurrency").
 pub const SIMPLIFICATION_STACK_PROCESS_BUDGET: usize = STACK_LIMIT;
 
 /// Run `work` with `bytes` as the budget of [`SIMPLIFICATION_STACK_BUDGET`] on this thread, and
