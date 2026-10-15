@@ -93,7 +93,10 @@ pub use resolve_fresh_config_constants::{
 };
 pub(crate) use resolve_fresh_constants::resolve_fresh_constants_pass;
 pub use resolve_fresh_constants::{ResolveFreshConstantsError, resolve_fresh_constants};
-pub(crate) use resolve_fun::{CoveringLambda, DefinedBody, resolve_fun_pass};
+pub(crate) use resolve_fun::{
+    CoveringLambda, DefinedBody, LambdaSorts, LocalFunction, closure_variables, lambda_sorts,
+    resolve_fun_pass,
+};
 pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub(crate) use resolve_function_with_config::{
     FunctionRuleWithContext, resolve_config_var_pass, resolve_function_with_config_pass,
