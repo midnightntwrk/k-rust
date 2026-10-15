@@ -459,6 +459,10 @@ pub struct ExecutionRemainderOutput<K = Value> {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum HaltReasonOutput {
+    /// The request was cancelled while this leaf's state was being expanded, and the run ended:
+    /// the states still pending were dropped, not explored. Under `state-set` this leaf is never
+    /// merged into, nor absorbs, an equal leaf, so the result of a cancelled run always carries
+    /// it.
     Cancelled,
     /// No ground instance satisfying the leaf's constraint has a rewrite successor.
     /// This does not assert that a satisfying instance exists.
@@ -482,6 +486,11 @@ pub enum HaltReasonOutput {
     Vacuous,
     Branch,
     CutPoint,
+    /// The path arrived by one of the request's terminal rules and ends there. The halt records
+    /// how the path arrived, not a property of the configuration, which may have successors when
+    /// reached otherwise: under `state-set` a terminal leaf absorbs, and is absorbed by, only
+    /// stuck and terminal leaves of its configuration, and is kept beside a branch, cut-point,
+    /// bound, timeout or other leaf of it.
     Terminal,
     DepthBound,
     BreadthBound,

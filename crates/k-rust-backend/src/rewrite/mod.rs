@@ -508,9 +508,11 @@ pub struct ExecutionOptions {
     pub assume_initial_defined: bool,
     /// How the result reads its leaves.
     ///
-    /// `StateSet` (the default) is a disjunction of configurations: structurally equal final
-    /// configurations collapse into the first leaf in depth-first order, which carries the
-    /// diagnostics of every leaf merged into it. `PathSet` keeps one leaf
+    /// `StateSet` (the default) is a disjunction of configurations: a final configuration equal
+    /// to an earlier one merges into the first earlier leaf whose halt means everything its own
+    /// means (a leaf of a stop that ended the run is never merged, and a terminal-rule leaf merges
+    /// only with stuck and terminal-rule leaves), which carries the diagnostics of every leaf
+    /// merged into it. `PathSet` keeps one leaf
     /// per explored path, so paths that converge on one configuration keep their own trace,
     /// branch identity, and observations. Exploration is the same under both; only the final
     /// merge differs. `ExecutionMode::Any` gives each configuration the successors of the first
