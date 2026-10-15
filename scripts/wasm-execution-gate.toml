@@ -100,7 +100,7 @@ name = "simple/fconversions-c"
 known_failure = "upstream tests/failing.simple"
 exit = 0
 stderr = """
-warning: hook FLOAT.float2int was left unevaluated at depth 4516 (the definition does not determine its value: Float2Int of NaN or an infinity, which has no nearest integer); the result may not be fully simplified
+warning: hook FLOAT.float2int was left unevaluated on a path to the result at depth 4516 (the definition does not determine its value: Float2Int of NaN or an infinity, which has no nearest integer); the result may not be fully simplified
 """
 stdout = "sha256:96333f3bbc1f861521ec199aa77deec1c19782fad781d39a8fc100e2a36d541d (647787 bytes)"
 

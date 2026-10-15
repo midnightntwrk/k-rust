@@ -739,7 +739,9 @@ pub struct ExecutionLeaf {
     /// were merged also carries their diagnostics: its own first, then each new one in the order
     /// the merged leaves were met. Such a list may name work that is not on the leaf's own trace,
     /// and the result is free of diagnostics exactly when the `PathSet` result of the same
-    /// request is.
+    /// request is. A merged diagnostic names variables as the path that met it named them, so a
+    /// variable the request does not name may not occur in this leaf's state (it is never one of
+    /// the leaf's own variables), and diagnostics equal up to such names are each listed.
     ///
     /// A non-empty list means the leaf's pattern may not be the normal form a larger budget
     /// would reach, or that a condition or predicate was left undecided on the path: the

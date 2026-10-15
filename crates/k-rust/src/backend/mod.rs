@@ -200,6 +200,9 @@ pub struct ExecutionLeaf<K = Value> {
     /// A leaf of a `state-set` result also carries those of every path whose equal configuration
     /// was merged into it, so its list may name work that is not on its own `trace`, and the
     /// result is free of diagnostics exactly when the `path-set` result of the same request is.
+    /// A merged diagnostic names variables as the path that met it named them, so a variable the
+    /// request does not name may not occur in this leaf's `state` (it is never one of the leaf's
+    /// own variables), and diagnostics equal up to such names are each listed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
     /// Successors reported by a branch or cut-point halt, including each successor's diagnostics.

@@ -684,13 +684,13 @@ fn undecided_condition_message(
             )
         };
         return format!(
-            "equation {rule} was not applied at depth {depth}: its right-hand side or ensures uses {}, which its left-hand side does not bind, so matching it gives no value for {}; no other equation rewrote the term it matched, which was left unevaluated{requires}",
+            "equation {rule} was not applied on a path to the result at depth {depth}: its right-hand side or ensures uses {}, which its left-hand side does not bind, so matching it gives no value for {}; no other equation rewrote the term it matched, which was left unevaluated{requires}",
             english_list(&variables),
             if variables.len() == 1 { "it" } else { "them" },
         );
     }
     format!(
-        "condition of equation {rule} remained undecided at depth {depth} because {reason} (predicates: [{}]){explained}; the result may retain an unresolved condition",
+        "condition of equation {rule} remained undecided on a path to the result at depth {depth} because {reason} (predicates: [{}]){explained}; the result may retain an unresolved condition",
         printed_predicates(&predicates, result_sort),
     )
 }
@@ -705,7 +705,7 @@ fn undecided_predicate_message(
 ) -> String {
     let predicates = std::slice::from_ref(predicate);
     format!(
-        "predicate {} remained undecided at depth {depth} because {reason}{}; the result may retain an unresolved constraint",
+        "predicate {} remained undecided on a path to the result at depth {depth} because {reason}{}; the result may retain an unresolved constraint",
         printed_predicates(predicates, result_sort),
         parenthesized_explanations(&minted_name_explanations(predicates, &[])),
     )
@@ -721,7 +721,7 @@ fn rule_condition_unsimplified_message(
     depth: u64,
 ) -> String {
     format!(
-        "condition of rule {} was decided without full simplification at depth {depth} after budget {limit} was exhausted",
+        "condition of rule {} was decided without full simplification on a path to the result at depth {depth} after budget {limit} was exhausted",
         rule_description(definition, rule_id, origin)
     )
 }
@@ -736,7 +736,7 @@ fn rule_condition_failed_message(
     depth: u64,
 ) -> String {
     format!(
-        "condition of rule {} was decided without full simplification at depth {depth} because simplifying it failed ({failure}); the rule may have been left unapplied",
+        "condition of rule {} was decided without full simplification on a path to the result at depth {depth} because simplifying it failed ({failure}); the rule may have been left unapplied",
         rule_description(definition, rule_id, origin)
     )
 }
@@ -780,7 +780,7 @@ fn report_diagnostics<'a>(
                     BudgetSubject::Predicates => "predicates",
                 };
                 eprintln!(
-                    "warning: simplification budget {limit} exhausted while simplifying {subject} at depth {depth}; the result may not be fully simplified"
+                    "warning: simplification budget {limit} exhausted while simplifying {subject} on a path to the result at depth {depth}; the result may not be fully simplified"
                 );
             }
             BackendDiagnostic::UndecidedCondition {
@@ -829,7 +829,7 @@ fn report_diagnostics<'a>(
                 rule_condition_failed_message(definition, rule_id, origin.as_ref(), failure, depth)
             ),
             BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason } => eprintln!(
-                "warning: hook {hook} was left unevaluated at depth {depth} ({reason}); the result may not be fully simplified"
+                "warning: hook {hook} was left unevaluated on a path to the result at depth {depth} ({reason}); the result may not be fully simplified"
             ),
         }
     }
@@ -2398,8 +2398,8 @@ mod undecided_reason_tests {
         assert_eq!(
             unsimplified,
             [
-                "condition of rule at sentence index 4 (zero-based) of module MAIN was decided without full simplification at depth 2 after budget 3 was exhausted",
-                "condition of rule at test.k:7:3 was decided without full simplification at depth 2 after budget 3 was exhausted",
+                "condition of rule at sentence index 4 (zero-based) of module MAIN was decided without full simplification on a path to the result at depth 2 after budget 3 was exhausted",
+                "condition of rule at test.k:7:3 was decided without full simplification on a path to the result at depth 2 after budget 3 was exhausted",
             ]
         );
         let failure = k_rust_backend::simplify::SimplificationError::DisjunctiveResult {
@@ -2422,10 +2422,10 @@ mod undecided_reason_tests {
             failed,
             [
                 format!(
-                    "condition of rule at sentence index 4 (zero-based) of module MAIN was decided without full simplification at depth 2 because simplifying it failed ({failure}); the rule may have been left unapplied"
+                    "condition of rule at sentence index 4 (zero-based) of module MAIN was decided without full simplification on a path to the result at depth 2 because simplifying it failed ({failure}); the rule may have been left unapplied"
                 ),
                 format!(
-                    "condition of rule at test.k:7:3 was decided without full simplification at depth 2 because simplifying it failed ({failure}); the rule may have been left unapplied"
+                    "condition of rule at test.k:7:3 was decided without full simplification on a path to the result at depth 2 because simplifying it failed ({failure}); the rule may have been left unapplied"
                 ),
             ]
         );

@@ -1363,7 +1363,12 @@ fn final_leaves(
 /// make a state-set result diagnostic-free where the path-set result of the same request is
 /// not, and a run without diagnostics is what the explore-all coverage guarantee presumes
 /// (docs/backend-port.md). The retained leaf's diagnostics may therefore name work that is not
-/// on its own trace.
+/// on its own trace. A merged diagnostic is appended as the path that met it stated it, naming
+/// variables as that path named them: two leaves whose states differ by a renaming of the
+/// variables the request does not name merge, so a merged diagnostic may name a variable that
+/// does not occur in the retained leaf's state, and diagnostics equal up to such names are each
+/// listed. Names minted after a fork are distinct across paths (the fresh counter is
+/// request-wide), so a merged diagnostic never names one of the retained leaf's own variables.
 ///
 /// A key only tells a leaf apart from the other leaves that carry a configuration, so with
 /// fewer than two such leaves no key is computed: a state key renames every variable the

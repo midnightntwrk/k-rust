@@ -586,7 +586,7 @@ fn kore_exec_warns_when_a_returned_leaf_exhausts_its_simplification_budget() {
     );
     assert_eq!(
         String::from_utf8(output.stderr).unwrap(),
-        "warning: simplification budget 3 exhausted while simplifying the term at depth 1; the result may not be fully simplified\n"
+        "warning: simplification budget 3 exhausted while simplifying the term on a path to the result at depth 1; the result may not be fully simplified\n"
     );
 
     let search = Command::new(env!("CARGO_BIN_EXE_krust"))
@@ -612,7 +612,7 @@ fn kore_exec_warns_when_a_returned_leaf_exhausts_its_simplification_budget() {
     );
     assert_eq!(
         String::from_utf8(search.stderr).unwrap(),
-        "warning: simplification budget 3 exhausted while simplifying the term at depth 1; the result may not be fully simplified\n"
+        "warning: simplification budget 3 exhausted while simplifying the term on a path to the result at depth 1; the result may not be fully simplified\n"
     );
     fs::remove_dir_all(root).unwrap();
 }
