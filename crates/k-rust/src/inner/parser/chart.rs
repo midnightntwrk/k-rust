@@ -195,8 +195,11 @@ pub(super) struct State {
 ///
 /// Chart keys are indices the parser assigns (a state's production, dot and origin; sort ids;
 /// origins), so the flooding resistance of the default hasher buys nothing, while every agenda
-/// pop, chart insertion and completion hashes some. No result depends on the order of a hashed
-/// chart map: the only walk over one collects into an ordered set.
+/// pop, chart insertion and completion hashes some. No parse depends on the order of a hashed
+/// chart map, but the phrase that explains a failed program parse does: `program_text_phrase`
+/// takes the first matching state or completion in a chart map's iteration order. That order is
+/// fixed by this hasher, which has no random seed, so the diagnostic is the same in every
+/// process of one build; replacing the hasher may change which phrase a failure reports.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct IndexHasher(u64);
 
