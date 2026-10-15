@@ -345,9 +345,9 @@ Printed execution, search, and pattern-match disjunctions use the structural ord
 The backend facade exposes each execution leaf's halt reason as `HaltReasonOutput`, serialized with the same kebab-case reason in JSON.
 Consumers may match the Rust enum exhaustively.
 `detail` is human-readable context and must not be parsed as a halt class.
-An `indeterminate` execution leaf carries `cause`, the structured reason the step stopped, with the same encoding as `IncompleteSearchOutput::Indeterminate.reason`.
+An `indeterminate` execution leaf carries `cause`, the structured reason the step stopped, with the same encoding as `IncompleteSearchOutput::Indeterminate.reason`, and so does a `simplification-error` leaf whose state ran out of native stack, with the cause `stack-exhausted` (the failure `IncompleteSearchOutput::Simplification` reports for such a state).
 Other leaves omit `cause`; `detail` remains legacy human-readable context.
-The reachable causes are `surviving-macro-or-alias` (preprocessing left an executable symbol), `match` (unsupported unification remainder), `instantiation` (unbound rule variable), `requires` (undecided rule condition with no solver), `smt` (an undecided rule query), and `remainder` (an undecided priority-group remainder).
+The reachable causes are `surviving-macro-or-alias` (preprocessing left an executable symbol), `match` (unsupported unification remainder), `instantiation` (unbound rule variable), `requires` (undecided rule condition with no solver), `smt` (an undecided rule query), and `remainder` (an undecided priority-group remainder) on an `indeterminate` leaf, and `stack-exhausted` on a `simplification-error` leaf.
 An undecided query is one the solver answered `unknown` within its own timeout, resource limit and retries; a query that stopped (the request was cancelled, the step deadline passed, or the solver's prelude failed) has no answer, and the step publishes the stop instead of either cause.
 `SearchFailureOutput::solver_unavailable()` is true for `requires`, and for `smt`, `smt-predicate`, or a `remainder` satisfiability error whose SMT failure is `unavailable`.
 It says this step needed a solver absent from the build; it does not promise that a solver-enabled build decides the path, and a `match` cause may depend on an earlier equation left unevaluated without a solver.

@@ -192,8 +192,10 @@ fn a_state_that_runs_out_of_stack_is_a_counted_stopped_leaf() {
     );
 }
 
-/// A run whose rule's definedness obligation needs a deep ceil-equation instance counts the stop
-/// it meets there; with the default budget it meets none.
+/// A run whose rule's definedness obligation needs a deep ceil-equation instance counts the stops
+/// it meets there, those a refinement dismissed included: the run meets more stack stops than its
+/// stopped leaves show, so a count read off the leaves would be smaller. With the default budget
+/// it meets none.
 #[test]
 fn a_run_counts_the_stack_stops_of_its_definedness_obligations() {
     let axioms = [
@@ -207,5 +209,20 @@ fn a_run_counts_the_stack_stops_of_its_definedness_obligations() {
     let free = run(module(&axioms), "state{}()", 1, false);
     assert_eq!(free.stack_stops, 0, "{:?}", free.leaves);
     let bounded = run(module(&axioms), "state{}()", 1, true);
-    assert!(bounded.stack_stops >= 1, "{:?}", bounded.leaves);
+    let stopped = bounded
+        .leaves
+        .iter()
+        .filter(|leaf| {
+            matches!(
+                leaf.halt_reason,
+                HaltReason::Stopped(StopCause::StackExhausted(_))
+            )
+        })
+        .count();
+    assert!(
+        bounded.stack_stops > stopped,
+        "{} stack stops counted, {stopped} stopped leaves: {:?}",
+        bounded.stack_stops,
+        bounded.leaves
+    );
 }
