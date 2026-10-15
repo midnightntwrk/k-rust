@@ -64,18 +64,7 @@ pub(in crate::inner) struct SortUniverse {
 
 impl SortUniverse {
     pub(in crate::inner) fn new(visible: &[&Sentence], synonyms: &SortSynonyms<'_>) -> Self {
-        let catalog = SortCatalog::from_visible(visible.iter().copied());
-        let instances = catalog
-            .instantiations()
-            .values()
-            .flatten()
-            .collect::<BTreeSet<_>>();
-        let members: BTreeMap<Sort, SortRole> = visible
-            .iter()
-            .flat_map(|sentence| unbound_sorts(sentence))
-            .filter(|sort| sort.parameters.is_empty() || instances.contains(sort))
-            .map(|sort| (sort.clone(), sort.role()))
-            .collect();
+        let members = members(visible);
         let mut seen = BTreeSet::new();
         let synonyms = visible
             .iter()
@@ -100,6 +89,15 @@ impl SortUniverse {
             .filter(|(_, target)| is_grammar_sort(&members, target))
             .collect();
         Self { members, synonyms }
+    }
+
+    /// The universe of `visible` without synonym casts: its members alone, for a generator that
+    /// ranges over the sorts of a view and never writes a cast.
+    pub(in crate::inner) fn members_of(visible: &[&Sentence]) -> Self {
+        Self {
+            members: members(visible),
+            synonyms: Vec::new(),
+        }
     }
 
     /// Every member, in `Sort` order.
@@ -136,6 +134,22 @@ impl SortUniverse {
     pub(in crate::inner) fn admits(&self, sort: &Sort) -> bool {
         self.members.contains_key(sort) || self.synonyms.iter().any(|(alias, _)| alias == sort)
     }
+}
+
+/// The members of the universe of `visible`, with their roles ([`SortUniverse`], invariant I1).
+fn members(visible: &[&Sentence]) -> BTreeMap<Sort, SortRole> {
+    let catalog = SortCatalog::from_visible(visible.iter().copied());
+    let instances = catalog
+        .instantiations()
+        .values()
+        .flatten()
+        .collect::<BTreeSet<_>>();
+    visible
+        .iter()
+        .flat_map(|sentence| unbound_sorts(sentence))
+        .filter(|sort| sort.parameters.is_empty() || instances.contains(sort))
+        .map(|sort| (sort.clone(), sort.role()))
+        .collect()
 }
 
 /// The sorts a sentence declares or gives a position that its own `parameters` do not bind: the
