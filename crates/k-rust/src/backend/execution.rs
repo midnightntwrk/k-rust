@@ -1114,7 +1114,7 @@ impl Backend {
     ) -> Result<BackendRunOutput, Box<dyn Error>> {
         self.with_solver(module, |definition, solver| {
             run_backend_with_solver(definition, solver, initial, options)
-                .map_err(|error| BackendError(error.to_string()))
+                .map_err(|error| BackendError::new(error.to_string()))
         })
         .map_err(Into::into)
     }
@@ -1127,7 +1127,7 @@ impl Backend {
     ) -> Result<Vec<Pattern>, BackendError> {
         self.with_solver(module, |definition, _| {
             load_backend_patterns(definition, path, purpose)
-                .map_err(|error| BackendError(error.to_string()))
+                .map_err(|error| BackendError::new(error.to_string()))
         })
     }
 
@@ -1144,7 +1144,7 @@ impl Backend {
     ) -> Result<Vec<Pattern>, BackendError> {
         self.with_solver(module, |definition, _| {
             internalize_executable(definition, syntax)
-                .map_err(|error| BackendError(error.to_string()))
+                .map_err(|error| BackendError::new(error.to_string()))
         })
     }
 }

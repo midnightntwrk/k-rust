@@ -215,16 +215,18 @@ mod tests {
             .model_for(None, &syntax, Admission::Verified)
             .expect_err("a verified model predicate has one sort per variable");
         assert!(
-            model.0.starts_with("invalid model predicate: ")
-                && model.0.contains("Inconsistent free variable usage"),
+            model.message().starts_with("invalid model predicate: ")
+                && model.message().contains("Inconsistent free variable usage"),
             "{model}"
         );
         let simplified = backend
             .simplify_kore(None, &syntax, Admission::Verified)
             .expect_err("a verified pattern has one sort per variable");
         assert!(
-            simplified.0.starts_with("invalid KORE pattern: ")
-                && simplified.0.contains("Inconsistent free variable usage"),
+            simplified.message().starts_with("invalid KORE pattern: ")
+                && simplified
+                    .message()
+                    .contains("Inconsistent free variable usage"),
             "{simplified}"
         );
         assert!(
@@ -243,7 +245,7 @@ mod tests {
                     alternatives: 2,
                 }
             ))
-            .0,
+            .message(),
             "could not simplify model predicate: equation rule gives 2 alternative results where \
              simplification needs one"
         );
@@ -251,7 +253,7 @@ mod tests {
             BackendError::from(ModelError::Solver(
                 k_rust_backend::smt::SmtError::Unavailable
             ))
-            .0,
+            .message(),
             "could not obtain model: no solver is available"
         );
     }

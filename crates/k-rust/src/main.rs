@@ -3068,7 +3068,7 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
             definition
                 .verify_standalone_pattern(&target, &[])
                 .and_then(|admitted| admitted.internalize_pattern())
-                .map_err(|error| BackendError(error.to_string()))
+                .map_err(|error| BackendError::new(error.to_string()))
         })?;
 
         let disjunction_source = fs::read_to_string(&options.disjunction)?;
@@ -3087,7 +3087,7 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
                 definition
                     .verify_standalone_pattern(&disjunction, &[])
                     .and_then(|admitted| admitted.internalize_disjunction())
-                    .map_err(|error| BackendError(error.to_string()))
+                    .map_err(|error| BackendError::new(error.to_string()))
             })?;
             let matches = backend.match_patterns(None, &target, &alternatives)?;
             let output_sort = externalize::sort(&target.term.sort());
@@ -3664,7 +3664,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                     solver,
                 )
                 .map_err(|error| {
-                    KproveSolverError::Backend(BackendError(format!(
+                    KproveSolverError::Backend(BackendError::new(format!(
                         "could not prove claim: {error}"
                     )))
                 })

@@ -4913,7 +4913,7 @@ endmodule
 
     impl From<BackendError> for OperationError {
         fn from(error: BackendError) -> Self {
-            Self::Backend(error.0)
+            Self::Backend(error.message().to_owned())
         }
     }
 
@@ -4949,7 +4949,7 @@ endmodule
                 let initial = definition
                     .admit_unverified(&state, &[])
                     .internalize_pattern()
-                    .map_err(|error| BackendError(format!("{error:?}")))?;
+                    .map_err(|error| BackendError::new(format!("{error:?}")))?;
                 let result = backend_execution::run(
                     definition,
                     initial,

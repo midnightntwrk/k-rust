@@ -105,3 +105,21 @@ fn the_reexports_are_the_backend_items() {
     let error = HostError::from(cause);
     assert!(matches!(error, HostError::Stopped(StopCause::Cancelled)));
 }
+
+/// An `execute` under a token cancelled before the call does not run, and its error carries the
+/// cause. The portable build answers the same way once its operations pass the operation
+/// boundary.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn an_execute_cancelled_before_it_starts_reports_the_cancelled_cause() {
+    use k_rust::backend::ExecuteRequest;
+    use k_rust::kore::parser::parse_pattern;
+
+    let mut backend = Backend::new(DEFINITION, "TEST", BackendOptions::default()).unwrap();
+    let token = CancellationToken::new();
+    token.cancel();
+    let request = ExecuteRequest::new(parse_pattern("value{}()").unwrap());
+    let error = token.scope(|| backend.execute(request)).unwrap_err();
+    assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
+    assert_eq!(error.to_string(), "Request cancelled");
+}
