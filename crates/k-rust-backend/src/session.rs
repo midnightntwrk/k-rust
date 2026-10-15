@@ -107,6 +107,19 @@ impl BackendSession {
         &self.default_module
     }
 
+    /// Whether the session already holds the internalized definition of `module` (its own name
+    /// or an alias): [`Self::definition`] internalizes a module on first use and caches it.
+    pub fn is_loaded(&self, module: &str) -> bool {
+        let canonical = self
+            .module_aliases
+            .get(module)
+            .map_or(module, String::as_str);
+        self.definitions
+            .lock()
+            .expect("definition cache lock poisoned")
+            .contains_key(canonical)
+    }
+
     /// Obtain an immutable backend view for a module, compiling and caching it on first use.
     pub fn definition(&self, module: Option<&str>) -> Result<Arc<BackendDefinition>, SessionError> {
         let requested = module.unwrap_or(&self.default_module);

@@ -488,6 +488,7 @@ fn the_stop_counts_do_not_depend_on_the_memo() {
 /// sort.
 const PARTIAL: &str = r#"
     symbol p{}(SortInt{}) : SortInt{} [function{}()]
+    symbol q{}(SortInt{}) : SortInt{} [function{}()]
     sort SortS{} []
     symbol state{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
     symbol done{}(SortInt{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
@@ -639,4 +640,59 @@ fn a_load_in_a_cancelled_scope_discharges_as_any_other() {
         .scope(|| BackendDefinition::internalize(&syntax, "MAIN"))
         .expect("the fixture loads");
     assert_eq!(rules_discharged(&definition), [true]);
+}
+
+/// The overlap `g(_) = k(q(1))` against `g(_) = k(2)`, with `q(X) = 2 requires p(0) ==Int 0` and
+/// `p(X) = 0`: the join applies `q`'s equation once it has stated the definedness of its
+/// `requires`, the ceil equation's instance `hk(n) == n`. With `n` deep, on a thread whose stack
+/// holds fewer levels, stating it stops for lack of stack: the check counts the stop and the join
+/// refuses the step, so the pair is not joined through it.
+#[test]
+fn a_join_step_whose_definedness_runs_out_of_stack_is_counted_and_refused() {
+    let fixture = |n: u64| {
+        let mut axioms = deep_recursion("hk").to_vec();
+        axioms.push(ceil_of_p(n));
+        axioms.push(equation(
+            "p",
+            &["SortInt{}"],
+            "SortInt{}",
+            &["VarX:SortInt{}"],
+            &int(0),
+            r"\top{R}()",
+            "",
+        ));
+        axioms.push(equation(
+            "q",
+            &["SortInt{}"],
+            "SortInt{}",
+            &["VarX:SortInt{}"],
+            &int(2),
+            &holds(&format!("eqInt{{}}(p{{}}({}), {})", int(0), int(0))),
+            "",
+        ));
+        for right in [
+            format!("k{{}}(q{{}}({}))", int(1)),
+            format!("k{{}}({})", int(2)),
+        ] {
+            axioms.push(equation(
+                "g",
+                &["SortInt{}"],
+                "SortFoo{}",
+                &["VarX:SortInt{}"],
+                &right,
+                r"\top{R}()",
+                "anywhere{}()",
+            ));
+        }
+        partial_module(&axioms)
+    };
+    let small = BackendDefinition::internalize(&fixture(100), "MAIN").expect("the fixture loads");
+    let small = Verdict::of(small.value_claims());
+    assert_eq!(small.counts.joined, 1, "{small:?}");
+    assert_eq!(small.counts.condition_stack_stops, 0, "{small:?}");
+    let deep = internalize_on_a_bounded_stack(fixture(100_000));
+    let deep = Verdict::of(deep.value_claims());
+    assert!(deep.counts.condition_stack_stops >= 1, "{deep:?}");
+    assert_eq!(deep.counts.joined, 0, "{deep:?}");
+    assert_eq!(deep.counts.unjoined, 1, "{deep:?}");
 }

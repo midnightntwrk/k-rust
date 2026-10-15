@@ -71,12 +71,22 @@ fn a_module_first_loaded_by_a_cancelled_request_is_cached_with_its_rules_dischar
     let state = parse_pattern("state{}()").expect("the state parses");
     let mut backend =
         Backend::new(&two, "OTHER", BackendOptions::default()).expect("the backend loads");
+    assert!(
+        !backend.is_loaded("MAIN"),
+        "MAIN is loaded only when a request names it"
+    );
     let _cancelled = cancelled().scope(|| {
         backend.execute(ExecuteRequest {
             module_name: Some("MAIN".into()),
             ..ExecuteRequest::new(state.clone())
         })
     });
+    // The cancelled request loaded MAIN before it was cancelled, so `select_definition` reads
+    // what that request cached rather than loading MAIN itself.
+    assert!(
+        backend.is_loaded("MAIN"),
+        "the cancelled request did not load MAIN"
+    );
     let cached = backend
         .select_definition(Some("MAIN"))
         .expect("MAIN is loaded");

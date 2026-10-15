@@ -955,6 +955,13 @@ impl Backend {
         self.session.default_module()
     }
 
+    /// Whether this backend already holds the internalized definition of `module`: a module
+    /// other than the default one is internalized by the first request that names it (or by
+    /// [`Self::select_definition`]) and kept for later requests.
+    pub fn is_loaded(&self, module: &str) -> bool {
+        self.session.is_loaded(module)
+    }
+
     /// Return the compiled rules in the definition selected for execution.
     ///
     /// A written sentence's kind is found by matching its `Source` and `Location` against
