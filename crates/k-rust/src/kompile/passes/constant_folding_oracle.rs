@@ -1,12 +1,16 @@
-//! Oracle test for `kompile.constant_folding.evaluate`: every hook in the folding table, applied
-//! to random constant arguments, either folds to the value the backend's own evaluator computes
+//! Oracle test for the MPFR fold of `kompile.constant_folding.evaluate`: every `FLOAT` hook in
+//! the folding table, and every `STRING` conversion to and from `Float`, applied to random
+//! constant arguments, either folds to the value the backend's own evaluator computes
 //! (`k_rust_backend::builtin::evaluate_hook`) or is rejected where that evaluator finds the hook
 //! undefined. Hooks the backend does not evaluate are compared with a small model in this file,
-//! written from the hook's documented meaning. The two evaluators are independent
+//! written from the hook's documented meaning. The MPFR fold and the backend are independent
 //! implementations of the same hook semantics, so a difference is a defect on one side.
 //!
-//! The folder is exercised through `Folder::try_fold` on one resolved definition that declares
-//! every hooked production, so the case loop pays for neither a prelude nor a resolution.
+//! The other hooks are folded through the backend's evaluation entry itself (`Folder::evaluate`),
+//! so they have no second implementation to compare.
+//!
+//! The folder is exercised through `float::fold` on one resolved definition that declares every
+//! hooked production, so the case loop pays for neither a prelude nor a resolution.
 #![allow(
     clippy::wildcard_enum_match_arm,
     reason = "the test classifies hook outcomes and only names the variants it distinguishes"
@@ -28,12 +32,16 @@ use proptest::{
 };
 use serde_json::json;
 
-use super::{Folder, MAX_FOLDED_BITS, Unfolded};
+use super::{
+    Folder, MAX_FOLDED_BITS,
+    float::{self, Unfolded},
+};
 use crate::{
     definition::{
         Attributes, Definition, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
     },
     kast::{Label, Sort, Term},
+    kompile::declaration_facts::EmittedDeclarations,
 };
 
 /// Cases per hook. Each case costs one fold and one backend evaluation.
@@ -45,74 +53,12 @@ enum Kind {
     Int,
     Str,
     Float,
-    Id,
 }
 
-use Kind::{Bool as B, Float as F, Id as D, Int as I, Str as S};
+use Kind::{Bool as B, Float as F, Int as I, Str as S};
 
-/// The folding table (`Folder::evaluate`): hook, argument kinds, result kind.
+/// The MPFR folding table (`float::folds`): hook, argument kinds, result kind.
 const HOOKS: &[(&str, &[Kind], Kind)] = &[
-    ("BOOL.not", &[B], B),
-    ("BOOL.and", &[B, B], B),
-    ("BOOL.andThen", &[B, B], B),
-    ("BOOL.xor", &[B, B], B),
-    ("BOOL.or", &[B, B], B),
-    ("BOOL.orElse", &[B, B], B),
-    ("BOOL.implies", &[B, B], B),
-    ("BOOL.eq", &[B, B], B),
-    ("BOOL.ne", &[B, B], B),
-    ("INT.not", &[I], I),
-    ("INT.pow", &[I, I], I),
-    ("INT.powmod", &[I, I, I], I),
-    ("INT.mul", &[I, I], I),
-    ("INT.tdiv", &[I, I], I),
-    ("INT.tmod", &[I, I], I),
-    ("INT.ediv", &[I, I], I),
-    ("INT.emod", &[I, I], I),
-    ("INT.add", &[I, I], I),
-    ("INT.sub", &[I, I], I),
-    ("INT.shr", &[I, I], I),
-    ("INT.shl", &[I, I], I),
-    ("INT.and", &[I, I], I),
-    ("INT.xor", &[I, I], I),
-    ("INT.or", &[I, I], I),
-    ("INT.min", &[I, I], I),
-    ("INT.max", &[I, I], I),
-    ("INT.abs", &[I], I),
-    ("INT.log2", &[I], I),
-    ("INT.bitRange", &[I, I, I], I),
-    ("INT.signExtendBitRange", &[I, I, I], I),
-    ("INT.lt", &[I, I], B),
-    ("INT.gt", &[I, I], B),
-    ("INT.le", &[I, I], B),
-    ("INT.ge", &[I, I], B),
-    ("INT.eq", &[I, I], B),
-    ("INT.ne", &[I, I], B),
-    ("STRING.concat", &[S, S], S),
-    ("STRING.length", &[S], I),
-    ("STRING.chr", &[I], S),
-    ("STRING.ord", &[S], I),
-    ("STRING.substr", &[S, I, I], S),
-    ("STRING.find", &[S, S, I], I),
-    ("STRING.rfind", &[S, S, I], I),
-    ("STRING.findChar", &[S, S, I], I),
-    ("STRING.rfindChar", &[S, S, I], I),
-    ("STRING.string2int", &[S], I),
-    ("STRING.int2string", &[I], S),
-    ("STRING.string2base", &[S, I], I),
-    ("STRING.base2string", &[I, I], S),
-    ("STRING.replaceAll", &[S, S, S], S),
-    ("STRING.replace", &[S, S, S, I], S),
-    ("STRING.replaceFirst", &[S, S, S], S),
-    ("STRING.countAllOccurrences", &[S, S], I),
-    ("STRING.eq", &[S, S], B),
-    ("STRING.ne", &[S, S], B),
-    ("STRING.lt", &[S, S], B),
-    ("STRING.gt", &[S, S], B),
-    ("STRING.le", &[S, S], B),
-    ("STRING.ge", &[S, S], B),
-    ("STRING.token2string", &[D], S),
-    ("STRING.string2token", &[S], D),
     ("STRING.float2string", &[F], S),
     ("STRING.floatFormat", &[F, S], S),
     ("STRING.string2float", &[S], F),
@@ -160,22 +106,18 @@ const HOOKS: &[(&str, &[Kind], Kind)] = &[
 /// A constant argument, convertible to a frontend token and to a backend domain value.
 #[derive(Clone, Debug)]
 enum Arg {
-    Bool(bool),
     Int(BigInt),
     Str(String),
     /// A `Float` token, such as `1.5e0`, `2.5e-1f`, `NaNp24x8` or `-Infinity`.
     Float(String),
-    Id(String),
 }
 
 impl Arg {
     fn token(&self) -> Term {
         let (token, sort) = match self {
-            Self::Bool(value) => (value.to_string(), "Bool"),
             Self::Int(value) => (value.to_string(), "Int"),
             Self::Str(value) => (crate::kast::string::quote(value), "String"),
             Self::Float(value) => (value.clone(), "Float"),
-            Self::Id(value) => (value.clone(), "Id"),
         };
         Term::Token {
             token,
@@ -185,7 +127,6 @@ impl Arg {
 
     fn domain_value(&self) -> BackendTerm {
         match self {
-            Self::Bool(value) => BackendTerm::bool(*value),
             Self::Int(value) => BackendTerm::int(value.clone()),
             Self::Str(value) => BackendTerm::string(value),
             // A `Float` value has no constructor of its own kind yet; the oracle's texts are
@@ -194,9 +135,6 @@ impl Arg {
                 BackendSort::builtin(BuiltinSort::Float),
                 value.clone(),
             ),
-            Self::Id(value) => {
-                BackendTerm::raw_domain_value(BackendSort::simple("SortId"), value.clone())
-            }
         }
     }
 
@@ -280,7 +218,6 @@ enum Out {
     Float(Fl),
     /// A Float in a context other than binary32 or binary64: only its token is known.
     FloatToken(String),
-    Id(String),
 }
 
 impl Out {
@@ -293,7 +230,6 @@ impl Out {
             Self::Float(Fl::B32(_)) => 24,
             Self::Float(Fl::B64(_)) => 53,
             Self::FloatToken(token) => float_parts(token).map_or(0, |parts| u64::from(parts.1)),
-            Self::Id(text) => 8 * text.len() as u64,
         }
     }
 
@@ -304,7 +240,6 @@ impl Out {
             (Self::Str(a), Self::Str(b)) => a == b,
             (Self::Float(a), Self::Float(b)) => a.same(*b),
             (Self::FloatToken(a), Self::FloatToken(b)) => a == b,
-            (Self::Id(a), Self::Id(b)) => a == b,
             _ => false,
         }
     }
@@ -381,7 +316,6 @@ fn decode_folded(term: &Term, kind: Kind) -> Result<Out, String> {
             .map_err(|_| format!("bad Int token {token:?}")),
         Kind::Str => crate::kast::string::unquote(token).map(|value| Out::Str(value.into_bytes())),
         Kind::Float => decode_float(token),
-        Kind::Id => Ok(Out::Id(token.clone())),
     }
 }
 
@@ -405,7 +339,6 @@ fn decode_backend(term: &BackendTerm, kind: Kind) -> Result<Out, String> {
             .map_err(|_| format!("bad Int value {term:?}")),
         Kind::Str => Ok(Out::Str(value.as_bytes().to_vec())),
         Kind::Float => decode_float(text()?),
-        Kind::Id => Ok(Out::Id(text()?.to_owned())),
     }
 }
 
@@ -413,8 +346,8 @@ fn label(hook: &str) -> String {
     format!("hook_{}", hook.replace('.', "_"))
 }
 
-/// One module declaring the four hooked sorts, an unhooked `Id`, and one function production
-/// per hook in the table.
+/// One module declaring the four hooked sorts and one function production per hook in the
+/// table.
 fn definition() -> Definition {
     fn attributes(entries: &[(&str, &str)]) -> Attributes {
         Attributes::new(
@@ -430,21 +363,19 @@ fn definition() -> Definition {
             Kind::Int => "Int",
             Kind::Str => "String",
             Kind::Float => "Float",
-            Kind::Id => "Id",
         })
     };
     let mut sentences = [
-        ("Bool", Some("BOOL.Bool")),
-        ("Int", Some("INT.Int")),
-        ("String", Some("STRING.String")),
-        ("Float", Some("FLOAT.Float")),
-        ("Id", None),
+        ("Bool", "BOOL.Bool"),
+        ("Int", "INT.Int"),
+        ("String", "STRING.String"),
+        ("Float", "FLOAT.Float"),
     ]
     .into_iter()
     .map(|(name, hook)| Sentence::SyntaxSort {
         parameters: Vec::new(),
         sort: Sort::new(name),
-        attributes: hook.map_or_else(Attributes::default, |hook| attributes(&[("hook", hook)])),
+        attributes: attributes(&[("hook", hook)]),
     })
     .collect::<Vec<_>>();
     sentences.extend(HOOKS.iter().map(|(hook, arguments, result)| {
@@ -508,71 +439,6 @@ fn any_int() -> BoxedStrategy<BigInt> {
                 &digits
             )
         ),
-    ]
-    .boxed()
-}
-
-/// Values for a natural-number Int parameter: small ones, negative ones, and the 32- and 64-bit
-/// edges. `cheap` excludes `2^31 - 1`, for hooks whose backend evaluation would then take
-/// gigabytes.
-fn parameter(cheap: bool) -> BoxedStrategy<BigInt> {
-    let mut edges = vec![
-        big(-1),
-        big(-2),
-        -pow2(40),
-        pow2(31),
-        pow2(32) - 1,
-        pow2(32),
-        pow2(64),
-    ];
-    if !cheap {
-        edges.push(pow2(31) - 1);
-    }
-    prop_oneof![
-        5 => (-3i64..80).prop_map(BigInt::from),
-        1 => select(edges),
-    ]
-    .boxed()
-}
-
-const ALPHABET: &[char] = &[
-    'a', 'b', 'A', 'Z', '0', '1', '7', '9', '-', '+', '_', ' ', '"', '\\', '\n', '\t', '\u{0}',
-    '\u{7f}', 'é', 'λ', '\u{fffd}', '🦀',
-];
-
-fn any_string(max: usize) -> BoxedStrategy<String> {
-    prop::collection::vec(select(ALPHABET), 0..=max)
-        .prop_map(|chars| chars.into_iter().collect())
-        .boxed()
-}
-
-/// A haystack and a needle that is, half of the time, one of the haystack's substrings.
-fn haystack_and_needle() -> BoxedStrategy<(String, String)> {
-    prop_oneof![
-        (any_string(6), any_string(2)),
-        any_string(6).prop_flat_map(|haystack| {
-            let length = haystack.chars().count();
-            (Just(haystack), 0..=length, 0..=length).prop_map(|(haystack, a, b)| {
-                let needle = haystack
-                    .chars()
-                    .skip(a.min(b))
-                    .take(a.max(b) - a.min(b))
-                    .collect();
-                (haystack, needle)
-            })
-        }),
-    ]
-    .boxed()
-}
-
-/// An index into `text` measured in characters: mostly in range, sometimes just outside it or at
-/// the parameter edges.
-fn index(text: &str) -> BoxedStrategy<BigInt> {
-    let length = text.chars().count() as i64;
-    prop_oneof![
-        4 => (0..=length).prop_map(BigInt::from),
-        1 => (-2..=length + 2).prop_map(BigInt::from),
-        1 => parameter(false),
     ]
     .boxed()
 }
@@ -723,53 +589,6 @@ fn context() -> BoxedStrategy<(BigInt, BigInt)> {
     .boxed()
 }
 
-/// Decimal integers with an optional sign, and near misses of that syntax.
-fn integer_text() -> BoxedStrategy<String> {
-    prop_oneof![
-        3 => (any_int(), any::<bool>()).prop_map(|(value, plus)| {
-            if plus && !value.is_negative() { format!("+{value}") } else { value.to_string() }
-        }),
-        2 => select(vec![
-            "", "+", "-", "1_0", "_1", "1_", "-_1", " 1", "1 ", "0x1f", "++1", "+-1", "-+1",
-            "1e3", "1.0", "\u{661}", "007", "-0",
-        ])
-        .prop_map(str::to_owned),
-        2 => prop::collection::vec(select(&['0', '1', '9', '-', '+', '_', ' ', 'a'][..]), 0..5)
-            .prop_map(|chars| chars.into_iter().collect()),
-    ]
-    .boxed()
-}
-
-fn base() -> BoxedStrategy<BigInt> {
-    prop_oneof![
-        6 => (2i64..=36).prop_map(BigInt::from),
-        1 => select(vec![big(0), big(1), big(37), big(-2), big(-16), pow2(40)]),
-    ]
-    .boxed()
-}
-
-/// Strings in the documented `String2Base` syntax for some base, and near misses.
-fn base_text_and_base() -> BoxedStrategy<Vec<Arg>> {
-    prop_oneof![
-        2 => (any_int(), 2u32..=36, any::<bool>()).prop_map(|(value, radix, upper)| {
-            let text = value.to_str_radix(radix);
-            vec![
-                Arg::Str(if upper { text.to_uppercase() } else { text }),
-                Arg::Int(BigInt::from(radix)),
-            ]
-        }),
-        2 => (
-            prop::collection::vec(
-                select(&['0', '1', '7', '9', 'a', 'f', 'z', 'A', 'F', 'Z', '_', '-', '+', ' '][..]),
-                0..5,
-            ),
-            base(),
-        )
-            .prop_map(|(chars, base)| vec![Arg::Str(chars.into_iter().collect()), Arg::Int(base)]),
-    ]
-    .boxed()
-}
-
 /// Strings in the documented `Float` syntax, and near misses.
 fn float_text() -> BoxedStrategy<String> {
     prop_oneof![
@@ -784,155 +603,8 @@ fn float_text() -> BoxedStrategy<String> {
     .boxed()
 }
 
-fn int_args(count: usize) -> BoxedStrategy<Vec<Arg>> {
-    prop::collection::vec(any_int().prop_map(Arg::Int), count).boxed()
-}
-
-fn ints(values: Vec<BigInt>) -> Vec<Arg> {
-    values.into_iter().map(Arg::Int).collect()
-}
-
 fn arguments(hook: &str) -> BoxedStrategy<Vec<Arg>> {
     match hook {
-        _ if hook.starts_with("BOOL.") => {
-            let arity = HOOKS.iter().find(|entry| entry.0 == hook).unwrap().1.len();
-            prop::collection::vec(any::<bool>().prop_map(Arg::Bool), arity).boxed()
-        }
-        "INT.not" | "INT.abs" | "INT.log2" | "STRING.int2string" => int_args(1),
-        "INT.pow" => prop_oneof![
-            // Any base with a bounded exponent.
-            (any_int(), -3i64..300).prop_map(|(base, exponent)| ints(vec![base, exponent.into()])),
-            // A base whose powers stay small, with every exponent edge.
-            (select(vec![big(0), big(1), big(-1)]), parameter(false))
-                .prop_map(|(base, exponent)| ints(vec![base, exponent])),
-            // Exponents beyond the fold's bound, whose results only the bases 0, 1 and -1 keep
-            // small.
-            (any_int(), select(vec![pow2(33), pow2(64)]))
-                .prop_map(|(base, exponent)| ints(vec![base, exponent])),
-        ]
-        .boxed(),
-        "INT.powmod" => (
-            any_int(),
-            prop_oneof![(-5i64..300).prop_map(BigInt::from), any_int()],
-            prop_oneof![(-12i64..13).prop_map(BigInt::from), any_int()],
-        )
-            .prop_map(|(base, exponent, modulus)| ints(vec![base, exponent, modulus]))
-            .boxed(),
-        "INT.tdiv" | "INT.tmod" | "INT.ediv" | "INT.emod" => (
-            any_int(),
-            prop_oneof![1 => Just(BigInt::zero()), 4 => any_int()],
-        )
-            .prop_map(|(a, b)| ints(vec![a, b]))
-            .boxed(),
-        "INT.shr" => (any_int(), parameter(false))
-            .prop_map(|(value, amount)| ints(vec![value, amount]))
-            .boxed(),
-        "INT.shl" => prop_oneof![
-            // A nonzero value shifted by a small amount, a negative one, or one whose result
-            // neither evaluator computes; amounts near 2^31 would make the backend build and
-            // print a result of hundreds of megabytes.
-            (
-                any_int(),
-                prop_oneof![
-                    5 => (-3i64..300).prop_map(BigInt::from),
-                    1 => select(vec![big(-1), big(-2), -pow2(40), pow2(33), pow2(64)]),
-                ],
-            )
-                .prop_map(|(value, amount)| ints(vec![value, amount])),
-            parameter(false).prop_map(|amount| ints(vec![BigInt::zero(), amount])),
-        ]
-        .boxed(),
-        "INT.bitRange" | "INT.signExtendBitRange" => (any_int(), parameter(true), parameter(true))
-            .prop_map(|(value, index, length)| ints(vec![value, index, length]))
-            .boxed(),
-        _ if hook.starts_with("INT.") => prop_oneof![
-            int_args(2),
-            any_int().prop_map(|value| ints(vec![value.clone(), value])),
-        ]
-        .boxed(),
-        "STRING.concat" => (any_string(4), any_string(4))
-            .prop_map(|(a, b)| vec![Arg::Str(a), Arg::Str(b)])
-            .boxed(),
-        "STRING.length" | "STRING.string2token" => {
-            any_string(6).prop_map(|a| vec![Arg::Str(a)]).boxed()
-        }
-        "STRING.ord" => any_string(2).prop_map(|a| vec![Arg::Str(a)]).boxed(),
-        "STRING.chr" => prop_oneof![
-            (0i64..0x80).prop_map(BigInt::from),
-            (0i64..0x11_0000).prop_map(BigInt::from),
-            select(vec![
-                big(0xd7ff),
-                big(0xd800),
-                big(0xdbff),
-                big(0xdc00),
-                big(0xdfff),
-                big(0xe000),
-                big(0x10_ffff),
-                big(0x11_0000),
-                big(-1),
-                pow2(32) - 1,
-                pow2(64),
-            ]),
-        ]
-        .prop_map(|code| vec![Arg::Int(code)])
-        .boxed(),
-        "STRING.substr" => any_string(6)
-            .prop_flat_map(|text| {
-                let start = index(&text);
-                let end = index(&text);
-                (Just(text), start, end, any::<bool>())
-            })
-            // Half of the pairs in order, so that most cases lie in the documented domain.
-            .prop_map(|(text, start, end, ordered)| {
-                if ordered && start > end {
-                    (text, end, start)
-                } else {
-                    (text, start, end)
-                }
-            })
-            .prop_map(|(text, start, end)| vec![Arg::Str(text), Arg::Int(start), Arg::Int(end)])
-            .boxed(),
-        "STRING.find" | "STRING.rfind" | "STRING.findChar" | "STRING.rfindChar" => {
-            haystack_and_needle()
-                .prop_flat_map(|(haystack, needle)| {
-                    let index = index(&haystack);
-                    (Just(haystack), Just(needle), index)
-                })
-                .prop_map(|(haystack, needle, index)| {
-                    vec![Arg::Str(haystack), Arg::Str(needle), Arg::Int(index)]
-                })
-                .boxed()
-        }
-        "STRING.string2int" => integer_text().prop_map(|text| vec![Arg::Str(text)]).boxed(),
-        "STRING.string2base" => base_text_and_base(),
-        "STRING.base2string" => (any_int(), base())
-            .prop_map(|(value, base)| ints(vec![value, base]))
-            .boxed(),
-        "STRING.replaceAll" | "STRING.replaceFirst" => (haystack_and_needle(), any_string(2))
-            .prop_map(|((haystack, needle), replacement)| {
-                vec![Arg::Str(haystack), Arg::Str(needle), Arg::Str(replacement)]
-            })
-            .boxed(),
-        "STRING.replace" => (
-            haystack_and_needle(),
-            any_string(2),
-            prop_oneof![4 => (-2i64..5).prop_map(BigInt::from), 1 => parameter(true)],
-        )
-            .prop_map(|((haystack, needle), replacement, count)| {
-                vec![
-                    Arg::Str(haystack),
-                    Arg::Str(needle),
-                    Arg::Str(replacement),
-                    Arg::Int(count),
-                ]
-            })
-            .boxed(),
-        "STRING.countAllOccurrences" => haystack_and_needle()
-            .prop_map(|(haystack, needle)| vec![Arg::Str(haystack), Arg::Str(needle)])
-            .boxed(),
-        "STRING.token2string" => select(vec!["x", "foo", "Foo1", "a_b", "'q", "\"quoted\""])
-            .prop_map(|token| vec![Arg::Id(token.to_owned())])
-            .boxed(),
         "STRING.float2string" | "FLOAT.float2int" => {
             any_float().prop_map(|a| vec![Arg::Float(a)]).boxed()
         }
@@ -950,13 +622,6 @@ fn arguments(hook: &str) -> BoxedStrategy<Vec<Arg>> {
             .prop_map(|(value, format)| vec![Arg::Float(value), Arg::Str(format)])
             .boxed(),
         "STRING.string2float" => float_text().prop_map(|text| vec![Arg::Str(text)]).boxed(),
-        _ if hook.starts_with("STRING.") => prop_oneof![
-            (any_string(3), any_string(3)).prop_map(|(a, b)| vec![Arg::Str(a), Arg::Str(b)]),
-            any_string(3).prop_map(|a| vec![Arg::Str(a.clone()), Arg::Str(a)]),
-            (any_string(3), any_string(2))
-                .prop_map(|(a, b)| vec![Arg::Str(a.clone()), Arg::Str(format!("{a}{b}"))]),
-        ]
-        .boxed(),
         "FLOAT.root" => (
             any_float(),
             prop_oneof![
@@ -1019,9 +684,7 @@ fn backend_expectation(
         Ok(BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })) => {
             Ok(Some(Expect::Unspecified))
         }
-        // The hooks of the table that refuse a result as too large are `^Int`, `<<Int` and
-        // `bitRangeInt`, whose bound is `result_size_limit(MAX_INT_RESULT_BITS, ..)`, never below
-        // `MAX_INT_RESULT_BITS`; that is at least the fold's `MAX_FOLDED_BITS` (asserted in
+        // A backend bound on a result is never below the fold's `MAX_FOLDED_BITS` (asserted in
         // `constant_folding.rs`), so a value the backend refuses is one the fold must refuse too.
         Ok(BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge { .. })) => {
             Ok(Some(Expect::TooLarge))
@@ -1030,104 +693,8 @@ fn backend_expectation(
             UnsupportedHookReason::NotImplemented
             | UnsupportedHookReason::ArgumentOutOfRange { .. },
         )) => Ok(None),
-        // Without a result sort the backend cannot name the token's sort.
-        Ok(BuiltinResult::NotApplicable) if hook == "STRING.string2token" => Ok(None),
         other => Err(format!("unexpected backend outcome {other:?}")),
     }
-}
-
-/// The documented syntax of `String2Int`: a nonempty sequence of decimal digits, optionally
-/// prefixed by a sign.
-fn is_integer_text(text: &str) -> bool {
-    let digits = text.strip_prefix(['+', '-']).unwrap_or(text);
-    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-/// The documented syntax of `String2Base`: the digits of the base, letters in either case. A
-/// sign is read as for `String2Int`, which the documentation does not exclude.
-fn is_base_text(text: &str, radix: u32) -> bool {
-    let digits = text.strip_prefix(['+', '-']).unwrap_or(text);
-    !digits.is_empty() && digits.chars().all(|character| character.is_digit(radix))
-}
-
-/// Expectations derived from a hook's documentation that bind both evaluators: they are checked
-/// against the backend as well as the fold.
-fn documented_expectation(hook: &str, arguments: &[Arg]) -> Option<Expect> {
-    match hook {
-        "STRING.string2int" => {
-            let text = arguments[0].str();
-            Some(if is_integer_text(text) {
-                Expect::Value(Out::Int(text.parse().ok()?))
-            } else {
-                Expect::Undefined
-            })
-        }
-        "STRING.string2base" | "STRING.base2string" => {
-            let Some(radix) = arguments[1]
-                .int()
-                .to_u32()
-                .filter(|radix| (2..=36).contains(radix))
-            else {
-                // Bases run from 2 to 36.
-                return Some(Expect::Undefined);
-            };
-            if hook == "STRING.base2string" {
-                return None;
-            }
-            let text = arguments[0].str();
-            Some(if is_base_text(text, radix) {
-                Expect::Value(Out::Int(BigInt::parse_bytes(text.as_bytes(), radix)?))
-            } else {
-                Expect::Undefined
-            })
-        }
-        _ => None,
-    }
-}
-
-/// The first position at or after `index` (`findChar`), or the last at or before it (`rfind`,
-/// `rfindChar`), holding the needle or one of the needle characters; -1 if there is none. Every
-/// integer index is one: the candidates are the positions on that side of it.
-fn search(hook: &str, haystack: &str, needles: &str, index: &BigInt) -> i64 {
-    let haystack = haystack.chars().collect::<Vec<_>>();
-    let needle = needles.chars().collect::<Vec<_>>();
-    let occurs_at = |position: usize| match hook {
-        "STRING.rfind" => haystack[position..].starts_with(&needle),
-        _ => position < haystack.len() && needle.contains(&haystack[position]),
-    };
-    let mut positions = (0..=haystack.len()).filter(|&position| {
-        let position = BigInt::from(position);
-        match hook {
-            "STRING.findChar" => position >= *index,
-            _ => position <= *index,
-        }
-    });
-    let found = match hook {
-        "STRING.findChar" => positions.find(|&position| occurs_at(position)),
-        _ => positions.rfind(|&position| occurs_at(position)),
-    };
-    found.map_or(-1, |position| position as i64)
-}
-
-/// Replaces the first `count` non-overlapping occurrences of a nonempty `needle`, scanning
-/// characters left to right.
-fn replace(haystack: &str, needle: &str, replacement: &str, count: usize) -> (String, usize) {
-    let haystack = haystack.chars().collect::<Vec<_>>();
-    let needle = needle.chars().collect::<Vec<_>>();
-    let mut output = String::new();
-    let mut replaced = 0;
-    let mut position = 0;
-    while position < haystack.len() {
-        if replaced < count && haystack[position..].starts_with(&needle) {
-            output.push_str(replacement);
-            position += needle.len();
-            replaced += 1;
-        } else {
-            output.push(haystack[position]);
-            position += 1;
-        }
-    }
-    (output, replaced)
 }
 
 fn standard_float(token: &str) -> Option<Fl> {
@@ -1265,52 +832,6 @@ fn model_expectation(hook: &str, arguments: &[Arg]) -> Expect {
         return value(Out::Float(libm));
     }
     match hook {
-        "STRING.rfind" | "STRING.findChar" | "STRING.rfindChar" => value(Out::Int(
-            search(
-                hook,
-                arguments[0].str(),
-                arguments[1].str(),
-                arguments[2].int(),
-            )
-            .into(),
-        )),
-        "STRING.replaceAll" | "STRING.replaceFirst" | "STRING.replace" => {
-            let count = match hook {
-                "STRING.replaceAll" => usize::MAX,
-                "STRING.replaceFirst" => 1,
-                _ if arguments[3].int().is_negative() => return Expect::Undefined,
-                _ => arguments[3].int().to_usize().unwrap_or(usize::MAX),
-            };
-            let (haystack, needle, replacement) =
-                (arguments[0].str(), arguments[1].str(), arguments[2].str());
-            if needle.is_empty() {
-                // `domains.md` defines `replace` by finding the needle at 0 and recursing on
-                // the whole haystack, so an empty needle inserts the replacement `count` times
-                // in front; `replaceAll` replaces `countAllOccurrences` copies, which has no value
-                // for an empty needle (below).
-                let bytes = (count as u128) * (replacement.len() as u128) + haystack.len() as u128;
-                return match hook {
-                    "STRING.replaceAll" => Expect::Unspecified,
-                    _ if bytes * 8 > u128::from(MAX_FOLDED_BITS) => Expect::TooLarge,
-                    _ => value(Out::Str(
-                        format!("{}{haystack}", replacement.repeat(count)).into_bytes(),
-                    )),
-                };
-            }
-            let (output, _) = replace(haystack, needle, replacement, count);
-            value(Out::Str(output.into_bytes()))
-        }
-        "STRING.countAllOccurrences" => {
-            let (haystack, needle) = (arguments[0].str(), arguments[1].str());
-            if needle.is_empty() {
-                // `domains.md` counts by finding the needle and recursing on the rest: for an
-                // empty needle `countAllOccurrences(S, "") = 1 +Int countAllOccurrences(S, "")`,
-                // which no integer satisfies, and the hook is total.
-                return Expect::Unspecified;
-            }
-            value(Out::Int(replace(haystack, needle, "", usize::MAX).1.into()))
-        }
-        "STRING.string2token" => value(Out::Id(arguments[0].str().to_owned())),
         "STRING.string2float" => {
             let text = arguments[0].str();
             if !is_float_text(text) {
@@ -1423,7 +944,22 @@ fn check_case(
     tally: &mut Tally,
 ) -> Result<(), String> {
     let tokens = arguments.iter().map(Arg::token).collect::<Vec<_>>();
-    let folded = folder.try_fold(&Label::new(label(hook)), &tokens);
+    let label = Label::new(label(hook));
+    let application = folder
+        .application(&label, &tokens)
+        .ok_or("the fold does not read a constant hooked application")?;
+    let folded = float::fold(
+        folder.sorts,
+        hook,
+        &application.tokens,
+        &application.result_sort,
+    )
+    .map(|token| {
+        Some(Term::Token {
+            token,
+            sort: application.result_sort.clone(),
+        })
+    });
     let folded = match folded {
         // The documented contract of `Float2String` is that its string reads back as the same
         // Float, so the folded string is compared as a Float.
@@ -1437,25 +973,12 @@ fn check_case(
     };
 
     let backend = backend_expectation(hook, arguments, result)?;
-    let expected = match documented_expectation(hook, arguments) {
-        Some(documented) => {
-            match (&documented, &backend) {
-                (Expect::Value(a), Some(Expect::Value(b))) if a.same(b) => {}
-                (Expect::Undefined, Some(Expect::Undefined)) | (_, None) => {}
-                _ => {
-                    return Err(format!(
-                        "the backend gives {backend:?} where the hook's documentation gives {documented:?}"
-                    ));
-                }
-            }
-            documented
-        }
-        // The backend computes k-rust's readings of a mixed-format operation (binary64) and of a
-        // NaN's sign (false), values only an execution chooses and the fold must not write.
-        None if mixed_float_operation(hook, arguments) || sign_of_a_nan(hook, arguments) => {
-            Expect::Unspecified
-        }
-        None => backend.unwrap_or_else(|| model_expectation(hook, arguments)),
+    // The backend computes k-rust's readings of a mixed-format operation (binary64) and of a
+    // NaN's sign (false), values only an execution chooses and the fold must not write.
+    let expected = if mixed_float_operation(hook, arguments) || sign_of_a_nan(hook, arguments) {
+        Expect::Unspecified
+    } else {
+        backend.unwrap_or_else(|| model_expectation(hook, arguments))
     };
 
     match (expected, folded) {
@@ -1535,7 +1058,9 @@ fn disagreements(hooks: &[(&'static str, &'static [Kind], Kind)]) -> Vec<String>
     let definition = definition();
     let resolved = ResolvedDefinition::resolve(&definition).expect("the hook module resolves");
     let views = resolved.views();
-    let folder = Folder::new(&views, resolved.module_id("MAIN").unwrap());
+    let main = resolved.module_id("MAIN").unwrap();
+    let facts = EmittedDeclarations::new(views.sort_catalog(main), views.production_catalog(main));
+    let folder = Folder::new(&views, main, &facts);
     let mut failures = Vec::new();
     let mut summary = Vec::new();
     for (hook, _, result) in hooks {
@@ -1568,47 +1093,9 @@ fn disagreements(hooks: &[(&'static str, &'static [Kind], Kind)]) -> Vec<String>
     failures
 }
 
-#[cfg(feature = "mpfr-folding")]
 #[test]
 fn constant_folding_agrees_with_the_backend_hooks() {
+    assert!(HOOKS.iter().all(|(hook, _, _)| float::folds(hook)));
     let failures = disagreements(HOOKS);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-/// Without MPFR the fold leaves every `FLOAT` hook (and the `STRING` conversions to and from
-/// `Float`) unfolded; the other hooks are compared as with MPFR.
-#[cfg(not(feature = "mpfr-folding"))]
-#[test]
-fn constant_folding_agrees_with_the_backend_hooks() {
-    let (float, other): (Vec<_>, Vec<_>) =
-        HOOKS.iter().copied().partition(|(_, arguments, result)| {
-            arguments.contains(&Kind::Float) || *result == Kind::Float
-        });
-    let failures = disagreements(&other);
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-
-    let definition = definition();
-    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
-    let views = resolved.views();
-    let folder = Folder::new(&views, resolved.module_id("MAIN").unwrap());
-    for (hook, arguments, _) in float {
-        let tokens = arguments
-            .iter()
-            .map(|kind| match kind {
-                Kind::Float => Arg::Float("1.5".into()),
-                Kind::Int => Arg::Int(BigInt::from(53)),
-                Kind::Str => Arg::Str("1.5".into()),
-                other => panic!("unexpected argument kind {other:?}"),
-            })
-            .map(|argument| argument.token())
-            .collect::<Vec<_>>();
-        let unfolded = folder
-            .try_fold(&Label::new(label(hook)), &tokens)
-            .expect_err(hook);
-        assert!(
-            matches!(&unfolded, Unfolded::Unsupported(message)
-                if message.contains("requires the native MPFR implementation")),
-            "{hook}: {unfolded:?}"
-        );
-    }
 }
