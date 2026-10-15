@@ -142,13 +142,18 @@ enum Entry {
     Writer,
 }
 
-/// One request of the contract: a program, a modality and an entry point.
+/// One request of the contract: a program, a modality, an entry point and a work budget.
 #[derive(Clone, Copy)]
 struct Request {
     state: usize,
     modality: ResultModalityOutput,
     entry: Entry,
+    max_work: Option<u64>,
 }
+
+/// The work budget of the budgeted requests: below the count of `go`'s run, so they end with a
+/// `work-bound` leaf.
+const BUDGET: u64 = 4;
 
 /// Every request of the contract, in a fixed order.
 fn requests() -> Vec<Request> {
@@ -163,7 +168,17 @@ fn requests() -> Vec<Request> {
                     state,
                     modality,
                     entry,
+                    max_work: None,
                 });
+                // A run the work budget stops is covered by the contract too.
+                if state == GO {
+                    requests.push(Request {
+                        state,
+                        modality,
+                        entry,
+                        max_work: Some(BUDGET),
+                    });
+                }
             }
         }
     }
@@ -175,6 +190,7 @@ fn run(backend: &mut Backend, request: Request) -> String {
     let execute = ExecuteRequest {
         strategy: ExecutionStrategy::All,
         result_modality: request.modality,
+        max_work: request.max_work,
         ..ExecuteRequest::new(compiled().states[request.state].clone())
     };
     let observed = ObservedRequest {
@@ -235,6 +251,7 @@ fn leaves(state: usize, modality: ResultModalityOutput) -> usize {
             state,
             modality,
             entry: Entry::Execute,
+            max_work: None,
         },
     );
     serde_json::from_str::<serde_json::Value>(&text).expect("the result is JSON")["leaves"]
@@ -256,6 +273,26 @@ fn execute_results_are_equal_across_runs_and_backends() {
     assert!(
         states < paths,
         "`conv`: {states} state-set leaves against {paths} path-set leaves"
+    );
+    // The budgeted requests stop: `work` is the budget and the last leaf is `work-bound`.
+    let budgeted = run(
+        &mut backend(),
+        Request {
+            state: GO,
+            modality: ResultModalityOutput::PathSet,
+            entry: Entry::Execute,
+            max_work: Some(BUDGET),
+        },
+    );
+    let budgeted =
+        serde_json::from_str::<serde_json::Value>(&budgeted).expect("the result is JSON");
+    assert_eq!(budgeted["work"], BUDGET);
+    let last = budgeted["leaves"]
+        .as_array()
+        .and_then(|leaves| leaves.last());
+    assert_eq!(
+        last.map(|leaf| &leaf["reason"]),
+        Some(&serde_json::json!("work-bound"))
     );
     let expected = fresh_results();
     let mut reused = backend();

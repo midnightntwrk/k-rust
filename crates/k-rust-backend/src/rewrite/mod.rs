@@ -550,13 +550,16 @@ pub struct ExecutionOptions {
     /// The most states the run may visit across all its paths (`None`, the default: no bound).
     ///
     /// A state is visited when the run takes it from its worklist, whatever becomes of it, so an
-    /// initial state, a state that ends as a leaf and a state that reaches a configuration
-    /// another path reached each count once; the count is [`ExecutionResult::work`]. The run
-    /// takes states in a fixed order, so it stops at the same state, with the same leaves
-    /// finished before it, on every run of one build and solver profile. When a state remains
-    /// after `max_work` states, that state becomes the one [`HaltReason::WorkBound`] leaf, the
-    /// last of the result, and the other pending states are dropped unexplored; a budget at
-    /// least the unbounded run's count changes nothing.
+    /// initial state taken from the worklist, a state that ends as a leaf and a state that
+    /// reaches a configuration another path reached each count once; the count is
+    /// [`ExecutionResult::work`]. The run takes states in a fixed order, so it stops at the same
+    /// state, with the same leaves finished before it, wherever its result is the same: within
+    /// the execution determinism contract and its exclusions (docs/compatibility.md,
+    /// "Determinism and concurrency", "Execute"), which leave out, among others, a run in which
+    /// an SMT query timed out. When a state remains after `max_work` states, that state becomes
+    /// the one [`HaltReason::WorkBound`] leaf, the last of the result, and the other pending
+    /// states are dropped unexplored; a budget at least the unbounded run's count changes
+    /// nothing, and a budget of 0 makes the first initial state, as given, that leaf.
     ///
     /// The budget bounds the states, the leaves and the worklist; it does not bound the work of
     /// one state's step (a ground function evaluation runs to its value), the size of values, or

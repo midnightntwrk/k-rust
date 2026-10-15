@@ -77,6 +77,12 @@
 //!    (`crates/k-rust/tests/load_cancellation.rs`). Both are bounded by a budget of polls
 //!    instead, so a load ends however its definition's conditions evaluate
 //!    (`docs/backend-port.md`, the critical-pair check).
+//! 7. The work budget of an execution ([`ExecuteRequest::max_work`]) is not a cancellation and
+//!    never an `Err`: a run that reaches it returns `Ok`, and like a cancelled run it reports the
+//!    leaves completed before the stop and the state it did not visit as one leaf, a
+//!    `work-bound` one ([`HaltReasonOutput::WorkBound`]), and drops the states still pending.
+//!    Unlike a cancellation it is deterministic: the run stops at the same state wherever its
+//!    result is the same (docs/compatibility.md, "Work budget").
 //!
 //! With the `z3-inference` feature, a solver whose prelude failed stops every operation that uses
 //! it, as `Err(e)` with a `SolverPrelude` cause, at the boundary or during the run.
@@ -285,12 +291,15 @@ pub struct ExecuteRequest {
     /// The most states the run may visit across all its paths (wire `maxWork`; absent: no
     /// bound). A state is visited when the run takes it from its worklist, whatever becomes of
     /// it; [`ExecutionResult::work`] reports the count. The run takes states in a fixed order, so
-    /// it stops at the same state, with the same leaves finished before it, on every run of one
-    /// build and solver profile (docs/compatibility.md, "Work budget"). When a state remains
-    /// after `max_work` states, it becomes the one `work-bound` leaf
-    /// ([`HaltReasonOutput::WorkBound`]), the last of the result, and the other pending states
-    /// are not explored or reported; a budget at least the unbounded run's `work` changes
-    /// nothing.
+    /// it stops at the same state, with the same leaves finished before it, wherever its result
+    /// is the same: within the execution determinism contract and its exclusions
+    /// (docs/compatibility.md, "Determinism and concurrency", "Execute"), which leave out, among
+    /// others, a run in which an SMT query timed out in a build with Z3 (docs/compatibility.md,
+    /// "Work budget"). When a state remains after `max_work` states, it becomes the one
+    /// `work-bound` leaf ([`HaltReasonOutput::WorkBound`]), the last of the result, and the other
+    /// pending states are not explored or reported; a budget at least the unbounded run's `work`
+    /// changes nothing, and a budget of 0 makes the first initial state, as the request gave it,
+    /// that leaf.
     ///
     /// It bounds the states, the leaves and the pending states; it does not bound the work of one
     /// state's step (a ground function evaluation runs to its value), the size of values, or the

@@ -5,12 +5,16 @@
 //! becomes of it (expanded into successors, ended as a leaf, or met again after another path
 //! reached the same configuration), the count `Counter::RewriteSteps` measures. Exploration takes
 //! states in a fixed order (depth first, successors pushed to the front), so the state at which
-//! the count reaches a bound, and every leaf finished before it, are a function of the
-//! definition and the request, the same on every run of one build and solver profile.
+//! the count reaches a bound, and every leaf finished before it, are as deterministic as the
+//! result: within the execution determinism contract and its exclusions (docs/compatibility.md,
+//! "Determinism and concurrency", "Execute"), which leave out, among others, a run in which an
+//! SMT query timed out.
 //!
-//! This module is the one place that decides what is counted and when the budget is spent: a
-//! change of unit (for example to the states expanded, leaving out the arrivals a state-set
-//! merge recognises) changes [`Work`] and its one call site, and nothing else.
+//! This module decides what is counted and when the budget is spent. A change of unit changes
+//! [`Work`] and the sites that report a counted state to it: today the one call in
+//! `Execution::run`; counting the states expanded instead, leaving out the arrivals a state-set
+//! merge recognises, would also need a report at that merge point, after the arrival's
+//! normalisation, while the budget test stays where states are taken.
 
 /// The states an execution has visited, and its budget.
 #[derive(Clone, Copy, Debug)]
