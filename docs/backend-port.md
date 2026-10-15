@@ -201,6 +201,16 @@ A stopped state can hold a term deeper than the stack it is dropped on; a backen
 A rewrite step that runs out of stack has no successor set, so its state is the stopped one, whichever candidate or remainder the step was working on.
 The exception is the output normalisation of an execution or proof leaf whose outcome is already decided (`Stuck`, `DepthBound`, `BreadthBound`, `Indeterminate`): it only refines that outcome, so a stop there keeps the decided outcome with the unsimplified pattern.
 
+## Cancellation
+
+An in-process host cancels a request with a `CancellationToken` (re-exported as `k_rust::backend::CancellationToken`): it runs the request inside `token.scope(..)` on the thread that performs it and calls `cancel` from any thread.
+Every facade operation runs inside one operation boundary (`stop::operation`, through `Backend::with_solver`), in the portable and the Z3 build alike, so a request cancelled before its operation starts does not run and answers `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`; constructing a `Backend` inside a cancelled scope fails the same way.
+A cancellation observed while `execute` or a search explores ends the whole run, which reports it in its result: `execute` returns the leaves completed before it and the stopped state as a `cancelled` leaf, without the states still pending, and a search returns a `cancelled` incomplete entry for the stopped state; such a result is incomplete and makes no coverage claim.
+`simplify`, `implies`, `get_model` and `prove` report a cancellation observed at any point as that `Err`; a proof that a cancellation ends has no leaf for the state it stopped, so `prove` answers the error even when its leaves had already decided a verdict.
+A cancellation that lands after the boundary's entry poll and before the run's first poll still gives a depth-0 `cancelled` leaf or entry, so a host treats both shapes as a cancellation; which one it gets depends only on timing.
+The step deadline (`step_timeout_ms`) is not a cancellation: a step that passes it ends its own state as a `timeout` leaf.
+Loading a module's definition, including its load-time critical-pair check, happens before the boundary and reads neither the request's token nor its step deadline, so a cancellation does not interrupt it.
+
 ## Stack bounds
 
 A recursion is bounded by the stack of the thread that runs it, so k-rust provides the stack for the depth it can measure before the work starts, and accepts, case by case, the recursions whose depth it does not measure where no realistic input reaches the depth that would overflow.
