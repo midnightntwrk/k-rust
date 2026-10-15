@@ -54,3 +54,23 @@ an earlier attempt with `time_ms = 120000` reached 58 GiB before it was stopped.
 Run kink-flow under a memory limit, for example
 `systemd-run --user --scope -p MemoryMax=24G -p MemorySwapMax=0 kink-flow run ...`,
 and keep `time_ms` small.
+
+## Re-runs: the outcome cache
+
+`kink-flow run` caches every proved outcome of a mutation on a program (flow F-14),
+so re-checking this list costs far less than the first run.
+Measured with the release binary on scratch copies of this directory,
+each run under `systemd-run --user --scope -p MemoryMax=24G -p MemorySwapMax=0` (peak = the scope's `memory.peak`; host load 21-37):
+
+| Scenario | Wall | Peak | Campaign calls (one mutant compile each) | Result |
+| --- | --- | --- | --- | --- |
+| cold run, fresh cache | 216.5 s | 12.7 GiB | 21, over 126 programs | killed 20, survived 1 (`add-commuted`); the killers above; 39 outcomes cached |
+| warm re-run, no change | 4.9 s | 0.11 GiB | 0 | 20 killed from the cache, `add-commuted` from its 6 cached agreements |
+| one program added (`added`: `x = 1 + 2; y = x / 2;`) | 5.7 s | 0.10 GiB | 1, over `added` alone | its baseline, then `add-commuted` on it; the killed mutations untouched |
+| comment-only edit of `imp.k` (a line appended) | 69.7 s | 0.40 GiB | 21: one per killed mutation over its last killer, and `add-commuted` over the 6 comparable programs | every baseline again; the specification digest changed, so no cached outcome applies (until k-rust's KINK-14 execution digest) |
+| real edit of the unary minus rule (`0 -Int I1` becomes `0 -Int I1 +Int 0`) | 94.7 s | 10.8 GiB | 21: 19 over the last killer alone; `neg-drops-sign` (its rule's text changed, so its hint no longer applies) and `add-commuted` over the 6 comparable programs | statuses and killers equal to a cold run of the edited copy (227.8 s) |
+| `run --verify` after the cold run | 209.5 s | 14.5 GiB | 21, over 126 programs | every one of the 39 cached outcomes re-proved; no mismatch |
+
+A rebuilt `kink-flow` starts a new outcome context (the cache key includes the executable's digest),
+so the first run after a rebuild re-proves each killed mutation with one call over its last killer,
+as after the comment-only edit above, but without running the baselines again (their results are still current).

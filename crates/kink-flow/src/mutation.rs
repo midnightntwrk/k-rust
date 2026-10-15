@@ -1404,14 +1404,17 @@ fn address(
         None => None,
         Some(label) => {
             // A label is stored as `MODULE.x` for `rule [x]:` and as the bare `x` for
-            // `[label(x)]`; `x` and `MODULE.x` address both forms in module MODULE.
+            // `[label(x)]`; `x` and `MODULE.x` address both forms in module MODULE. The
+            // `MODULE.x` arm matches only a stored bare label (no '.'), so `MODULE.MODULE.x`
+            // does not address the rule stored as `MODULE.x` (F-10 review 1 m1).
             let matches = authored
                 .iter()
                 .filter(|a| {
                     a.label().is_some_and(|l| {
                         l == label
                             || l == format!("{}.{label}", a.at.module)
-                            || label.strip_prefix(&format!("{}.", a.at.module)) == Some(l)
+                            || (!l.contains('.')
+                                && label.strip_prefix(&format!("{}.", a.at.module)) == Some(l))
                     })
                 })
                 .collect::<Vec<_>>();

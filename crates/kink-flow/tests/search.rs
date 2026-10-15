@@ -1,13 +1,20 @@
 //! The kill search with its killer cache and `kink-flow run` (flow F-05 deliverables 1-5).
 //!
 //! Every test pins statuses and killer ids. Each verdict is the status kink-campaign's
-//! runner derives; the tests only read the run document, the killer cache file and the
-//! result records.
+//! runner derives; the tests only read the run document, the killer hints file and the
+//! result records. Since F-14 the killer cache is tier 2 of the outcome cache (`hints.json`,
+//! keyed by the hint key); a test that pins the warm cost of a killer deletes tier 1
+//! (`outcomes/`) first, so that the hint, not a cached outcome, decides the calls.
 
+use kink_corpus::load_source;
 use kink_flow::{
     FlowManifest, MutationList,
+    admit::corpus_source,
     cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE, results},
-    killers::{KILLERS_SCHEMA, killers_path},
+    digest::hint_key,
+    hints::{HINTS_SCHEMA, hints_path},
+    outcomes::OUTCOMES_DIRECTORY,
+    resolve,
     results::{CACHE_DIRECTORY, ResultsOptions},
     search::{REPORT_FILE, RunOptions, run},
 };
@@ -166,13 +173,6 @@ fn spec_digest(document: &Value) -> Sha256Digest {
     Sha256Digest::parse(document["spec"]["digest"].as_str().unwrap()).unwrap()
 }
 
-fn digest_of(document: &Value, id: &str) -> String {
-    mutation(document, id)["digest"]
-        .as_str()
-        .unwrap()
-        .to_owned()
-}
-
 fn program_digest(document: &Value, id: &str) -> String {
     document["programs"]
         .as_array()
@@ -189,20 +189,34 @@ fn cache_of(manifest: &Path) -> PathBuf {
     manifest.parent().unwrap().join(CACHE_DIRECTORY)
 }
 
-fn killers_file(manifest: &Path, document: &Value) -> PathBuf {
-    killers_path(&cache_of(manifest), spec_digest(document))
+fn killers_file(manifest: &Path) -> PathBuf {
+    hints_path(&cache_of(manifest))
 }
 
-/// The killer cache's entries: mutation digest -> (mutation id, program id, program digest).
-fn killers(manifest: &Path, document: &Value) -> Vec<(String, String, String, String)> {
-    let path = killers_file(manifest, document);
+/// Delete tier 1 of the outcome cache, so that the next run's calls come from the hints.
+fn forget_outcomes(manifest: &Path) {
+    let _ = fs::remove_dir_all(cache_of(manifest).join(OUTCOMES_DIRECTORY));
+}
+
+/// The hint key of mutation `id` of the manifest's `MUTATIONS.toml`.
+fn hint_key_of(manifest: &Path, id: &str) -> String {
+    let flow = FlowManifest::read(manifest).unwrap();
+    let list = MutationList::read(&manifest.with_file_name("MUTATIONS.toml")).unwrap();
+    let mutation = list.mutations.iter().find(|m| m.id == id).unwrap();
+    let loaded = load_source(&corpus_source(&flow)).unwrap();
+    let resolved = resolve(&flow, &loaded, mutation).unwrap();
+    hint_key(mutation, &resolved).to_string()
+}
+
+/// The killer hints: hint key -> (mutation id, program id, program digest).
+fn killers(manifest: &Path, _document: &Value) -> Vec<(String, String, String, String)> {
+    let path = killers_file(manifest);
     let Ok(text) = fs::read_to_string(&path) else {
         return Vec::new();
     };
     let value: Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(value["schema"], KILLERS_SCHEMA);
-    assert_eq!(value["spec"], document["spec"]["digest"]);
-    value["killers"]
+    assert_eq!(value["schema"], HINTS_SCHEMA);
+    value["hints"]
         .as_object()
         .unwrap()
         .iter()
@@ -218,24 +232,21 @@ fn killers(manifest: &Path, document: &Value) -> Vec<(String, String, String, St
 }
 
 fn killer_of(manifest: &Path, document: &Value, id: &str) -> Option<(String, String)> {
-    let digest = digest_of(document, id);
+    let key = hint_key_of(manifest, id);
     killers(manifest, document)
         .into_iter()
-        .find(|(d, ..)| *d == digest)
+        .find(|(k, ..)| *k == key)
         .map(|(_, _, program, program_digest)| (program, program_digest))
 }
 
-/// Replace the killer cache entry of mutation `id` by hand.
-fn set_killer(manifest: &Path, document: &Value, id: &str, program: &str, program_digest: &str) {
-    let path = killers_file(manifest, document);
+/// Replace the killer hint of mutation `id` by hand.
+fn set_killer(manifest: &Path, _document: &Value, id: &str, program: &str, program_digest: &str) {
+    let path = killers_file(manifest);
     let mut value: Value = fs::read_to_string(&path)
         .ok()
         .map(|text| serde_json::from_str(&text).unwrap())
-        .unwrap_or_else(|| {
-            json!({"schema": KILLERS_SCHEMA, "version": 1,
-                   "spec": document["spec"]["digest"], "killers": {}})
-        });
-    value["killers"][digest_of(document, id)] = json!({
+        .unwrap_or_else(|| json!({"schema": HINTS_SCHEMA, "version": 1, "hints": {}}));
+    value["hints"][hint_key_of(manifest, id)] = json!({
         "mutation_id": id,
         "program_id": program,
         "program_digest": program_digest,
@@ -309,8 +320,8 @@ fn a_killed_mutation_caches_its_killer_and_a_second_run_runs_only_that_program()
     // and that program's digest; the survivor has no entry.
     let mut entries = killers(&manifest, &first)
         .into_iter()
-        .map(|(digest, mutation, program, program_digest)| {
-            assert_eq!(digest, digest_of(&first, &mutation));
+        .map(|(key, mutation, program, program_digest)| {
+            assert_eq!(key, hint_key_of(&manifest, &mutation));
             assert_eq!(program_digest, self::program_digest(&first, &program));
             (mutation, program)
         })
@@ -338,7 +349,9 @@ fn a_killed_mutation_caches_its_killer_and_a_second_run_runs_only_that_program()
     );
 
     // Warm cache: a killed mutation costs one campaign call over one program, whose baseline
-    // and mutant run once each; the survivor is scanned again.
+    // and mutant run once each; the survivor is scanned again. (Tier 1 is deleted: with it,
+    // a killed mutation and the survivor cost no call at all; tests/outcomes.rs.)
+    forget_outcomes(&manifest);
     let (second, ok) = search(&manifest, &mutations, &[]);
     assert!(ok, "{second:#}");
     assert_eq!(
@@ -462,6 +475,7 @@ fn a_wrong_or_stale_killer_entry_changes_cost_but_never_the_verdict() {
     // An entry for the survivor naming a program that does not kill it.
     let add = program_digest(&first, "add");
     set_killer(&manifest, &first, "add-swaps-operands", "add", &add);
+    forget_outcomes(&manifest);
     let (second, ok) = search(&manifest, &mutations, &only);
     assert!(ok, "{second:#}");
     assert_eq!(
@@ -496,8 +510,12 @@ fn a_wrong_or_stale_killer_entry_changes_cost_but_never_the_verdict() {
     assert_eq!(killer_of(&manifest, &second, "add-swaps-operands"), None);
 
     // Entries naming a program that no longer exists, or a program whose digest changed, are
-    // ignored and removed: the mutation is scanned as with a cold cache.
-    set_killer(&manifest, &first, "add-becomes-sub", "gone", &add);
+    // ignored and removed: the mutation is scanned as with a cold cache. Since F-14 a hint
+    // names a program by its digest (a renamed program keeps its hint), so both entries name
+    // a digest no program of the corpus has.
+    let gone = "f".repeat(64);
+    set_killer(&manifest, &first, "add-becomes-sub", "gone", &gone);
+    forget_outcomes(&manifest);
     let (third, ok) = search(&manifest, &mutations, &["add-becomes-sub"]);
     assert!(ok);
     assert_eq!(
@@ -509,7 +527,9 @@ fn a_wrong_or_stale_killer_entry_changes_cost_but_never_the_verdict() {
         calls(&third, "add-becomes-sub"),
         vec![strings(&["add", "nested", "inline", "sub"])]
     );
-    set_killer(&manifest, &first, "add-becomes-sub", "add", &sub);
+    let changed = "1".repeat(64);
+    set_killer(&manifest, &first, "add-becomes-sub", "add", &changed);
+    forget_outcomes(&manifest);
     let (fourth, ok) = search(&manifest, &mutations, &["add-becomes-sub"]);
     assert!(ok);
     assert_eq!(
@@ -526,7 +546,8 @@ fn a_wrong_or_stale_killer_entry_changes_cost_but_never_the_verdict() {
     );
 
     // A killer cache file that does not parse is empty, and is replaced.
-    fs::write(killers_file(&manifest, &first), "{ not json").unwrap();
+    fs::write(killers_file(&manifest), "{ not json").unwrap();
+    forget_outcomes(&manifest);
     let (fifth, ok) = search(&manifest, &mutations, &["add-becomes-sub"]);
     assert!(ok);
     assert_eq!(
@@ -568,6 +589,7 @@ fn a_timeout_is_never_cached_and_a_later_clean_kill_is() {
         "countdown",
         &countdown,
     );
+    forget_outcomes(&manifest);
     let (stale, ok) = search(&manifest, &mutations, &[]);
     assert!(ok);
     assert_eq!(
@@ -587,6 +609,7 @@ fn a_timeout_is_never_cached_and_a_later_clean_kill_is() {
         &manifest,
         "\n[[program]]\nid = \"countdown-one\"\ntext = \"countdown(1)\"\n",
     );
+    forget_outcomes(&manifest);
     let (second, ok) = search(&manifest, &mutations, &[]);
     assert!(ok, "{second:#}");
     assert_eq!(
@@ -603,6 +626,7 @@ fn a_timeout_is_never_cached_and_a_later_clean_kill_is() {
             .0,
         "countdown-one"
     );
+    forget_outcomes(&manifest);
     let (third, ok) = search(&manifest, &mutations, &[]);
     assert!(ok);
     assert_eq!(
@@ -622,6 +646,7 @@ fn a_timeout_is_never_cached_and_a_later_clean_kill_is() {
         "countdown",
         &countdown,
     );
+    forget_outcomes(&manifest);
     let (fourth, ok) = search(&manifest, &mutations, &[]);
     assert!(ok);
     assert_eq!(
@@ -713,7 +738,10 @@ fn a_baseline_mismatch_stops_the_run_without_a_verdict() {
         document["stopped"],
         json!({"mutation": "add-becomes-sub", "reason": "baseline-mismatch:add"})
     );
-    assert!(!killers_file(&manifest, &filled).exists());
+    // Since F-14 the hints are written after a corpus error too (F-05 review 1 minor 3): the
+    // file holds no hint.
+    assert!(killers_file(&manifest).is_file());
+    assert!(killers(&manifest, &filled).is_empty());
 
     // Warm killer cache: the one-program call over a cached killer checks its baseline too.
     // The mutations before it keep their verdicts; its entry is not touched.
@@ -722,6 +750,7 @@ fn a_baseline_mismatch_stops_the_run_without_a_verdict() {
     assert!(ok);
     let before = killers(&manifest, &warm);
     corrupt_run_digest(&manifest, &warm, "nested");
+    forget_outcomes(&manifest);
     let (document, ok) = search(&manifest, &mutations, &[]);
     assert!(!ok);
     assert_eq!(
@@ -833,7 +862,7 @@ fn the_binarys_run_command() {
         expect(&[("put-offset", "killed", Some("store"), false)])
     );
     assert!(cache.join(REPORT_FILE).is_file());
-    assert!(killers_path(&cache, spec_digest(&document)).is_file());
+    assert!(hints_path(&cache).is_file());
     assert!(!dir.join(CACHE_DIRECTORY).exists());
 
     let bad = dir.join("BAD.toml");

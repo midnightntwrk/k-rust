@@ -556,6 +556,7 @@ pub fn update_results(
                     cache,
                     store: &store,
                     verify,
+                    refresh: false,
                 },
                 program,
                 &mut mismatches,
@@ -619,6 +620,45 @@ struct ProgramContext<'a> {
     cache: &'a Path,
     store: &'a Store,
     verify: bool,
+    /// Re-run a program that has a current record, and replace the record only when the class
+    /// or the run digest changed (F-14: [`rerun_timeout_record`]).
+    refresh: bool,
+}
+
+/// Re-run once, through the same path as `results`, the baseline of a program whose current
+/// record is class `timeout` (flow F-14, README 7.5.7, F-05 review 1 minor 1). A timeout is
+/// host-dependent, so it is not final for a program that a killer hint names. The record is
+/// replaced only when the class or the run digest changes; comparability still comes only from
+/// the zero-mutant campaign admitting the baseline. The row says `"rerun": "timeout"`.
+pub fn rerun_timeout_record(
+    spec: &AdmittedSpec,
+    manifest: &FlowManifest,
+    inputs: &mut ProgramInputs,
+    runner: &BaselineRunner<'_>,
+    cache: &Path,
+    program: &Program,
+) -> ProgramRow {
+    let spec_digest = spec_digest(manifest, &spec.loaded.files);
+    let store = Store::new(cache);
+    let directory = cache.join("results").join(spec_digest.to_string());
+    let mut row = program_row(
+        spec,
+        manifest,
+        inputs,
+        runner,
+        &ProgramContext {
+            spec_digest,
+            directory: &directory,
+            cache,
+            store: &store,
+            verify: false,
+            refresh: true,
+        },
+        program,
+        &mut Vec::new(),
+    );
+    row.row["rerun"] = json!("timeout");
+    row
 }
 
 fn program_row(
@@ -668,7 +708,7 @@ fn program_row(
     let key = result_key(context.spec_digest, digest, manifest.budget);
     let path = context.directory.join(format!("{digest}.json"));
     let stored = read_record(&path, &key).flatten();
-    if let (Some(record), false) = (&stored, context.verify) {
+    if let (Some(record), false, false) = (&stored, context.verify, context.refresh) {
         return ProgramRow {
             row: row(
                 Some(digest),
@@ -689,7 +729,30 @@ fn program_row(
         Err(refusal) => return refused(Some(digest), refusal),
     };
     let result = runner.run(test.clone());
-    if let Some(record) = stored {
+    let unchanged = |record: &Value| {
+        record["class"] == result.class.as_str()
+            && record["run_sha256"].as_str()
+                == result.run_sha256().map(|d| d.to_string()).as_deref()
+    };
+    if let (Some(record), true) = (&stored, context.refresh)
+        && unchanged(record)
+    {
+        return ProgramRow {
+            row: row(
+                Some(digest),
+                record["class"].as_str().unwrap_or("error"),
+                &record["cause"],
+                true,
+                Value::Null,
+            ),
+            failed: record["class"] == ResultClass::Error.as_str(),
+            record: stored,
+            digest: Some(digest),
+            text: Some(text),
+            test: Some(test),
+        };
+    }
+    if let (Some(record), false) = (stored, context.refresh) {
         let differences = verify_record(&record, &result);
         let relative = path
             .strip_prefix(context.cache)

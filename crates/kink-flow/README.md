@@ -9,7 +9,9 @@ This crate provides the corpus manifest and the `check` command (flow F-02),
 the result cache with the `results` command (flow F-03),
 the mutation list with its resolution into patches (flow F-04),
 the kill search with its killer cache, the `run` command (flow F-05),
-and the survivor report with the `report` command (flow F-06).
+the survivor report with the `report` command (flow F-06),
+Markdown sources (flow F-10),
+and the outcome cache: proved outcomes kept across commands, killer hints that survive specification edits, and `run --verify` (flow F-14).
 
 ## `FLOW.toml`
 
@@ -197,26 +199,47 @@ a reason and a detail; it is never compiled. Reasons:
 | `no-change` | The edited rule equals the original up to formatting. |
 | `no-usable-span`, `patch-rejected` | Defensive: a rule's offsets and location name different text of its K view, or kink-patch refused the patch; not expected on rules k-rust loaded. |
 
-## `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--cache DIR]`
+## `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--cache DIR]`
 
 Runs the kill search: for each mutation of the list (in file order; with `--only`, only the named ones),
 is there a program of the corpus whose result the mutation changes?
 
 1. The result cache is brought up to date first (`results` without `--verify`).
    Only `comparable` programs can kill; the others are never run.
+   A program whose record is class `timeout` and that a killer hint names is run once more (a timeout depends on the host's load):
+   its record is replaced only when the class or the run digest changes, and the row says `"rerun": "timeout"`.
 2. The mutation is resolved into one patch (see `MUTATIONS.toml`); an `invalid-mutation` stops there.
-3. The programs are ordered: those whose cached coverage reaches an edited rule first, then the rest, each group in the manifest's order.
-4. If the killer cache names a program that killed this mutation before, and that program is still comparable with the same digest,
+3. The programs are ordered (O): those whose cached coverage reaches an edited rule first, then the rest, each group in the manifest's order.
+4. **Outcome cache, tier 1.** Each program of O may have a cached outcome for this mutation: `killed` (a proved difference) or `agree`.
+   A cached outcome is used only when its key is exactly the current one (see "The cache directory" below) and the program's
+   current result record has the baseline run digest the outcome was compared with.
+   If some program has a cached `killed` outcome, the status is `killed` (its killer the first such program in O), with no compile and no run.
+   Otherwise the programs with a cached `agree` outcome are not run again; if every program has one, the status is `survived`, with no run.
+5. **Killer hint, tier 2.** If programs remain and the hint names one of them (by program digest, so a renamed program keeps its hint),
    the mutant runs on that program alone. If it kills, that is the verdict.
-   Otherwise the entry is removed and the mutant runs on every program in the order of step 3,
-   exactly as without the entry: a wrong or stale entry costs one more run, never a different status.
-5. Every status is the one kink-campaign's runner derives for the mutant (schedule first-kill: the mutant stops at its first killing program).
-   kink-flow compares no terms; only a proved difference of the exit stop or the whole final configuration kills.
-6. After every runner call, each program's baseline run is checked against its cached result (`run_sha256`).
-   A difference is a corpus error: the mutation gets status `error` with reason `baseline-mismatch:<program id>`,
-   nothing is written to the killer cache for it, and the run stops (exit 1). Run `results --verify`.
-7. A `killed` mutation's first killing program becomes its cached killer; any other status removes the entry.
-   The killer cache and the run document are written after every mutation, so an interrupted run keeps its finished work.
+   Otherwise the mutant runs on every remaining program in the order of step 3, the hinted one included.
+6. Every status is the one kink-campaign's own fold (`derive_mutant_report`, schedule first-kill) gives over the cached outcomes
+   followed by the last runner call's tests. kink-flow compares no terms; only a proved difference of the exit stop or the
+   whole final configuration kills, live in this command or cached under an exactly matching key.
+   A cached agreement is the fold's bottom, so the status is the one a run without any cache gives.
+7. After every runner call, each program's baseline run is checked against its cached result (`run_sha256`).
+   A difference is a corpus error: the mutation gets status `error` with reason `baseline-mismatch:<program id>`
+   (or `baseline-count-mismatch`), nothing is cached for it, and the run stops (exit 1). Run `results --verify`.
+   A cached agreement next to a mutant that no longer compiles is the corpus error `outcome-conflict`: run `run --verify`.
+8. After a verdict, every live program outcome that is `killed` or `agree` is cached; a timeout, an unknown, an error,
+   a failed or skipped run, and every outcome of a call whose mutant failed as a whole are never cached.
+   A `killed` mutation's first killing program becomes its hint; any other status removes it, and so does a hint that names no comparable program.
+   The hints file and the run document are written after every mutation (a corpus error included), so an interrupted run keeps its finished work.
+
+**Trust.** With identical inputs, a cached proved difference stands without being re-run in this command.
+This rests on k-rust's compile and execution determinism, on the key naming every input the outcome depends on,
+and on the integrity of the cache directory: whoever can write `.kink-flow/` can forge a kill, as whoever can write the kink build can.
+Each record carries a digest that detects corruption and a record moved under another key, not forgery.
+`run --verify` re-proves: it updates the results with `--verify`, decides nothing from tier 1 and uses no hint,
+runs every program of O on each mutation, then each program that has a cached outcome and that run skipped, alone,
+and compares every cached outcome (and the status the cache would have given) with the live ones.
+A difference gives the mutation status `error`, reason `outcome-mismatch:<program id>`, and an entry `{mutation, program, cached, live}`
+in the top-level `mismatches` (`program` null for a status difference); the run goes on and exits 1. It writes no outcome and no hint.
 
 | Status | Meaning | What to do |
 | --- | --- | --- |
@@ -226,52 +249,75 @@ is there a program of the corpus whose result the mutation changes?
 | `invalid` | The mutant does not compile (`reason` is the runner's failure, for example `rejected`). | Fix the mutation. |
 | `timeout` | No program killed it, and a program did not finish on the mutant within `budget.time_ms`. | Write a program that terminates under the mutant and shows a different result. |
 | `unknown` | No program killed it, and a program's result on the mutant is not comparable. | Write a program whose result on the mutant kink can compare. |
-| `error` | The runner failed for the mutant, or a corpus error (`reason`: `baseline-mismatch:<id>`, `campaign-refused`, `program-refused:<id>`, `no-comparable-program`). | Report it, or fix the corpus. |
+| `error` | The runner failed for the mutant, a corpus error (`reason`: `baseline-mismatch:<id>`, `baseline-count-mismatch`, `campaign-refused`, `program-refused:<id>`, `outcome-conflict`, `no-comparable-program`), or `run --verify` found a cached outcome that differs from a live run (`outcome-mismatch:<id>`). | Report it, or fix the corpus; for `outcome-mismatch`, delete `outcomes/`. |
 | `invalid-mutation` | The mutation does not resolve (`reason`, `edit`, `detail`; see the table above). | Fix the mutation. |
 
 A kill folds above every inconclusive outcome: a mutation that one program kills is `killed` even if an earlier program timed out on it.
 
 The document is the report (see "The report: the run document" below).
 
-The cache directory gains `killers/<spec digest>.json`,
-`{schema: "kink-flow-killers", version: 1, spec, killers: {<mutation digest>: {mutation_id, program_id, program_digest}}}`,
-and `report.json`, the last run's document (also written when the specification is refused or no mutation is selected).
-A killer entry is a scheduling hint only; a file that does not parse is treated as empty.
+### The cache directory
+
+Besides `results/` and `report.json` (the last run's document, also written when the specification is refused or no mutation is selected):
+
+- `outcomes/<context digest>/<mutation identity>.json`, tier 1:
+  `{schema: "kink-flow-outcomes", version: 1, context, context_sha256, mutation_identity, mutation_id, records: {<program digest>: {program_id, baseline_run_sha256, outcome, slots, mutant_run_sha256, record_sha256}}}`.
+  The context is `{outcome_schema: "kink-flow/outcome/v1", result_schema, kink_build, k_rust_revision, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule}`:
+  `kink_build` is the SHA-256 of the running `kink-flow` executable, so any rebuild (debug or release) starts a new context;
+  `execution_digest` is today the specification digest (kind `kink-flow/spec/v1`), so any edit of the specification, a comment included, starts a new context.
+  The mutation identity hashes each edit's kind, module, the addressed rule's fingerprint, its occurrence among equal fingerprints of the module,
+  and the replacement's fingerprint: positions excluded, so it is the same after an edit that only moves the rule.
+  `baseline_run_sha256` is the program's result `run_sha256` when the outcome was proved, and `mutant_run_sha256` the same digest of the mutant's evidence.
+  A record is used only when the file's schema, version, context and identity are the current ones, its `record_sha256` recomputes,
+  its outcome agrees with its slots (`killed` exactly when a slot is `distinguish`, `agree` exactly when both are `agree`),
+  and its program is comparable with that baseline run digest; anything else is ignored.
+  If the executable cannot be read, tier 1 is disabled for the command (`outcome_cache.reason` says why) and every mutation runs.
+- `hints.json`, tier 2: `{schema: "kink-flow-hints", version: 1, hints: {<hint key>: {program_digest, program_id, mutation_id}}}`.
+  The hint key hashes the mutation's edits as written (without `line`) and the K text of each addressed rule before the edit,
+  so a hint survives edits elsewhere in the specification and is lost when the addressed rule's text changes.
+  A hint is a scheduling hint only: it changes which killer is found first and the cost, never a status.
+
+Every file is written atomically; deleting any of them, or the whole directory, is always safe.
+The `killers/` directory of F-05 is no longer read or written and can be deleted.
 
 Exit status: 0 when every selected mutation got its status (survivors, timeouts and invalid mutations included);
 1 when the manifest, the mutation list, the specification or a program is refused, a run failed, a cache file could not be written,
-no program is comparable, or a corpus error stopped the run; 2 on a usage error (including an `--only` id that names no mutation).
+no program is comparable, a corpus error stopped the run, or `--verify` found a mismatch; 2 on a usage error (including an `--only` id that names no mutation, or `--verify` given twice).
 
 ## The report: the run document
 
 `run` prints one document and writes the same document to `.kink-flow/report.json` (after every mutation, and once more at the end):
 
-`{schema: "kink-flow-run", version: 2, k_rust_revision, profile, result_schema_version, spec, programs, unusable_programs, mutations, counts, survivors, stopped}`.
+`{schema: "kink-flow-run", version: 2, k_rust_revision, profile, result_schema_version, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches}`.
 
 | Field | Meaning |
 | --- | --- |
 | `spec` | `{outcome, stage, reason, detail, digest, files}`: the specification's admission and its digest. |
-| `programs` | The `results` rows `{id, digest, class, cause, cached, verify}`. |
+| `programs` | The `results` rows `{id, digest, class, cause, cached, verify}`, plus `rerun` for a timeout record run again. |
 | `unusable_programs` | Every program whose class is not `comparable`, once: `{id, class, cause}`. These programs are never run on a mutant. |
 | `mutations` | One row per selected mutation, in the list's order (below). |
 | `counts` | The number of mutations per status (all eight statuses). |
 | `survivors` | The ids of the mutations whose status is `survived`, `timeout` or `unknown`: no program killed them, and a new program could. |
 | `stopped` | `null`, or `{mutation, reason}` of the corpus error that stopped the run. |
+| `outcome_cache` | `{context_sha256, enabled, verify, reason, mutations_from_cache, programs_from_cache, records_written}`: tier 1's context (null when disabled), whether it decided statuses, whether this is `run --verify`, why not, the mutations decided with no call, the cached program outcomes used, and the records written. |
+| `mismatches` | `run --verify`'s differences `{mutation, program, cached, live}`; empty otherwise. |
 
-A mutation row is `{id, note, digest, status, reason, killer, killer_from_cache, reaching, executed, calls, rules, action}`:
+A mutation row is `{id, note, digest, identity, status, reason, killer, killer_source, killer_from_cache, unusable_killer, reaching, executed, calls, rules, action}`:
 
 | Field | Meaning |
 | --- | --- |
 | `digest` | The patch digest; null for an `invalid-mutation`, which also has `edit` (the offending edit's index or null) and `detail`. |
+| `identity` | The mutation's position-free identity (tier 1's file name); null when it has none (the mutation then always runs). |
 | `status`, `reason` | The status (see the run section) and the runner's or the flow's reason. |
-| `killer`, `killer_from_cache` | The first killing program of a `killed` mutation, and whether it was the cached killer; null and false otherwise. |
+| `killer`, `killer_source`, `killer_from_cache` | The first killing program of a `killed` mutation; where the kill came from: `outcome-cache` (tier 1, no call), `hint` (the hinted program's one-program call) or `search` (the call over the remaining programs); `killer_from_cache` is true for the first two. Null, null and false otherwise. |
+| `unusable_killer` | `{program, class, cause, source}` when a cached kill (`source` `outcome-cache`) or the hint (`hint`) names a program of the corpus that is not comparable now; else null. |
 | `reaching` | The comparable programs whose cached coverage reaches an edited rule, in the order they were tried. |
-| `executed` | `{program, outcome, slots | failure, cause}` for every program the mutant ran on, in the runner's order. `outcome` is `distinguish`, `agree`, `timeout`, `unknown`, `incomparable` or `error`; `slots` gives the exit-stop and whole-term outcomes; `failure` names a run that produced no value (`time-limit`, `resource-limit`, `indeterminate`, `infrastructure`). `cause` is null when the outcome is `agree` or `distinguish`, else what the runner's evidence says stopped the comparison, per slot (`exit-stop, whole-term: ...`), with the budget values. |
-| `calls` | `{programs, status}` of each runner call: `[[killer]]` with a warm cache, `[[killer], [all]]` when the cached killer no longer kills. |
-| `rules` | Null for a `killed` mutation and for an `invalid-mutation`; otherwise each edited rule, in sentence order: `{module, index, file, label, start_line, end_line, edits, before, after}`. `before` and `after` are the rule's source text before and after the mutation's edits, sliced from the sources by the sentence's span (`after` is null for a deleted rule); `edits` are the indices of the mutation's edits addressed to the rule. |
+| `executed` | `{program, outcome, slots | failure, cause, cached}` for every program whose outcome decided the status: first the cached ones (`cached: true`, in the order of step 3), then each program the mutant ran on in this command, in the runner's order. `outcome` is `distinguish`, `agree`, `timeout`, `unknown`, `incomparable` or `error`; `slots` gives the exit-stop and whole-term outcomes; `failure` names a run that produced no value (`time-limit`, `resource-limit`, `indeterminate`, `infrastructure`). `cause` is null when the outcome is `agree` or `distinguish`, else what the runner's evidence says stopped the comparison, per slot (`exit-stop, whole-term: ...`), with the budget values. |
+| `calls` | `{programs, status}` of each runner call: `[]` when tier 1 decided, `[[hint]]` when the hinted program killed, `[[hint], [rest]]` when it did not, `[[rest]]` without a usable hint. |
+| `rules` | Null for a `killed` mutation and for an `invalid-mutation`; otherwise each edited rule, in sentence order: `{module, index, file, label, start_line, end_line, edits, before, after}`. `before` and `after` are the rule's K text before and after the mutation's edits, sliced from the file's K view by the sentence's span (`after` is null for a deleted rule); `edits` are the indices of the mutation's edits addressed to the rule. |
 | `action` | Null for `killed`; otherwise one sentence saying what the status asks (write a program, fix the mutation, fix the corpus, report it). |
 
-A row may also carry `stale_killer` (an entry naming a program that is gone, changed or no longer comparable; it was removed) and `cache_error`.
+A row may also carry `stale_killer` (the hint named a program that is not comparable; it was removed) and `cache_error`.
 The cause of an `unknown` slot names the possible reasons together (a path stopped at `max_depth`, an undecided end,
 or a final configuration holding a collection kink cannot compare (for example one with a Bytes key), an unevaluated function or a symbolic term),
 because the runner's evidence records that the mutant's value is unknown but not which of these stopped it.

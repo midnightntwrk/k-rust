@@ -6,15 +6,18 @@
 //! ([`cli`]). F-03 adds the specification and program digests ([`digest`]) and the result
 //! cache with the `results` command ([`results`]). F-04 adds the mutation list and its
 //! resolution into one pinned patch per mutation ([`mutation`]). F-05 adds the kill search
-//! with its killer cache and the `run` command ([`search`], [`killers`]). F-06 adds the
-//! survivor report to the run document and the `report` command ([`report`]).
+//! and the `run` command ([`search`]). F-06 adds the survivor report to the run document and the
+//! `report` command ([`report`]). F-14 adds the outcome cache: tier 1, the proved outcome of a
+//! mutation on a program under an exact key ([`outcomes`]), and tier 2, killer hints that
+//! survive specification edits ([`hints`], which replaces F-05's killer cache).
 
 pub mod admit;
 pub mod cli;
 pub mod digest;
-pub mod killers;
+pub mod hints;
 pub mod manifest;
 pub mod mutation;
+pub mod outcomes;
 pub mod report;
 pub mod results;
 pub mod search;

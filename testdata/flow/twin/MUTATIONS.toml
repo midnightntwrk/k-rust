@@ -1,0 +1,18 @@
+# kink-flow mutation list for the twin fixture (flow F-14): the same edit of each of
+# two identical rules, addressed by line.
+
+[[mutation]]
+id = "first-twin"
+
+  [[mutation.edit]]
+  line = 16
+  find = "I +Int 1"
+  replace = "I +Int 2"
+
+[[mutation]]
+id = "second-twin"
+
+  [[mutation.edit]]
+  line = 17
+  find = "I +Int 1"
+  replace = "I +Int 2"

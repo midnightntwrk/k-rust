@@ -10,7 +10,7 @@ use crate::{
     mutation::MutationList,
     report::{ReportOptions, render},
     results::ResultsOptions,
-    search::{RunOptions, mutation_list_refused},
+    search::{RunMode, RunOptions, mutation_list_refused},
 };
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
@@ -27,7 +27,8 @@ pub const EXIT_USAGE: u8 = 2;
 
 pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FLOW.toml \
                          [--verify] [--cache DIR] | kink-flow run FLOW.toml MUTATIONS.toml \
-                         [--only ID]... [--cache DIR] | kink-flow report FLOW.toml [--cache DIR]";
+                         [--only ID]... [--verify] [--cache DIR] | kink-flow report FLOW.toml \
+                         [--cache DIR]";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -74,7 +75,7 @@ pub fn execute(args: Vec<OsString>) -> u8 {
                     return usage(&format!("{} is not a file", file.display()));
                 }
             }
-            let options = match run_options(rest) {
+            let (options, mode) = match run_options(rest) {
                 Ok(options) => options,
                 Err(message) => return usage(&message),
             };
@@ -86,7 +87,7 @@ pub fn execute(args: Vec<OsString>) -> u8 {
             {
                 return usage(&format!("--only {id}: no mutation has this id"));
             }
-            match on_stack(move || run(&manifest, &mutations, &options)) {
+            match on_stack(move || run_mode(&manifest, &mutations, &options, mode)) {
                 Some(result) => result,
                 None => {
                     eprintln!("kink-flow: the run thread panicked");
@@ -149,11 +150,13 @@ fn results_options(args: &[String]) -> Result<ResultsOptions, String> {
     Ok(options)
 }
 
-fn run_options(args: &[String]) -> Result<RunOptions, String> {
+fn run_options(args: &[String]) -> Result<(RunOptions, RunMode), String> {
     let mut options = RunOptions::default();
+    let mut mode = RunMode::Search;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--verify" if mode == RunMode::Search => mode = RunMode::Verify,
             "--only" => {
                 let id = args.next().ok_or("--only needs a mutation id")?;
                 if !options.only.contains(id) {
@@ -167,7 +170,7 @@ fn run_options(args: &[String]) -> Result<RunOptions, String> {
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
     }
-    Ok(options)
+    Ok((options, mode))
 }
 
 fn report_options(args: &[String]) -> Result<ReportOptions, String> {
@@ -203,13 +206,25 @@ pub fn report(manifest: &Path, options: &ReportOptions) -> (Value, u8) {
     }
 }
 
-/// `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--cache DIR]`: the run document
-/// (README 5.6) and the exit status: [`EXIT_OK`] when every selected mutation got its status
-/// (survivors, timeouts and invalid mutations included); [`EXIT_CORPUS`] when the manifest,
-/// the mutation list, the specification or a program is refused, a run failed, a cache file
-/// could not be written, no program is comparable, or a baseline run no longer matches its
-/// cached result (the run then stops).
+/// `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--cache DIR]`: the run
+/// document (README 5.6, 7.5) and the exit status: [`EXIT_OK`] when every selected mutation got
+/// its status (survivors, timeouts and invalid mutations included); [`EXIT_CORPUS`] when the
+/// manifest, the mutation list, the specification or a program is refused, a run failed, a
+/// cache file could not be written, no program is comparable, a baseline run no longer matches
+/// its cached result (the run then stops), or `--verify` found a cached outcome that differs
+/// from a live run.
 pub fn run(manifest: &Path, mutations: &Path, options: &RunOptions) -> (Value, u8) {
+    run_mode(manifest, mutations, options, RunMode::Search)
+}
+
+/// `kink-flow run` ([`RunMode::Search`]) or `kink-flow run --verify` ([`RunMode::Verify`]);
+/// see [`run`].
+pub fn run_mode(
+    manifest: &Path,
+    mutations: &Path,
+    options: &RunOptions,
+    mode: RunMode,
+) -> (Value, u8) {
     let manifest = match FlowManifest::read(manifest) {
         Ok(manifest) => manifest,
         Err(error) => {
@@ -222,7 +237,7 @@ pub fn run(manifest: &Path, mutations: &Path, options: &RunOptions) -> (Value, u
         Ok(list) => list,
         Err(error) => return (mutation_list_refused(&error.to_string()), EXIT_CORPUS),
     };
-    let (document, ok) = crate::search::run(&manifest, &list, options);
+    let (document, ok) = crate::search::run_with(&manifest, &list, options, mode);
     (document, if ok { EXIT_OK } else { EXIT_CORPUS })
 }
 

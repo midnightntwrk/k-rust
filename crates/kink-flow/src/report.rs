@@ -5,9 +5,10 @@
 //! search's own fields it carries, for every mutation that is not `killed`, what an LLM needs to
 //! write a program that kills it:
 //!
-//! - `rules`: each edited rule's file, lines, label and source text before and after the edit,
-//!   sliced from the source by the sentence's span (F-04's [`EditedRule`]), so no K printer is
-//!   involved and the text is exactly what the specification and the mutation list say;
+//! - `rules`: each edited rule's file, lines, label and K text before and after the edit,
+//!   sliced from the file's K view by the sentence's span (F-04's [`EditedRule`], F-10's view),
+//!   so no K printer is involved and the text is exactly what the specification and the
+//!   mutation list say;
 //! - `reaching`: the comparable programs whose cached coverage reaches an edited rule;
 //! - `executed`: each program the mutant ran on, with its outcome and, when the outcome is
 //!   neither `agree` nor `distinguish`, a `cause` read from the runner's evidence for that run;
@@ -18,7 +19,7 @@
 //! program that cannot kill (its result class is not `comparable`), with its class and cause.
 //!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
-//! campaign runner's.
+//! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
 use crate::{
     manifest::{Budget, FlowManifest},
@@ -93,12 +94,20 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         }
         "invalid" => "fix the mutation: the mutant does not compile (reason)",
         "invalid-mutation" => "fix the mutation: it does not resolve (reason, edit, detail)",
+        "error" if reason == Some("outcome-conflict") => {
+            "check the outcome cache: a cached agreement says the mutant ran, a live call says it \
+             did not; run `kink-flow run FLOW.toml MUTATIONS.toml --verify`"
+        }
         "error" if reason.is_some_and(is_corpus_error) => {
             "fix the corpus: a cached result no longer describes its program's baseline run; \
              run `kink-flow results FLOW.toml --verify`"
         }
         "error" if reason == Some("no-comparable-program") => {
             "write a program whose baseline result is comparable: no program can kill yet"
+        }
+        "error" if reason.is_some_and(|r| r.starts_with("outcome-mismatch:")) => {
+            "report it: a cached outcome differs from a live run of the same inputs (top-level \
+             mismatches); delete the cache's outcomes/ directory to stop trusting it"
         }
         _ => "report it: the runner failed for the mutant (reason)",
     })
@@ -107,7 +116,9 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
 fn is_corpus_error(reason: &str) -> bool {
     reason.starts_with("baseline-mismatch:")
         || reason.starts_with("program-refused:")
+        || reason == "baseline-count-mismatch"
         || reason == "campaign-refused"
+        || reason == "outcome-conflict"
 }
 
 /// The `cause` of an executed program's outcome on the mutant, from the runner's evidence for
