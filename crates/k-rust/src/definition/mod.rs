@@ -50,7 +50,7 @@ pub fn sentence_mut(sentence: &mut Arc<Sentence>) -> &mut Sentence {
     }
     Arc::make_mut(sentence)
 }
-pub use attribute_keys::{AttributeKey, SortValues};
+pub use attribute_keys::{AttributeKey, KeyRecord, SortValues};
 pub use catalog::{
     FreshGeneratorError, LabelHead, LabelResultSort, ProductionCatalog, ProductionId,
     ProductionSignature, SortHead,
