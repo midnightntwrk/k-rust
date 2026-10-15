@@ -2599,3 +2599,98 @@ endmodule
         assert!(!state.contains(r#"\dv{SortBool{}}"#), "{program}: {state}");
     }
 }
+
+/// A branching pair (`start(I)` steps to `left()` and to `right()`) and an undefined step
+/// (`half(0)` divides by zero), whose `trivial` leaf names its rule.
+const TRACES: &str = r#"
+module TRACES
+  imports INT
+  syntax KItem ::= start(Int) | half(Int) | val(Int) | left() | right() | done()
+  configuration <k> $PGM:KItem </k>
+  rule [to-left]:  <k> start(I) => left() </k> requires I >Int 0
+  rule [to-right]: <k> start(I) => right() </k> requires I >Int 0
+  rule [to-half]:  <k> left() => half(0) </k>
+  rule [half]:     <k> half(I) => val(10 /Int I) </k>
+  rule [to-done]:  <k> right() => done() </k>
+endmodule
+"#;
+
+/// The leaves of `result` as JSON, each without its `trace`, and whether every trace is empty.
+fn leaves_without_traces(result: &ExecutionResult) -> (Vec<serde_json::Value>, bool) {
+    let mut all_empty = true;
+    let leaves = result
+        .leaves
+        .iter()
+        .map(|leaf| {
+            let mut leaf = serde_json::to_value(leaf).unwrap();
+            let trace = leaf.as_object_mut().unwrap().remove("trace").unwrap();
+            all_empty &= trace.as_array().unwrap().is_empty();
+            leaf
+        })
+        .collect();
+    (leaves, all_empty)
+}
+
+/// A request that asks for no traces gets the same leaves, with every field but `trace` equal
+/// (the `trivial` leaf still names its rule), and empty traces; so does an observed run, whose
+/// branch identities and observations are fields of its leaves.
+#[test]
+fn an_execution_without_traces_keeps_the_halt_metadata() {
+    use k_rust::backend::{ObservedRequest, ResultModalityOutput};
+
+    let compiled = compile(TRACES, "TRACES", "TRACES", "KItem", "start(1)");
+    let mut backend = Backend::new(&compiled.kore, "TRACES", BackendOptions::default()).unwrap();
+    for modality in [
+        ResultModalityOutput::StateSet,
+        ResultModalityOutput::PathSet,
+    ] {
+        for observed in [false, true] {
+            let mut run = |trace: bool| {
+                let request = ExecuteRequest {
+                    result_modality: modality,
+                    trace,
+                    ..ExecuteRequest::new(compiled.initial.clone())
+                };
+                if observed {
+                    backend.execute_observed(ObservedRequest {
+                        request,
+                        rules: None,
+                    })
+                } else {
+                    backend.execute(request)
+                }
+                .unwrap()
+            };
+            let with = run(true);
+            let without = run(false);
+            let (with_leaves, with_empty) = leaves_without_traces(&with);
+            let (without_leaves, without_empty) = leaves_without_traces(&without);
+            assert!(!with_empty, "{modality:?}, observed {observed}");
+            assert!(without_empty, "{modality:?}, observed {observed}");
+            assert_eq!(
+                with_leaves, without_leaves,
+                "{modality:?}, observed {observed}"
+            );
+            let trivial = without
+                .leaves
+                .iter()
+                .find(|leaf| leaf.reason == HaltReasonOutput::Trivial)
+                .expect("the undefined step is a trivial leaf");
+            assert_eq!(trivial.rule_label.as_deref(), Some("TRACES.half"));
+            assert!(trivial.rule_id.is_some());
+        }
+    }
+}
+
+/// A request without `trace` asks for traces; `"trace": false` asks for none.
+#[test]
+fn an_execute_request_asks_for_traces_unless_it_says_otherwise() {
+    let state = k_rust::kore::json::to_value(&parse_pattern("a{}()").unwrap()).unwrap();
+    let request: ExecuteRequest =
+        serde_json::from_value(serde_json::json!({ "state": state })).unwrap();
+    assert!(request.trace);
+    let request: ExecuteRequest =
+        serde_json::from_value(serde_json::json!({ "state": state, "trace": false })).unwrap();
+    assert!(!request.trace);
+    assert!(ExecuteRequest::new(parse_pattern("a{}()").unwrap()).trace);
+}

@@ -232,6 +232,12 @@ export interface ExecuteOptions {
    * observations.
    */
   resultModality?: 'state-set' | 'path-set'
+  /**
+   * Whether each leaf carries its path's `trace` (default `true`). With `false` every leaf's
+   * `trace` is empty and every other field is unchanged; a branching run's output is then linear
+   * in its leaves.
+   */
+  trace?: boolean
   schemaVersion?: number
 }
 
