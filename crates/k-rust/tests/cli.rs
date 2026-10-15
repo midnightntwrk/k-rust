@@ -12026,6 +12026,187 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Compile `source` (specification module `spec` over `module`) into `root/<name>` and run
+/// `kprove` on it with `--save-proofs <root>/proofs.kore` and `arguments`.
+fn kprove_saving(
+    root: &Path,
+    definition: &Path,
+    source: &str,
+    (spec, module): (&str, &str),
+    name: &str,
+    arguments: &[&str],
+) -> std::process::Output {
+    fs::write(definition, source).unwrap();
+    let compiled = root.join(name);
+    kcompile_for_proving(definition, spec, module, &compiled);
+    let saved = root.join("proofs.kore");
+    let mut all = vec!["--save-proofs", saved.to_str().unwrap()];
+    all.extend_from_slice(arguments);
+    kprove_compiled(&compiled, spec, &all)
+}
+
+/// A trusted claim is an assumption of every proof of its run, so a saved proof is bound to the
+/// claims its run trusted. `t: s(0) => done()` is false, and `a: go(0) => done()` is proven by
+/// applying it. Once `t` is no longer trusted (its attribute removed, the claim deleted, or the
+/// `--trusted` option dropped), the saved proof of `a` is not reused, and `a` is not proven.
+#[test]
+fn kprove_reuses_a_saved_proof_only_under_the_claims_its_run_trusted() {
+    let source = |t: &str| {
+        format!(
+            r#"
+module T
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Res ::= go(Int) [symbol(go)] | s(Int) [symbol(s)] | done() [symbol(done)]
+  configuration <k> $PGM:Res </k>
+  rule <k> go(X) => s(X) </k>
+  rule <k> s(1) => done() </k>
+endmodule
+module T-SPEC
+  imports T
+  {t}
+  claim [a]: <k> go(0) => done() </k>
+endmodule
+"#
+        )
+    };
+    let trusted = source("claim [t]: <k> s(0) => done() </k> [trusted]");
+    let untrusted = source("claim [t]: <k> s(0) => done() </k>");
+    let deleted = source("");
+    let modules = ("T-SPEC", "T");
+    for (case, first, first_arguments, second, second_arguments) in [
+        (
+            "untrusted in source",
+            &trusted,
+            &[][..],
+            &untrusted,
+            &["--claim", "a"][..],
+        ),
+        ("deleted", &trusted, &[][..], &deleted, &[][..]),
+        (
+            "--trusted dropped",
+            &untrusted,
+            &["--trusted", "t"][..],
+            &untrusted,
+            &["--claim", "a"][..],
+        ),
+    ] {
+        let (root, definition) = fixture();
+        let run = kprove_saving(&root, &definition, first, modules, "first", first_arguments);
+        let lines = claim_lines(&run);
+        assert!(run.status.success(), "{case}: {lines:?}");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("claim T-SPEC.a: proven (")),
+            "{case}: {lines:?}"
+        );
+        let run = kprove_saving(
+            &root,
+            &definition,
+            second,
+            modules,
+            "second",
+            second_arguments,
+        );
+        let lines = claim_lines(&run);
+        assert!(!run.status.success(), "{case}: {lines:?}");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("claim T-SPEC.a: ") && !line.contains("proven")),
+            "{case}: {lines:?}"
+        );
+        assert!(
+            String::from_utf8_lossy(&run.stderr).contains("under other assumptions"),
+            "{case}: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// The SMT prelude's assertions are axioms of the proofs made with it, and `--allow-vacuous`
+/// accepts branches that reach no configuration, so a saved proof is bound to both. `p` holds
+/// only by the prelude's axiom on `ff`; `c` only by accepting its undefined step (`half(0)`). A
+/// rerun without the prelude, or without the option, does not reuse the saved proof.
+#[test]
+fn kprove_reuses_a_saved_proof_only_under_its_smt_prelude_and_vacuity_policy() {
+    let prelude_source = r#"
+module PR
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Int ::= f(Int) [function, total, smtlib(ff), no-evaluators, symbol(f)]
+  syntax Res ::= go(Int) [symbol(go)] | done() [symbol(done)]
+  configuration <k> $PGM:Res </k>
+  rule <k> go(X) => done() </k> requires f(X) >Int 0
+endmodule
+module PR-SPEC
+  imports PR
+  claim [p]: <k> go(X) => done() </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    let prelude = root.join("pre.smt2");
+    fs::write(&prelude, "(assert (forall ((x Int)) (> (ff x) 0)))\n").unwrap();
+    let modules = ("PR-SPEC", "PR");
+    let with = kprove_saving(
+        &root,
+        &definition,
+        prelude_source,
+        modules,
+        "with",
+        &["--smt-prelude", prelude.to_str().unwrap()],
+    );
+    assert!(with.status.success(), "{:?}", claim_lines(&with));
+    let without = kprove_saving(&root, &definition, prelude_source, modules, "without", &[]);
+    let lines = claim_lines(&without);
+    assert!(!without.status.success(), "{lines:?}");
+    assert!(
+        matches!(lines.as_slice(), [line] if !line.contains("proven")),
+        "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+
+    let vacuous_source = r#"
+module AV
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Int ::= half(Int) [function, symbol(half)]
+  syntax Res ::= h(Int) [symbol(h)] | yes(Int) [symbol(yes)]
+  configuration <k> $PGM:Res </k>
+  rule half(X) => X /Int 2 requires X >Int 0
+  rule <k> h(X) => yes(half(X)) </k>
+endmodule
+module AV-SPEC
+  imports AV
+  claim [c]: <k> h(0) => yes(?_) </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    let modules = ("AV-SPEC", "AV");
+    let with = kprove_saving(
+        &root,
+        &definition,
+        vacuous_source,
+        modules,
+        "with",
+        &["--allow-vacuous"],
+    );
+    assert!(with.status.success(), "{:?}", claim_lines(&with));
+    let without = kprove_saving(&root, &definition, vacuous_source, modules, "without", &[]);
+    let lines = claim_lines(&without);
+    assert!(!without.status.success(), "{lines:?}");
+    assert!(
+        matches!(lines.as_slice(), [line] if !line.contains("proven")),
+        "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn modal_claim_fixture() -> (PathBuf, PathBuf, PathBuf) {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");

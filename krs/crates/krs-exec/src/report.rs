@@ -292,6 +292,26 @@ pub enum Verdict {
 }
 
 impl Verdict {
+    /// The weaker of two backend verdicts, for a claim that holds only if both of its parts do:
+    /// a counterexample before a failure, a failure before an undecided result, and an
+    /// undecided result before a bound.
+    pub(crate) fn weakest(self, other: Self) -> Self {
+        let rank = |verdict: Self| match verdict {
+            Self::Disproved => 0,
+            Self::Failed => 1,
+            Self::Indeterminate => 2,
+            Self::DepthBound => 3,
+            Self::BreadthBound => 4,
+            Self::Trusted => 5,
+            Self::Proven => 6,
+        };
+        if rank(other) < rank(self) {
+            other
+        } else {
+            self
+        }
+    }
+
     pub(crate) fn from_backend(status: &str) -> Option<Self> {
         Some(match status {
             "proven" => Self::Proven,

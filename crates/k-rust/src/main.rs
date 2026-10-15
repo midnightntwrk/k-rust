@@ -3562,13 +3562,6 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let setup_phase =
         tracing::info_span!("phase", name = tracing::field::display("proof_setup")).entered();
     let setup_started = Instant::now();
-    // Saved proofs are bound to the compiled definition they were made under.
-    let definition_digest = options
-        .save_proofs
-        .as_ref()
-        .map(|_| k_rust::backend::proving::definition_digest(&syntax, &options.module))
-        .unwrap_or_default();
-    let saved_proofs = SavedProofs::load(options.save_proofs.as_deref(), &definition_digest)?;
     let spec_module = syntax
         .modules
         .iter()
@@ -3576,9 +3569,6 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         .ok_or_else(|| format!("compiled KORE has no module `{}`", options.module))?;
     // A proof is recorded, reused and saved only under an id that names one claim body.
     let reusable = k_rust::backend::proving::reusable_proof_ids(definition.reachability_claims());
-    // The claims proven by a saved proof, and those all of whose disjuncts this run proves.
-    let saved_ids = saved_proofs.proven_ids(spec_module, &reusable);
-    let mut proven_ids = saved_ids.clone();
     if definition.reachability_claims().is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
@@ -3607,6 +3597,32 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     if kept.is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
+    // Saved proofs are bound to the compiled definition and to the assumptions they were made
+    // under: the claims the run trusts, the SMT prelude and the vacuity policy.
+    let trusted_ids = kept
+        .iter()
+        .filter(|claim| claim.attributes.trusted)
+        .map(|claim| claim.attributes.unique_id.clone())
+        .collect::<BTreeSet<_>>();
+    let proofs_digest = options
+        .save_proofs
+        .as_ref()
+        .map(|_| {
+            k_rust::backend::proving::saved_proofs_digest(
+                &syntax,
+                &options.module,
+                &k_rust::backend::proving::ProofAssumptions {
+                    trusted: &trusted_ids,
+                    smt_prelude: smt_prelude.as_deref(),
+                    allow_vacuous: options.allow_vacuous,
+                },
+            )
+        })
+        .unwrap_or_default();
+    let saved_proofs = SavedProofs::load(options.save_proofs.as_deref(), &proofs_digest)?;
+    // The claims proven by a saved proof, and those all of whose disjuncts this run proves.
+    let saved_ids = saved_proofs.proven_ids(spec_module, &reusable);
+    let mut proven_ids = saved_ids.clone();
     let circularities = kept.iter().collect::<Vec<_>>();
     let mut backend = Backend::from_internalized_with_prelude(
         definition,
@@ -3629,6 +3645,8 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     // saved, only when all its disjuncts are proven in this run.
     let positions = k_rust::backend::proving::disjunct_positions(&kept);
     let mut disjuncts_proven = 0;
+    // The claims this run proves that no saved proof supported, by name.
+    let mut proven_in_run = Vec::new();
     // Invariant: proven_ids contains the saved proofs and the claim ID and modality of each claim
     // with a reusable id all of whose disjuncts this run proved.
     for (index, claim) in kept.iter().enumerate() {
@@ -3645,7 +3663,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         let name = if disjuncts > 1 {
             format!("{label} (disjunct {disjunct} of {disjuncts})")
         } else {
-            label
+            label.clone()
         };
         if claim.attributes.trusted {
             writeln!(output, "claim {name}: proven (trusted)")?;
@@ -3714,6 +3732,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             disjuncts_proven += 1;
             if disjuncts_proven == disjuncts && reusable.contains(&claim.attributes.unique_id) {
                 proven_ids.insert(k_rust::backend::proving::ProvenClaim::from_claim(claim));
+                proven_in_run.push(label);
             }
         } else {
             all_proven = false;
@@ -3796,16 +3815,16 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let saved = if all_proven {
         &proven_ids
     } else {
-        let unsaved = proven_ids.difference(&saved_ids).count();
-        if unsaved > 0 && options.save_proofs.is_some() {
+        if !proven_in_run.is_empty() && options.save_proofs.is_some() {
             eprintln!(
-                "warning: {unsaved} claim(s) proven in this run are not saved: the run's claims \
-                 are circularities of each other's proofs, and not all of them are proven"
+                "warning: the claims proven in this run are not saved ({}): the run's claims are \
+                 circularities of each other's proofs, and not all of them are proven",
+                proven_in_run.join(", ")
             );
         }
         &saved_ids
     };
-    saved_proofs.save(spec_module, saved, &definition_digest)?;
+    saved_proofs.save(spec_module, saved, &proofs_digest)?;
     timings.write(options.timings.as_deref())?;
     // The claim results and the timings are written; `output` and `_trace` still drop normally.
     release_at_exit(circularities);

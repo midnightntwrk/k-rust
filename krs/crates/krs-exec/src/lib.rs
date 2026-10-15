@@ -980,31 +980,41 @@ fn prove_claims(
     let mut reports = Vec::with_capacity(selected.len());
     for index in selected {
         let claim = catalog[index].clone();
-        let result = backend.prove(ProveRequest {
-            claim: Some(claim.backend_label.clone()),
-            max_depth: options.depth,
-            ..ProveRequest::default()
-        })?;
-        let mut verdict = Verdict::from_backend(&result.status).ok_or_else(|| {
-            ExecError::Result(format!("unknown proof status `{}`", result.status))
-        })?;
+        // A claim whose left-hand side is a disjunction is one backend claim per disjunct, each
+        // proven by its own request; the claim holds only if every disjunct does, so its verdict
+        // is the weakest of theirs and its leaves are all of theirs.
+        let disjuncts = backend.claim_disjuncts(None, &claim.backend_label)?;
+        let selectors = if disjuncts.len() > 1 {
+            disjuncts
+        } else {
+            vec![claim.backend_label.clone()]
+        };
+        let mut verdict = Verdict::Proven;
+        let mut leaves = Vec::new();
+        for selector in selectors {
+            let result = backend.prove(ProveRequest {
+                claim: Some(selector),
+                max_depth: options.depth,
+                ..ProveRequest::default()
+            })?;
+            let disjunct = Verdict::from_backend(&result.status).ok_or_else(|| {
+                ExecError::Result(format!("unknown proof status `{}`", result.status))
+            })?;
+            verdict = verdict.weakest(disjunct);
+            for leaf in &result.leaves {
+                leaves.push(ProofLeaf {
+                    state: term(&leaf.state)?,
+                    depth: leaf.depth,
+                    outcome: leaf.outcome.name().to_owned(),
+                    detail: leaf.detail.clone(),
+                });
+            }
+        }
         // The backend assumes a trusted claim and reports it proven; KRS never calls an
         // assumption proven (KF-042).
         if claim.trusted && verdict == Verdict::Proven {
             verdict = Verdict::Trusted;
         }
-        let leaves = result
-            .leaves
-            .iter()
-            .map(|leaf| {
-                Ok(ProofLeaf {
-                    state: term(&leaf.state)?,
-                    depth: leaf.depth,
-                    outcome: leaf.outcome.name().to_owned(),
-                    detail: leaf.detail.clone(),
-                })
-            })
-            .collect::<Result<Vec<_>, ExecError>>()?;
         reports.push(ProofReport {
             claim: claim.label,
             modality: claim.modality,

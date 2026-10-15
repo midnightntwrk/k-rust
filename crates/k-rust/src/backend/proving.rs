@@ -49,8 +49,8 @@ const SAVED_PROOFS_FORMAT_PREFIX: &str = "kRustSavedProofsV";
 const EARLIER_SAVED_PROOFS_FORMATS: &[&str] = &["kRustModalitySafeProofsV1"];
 
 /// The attribute of a V2 saved-proof module that holds the SHA-256 digest, in lowercase hex, of
-/// the compiled definition the proofs were made under, without its claims
-/// ([`definition_digest`]). Proofs are reused only under the same digest.
+/// what the proofs were made under: the compiled definition without its claims and the run's
+/// assumptions ([`saved_proofs_digest`]). Proofs are reused only under the same digest.
 pub const SAVED_PROOFS_DEFINITION: &str = "kRustSavedProofsDefinition";
 
 /// The unique id `k-rust-backend` gives a claim with neither a unique id nor a label, which every
@@ -62,11 +62,12 @@ const UNKNOWN_UNIQUE_ID: &str = "UNKNOWN";
 ///
 /// It covers every declaration and axiom of every module, the specification module's lemmas
 /// included, with their attributes, and the module attributes, so a change to the semantics or
-/// to a lemma gives another digest. It leaves out what does not change what a proof shows: the
+/// to a lemma gives another digest. A sentence's attributes name its source file and position,
+/// so moving a file, or a sentence within it, gives another digest too. It leaves out the
 /// claims, which the file records claim by claim; the order of modules and of sentences within
 /// a module, which compilation does not fix; the specification module's name and attributes,
-/// and the definition's attributes (the path it was compiled from). So a claim proven under one
-/// specification module is reused under another over the same semantics.
+/// and the definition's attributes. So a claim proven under one specification module is reused
+/// under another whose sentences come from the same files at the same positions.
 pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
     use sha2::{Digest, Sha256};
     let printer = Printer::compact();
@@ -109,6 +110,81 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
             hasher.update(part.as_bytes());
         }
     }
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// The assumptions of a proof run that change what a `proven` claim certifies, beside the
+/// compiled definition ([`saved_proofs_digest`]).
+pub struct ProofAssumptions<'a> {
+    /// The unique ids of the claims the run trusts, after `--trusted`: each is an assumption of
+    /// every proof of the run.
+    pub trusted: &'a BTreeSet<String>,
+    /// The text of the SMT prelude, whose assertions the solver takes as axioms.
+    pub smt_prelude: Option<&'a str>,
+    /// Whether the run accepts branches that reach no configuration.
+    pub allow_vacuous: bool,
+}
+
+/// The digest a run's saved proofs are bound to: the [`definition_digest`] and the run's
+/// [`ProofAssumptions`].
+///
+/// A proof certifies its claim only under the assumptions it was made under, so a saved proof is
+/// reused only by a run that makes the same ones. A trusted claim counts as the claim sentence
+/// that states it, as the compact printer prints it; the trusted sentences are hashed in sorted
+/// order, so the order of the claims and of the `--trusted` options does not matter. A trusted
+/// claim with neither a unique id nor a label is named by no id ([`UNKNOWN_UNIQUE_ID`]), so every
+/// claim sentence without one then counts as trusted, which can only make the digest differ more
+/// often. The run's bounds (depth, breadth, timeouts, search order, counterexample count,
+/// simplification iterations, minimum depth) and its stuck check decide only whether a proof is
+/// found, not what a found one certifies, and are not bound.
+pub fn saved_proofs_digest(
+    definition: &Definition,
+    spec_module: &str,
+    assumptions: &ProofAssumptions<'_>,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let printer = Printer::compact();
+    let unknown_trusted = assumptions.trusted.contains(UNKNOWN_UNIQUE_ID);
+    let mut trusted = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter(|sentence| match claim_unique_id(sentence) {
+            Some(id) => assumptions.trusted.contains(&id),
+            None => unknown_trusted && matches!(sentence, Sentence::Claim { .. }),
+        })
+        .map(|sentence| printer.print_sentence(sentence))
+        .collect::<Vec<_>>();
+    trusted.sort_unstable();
+    trusted.dedup();
+    let mut hasher = Sha256::new();
+    let mut part = |bytes: &[u8]| {
+        hasher.update((bytes.len() as u64).to_le_bytes());
+        hasher.update(bytes);
+    };
+    part(b"definition");
+    part(definition_digest(definition, spec_module).as_bytes());
+    part(b"trusted");
+    part(&(trusted.len() as u64).to_le_bytes());
+    for sentence in &trusted {
+        part(sentence.as_bytes());
+    }
+    match assumptions.smt_prelude {
+        Some(prelude) => {
+            part(b"smt-prelude");
+            part(prelude.as_bytes());
+        }
+        None => part(b"no-smt-prelude"),
+    }
+    part(if assumptions.allow_vacuous {
+        b"allow-vacuous"
+    } else {
+        b"reject-vacuous"
+    });
     hasher
         .finalize()
         .iter()
@@ -238,8 +314,7 @@ pub struct SavedProofs {
 }
 
 impl SavedProofs {
-    /// The saved proofs at `path`, for the definition whose [`definition_digest`] is
-    /// `definition`.
+    /// The saved proofs at `path`, for the run whose [`saved_proofs_digest`] is `definition`.
     ///
     /// A missing file holds none. A file not in format [`SAVED_PROOFS_FORMAT`] is an error, which
     /// names the format it is in, so nothing is overwritten that a user did not remove. A file
@@ -327,8 +402,9 @@ impl SavedProofs {
             });
         if digest != Some(definition) {
             eprintln!(
-                "warning: saved proof file `{}` was written for another compiled definition \
-                 (digest {}, this one {definition}); its proofs are not reused, and the file is \
+                "warning: saved proof file `{}` was written for another compiled definition or \
+                 under other assumptions (trusted claims, SMT prelude, --allow-vacuous) (digest \
+                 {}, this run's {definition}); its proofs are not reused, and the file is \
                  rewritten with this run's",
                 path.display(),
                 digest.unwrap_or("missing"),

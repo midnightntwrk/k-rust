@@ -1655,6 +1655,24 @@ impl Backend {
         }
     }
 
+    /// The `#index` selector of every claim `selector` names (a label, a unique id or an
+    /// `#index`): one per disjunct of a claim whose left-hand side is a disjunction, which a proof
+    /// request proves one at a time, and one for any other claim.
+    pub fn claim_disjuncts(
+        &self,
+        module_name: Option<&str>,
+        selector: &str,
+    ) -> Result<Vec<String>, BackendError> {
+        let definition = self
+            .session
+            .definition(module_name)
+            .map_err(error("could not select backend module"))?;
+        Ok(proving::select_claims(&definition, selector)?
+            .into_iter()
+            .map(|(index, _)| format!("#{index}"))
+            .collect())
+    }
+
     /// Prove one claim, selected by [`ProveRequest::claim`]. A claim whose left-hand side is a
     /// disjunction is proven one disjunct per request, each selected by its `#index`; it holds
     /// only if every disjunct is proven, and a label or unique id that names it is refused.
