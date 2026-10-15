@@ -679,7 +679,7 @@ endmodule
                 let internal = definition
                     .admit_unverified(pattern, &[])
                     .internalize_pattern()
-                    .map_err(|error| BackendError(error.to_string()))?;
+                    .map_err(|error| BackendError::new(error.to_string()))?;
                 if internal.constraints.is_empty() {
                     return Ok("no constraints".into());
                 }
@@ -914,7 +914,7 @@ endmodule
                                 definition
                                     .admit_unverified(pattern, &[])
                                     .internalize_pattern()
-                                    .map_err(|error| BackendError(error.to_string()))
+                                    .map_err(|error| BackendError::new(error.to_string()))
                             };
                             let first = admit(&leaf.state)?;
                             let second = admit(&externalize::constrained_pattern(&first))?;
@@ -1107,7 +1107,7 @@ endmodule
         assert!(
             result
                 .as_ref()
-                .is_err_and(|error| error.0.contains("term-level")),
+                .is_err_and(|error| error.message().contains("term-level")),
             "{result:?}"
         );
     }
@@ -1138,7 +1138,7 @@ endmodule
             ),
         ];
         let refused = |result: Result<String, BackendError>| {
-            result.is_err_and(|error| error.0.contains("cannot be read faithfully"))
+            result.is_err_and(|error| error.message().contains("cannot be read faithfully"))
         };
         for (case, pattern) in cases {
             let implies = backend
@@ -1212,7 +1212,7 @@ endmodule
             for (route, result) in routes {
                 let shown = format!("{result:?}");
                 assert!(
-                    result.is_err_and(|error| error.0.contains("cannot be read faithfully")),
+                    result.is_err_and(|error| error.message().contains("cannot be read faithfully")),
                     "{case}, {route}: {shown}"
                 );
             }
