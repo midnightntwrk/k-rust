@@ -30,6 +30,7 @@ This section is written for the LLM that drives the loop;
 ### The loop
 
 1. **Specification.** Start from a K specification: an entry file, its main module and its syntax module.
+   A literate Markdown specification (`.md`) works too: every text kink-flow addresses, searches or shows is the K text k-rust parsed from the selected fences (prose and fence lines count as whitespace, and line numbers are the file's), and kink-flow never edits the Markdown file.
 2. **Corpus with cached results.** Write concrete programs for it in `FLOW.toml`.
    `kink-flow results` runs each new or changed program once on the specification,
    caches its final configuration, and lists the rules no comparable program reaches (`uncovered`).

@@ -608,50 +608,74 @@ fn every_valid_fixture_mutation_changes_exactly_its_addressed_rules() {
     }
 }
 
-/// The compiled KORE identity of `ValidatedDefinition::kore_sha256`, computed after
-/// replacing, in the three KORE texts, each `(from, to)` pair of strings.
-fn kore_digest(compiled: &ValidatedDefinition, substitutions: &[(String, String)]) -> String {
+/// Every `"Location(a,b,c,d)"` attribute value of a KORE text, as `"Location()"`.
+fn without_locations(text: &str) -> String {
+    let mut normalised = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("\"Location(") {
+        normalised.push_str(&rest[..start]);
+        normalised.push_str("\"Location()\"");
+        let value = &rest[start + "\"Location(".len()..];
+        rest = &value[value.find(")\"").expect("a Location value ends") + 2..];
+    }
+    normalised.push_str(rest);
+    normalised
+}
+
+/// The `"Location(...)"` attribute values of a KORE text, in order.
+fn locations(text: &str) -> Vec<&str> {
+    text.match_indices("\"Location(")
+        .map(|(start, _)| {
+            let value = &text[start..];
+            &value[..value.find(")\"").expect("a Location value ends") + 2]
+        })
+        .collect()
+}
+
+/// The compiled KORE identity of `ValidatedDefinition::kore_sha256`, computed after applying
+/// `normalise` to the three KORE texts (the rewrite order is taken as it is).
+fn kore_digest(compiled: &ValidatedDefinition, normalise: fn(&str) -> String) -> String {
     let artifacts = compiled.artifacts();
-    let substitute = |text: &str| {
-        substitutions
-            .iter()
-            .fold(text.to_owned(), |text, (from, to)| text.replace(from, to))
-    };
     let value = json!({
-        "definition": substitute(&artifacts.definition_kore),
-        "macros": substitute(&artifacts.macros_kore),
+        "definition": normalise(&artifacts.definition_kore),
+        "macros": normalise(&artifacts.macros_kore),
         "rewrite_order": artifacts.execution_rewrite_order,
-        "syntax": substitute(&artifacts.syntax_definition_kore),
+        "syntax": normalise(&artifacts.syntax_definition_kore),
     });
     payload_digest(COMPILED_KORE_DOMAIN, canonical_json(&value).as_bytes()).to_string()
 }
 
-fn kore_location(sentence: &Sentence) -> String {
-    let l = sentence.attributes().location().unwrap();
-    format!(
-        "Location({},{},{},{})",
-        l.start_line, l.start_column, l.end_line, l.end_column
-    )
-}
-
-/// README 5.5: compiling the patched baseline gives the compiled KORE of the edited sources.
-/// The patch keeps each replaced rule's baseline position attributes (kink-patch requires it
-/// of a ReplaceSentence), so the two compiles may differ in exactly one thing: the source
-/// Location attribute of a replaced rule whose text changed extent. Mutations that keep every
-/// extent (and deletes, which remove the rule's text and keep its line) compile to the same
-/// digest byte for byte; for the others the digests are equal once that rule's edited
-/// Location is written back as its baseline Location, and differ otherwise (pinned, so a
-/// difference anywhere else fails).
+/// README 5.5 as restated after F-04 review 1 (M2): compiling the patched baseline gives the
+/// compiled KORE of the edited sources after normalising every Location attribute, with an
+/// equal rewrite order. The patch keeps each replaced rule's baseline position attributes
+/// (kink-patch requires it of a ReplaceSentence), so a replacement that changes a rule's
+/// extent changes its Location in the edited sources only, and one that changes the line
+/// count also moves the Location of every later sentence of the file (the review's probe,
+/// pinned below). Location is provenance only in the k-rust backend (RuleOrigin) and enters
+/// no UNIQUE_ID. Checked over the calc and register fixture lists, the probe, and the valid
+/// mutations of the Markdown fixture, whose edited sources are loaded through the Markdown
+/// envelope (`ResolvedMutation::overlay`).
 #[test]
 fn the_patched_baseline_compiles_to_the_kore_of_the_edited_sources() {
-    let extent_changed = BTreeSet::from([
-        "sub-off-by-one",
-        "put-and-get-offset",
-        "put-offset",
-        "get-offset",
-    ]);
+    let mut cases = fixture_mutations();
+    let calc = Spec::fixture("calc");
+    let line_break = calc
+        .resolve_edits(
+            "[[mutation.edit]]\nrule = \"add\"\nfind = \"I1 +Int I2\"\nreplace = \"I1 -Int\\n    I2\"\n",
+        )
+        .unwrap();
+    cases.push((calc, vec![line_break]));
+    let markdown = Spec::fixture("markdown");
+    let valid = fixture_list("markdown")
+        .mutations
+        .iter()
+        .filter_map(|m| markdown.resolve(m).ok())
+        .collect::<Vec<_>>();
+    assert_eq!(valid.len(), 6);
+    cases.push((markdown, valid));
+    let identity: fn(&str) -> String = str::to_owned;
     let mut checked = Vec::new();
-    for (spec, mutations) in fixture_mutations() {
+    for (spec, mutations) in cases {
         let validator = NativeValidator::bind(spec.loaded.baseline.clone(), Default::default());
         for resolved in mutations {
             let id = resolved.id.as_str();
@@ -659,57 +683,53 @@ fn the_patched_baseline_compiles_to_the_kore_of_the_edited_sources() {
                 .validate(&resolved.patch)
                 .unwrap_or_else(|e| panic!("{id}: the patched baseline does not compile: {e}"));
             let edited =
-                load_source_with_overlay(&corpus_source(&spec.manifest), &resolved.edited_sources)
-                    .unwrap();
+                load_source_with_overlay(&corpus_source(&spec.manifest), resolved.overlay())
+                    .unwrap_or_else(|e| panic!("{id}: the edited sources do not load: {e}"));
             let direct = NativeValidator::bind(edited.baseline.clone(), Default::default())
                 .compile_baseline()
                 .unwrap_or_else(|e| panic!("{id}: the edited sources do not compile: {e}"));
-            // The edited Location of every replaced rule, and its baseline Location.
-            let mut substitutions = Vec::new();
-            let deleted = |module: &str, index: u32| {
-                resolved
-                    .rules
-                    .iter()
-                    .filter(|r| r.after.is_none() && r.at.module == module && r.at.index < index)
-                    .count() as u32
-            };
-            for rule in resolved.rules.iter().filter(|r| r.after.is_some()) {
-                let edited_at = SentenceRef::new(
-                    rule.at.module.clone(),
-                    rule.at.index - deleted(&rule.at.module, rule.at.index),
-                );
-                let from = kore_location(edited.baseline.sentence(&edited_at).unwrap());
-                let to = kore_location(spec.sentence(&rule.at));
-                if from != to {
-                    substitutions.push((format!("\"{from}\""), format!("\"{to}\"")));
-                }
-            }
-            let raw_equal = patched.kore_sha256() == direct.kore_sha256();
-            if extent_changed.contains(id) {
-                assert!(!substitutions.is_empty(), "{id}: no rule changed extent");
-                assert!(!raw_equal, "{id}: expected the Location difference");
-                assert_eq!(
-                    kore_digest(&patched, &[]),
-                    kore_digest(&direct, &substitutions),
-                    "{id}: the compiles differ beyond the replaced rule's Location"
-                );
-                assert_eq!(
-                    kore_digest(&patched, &[]),
-                    patched.kore_sha256().to_string()
-                );
-            } else {
-                assert!(substitutions.is_empty(), "{id}");
-                assert!(
-                    raw_equal,
-                    "{id}: patched {} but edited sources {}",
-                    patched.kore_sha256(),
-                    direct.kore_sha256()
-                );
-            }
-            checked.push(id.to_owned());
+            // The digest formula is kink-patch's compiled KORE identity.
+            assert_eq!(
+                kore_digest(&patched, identity),
+                patched.kore_sha256().to_string()
+            );
+            assert_eq!(
+                patched.artifacts().execution_rewrite_order,
+                direct.artifacts().execution_rewrite_order,
+                "{id}: the rewrite orders differ"
+            );
+            assert_eq!(
+                kore_digest(&patched, without_locations),
+                kore_digest(&direct, without_locations),
+                "{id}: the compiles differ beyond Location attributes"
+            );
+            let (from, to) = (
+                locations(&patched.artifacts().definition_kore),
+                locations(&direct.artifacts().definition_kore),
+            );
+            assert_eq!(from.len(), to.len(), "{id}");
+            let moved = from.iter().zip(&to).filter(|(a, b)| a != b).count();
+            checked.push((
+                format!("{}/{id}", spec.manifest.spec.entry),
+                patched.kore_sha256() == direct.kore_sha256(),
+                moved,
+            ));
         }
     }
-    assert_eq!(checked.len(), 9);
+    let row = |key: &str| {
+        checked
+            .iter()
+            .find(|(k, _, _)| k == key)
+            .unwrap_or_else(|| panic!("{key} not checked: {checked:?}"))
+    };
+    // The probe: the replaced rule and the two rules below it moved one line down.
+    assert!(!row("calc.k/m").1);
+    assert!(row("calc.k/m").2 > 1, "{:?}", row("calc.k/m"));
+    // A delete keeps the rule's line, and an extent-preserving edit changes no Location.
+    assert!(row("calc.k/no-mul").1);
+    assert!(row("calc.k/add-becomes-sub").1);
+    assert!(row("spec.md/inc-adds-two").1);
+    assert_eq!(checked.len(), 9 + 1 + 6);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1082,6 +1102,10 @@ fn every_reason_is_produced_or_listed_as_defensive() {
         StructureChanged,
         LabelChanged,
         NoChange,
+        // F-10: produced by tests/markdown.rs.
+        SourceViewMismatch,
+        MarkdownEnvelope,
+        SpanChanged,
     ];
     let all = produced
         .iter()
@@ -1095,7 +1119,8 @@ fn every_reason_is_produced_or_listed_as_defensive() {
             UnknownFile | FileRequired | UnknownLabel | AmbiguousLabel | LineOutsideRules
             | LineAmbiguous | AddressMismatch | NonRuleSentence | NoUsableSpan | FindNotFound
             | FindAmbiguous | EditOutsideRule | OverlappingEdits | SourceChanged
-            | EditedLoadFailed | StructureChanged | LabelChanged | NoChange | PatchRejected => {}
+            | EditedLoadFailed | StructureChanged | LabelChanged | NoChange | PatchRejected
+            | SourceViewMismatch | MarkdownEnvelope | SpanChanged => {}
         }
     }
 }

@@ -1,0 +1,21 @@
+# kink-flow corpus manifest for the Markdown fixture (flow F-10), loaded from its K view spec-view.k.
+[spec]
+entry = "spec-view.k"
+main_module = "LIT"
+syntax_module = "LIT-SYNTAX"
+
+[[program]]
+id = "inc"
+file = "programs/inc.lit"
+
+[[program]]
+id = "add"
+file = "programs/add.lit"
+
+[[program]]
+id = "dec"
+file = "programs/dec.lit"
+
+[[program]]
+id = "twice"
+file = "programs/twice.lit"

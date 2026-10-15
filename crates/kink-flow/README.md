@@ -141,16 +141,34 @@ note = "addition evaluates as subtraction"   # optional, free text
 
 An edit has `find` and `replace` (`find` non-empty, `replace` may be empty), or `delete = true` (which needs `rule` or `line`).
 With neither `rule` nor `line`, `find` must occur exactly once in the file, inside one rule.
+A label is `MODULE.x` or the bare `x` for both of K's label forms: k-rust stores `rule [x]:` as `MODULE.x`
+and `[label(x)]` as the bare `x`, and either input addresses either form in module `MODULE`
+(a label that matches several rules is `ambiguous-label`).
 Unknown keys, values of the wrong type, duplicate or empty ids and a mutation without edits are errors naming the key.
-`testdata/flow/calc/MUTATIONS.toml` and `testdata/flow/register/MUTATIONS.toml` are complete examples.
+`testdata/flow/calc/MUTATIONS.toml`, `testdata/flow/register/MUTATIONS.toml` and `testdata/flow/markdown/MUTATIONS.toml` are complete examples.
 
-Resolution (`kink_flow::mutation::resolve`) addresses every edit to one authored rule, applies the edits
-to in-memory copies of the source files (a delete removes the rule's text and keeps its line), loads the
-edited sources with the specification's load options, and checks that the edited load has the baseline's
-modules and sentences, in order and with equal fingerprints, except at the addressed rules: a replaced rule
-is still exactly one rule sentence with the same label, a deleted rule is gone. The edited rules then become
-one pinned kink-patch `Patch` (`ReplaceSentence`, `DeleteSentence`) whose digest is the mutation's identity;
-the mutant is always the patched baseline, never the edited load. Only rules are editable.
+### Markdown sources: the K view
+
+Every text an edit addresses, every occurrence count, every line and every rule text the report shows
+is in the file's **K view**, the text k-rust parsed: a `.k` file's text, or for a `.md` file the extraction
+of the fences `spec.md_selector` selects, in which prose and fence lines are whitespace.
+Lines are the Markdown file's lines and columns on code lines are its columns, so `line` is the line an editor shows;
+a `find` that occurs only in prose is `find-not-found`, and `before`/`after` are K text.
+kink-flow never edits the Markdown file: the edits apply to the K view, and the edited view is loaded as a new
+Markdown text with one fence around it (the envelope), which k-rust's extractor must turn back into the edited view.
+`testdata/flow/markdown/spec.md` is a literate example, and `spec-view.k` beside it is its K view written as a `.k` file.
+
+Resolution (`kink_flow::mutation::resolve`) builds the K view of each source file it touches and checks it against
+the baseline's source table (the loaded definition must hold that extraction of the file), addresses every edit to one
+authored rule (a rule's span is its offset attributes, which must name the same text as its location),
+applies the edits to the views (a delete removes the rule's text and keeps its line), loads the edited views with the
+specification's load options, and checks that the edited load has the baseline's modules and sentences, in order and
+with equal fingerprints, except at the addressed rules: a replaced rule is still exactly one rule sentence with the
+same label, a deleted rule is gone. In every edited file each sentence must also start where the edits move it, and
+end there too unless it is a replaced rule (which may end earlier by whitespace only), so an edit cannot rewrite the
+text of a neighbouring sentence even into an equal one. The edited rules then become one pinned kink-patch `Patch`
+(`ReplaceSentence`, `DeleteSentence`) whose digest is the mutation's identity; the mutant is always the patched
+baseline, never the edited load. Only rules are editable.
 
 A mutation that fails any check is `invalid-mutation`, with the offending edit (`edit[i]`) when one is at fault,
 a reason and a detail; it is never compiled. Reasons:
@@ -170,11 +188,14 @@ a reason and a detail; it is never compiled. Reasons:
 | `edit-outside-rule` | `find` occurs in the file but not inside the addressed rule (or inside no rule). |
 | `overlapping-edits` | Two edits of one rule overlap, or a deleted rule is also edited. |
 | `source-changed` | A source file changed since the specification was loaded. |
+| `source-view-mismatch` | The file's K view is not what k-rust parsed: the loaded definition holds no such extraction of the file (for example `md_selector` changed since the load), or an addressed rule's spans index another one. |
+| `markdown-envelope` | A Markdown file's edited K view cannot be loaded as K text: an edit makes a line a Markdown fence line (three or more backticks or tildes after at most three spaces), or the envelope does not extract to the edited view. |
 | `edited-load-failed` | The edited sources do not load (parse or sort error); the detail is k-rust's message. |
 | `structure-changed` | The edit changed something besides its rule: a sentence split, merged, added, removed, changed kind or changed elsewhere. |
+| `span-changed` | In an edited file a sentence does not start (or, unless it is the replaced rule, end) where the edits move it: the edit's text reaches past its rule: a replacement that ends in a comment, or one that comments out a neighbouring rule and writes a copy of it. |
 | `label-changed` | The edit changes the rule's label. |
 | `no-change` | The edited rule equals the original up to formatting. |
-| `no-usable-span`, `patch-rejected` | Defensive; not expected on rules written in `.k` sources. |
+| `no-usable-span`, `patch-rejected` | Defensive: a rule's offsets and location name different text of its K view, or kink-patch refused the patch; not expected on rules k-rust loaded. |
 
 ## `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--cache DIR]`
 
