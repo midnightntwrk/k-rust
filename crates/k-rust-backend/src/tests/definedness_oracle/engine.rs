@@ -165,7 +165,6 @@ impl<'d> Universe<'d> {
             normal: HashMap::new(),
             in_progress: HashSet::new(),
             work: 0,
-            expanded: 0,
         };
         universe.intern(Node::Bottom);
         universe
