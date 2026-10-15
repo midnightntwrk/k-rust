@@ -4405,4 +4405,140 @@ mod tests {
             token.scope(|| merge_equal_final_leaves(&RequestNames::default(), leaves.to_vec()));
         assert_eq!(unpolled.len(), 2);
     }
+
+    /// The initial disjunction `[done, done, stuck(X) where X > 0]` of `prelude_definition`, the
+    /// states `names` picks from it in that order.
+    fn done_and_stuck(definition: &BackendDefinition, names: &[&str]) -> Vec<Pattern> {
+        let term = |source: &str| {
+            definition
+                .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
+                .expect("term should internalize")
+        };
+        names
+            .iter()
+            .map(|name| match *name {
+                "done" => Pattern {
+                    term: term("done{}()"),
+                    constraints: Vec::new(),
+                },
+                _ => Pattern {
+                    term: term("stuck{}(X:SortInt{})"),
+                    constraints: vec![Predicate::Equals(
+                        term(r#"gtInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#),
+                        term(r#"\dv{SortBool{}}("true")"#),
+                    )],
+                },
+            })
+            .collect()
+    }
+
+    /// Run `initial` of `prelude_definition` with `options` and `solver` in `token`'s scope,
+    /// with the number of final merges it did.
+    fn run_in_scope(
+        definition: &BackendDefinition,
+        initial: Vec<Pattern>,
+        options: ExecutionOptions,
+        solver: &dyn SmtSolver,
+        token: &crate::stop::CancellationToken,
+    ) -> (ExecutionResult, usize) {
+        let merges = FINAL_MERGES.with(std::cell::Cell::get);
+        let result = token.scope(|| {
+            super::super::execute_disjunction_with_solver_and_observer(
+                definition,
+                initial,
+                options,
+                solver,
+                |_| {},
+            )
+        });
+        (result, FINAL_MERGES.with(std::cell::Cell::get) - merges)
+    }
+
+    /// A run with `max_breadth` 0 visits no state and drains every initial state as a
+    /// breadth-bound leaf. Under `discard_stopped` the drain polls, so a cancellation of the
+    /// request discards the leaves and becomes the run's cause; without it the same run in the
+    /// same cancelled scope returns the drained leaves and no cause.
+    #[test]
+    fn a_cancellation_observed_by_the_breadth_drain_discards_its_leaves_when_asked_to() {
+        let definition = prelude_definition();
+        let initial = done_and_stuck(&definition, &["done", "stuck", "done"]);
+        let token = crate::stop::CancellationToken::new();
+        token.cancel();
+        // Path-set, so that no final merge polls after the drain.
+        let options = |discard_stopped| ExecutionOptions {
+            max_breadth: Some(0),
+            discard_stopped,
+            result_modality: ResultModality::PathSet,
+            ..ExecutionOptions::default()
+        };
+        let (discarded, _) = run_in_scope(
+            &definition,
+            initial.clone(),
+            options(true),
+            &crate::smt::NoSolver,
+            &token,
+        );
+        assert_eq!(discarded.leaves, []);
+        assert_eq!(discarded.stopped, Some(StopCause::Cancelled));
+        let (kept, _) = run_in_scope(
+            &definition,
+            initial,
+            options(false),
+            &crate::smt::NoSolver,
+            &token,
+        );
+        assert_eq!(kept.stopped, None);
+        assert_eq!(
+            kept.leaves
+                .iter()
+                .map(|leaf| leaf.halt_reason.clone())
+                .collect::<Vec<_>>(),
+            [
+                HaltReason::BreadthBound,
+                HaltReason::BreadthBound,
+                HaltReason::BreadthBound
+            ]
+        );
+    }
+
+    /// A cancellation only the final merge observes: `stuck`'s normalisation, the last state's,
+    /// asks the solver, which cancels the request; the refinement sets the stop aside and the run
+    /// ends by itself with nothing pending. Under `discard_stopped` the state-set final merge
+    /// polls (`selected_leaves` passes it `run_ending_stop`), so it discards the leaves and the
+    /// cancellation becomes the run's cause; without it the run returns its leaves after one
+    /// unpolled merge, with no cause.
+    #[test]
+    fn a_cancellation_only_the_final_merge_observes_discards_the_leaves_when_asked_to() {
+        let definition = prelude_definition();
+        let initial = done_and_stuck(&definition, &["done", "done", "stuck"]);
+        let run = |discard_stopped| {
+            let token = crate::stop::CancellationToken::new();
+            let solver = CancelOnFirstQuery {
+                token: token.clone(),
+            };
+            run_in_scope(
+                &definition,
+                initial.clone(),
+                ExecutionOptions {
+                    discard_stopped,
+                    ..ExecutionOptions::default()
+                },
+                &solver,
+                &token,
+            )
+        };
+        let (discarded, _) = run(true);
+        assert_eq!(discarded.leaves, []);
+        assert_eq!(discarded.stopped, Some(StopCause::Cancelled));
+        let (kept, merges) = run(false);
+        assert_eq!(kept.stopped, None);
+        assert_eq!(merges, 1);
+        assert_eq!(
+            kept.leaves
+                .iter()
+                .map(|leaf| leaf.halt_reason.clone())
+                .collect::<Vec<_>>(),
+            [HaltReason::Stuck, HaltReason::Stuck]
+        );
+    }
 }

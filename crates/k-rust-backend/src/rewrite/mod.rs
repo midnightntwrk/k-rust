@@ -885,8 +885,10 @@ pub struct ExecutionResult {
     /// hold, so a run's result is a function of its inputs only when this is zero.
     pub stack_stops: usize,
     /// The cause of the stop that ended the run (a cancellation or a failed solver prelude), if
-    /// one did; `None` when the run ended by itself, by a bound or by its work budget. Under
-    /// [`ExecutionOptions::discard_stopped`] a run with a cause here has no leaves.
+    /// one did; `None` when the run ended by itself, by a bound or by its work budget, unless,
+    /// under [`ExecutionOptions::discard_stopped`], a pass after the exploration (the breadth
+    /// drain or the state-set final merge) observed such a stop. Under `discard_stopped` a run
+    /// with a cause here has no leaves.
     pub stopped: Option<StopCause>,
 }
 

@@ -224,12 +224,16 @@ fn a_proof_that_reached_its_counterexample_limit_keeps_its_verdict() {
     assert_eq!(result.status, "disproved");
 }
 
-/// Under `cancelledResult: error` a cancellation that ends an `execute` answers `Err` with the
-/// `Cancelled` cause, whichever phase observed it, and builds no leaf; under `partial` the same
-/// request answers `Ok` with the stopped state as its one `cancelled` leaf, or the entry error when
-/// the cancellation lands before the boundary's entry poll (point 4).
+/// Under `cancelledResult: error` a cancellation that ends a running `execute` answers `Err` with
+/// the `Cancelled` cause; under `partial` the same request answers `Ok` with the stopped state as
+/// its one `cancelled` leaf, or the entry error when the cancellation lands before the boundary's
+/// entry poll (point 4). The counter never ends, so the exploration's own poll observes the
+/// cancellation: the passes after it and the conversion are pinned by the backend's
+/// `a_cancellation_observed_by_the_breadth_drain_discards_its_leaves_when_asked_to` and
+/// `a_cancellation_only_the_final_merge_observes_discards_the_leaves_when_asked_to` and the
+/// facade's `an_error_shaped_request_answers_a_cancellation_its_conversion_observes`.
 #[test]
-fn an_error_shaped_cancellation_builds_no_leaves() {
+fn an_error_shaped_cancellation_of_a_running_exploration_answers_the_cancellation() {
     for modality in [
         ResultModalityOutput::PathSet,
         ResultModalityOutput::StateSet,

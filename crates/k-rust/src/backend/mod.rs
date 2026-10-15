@@ -48,7 +48,8 @@
 //!    [`ExecuteRequest::cancelled_result`] to `error` answers such a cancellation as
 //!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)` instead, whichever phase
 //!    observed it (the exploration, the passes after it, or the conversion of the leaves), and
-//!    builds no leaf after it observed it; point 3's rule then holds for that `execute` too.
+//!    builds no leaf beyond the stopped state's own, which the observing poll builds and the run
+//!    discards; point 3's rule then holds for that `execute` too.
 //! 3. [`Backend::simplify`], [`Backend::implies`] and [`Backend::get_model`] report a
 //!    cancellation observed at any point, including one a refinement observed and set aside, as
 //!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`: each polls once more after
@@ -63,8 +64,9 @@
 //!    observed during an `execute` (under the default `cancelledResult: partial`) or search run,
 //!    which is a `cancelled` leaf or entry, and a proof whose verdict it could not change.
 //! 4. A cancellation that lands after the boundary's entry poll and before the run's first poll
-//!    still gives `Ok` with a depth-0 `cancelled` leaf (a search: a `cancelled` entry for its
-//!    initial state), in both builds. Which shape a host gets depends only on timing, so a host
+//!    still gives, under `cancelledResult: partial` (the default), `Ok` with a depth-0 `cancelled`
+//!    leaf (a search: a `cancelled` entry for its initial state), in both builds; under `error` the
+//!    same timing answers the `Err`. Which shape a host gets depends only on timing, so a host
 //!    treats both `Err` with the `Cancelled` cause and a `cancelled` leaf or entry as a
 //!    cancellation; point 1 does not mean that a depth-0 `cancelled` leaf cannot occur.
 //! 5. The step deadline of a request ([`ExecuteRequest::step_timeout_ms`],
@@ -334,7 +336,8 @@ pub struct ExecuteRequest {
     /// the stopped state as a `cancelled` leaf; `error` returns `Err(e)` with
     /// `e.stop_cause() == Some(&StopCause::Cancelled)`, whichever phase observed the cancellation
     /// (the exploration, the passes after it, or the conversion of the leaves), and builds no leaf
-    /// after it observed it, for a host that will not read a cancelled run's leaves. A failed
+    /// beyond the stopped state's own (built by the observing poll, then discarded), for a host
+    /// that will not read a cancelled run's leaves. A failed
     /// solver prelude answers its error either way. The text forms
     /// ([`Backend::execute_json`] and the other `*_json` and `*_to_writer` variants) serialize a
     /// converted result without polling: their serialization is linear in the output.
@@ -1257,13 +1260,7 @@ impl Backend {
                 }
                 None => execute_with_solver(definition, initial, options, solver),
             };
-            match (request.cancelled_result, &result.stopped) {
-                (CancelledResultOutput::Error, Some(cause)) => {
-                    Err(BackendError::from(cause.clone()))
-                }
-                (CancelledResultOutput::Error, None) => wire::execution_response(result, true),
-                (CancelledResultOutput::Partial, _) => wire::execution_response(result, false),
-            }
+            wire::execute_answer(request.cancelled_result, result)
         })
     }
 

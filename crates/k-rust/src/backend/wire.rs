@@ -1658,6 +1658,22 @@ fn incomplete_searches_output<K: WireKore, E>(
     Ok(output)
 }
 
+/// An execute request's answer to its backend result, by the request's `cancelledResult`:
+/// under `error`, a run that a stop ended (`stopped`) answers that stop's error and converts no
+/// leaf, and any other result is converted with a poll before each leaf, so a cancellation that
+/// arrives during the conversion answers its error too; under `partial` the result is converted
+/// whole, unpolled.
+pub(super) fn execute_answer<K: WireKore>(
+    shape: CancelledResultOutput,
+    result: k_rust_backend::rewrite::ExecutionResult,
+) -> Result<ExecutionResult<K>, BackendError> {
+    match (shape, &result.stopped) {
+        (CancelledResultOutput::Error, Some(cause)) => Err(BackendError::from(cause.clone())),
+        (CancelledResultOutput::Error, None) => execution_response(result, true),
+        (CancelledResultOutput::Partial, _) => execution_response(result, false),
+    }
+}
+
 /// The wire form of a backend execution result. With `polled` (`cancelledResult: error`), a stop
 /// is polled before each leaf is converted, and a stop observed there answers `Err` with its cause
 /// and converts no further leaf; without it nothing is polled, so a run that completed is
@@ -1928,6 +1944,39 @@ mod tests {
         CONVERTED_LEAVES.with(|converted| converted.set(0));
         let converted = token
             .scope(|| execution_response::<Value>(result, false))
+            .unwrap();
+        assert_eq!(converted.leaves.len(), 3);
+        assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 3);
+    }
+
+    /// The answer a request selects for a completed run inside a cancelled scope: under `error`
+    /// the conversion's poll observes the cancellation and answers it having converted no leaf,
+    /// and a run that a stop ended answers that stop without converting; under `partial` the
+    /// leaves are converted whole.
+    #[test]
+    fn an_error_shaped_request_answers_a_cancellation_its_conversion_observes() {
+        let result = three_finished_leaves();
+        assert_eq!(result.stopped, None);
+        let token = k_rust_backend::stop::CancellationToken::new();
+        token.cancel();
+
+        CONVERTED_LEAVES.with(|converted| converted.set(0));
+        let error = token
+            .scope(|| execute_answer::<Value>(CancelledResultOutput::Error, result.clone()))
+            .unwrap_err();
+        assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
+        assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
+
+        let stopped = k_rust_backend::rewrite::ExecutionResult {
+            stopped: Some(StopCause::Cancelled),
+            ..result.clone()
+        };
+        let error = execute_answer::<Value>(CancelledResultOutput::Error, stopped).unwrap_err();
+        assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
+        assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
+
+        let converted = token
+            .scope(|| execute_answer::<Value>(CancelledResultOutput::Partial, result))
             .unwrap();
         assert_eq!(converted.leaves.len(), 3);
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 3);
