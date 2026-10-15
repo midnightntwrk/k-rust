@@ -1609,3 +1609,37 @@ fn a_hinted_program_run_twice_is_listed_and_counted_once() {
     assert_eq!(document["outcome_cache"]["records_written"], 4);
     assert_eq!(records(&manifest, &document, "add-swaps-operands").len(), 4);
 }
+
+/// The known stack-dependence gap at the pin, as both READMEs state it (flow F-17, fix round
+/// 1 of its review): k-rust dismisses a stop for lack of stack silently both while it loads a
+/// definition (the discharge of rewrite-rule definedness, KINK-06/4) and while a run refines a
+/// result (KINK-06/5), and its execution contract excludes the two separately. So the text
+/// may not say the re-pin closes the gap through the run's `stackStops` alone: it must also
+/// name the load's stack-stop counts of either definition.
+#[test]
+fn the_known_stack_gap_names_the_load_counts_beside_stack_stops() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for readme in [manifest.join("../../README.md"), manifest.join("README.md")] {
+        let text = fs::read_to_string(&readme).unwrap();
+        let start = text
+            .find("Known gap at the k-rust pin")
+            .unwrap_or_else(|| panic!("{} names the known gap", readme.display()));
+        let gap = &text[start..];
+        let gap = &gap[..gap.find("\n\n").unwrap_or(gap.len())];
+        for needle in [
+            "stackStops",
+            "load",
+            "discharge_counts().stack_stops",
+            "condition_stack_stops",
+            "KINK-06/4",
+            "KINK-06/5",
+            "RP-01",
+        ] {
+            assert!(
+                gap.contains(needle),
+                "{}: the known-gap text lacks {needle:?}:\n{gap}",
+                readme.display()
+            );
+        }
+    }
+}

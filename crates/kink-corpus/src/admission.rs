@@ -260,11 +260,16 @@ pub fn check_exclusions(
 /// refuses with its reason and citation, exactly as for an excluded entry. Each file is named
 /// by its logical name under the definition root and is matched both lexically under
 /// `lexical_root` (the root as the manifest names it) and once links are resolved under
-/// `canonical_root`. Admission and the resume binding pass the same set (flow F-17): every
-/// file admission read, that is the definition's sources and its file-backed test inputs
-/// (program files and kore_state files). So no require, include directory, link or test input
-/// can bring a below-floor file into a definition whose entry lies outside every case
-/// directory.
+/// `canonical_root`. A file's name is the one its caller records: a source under the name
+/// the load gave it, a kink-corpus test input under its resolved name (its link target
+/// stripped of the root), so an input declared inside a case directory that links to a file
+/// outside every case directory passes, as its bytes are not below the floor. kink-corpus's
+/// admission and resume binding pass the same set (flow F-17): every file admission read,
+/// that is the definition's sources and its file-backed test inputs (program files and
+/// kore_state files). So there no require, include directory, link or test input can bring a
+/// below-floor file into a definition whose entry lies outside every case directory.
+/// kink-flow passes its definition's sources only; its program files are not checked here
+/// (flow F-17 review 1, minor 1).
 pub fn check_loaded_exclusions(
     exclusions: &[Exclusion],
     lexical_root: &Path,

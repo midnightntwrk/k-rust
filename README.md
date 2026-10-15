@@ -53,9 +53,9 @@ and on the integrity of the cache directory, which is trusted like the build.
 A killer hint never decides a status: it only orders the work.
 When a mutation runs live, the baseline result of each program it runs is compared with that program's cached result, which detects a corpus that changed under the cache.
 A killed mutation decided by a cached outcome, or a survivor whose every outcome is cached, runs nothing and gets no such check: there the programs' cached results are trusted with the rest of the cache directory.
-Known gap at the k-rust pin (927b9ce6): a run's result can depend on the thread's stack, because k-rust dismisses a stack-exhausted refinement silently (k-rust KINK-06/4 and KINK-06/5).
+Known gap at the k-rust pin (927b9ce6): a result can depend on the stack of the thread that loads the definition or runs the program, and on other threads, because k-rust silently dismisses a stop for lack of stack both in the load's discharge of rewrite-rule definedness (k-rust KINK-06/4) and in a run's refinement of a result (KINK-06/5).
 This affects live and cached kills alike, and `--verify` does not remove it.
-The planned re-pin (RP-01) closes it: a comparison where either run reports a nonzero `stackStops` will be unknown, live or cached.
+The planned re-pin (RP-01) closes it: a comparison will be unknown, live or cached, when either run reports a nonzero `stackStops` or the load of either definition reports a nonzero stack-stop count (`discharge_counts().stack_stops` or `value_claims().counts().condition_stack_stops`).
 
 ### Commands
 
