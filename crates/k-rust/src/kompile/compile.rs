@@ -440,6 +440,10 @@ fn emit_compiled(
                 &resolved,
                 &hook_namespaces,
             ));
+            diagnostics.extend(super::hook_signatures::collection_role_misfit_diagnostics(
+                &resolved,
+                &hook_namespaces,
+            ));
             diagnostics
         },
     )));

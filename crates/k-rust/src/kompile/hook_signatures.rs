@@ -12,20 +12,28 @@
 //! declares no symbol the backend refuses to load, and the error names the production rather than
 //! its KORE symbol.
 //!
+//! The same holds for a collection sort's unit, element and concat symbols: each must have its
+//! role's signature ([`k_rust_backend::builtin::collection_role_misfit`], which the backend
+//! applies to every collection sort it loads), decided here over the declarations emission
+//! writes ([`collection_role_misfit_diagnostics`]).
+//!
 //! An element (key, value) sort may be a closed instance of a parametric sort such as `MInt{64}`:
 //! the emitted element symbol takes that instance, which is one sort, and the subsort order
 //! relates it like any other sort.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use k_rust_backend::builtin::{CollectionShape, SortFacts, collection_hook_misfit};
+use k_rust_backend::builtin::{
+    CollectionKind, CollectionRole, CollectionShape, RoleDeclaration, SortFacts,
+    collection_hook_misfit, collection_role_misfit,
+};
 use k_rust_kore::names::BuiltinSort;
 
 use super::module_to_kore::{collection_concatenation, emitted_subsort_pair, interpreted_hook};
 use crate::{
     definition::{
-        AttributeKey, LabelHead, PartialOrder, ProductionItem, ResolvedDefinition, Sentence,
-        production_kind::ProductionKind,
+        AttributeKey, LabelHead, PartialOrder, ProductionCatalog, ProductionItem,
+        ResolvedDefinition, Sentence, production_kind::ProductionKind,
     },
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::Sort,
@@ -163,4 +171,176 @@ pub(super) fn collection_hook_misfit_diagnostics(
         ));
     }
     diagnostics
+}
+
+/// One error for each role symbol of a `LIST`, `SET` or `MAP` collection sort of the main
+/// module whose emitted declaration does not have its role's signature
+/// (`collection_role_misfit`), decided over exactly the declarations emission writes for the
+/// sort: the concat is the production `collection_concatenation` chooses, the unit and element
+/// are the single productions its `unit` and `element` attributes name, each symbol's argument
+/// and result sorts are its production's non-terminal and result sorts, and its hook is the one
+/// emission writes (`interpreted_hook`: a `function`'s hook whose namespace is builtin or in
+/// `admitted`). So kcompile refuses a definition here only when the loader would refuse the KORE
+/// it emits (as a role misfit, or a map element of the wrong arity as a malformed collection), and
+/// it refuses every definition whose KORE the loader would refuse as a role misfit. Each error is located at the concat production, which writes
+/// the attributes, and names the unit or element production with its own position. A sort with
+/// parameters, a role production with parameters, and a label naming no single production are
+/// refused by emission or the parametric checks and are skipped here.
+pub(super) fn collection_role_misfit_diagnostics(
+    definition: &ResolvedDefinition,
+    admitted: &[String],
+) -> Vec<Diagnostic> {
+    let module = definition.main_module_id();
+    let productions = definition.production_catalog(module);
+    let sorts = definition.sort_catalog(module);
+    let mut diagnostics = Vec::new();
+    for (head, sort_attributes) in sorts.attributes_by_head() {
+        let Some(kind) = sort_attributes
+            .string(AttributeKey::Hook)
+            .and_then(CollectionKind::of_sort_hook)
+        else {
+            continue;
+        };
+        if head.parameters() != 0 {
+            continue;
+        }
+        let Some(
+            concat @ Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            },
+        ) = collection_concatenation(head, &productions)
+        else {
+            continue;
+        };
+        let collection = Sort::new(head.as_str());
+        let roles = [
+            (
+                CollectionRole::Unit,
+                attributes
+                    .string(AttributeKey::Unit)
+                    .and_then(|name| single_production(&productions, name)),
+            ),
+            (
+                CollectionRole::Element,
+                attributes
+                    .string(AttributeKey::Element)
+                    .and_then(|name| single_production(&productions, name)),
+            ),
+            (CollectionRole::Concat, Some((label.name.as_str(), concat))),
+        ];
+        for (role, named) in roles {
+            let Some((
+                name,
+                production @ Sentence::Production {
+                    parameters,
+                    sort: result_sort,
+                    items,
+                    attributes: role_attributes,
+                    ..
+                },
+            )) = named
+            else {
+                continue;
+            };
+            if !parameters.is_empty() {
+                continue;
+            }
+            let argument_sorts = non_terminal_sorts(items);
+            let hook = interpreted_hook(role_attributes, admitted)
+                .and_then(|_| role_attributes.string(AttributeKey::Hook));
+            let declaration = RoleDeclaration {
+                sort_parameters: 0,
+                argument_sorts: &argument_sorts,
+                result_sort,
+                hook,
+            };
+            let Some(reason) =
+                collection_role_misfit(kind, role, &collection, &declaration, ToString::to_string)
+            else {
+                continue;
+            };
+            diagnostics.push(Diagnostic::error(
+                DiagnosticCode::InvalidAttribute,
+                role_misfit_message(
+                    kind,
+                    role,
+                    &collection,
+                    &label.name,
+                    name,
+                    production,
+                    &argument_sorts,
+                    result_sort,
+                    &reason,
+                ),
+                concat,
+            ));
+        }
+    }
+    diagnostics
+}
+
+/// `name` with the one production labelled `name`, if exactly one is.
+fn single_production<'a>(
+    productions: &'a ProductionCatalog<'_>,
+    name: &'a str,
+) -> Option<(&'a str, &'a Sentence)> {
+    match productions.productions_for(&LabelHead::new(name)) {
+        [id] => Some((name, productions.production(*id))),
+        _ => None,
+    }
+}
+
+/// The message of a role misfit: the role, the named production with its signature and, for a
+/// unit or element, its own position, what does not fit, and what the role requires.
+#[allow(clippy::too_many_arguments)]
+fn role_misfit_message(
+    kind: CollectionKind,
+    role: CollectionRole,
+    collection: &Sort,
+    concat: &str,
+    name: &str,
+    production: &Sentence,
+    argument_sorts: &[Sort],
+    result_sort: &Sort,
+    reason: &str,
+) -> String {
+    let signature = argument_sorts
+        .iter()
+        .map(ToString::to_string)
+        .chain(["->".to_owned(), result_sort.to_string()])
+        .collect::<Vec<_>>()
+        .join(" ");
+    let arguments = match role {
+        CollectionRole::Unit => "no argument".to_owned(),
+        CollectionRole::Element if kind.element_arity() == 1 => "one argument".to_owned(),
+        CollectionRole::Element => "two arguments, a key and a value".to_owned(),
+        CollectionRole::Concat => format!("two arguments of sort {collection}"),
+    };
+    let own = format!("{}.{}", kind.namespace(), role.name());
+    let required = format!(
+        "the {role} of collection sort {collection} must have result sort {collection} and {arguments}, with no hook or {own}"
+    );
+    match role {
+        CollectionRole::Unit | CollectionRole::Element => {
+            let attributes = production.attributes();
+            let position = match (attributes.source(), attributes.location()) {
+                (Some(source), Some(location)) => format!(
+                    " ({source}:{}:{})",
+                    location.start_line, location.start_column
+                ),
+                (None, Some(location)) => {
+                    format!(" ({}:{})", location.start_line, location.start_column)
+                }
+                (Some(_) | None, None) => String::new(),
+            };
+            format!(
+                "The {role} attribute of production {concat} names {name}{position} : {signature}, which {reason}; {required}."
+            )
+        }
+        CollectionRole::Concat => format!(
+            "Production {concat} : {signature} carries the element attribute, so it is the concat of collection sort {collection}, but it {reason}; {required}."
+        ),
+    }
 }
