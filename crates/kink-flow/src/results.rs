@@ -7,6 +7,12 @@
 //! all-normal classifier and the manifest's budget, and every program of one command shares one
 //! `NativeValidator`, so the baseline compiles once. One program's failure never touches another.
 //!
+//! Every campaign call of one command goes through the command's one [`BaselineRunner`], whose
+//! in-memory `kink_campaign::BaselineSession` runs each program's baseline live at most once per
+//! command (flow F-12, README 6.3): `results` runs each program once, and `run` reuses those
+//! live runs in its kill search. The session is never written to disk, so a later command runs
+//! every baseline it needs live again. The documents report the count as `baseline_runs`.
+//!
 //! A program is `comparable` exactly when that campaign admits its baseline run: the run is
 //! complete and every oracle side is a value. Only a comparable program can later kill a mutant.
 //! When the campaign refuses the baseline run, the runner returns no evidence; a diagnostic run
@@ -33,9 +39,10 @@ use k_rust::{
     names::KoreAttribute,
 };
 use kink_campaign::{
-    Campaign, CampaignFailure, CampaignFailureKind, CampaignOptions, CampaignReport, CrashPolicy,
-    FinalResult, OracleDeclaration, OracleSide, OracleValue, Projection, ScheduleMode, SideRun,
-    StateProjection, TestCase, run_campaign_multi,
+    BaselineSession, Campaign, CampaignFailure, CampaignFailureKind, CampaignOptions,
+    CampaignReport, CampaignRun, CrashPolicy, FinalResult, OracleDeclaration, OracleSide,
+    OracleValue, Projection, ScheduleMode, SideRun, StateProjection, TestCase,
+    run_campaign_multi_with,
 };
 use kink_corpus::{
     Store, admission::AdmissionRecord, admission::input_backend, runner::all_normal,
@@ -51,6 +58,7 @@ use kink_patch::{
 };
 use serde_json::{Value, json};
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
@@ -183,8 +191,10 @@ impl ProgramResult {
     }
 }
 
-/// Runs programs of one admitted specification, each as its own zero-mutant campaign, with one
-/// validator (the specification's), so the baseline compiles once.
+/// Runs the campaign calls of one command over one admitted specification: each program's
+/// zero-mutant campaign (`results`) and the kill search's calls (`run`). It holds the command's
+/// one validator (the specification's), so the baseline compiles once, and the command's one
+/// in-memory baseline session, so each program's baseline runs live at most once per command.
 pub struct BaselineRunner<'a> {
     spec: &'a AdmittedSpec,
     main_module: &'a str,
@@ -192,6 +202,9 @@ pub struct BaselineRunner<'a> {
     generations: Vec<CandidateGeneration<'a>>,
     budget: ExecutionBudget,
     authors: RuleAuthors,
+    /// The command's session; it holds the all-normal classifier every call uses, as the one
+    /// reference the session memoises under.
+    session: RefCell<BaselineSession<'a>>,
 }
 
 impl<'a> BaselineRunner<'a> {
@@ -214,26 +227,53 @@ impl<'a> BaselineRunner<'a> {
             generations: vec![generation],
             budget: execution_budget(manifest.budget),
             authors: RuleAuthors::of(&spec.compiled),
+            session: RefCell::new(BaselineSession::new(&spec.validator, &all_normal)),
         })
     }
 
-    /// Run one admitted program (its oracles are replaced by [`fixed_oracles`]).
-    pub fn run(&self, mut test: TestCase) -> ProgramResult {
-        test.oracles = fixed_oracles();
+    /// One campaign call of this command over `tests` (their oracles as given): the
+    /// specification's validator and module, the all-normal classifier, the manifest's budget,
+    /// no step observation, and every baseline run through the command's session.
+    pub fn call(
+        &self,
+        tests: &[TestCase],
+        generations: &[CandidateGeneration<'_>],
+        options: &CampaignOptions,
+    ) -> Result<CampaignRun, CampaignFailure> {
+        let classify = self.session.borrow().classify();
         let campaign = Campaign {
             validator: &self.spec.validator,
             module: &self.module,
             observation: &[],
-            classify: &all_normal,
-            tests: std::slice::from_ref(&test),
+            classify,
+            tests,
             budget: self.budget,
         };
+        run_campaign_multi_with(
+            &campaign,
+            generations,
+            options,
+            &mut self.session.borrow_mut(),
+        )
+    }
+
+    /// `{live, reused}`: the baseline runs this command made live, and the baseline requests
+    /// of its campaign calls answered by one of them (outside every digest and key).
+    pub fn baseline_runs(&self) -> Value {
+        let session = self.session.borrow();
+        json!({"live": session.live_runs(), "reused": session.reused_runs()})
+    }
+
+    /// Run one admitted program (its oracles are replaced by [`fixed_oracles`]). Its baseline
+    /// runs live unless this command already ran the same program live.
+    pub fn run(&self, mut test: TestCase) -> ProgramResult {
+        test.oracles = fixed_oracles();
         let options = CampaignOptions {
             schedule: ScheduleMode::FirstKill,
             selection: kink_campaign::SelectionPolicy::None,
             share_evidence: true,
         };
-        match run_campaign_multi(&campaign, &self.generations, &options) {
+        match self.call(std::slice::from_ref(&test), &self.generations, &options) {
             Ok(run) => {
                 assert!(run.mutants.is_empty() && run.baseline.len() == 1);
                 let evidence = &run.baseline[0];
@@ -576,7 +616,14 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
     let (mut record, admitted) = admit_spec(manifest);
     let Some((spec, mut inputs)) = admitted else {
         return (
-            document(&record, None, Vec::new(), Vec::new(), Vec::new()),
+            document(
+                &record,
+                None,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Value::Null,
+            ),
             false,
         );
     };
@@ -586,7 +633,14 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
         Err(e) => {
             record.refusal = Some(runner_refusal(e));
             return (
-                document(&record, None, Vec::new(), Vec::new(), Vec::new()),
+                document(
+                    &record,
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    Value::Null,
+                ),
                 false,
             );
         }
@@ -609,6 +663,7 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
             programs,
             rules,
             update.mismatches,
+            runner.baseline_runs(),
         ),
         ok,
     )
@@ -904,6 +959,7 @@ fn document(
     programs: Vec<Value>,
     rules: Vec<Value>,
     mismatches: Vec<Value>,
+    baseline_runs: Value,
 ) -> Value {
     let refusal = record.refusal.as_ref();
     let count = |status: &str| rules.iter().filter(|r| r["status"] == status).count();
@@ -939,5 +995,6 @@ fn document(
         "rules": rules,
         "mismatches": mismatches,
         "summary": summary,
+        "baseline_runs": baseline_runs,
     })
 }

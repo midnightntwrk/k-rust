@@ -328,6 +328,13 @@ fn a_fresh_cache_fills_every_program_and_a_second_run_computes_nothing() {
             program["cached"] = json!(false);
         }
         uncached["summary"]["computed"] = first["summary"]["computed"].clone();
+        // F-12: the first command ran each program's baseline live once; the second ran none.
+        assert_eq!(
+            first["baseline_runs"],
+            json!({"live": ids.len(), "reused": 0})
+        );
+        assert_eq!(second["baseline_runs"], json!({"live": 0, "reused": 0}));
+        uncached["baseline_runs"] = first["baseline_runs"].clone();
         assert_eq!(uncached, first);
     }
 }

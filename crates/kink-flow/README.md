@@ -104,6 +104,13 @@ program's bytes, start sort and variables, never its id. A record is used only w
 the current key, so editing a program reruns that program, and editing the specification,
 the budget or kink's result schema reruns everything.
 
+Within one command each program's baseline runs at most once: every campaign call of the command
+(the zero-mutant campaigns here, the kill search's calls in `run`) goes through one in-memory
+baseline session (kink-campaign `BaselineSession`), which reuses a baseline run this command made
+live for a later request with the same program, oracles, module and budget. Nothing of it is
+written to disk, so every command runs the baselines it needs live again; the document's
+`baseline_runs: {live, reused}` counts them (outside every digest and key).
+
 `--verify` reruns every program that has a current record and compares: a different class,
 a different `run_sha256`, or a record whose `run_sha256` is not the digest of its own baseline
 row is a mismatch. Mismatches are listed (program, record path, detail) and records are never
@@ -113,7 +120,8 @@ The document lists every program `{id, digest, class, cause, cached, verify}`, e
 rule `{module, index, label, file, start_line, end_line, status, reached_by}` with status
 `uncovered` (no comparable program reaches it: the next program to write) first, then
 `covered`, then `not-observable` (equations: a run's trace names rewrite steps only), the
-mismatches and a summary.
+mismatches, a summary and `baseline_runs` (`results --verify` runs every program live:
+`live` is the number of programs, `reused` 0).
 
 Exit status: 0 when the command did its job (timeouts and unknown programs included);
 1 when the manifest, the specification or a program is refused, a run failed, a record could
@@ -206,7 +214,8 @@ is there a program of the corpus whose result the mutation changes?
 
 1. The result cache is brought up to date first (`results` without `--verify`).
    Only `comparable` programs can kill; the others are never run.
-   A program whose record is class `timeout` and that a killer hint names is run once more (a timeout depends on the host's load):
+   A program whose cached record (one read from the cache, not computed by this command) is class `timeout` and that a killer hint names
+   is run once more (a timeout depends on the host's load):
    its record is replaced only when the class or the run digest changes, and the row says `"rerun": "timeout"`.
 2. The mutation is resolved into one patch (see `MUTATIONS.toml`); an `invalid-mutation` stops there.
 3. The programs are ordered (O): those whose cached coverage reaches an edited rule first, then the rest, each group in the manifest's order.
@@ -222,7 +231,10 @@ is there a program of the corpus whose result the mutation changes?
    followed by the last runner call's tests. kink-flow compares no terms; only a proved difference of the exit stop or the
    whole final configuration kills, live in this command or cached under an exactly matching key.
    A cached agreement is the fold's bottom, so the status is the one a run without any cache gives.
-7. After every runner call, each program's baseline run is checked against its cached result (`run_sha256`).
+7. Each program's baseline runs live at most once per command: the result update and every runner call share one
+   in-memory baseline session, so a program the update ran, or an earlier call ran, is not run again on the baseline;
+   its live run of this command is reused where the runner produces baseline evidence (`baseline_runs` counts both).
+   After every runner call, each program's baseline run is checked against its cached result (`run_sha256`).
    A difference is a corpus error: the mutation gets status `error` with reason `baseline-mismatch:<program id>`
    (or `baseline-count-mismatch`), nothing is cached for it, and the run stops (exit 1). Run `results --verify`.
    A cached agreement next to a mutant that no longer compiles is the corpus error `outcome-conflict`: run `run --verify`.
@@ -288,7 +300,7 @@ no program is comparable, a corpus error stopped the run, or `--verify` found a 
 
 `run` prints one document and writes the same document to `.kink-flow/report.json` (after every mutation, and once more at the end):
 
-`{schema: "kink-flow-run", version: 2, k_rust_revision, profile, result_schema_version, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches}`.
+`{schema: "kink-flow-run", version: 2, k_rust_revision, profile, result_schema_version, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs}`.
 
 | Field | Meaning |
 | --- | --- |
@@ -301,6 +313,7 @@ no program is comparable, a corpus error stopped the run, or `--verify` found a 
 | `stopped` | `null`, or `{mutation, reason}` of the corpus error that stopped the run. |
 | `outcome_cache` | `{context_sha256, enabled, verify, reason, mutations_from_cache, programs_from_cache, records_written}`: tier 1's context (null when disabled), whether it decided statuses, whether this is `run --verify`, why not, the mutations decided with no call, the cached program outcomes used, and the records written. |
 | `mismatches` | `run --verify`'s differences `{mutation, program, cached, live}`; empty otherwise. |
+| `baseline_runs` | `{live, reused}`: the baseline runs this command made live (the result update's and the calls'), at most one per program, and the baseline requests of its calls answered by one of them; null when the specification is refused. Outside every digest and key. |
 
 A mutation row is `{id, note, digest, identity, status, reason, killer, killer_source, killer_from_cache, unusable_killer, reaching, executed, calls, rules, action}`:
 

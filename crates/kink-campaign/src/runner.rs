@@ -360,11 +360,232 @@ pub fn run_campaign_with(
 /// Admits and runs the baseline once, then executes candidates in generation order.
 /// Every generation must derive from the validator's own baseline. The global score
 /// is available only when every generation is scored; candidate ids are global.
+///
+/// This is [`run_campaign_multi_with`] through a fresh [`BaselineSession`]: the tests of one
+/// campaign have distinct ids, so every baseline request misses and runs live.
 pub fn run_campaign_multi(
     campaign: &Campaign<'_>,
     generations: &[CandidateGeneration<'_>],
     options: &CampaignOptions,
 ) -> Result<CampaignRun, CampaignFailure> {
+    run_campaign_multi_with(
+        campaign,
+        generations,
+        options,
+        &mut BaselineSession::new(campaign.validator, campaign.classify),
+    )
+}
+
+/// The terminal classifier of a campaign ([`Campaign::classify`]).
+type Classify<'a> = dyn Fn(&Pattern) -> ExecutionTerminalKind + 'a;
+
+/// Every input of one baseline run ([`Runtime::run`] and [`Runtime::prepare`]), besides the
+/// session's validator and classifier: where each is read is listed on its field.
+#[derive(Clone, Debug, PartialEq)]
+struct BaselineKey {
+    /// The evidence's and the bridge context's test id (`Runtime::run`).
+    test_id: String,
+    /// The state the adapter executes and the decider's `TestInitialState` (`Runtime::run`).
+    initial_state: Pattern,
+    /// One side per declaration, each by its projection (`Runtime::run`, `state_side`).
+    oracles: Vec<OracleDeclaration>,
+    /// The backend's module (`Runtime::prepare`, `Backend::from_definition`).
+    module: String,
+    /// The execution request's bounds and the watchdog's time (`Runtime::run`).
+    budget: ExecutionBudget,
+    /// The adapter's expected solver profile (`Runtime::prepare`); one per build.
+    profile: SolverProfile,
+}
+
+/// A stored live baseline run: the runner's evidence and run cache (stepped evidence and rule
+/// coverage), exactly as [`Runtime::run`] returned them.
+#[derive(Clone)]
+struct StoredBaseline {
+    key: BaselineKey,
+    evidence: TestEvidence,
+    cache: RunCache,
+}
+
+/// The live baseline runs of one command, each reused by later campaign calls of the same
+/// command (flow F-12, README 6.3).
+///
+/// A session is created for one validator and one classifier, and lives in memory only: it is
+/// never written to disk, so every verdict compares a mutant with a baseline run live in this
+/// process. [`run_campaign_multi_with`] takes each test's baseline run through it: the first
+/// request with a key runs live and stores the runner's own evidence and run cache; a later
+/// request with an equal key returns them, inserted exactly where the runner produces baseline
+/// evidence, so admission, scheduling, the fold and the comparisons are unchanged. The key is
+/// every input of the run ([`BaselineKey`]: test id, initial state, oracle declarations,
+/// module, budget, solver profile), and the validator and the classifier are fixed per session;
+/// a campaign over another validator is refused, and a campaign with another classifier is not
+/// memoised. The session borrows its validator, so that validator cannot change or move while
+/// the session lives; a validator's baseline and compile options are fixed at bind and its
+/// compiled baseline is memoised, so the session's validator always has the compiled baseline
+/// and options [`BaselineSession::compiled_baseline`] records.
+///
+/// The session is used only when the baseline run is a function of that key: the campaign has
+/// no step observation, no oracle is a pattern projection, every test is concrete, and its
+/// classifier is the session's. Any other campaign runs every baseline live and leaves the
+/// session untouched. A baseline stopped by a bound (for example `Failed(TimeLimit)`) is stored
+/// and reused like any other run, and admission refuses it again.
+///
+/// Reuse rests on k-rust execution determinism, the premise replay already rests on: the same
+/// compiled definition, module, budget and state give the same run. For such campaigns no state
+/// a baseline run leaves in its `Runtime` is read later in the call except through what the
+/// session stores (README 6.3, flow F-12 handoff): the backend's definition cache and its
+/// memoised definition facts are functions of the compiled definition; k-rust's per-request
+/// thread-local scopes (the `apart` counter, the instance-normal scan memo) restart for every
+/// request; with Z3 the solver's result cache holds only `Sat`/`Unsat` answers keyed by the
+/// exact query, so a later query reads what re-solving the same query gives (a solver timeout
+/// aside, which is host-dependent between any two live runs); after the baseline runs, the call
+/// reads the baseline `Runtime` only for definition facts and pattern sides, which feed pattern
+/// slots only.
+pub struct BaselineSession<'v> {
+    validator: &'v NativeValidator,
+    classify: &'v Classify<'v>,
+    /// The validator's compiled baseline (`kore_sha256`) and compile options, when it compiles;
+    /// recorded on first request, so a fresh session per call ([`run_campaign_multi`]) costs no
+    /// hash of the compiled definition.
+    compiled: std::cell::OnceCell<Option<(Sha256Digest, k_rust::kompile::CompileOptions)>>,
+    runs: Vec<StoredBaseline>,
+    live: usize,
+    reused: usize,
+}
+
+impl<'v> BaselineSession<'v> {
+    /// An empty session for `validator`'s compiled baseline and `classify`.
+    #[must_use]
+    pub fn new(validator: &'v NativeValidator, classify: &'v Classify<'v>) -> Self {
+        Self {
+            validator,
+            classify,
+            compiled: std::cell::OnceCell::new(),
+            runs: Vec::new(),
+            live: 0,
+            reused: 0,
+        }
+    }
+
+    /// Baseline runs this session made live (and stored).
+    #[must_use]
+    pub const fn live_runs(&self) -> usize {
+        self.live
+    }
+
+    /// Baseline requests this session answered from a stored live run.
+    #[must_use]
+    pub const fn reused_runs(&self) -> usize {
+        self.reused
+    }
+
+    /// Stored live runs, one per distinct key.
+    #[must_use]
+    pub const fn stored_runs(&self) -> usize {
+        self.runs.len()
+    }
+
+    /// The classifier the session was created with: a campaign memoises only when its
+    /// [`Campaign::classify`] is this very reference (the same function through another
+    /// reference may have another vtable copy, which only misses).
+    #[must_use]
+    pub const fn classify(&self) -> &'v Classify<'v> {
+        self.classify
+    }
+
+    /// The session's validator's compiled baseline (`kore_sha256`) and compile options; `None`
+    /// when its baseline does not compile.
+    pub fn compiled_baseline(&self) -> Option<(Sha256Digest, &k_rust::kompile::CompileOptions)> {
+        self.compiled
+            .get_or_init(|| compiled_identity(self.validator))
+            .as_ref()
+            .map(|(digest, options)| (*digest, options))
+    }
+
+    /// Refuses a campaign over another validator than the session's, even an equal clone: the
+    /// session's validator is the one it borrows, by reference.
+    fn admit(&self, campaign: &Campaign<'_>) -> Result<(), CampaignFailure> {
+        if std::ptr::eq(campaign.validator, self.validator) {
+            Ok(())
+        } else {
+            Err(CampaignFailure::new(
+                CampaignFailureKind::InvalidDeclaration,
+                "the baseline session belongs to another validator than the campaign's",
+            ))
+        }
+    }
+
+    /// Whether the campaign's baseline runs are functions of their keys: no step observation,
+    /// no pattern oracle, concrete tests, and the session's classifier.
+    fn memoises(&self, campaign: &Campaign<'_>) -> bool {
+        let session: &Classify<'_> = self.classify;
+        let campaign_classify: &Classify<'_> = campaign.classify;
+        campaign.observation.is_empty()
+            && std::ptr::eq(session, campaign_classify)
+            && campaign.tests.iter().all(|test| {
+                test.initial_state.variable_occurrences().is_empty()
+                    && test
+                        .oracles
+                        .iter()
+                        .all(|declaration| matches!(declaration.projection(), Projection::State(_)))
+            })
+    }
+
+    /// The baseline run of `test` on the call's baseline `runtime`: stored, or live and then
+    /// stored. With `memoise` false it is live and the session is untouched.
+    fn baseline_run(
+        &mut self,
+        runtime: &mut Runtime,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        memoise: bool,
+    ) -> (TestEvidence, RunCache) {
+        if !memoise {
+            return runtime.run(campaign, test);
+        }
+        let key = BaselineKey {
+            test_id: test.id.clone(),
+            initial_state: test.initial_state.clone(),
+            oracles: test.oracles.clone(),
+            module: campaign.module.to_owned(),
+            budget: campaign.budget,
+            profile: SolverProfile::BUILD,
+        };
+        if let Some(stored) = self.runs.iter().find(|stored| stored.key == key) {
+            self.reused += 1;
+            return (stored.evidence.clone(), stored.cache.clone());
+        }
+        let (evidence, cache) = runtime.run(campaign, test);
+        self.live += 1;
+        self.runs.push(StoredBaseline {
+            key,
+            evidence: evidence.clone(),
+            cache: cache.clone(),
+        });
+        (evidence, cache)
+    }
+}
+
+/// A validator's compiled baseline identity and compile options, when it compiles.
+fn compiled_identity(
+    validator: &NativeValidator,
+) -> Option<(Sha256Digest, k_rust::kompile::CompileOptions)> {
+    validator
+        .compile_baseline()
+        .ok()
+        .map(|compiled| (compiled.kore_sha256(), compiled.compile_options().clone()))
+}
+
+/// [`run_campaign_multi`] with each test's baseline run taken through `session` (see
+/// [`BaselineSession`]). A campaign over another validator than the session's is refused
+/// before anything runs. Everything after the baseline runs is [`run_campaign_multi`]'s.
+pub fn run_campaign_multi_with(
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    options: &CampaignOptions,
+    session: &mut BaselineSession<'_>,
+) -> Result<CampaignRun, CampaignFailure> {
+    session.admit(campaign)?;
+    let memoise = session.memoises(campaign);
     if generations.is_empty() {
         return Err(CampaignFailure::new(
             CampaignFailureKind::InvalidDeclaration,
@@ -441,7 +662,7 @@ pub fn run_campaign_multi(
         let baseline_runs = campaign
             .tests
             .iter()
-            .map(|test| runtime.run(campaign, test))
+            .map(|test| session.baseline_run(&mut runtime, campaign, test, memoise))
             .collect::<Vec<_>>();
         let baseline_coverage = baseline_runs
             .iter()
@@ -1041,7 +1262,7 @@ fn run_tests(
 
 /// Stepped evidence retained from the primary run, and its rule coverage when the side
 /// records it.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct RunCache {
     stepped: Option<SteppedExecution>,
     coverage: Option<TestCoverage>,
@@ -1617,6 +1838,83 @@ mod input_test_support;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The module is a key component of a stored baseline run (flow F-12): on the same baseline
+    /// `Runtime`, a request under another module misses and runs live; the same request again is
+    /// a hit. (No fixture has a second executable module, so the integration tests in
+    /// tests/session.rs cannot vary it through a campaign.)
+    #[test]
+    fn a_session_key_holds_the_module() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let validator = NativeValidator::bind(
+                    input_test_support::load_path(
+                        &std::path::Path::new(input_test_support::DIR).join("counter.k"),
+                        "COUNTER",
+                    ),
+                    k_rust::kompile::CompileOptions::default(),
+                );
+                let compiled = validator.compile_baseline().unwrap();
+                let classify: &Classify<'_> = &|_| ExecutionTerminalKind::Normal;
+                let z = || input_test_support::app("Lblz", vec![]);
+                let test = TestCase {
+                    id: "t".into(),
+                    initial_state: input_test_support::initial_state(
+                        input_test_support::app(
+                            "Lblcounter",
+                            vec![z(), input_test_support::app("Lbls", vec![z()])],
+                        ),
+                        "SortCounter",
+                    ),
+                    oracles: vec![
+                        OracleDeclaration::new(
+                            CrashPolicy::Reject,
+                            Projection::State(StateProjection::WholeTerm),
+                        )
+                        .unwrap(),
+                    ],
+                };
+                let tests = [test];
+                let campaign = |module| Campaign {
+                    validator: &validator,
+                    module,
+                    observation: &[],
+                    classify,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: None,
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                let counter = campaign("COUNTER");
+                let other = campaign("COUNTER-OTHER");
+                let mut runtime = Runtime::prepare(&counter, &compiled)
+                    .unwrap_or_else(|_| panic!("baseline runtime"));
+                let mut session = BaselineSession::new(&validator, classify);
+                assert!(session.memoises(&counter) && session.memoises(&other));
+                let first = session.baseline_run(&mut runtime, &counter, &tests[0], true);
+                assert_eq!((session.live_runs(), session.reused_runs()), (1, 0));
+                let moved = session.baseline_run(&mut runtime, &other, &tests[0], true);
+                assert_eq!((session.live_runs(), session.reused_runs()), (2, 0));
+                assert_eq!(moved.0, first.0, "the same runtime gives the same evidence");
+                session.baseline_run(&mut runtime, &other, &tests[0], true);
+                session.baseline_run(&mut runtime, &counter, &tests[0], true);
+                assert_eq!(
+                    (
+                        session.live_runs(),
+                        session.reused_runs(),
+                        session.stored_runs()
+                    ),
+                    (2, 2, 2)
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 
     /// Equal patched KORE does not identify the symbolic side: an equation metadata edit
     /// still withdraws claims whose support it touched, while the transition-only twin does not.

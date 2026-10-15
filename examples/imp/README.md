@@ -71,6 +71,22 @@ each run under `systemd-run --user --scope -p MemoryMax=24G -p MemorySwapMax=0` 
 | real edit of the unary minus rule (`0 -Int I1` becomes `0 -Int I1 +Int 0`) | 94.7 s | 10.8 GiB | 21: 19 over the last killer alone; `neg-drops-sign` (its rule's text changed, so its hint no longer applies) and `add-commuted` over the 6 comparable programs | statuses and killers equal to a cold run of the edited copy (227.8 s) |
 | `run --verify` after the cold run | 209.5 s | 14.5 GiB | 21, over 126 programs | every one of the 39 cached outcomes re-proved; no mismatch |
 
+Since flow F-12 each program's baseline runs at most once per command:
+the result update and every campaign call of a command share one in-memory baseline session,
+so a call reuses the baseline runs this command already made (the run document's `baseline_runs: {live, reused}`).
+Measured with the release binary before (F-14, `e7f5347`) and after F-12, same host session, each run under the 24 GiB scope above;
+statuses, killers, killer sources and calls are equal in every scenario:
+
+| Scenario | Before F-12 | After F-12 | Baseline runs after (live / reused) |
+| --- | --- | --- | --- |
+| cold run, fresh cache | 229.8 s (load 39) | 128.8 s (load 27) | 7 / 126: each program once, in the result update; every call reuses them |
+| warm re-run, no change | 6.6 s | 6.2 s | 0 / 0: no campaign call |
+| `outcomes/` deleted (each killed mutation one call over its hint) | 50.5 s | 24.9 s | 6 / 20 |
+| comment-only edit of `imp.k` | 83.5 s | 47.9 s | 7 / 26 |
+
+The cold run's peak memory comes from the mutants that loop until `time_ms` (6.8 GiB before and 15.5 GiB after here,
+12.7 GiB in the F-14 table above): it depends on how far they get in 10 s on a loaded host, not on the baseline runs.
+
 A rebuilt `kink-flow` starts a new outcome context (the cache key includes the executable's digest),
 so the first run after a rebuild re-proves each killed mutation with one call over its last killer,
 as after the comment-only edit above, but without running the baselines again (their results are still current).

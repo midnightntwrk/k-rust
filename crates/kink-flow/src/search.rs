@@ -34,6 +34,13 @@
 //!    makes its first killing program the mutation's hint; any other status removes it. The
 //!    hints file and the report are written after every mutation, corpus errors included.
 //!
+//! Every campaign call goes through the command's one [`BaselineRunner`] and its in-memory
+//! baseline session (flow F-12, README 6.3): each program's baseline runs live at most once per
+//! command, in the result update or in the first call that needs it, and later calls of the
+//! same command reuse that live run where the runner produces baseline evidence. The drift check
+//! still compares every call's baseline rows with the cached records. The run document's
+//! `baseline_runs` counts the live and reused baseline runs.
+//!
 //! `run --verify` ([`RunMode::Verify`]) decides nothing from tier 1: it runs the cold call over
 //! O for every mutation, then one call per valid record whose program the cold call did not
 //! execute, and reports every record (and the cached path's status) that differs from the live
@@ -51,16 +58,16 @@ use crate::{
     },
     results::{
         BaselineRunner, ORACLE_SLOTS, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass,
-        cache_directory, execution_budget, fixed_oracles, kebab, rerun_timeout_record, run_digest,
-        runner_refusal, update_results,
+        cache_directory, fixed_oracles, kebab, rerun_timeout_record, run_digest, runner_refusal,
+        update_results,
     },
 };
 use kink_campaign::{
-    Campaign, CampaignFailure, CampaignOptions, CampaignReport, ManifestTest, MutantId, MutantPlan,
+    CampaignFailure, CampaignOptions, CampaignReport, ManifestTest, MutantId, MutantPlan,
     MutantReport, MutantRun, MutantStatus, OracleOutcome, ScheduleMode, TestCase, TestPlan,
-    TestRun, derive_mutant_report, run_campaign_multi,
+    TestRun, derive_mutant_report,
 };
-use kink_corpus::{Store, admission::AdmissionRecord, runner::all_normal};
+use kink_corpus::{Store, admission::AdmissionRecord};
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
 use kink_patch::{CandidateGeneration, Sha256Digest, Withdrawal};
 use serde_json::{Map, Value, json};
@@ -197,7 +204,8 @@ struct Search<'a> {
     spec: &'a AdmittedSpec,
     manifest: &'a FlowManifest,
     inputs: &'a mut ProgramInputs,
-    module: String,
+    /// The command's campaign calls, through its one baseline session.
+    runner: &'a BaselineRunner<'a>,
     rows: &'a [ProgramRow],
     candidates: Vec<Candidate<'a>>,
     /// Each candidate's test case with the fixed oracles, assembled on first use.
@@ -252,20 +260,14 @@ impl Search<'_> {
         for &candidate in order {
             tests.push(self.test(candidate)?);
         }
-        let campaign = Campaign {
-            validator: &self.spec.validator,
-            module: &self.module,
-            observation: &[],
-            classify: &all_normal,
-            tests: &tests,
-            budget: execution_budget(self.manifest.budget),
-        };
         let options = CampaignOptions {
             schedule: ScheduleMode::FirstKill,
             selection: kink_campaign::SelectionPolicy::None,
             share_evidence: false,
         };
-        let mut run = run_campaign_multi(&campaign, std::slice::from_ref(generation), &options)
+        let mut run = self
+            .runner
+            .call(&tests, std::slice::from_ref(generation), &options)
             .map_err(|failure| CorpusError {
                 reason: "campaign-refused".into(),
                 detail: format!(
@@ -985,7 +987,7 @@ pub fn run_with(
     // A run that admits no specification still replaces the report, so `report` always prints
     // the last run's document.
     let refused = |record: &AdmissionRecord| {
-        let document = document(record, None, &[], Vec::new(), None, Value::Null, &[]);
+        let document = document(record, None, &[], Vec::new(), None, Accounting::NONE);
         let _ = store.write_json(&report_path, &document);
         (document, false)
     };
@@ -1005,7 +1007,9 @@ pub fn run_with(
     let hints = Hints::read(&cache);
     if !verify {
         // F-05 review 1 minor 1 (README 7.5.7): a timeout record is host-dependent, so a
-        // program a hint names is re-run once when its record says timeout.
+        // program a hint names is re-run once when its record says timeout. A record this
+        // command just computed is already this command's live run, which the baseline session
+        // would return again (F-12): only a record read from the cache is re-run.
         let named = hints
             .program_digests()
             .into_iter()
@@ -1014,6 +1018,7 @@ pub fn run_with(
         for (index, program) in manifest.programs.iter().enumerate() {
             let row = &update.rows[index];
             if row.class() == Some(ResultClass::Timeout.as_str())
+                && row.row["cached"] == true
                 && row
                     .digest
                     .is_some_and(|digest| named.contains(&digest.to_string()))
@@ -1060,7 +1065,7 @@ pub fn run_with(
         spec: &spec,
         manifest,
         inputs: &mut inputs,
-        module: k_rust::kast::identifier::encode(&manifest.spec.main_module),
+        runner: &runner,
         rows: &update.rows,
         tests: vec![None; candidates.len()],
         candidates,
@@ -1118,8 +1123,11 @@ pub fn run_with(
             &program_rows,
             rows.clone(),
             stopped.clone(),
-            outcome_cache(&search),
-            &search.mismatches,
+            Accounting {
+                outcome_cache: outcome_cache(&search),
+                mismatches: &search.mismatches,
+                baseline_runs: runner.baseline_runs(),
+            },
         );
         match store.write_json(&report_path, &document) {
             Ok(()) => written = Some(document),
@@ -1143,8 +1151,11 @@ pub fn run_with(
         &program_rows,
         rows,
         stopped,
-        outcome_cache(&search),
-        &search.mismatches,
+        Accounting {
+            outcome_cache: outcome_cache(&search),
+            mismatches: &search.mismatches,
+            baseline_runs: runner.baseline_runs(),
+        },
     );
     // The stored report is the document the command prints: write it unless the last write
     // already stored exactly this document (no mutation was selected, or a write failed).
@@ -1244,14 +1255,29 @@ fn order(candidates: &[Candidate<'_>], resolved: &ResolvedMutation) -> Vec<usize
     order
 }
 
+/// The run document's accounting of the command's caches: `outcome_cache`, `mismatches` and
+/// `baseline_runs` (outside every digest and key).
+struct Accounting<'m> {
+    outcome_cache: Value,
+    mismatches: &'m [Value],
+    baseline_runs: Value,
+}
+
+impl Accounting<'_> {
+    const NONE: Accounting<'static> = Accounting {
+        outcome_cache: Value::Null,
+        mismatches: &[],
+        baseline_runs: Value::Null,
+    };
+}
+
 fn document(
     record: &AdmissionRecord,
     digest: Option<Sha256Digest>,
     programs: &[Value],
     mutations: Vec<Value>,
     stopped: Option<Value>,
-    outcome_cache: Value,
-    mismatches: &[Value],
+    accounting: Accounting<'_>,
 ) -> Value {
     let refusal = record.refusal.as_ref();
     let survivors = survivors(&mutations);
@@ -1288,8 +1314,9 @@ fn document(
         "counts": counts,
         "survivors": survivors,
         "stopped": stopped,
-        "outcome_cache": outcome_cache,
-        "mismatches": mismatches,
+        "outcome_cache": accounting.outcome_cache,
+        "mismatches": accounting.mismatches,
+        "baseline_runs": accounting.baseline_runs,
     })
 }
 

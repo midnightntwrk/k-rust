@@ -37,7 +37,8 @@ pub use oracle::{
     OracleValue, PatternValue, TerminalClass, compare_supplied,
 };
 pub use runner::{
-    Campaign, CampaignOptions, CampaignRun, MutantRun, OracleDeclaration, Projection, SideRun,
-    StateProjection, Tally, TestCase, TestEvidence, pattern_side, run_campaign, run_campaign_multi,
-    run_campaign_with, slot_outcome, state_side, tally,
+    BaselineSession, Campaign, CampaignOptions, CampaignRun, MutantRun, OracleDeclaration,
+    Projection, SideRun, StateProjection, Tally, TestCase, TestEvidence, pattern_side,
+    run_campaign, run_campaign_multi, run_campaign_multi_with, run_campaign_with, slot_outcome,
+    state_side, tally,
 };
