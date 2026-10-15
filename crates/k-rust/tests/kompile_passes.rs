@@ -4211,28 +4211,62 @@ fn folds_binary64_float_constants_in_every_build() {
     );
 }
 
-/// The backend evaluates no transcendental `FLOAT` hook and no arithmetic outside binary32 and
-/// binary64, so the fold leaves `expFloat(1.0)` and `1.0p113x15 +Float 2.0p113x15` as written in
-/// every build: execution does not compute them either.
+/// The fold leaves as written every `FLOAT` application the backend does not compute outside an
+/// execution, in every build: the 13 hooks it has no evaluator for, arithmetic in a format other
+/// than binary32 and binary64, an operation over a binary32 and a binary64 operand and the sign of
+/// a NaN (values only an execution chooses), and `Float2Int` of a NaN (a value the definition does
+/// not determine). Execution does not compute them either outside a run, so a fold evaluated in
+/// the execution mode, which would write k-rust's choices, fails here.
 #[test]
 fn leaves_float_hooks_the_backend_does_not_evaluate_unfolded() {
-    let results = folded_results(indoc! {r#"
-        module MAIN-SYNTAX
-          syntax Op ::= "go" [symbol(go)] | "wide" [symbol(wide)]
-        endmodule
-        module MAIN
-          imports MAIN-SYNTAX
-          imports DOMAINS
-          imports FLOAT
-          configuration <k> $PGM:Op </k>
-          syntax KItem ::= res(K) [symbol(res)]
-          rule go => res(expFloat(1.0))
-          rule wide => res(1.0p113x15 +Float 2.0p113x15)
-        endmodule
-    "#});
-    assert_eq!(results.len(), 2, "{results:?}");
-    assert!(results[0].contains("expFloat"), "{results:?}");
-    assert!(results[1].contains("+Float"), "{results:?}");
+    let applications = [
+        "expFloat(1.0)",
+        "logFloat(2.0)",
+        "sinFloat(1.0)",
+        "cosFloat(1.0)",
+        "tanFloat(1.0)",
+        "asinFloat(0.5)",
+        "acosFloat(0.5)",
+        "atanFloat(1.0)",
+        "atan2Float(1.0, 2.0)",
+        "2.0 ^Float 0.5",
+        "5.0 %Float 3.0",
+        "exponentFloat(1.0)",
+        "minValueFloat(53, 11)",
+        "1.0p113x15 +Float 2.0p113x15",
+        "roundFloat(1.0, 113, 15)",
+        "1.0f +Float 2.0",
+        "signFloat(NaN)",
+        "Float2Int(NaN)",
+    ];
+    let rules = applications
+        .iter()
+        .enumerate()
+        .map(|(index, application)| format!("  rule go({index}) => res({application})\n"))
+        .collect::<String>();
+    let results = folded_results(&format!(
+        r#"
+module MAIN-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= go(Int) [symbol(go)]
+endmodule
+module MAIN
+  imports MAIN-SYNTAX
+  imports DOMAINS
+  imports FLOAT
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K) [symbol(res)]
+{rules}endmodule
+"#
+    ));
+    assert_eq!(results.len(), applications.len(), "{results:?}");
+    let folded = applications
+        .iter()
+        .zip(&results)
+        .filter(|(_, result)| result.starts_with("res(#token("))
+        .map(|(application, result)| format!("{application} folded to {result}"))
+        .collect::<Vec<_>>();
+    assert!(folded.is_empty(), "{folded:#?}");
 }
 
 /// `A ^%Int B C` with a 131,072-bit exponent and modulus is a square-and-multiply of 131,072

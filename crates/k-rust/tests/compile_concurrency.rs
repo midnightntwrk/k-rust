@@ -303,10 +303,9 @@ fn concurrent_compiles_stress() {
     }
 }
 
-/// Builds that fold `Float` constants with MPFR: four threads compiling one shared definition
-/// whose rules fold `Float` arithmetic give the artifacts of a compile of a fresh load. (The
-/// process's `LC_NUMERIC` is an input of these builds; the test leaves it at the `C` locale.)
-#[cfg(feature = "mpfr-folding")]
+/// Every build folds `Float` constants through the backend: four threads compiling one shared
+/// definition whose rules fold `Float` arithmetic give the artifacts of a compile of a fresh load.
+/// The folded text is the backend's canonical text, which reads no locale.
 #[test]
 fn folded_floats_compile_concurrently_as_alone() {
     const FLOATS: &str = indoc! {r#"

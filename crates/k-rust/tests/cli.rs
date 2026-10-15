@@ -8635,13 +8635,14 @@ type FoldedHookCase = (
     &'static [&'static [&'static str]],
 );
 
-/// Every hook the constant fold evaluates (the `BOOL`, `INT` and `STRING` hooks with a backend
-/// evaluator), declared at its natural sorts, with literal arguments at the edges the hook models
-/// draw from (`k-rust-backend/src/builtin/hook_models`): zero, signs, values beyond 64 and 128
-/// bits, the empty string, escapes, and code points beyond ASCII, the Basic Multilingual Plane
-/// and one byte. `STRING.string2token` is declared at `Id` and at a sort hooked `INT.Int` under
-/// another name. Each argument tuple names a value of the hook, so a run of every case at once
-/// ends in one configuration.
+/// Every hook the constant fold evaluates (the `BOOL`, `INT`, `STRING` and `FLOAT` hooks with a
+/// backend evaluator), declared at its natural sorts, with literal arguments at the edges the hook
+/// models draw from (`k-rust-backend/src/builtin/hook_models`): zero, signs, values beyond 64 and
+/// 128 bits, the empty string, escapes, and code points beyond ASCII, the Basic Multilingual Plane
+/// and one byte; for `Float`, binary32 and binary64 operands, signed zeros, a subnormal tie,
+/// overflow to an infinity, NaN, and the format queries in other formats. `STRING.string2token`
+/// is declared at `Id` and at a sort hooked `INT.Int` under another name. Each argument tuple
+/// names a value of the hook, so a run of every case at once ends in one configuration.
 const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
     (
         "BOOL.and",
@@ -9006,6 +9007,160 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         "String",
         &[&[r#"#token("x", "Id")"#], &[r#"#token("Foo1", "Id")"#]],
     ),
+    ("FLOAT.abs", &["Float"], "Float", &[&["-0.0"], &["-1.5f"]]),
+    (
+        "FLOAT.add",
+        &["Float", "Float"],
+        "Float",
+        &[
+            &["0.1", "0.2"],
+            &["0.1f", "0.2f"],
+            &["1.0e308", "1.0e308"],
+            &["4.9406564584124654e-324", "4.9406564584124654e-324"],
+            &["-0.0", "0.0"],
+        ],
+    ),
+    ("FLOAT.ceil", &["Float"], "Float", &[&["-0.5"], &["1.5f"]]),
+    (
+        "FLOAT.div",
+        &["Float", "Float"],
+        "Float",
+        &[
+            &["1.0", "3.0"],
+            &["0.0", "0.0"],
+            &["-1.0", "0.0"],
+            &["0.0f", "0.0f"],
+        ],
+    ),
+    (
+        "FLOAT.eq",
+        &["Float", "Float"],
+        "Bool",
+        &[&["0.0", "-0.0"], &["NaN", "NaN"], &["1.0f", "1.0f"]],
+    ),
+    (
+        "FLOAT.exponentBits",
+        &["Float"],
+        "Int",
+        &[&["1.0p113x15"], &["1.0f"]],
+    ),
+    (
+        "FLOAT.float2int",
+        &["Float"],
+        "Int",
+        &[&["2.5"], &["-3.5"], &["1.0e300"], &["2.5f"]],
+    ),
+    ("FLOAT.floor", &["Float"], "Float", &[&["-0.5"], &["2.5f"]]),
+    (
+        "FLOAT.ge",
+        &["Float", "Float"],
+        "Bool",
+        &[&["1.0", "2.0"], &["NaN", "1.0"]],
+    ),
+    (
+        "FLOAT.gt",
+        &["Float", "Float"],
+        "Bool",
+        &[&["2.0f", "1.0f"], &["-0.0", "0.0"]],
+    ),
+    (
+        "FLOAT.int2float",
+        &["Int", "Int", "Int"],
+        "Float",
+        &[
+            &["9007199254740993", "53", "11"],
+            &["16777217", "24", "8"],
+            &["340282356779733661637539395458142568448", "24", "8"],
+        ],
+    ),
+    (
+        "FLOAT.isNaN",
+        &["Float"],
+        "Bool",
+        &[&["NaN"], &["1.0p113x15"], &["NaNf"]],
+    ),
+    (
+        "FLOAT.le",
+        &["Float", "Float"],
+        "Bool",
+        &[&["-0.0", "0.0"], &["NaN", "NaN"]],
+    ),
+    (
+        "FLOAT.lt",
+        &["Float", "Float"],
+        "Bool",
+        &[&["1.0", "2.0"], &["Infinity", "1.0"]],
+    ),
+    (
+        "FLOAT.max",
+        &["Float", "Float"],
+        "Float",
+        &[&["1.0f", "2.0f"], &["-1.0", "NaN"]],
+    ),
+    (
+        "FLOAT.maxValue",
+        &["Int", "Int"],
+        "Float",
+        &[&["53", "11"], &["24", "8"]],
+    ),
+    (
+        "FLOAT.min",
+        &["Float", "Float"],
+        "Float",
+        &[&["1.0", "2.0"], &["-Infinity", "0.0"]],
+    ),
+    (
+        "FLOAT.mul",
+        &["Float", "Float"],
+        "Float",
+        &[
+            &["4.9406564584124654e-324", "0.5"],
+            &["1.4e-45f", "1.5f"],
+            &["3.4028235e38f", "2.0f"],
+            &["-0.0", "1.0"],
+        ],
+    ),
+    ("FLOAT.neg", &["Float"], "Float", &[&["0.0"], &["1.5f"]]),
+    (
+        "FLOAT.precision",
+        &["Float"],
+        "Int",
+        &[&["1.0p113x15"], &["1.0p2x2"], &["1.0f"]],
+    ),
+    (
+        "FLOAT.root",
+        &["Float", "Int"],
+        "Float",
+        &[&["27.0", "3"], &["2.0", "2"], &["-8.0f", "3"]],
+    ),
+    (
+        "FLOAT.round",
+        &["Float", "Int", "Int"],
+        "Float",
+        &[
+            &["0.1", "24", "8"],
+            &["0.1f", "53", "11"],
+            &["-0.0", "24", "8"],
+            &["1.0e-45", "24", "8"],
+        ],
+    ),
+    (
+        "FLOAT.sign",
+        &["Float"],
+        "Bool",
+        &[&["-0.0"], &["-1.0e-400"], &["1.0p113x15"]],
+    ),
+    (
+        "FLOAT.sub",
+        &["Float", "Float"],
+        "Float",
+        &[
+            &["-0.0", "0.0"],
+            &["1.0f", "0.5f"],
+            &["Infinity", "Infinity"],
+        ],
+    ),
+    ("FLOAT.trunc", &["Float"], "Float", &[&["-2.7"], &["2.7f"]]),
 ];
 
 /// The definition of [`FOLDED_HOOK_CASES`]: for each declaration `n`, a function `hk<n>` hooked
@@ -9048,6 +9203,7 @@ endmodule
 module FOLDED-HOOKS
   imports FOLDED-HOOKS-SYNTAX
   imports DOMAINS
+  imports FLOAT
   configuration <k> $PGM:Op </k>
   syntax MyInt [hook(INT.Int), token]
   syntax KItem ::= res(K) [symbol(res)]
@@ -9074,7 +9230,12 @@ fn folded_and_evaluated_applications_agree() {
         .unwrap()
         .iter()
         .map(|hook| hook.as_str().unwrap())
-        .filter(|hook| matches!(hook.split_once('.'), Some(("BOOL" | "INT" | "STRING", _))))
+        .filter(|hook| {
+            matches!(
+                hook.split_once('.'),
+                Some(("BOOL" | "INT" | "STRING" | "FLOAT", _))
+            )
+        })
         .collect::<BTreeSet<_>>();
     let exercised = FOLDED_HOOK_CASES
         .iter()

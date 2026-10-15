@@ -265,8 +265,9 @@ pub(crate) fn evaluate_in_definition(
 /// length, eight times a `String`'s or `Bytes`' length): a hook whose result can outgrow its
 /// arguments (`^Int`, `<<Int`, `bitRangeInt`, `replaceAll`, the `Bytes` padding and `Int2Bytes`,
 /// the `MINT` results) refuses a larger result before computing it, as too large, and `^%Int`
-/// does not evaluate an application whose work exceeds that of one product of two values of the
-/// bound. The evaluation
+/// does not evaluate an application whose exponent's bit length times the square of its
+/// modulus' exceeds a sixteenth of the bound squared, which bounds its loop's products and
+/// reductions. The evaluation
 /// entry has no such bound beyond its own, so this only lets a caller that discards large results
 /// anyway, such as the frontend's constant fold, not pay for them.
 pub fn evaluate_declared(
@@ -546,9 +547,11 @@ fn evaluate_composed(
         }
         result => result,
     };
+    #[cfg(debug_assertions)]
     if let BuiltinResult::Value(value) = &result {
-        #[cfg(debug_assertions)]
         debug_assert_value_of_sort(hook, value, result_sort);
+    }
+    if let BuiltinResult::Value(_) = &result {
         // A value the definition leaves to the implementation (the order of `keys_list`,
         // `values` and `Set2List` of two or more items, the result format of a Float operation
         // over a binary32 and a binary64 operand, the sign of a NaN) is computed only inside an
@@ -1532,30 +1535,35 @@ fn int_powmod(arguments: &[Term]) -> HookResult<BuiltinResult> {
         )));
     }
     // A caller that bounds the results it uses (`result_bound`, the constant fold) also bounds
-    // the work it pays for one: the square-and-multiply loop below takes up to two products of
-    // values below the modulus per bit of the exponent, each about the square of the modulus'
-    // bit length in bit operations, and that caller pays for at most the work of one product of
-    // two values of its bound, the bound squared. Beyond it the application is not evaluated
-    // here; the result itself is below the modulus, so only the work is bounded. An evaluation
-    // without a bound, as in an execution, computes it.
+    // the work it pays for one. The square-and-multiply loop below takes, per bit of the exponent,
+    // up to two products of values below the modulus and a reduction of each by the modulus, a
+    // division of a value of twice the modulus' length; counted in the schoolbook way, a product
+    // is the square of the modulus' bit length in bit operations and a reduction a small multiple
+    // of one. The budget, a sixteenth of the bound squared (2^36 for the fold's 2^20-bit bound,
+    // the work of a 4096-bit RSA exponentiation), keeps the whole loop near the cost of one
+    // product of two values of the bound. Beyond it the application is not evaluated here; the
+    // result itself is below the modulus, so only the work is bounded. An evaluation without a
+    // bound, as in an execution, computes it.
     if let Some(bound) = result_bound()
         && exponent
             .bits()
             .saturating_mul(modulus.bits().saturating_mul(modulus.bits()))
-            > bound.saturating_mul(bound)
+            > bound.saturating_mul(bound) / 16
     {
         return Ok(BuiltinResult::NotApplicable);
     }
     let mut base = euclidean_modulus(base, modulus.clone()).expect("non-zero modulus");
-    let mut exponent = exponent;
     let mut result = BigInt::one();
-    while !exponent.is_zero() {
+    // Invariant: after the step for bit `index`, `result` is `base^(exponent mod 2^(index+1))`
+    // and `base` the original base to the power `2^(index+1)`, both reduced by the modulus; the
+    // exponent is read by bit index, so a step costs no work proportional to its length.
+    let bits = exponent.bits();
+    for index in 0..bits {
         crate::stop::check()?;
-        if (&exponent & BigInt::one()) == BigInt::one() {
+        if exponent.bit(index) {
             result = (result * &base) % &modulus;
         }
-        exponent >>= 1;
-        if !exponent.is_zero() {
+        if index + 1 < bits {
             base = (&base * &base) % &modulus;
         }
     }

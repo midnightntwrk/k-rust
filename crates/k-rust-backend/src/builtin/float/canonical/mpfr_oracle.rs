@@ -173,26 +173,10 @@ fn random_literals(format: (u32, u32), count: usize) -> Vec<String> {
         .collect()
 }
 
-/// `(negative, num, den)` of a finite canonical text `[-]DeQpNxM`, or of the decimal body of a
-/// binary32 or binary64 text read as a binary value of its format.
-fn denoted(text: &str, format: (u32, u32)) -> (bool, BigInt, BigInt) {
+/// `(negative, num, den)` of a finite canonical text `[-]DeQpNxM` of a format other than binary32
+/// and binary64, whose decimal is exact.
+fn denoted(text: &str) -> (bool, BigInt, BigInt) {
     let body = &text[..text.rfind('p').unwrap()];
-    if matches!(format, (24, 8) | (53, 11)) {
-        // binary32 and binary64 texts are the hooks' round-trip decimals, read by the hooks'
-        // correctly rounded parse.
-        let native = if format.0 == 24 {
-            f64::from(body.parse::<f32>().unwrap())
-        } else {
-            body.parse::<f64>().unwrap()
-        };
-        let (mantissa, exponent) = integer_exponent(&Float::with_val(64, native.abs()));
-        let power = BigInt::from(1) << u64::from(exponent.unsigned_abs());
-        return if exponent < 0 {
-            (native.is_sign_negative(), mantissa, power)
-        } else {
-            (native.is_sign_negative(), mantissa * power, BigInt::from(1))
-        };
-    }
     let (negative, body) = match body.strip_prefix('-') {
         Some(rest) => (true, rest),
         None => (false, body),
@@ -218,8 +202,7 @@ fn denoted(text: &str, format: (u32, u32)) -> (bool, BigInt, BigInt) {
 /// estimate.
 #[test]
 fn the_backend_canonical_float_text_agrees_with_mpfr() {
-    let mut checked = 0;
-    for (format, random) in [
+    let formats = [
         ((2, 2), 200),
         ((3, 3), 200),
         ((5, 4), 200),
@@ -229,48 +212,82 @@ fn the_backend_canonical_float_text_agrees_with_mpfr() {
         ((64, 15), 300),
         ((113, 15), 300),
         ((237, 17), 60),
-    ] {
-        let mut literals = boundary_literals(format);
-        literals.extend(random_literals(format, random));
+    ];
+    let cases = formats
+        .iter()
+        .flat_map(|&(format, random)| {
+            let mut literals = boundary_literals(format);
+            literals.extend(random_literals(format, random));
+            literals.into_iter().map(move |literal| (format, literal))
+        })
+        .collect::<Vec<_>>();
+    // The canonicalizer runs on a worker thread, and each literal gets a time limit, so a
+    // canonicalizer that does not terminate on a literal fails the test on that literal instead
+    // of stalling it.
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let literals = cases
+        .iter()
+        .map(|(_, literal)| literal.clone())
+        .collect::<Vec<_>>();
+    std::thread::spawn(move || {
         for literal in literals {
-            let text = match canonical_float_text(&literal) {
-                Ok(text) => text,
-                Err(refusal @ FloatTextRefusal::BeyondBound { estimate_bits }) => {
-                    assert!(estimate_bits > MAX_FLOAT_CANONICAL_BITS, "{literal}");
-                    assert_eq!(float_canonical_bits_estimate(&literal), Err(refusal));
-                    continue;
-                }
-                Err(refusal) => panic!("{literal}: {refusal:?}"),
-            };
-            let value = mpfr_value(&literal);
-            if value.is_nan() {
-                assert!(text.starts_with("NaN"), "{literal}: {text}");
-            } else if value.is_infinite() {
-                assert_eq!(
-                    text,
-                    format!(
-                        "{}Infinityp{}x{}",
-                        if value.is_sign_negative() { "-" } else { "" },
-                        format.0,
-                        format.1
-                    ),
-                    "{literal}"
-                );
-            } else {
-                let (negative, num, den) = denoted(&text, format);
-                assert_eq!(negative, value.is_sign_negative(), "{literal}: {text}");
-                let (mantissa, exponent) = integer_exponent(&value);
-                let mantissa = if negative { -mantissa } else { mantissa };
-                // num / den = mantissa * 2^exponent
-                let (left, right) = if exponent < 0 {
-                    (num << exponent.unsigned_abs() as u64, mantissa * den)
-                } else {
-                    (num, (mantissa << exponent as u64) * den)
-                };
-                assert_eq!(left, right, "{literal}: {text} against MPFR");
+            if sender.send(canonical_float_text(&literal)).is_err() {
+                return;
             }
-            checked += 1;
         }
+    });
+    let mut checked = 0;
+    for (format, literal) in cases {
+        let canonical = receiver
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .unwrap_or_else(|_| panic!("the canonical text of {literal} took over 30 s"));
+        let text = match canonical {
+            Ok(text) => text,
+            Err(refusal @ FloatTextRefusal::BeyondBound { estimate_bits }) => {
+                assert!(estimate_bits > MAX_FLOAT_CANONICAL_BITS, "{literal}");
+                assert_eq!(float_canonical_bits_estimate(&literal), Err(refusal));
+                continue;
+            }
+            Err(refusal) => panic!("{literal}: {refusal:?}"),
+        };
+        let value = mpfr_value(&literal);
+        if value.is_nan() {
+            assert!(text.starts_with("NaN"), "{literal}: {text}");
+        } else if value.is_infinite() {
+            assert_eq!(
+                text,
+                format!(
+                    "{}Infinityp{}x{}",
+                    if value.is_sign_negative() { "-" } else { "" },
+                    format.0,
+                    format.1
+                ),
+                "{literal}"
+            );
+        } else if matches!(format, (24, 8) | (53, 11)) {
+            // binary32 and binary64 texts are the hooks' round-trip decimals, each a literal
+            // of its format: MPFR's value of the text is MPFR's value of the literal.
+            let read = mpfr_value(&text);
+            assert_eq!(
+                read.is_sign_negative(),
+                value.is_sign_negative(),
+                "{literal}: {text}"
+            );
+            assert_eq!(read, value, "{literal}: {text} against MPFR");
+        } else {
+            let (negative, num, den) = denoted(&text);
+            assert_eq!(negative, value.is_sign_negative(), "{literal}: {text}");
+            let (mantissa, exponent) = integer_exponent(&value);
+            let mantissa = if negative { -mantissa } else { mantissa };
+            // num / den = mantissa * 2^exponent
+            let (left, right) = if exponent < 0 {
+                (num << exponent.unsigned_abs() as u64, mantissa * den)
+            } else {
+                (num, (mantissa << exponent as u64) * den)
+            };
+            assert_eq!(left, right, "{literal}: {text} against MPFR");
+        }
+        checked += 1;
     }
     assert!(checked > 3000, "only {checked} literals were checked");
 }

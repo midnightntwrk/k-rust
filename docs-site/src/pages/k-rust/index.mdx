@@ -20,7 +20,7 @@ Where K's engines, frontend policies, or recorded outputs disagree, the [compati
 - `k-rust-regex`: K token regexes, without other dependencies.
 - `k-rust-napi` and `k-rust-wasm`: the host-independent APIs for Node.js and WebAssembly.
 
-The native build links Z3 and MPFR; a portable build without them compiles to `wasm32-unknown-unknown` and refuses, with a structured error, only the rules that need Z3's sort inference.
+The native build links Z3; a portable build without it compiles to `wasm32-unknown-unknown` and refuses, with a structured error, only the rules that need Z3's sort inference.
 
 ## KRS
 
