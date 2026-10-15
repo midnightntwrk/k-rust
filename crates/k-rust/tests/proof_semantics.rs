@@ -2298,3 +2298,40 @@ endmodule
         "proven"
     );
 }
+
+/// A circularity selector naming a disjunctive claim makes each of its disjuncts available.
+/// `c: u(2) => done()` steps to `t(2)`, which no rule rewrites; the second disjunct of
+/// `disj: (t(1) #Or t(2)) => done()`, applied as a circularity, closes it. With only the claim
+/// itself as circularity, `c` fails.
+#[test]
+fn a_circularity_selector_names_every_disjunct_of_its_claim() {
+    let source = r#"
+module CIRCS
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Res ::= t(Int) [symbol(t)] | u(Int) [symbol(u)] | done() [symbol(done)]
+  configuration <k> $PGM:Res </k>
+  rule <k> t(1) => done() </k>
+  rule <k> u(X) => t(X) </k>
+endmodule
+module CIRCS-SPEC
+  imports CIRCS
+  claim [disj]: <k> (t(1) #Or t(2)) => done() </k>
+  claim [c]: <k> u(2) => done() </k>
+endmodule
+"#;
+    let kore = compile(source, "CIRCS-SPEC", "CIRCS");
+    let alone = prove(&kore, "CIRCS-SPEC", "CIRCS-SPEC.c", ProveRequest::default());
+    assert_ne!(alone.status, "proven", "{alone:?}");
+    let assumed = prove(
+        &kore,
+        "CIRCS-SPEC",
+        "CIRCS-SPEC.c",
+        ProveRequest {
+            circularities: Some(vec!["CIRCS-SPEC.disj".into(), "CIRCS-SPEC.c".into()]),
+            ..ProveRequest::default()
+        },
+    );
+    assert_eq!(assumed.status, "proven", "{assumed:?}");
+}

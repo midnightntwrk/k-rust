@@ -3562,14 +3562,23 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let setup_phase =
         tracing::info_span!("phase", name = tracing::field::display("proof_setup")).entered();
     let setup_started = Instant::now();
-    let saved_proofs = SavedProofs::load(options.save_proofs.as_deref())?;
+    // Saved proofs are bound to the compiled definition they were made under.
+    let definition_digest = options
+        .save_proofs
+        .as_ref()
+        .map(|_| k_rust::backend::proving::definition_digest(&syntax, &options.module))
+        .unwrap_or_default();
+    let saved_proofs = SavedProofs::load(options.save_proofs.as_deref(), &definition_digest)?;
     let spec_module = syntax
         .modules
         .iter()
         .find(|module| module.name == options.module)
         .ok_or_else(|| format!("compiled KORE has no module `{}`", options.module))?;
+    // A proof is recorded, reused and saved only under an id that names one claim body.
+    let reusable = k_rust::backend::proving::reusable_proof_ids(definition.reachability_claims());
     // The claims proven by a saved proof, and those all of whose disjuncts this run proves.
-    let mut proven_ids = saved_proofs.proven_ids(spec_module);
+    let saved_ids = saved_proofs.proven_ids(spec_module, &reusable);
+    let mut proven_ids = saved_ids.clone();
     if definition.reachability_claims().is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
@@ -3621,17 +3630,18 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let positions = k_rust::backend::proving::disjunct_positions(&kept);
     let mut disjuncts_proven = 0;
     // Invariant: proven_ids contains the saved proofs and the claim ID and modality of each claim
-    // all of whose disjuncts this run proved.
+    // with a reusable id all of whose disjuncts this run proved.
     for (index, claim) in kept.iter().enumerate() {
         let (disjunct, disjuncts) = positions[index];
         if disjunct == 1 {
             disjuncts_proven = 0;
         }
+        // An unlabelled claim is named by the position of its first disjunct.
         let label = claim
             .attributes
             .label
             .as_deref()
-            .map_or_else(|| format!("#{}", index + 1), str::to_owned);
+            .map_or_else(|| format!("#{}", index + 2 - disjunct), str::to_owned);
         let name = if disjuncts > 1 {
             format!("{label} (disjunct {disjunct} of {disjuncts})")
         } else {
@@ -3702,7 +3712,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         )?;
         if result.status == ProofStatus::Proven {
             disjuncts_proven += 1;
-            if disjuncts_proven == disjuncts {
+            if disjuncts_proven == disjuncts && reusable.contains(&claim.attributes.unique_id) {
                 proven_ids.insert(k_rust::backend::proving::ProvenClaim::from_claim(claim));
             }
         } else {
@@ -3780,7 +3790,22 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         }
     }
     drop(proof_phase);
-    saved_proofs.save(spec_module, &proven_ids)?;
+    // Every claim of the run is a circularity of every proof of it, so a proof is sound on its
+    // own only when every claim it could assume is proven, saved or trusted: otherwise none of
+    // this run's proofs is saved, and the file keeps the proofs it had.
+    let saved = if all_proven {
+        &proven_ids
+    } else {
+        let unsaved = proven_ids.difference(&saved_ids).count();
+        if unsaved > 0 && options.save_proofs.is_some() {
+            eprintln!(
+                "warning: {unsaved} claim(s) proven in this run are not saved: the run's claims \
+                 are circularities of each other's proofs, and not all of them are proven"
+            );
+        }
+        &saved_ids
+    };
+    saved_proofs.save(spec_module, saved, &definition_digest)?;
     timings.write(options.timings.as_deref())?;
     // The claim results and the timings are written; `output` and `_trace` still drop normally.
     release_at_exit(circularities);
@@ -6106,6 +6131,7 @@ mod tests {
                 id: "second".into(),
                 mode: ReachabilityMode::AllPath,
             }]),
+            "digest",
         );
         let module = &saved.modules[0];
 

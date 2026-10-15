@@ -94,6 +94,7 @@ fn claim(lhs: Pattern, rhs: Vec<Pattern>, existentials: &[Variable]) -> Reachabi
             trusted: false,
             source: None,
             location: None,
+            sentence: 0,
         },
     }
 }

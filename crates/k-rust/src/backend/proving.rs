@@ -16,7 +16,7 @@ use k_rust_backend::{
 };
 use k_rust_kore::{
     kore::{
-        ast::{Attributes, Definition, Module, Pattern, Sentence, Sort, Symbol},
+        ast::{Attributes, Definition, KoreString, Module, Pattern, Sentence, Sort, Symbol},
         parser::parse_definition,
         printer::Printer,
     },
@@ -33,10 +33,88 @@ pub const SAVED_PROOFS_MODULE: &str =
 ///
 /// `kRustModalitySafeProofsV1` keyed a proof by its claim's unique id and modality, but recorded a
 /// claim with a left-hand disjunction, one claim per disjunct under one id, as soon as its first
-/// disjunct was proven, so a V1 file may record a claim that is not proven and is rejected. `V2`
-/// records a claim only once every disjunct is proven. A later change of what a saved proof
-/// certifies defines `V3` and rejects `V2` files the same way.
+/// disjunct was proven, recorded a claim under an id that also named another claim, and recorded
+/// proofs that assumed unproven claims as circularities, so a V1 file may record a claim that is
+/// not proven and is rejected. `V2` records a claim only once every disjunct is proven, never
+/// under an id two different claims carry, only from a run whose every claim is proven, saved or
+/// trusted, and together with the digest of the definition the proofs were made under
+/// ([`SAVED_PROOFS_DEFINITION`]). A later change of what a saved proof certifies defines `V3`
+/// and rejects `V2` files the same way.
 const SAVED_PROOFS_FORMAT: &str = "kRustSavedProofsV2";
+
+/// The prefix every k-rust saved-proof format marker from V2 on shares.
+const SAVED_PROOFS_FORMAT_PREFIX: &str = "kRustSavedProofsV";
+
+/// The saved-proof format markers k-rust wrote before [`SAVED_PROOFS_FORMAT`].
+const EARLIER_SAVED_PROOFS_FORMATS: &[&str] = &["kRustModalitySafeProofsV1"];
+
+/// The attribute of a V2 saved-proof module that holds the SHA-256 digest, in lowercase hex, of
+/// the compiled definition the proofs were made under, without its claims
+/// ([`definition_digest`]). Proofs are reused only under the same digest.
+pub const SAVED_PROOFS_DEFINITION: &str = "kRustSavedProofsDefinition";
+
+/// The unique id `k-rust-backend` gives a claim with neither a unique id nor a label, which every
+/// such claim shares: it names no claim.
+const UNKNOWN_UNIQUE_ID: &str = "UNKNOWN";
+
+/// The digest saved proofs are bound to: the SHA-256 of the compiled definition's sentences
+/// other than claims, as the compact printer prints each, module by module.
+///
+/// It covers every declaration and axiom of every module, the specification module's lemmas
+/// included, with their attributes, and the module attributes, so a change to the semantics or
+/// to a lemma gives another digest. It leaves out what does not change what a proof shows: the
+/// claims, which the file records claim by claim; the order of modules and of sentences within
+/// a module, which compilation does not fix; the specification module's name and attributes,
+/// and the definition's attributes (the path it was compiled from). So a claim proven under one
+/// specification module is reused under another over the same semantics.
+pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let printer = Printer::compact();
+    let mut modules = definition
+        .modules
+        .iter()
+        .map(|module| {
+            let (name, attributes) = if module.name == spec_module {
+                ("SPECIFICATION".to_owned(), String::new())
+            } else {
+                (
+                    module.name.clone(),
+                    module
+                        .attributes
+                        .0
+                        .iter()
+                        .map(|attribute| printer.print_pattern(attribute))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                )
+            };
+            let mut sentences = module
+                .sentences
+                .iter()
+                .filter(|sentence| !matches!(sentence, Sentence::Claim { .. }))
+                .map(|sentence| printer.print_sentence(sentence))
+                .collect::<Vec<_>>();
+            sentences.sort_unstable();
+            (name, attributes, sentences)
+        })
+        .collect::<Vec<_>>();
+    modules.sort_unstable();
+    let mut hasher = Sha256::new();
+    for (name, attributes, sentences) in modules {
+        for part in std::iter::once(name)
+            .chain(std::iter::once(attributes))
+            .chain(sentences)
+        {
+            hasher.update((part.len() as u64).to_le_bytes());
+            hasher.update(part.as_bytes());
+        }
+    }
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
 
 fn saved_proofs_format_attribute() -> Pattern {
     Pattern::Application {
@@ -160,7 +238,14 @@ pub struct SavedProofs {
 }
 
 impl SavedProofs {
-    pub fn load(path: Option<&Path>) -> Result<Self, Box<dyn Error>> {
+    /// The saved proofs at `path`, for the definition whose [`definition_digest`] is
+    /// `definition`.
+    ///
+    /// A missing file holds none. A file not in format [`SAVED_PROOFS_FORMAT`] is an error, which
+    /// names the format it is in, so nothing is overwritten that a user did not remove. A file
+    /// made under another definition holds proofs of that definition, which certify nothing here:
+    /// they are ignored, with a warning, and the file is rewritten for this definition.
+    pub fn load(path: Option<&Path>, definition: &str) -> Result<Self, Box<dyn Error>> {
         let Some(path) = path else {
             return Ok(Self {
                 path: None,
@@ -173,31 +258,85 @@ impl SavedProofs {
                 claims: Vec::new(),
             });
         }
-        let definition = parse_definition(&fs::read_to_string(path)?)?;
-        let module = definition
+        let file = parse_definition(&fs::read_to_string(path)?)?;
+        let module = file
             .modules
             .iter()
             .find(|module| module.name == SAVED_PROOFS_MODULE)
             .ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("saved proof file has no `{SAVED_PROOFS_MODULE}` module"),
+                    format!(
+                        "saved proof file `{}` has no `{SAVED_PROOFS_MODULE}` module",
+                        path.display()
+                    ),
                 )
             })?;
-        if !module
+        let markers = module
             .attributes
             .0
-            .contains(&saved_proofs_format_attribute())
-        {
+            .iter()
+            .filter_map(|attribute| match attribute {
+                Pattern::Application { symbol, arguments } if arguments.is_empty() => {
+                    Some(symbol.name.as_str())
+                }
+                _ => None,
+            })
+            .filter(|name| {
+                name.starts_with(SAVED_PROOFS_FORMAT_PREFIX)
+                    || EARLIER_SAVED_PROOFS_FORMATS.contains(name)
+            })
+            .collect::<Vec<_>>();
+        if !markers.contains(&SAVED_PROOFS_FORMAT) {
+            let found = match markers.first() {
+                Some(marker) if EARLIER_SAVED_PROOFS_FORMATS.contains(marker) => {
+                    format!("is in the earlier saved-proof format {marker}")
+                }
+                Some(marker) => format!(
+                    "is in saved-proof format {marker}, which this kprove does not read (a later \
+                     k-rust may have written it)"
+                ),
+                None => "carries no saved-proof format marker (it predates \
+                         modality-aware proof identities, or is not a k-rust file)"
+                    .to_owned(),
+            };
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
-                    "saved proof file predates the saved-proof format {SAVED_PROOFS_FORMAT}, which \
-                     records a claim with a left-hand disjunction only once every disjunct is \
-                     proven; remove it and rerun kprove"
+                    "saved proof file `{}` {found}; this kprove reads and writes \
+                     {SAVED_PROOFS_FORMAT}; remove the file and rerun kprove",
+                    path.display()
                 ),
             )
             .into());
+        }
+        let digest = module
+            .attributes
+            .0
+            .iter()
+            .find_map(|attribute| match attribute {
+                Pattern::Application { symbol, arguments }
+                    if symbol.name == SAVED_PROOFS_DEFINITION =>
+                {
+                    match arguments.as_slice() {
+                        [Pattern::String(digest)] => digest.as_utf8().ok(),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            });
+        if digest != Some(definition) {
+            eprintln!(
+                "warning: saved proof file `{}` was written for another compiled definition \
+                 (digest {}, this one {definition}); its proofs are not reused, and the file is \
+                 rewritten with this run's",
+                path.display(),
+                digest.unwrap_or("missing"),
+            );
+            return Ok(Self {
+                path: Some(path.to_owned()),
+                claims: Vec::new(),
+            });
         }
         Ok(Self {
             path: Some(path.to_owned()),
@@ -210,30 +349,41 @@ impl SavedProofs {
         })
     }
 
-    pub fn proven_ids(&self, spec_module: &Module) -> BTreeSet<ProvenClaim> {
+    /// The proof identities of the claims of `spec_module` a saved proof supports, among those
+    /// whose id is in `reusable` ([`reusable_proof_ids`]).
+    pub fn proven_ids(
+        &self,
+        spec_module: &Module,
+        reusable: &BTreeSet<String>,
+    ) -> BTreeSet<ProvenClaim> {
         spec_module
             .sentences
             .iter()
             .filter_map(|sentence| {
                 let id = claim_proof_key(sentence)?;
-                self.claims
-                    .iter()
-                    .any(|saved| saved_claim_supports(saved, sentence))
-                    .then_some(id)
+                (reusable.contains(&id.id)
+                    && self
+                        .claims
+                        .iter()
+                        .any(|saved| saved_claim_supports(saved, sentence)))
+                .then_some(id)
             })
             .collect()
     }
 
+    /// Write the claims of `spec_module` whose identity is in `proven_ids`, under the definition
+    /// digest `definition`.
     pub fn save(
         &self,
         spec_module: &Module,
         proven_ids: &BTreeSet<ProvenClaim>,
+        definition: &str,
     ) -> Result<(), Box<dyn Error>> {
         let Some(path) = &self.path else {
             return Ok(());
         };
-        let definition = saved_proof_definition(spec_module, proven_ids);
-        fs::write(path, Printer::pretty(100).print_definition(&definition))?;
+        let file = saved_proof_definition(spec_module, proven_ids, definition);
+        fs::write(path, Printer::pretty(100).print_definition(&file))?;
         Ok(())
     }
 }
@@ -242,6 +392,7 @@ impl SavedProofs {
 pub fn saved_proof_definition(
     spec_module: &Module,
     proven_ids: &BTreeSet<ProvenClaim>,
+    definition: &str,
 ) -> Definition {
     let declarations = spec_module
         .sentences
@@ -258,7 +409,18 @@ pub fn saved_proof_definition(
         modules: vec![Module {
             name: SAVED_PROOFS_MODULE.into(),
             sentences: declarations.chain(claims).collect(),
-            attributes: Attributes(vec![saved_proofs_format_attribute()]),
+            attributes: Attributes(vec![
+                saved_proofs_format_attribute(),
+                Pattern::Application {
+                    symbol: Symbol {
+                        name: SAVED_PROOFS_DEFINITION.into(),
+                        sort_parameters: Vec::new(),
+                    },
+                    arguments: vec![Pattern::String(KoreString::from_bytes(
+                        definition.as_bytes(),
+                    ))],
+                },
+            ]),
         }],
     }
 }
@@ -347,7 +509,41 @@ fn saved_claim_supports(saved: &Sentence, target: &Sentence) -> bool {
 /// (label, unique id, origin) and modality. The unique id alone does not tell sentences apart: two
 /// claims with one body, one all-path and one one-path, share it.
 fn same_sentence(left: &ReachabilityClaim, right: &ReachabilityClaim) -> bool {
-    left.attributes == right.attributes && left.mode == right.mode
+    left.attributes.sentence == right.attributes.sentence
+}
+
+/// The unique ids a proof may be recorded, reused and saved under: those that name one claim
+/// body. An id is the claim's `UNIQUE'Unds'ID`, else its label, else `UNKNOWN`; K source gives
+/// each claim text its own, but a claim written in KORE may carry none (`UNKNOWN`, shared by
+/// every such claim) or another claim's label. An id whose claim sentences do not all have one
+/// body (the same disjuncts, each with the same left-hand side, right-hand sides and
+/// existentials; the modality may differ, as `ProvenClaim::supports` reads it) names no claim,
+/// and neither does `UNKNOWN`.
+pub fn reusable_proof_ids(claims: &[ReachabilityClaim]) -> BTreeSet<String> {
+    type Body<'a> = Vec<(
+        &'a k_rust_backend::rewrite::Pattern,
+        &'a [k_rust_backend::rewrite::Pattern],
+        &'a BTreeSet<k_rust_backend::term::Variable>,
+    )>;
+    let mut sentences = std::collections::BTreeMap::<usize, (&str, Body<'_>)>::new();
+    for claim in claims {
+        sentences
+            .entry(claim.attributes.sentence)
+            .or_insert_with(|| (claim.attributes.unique_id.as_str(), Vec::new()))
+            .1
+            .push((&claim.lhs, claim.rhs.as_slice(), &claim.existentials));
+    }
+    let mut bodies = std::collections::BTreeMap::<&str, Vec<&Body<'_>>>::new();
+    for (id, body) in sentences.values() {
+        bodies.entry(id).or_default().push(body);
+    }
+    bodies
+        .into_iter()
+        .filter(|(id, bodies)| {
+            *id != UNKNOWN_UNIQUE_ID && bodies.windows(2).all(|pair| pair[0] == pair[1])
+        })
+        .map(|(id, _)| id.to_owned())
+        .collect()
 }
 
 /// The position of each claim among the disjuncts of its claim sentence, as (1-based index,
@@ -406,6 +602,17 @@ pub(super) fn select_claim<'a>(
         [] => Err(BackendError::new(
             "the selected module contains no reachability claims",
         )),
+        claims if claims.iter().all(|claim| same_sentence(claim, &claims[0])) => {
+            Err(BackendError::new(format!(
+                "the selected module's one claim has {} left-hand disjuncts, which a proof \
+                 request proves one at a time; select each by its index: {}",
+                claims.len(),
+                (0..claims.len())
+                    .map(|index| format!("#{index}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )))
+        }
         claims => Err(BackendError::new(format!(
             "the selected module contains {} reachability claims; select one by label or #index",
             claims.len()
