@@ -1210,8 +1210,9 @@ fn a_structured_ill_sorted_predicate_fails_typing_and_compilation_alike() {
 
 /// The definitions of the corpus property: the single-module reference fixtures, the
 /// sentence-typing fixtures, and copies of K regression definitions (`pyk/regression-new`, files
-/// kept byte for byte) whose rules use local functions, `:=K`, field projections and a module
-/// that lacks `K`.
+/// kept byte for byte) whose rules use local functions, `:=K`, field projections, `#withConfig`
+/// and a module that lacks `K`. K's withConfig2 is not among them: krust refuses its
+/// fresh-variable function rule, and its own test types its `#withConfig` rule.
 fn corpus() -> Vec<(String, String, String, Option<std::path::PathBuf>)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let mut corpus = Vec::new();
@@ -1247,9 +1248,9 @@ fn corpus() -> Vec<(String, String, String, Option<std::path::PathBuf>)> {
         ("private-helpers.k", "PRIV"),
         ("inferred-parent.k", "INFERRED-PARENT"),
         ("regression/withConfig.k", "TEST"),
-        ("regression/withConfig2.k", "TEST"),
         ("configuration-context.k", "TYPER-CFG"),
         ("transaction-data.k", "TX-DATA"),
+        ("private-configuration-context.k", "P"),
     ] {
         let path = root.join("sentence-typing").join(file);
         corpus.push((
@@ -1287,6 +1288,12 @@ fn every_sentence_of_a_compiled_definition_types_in_the_main_view() {
     assert_closure_types(&typed, "TYPED");
     assert!(failures.is_empty(), "{failures:#?}");
     assert!(compiled.len() >= 29, "only {compiled:?} compiled");
+    assert!(
+        compiled
+            .iter()
+            .any(|name| name == "private-configuration-context.k"),
+        "{compiled:?}"
+    );
 }
 
 // An exception to the typing contract until local functions are typed as their lowering:

@@ -9,7 +9,8 @@
 //! rewrite projected into its left and right branches.
 //!
 //! Cost: the body is walked at most four times (a sort walk and a placement walk per branch of a
-//! body with a rewrite, one of each otherwise) and the conditions once. At every node the walk
+//! body with a rewrite, one of each otherwise), the conditions once, and a `#withConfig`
+//! context once. At every node the walk
 //! names the node's path by its node in a trie the walks share (`PathTrie`, constant time per
 //! step), types the resolved subterm there in place, and asks the injector for the node's sort
 //! and placement as injection does, the injector inferring each node's sort once per expected
@@ -620,8 +621,9 @@ impl<'a> SentenceTyper<'a> {
             conditions.place(&path, &slot, &boolean)?;
         }
         if let Some((loaded, resolved)) = &with_config {
-            // The construct and its context have no sort and place no requirement; the context's
-            // cells are typed as authored cells are, as a pattern.
+            // The construct has no sort and places no requirement. The context is typed as an
+            // authored cell or `#cells` fragment is, as a pattern, so a single cell reports its
+            // cell's sort and a `#cells` fragment none.
             let mut path = Cursor::root();
             path.push(conditions.trie, 0);
             conditions.record(&path, None);
