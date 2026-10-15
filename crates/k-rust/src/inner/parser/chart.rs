@@ -198,8 +198,10 @@ pub(super) struct State {
 /// pop, chart insertion and completion hashes some. No parse depends on the order of a hashed
 /// chart map, but the phrase that explains a failed program parse does: `program_text_phrase`
 /// takes the first matching state or completion in a chart map's iteration order. That order is
-/// fixed by this hasher, which has no random seed, so the diagnostic is the same in every
-/// process of one build; replacing the hasher may change which phrase a failure reports.
+/// std's `HashMap` order under this hasher, which has no random seed, so the diagnostic is the
+/// same in every process of one build (one toolchain and target); replacing the hasher may change
+/// which phrase a failure reports. `Chart::cycle_nodes` is keyed by address, not by an index, so
+/// its order differs between processes: it must only be looked up, never walked.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct IndexHasher(u64);
 
