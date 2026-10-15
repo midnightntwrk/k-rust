@@ -645,10 +645,12 @@ fn a_load_in_a_cancelled_scope_discharges_as_any_other() {
 /// The overlap `g(_) = k(q(1))` against `g(_) = k(2)`, with `q(X) = 2 requires p(0) ==Int 0` and
 /// `p(X) = 0`: the join applies `q`'s equation once it has stated the definedness of its
 /// `requires`, the ceil equation's instance `hk(n) == n`. With `n` deep, on a thread whose stack
-/// holds fewer levels, stating it stops for lack of stack: the check counts the stop and the join
-/// refuses the step, so the pair is not joined through it.
+/// holds fewer levels, stating it stops for lack of stack: the check counts the stop and the pair
+/// is not joined. (The join refuses the step at its definedness, and the simplification of the
+/// `requires` that would follow stops too, so the test pins the count and the unjoined pair, not
+/// which of the two refusals ends the step.)
 #[test]
-fn a_join_step_whose_definedness_runs_out_of_stack_is_counted_and_refused() {
+fn a_join_step_whose_definedness_runs_out_of_stack_is_counted_and_leaves_the_pair_unjoined() {
     let fixture = |n: u64| {
         let mut axioms = deep_recursion("hk").to_vec();
         axioms.push(ceil_of_p(n));
