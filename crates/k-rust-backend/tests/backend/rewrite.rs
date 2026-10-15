@@ -44,8 +44,8 @@ use k_rust_kore::{
 use sha2::{Digest, Sha256};
 
 use crate::support::{
-    ScriptedQuery, ScriptedSolver, ceil_div_definition, first_origin, ground_cell_set_definition,
-    ground_overload_definition, internal_term,
+    ScriptedQuery, ScriptedSolver, ceil_div_definition, condition_exhausted, first_origin,
+    ground_cell_set_definition, ground_overload_definition, internal_term, rule, search_definition,
     unstopped::{rewrite_step, rewrite_step_sequential_with_solver, rewrite_step_with_solver},
 };
 
@@ -7893,6 +7893,83 @@ fn equal_configurations_with_different_halt_reasons_merge_to_the_first() {
     assert_eq!(leaf.pattern, subject(&definition, "d"));
     assert_eq!(leaf.depth, 2);
     assert_eq!(leaf.halt_reason, HaltReason::DepthBound);
+}
+
+/// Two paths end in the one configuration `c`: `start => c` (`to-c`), and `start => norm(a)`
+/// (`to-norm`), which `norm-c` evaluates to `c` on a condition whose simplification exhausts the
+/// budget, so only that path reports the exhaustion. Whichever path the state-set leaf keeps as
+/// its witness (the first in rule declaration order), it carries the diagnostics of both paths,
+/// so the state-set result is diagnostic-free exactly when the path-set result is. The path-set
+/// result keeps one leaf per path with that path's own diagnostics.
+#[test]
+fn a_state_set_leaf_keeps_the_diagnostics_of_every_merged_path() {
+    for rules in [["to-c", "to-norm"], ["to-norm", "to-c"]] {
+        let definition = search_definition(
+            &rules
+                .map(|label| match label {
+                    "to-c" => rule("to-c", "start{}()", "c{}()"),
+                    _ => rule("to-norm", "start{}()", "norm{}(a{}())"),
+                })
+                .concat(),
+        );
+        let start = Pattern {
+            term: internal_term(&definition, "start{}()"),
+            constraints: Vec::new(),
+        };
+        let c = internal_term(&definition, "c{}()");
+        let condition = condition_exhausted(&definition, "norm-c", 3);
+        let run = |result_modality| {
+            execute(
+                &definition,
+                start.clone(),
+                ExecutionOptions {
+                    max_simplification_iterations: 3,
+                    result_modality,
+                    ..ExecutionOptions::default()
+                },
+            )
+        };
+        let last_rewrite = |leaf: &ExecutionLeaf| {
+            leaf.trace
+                .iter()
+                .rev()
+                .find(|entry| entry.kind == TraceKind::Rewrite)
+                .map(|entry| entry.unique_id.clone())
+                .expect("the path took a rewrite rule")
+        };
+
+        let state_set = run(ResultModality::StateSet);
+        let [leaf] = state_set.leaves.as_slice() else {
+            panic!(
+                "{rules:?}: expected one state-set leaf: {:?}",
+                state_set.leaves
+            );
+        };
+        assert_eq!(leaf.pattern.term, c, "{rules:?}");
+        assert_eq!(leaf.halt_reason, HaltReason::Stuck, "{rules:?}");
+        assert_eq!(last_rewrite(leaf), rules[0], "{rules:?}");
+        assert_eq!(leaf.diagnostics, condition, "{rules:?}");
+
+        let path_set = run(ResultModality::PathSet);
+        let mut paths = path_set
+            .leaves
+            .iter()
+            .map(|leaf| {
+                assert_eq!(leaf.pattern.term, c, "{rules:?}");
+                assert_eq!(leaf.halt_reason, HaltReason::Stuck, "{rules:?}");
+                (last_rewrite(leaf), leaf.diagnostics.clone())
+            })
+            .collect::<Vec<_>>();
+        paths.sort_by(|left, right| left.0.cmp(&right.0));
+        assert_eq!(
+            paths,
+            [
+                ("to-c".to_owned(), Vec::new()),
+                ("to-norm".to_owned(), condition.to_vec()),
+            ],
+            "{rules:?}"
+        );
+    }
 }
 
 #[test]

@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
-//! bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key (backend.fresh.variables) and one console observation (linear in the leaf's transcript) per such leaf, and O(L^2) key comparisons"
+//! bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key (backend.fresh.variables) and one console observation (linear in the leaf's transcript) per such leaf, and O(L^2) key comparisons; each merged leaf's diagnostics are appended to the retained leaf's without repeats, in time the product of the two lists' lengths"
 //!
 //! [[cost]]
 //! mode = "trace storage with retain_trace false"
@@ -1351,10 +1351,19 @@ fn final_leaves(
 /// process observes it, by the input consumed and the bytes written in order
 /// ([`ExecutionIoState::observable`]), not by the hooks or calls that wrote them: paths that
 /// wrote the same bytes differently end in one state. Bottom leaves carry no configuration, so
-/// whole-state trivial and vacuous outcomes remain distinct. The retained leaf keeps its own
-/// trace, branch, diagnostics, and console transcript: they describe the one path the leaf
-/// reports, and the merged paths ended in the same configuration, so whether that
-/// configuration is normalized is the same for each.
+/// whole-state trivial and vacuous outcomes remain distinct.
+///
+/// The retained leaf is the first of its configuration, the witness: it keeps its own pattern,
+/// depth, halt reason, trace, branch, observations, effects, and console transcript, which
+/// describe the one path it reports. Its diagnostics become those of every leaf merged into it,
+/// its own first and then each new one in the order the merged leaves are met. A diagnostic
+/// records that the work on its path may be incomplete (a term not known normalized, a
+/// condition or predicate left undecided, a rule possibly left unapplied for lack of budget),
+/// and the merged paths are paths of this result: dropping a merged leaf's diagnostics would
+/// make a state-set result diagnostic-free where the path-set result of the same request is
+/// not, and a run without diagnostics is what the explore-all coverage guarantee presumes
+/// (docs/backend-port.md). The retained leaf's diagnostics may therefore name work that is not
+/// on its own trace.
 ///
 /// A key only tells a leaf apart from the other leaves that carry a configuration, so with
 /// fewer than two such leaves no key is computed: a state key renames every variable the
@@ -1378,26 +1387,30 @@ fn merge_equal_final_leaves(
     {
         return leaves;
     }
-    let mut seen = Vec::new();
-    leaves
-        .into_iter()
-        .filter(|leaf| {
-            if !carries_configuration(leaf) {
-                return true;
+    // Each configuration's key with the index of its retained leaf in `merged`.
+    let mut seen: Vec<(_, usize)> = Vec::new();
+    let mut merged: Vec<ExecutionLeaf> = Vec::with_capacity(leaves.len());
+    for leaf in leaves {
+        if !carries_configuration(&leaf) {
+            merged.push(leaf);
+            continue;
+        }
+        let key = (
+            request.state_key(&leaf.pattern),
+            leaf.effects.clone(),
+            leaf.io.observable(),
+        );
+        match seen.iter().find(|(seen_key, _)| *seen_key == key) {
+            Some(&(_, retained)) => {
+                extend_distinct(&mut merged[retained].diagnostics, &leaf.diagnostics);
             }
-            let key = (
-                request.state_key(&leaf.pattern),
-                leaf.effects.clone(),
-                leaf.io.observable(),
-            );
-            if seen.contains(&key) {
-                false
-            } else {
-                seen.push(key);
-                true
+            None => {
+                seen.push((key, merged.len()));
+                merged.push(leaf);
             }
-        })
-        .collect()
+        }
+    }
+    merged
 }
 
 fn selected_stop_rule(applied: &AppliedRule, selected: &BTreeSet<String>) -> Option<String> {
@@ -2108,6 +2121,57 @@ mod tests {
                 HaltReason::DepthBound
             ]
         );
+    }
+
+    // Three leaves of one configuration merge into the first, which keeps its own depth and halt
+    // reason and collects every merged leaf's diagnostics, its own first, then each new one in
+    // the order the merged leaves are met; a leaf of another configuration between them keeps
+    // only its own.
+    #[test]
+    fn a_merged_final_leaf_collects_the_diagnostics_of_every_merged_leaf() {
+        let definition = definition("");
+        let exhausted = |limit| BackendDiagnostic::SimplificationBudgetExhausted {
+            limit,
+            subject: crate::simplify::BudgetSubject::Term,
+        };
+        let leaf = |name, depth, halt_reason, diagnostics| ExecutionLeaf {
+            pattern: subject(&definition, name),
+            depth,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+            effects: Vec::new(),
+            io: ExecutionIoState::default(),
+            halt_reason,
+            diagnostics,
+        };
+
+        let leaves = merge_equal_final_leaves(
+            &RequestNames::default(),
+            vec![
+                leaf("same", 1, HaltReason::DepthBound, vec![exhausted(1)]),
+                leaf("other", 2, HaltReason::Stuck, vec![exhausted(4)]),
+                leaf(
+                    "same",
+                    2,
+                    HaltReason::Stuck,
+                    vec![exhausted(2), exhausted(1)],
+                ),
+                leaf("same", 3, HaltReason::Stuck, vec![exhausted(3)]),
+            ],
+        );
+
+        let [same, other] = leaves.as_slice() else {
+            panic!("expected one leaf per configuration: {leaves:?}");
+        };
+        assert_eq!(same.pattern, subject(&definition, "same"));
+        assert_eq!(
+            (same.depth, &same.halt_reason),
+            (1, &HaltReason::DepthBound)
+        );
+        assert_eq!(same.diagnostics, [exhausted(1), exhausted(2), exhausted(3)]);
+        assert_eq!(other.pattern, subject(&definition, "other"));
+        assert_eq!(other.diagnostics, [exhausted(4)]);
     }
 
     // A key is computed only to compare a leaf with another one carrying a configuration: a

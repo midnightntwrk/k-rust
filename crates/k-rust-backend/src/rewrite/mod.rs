@@ -507,7 +507,8 @@ pub struct ExecutionOptions {
     /// How the result reads its leaves.
     ///
     /// `StateSet` (the default) is a disjunction of configurations: structurally equal final
-    /// configurations collapse into the first leaf in depth-first order. `PathSet` keeps one leaf
+    /// configurations collapse into the first leaf in depth-first order, which carries the
+    /// diagnostics of every leaf merged into it. `PathSet` keeps one leaf
     /// per explored path, so paths that converge on one configuration keep their own trace,
     /// branch identity, and observations. Exploration is the same under both; only the final
     /// merge differs. `ExecutionMode::Any` gives each configuration the successors of the first
@@ -733,6 +734,12 @@ pub struct ExecutionLeaf {
     pub halt_reason: HaltReason,
     /// The backend diagnostics of the work this leaf's path went through, in the order the path
     /// first met them, each distinct diagnostic once.
+    ///
+    /// A leaf of a `StateSet` result into which leaves of other paths with the same configuration
+    /// were merged also carries their diagnostics: its own first, then each new one in the order
+    /// the merged leaves were met. Such a list may name work that is not on the leaf's own trace,
+    /// and the result is free of diagnostics exactly when the `PathSet` result of the same
+    /// request is.
     ///
     /// A non-empty list means the leaf's pattern may not be the normal form a larger budget
     /// would reach, or that a condition or predicate was left undecided on the path: the

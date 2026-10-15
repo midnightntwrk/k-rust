@@ -137,7 +137,8 @@ pub struct ExecuteRequest {
     /// simplified states in either solver profile.
     #[serde(default)]
     pub assume_state_defined: bool,
-    /// `state-set` (the default) merges structurally equal final configurations into one leaf;
+    /// `state-set` (the default) merges structurally equal final configurations into one leaf,
+    /// which carries the diagnostics of every path merged into it;
     /// `path-set` returns one leaf per explored path, so converging paths keep their own trace,
     /// branch identity, and observations. The result reports the modality it was produced under.
     #[serde(default = "default_result_modality")]
@@ -195,6 +196,10 @@ pub struct ExecutionResult<K = Value> {
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub struct ExecutionLeaf<K = Value> {
     pub state: K,
+    /// The backend diagnostics of the work this leaf's path went through, each distinct one once.
+    /// A leaf of a `state-set` result also carries those of every path whose equal configuration
+    /// was merged into it, so its list may name work that is not on its own `trace`, and the
+    /// result is free of diagnostics exactly when the `path-set` result of the same request is.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
     /// Successors reported by a branch or cut-point halt, including each successor's diagnostics.

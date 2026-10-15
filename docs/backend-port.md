@@ -266,10 +266,11 @@ Under strategy `all`, a run without depth, breadth, branch, cut-point, time, or 
 The result has one of two readings, selected by `result_modality` and reported on the result as `modality`.
 A `state-set` result (the default) is the disjunction of those leaves' configurations, merging structurally equal configurations, including depth- and breadth-bounded frontiers.
 Merging loses no state: two leaves with one term, one constraint set, one effect journal, and one console state have the same future.
-The first leaf in depth-first order retains its trace and halt reason.
+The first leaf in depth-first order retains its trace and halt reason, and its diagnostics are those of every leaf merged into it, its own first, so they may name work that is not on its own trace.
 Whole-state trivial and vacuous leaves carry no final configuration and are never merged.
 A `path-set` result is those leaves unmerged: every explored path is exactly one leaf, each undefined step's `trivial` leaf included, and paths that converge on one configuration each keep their own trace, branch identity, observations, and halt reason.
 The deduplicated configurations of a path-set result are the configurations of the state-set result, and exploration is identical under both.
+Since a merged leaf keeps the diagnostics of every path merged into it, a state-set result is without diagnostics exactly when the path-set result of the same request is, so the coverage statement above holds under either reading.
 An execution leaf's predicate implies the definedness of every partial term that a `requires`, `ensures`, right-hand side, or simplified state relied on along its path, with and without Z3, subject to the initial-state assumption below.
 An instance excluded by a `requires` belongs to a remainder; an instance excluded by a carried right-hand-side definedness obligation or an `ensures` belongs to a `trivial` leaf.
 With `assume_state_defined: true`, the initial state's definedness is assumed and need not be restated in the leaf predicate.
