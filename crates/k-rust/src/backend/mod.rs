@@ -206,15 +206,21 @@ pub struct ExecutionResult<K = Value> {
 /// The rules and equations an execution used, by `UNIQUE_ID`, each list sorted and without
 /// repeats (docs/compatibility.md, "Run coverage").
 ///
-/// - `applied`: every rewrite rule that produced a successor or an undefined step, every
-///   equation of any kind (function, simplification, `anywhere`, overload, ceil, predicate)
-///   whose result replaced its subject or made it bottom, wherever the run applied it (state
-///   simplification, a rule's `requires`, `ensures`, right-hand side and definedness, another
-///   equation's condition), and the ceil equations that discharged, when the definition was
-///   loaded, the definedness of a rule whose `requires` the run began to decide.
+/// - `applied`: every rewrite rule for which a step built a successor or an undefined step;
+///   every equation of any kind (function, simplification, `anywhere`, overload, ceil,
+///   predicate, `#Top` lemma) whose instance gave a result (its instantiated right-hand side, or
+///   its subject stated bottom), wherever the run applied it (state simplification, a rule's
+///   `requires`, `ensures`, right-hand side and definedness, another equation's condition, the
+///   definedness analysis); every equation from which the run decided the definedness of an
+///   operand that `#if`, `andThenBool` or `orElseBool` does not evaluate (one function-equation
+///   step, or an unconditional ceil equation); and, for every rule whose `requires` the run
+///   began to decide, every equation that the load-time discharge of its definedness applied.
 /// - `matched`: `applied`, plus every rule and equation whose condition the run began to decide
 ///   for an instance whose left-hand side matched (for a rewrite rule, or unified under a
-///   narrowing condition the solver did not refute), whatever the verdict.
+///   narrowing condition the solver did not refute), whatever the verdict, including the
+///   instances a definedness decision of an unevaluated operand considered and, for every rule
+///   whose `requires` the run began to decide, every equation whose condition its load-time
+///   discharge began to decide.
 ///
 /// The lists cover every state the run explored, including leaves a `state-set` result merges
 /// away, and are equal for `execute` and `execute_observed`, for both result modalities, and

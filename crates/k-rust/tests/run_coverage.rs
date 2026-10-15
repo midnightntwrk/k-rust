@@ -35,6 +35,7 @@ const SOURCE: &str = r#"module COVER-SYNTAX
               | rv(Int) [symbol(rv)]
               | pr(Int) [symbol(pr)]
               | hk(Int) [symbol(hk)]
+              | d1(Int) [symbol(d1)]
   syntax Prog ::= "halt" [symbol(halt)] | "fault" [symbol(fault)] | "nd" [symbol(nd)]
                 | "mid1" [symbol(mid1)] | "mid2" [symbol(mid2)]
                 | seq(Op, Prog) [symbol(seq)] | val(Int) [symbol(val)]
@@ -45,6 +46,7 @@ module COVER
   imports BASIC-K
   imports INT
   imports BOOL
+  imports K-EQUAL
   configuration <k> $PGM:Prog </k>
 
   syntax Int ::= norm(Int) [function, total, symbol(norm)]
@@ -58,6 +60,7 @@ module COVER
                | unused(Int) [function, total, symbol(unused)]
                | pu(Int) [function, symbol(pu)]
                | pv(Int) [function, symbol(pv)]
+               | pd(Int) [function, symbol(pd)]
 
   rule [norm]:    norm(X) => X
   rule [normE]:   normE(X) => X
@@ -72,6 +75,7 @@ module COVER
   rule [unused]:  unused(X) => X
   rule [puCeil]:  #Ceil(pu(X)) => {(X >=Int 0) #Equals true} [simplification]
   rule [pvCeil]:  #Ceil(pv(_)) => #Top [simplification]
+  rule [pdEq]:    pd(X) => X requires X >=Int 0
 
   rule [load]:    seq(load(addr(A), _), P) => P requires norm(A) ==Int A [preserves-definedness]
   rule [ens]:     seq(ens(A), P) => P ensures normE(A) ==Int A
@@ -85,6 +89,7 @@ module COVER
   rule [prHigh]:  seq(pr(_), _) => halt [priority(40)]
   rule [prLow]:   seq(pr(_), _) => fault
   rule [hk]:      seq(hk(A), _) => val(A +Int 1)
+  rule [d1]:      seq(d1(A), _) => val(#if A >=Int 0 #then A #else pd(A) #fi)
   rule [ndA]:     nd => mid1
   rule [ndB]:     nd => mid2
   rule [mid1]:    mid1 => halt
@@ -157,12 +162,23 @@ fn catalog(backend: &Backend) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The labels of the `COVER` sentences whose ids are in `ids`.
+/// What `ids` names: the label, without its module, of each `COVER` sentence with an id in
+/// `ids`, and every other id as `other:<id>`, so that an exact comparison also catches an id the
+/// run should not have recorded.
 fn labels(catalog: &[(String, String)], ids: &[String]) -> BTreeSet<String> {
-    catalog
-        .iter()
-        .filter(|(label, id)| label.starts_with("COVER.") && ids.contains(id))
-        .map(|(label, _)| label.trim_start_matches("COVER.").to_owned())
+    ids.iter()
+        .flat_map(|id| {
+            let cover = catalog
+                .iter()
+                .filter(|(label, other)| other == id && label.starts_with("COVER."))
+                .map(|(label, _)| label.trim_start_matches("COVER.").to_owned())
+                .collect::<Vec<_>>();
+            if cover.is_empty() {
+                vec![format!("other:{id}")]
+            } else {
+                cover
+            }
+        })
         .collect()
 }
 
@@ -218,13 +234,14 @@ type Case<'a> = (
 
 /// (2) Where the backend applied or decided each sentence: a rule's `ensures`, a partial
 /// right-hand side, another equation's `requires`, a refuted higher-priority rule, a refuted
-/// `owise` competitor, an unconditional ceil equation deciding definedness, and a ceil equation
-/// that discharged a rule at load.
+/// `owise` competitor, an unconditional ceil equation deciding definedness, a ceil equation
+/// that discharged a rule at load, and an equation step deciding the definedness of an operand
+/// `#if` does not evaluate.
 #[test]
 fn every_place_an_equation_is_used_is_covered() {
     let mut backend = backend();
     let catalog = catalog(&backend);
-    let cases: [Case; 8] = [
+    let cases: [Case; 9] = [
         ("ens", 1, &["ens", "normE"], &[], None),
         ("rhsp", 1, &["rhsp", "part"], &[], None),
         ("eqreq", 1, &["eqreq", "outer", "inner"], &[], None),
@@ -251,6 +268,8 @@ fn every_place_an_equation_is_used_is_covered() {
             &[],
             Some(HaltReasonOutput::Stuck),
         ),
+        // `#if` does not evaluate `pd(5)`; one step of `pdEq` decides that it is defined.
+        ("d1", 5, &["d1", "pdEq"], &[], Some(HaltReasonOutput::Stuck)),
     ];
     for (op, argument, applied_only, matched_only, reason) in cases {
         let result = run(
