@@ -245,11 +245,13 @@ pub(crate) fn evaluate_in_definition(
 /// - refuses `FLOAT` operands of `SortFloat` where the facts give that sort another kind than
 ///   `Float` (an unhooked `SortFloat` is a token sort whose texts are its values);
 /// - runs the hook's evaluator with the declared result sort and the facts;
-/// - keeps a value only if it is of exactly the declared sort and every domain value the hook
-///   built has the kind the facts give its sort (a builtin hook declared at a sort that is not
-///   its builtin's gives no value of the application's sort);
+/// - keeps a value only if every domain value the hook built has the kind the facts give its
+///   sort (a builtin hook declared at a sort whose hook gives its values another kind gives no
+///   value of the application's sort), and gives it at the declared sort: itself when it is of
+///   exactly that sort, its injection when its sort is a strict subsort of it, and no value
+///   otherwise;
 /// - in [`EvaluationMode::Proof`], leaves unevaluated a value the definition leaves to the
-///   implementation ([`implementation_chosen`]), which only an execution computes.
+///   implementation (`implementation_chosen`), which only an execution computes.
 ///
 /// So a caller that computes an application here, such as the frontend's constant fold, gets
 /// the outcome an evaluation of the same application in the loaded definition gets. That holds
@@ -517,16 +519,32 @@ fn evaluate_composed(
         loaded.execution,
         total,
     )?;
-    if let BuiltinResult::Value(value) = &result {
-        if let (Some(facts), Some(built)) = (facts, &built)
-            && !(value.sort() == *result_sort && built.of_their_sorts_kinds(facts))
-        {
-            // A builtin hook declared at a sort that is not its builtin's (a sort hooked
-            // `FLOAT.Float` under another name, a token sort for a `STRING` result) gives a value
-            // of another sort, or of another kind than the definition gives its sort: no value of
-            // the application's sort.
-            return Ok(BuiltinResult::NotApplicable);
+    let result = match result {
+        BuiltinResult::Value(value) => {
+            // A builtin hook declared at a sort whose hook gives its values another kind (a sort
+            // hooked `FLOAT.Float` under another name, a token sort for a `STRING` result) builds
+            // a domain value of another kind than the definition gives its sort: no value of the
+            // application's sort.
+            if let (Some(facts), Some(built)) = (facts, &built)
+                && !built.of_their_sorts_kinds(facts)
+            {
+                return Ok(BuiltinResult::NotApplicable);
+            }
+            // The value is a value of the application's sort itself, or its injection when its
+            // sort is a strict subsort of it, for every hook: KORE has no implicit subsorting, so
+            // that injection is the one term of the result sort that denotes it. A value of any
+            // other sort is no value of the application's sort. Without a definition's
+            // declarations no sort is a strict subsort of another, so only a value of exactly the
+            // result sort is kept.
+            let Some(value) = hook_signature::member_of_result(value, Some(result_sort), facts)
+            else {
+                return Ok(BuiltinResult::NotApplicable);
+            };
+            BuiltinResult::Value(value)
         }
+        result => result,
+    };
+    if let BuiltinResult::Value(value) = &result {
         #[cfg(debug_assertions)]
         debug_assert_value_of_sort(hook, value, result_sort);
         // A value the definition leaves to the implementation (the order of `keys_list`,
@@ -670,26 +688,6 @@ pub(crate) fn evaluate_hook_into(
     .layered()
 }
 
-/// The value of a hook that gives one element of a collection argument (`LIST.get`,
-/// `MAP.lookup`, `MAP.lookupOrDefault`, `MAP.choice`, `SET.choice`) as a value of the
-/// application's sort: the element's sort
-/// is that sort or a subsort of it, as the load checks (`hook_signature::misfit`), and a value of
-/// a strict subsort is a value of the result once injected.
-fn member_in_result(
-    hook: &str,
-    result: BuiltinResult,
-    result_sort: Option<&Sort>,
-    sort_graph: Option<&SortGraph>,
-) -> HookResult<BuiltinResult> {
-    match result {
-        BuiltinResult::Value(value) if hook_signature::gives_member(hook) => Ok(
-            hook_signature::member_of_result(value, result_sort, sort_graph)
-                .map_or(BuiltinResult::NotApplicable, BuiltinResult::Value),
-        ),
-        result => Ok(result),
-    }
-}
-
 /// `total`: the application's symbol is declared `total`, which decides the outcome of a hook
 /// whose value at some arguments depends on the declaration (`STRING.string2token`), and whether
 /// an application to which the hook's description gives no value is defined all the same
@@ -770,24 +768,15 @@ fn evaluate_hook_with_context(
         }
         _ => {
             return match HookName::parse(hook).map(HookName::kind) {
-                Some(HookNamespace::List) => member_in_result(
-                    hook,
-                    list::evaluate(hook, arguments, sort_graph, result_collection)?,
-                    result_sort,
-                    sort_graph,
-                ),
-                Some(HookNamespace::Map) => member_in_result(
-                    hook,
-                    map::evaluate(hook, arguments, sort_graph, result_collection)?,
-                    result_sort,
-                    sort_graph,
-                ),
-                Some(HookNamespace::Set) => member_in_result(
-                    hook,
-                    set::evaluate(hook, arguments, sort_graph, result_collection)?,
-                    result_sort,
-                    sort_graph,
-                ),
+                Some(HookNamespace::List) => {
+                    list::evaluate(hook, arguments, sort_graph, result_collection)
+                }
+                Some(HookNamespace::Map) => {
+                    map::evaluate(hook, arguments, sort_graph, result_collection)
+                }
+                Some(HookNamespace::Set) => {
+                    set::evaluate(hook, arguments, sort_graph, result_collection)
+                }
                 Some(HookNamespace::Bytes) => bytes::evaluate(hook, arguments),
                 Some(HookNamespace::Float) => float::evaluate(hook, arguments),
                 Some(HookNamespace::MInt) => mint::evaluate(hook, arguments, result_sort, total),

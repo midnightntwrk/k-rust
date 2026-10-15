@@ -874,3 +874,93 @@ fn map_difference_builds_the_value_of_its_declared_map_sort() {
         differing.join("\n")
     );
 }
+
+/// `Int` a subsort of `Val`, and hooks declared at `Val` whose value is an `Int`: `INT.add`, the
+/// collection reading `MAP.size`, and `KEQUAL.ite` over two `Int` branches. `addE` is `INT.add`
+/// at `Val` as well, with an equation of the definition that gives it `v`.
+const SUBSORT_RESULTS: &str = r#"  axiom{R} \exists{R}(Value:SortVal{},
+      \equals{SortVal{}, R}(Value:SortVal{}, inj{SortInt{}, SortVal{}}(From:SortInt{})))
+      [subsort{SortInt{}, SortVal{}}()]
+  hooked-symbol addV{}(SortInt{}, SortInt{}) : SortVal{}
+    [function{}(), total{}(), hook{}("INT.add")]
+  hooked-symbol szV{}(SortValMap{}) : SortVal{} [function{}(), total{}(), hook{}("MAP.size")]
+  hooked-symbol iteV{}(SortBool{}, SortInt{}, SortInt{}) : SortVal{}
+    [function{}(), total{}(), hook{}("KEQUAL.ite")]
+  hooked-symbol addE{}(SortInt{}, SortInt{}) : SortVal{}
+    [function{}(), total{}(), hook{}("INT.add")]
+  axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Y0:SortInt{}),
+      \and{R}(\in{SortInt{}, R}(X1:SortInt{}, Y1:SortInt{}), \top{R}()))),
+      \equals{SortVal{}, R}(addE{}(X0:SortInt{}, X1:SortInt{}), \and{SortVal{}}(v{}(), \top{SortVal{}}())))
+      []"#;
+
+fn subsort_results() -> BackendDefinition {
+    let syntax = parse_definition(&with_declarations(SUBSORT_RESULTS))
+        .expect("the declarations should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("the declarations should load")
+}
+
+/// KORE has no implicit subsorting, so the one term of `Val` that denotes a hook's `Int` value
+/// is its injection `inj{Int, Val}`: every hook declared at a strict supersort of its value's sort
+/// gives that injection, whatever its namespace.
+#[test]
+fn a_hook_value_of_a_strict_subsort_of_the_result_sort_is_its_injection() {
+    let definition = subsort_results();
+    let five = r#"inj{SortInt{}, SortVal{}}(\dv{SortInt{}}("5"))"#;
+    let one = r#"inj{SortInt{}, SortVal{}}(\dv{SortInt{}}("1"))"#;
+    let pairs = [
+        (r#"addV{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("3"))"#, five),
+        ("szV{}(valMapItem{}(v{}(), w{}()))", one),
+        (
+            r#"iteV{}(\dv{SortBool{}}("true"), \dv{SortInt{}}("5"), \dv{SortInt{}}("7"))"#,
+            five,
+        ),
+    ];
+    let differing = pairs
+        .iter()
+        .filter_map(|(hooked, expected)| {
+            let value = simplified(&definition, hooked);
+            let expected = internal_term(&definition, expected);
+            (value != expected).then(|| format!("{hooked}: {value:?}"))
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        differing.is_empty(),
+        "a hook declared above its value's sort gave no injected value:\n{}",
+        differing.join("\n")
+    );
+}
+
+/// A hooked symbol's value is the hook's wherever the hook computes it, before any equation of
+/// the definition: `addE`, declared at `Val` above `INT.add`'s `Int`, gives the injected sum and
+/// not the `v` its equation states.
+#[test]
+fn a_subsort_hook_value_takes_precedence_over_equations() {
+    let definition = subsort_results();
+    assert_eq!(
+        simplified(
+            &definition,
+            r#"addE{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("3"))"#
+        ),
+        internal_term(
+            &definition,
+            r#"inj{SortInt{}, SortVal{}}(\dv{SortInt{}}("5"))"#
+        )
+    );
+}
+
+/// The context-free evaluation (`builtin::evaluate`), which reads no definition, knows no subsort
+/// order, so it keeps a hook's value only at exactly the application's declared sort: `addV(2, 3)`
+/// at `Val` has no value there, where the definition's evaluation gives `inj{Int, Val}(5)`.
+#[test]
+fn the_context_free_evaluation_keeps_only_a_value_of_the_declared_sort() {
+    let definition = subsort_results();
+    let evaluated = |source: &str| {
+        k_rust_backend::builtin::evaluate(&internal_term(&definition, source))
+            .expect("the evaluation does not stop")
+            .expect("the evaluation does not fail")
+    };
+    assert_eq!(
+        evaluated(r#"addV{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("3"))"#),
+        k_rust_backend::builtin::BuiltinResult::NotApplicable
+    );
+}
