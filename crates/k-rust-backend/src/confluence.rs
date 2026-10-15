@@ -1504,8 +1504,10 @@ const CONDITION_POLLS: u64 = 4_000_000;
 /// and return its value with the stops it met. Every simplifier entry of the check runs under it:
 /// the simplification of a condition (`Context::simplify_now`), the definedness of an instance's
 /// conditions (`Context::conditions` and the join's steps), and the join's evaluation of a hooked
-/// application (`Join::hook`), which may apply the hooked symbol's equations.
-pub(super) fn budgeted<T>(work: impl FnOnce() -> T) -> (T, PollBudgetRecord) {
+/// application (`Join::hook`), which may apply the hooked symbol's equations. The load's
+/// discharge of rewrite-rule definedness runs each rule under it too
+/// (`BackendDefinition::discharge_rewrite_definedness`).
+pub(crate) fn budgeted<T>(work: impl FnOnce() -> T) -> (T, PollBudgetRecord) {
     crate::stop::with_poll_budget(CONDITION_POLLS, CONDITION_BUDGET_SPENT, work)
 }
 

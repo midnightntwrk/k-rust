@@ -32,6 +32,7 @@ use k_rust_backend::{
     confluence::{CheckCounts, CheckScope, ConditionMemo, ValueClaims},
     definition::BackendDefinition,
     nesting::with_simplification_stack_budget,
+    stop::CancellationToken,
 };
 use k_rust_kore::kore::{ast as kore, parser::parse_definition};
 
@@ -480,4 +481,162 @@ fn the_stop_counts_do_not_depend_on_the_memo() {
         with_memo.without_memo_work(),
         without_memo.without_memo_work()
     );
+}
+
+/// Declarations beside [`HOOK_PRELUDE`] for the fixtures of the load's discharge and of the
+/// definedness of conditions: `p`, a partial function with a ceil equation, and a rewrite rule's
+/// sort.
+const PARTIAL: &str = r#"
+    symbol p{}(SortInt{}) : SortInt{} [function{}()]
+    sort SortS{} []
+    symbol state{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+    symbol done{}(SortInt{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+"#;
+
+fn partial_module(axioms: &[String]) -> kore::Definition {
+    let source = format!(
+        "[] module MAIN {HOOK_PRELUDE} {PARTIAL} {} endmodule []",
+        axioms.join("\n")
+    );
+    parse_definition(&source).expect("the fixture parses")
+}
+
+/// The ceil equation `\ceil(p(X)) = (hk(n) == n)`: `p` is defined where `hk(n)` evaluates to `n`.
+fn ceil_of_p(n: u64) -> String {
+    format!(
+        r"axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{R, R}}(\ceil{{SortInt{{}}, R}}(p{{}}(X:SortInt{{}})), \equals{{SortInt{{}}, R}}(hk{{}}({}), {}))) []",
+        int(n),
+        int(n)
+    )
+}
+
+/// The rewrite rule `state => done(p(0))`, whose right-hand side is defined where `p(0)` is.
+const ADVANCE: &str = r#"axiom{} \rewrites{SortS{}}(\and{SortS{}}(state{}(), \top{SortS{}}()), done{}(p{}(\dv{SortInt{}}("0")))) [label{}("advance")]"#;
+
+/// Whether the load discharged the definedness of every rewrite rule.
+fn rules_discharged(definition: &BackendDefinition) -> Vec<bool> {
+    definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|groups| groups.values())
+        .flatten()
+        .map(|rule| rule.rule.attributes.preserves_definedness)
+        .collect()
+}
+
+/// The load discharges `state => done(p(0))` by simplifying the ceil equation's instance
+/// `hk(n) == n`. With `n` small it is discharged; with `n` deep, on a thread whose stack holds
+/// fewer levels, the simplification stops for lack of stack: the stop is counted and the rule
+/// stays undischarged.
+#[test]
+fn a_discharge_that_runs_out_of_stack_is_counted_and_leaves_the_rule_undischarged() {
+    let fixture = |n: u64| {
+        let mut axioms = deep_recursion("hk").to_vec();
+        axioms.push(ceil_of_p(n));
+        axioms.push(ADVANCE.to_owned());
+        partial_module(&axioms)
+    };
+    let small = BackendDefinition::internalize(&fixture(100), "MAIN").expect("the fixture loads");
+    assert_eq!(rules_discharged(&small), [true]);
+    assert_eq!(small.discharge_counts(), Default::default());
+    let deep = internalize_on_a_bounded_stack(fixture(100_000));
+    assert_eq!(rules_discharged(&deep), [false]);
+    assert!(
+        deep.discharge_counts().stack_stops >= 1,
+        "{:?}",
+        deep.discharge_counts()
+    );
+    assert_eq!(deep.discharge_counts().budget_stops, 0);
+}
+
+/// The ceil equation's instance `hk(1) == 1` under `hk(N) = hk(N +Int 1)` does not end: the
+/// budget stops it, so the load ends, the stop is counted and the rule stays undischarged.
+#[test]
+fn a_discharge_that_does_not_end_is_stopped_by_the_budget() {
+    let axioms = [
+        equation(
+            "hk",
+            &["SortInt{}"],
+            "SortInt{}",
+            &["VarN:SortInt{}"],
+            &format!("hk{{}}(addInt{{}}(VarN:SortInt{{}}, {}))", int(1)),
+            r"\top{R}()",
+            "",
+        ),
+        ceil_of_p(1),
+        ADVANCE.to_owned(),
+    ];
+    let definition = BackendDefinition::internalize(&partial_module(&axioms), "MAIN")
+        .expect("the fixture loads");
+    assert_eq!(rules_discharged(&definition), [false]);
+    assert!(
+        definition.discharge_counts().budget_stops >= 1,
+        "{:?}",
+        definition.discharge_counts()
+    );
+    assert_eq!(definition.discharge_counts().stack_stops, 0);
+}
+
+/// The overlap `g(_) = a requires p(0) ==Int 1` against `g(_) = b`, with `p(X) = 0`: its condition
+/// is refuted once its definedness, the ceil equation's instance `hk(n) == n`, is stated. With
+/// `n` deep, on a thread whose stack holds fewer levels, stating that definedness stops for lack
+/// of stack: the check counts the stop and the overlap is not refuted through it.
+#[test]
+fn a_condition_whose_definedness_runs_out_of_stack_is_counted() {
+    let fixture = |n: u64| {
+        let mut axioms = deep_recursion("hk").to_vec();
+        axioms.push(ceil_of_p(n));
+        axioms.push(equation(
+            "p",
+            &["SortInt{}"],
+            "SortInt{}",
+            &["VarX:SortInt{}"],
+            &int(0),
+            r"\top{R}()",
+            "",
+        ));
+        axioms.push(equation(
+            "g",
+            &["SortInt{}"],
+            "SortFoo{}",
+            &["VarX:SortInt{}"],
+            "a{}()",
+            &holds(&format!("eqInt{{}}(p{{}}({}), {})", int(0), int(1))),
+            "anywhere{}()",
+        ));
+        axioms.push(equation(
+            "g",
+            &["SortInt{}"],
+            "SortFoo{}",
+            &["VarX:SortInt{}"],
+            "b{}()",
+            r"\top{R}()",
+            "anywhere{}()",
+        ));
+        partial_module(&axioms)
+    };
+    let small = BackendDefinition::internalize(&fixture(100), "MAIN").expect("the fixture loads");
+    let small = Verdict::of(small.value_claims());
+    assert_eq!(small.counts.refuted, 1, "{small:?}");
+    assert_eq!(small.counts.condition_stack_stops, 0, "{small:?}");
+    let deep = internalize_on_a_bounded_stack(fixture(100_000));
+    let deep = Verdict::of(deep.value_claims());
+    assert!(deep.counts.condition_stack_stops >= 1, "{deep:?}");
+    assert_eq!(deep.counts.refuted, 0, "{deep:?}");
+}
+
+/// A load inside the scope of a cancelled request token discharges the rule as any other load:
+/// the discharge is cached with the definition, so the request that loads it does not reach it.
+#[test]
+fn a_load_in_a_cancelled_scope_discharges_as_any_other() {
+    let mut axioms = deep_recursion("hk").to_vec();
+    axioms.push(ceil_of_p(100));
+    axioms.push(ADVANCE.to_owned());
+    let syntax = partial_module(&axioms);
+    let token = CancellationToken::new();
+    token.cancel();
+    let definition = token
+        .scope(|| BackendDefinition::internalize(&syntax, "MAIN"))
+        .expect("the fixture loads");
+    assert_eq!(rules_discharged(&definition), [true]);
 }
