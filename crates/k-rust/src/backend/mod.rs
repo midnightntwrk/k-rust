@@ -5,6 +5,25 @@
 //! ```
 //!
 //! One orchestration path for the CLI, RPC server, and JavaScript hosts: a session, one solver per module, and execution, search, simplification, implication, and proving operations. `wire` contains the JavaScript JSON contracts.
+//!
+//! This module is the supported surface for embedding k-rust in a Rust host.
+//! Besides its own items, it re-exports by name the backend items a host needs to bound an
+//! operation and to match or construct the cause of a stop ([`CancellationToken`],
+//! [`StopCause`], [`StopScope`], [`StackLimit`], [`SegmentRefused`], [`PreludeFailure`],
+//! [`StepTimeoutMode`]) and the [`VARIABLE_IDENTITY`] contract version beside
+//! [`BACKEND_SCHEMA_VERSION`].
+//! The backend types that [`Backend::with_solver`] and the internalizing constructors carry are
+//! named through [`crate::k_rust_backend`], which makes no stability promise of its own.
+//!
+//! # Bounding an operation
+//!
+//! A host bounds a request with a [`CancellationToken`]: it runs the request inside
+//! [`CancellationToken::scope`] on the thread that performs it, and calls
+//! [`CancellationToken::cancel`] from any thread.
+//! An operation that stops does so for a [`StopCause`].
+//! With the `z3-inference` feature, a stop that [`Backend::with_solver`]'s operation boundary
+//! observes (a request cancelled before the operation starts, or a failed solver prelude) reaches
+//! the caller of [`Backend::with_solver`] as `Err(E::from(cause))`; see [`Backend::with_solver`].
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -42,7 +61,6 @@ use k_rust_backend::{
     session::{BackendSession, SessionError},
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError},
     smt::SmtSolver,
-    stop::StopCause,
     term::{Name, Sort},
     transition::ObservationOptions,
 };
@@ -65,6 +83,13 @@ pub mod search;
 pub mod simplification;
 mod wire;
 pub use wire::*;
+
+pub use k_rust_backend::nesting::SegmentRefused;
+pub use k_rust_backend::stop::{
+    CancellationToken, PreludeFailure, StackLimit, StopCause, StopScope,
+};
+pub use k_rust_backend::term::names::VARIABLE_IDENTITY;
+pub use k_rust_backend::timeout::StepTimeoutMode;
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
@@ -1454,11 +1479,11 @@ impl Backend {
     }
 
     /// Run `operation` on the definition of `module` with that definition's solver. With the
-    /// `z3-inference` feature the run is one operation (`k_rust_backend::stop::operation`): a
-    /// request stopped before it starts, or a solver whose prelude already failed, does not run
-    /// it, and a prelude failure found while it runs is its result even when `operation`
-    /// returned. Such a stop reaches the caller as its [`StopCause`], through `E`'s
-    /// `From<StopCause>`.
+    /// `z3-inference` feature the run is one operation boundary: a request stopped before it
+    /// starts, or a solver whose prelude already failed, does not run it, and a prelude failure
+    /// found while it runs is its result even when `operation` returned. Such a stop reaches the
+    /// caller as its [`StopCause`] (re-exported in this module), through `E`'s `From<StopCause>`;
+    /// see the module docs, "Bounding an operation".
     ///
     /// The operation runs on a stack that holds the definition's recursive passes over its own
     /// patterns and terms (`BackendDefinition::with_stack_for`); an operation over a request's

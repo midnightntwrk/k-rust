@@ -116,6 +116,7 @@ definition) live in the dependency-free `k-rust-regex` crate, re-exported as
 `k_rust::definition::regex`, so proc macros and WebAssembly tools can validate them without building
 the frontend. Thin `k-rust-napi` and `k-rust-wasm` crates expose the host-independent APIs to
 native Node.js and portable WebAssembly respectively.
+A Rust host embeds the in-process backend through `k_rust::backend`, which re-exports the cancellation surface; the backend types its signatures carry are named through `k_rust::k_rust_backend`, so the host needs no separate `k-rust-backend` dependency.
 
 ## Install and build
 
