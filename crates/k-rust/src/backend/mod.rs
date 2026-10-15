@@ -585,21 +585,55 @@ impl ProofLeafOutcomeOutput {
     }
 }
 
+/// The error of a facade operation: its text, and the [`StopCause`] when the operation stopped.
+///
+/// The operations of [`Backend`] whose error is a `BackendError` make the error of a stop
+/// through `From<StopCause>` (at the operation boundary of [`Backend::with_solver`], for a stop
+/// of simplification, implication or model generation, for a stopped proof leaf, and for an
+/// execution leaf or search entry whose stop leaves no answer), so such an error of an operation
+/// that stopped (cancelled, past its step deadline, out of stack, or under a failed solver
+/// prelude) answers [`Self::stop_cause`]. A stop that an operation's contract excludes (a step
+/// deadline reported by a search, which arms none) is a text error, and an error made from text
+/// answers `None`.
 #[derive(Debug)]
-pub struct BackendError(pub String);
+pub struct BackendError {
+    message: String,
+    stop: Option<StopCause>,
+}
+
+impl BackendError {
+    /// An error that is not a stop: `message` is its whole content.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            stop: None,
+        }
+    }
+
+    /// The error's text, as its `Display` writes it.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// The cause of the stop this error reports, or `None` when the operation did not stop but
+    /// failed.
+    pub fn stop_cause(&self) -> Option<&StopCause> {
+        self.stop.as_ref()
+    }
+}
 
 impl fmt::Display for BackendError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(&self.message)
     }
 }
 
 impl std::error::Error for BackendError {}
 
-/// The error of an operation that stopped before producing its answer, for a caller whose
-/// error is text: the cause's own text, which names it (`Request cancelled`, the step's timeout,
-/// the exhausted stack, `could not initialize Z3: <failure>`). A caller that acts on the cause
-/// takes the [`StopCause`] itself through [`Backend::with_solver`]'s `From<StopCause>` bound.
+/// The error of an operation that stopped before producing its answer. It keeps the cause
+/// ([`BackendError::stop_cause`]), and its text is the cause's own text, which names it
+/// (`Request cancelled`, the step's timeout, the exhausted stack, `could not initialize Z3:
+/// <failure>`), so a caller whose error is text reads the same message.
 impl From<StopCause> for BackendError {
     #[deny(clippy::wildcard_enum_match_arm)]
     fn from(cause: StopCause) -> Self {
@@ -607,13 +641,16 @@ impl From<StopCause> for BackendError {
             StopCause::Cancelled
             | StopCause::Deadline(_)
             | StopCause::StackExhausted(_)
-            | StopCause::SolverPrelude(_) => Self(cause.to_string()),
+            | StopCause::SolverPrelude(_) => Self {
+                message: cause.to_string(),
+                stop: Some(cause),
+            },
         }
     }
 }
 
 fn json_output_error(error: serde_json::Error) -> BackendError {
-    BackendError(format!("could not serialize backend JSON: {error}"))
+    BackendError::new(format!("could not serialize backend JSON: {error}"))
 }
 
 fn serialize_wire(value: &impl Serialize) -> Result<String, BackendError> {
@@ -868,9 +905,8 @@ impl Backend {
         validate_backend_schema_version(request.schema_version)?;
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
-            return Err(BackendError(
-                "step timeouts require a host monotonic clock and are unavailable in this WebAssembly build"
-                    .into(),
+            return Err(BackendError::new(
+                "step timeouts require a host monotonic clock and are unavailable in this WebAssembly build",
             ));
         }
         let syntax = request.state;
@@ -1335,8 +1371,8 @@ impl Backend {
         #[cfg(not(feature = "z3-inference"))]
         {
             let _ = (request, finish);
-            Err(BackendError(
-                "model generation requires an SMT-enabled native build; this WebAssembly build has no Z3".into(),
+            Err(BackendError::new(
+                "model generation requires an SMT-enabled native build; this WebAssembly build has no Z3",
             ))
         }
         #[cfg(feature = "z3-inference")]
@@ -1396,9 +1432,8 @@ impl Backend {
         validate_backend_schema_version(request.schema_version)?;
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
-            return Err(BackendError(
-                "step timeouts require a host monotonic clock and are unavailable in this WebAssembly build"
-                    .into(),
+            return Err(BackendError::new(
+                "step timeouts require a host monotonic clock and are unavailable in this WebAssembly build",
             ));
         }
         // A proof route, including the definition's first load, whose analyses the proof reads
@@ -1827,13 +1862,13 @@ fn admit<'a>(
     match admission {
         Admission::Verified => definition
             .verify_standalone_pattern(pattern, sort_variables)
-            .map_err(|cause| BackendError(format!("invalid {what}: {cause}"))),
+            .map_err(|cause| BackendError::new(format!("invalid {what}: {cause}"))),
         Admission::Unverified => Ok(definition.admit_unverified(pattern, sort_variables)),
     }
 }
 
 fn error<E: fmt::Display>(context: &'static str) -> impl FnOnce(E) -> BackendError {
-    move |cause| BackendError(format!("{context}: {cause}"))
+    move |cause| BackendError::new(format!("{context}: {cause}"))
 }
 
 #[cfg(test)]
@@ -2137,7 +2172,7 @@ mod tests {
             })
             .unwrap_err();
         assert_eq!(
-            filter.0,
+            filter.message(),
             "could not install observation filter: no executable rewrite, function equation, \
              simplification or definedness rule has the id 'missing'"
         );
@@ -2148,7 +2183,7 @@ mod tests {
             )
             .unwrap_err();
         assert_eq!(
-            sorted.0,
+            sorted.message(),
             "could not add KORE module: an added module may not declare sorts, and this one \
              declares 'SortNew'"
         );
@@ -2156,7 +2191,7 @@ mod tests {
             .execute(ExecuteRequest::new(kore(r"\top{SortS{}}()")))
             .unwrap_err();
         assert_eq!(
-            predicate.0,
+            predicate.message(),
             "could not internalize execution state: Invalid pattern: the pattern states no term, \
              only predicates, where a term is needed"
         );
@@ -2164,7 +2199,7 @@ mod tests {
             .execute(ExecuteRequest::new(kore(r"\or{SortS{}}(a{}(), b{}())")))
             .unwrap_err();
         assert_eq!(
-            disjunction.0,
+            disjunction.message(),
             "could not internalize execution state: Invalid pattern: a term of the pattern is a \
              disjunction (\\or) of terms where one term is needed"
         );
@@ -2173,14 +2208,14 @@ mod tests {
             .execute(ExecuteRequest::new(kore(rewrite)))
             .unwrap_err();
         assert_eq!(
-            rewrite.0,
+            rewrite.message(),
             "could not internalize execution state: Invalid pattern: a predicate of the pattern \
              uses \\rewrites, which the backend does not read as a predicate"
         );
         let trailing = "module BROKEN import MAIN [] endmodule [] ]";
         let broken = backend.add_module(trailing, false).unwrap_err();
         assert_eq!(
-            broken.0,
+            broken.message(),
             format!(
                 "could not parse KORE module: unexpected trailing token ']' at byte {}",
                 trailing.len() - 1
@@ -4477,5 +4512,35 @@ endmodule
             .get_model(PatternRequest::new(kore("a{}()")))
             .unwrap_err();
         assert!(error.to_string().contains("no Z3"));
+    }
+
+    /// An error made from a stop keeps the cause, and its text is the cause's own text.
+    #[test]
+    fn a_stop_error_keeps_its_cause_and_its_text() {
+        let causes = [
+            StopCause::Cancelled,
+            StopCause::Deadline(StepTimeoutMode::Manual(Duration::from_millis(5))),
+            StopCause::StackExhausted(StackLimit::ThreadBudget(1 << 30)),
+            StopCause::SolverPrelude(PreludeFailure::Inconsistent),
+        ];
+        for cause in causes {
+            let error = BackendError::from(cause.clone());
+            assert_eq!(error.stop_cause(), Some(&cause));
+            assert_eq!(error.to_string(), cause.to_string());
+            assert_eq!(error.message(), cause.to_string());
+        }
+        assert_eq!(
+            BackendError::from(StopCause::Cancelled).to_string(),
+            "Request cancelled"
+        );
+    }
+
+    /// An error made from text has no cause.
+    #[test]
+    fn a_text_error_has_no_stop_cause() {
+        let error = BackendError::new("could not select backend module: none");
+        assert_eq!(error.stop_cause(), None);
+        assert_eq!(error.message(), "could not select backend module: none");
+        assert_eq!(error.to_string(), "could not select backend module: none");
     }
 }

@@ -152,7 +152,7 @@ pub(super) fn validate_schema_version(schema_version: u32) -> Result<(), Backend
     if schema_version == BACKEND_SCHEMA_VERSION {
         Ok(())
     } else {
-        Err(BackendError(format!(
+        Err(BackendError::new(format!(
             "unsupported backend schema version {schema_version}; supported version 1"
         )))
     }
@@ -188,7 +188,7 @@ pub fn deserialize_kore_pattern<'de, D: serde::Deserializer<'de>>(
 /// serde's recursion limit stays on for the rest of the request: a value nested more deeply
 /// than that limit in any other field is an ordinary error.
 pub fn deserialize_request<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, BackendError> {
-    serde_json::from_str(json).map_err(|error| BackendError(error.to_string()))
+    serde_json::from_str(json).map_err(|error| BackendError::new(error.to_string()))
 }
 
 pub(super) fn default_max_simplification_iterations() -> usize {
@@ -906,7 +906,7 @@ impl WireKore for Value {
         source: S,
     ) -> Result<Self, BackendError> {
         kore_json::to_value_source(source)
-            .map_err(|error| BackendError(format!("could not encode KORE JSON: {error}")))
+            .map_err(|error| BackendError::new(format!("could not encode KORE JSON: {error}")))
     }
 
     #[cfg(feature = "measure")]
@@ -920,7 +920,7 @@ impl WireKore for Box<RawValue> {
         source: S,
     ) -> Result<Self, BackendError> {
         RawValue::from_string(kore_json::source_to_string(source))
-            .map_err(|error| BackendError(format!("could not encode KORE JSON: {error}")))
+            .map_err(|error| BackendError::new(format!("could not encode KORE JSON: {error}")))
     }
 
     #[cfg(feature = "measure")]
@@ -1618,10 +1618,10 @@ fn stopped_search_output<K: WireKore>(
             state: search_state_output(state)?,
             error: SearchFailureOutput::StackExhausted,
         }),
-        StopCause::Deadline(_) => Err(BackendError(
-            "search reported a step deadline, but search arms no step deadline".into(),
+        StopCause::Deadline(_) => Err(BackendError::new(
+            "search reported a step deadline, but search arms no step deadline",
         )),
-        cause @ StopCause::SolverPrelude(_) => Err(BackendError(cause.to_string())),
+        cause @ StopCause::SolverPrelude(_) => Err(BackendError::from(cause)),
     }
 }
 
@@ -2644,5 +2644,39 @@ mod tests {
                 "{failure}"
             );
         }
+    }
+
+    /// A search entry whose state stopped under a failed solver prelude is the search's error,
+    /// and that error keeps the cause. The operation boundary of the Z3 build would put the
+    /// same cause in place of a text error, so only this direct call observes the entry itself.
+    #[test]
+    fn a_state_stopped_by_a_failed_prelude_is_an_error_that_keeps_its_cause() {
+        let definition = r#"[]
+module TEST
+  sort SortK{} []
+  symbol value{}() : SortK{} [constructor{}()]
+endmodule []"#;
+        let mut backend =
+            super::super::Backend::new(definition, "TEST", super::super::BackendOptions::default())
+                .unwrap();
+        let pattern = backend
+            .internalize_executable(
+                None,
+                &k_rust_kore::kore::parser::parse_pattern("value{}()").unwrap(),
+            )
+            .unwrap()
+            .remove(0);
+        let state = SearchState {
+            pattern,
+            depth: 0,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let cause = StopCause::SolverPrelude(k_rust_backend::stop::PreludeFailure::Inconsistent);
+        let error = stopped_search_output::<Value>(state, cause.clone()).unwrap_err();
+        assert_eq!(error.stop_cause(), Some(&cause));
+        assert_eq!(error.to_string(), cause.to_string());
     }
 }

@@ -99,7 +99,7 @@ fn check_kore(
     admission: Admission,
 ) -> Result<(ImplicationVerdict, Sort), BackendError> {
     validate_request(definition, antecedent, consequent).map_err(|request_error| {
-        BackendError(match request_error {
+        BackendError::new(match request_error {
             ImplicationRequestError::MacroOrAlias { side, name } => format!(
                 "invalid implication {}: {}",
                 match side {
@@ -176,7 +176,7 @@ fn check_kore(
                 .internalize_implication_pattern()
                 .map_err(error("could not internalize implication consequent"))?;
             if antecedent_pattern.term.sort() != consequent_pattern.term.sort() {
-                return Err(BackendError(format!(
+                return Err(BackendError::new(format!(
                     "antecedent and consequent sorts differ after internalization: {} and {}",
                     externalize::sort(&antecedent_pattern.term.sort()),
                     externalize::sort(&consequent_pattern.term.sort())
@@ -415,8 +415,10 @@ mod tests {
         let error = implies(r"\bottom{S}()", consequent, Admission::Verified)
             .expect_err("one variable name at two sorts is not a well-formed consequent");
         assert!(
-            error.0.starts_with("invalid implication consequent: ")
-                && error.0.contains("Inconsistent free variable usage"),
+            error
+                .message()
+                .starts_with("invalid implication consequent: ")
+                && error.message().contains("Inconsistent free variable usage"),
             "{error}"
         );
         assert!(implies(r"\bottom{S}()", consequent, Admission::Unverified).is_ok());

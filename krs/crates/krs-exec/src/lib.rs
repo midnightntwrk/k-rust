@@ -368,7 +368,7 @@ impl std::error::Error for ExecError {
 
 impl From<BackendError> for ExecError {
     fn from(error: BackendError) -> Self {
-        Self::Backend(error.0)
+        Self::Backend(error.message().to_owned())
     }
 }
 

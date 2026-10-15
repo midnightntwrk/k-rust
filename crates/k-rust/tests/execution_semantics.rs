@@ -634,6 +634,49 @@ fn a_run_reports_an_inconsistent_solver_prelude() {
     );
 }
 
+/// A search whose solver prelude is unsatisfiable answers with an error that keeps the
+/// `SolverPrelude` cause, so a host can tell it from any other failure without reading its text.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_search_under_an_unsatisfiable_prelude_reports_the_prelude_cause() {
+    use k_rust::backend::StopCause;
+    use k_rust::kore::parser::parse_definition;
+
+    let compiled = compile(
+        r#"
+module PRELUDE-SEARCH
+  imports INT
+  syntax State ::= start(Int) | probe(Int) | done()
+  syntax Int ::= f(Int) [function, smtlib("f")]
+  configuration <k> $PGM:State </k>
+  rule <k> start(X) => probe(X) </k>
+  rule <k> probe(X) => done() </k> requires X ==Int 0
+endmodule
+"#,
+        "PRELUDE-SEARCH",
+        "PRELUDE-SEARCH",
+        "State",
+        "start(f(0))",
+    );
+    let mut backend = Backend::from_definition_with_prelude(
+        parse_definition(&compiled.kore).unwrap(),
+        "PRELUDE-SEARCH",
+        BackendOptions::default(),
+        "(assert false)".to_owned(),
+    )
+    .unwrap();
+    let error = backend
+        .search(SearchRequest {
+            max_depth: Some(10),
+            ..SearchRequest::new(compiled.initial)
+        })
+        .unwrap_err();
+    assert!(
+        matches!(error.stop_cause(), Some(StopCause::SolverPrelude(_))),
+        "{error}"
+    );
+}
+
 /// The result of `krun`'s run driver (`Backend::run_cli`) on the internalized initial
 /// configuration, with `krun`'s defaults (strategy `any`), the depth bound `depth` and the
 /// search `search` (`None` runs).
@@ -2291,7 +2334,7 @@ fn backend_match_patterns_stays_a_proof_route_inside_an_execution_scope() {
                 definition
                     .verify_standalone_pattern(pattern, &[])
                     .and_then(|admitted| admitted.internalize_pattern())
-                    .map_err(|error| k_rust::backend::BackendError(error.to_string()))
+                    .map_err(|error| k_rust::backend::BackendError::new(error.to_string()))
             })
             .unwrap()
     };

@@ -339,7 +339,9 @@ pub(super) fn select_claim<'a>(
                 .reachability_claims()
                 .get(index)
                 .map(|claim| (index, claim))
-                .ok_or_else(|| BackendError(format!("no reachability claim at index {index}")));
+                .ok_or_else(|| {
+                    BackendError::new(format!("no reachability claim at index {index}"))
+                });
         }
         return definition
             .reachability_claims()
@@ -349,14 +351,14 @@ pub(super) fn select_claim<'a>(
                 claim.attributes.label.as_deref() == Some(selector)
                     || claim.attributes.unique_id == selector
             })
-            .ok_or_else(|| BackendError(format!("no reachability claim named {selector:?}")));
+            .ok_or_else(|| BackendError::new(format!("no reachability claim named {selector:?}")));
     }
     match definition.reachability_claims() {
         [claim] => Ok((0, claim)),
-        [] => Err(BackendError(
-            "the selected module contains no reachability claims".into(),
+        [] => Err(BackendError::new(
+            "the selected module contains no reachability claims",
         )),
-        claims => Err(BackendError(format!(
+        claims => Err(BackendError::new(format!(
             "the selected module contains {} reachability claims; select one by label or #index",
             claims.len()
         ))),
