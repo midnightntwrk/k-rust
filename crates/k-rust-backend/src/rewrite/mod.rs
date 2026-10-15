@@ -567,7 +567,7 @@ pub struct ExecutionOptions {
     /// the duplicates of `Trivial` and `Vacuous` leaves in a merged subtree. Such a run's
     /// `max_breadth` bounds the pending states of the merged exploration, so where the unmerged run
     /// exceeds the bound the merged run reaches it later or not at all, and its frontier can lie
-    /// deeper. `ExecutionMode::Any`
+    /// deeper, so a state the unmerged run ends as `BreadthBound` can be missing from the result. `ExecutionMode::Any`
     /// gives each configuration the successors of the first rule, in priority then definition
     /// order, that gives it a defined result (and a symbolic remainder where none applies), keeping
     /// that rule's right-hand-side alternatives, so it can yield several leaves; the two readings
@@ -863,7 +863,9 @@ pub struct ExecutionResult {
     /// The states the run visited across all its paths, the unit
     /// [`ExecutionOptions::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
-    /// The stops for lack of native stack the run met: those that ended a state (a leaf halted
+    /// The stops for lack of native stack the run met in the states it explored (a state-set run
+    /// skips a state equal to one of its depth already expanded, and the stops of its subtree):
+    /// those that ended a state (a leaf halted
     /// with [`crate::stop::StopCause::StackExhausted`]) and those met while a result was only
     /// refined (normalising a leaf's state, simplifying a definedness condition, folding a
     /// hook, deciding an undefined instance), which a site dismisses, keeping the sound but less
