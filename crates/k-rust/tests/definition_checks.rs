@@ -5047,3 +5047,250 @@ endmodule
         [0; 0]
     );
 }
+
+/// Compile `source` with the prelude, as `kcompile` does, under main module `main`, with the
+/// hook namespaces `hook_namespaces` admitted besides the backend's default ones.
+fn compile_with_prelude(
+    source: &str,
+    main: &str,
+    hook_namespaces: Option<Vec<String>>,
+) -> Result<k_rust::kompile::CompiledKoreArtifacts, k_rust::kompile::CompileError> {
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let backend = k_rust::kompile::CompilationBackend::Rust;
+    let loaded = k_rust::outer::load_with_options(
+        k_rust::outer::ResolvedSource::new("roles.k", source),
+        main,
+        &mut resolver,
+        &k_rust::outer::LoadOptions {
+            implicit_sources: vec![k_rust::builtin::embedded("prelude.md").unwrap()],
+            excluded_module_attributes: vec![backend.excluded_module_attribute().into()],
+            ..k_rust::outer::LoadOptions::default()
+        },
+    )
+    .expect("the definition loads");
+    let hook_namespaces = hook_namespaces.map(|extra| {
+        backend
+            .default_hook_namespaces()
+            .into_iter()
+            .chain(extra)
+            .collect()
+    });
+    k_rust::kompile::compile_loaded_definition(
+        &loaded,
+        k_rust::kompile::CompileOptions {
+            hook_namespaces,
+            ..k_rust::kompile::CompileOptions::default()
+        },
+    )
+}
+
+/// The one-based line of the first line of `source` that contains `needle`.
+fn line_of(source: &str, needle: &str) -> u32 {
+    let index = source
+        .lines()
+        .position(|line| line.contains(needle))
+        .unwrap_or_else(|| panic!("{needle} is not in {source}"));
+    u32::try_from(index + 1).unwrap()
+}
+
+/// What loading the KORE that `source` compiles to gives: `None` when it loads.
+fn compiled_load_error(
+    source: &str,
+    main: &str,
+    hook_namespaces: Option<Vec<String>>,
+) -> Result<Option<String>, k_rust::kompile::CompileError> {
+    let artifacts = compile_with_prelude(source, main, hook_namespaces)?;
+    Ok(k_rust::backend::Backend::new(
+        &artifacts.definition_kore,
+        main,
+        k_rust::backend::BackendOptions::default(),
+    )
+    .err()
+    .map(|error| error.to_string()))
+}
+
+const ROLE_HEADER: &str = "  imports INT\n  imports BOOL\n  imports K-EQUAL\n";
+const ROLE_LIST: &str = "  syntax LI [hook(LIST.List)]\n  syntax LI ::= LI LI [function, total, left, assoc, symbol(_LI_), element(mkFoo), unit(.LI)]\n  syntax LI ::= \".LI\" [function, total, symbol(.LI)]\n";
+const ROLE_PROBE: &str = "  rule [hit]: chk(_F:Foo) => done(1)\n  rule [range]: chk(X:KItem) => done(7) requires X ==K X [priority(60)]\n  rule chk(_) => done(0) [owise]\n";
+
+/// A role misfit case: main module, source, extra hook namespaces, the expected messages, and a
+/// text on the line of the concatenation production.
+type RoleMisfitCase = (
+    &'static str,
+    String,
+    Option<Vec<String>>,
+    &'static [&'static str],
+    &'static str,
+);
+
+/// A collection sort's attributes make its unit, element and concat symbols build values of the
+/// sort, so the symbol emitted for each must have its role's signature: kcompile refuses one that
+/// does not, at the production that carries the `element` attribute and with the named
+/// production's own position, before it writes KORE the loader would refuse.
+#[test]
+fn a_collection_role_production_without_its_role_signature_is_a_located_error() {
+    let cases: [RoleMisfitCase; 7] = [
+        (
+            // The handoff's reproducer: the rule writes mkFoo under an injection.
+            "ROLE",
+            format!(
+                "module ROLE\n{ROLE_HEADER}  syntax Foo ::= mkFoo(Int) [symbol(mkFoo)]\n  syntax Prog ::= start(Int) | chk(KItem) | done(Int)\n{ROLE_LIST}  configuration <k> $PGM:Prog </k>\n  rule start(I) => chk(mkFoo(I))\n{ROLE_PROBE}endmodule\n"
+            ),
+            None,
+            &["The element attribute of production _LI_ names mkFoo (roles.k:5:18) : Int -> Foo, which has result sort Foo, not the collection sort LI; the element of collection sort LI must have result sort LI and one argument, with no hook or LIST.element."],
+            "symbol(_LI_)",
+        ),
+        (
+            // mkFoo reached only through a function equation.
+            "ROLE-FN",
+            format!(
+                "module ROLE-FN\n{ROLE_HEADER}  syntax Foo ::= mkFoo(Int) [symbol(mkFoo)]\n  syntax Foo ::= g(Int) [function, total, symbol(g)]\n  syntax Prog ::= start(Int) | chk(KItem) | done(Int)\n{ROLE_LIST}  configuration <k> $PGM:Prog </k>\n  rule g(I) => mkFoo(I)\n  rule start(I) => chk(g(I))\n{ROLE_PROBE}endmodule\n"
+            ),
+            None,
+            &["names mkFoo (roles.k:5:18) : Int -> Foo, which has result sort Foo"],
+            "symbol(_LI_)",
+        ),
+        (
+            // The unit takes an argument.
+            "ROLE-UNIT-ARITY",
+            "module ROLE-UNIT-ARITY\n  imports INT\n  imports BOOL\n  syntax Prog ::= start(Int) | chk(LI) | done(Int)\n  syntax LI [hook(LIST.List)]\n  syntax LI ::= LI LI [function, total, left, assoc, symbol(_LI_), element(liItem), unit(u)]\n  syntax LI ::= u(Int) [function, total, symbol(u)]\n  syntax LI ::= liItem(Int) [function, total, symbol(liItem)]\n  configuration <k> $PGM:Prog </k>\n  rule start(I) => chk(u(I) liItem(I))\nendmodule\n".to_owned(),
+            None,
+            &["The unit attribute of production _LI_ names u (roles.k:7:17) : Int -> LI, which takes 1 argument, but a list unit symbol takes 0; the unit of collection sort LI must have result sort LI and no argument, with no hook or LIST.unit."],
+            "symbol(_LI_)",
+        ),
+        (
+            // A map element of one argument.
+            "ROLE-MAP",
+            "module ROLE-MAP\n  imports INT\n  syntax MI [hook(MAP.Map)]\n  syntax MI ::= MI MI [function, total, left, assoc, comm, symbol(_MI_), element(mi), unit(.MI)]\n  syntax MI ::= \".MI\" [function, total, symbol(.MI)]\n  syntax MI ::= mi(Int) [function, total, symbol(mi)]\nendmodule\n".to_owned(),
+            None,
+            &["The element attribute of production _MI_ names mi (roles.k:6:17) : Int -> MI, which takes 1 argument, but a map element symbol takes 2; the element of collection sort MI must have result sort MI and two arguments, a key and a value, with no hook or MAP.element."],
+            "symbol(_MI_)",
+        ),
+        (
+            // A set concatenation hooked to a theory other than its role's.
+            "ROLE-UNION",
+            "module ROLE-UNION\n  imports INT\n  syntax LS [hook(SET.Set)]\n  syntax LS ::= LS LS [left, function, total, assoc, comm, idem, symbol(_LS_), element(lsItem), unit(.LS), hook(SET.union)]\n  syntax LS ::= \".LS\" [function, total, symbol(.LS), hook(SET.unit)]\n  syntax LS ::= lsItem(Int) [function, total, symbol(lsItem), hook(SET.element)]\nendmodule\n".to_owned(),
+            None,
+            &["Production _LS_ : LS LS -> LS carries the element attribute, which makes it the concat of collection sort LS; it is hooked SET.union, but a set concat symbol carries no hook or SET.concat; the concat of collection sort LS must have result sort LS and two arguments of sort LS, with no hook or SET.concat."],
+            "symbol(_LS_)",
+        ),
+        (
+            // The sort, the element and the concatenation in three modules.
+            "ROLE-SPLIT",
+            "module HOOKDECL\n  syntax LI [hook(LIST.List)]\nendmodule\nmodule ELEM\n  imports INT\n  syntax Foo ::= mkFoo(Int) [symbol(mkFoo)]\nendmodule\nmodule CONCAT\n  syntax LI ::= LI LI [function, total, left, assoc, symbol(_LI_), element(mkFoo), unit(.LI)]\n  syntax LI ::= \".LI\" [function, total, symbol(.LI)]\nendmodule\nmodule ROLE-SPLIT\n  imports INT\n  imports HOOKDECL\n  imports ELEM\n  imports CONCAT\nendmodule\n".to_owned(),
+            None,
+            &["names mkFoo (roles.k:6:18) : Int -> Foo, which has result sort Foo"],
+            "symbol(_LI_)",
+        ),
+        (
+            // A hook of a namespace the compilation admits is emitted, so it is the element's.
+            "ROLE-ADMITTED",
+            "module ROLE-ADMITTED\n  imports INT\n  syntax LI [hook(LIST.List)]\n  syntax LI ::= LI LI [function, total, left, assoc, symbol(_LI_), element(liItem), unit(.LI)]\n  syntax LI ::= \".LI\" [function, total, symbol(.LI)]\n  syntax LI ::= liItem(Int) [function, total, symbol(liItem), hook(MYNS.item)]\nendmodule\n".to_owned(),
+            Some(vec!["MYNS".to_owned()]),
+            &["names liItem (roles.k:6:17) : Int -> LI, which is hooked MYNS.item, but a list element symbol carries no hook or LIST.element"],
+            "symbol(_LI_)",
+        ),
+    ];
+    let mut compiled = Vec::new();
+    for (main, source, hook_namespaces, expected, concat) in cases {
+        let error = match compiled_load_error(&source, main, hook_namespaces) {
+            Ok(load) => {
+                compiled.push(format!(
+                    "{main}: the definition compiled; loading it: {load:?}"
+                ));
+                continue;
+            }
+            Err(error) => error,
+        };
+        assert_eq!(error.stage, "hook namespace checks", "{main}: {error:#?}");
+        let errors = error
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), expected.len(), "{main}: {errors:#?}");
+        for (error, expected) in errors.iter().zip(expected) {
+            assert_eq!(
+                error.code,
+                DiagnosticCode::InvalidAttribute,
+                "{main}: {error:#?}"
+            );
+            assert!(
+                error.message.contains(expected),
+                "{main}: {}",
+                error.message
+            );
+            let location = error.location.expect("the diagnostic is located");
+            assert_eq!(
+                location.start_line,
+                line_of(&source, concat),
+                "{main}: {error:#?}"
+            );
+        }
+    }
+    assert!(compiled.is_empty(), "{}", compiled.join("\n"));
+}
+
+/// kcompile refuses only what the loader would refuse in the KORE it emits. Hooks on role
+/// productions are optional; a hook kcompile does not emit (a namespace it does not admit, or no
+/// namespace) is not the emitted symbol's; and of several productions of a collection sort that
+/// carry the `element` attribute, only the one emission writes as the sort's concat names its
+/// roles. Each of these compiles, and the loader accepts what kcompile writes.
+#[test]
+fn collection_roles_kcompile_does_not_emit_are_not_refused() {
+    let list = "  syntax LI [hook(LIST.List)]\n  syntax LI ::= LI LI [function, total, left, assoc, symbol(_LI_), element(liItem), unit(.LI)]\n  syntax LI ::= \".LI\" [function, total, symbol(.LI)]\n";
+    let tail = "  configuration <k> $PGM:Prog </k>\n  rule start(I) => chk(liItem(I))\nendmodule\n";
+    let program = "  imports INT\n  syntax Prog ::= start(Int) | chk(LI) | done(Int)\n";
+    let cases = [
+        (
+            "ROLE-OK",
+            format!(
+                "module ROLE-OK\n{program}{list}  syntax LI ::= liItem(Int) [function, total, symbol(liItem)]\n{tail}"
+            ),
+        ),
+        (
+            // `MYNS` is not admitted, so the element compiles as an unhooked function.
+            "ROLE-UNADMITTED",
+            format!(
+                "module ROLE-UNADMITTED\n{program}{list}  syntax LI ::= liItem(Int) [function, total, symbol(liItem), hook(MYNS.item)]\n{tail}"
+            ),
+        ),
+        (
+            // A hook with no namespace names no implementation and is not emitted.
+            "ROLE-NO-NAMESPACE",
+            format!(
+                "module ROLE-NO-NAMESPACE\n{program}{list}  syntax LI ::= liItem(Int) [function, total, symbol(liItem), hook(item)]\n{tail}"
+            ),
+        ),
+        (
+            // Emission writes `_LI_` as the concat; `_+++LI_`'s attributes name no role of LI.
+            "ROLE-SECOND-CONCAT",
+            format!(
+                "module ROLE-SECOND-CONCAT\n{program}  syntax Foo ::= mkFoo(Int) [symbol(mkFoo)]\n{list}  syntax LI ::= liItem(Int) [function, total, symbol(liItem)]\n  syntax LI ::= LI \"+++\" LI [function, total, symbol(_+++LI_), element(mkFoo), unit(.LI)]\n{tail}"
+            ),
+        ),
+    ];
+    let failures = cases
+        .into_iter()
+        .filter_map(
+            |(main, source)| match compiled_load_error(&source, main, None) {
+                Ok(None) => None,
+                Ok(Some(load)) => Some(format!(
+                    "{main}: the compiled definition does not load: {load}"
+                )),
+                Err(error) => Some(format!(
+                    "{main}: the definition should compile: {}",
+                    error
+                        .diagnostics
+                        .iter()
+                        .map(|diagnostic| diagnostic.message.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )),
+            },
+        )
+        .collect::<Vec<_>>();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
