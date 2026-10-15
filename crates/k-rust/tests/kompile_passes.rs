@@ -4235,6 +4235,32 @@ fn leaves_float_hooks_the_backend_does_not_evaluate_unfolded() {
     assert!(results[1].contains("+Float"), "{results:?}");
 }
 
+/// `A ^%Int B C` with a 131,072-bit exponent and modulus is a square-and-multiply of 131,072
+/// steps on 131,072-bit numbers, far more work than one product of two values of the fold's
+/// bound, so the fold leaves it as written at once, while its folded operands are written.
+#[test]
+fn leaves_a_costly_powmod_unfolded() {
+    let results = folded_results(indoc! {r#"
+        module MAIN-SYNTAX
+          syntax Op ::= "go" [symbol(go)]
+        endmodule
+        module MAIN
+          imports MAIN-SYNTAX
+          imports DOMAINS
+          configuration <k> $PGM:Op </k>
+          syntax KItem ::= res(K) [symbol(res)]
+          rule go => res((2 ^Int 131071) ^%Int ((2 ^Int 131071) -Int 1) ((2 ^Int 131071) +Int 3))
+        endmodule
+    "#});
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert!(
+        results[0].starts_with("res(`_^%Int__"),
+        "{}",
+        &results[0][..80]
+    );
+    assert!(!results[0].contains("^Int_"), "the operands fold");
+}
+
 /// Hooks the fold has no implementation for, such as the deprecated `STRING.category` and
 /// `STRING.directionality` whose meaning `domains.md` does not give, stay as written.
 #[test]

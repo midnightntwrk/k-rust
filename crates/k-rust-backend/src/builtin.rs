@@ -264,7 +264,9 @@ pub(crate) fn evaluate_in_definition(
 /// `result_bound`, when given, is a bound in bits on the results the caller uses (an `Int`'s bit
 /// length, eight times a `String`'s or `Bytes`' length): a hook whose result can outgrow its
 /// arguments (`^Int`, `<<Int`, `bitRangeInt`, `replaceAll`, the `Bytes` padding and `Int2Bytes`,
-/// the `MINT` results) refuses a larger result before computing it, as too large. The evaluation
+/// the `MINT` results) refuses a larger result before computing it, as too large, and `^%Int`
+/// does not evaluate an application whose work exceeds that of one product of two values of the
+/// bound. The evaluation
 /// entry has no such bound beyond its own, so this only lets a caller that discards large results
 /// anyway, such as the frontend's constant fold, not pay for them.
 pub fn evaluate_declared(
@@ -1528,6 +1530,21 @@ fn int_powmod(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::Value(int_term(
             euclidean_modulus(power, modulus).expect("non-zero modulus"),
         )));
+    }
+    // A caller that bounds the results it uses (`result_bound`, the constant fold) also bounds
+    // the work it pays for one: the square-and-multiply loop below takes up to two products of
+    // values below the modulus per bit of the exponent, each about the square of the modulus'
+    // bit length in bit operations, and that caller pays for at most the work of one product of
+    // two values of its bound, the bound squared. Beyond it the application is not evaluated
+    // here; the result itself is below the modulus, so only the work is bounded. An evaluation
+    // without a bound, as in an execution, computes it.
+    if let Some(bound) = result_bound()
+        && exponent
+            .bits()
+            .saturating_mul(modulus.bits().saturating_mul(modulus.bits()))
+            > bound.saturating_mul(bound)
+    {
+        return Ok(BuiltinResult::NotApplicable);
     }
     let mut base = euclidean_modulus(base, modulus.clone()).expect("non-zero modulus");
     let mut exponent = exponent;
