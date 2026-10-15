@@ -1212,7 +1212,8 @@ endmodule
             for (route, result) in routes {
                 let shown = format!("{result:?}");
                 assert!(
-                    result.is_err_and(|error| error.message().contains("cannot be read faithfully")),
+                    result
+                        .is_err_and(|error| error.message().contains("cannot be read faithfully")),
                     "{case}, {route}: {shown}"
                 );
             }
