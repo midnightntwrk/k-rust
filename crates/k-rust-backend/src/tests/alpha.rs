@@ -1492,6 +1492,10 @@ impl AlphaComparable for ExecutionResult {
                     .into(),
             );
         }
+        // Coverage names axioms, not variables.
+        if self.coverage != other.coverage {
+            return Err("execution coverage differs".into());
+        }
         Ok(())
     }
 
@@ -1501,6 +1505,7 @@ impl AlphaComparable for ExecutionResult {
             leaves: self.leaves.rename_alpha(context)?,
             effects: self.effects.clone(),
             discarded: self.discarded.clone(),
+            coverage: self.coverage.clone(),
         })
     }
 }
@@ -1545,6 +1550,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         target: PatternDigest::of(&after),
     };
     ExecutionResult {
+        coverage: None,
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {
             pattern: after.clone(),

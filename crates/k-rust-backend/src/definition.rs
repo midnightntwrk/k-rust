@@ -1502,18 +1502,19 @@ impl BackendDefinition {
             for (index, groups) in &definition.rewrite_theory {
                 for (priority, rules) in groups {
                     for (position, rule) in rules.iter().enumerate() {
-                        discharged.push((
-                            index.clone(),
-                            *priority,
-                            position,
-                            crate::definedness::rule_is_defined(definition, &rule.rule),
-                        ));
+                        // The equations the discharge applies or decides are what a run of the
+                        // rule relies on in place of the obligations it removes
+                        // (`crate::coverage`).
+                        let (is_defined, coverage) = crate::coverage::collect(|| {
+                            crate::definedness::rule_is_defined(definition, &rule.rule)
+                        });
+                        discharged.push((index.clone(), *priority, position, is_defined, coverage));
                     }
                 }
             }
         }
 
-        for (index, priority, position, is_defined) in discharged {
+        for (index, priority, position, is_defined, coverage) in discharged {
             if !is_defined {
                 continue;
             }
@@ -1526,6 +1527,11 @@ impl BackendDefinition {
                     .expect("indexed rewrite priority should remain present")[position]
                     .rule,
             );
+            // A rule without partial symbols needed no discharge, and one discharged before
+            // keeps the coverage of that discharge.
+            if !rule.computed_attributes.undefined_symbols.is_empty() {
+                rule.computed_attributes.discharged_by = coverage;
+            }
             rule.attributes.preserves_definedness = true;
             rule.computed_attributes.undefined_symbols.clear();
         }

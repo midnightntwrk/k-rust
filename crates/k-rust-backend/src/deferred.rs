@@ -737,6 +737,8 @@ fn step_value(definition: &BackendDefinition, application: &Term) -> Stoppable<O
     Ok(
         match fold_hooks(definition, &substitute(rhs, &substitution))? {
             Folded::Term(value) if matches!(value.kind(), TermKind::DomainValue { .. }) => {
+                // The step's value replaces the application: the equation is used.
+                crate::coverage::note_applied(&rule.attributes.unique_id);
                 Some(value)
             }
             Folded::Term(_) | Folded::Bottom(_) => None,
@@ -941,6 +943,10 @@ fn ceil_equation(
                 let Instance::Usable(substitution) = instance else {
                     continue;
                 };
+                // The instance's condition is decided below (`crate::coverage`); an outcome from
+                // it uses the equation.
+                let rule_id = rule.attributes.unique_id.as_str();
+                crate::coverage::note_matched(rule_id);
                 let mut conjuncts = Vec::new();
                 for predicate in predicates {
                     flatten_conjuncts(
@@ -951,12 +957,16 @@ fn ceil_equation(
                 let mut residual = Vec::new();
                 for conjunct in conjuncts {
                     match fold_predicate(definition, &conjunct, arguments)? {
-                        Some(false) => return Ok(Some(DeferredDecision::Refuted)),
+                        Some(false) => {
+                            crate::coverage::note_applied(rule_id);
+                            return Ok(Some(DeferredDecision::Refuted));
+                        }
                         Some(true) => {}
                         None => residual.push(conjunct),
                     }
                 }
                 if residual.is_empty() {
+                    crate::coverage::note_applied(rule_id);
                     return Ok(Some(DeferredDecision::Established));
                 }
                 // D2': over hook arithmetic the instance of the ceil axiom is stated instead of
@@ -974,6 +984,7 @@ fn ceil_equation(
                         arithmetic
                     })
                 {
+                    crate::coverage::note_applied(rule_id);
                     return Ok(Some(DeferredDecision::Replaced(residual)));
                 }
             }
@@ -1080,7 +1091,7 @@ fn single_step(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<
     let Some((rule, substitution)) = select_single_step(definition, term)? else {
         return Ok(None);
     };
-    Ok(match &rule.rhs {
+    let decision = match &rule.rhs {
         RuleRhs::Bottom => Some(DeferredDecision::Refuted),
         RuleRhs::Term(rhs) => {
             let instantiated = substitute(rhs, &substitution);
@@ -1090,7 +1101,12 @@ fn single_step(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<
             }
         }
         _ => None,
-    })
+    };
+    // A decision comes from the step's instance: the equation is used.
+    if decision.is_some() {
+        crate::coverage::note_applied(&rule.attributes.unique_id);
+    }
+    Ok(decision)
 }
 
 /// The equation instance [`single_step`] selects for `term`, with its `requires` folded to
@@ -1156,6 +1172,8 @@ fn selected_instance_applies(
     substitution: &Substitution,
     arguments: &[Term],
 ) -> Stoppable<bool> {
+    // The selected instance matched, and its condition is decided here (`crate::coverage`).
+    crate::coverage::note_matched(&rule.attributes.unique_id);
     if !rule.ensures.is_empty() || !rule.computed_attributes.unbound_result_variables.is_empty() {
         return Ok(false);
     }

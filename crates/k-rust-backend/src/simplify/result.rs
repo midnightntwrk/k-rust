@@ -180,6 +180,7 @@ impl Simplification {
         ensures: Vec<Predicate>,
         carried: CarriedObligations,
     ) -> Self {
+        crate::coverage::note_applied(&rule.attributes.unique_id);
         Self {
             term,
             conditions: conjuncts(ResultConditions::equation(ensures, carried)),
@@ -195,6 +196,7 @@ impl Simplification {
     /// subject is retained and `\bottom` is its only constraint, so the caller merges it as it
     /// merges any other constraint set and the pattern becomes `\bottom` as a whole.
     pub(super) fn bottom_subject(rule: &RewriteRule, term: &Term) -> Self {
+        crate::coverage::note_applied(&rule.attributes.unique_id);
         Self {
             term: term.clone(),
             conditions: conjuncts(ResultConditions::refuted()),
@@ -289,6 +291,7 @@ impl Accumulated {
     /// The `\top` equation `rule_id` applied to an operand of a term-level `\and`, with its open
     /// binding obligations ([`ResultConditions::top_equation`]).
     pub(super) fn top_equation(&mut self, rule_id: String, obligations: Vec<Predicate>) {
+        crate::coverage::note_applied(&rule_id);
         self.applied_rules.push(rule_id);
         self.conditions
             .append(conjuncts(ResultConditions::top_equation(obligations)));

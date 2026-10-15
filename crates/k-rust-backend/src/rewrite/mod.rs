@@ -536,6 +536,14 @@ pub struct ExecutionOptions {
     /// equations included. A caller that runs a program sets `Execution`; the states of a
     /// `Proof` run are the ones a prover may read.
     pub evaluation: EvaluationMode,
+    /// Collect the run's coverage: the rules and equations it applied, and those whose condition
+    /// it began to decide for a matched instance, reported as [`ExecutionResult::coverage`]
+    /// ([`crate::coverage::RunCoverage`] states the contract). Off by default; collecting
+    /// changes nothing else in the result. The collection opens after the definition has been
+    /// selected and covers seeding, exploration and final leaf selection, whatever the result
+    /// modality, so the sets include what was applied on paths whose leaves a state-set merge
+    /// drops.
+    pub collect_coverage: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -567,6 +575,7 @@ impl Default for ExecutionOptions {
             retain_trace: true,
             request_names: RequestNames::default(),
             evaluation: EvaluationMode::Proof,
+            collect_coverage: false,
         }
     }
 }
@@ -766,6 +775,10 @@ pub struct ExecutionResult {
     pub effects: Vec<BuiltinEffect>,
     /// Attempted transitions discarded before they could belong to a surviving branch.
     pub discarded: Vec<UncommittedObservation>,
+    /// The run's coverage when [`ExecutionOptions::collect_coverage`] asked for it, `None`
+    /// otherwise. A run that a stop or a bound cut short carries what it collected before it
+    /// ended.
+    pub coverage: Option<crate::coverage::RunCoverage>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
