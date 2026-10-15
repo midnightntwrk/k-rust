@@ -63,10 +63,20 @@ pub enum KeyClass {
 
 /// What an attribute key's value records ([`AttributeKey::record`]).
 ///
-/// A `SourcePosition` or `Provenance` value is written by the loader or the compiler, never by
-/// user source, and never changes what the sentence that carries it means; two loads of one
+/// A `SourcePosition` or `Provenance` value is written by the loader or the compiler, never by K
+/// source, and never changes what the sentence that carries it means; two loads of one
 /// definition from texts that differ only in the position of its sentences differ only in these
-/// keys.
+/// keys. A structured (KAST JSON) definition carries these keys too, and its loader validates
+/// `SourceId`, `Origin` and `InputAddresses` and refuses malformed ones, so a value's form can
+/// decide whether such a definition loads: a host identifies definitions modulo these keys only
+/// after they have loaded.
+///
+/// The record classifies krust's definition-level keys by what their values record. It says
+/// nothing about what the backend reads from `definition.kore`; that is the backend's execution
+/// role of each KORE attribute (`k_rust::backend::execution_role`), and a digest of a backend
+/// definition strips by that role, not by this record. In particular [`AttributeKey::Origin`]
+/// is krust's construction receipt (`Provenance`), not a rule's origin in the backend's sense
+/// (`Source` and `Location`, which are `SourcePosition` here).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum KeyRecord {
     /// Part of what the sentence, module or definition says.
