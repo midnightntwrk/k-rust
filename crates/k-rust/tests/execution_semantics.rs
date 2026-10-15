@@ -2928,3 +2928,157 @@ endmodule
         );
     }
 }
+
+/// IMP lesson 4 of the K tutorial (`pl-tutorial/1_k/2_imp/lesson_4/imp.k`), with
+/// `requires "domains.md"`: `+` and `/` are `strict`, so each evaluates its two arguments in either
+/// order, and the two orders meet on one configuration at one depth.
+const STRICT_IMP: &str = r#"requires "domains.md"
+
+module IMP-SYNTAX
+  imports DOMAINS-SYNTAX
+  syntax AExp  ::= Int | Id
+                 | "-" Int
+                 | AExp "/" AExp              [left, strict]
+                 | "(" AExp ")"               [bracket]
+                 > AExp "+" AExp              [left, strict]
+  syntax BExp  ::= Bool
+                 | AExp "<=" AExp             [seqstrict]
+                 | "!" BExp                   [strict]
+                 | "(" BExp ")"               [bracket]
+                 > BExp "&&" BExp             [left, strict(1)]
+  syntax Block ::= "{" "}"
+                 | "{" Stmt "}"
+  syntax Stmt  ::= Block
+                 | Id "=" AExp ";"            [strict(2)]
+                 | "if" "(" BExp ")"
+                   Block "else" Block         [strict(1)]
+                 | "while" "(" BExp ")" Block
+                 > Stmt Stmt                  [left]
+  syntax Pgm ::= "int" Ids ";" Stmt
+  syntax Ids ::= List{Id,","}
+endmodule
+
+
+module IMP
+  imports IMP-SYNTAX
+  imports DOMAINS
+  syntax KResult ::= Int | Bool
+
+  configuration <T color="yellow">
+                  <k color="green"> $PGM:Pgm </k>
+                  <state color="red"> .Map </state>
+                </T>
+
+// AExp
+  rule <k> X:Id => I ...</k> <state>... X |-> I ...</state>
+  rule I1 / I2 => I1 /Int I2  requires I2 =/=Int 0
+  rule I1 + I2 => I1 +Int I2
+  rule - I1 => 0 -Int I1
+// BExp
+  rule I1 <= I2 => I1 <=Int I2
+  rule ! T => notBool T
+  rule true && B => B
+  rule false && _ => false
+// Block
+  rule {} => .K
+  rule {S} => S
+// Stmt
+  rule <k> X = I:Int; => .K ...</k> <state>... X |-> (_ => I) ...</state>
+  rule S1:Stmt S2:Stmt => S1 ~> S2
+  rule if (true)  S else _ => S
+  rule if (false) _ else S => S
+  rule while (B) S => if (B) {S while (B) S} else {}
+// Pgm
+  rule <k> int (X,Xs => Xs);_ </k> <state> Rho:Map (.Map => X|->0) </state>
+    requires notBool (X in keys(Rho))
+  rule int .Ids; S => S
+
+// verification ids
+  syntax Id ::= "n"     [token]
+              | "sum"   [token]
+endmodule
+"#;
+
+/// `sum` of the tutorial: `n` iterations, each evaluating `sum + n` and `n + -1`.
+fn strict_imp_sum(n: u64) -> String {
+    format!(
+        "int n, sum;\nn = {n};\nsum = 0;\nwhile (!(n <= 0)) {{\n  sum = sum + n;\n  n = n + -1;\n}}\n"
+    )
+}
+
+/// A state-set run expands each distinct state of a depth once. On the strict IMP loop each
+/// iteration has two strict diamonds (`sum + n`, `n + -1`), whose two evaluation orders meet on
+/// one configuration at one depth: the run merges one arrival per diamond, so its steps grow by
+/// a constant per iteration, where exploring both orders to the end quadruples them. The
+/// constant itself depends on the compilation and is not pinned. Under `PathSet` every order is
+/// still a path of its own.
+#[test]
+fn a_state_set_run_of_a_strict_loop_is_linear_in_its_iterations() {
+    use k_rust::backend::ResultModalityOutput;
+    use k_rust_kore::measure::{Counter, snapshot};
+
+    let run = |n: u64, result_modality| {
+        let compiled = compile(STRICT_IMP, "IMP", "IMP-SYNTAX", "Pgm", &strict_imp_sum(n));
+        let mut backend = Backend::new(&compiled.kore, "IMP", BackendOptions::default()).unwrap();
+        let before = snapshot();
+        let result = backend
+            .execute(ExecuteRequest {
+                result_modality,
+                ..ExecuteRequest::new(compiled.initial.clone())
+            })
+            .unwrap();
+        let delta = snapshot().delta(&before);
+        (
+            result,
+            delta.get(Counter::RewriteSteps),
+            delta.get(Counter::ExecutionStatesMerged),
+        )
+    };
+
+    let mut steps = Vec::new();
+    for n in 1..=10 {
+        let (result, rewrite_steps, merged) = run(n, ResultModalityOutput::StateSet);
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("n = {n}: expected one leaf: {result:#?}");
+        };
+        assert_eq!(leaf.reason, HaltReasonOutput::Stuck, "n = {n}");
+        assert_eq!(
+            merged,
+            2 * n,
+            "n = {n}: one merged arrival per strict diamond"
+        );
+        steps.push(rewrite_steps);
+    }
+    let per_iteration = steps[1] - steps[0];
+    assert!(
+        steps
+            .windows(2)
+            .all(|pair| pair[1] - pair[0] == per_iteration),
+        "steps for n = 1..10: {steps:?}"
+    );
+    assert!(steps[9] < 10 * steps[0], "steps for n = 1..10: {steps:?}");
+
+    let (result, _, merged) = run(100, ResultModalityOutput::StateSet);
+    assert_eq!(merged, 200);
+    let [state] = text(&result).try_into().unwrap();
+    // `n |-> 0` and `sum |-> 5050` are the only integers of the final configuration.
+    let integers = state
+        .split(r#"\dv{SortInt{}}(""#)
+        .skip(1)
+        .map(|rest| rest.split('"').next().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(integers, ["0", "5050"].into(), "{state}");
+
+    for (n, paths) in [(1, 4), (2, 16), (3, 64)] {
+        let (result, _, merged) = run(n, ResultModalityOutput::PathSet);
+        assert_eq!(merged, 0, "n = {n}");
+        assert_eq!(result.leaves.len(), paths, "n = {n}");
+        assert!(
+            result
+                .leaves
+                .iter()
+                .all(|leaf| leaf.reason == HaltReasonOutput::Stuck),
+            "n = {n}"
+        );
+    }
+}

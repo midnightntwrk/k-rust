@@ -285,7 +285,9 @@ pub struct ExecuteRequest {
     #[serde(default)]
     pub assume_state_defined: bool,
     /// `state-set` (the default) merges structurally equal final configurations into one leaf,
-    /// which carries the diagnostics of every path merged into it;
+    /// which carries the diagnostics of every path merged into it, and expands each distinct
+    /// state of a depth once, so paths that converge on one state at one depth (such as the
+    /// evaluation orders of a `strict` production) are explored once;
     /// `path-set` returns one leaf per explored path, so converging paths keep their own trace,
     /// branch identity, and observations. The result reports the modality it was produced under.
     #[serde(default = "default_result_modality")]

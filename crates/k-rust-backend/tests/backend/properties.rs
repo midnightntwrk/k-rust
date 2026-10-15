@@ -235,3 +235,41 @@ proptest! {
         prop_assert_eq!(found.len() + remaining.len(), constraints.len());
     }
 }
+
+/// A rule graph over the nodes `n0`..`n5`: each edge `(from, to)` is a rule `n{from} => n{to}`.
+fn rule_graph() -> impl Strategy<Value = Vec<(u8, u8)>> {
+    proptest::collection::vec((0u8..6, 0u8..6), 1..12)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    /// A merged state-set execution over a generated ground rule graph, bounded so that
+    /// cycles end, is the deduplicated path-set execution
+    /// (`exploration_merge::assert_merged_state_set_agrees`).
+    #[test]
+    fn a_merged_state_set_execution_of_a_rule_graph_is_its_deduplicated_path_set(
+        edges in rule_graph(),
+        max_depth in 1u64..7,
+    ) {
+        use crate::exploration_merge::{assert_merged_state_set_agrees, edge, graph_definition, node, pattern};
+        let rules = edges
+            .iter()
+            .enumerate()
+            .map(|(index, (from, to))| {
+                edge(&format!("e{index}"), &format!("n{from}"), &node(&format!("n{to}")))
+            })
+            .collect::<String>();
+        let definition = graph_definition(&rules);
+        let initial = pattern(&definition, &node("n0"));
+        assert_merged_state_set_agrees(
+            &definition,
+            &initial,
+            &k_rust_backend::rewrite::ExecutionOptions {
+                max_depth,
+                ..k_rust_backend::rewrite::ExecutionOptions::default()
+            },
+            &format!("{edges:?}, max_depth {max_depth}"),
+        );
+    }
+}

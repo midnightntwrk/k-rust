@@ -205,9 +205,10 @@ pub struct ConsoleObservation {
 /// Input is immutable and shared between forks. The cursor and transcript are values of the
 /// branch. The transcript is a shared-prefix list: a fork clones a handle to its newest write in
 /// constant time, and a write appended on one branch is seen by that branch only. It also keeps
-/// the running length and digest of its observable form ([`Self::observable_fingerprint`]). The
-/// transcript is materialised as a slice once per state, when [`Self::transcript`] or
-/// [`Self::observable`] first reads it.
+/// the running length and digest of its observable form, so that two consoles observed
+/// differently are told apart in constant time. The transcript is materialised as a slice once
+/// per state, when [`Self::transcript`] first reads it; [`Self::observable`] reads the list
+/// itself.
 #[derive(Clone, Default)]
 pub struct ExecutionIoState {
     input: Arc<[u8]>,
@@ -227,13 +228,6 @@ pub struct ExecutionIoState {
 /// ([`ExecutionIoState::observable`]) have equal fingerprints. Different fingerprints prove the
 /// observations different; equal ones do not prove them equal, so equality is decided on the
 /// observations themselves.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the state-set exploration merge, which compares states by fingerprint first, is not built yet"
-    )
-)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ConsoleFingerprint {
     consumed: usize,
@@ -270,9 +264,12 @@ impl ExecutionIoState {
     /// compared in.
     pub fn observable(&self) -> ConsoleObservation {
         let mut writes = Vec::<(i32, Arc<[u8]>)>::new();
-        let mut entries = self
-            .transcript()
-            .iter()
+        // Read the transcript from its chain, oldest first, without filling the cache that
+        // `transcript()` keeps for its callers.
+        let mut chain = self.transcript.iter_newest_first().collect::<Vec<_>>();
+        chain.reverse();
+        let mut entries = chain
+            .into_iter()
             .filter(|entry| !entry.bytes.is_empty())
             .peekable();
         while let Some(first) = entries.next() {
@@ -299,18 +296,38 @@ impl ExecutionIoState {
     /// written, and a digest folded over the observable form as the writes were appended (each
     /// run's descriptor, then its bytes), so writes split differently, or with empty writes
     /// between them, fold to the same digest.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the state-set exploration merge, which compares states by fingerprint first, is not built yet"
-        )
-    )]
     pub(crate) fn observable_fingerprint(&self) -> ConsoleFingerprint {
         ConsoleFingerprint {
             consumed: self.cursor,
             written: self.written,
             digest: self.digest,
+        }
+    }
+
+    /// Whether this console and `other` are observed alike: `self.observable() ==
+    /// other.observable()`, decided without building either observation. Two observations are
+    /// equal exactly when their consumed input is and their writes, read byte by byte with the
+    /// descriptor of each byte, are the same sequence (runs to one descriptor are that sequence
+    /// grouped). The sequences are compared from their newest bytes, and the comparison stops
+    /// where both transcripts reach one shared write at its end, since what precedes a shared
+    /// write is the same: two branches of one path pay for the writes since they forked.
+    pub(crate) fn observed_alike(&self, other: &Self) -> bool {
+        if self.observable_fingerprint() != other.observable_fingerprint() {
+            return false;
+        }
+        let mut left = ObservedBytes::newest(&self.transcript);
+        let mut right = ObservedBytes::newest(&other.transcript);
+        loop {
+            left.settle();
+            right.settle();
+            if left.at_shared_write_end(&right) {
+                return true;
+            }
+            match (left.next(), right.next()) {
+                (None, None) => return true,
+                (Some(left), Some(right)) if left == right => {}
+                _ => return false,
+            }
         }
     }
 
@@ -435,13 +452,6 @@ pub(crate) struct EffectJournal {
 
 /// A filter for comparing effect journals: equal journals have equal fingerprints, and equality
 /// is decided on the journals themselves.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the state-set exploration merge, which compares states by fingerprint first, is not built yet"
-    )
-)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct JournalFingerprint {
     len: usize,
@@ -461,13 +471,6 @@ impl EffectJournal {
     }
 
     /// The fingerprint of the committed effects, in constant time.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the state-set exploration merge, which compares states by fingerprint first, is not built yet"
-        )
-    )]
     pub(crate) fn fingerprint(&self) -> JournalFingerprint {
         JournalFingerprint {
             len: self.committed.len(),
@@ -490,6 +493,65 @@ impl fmt::Debug for EffectJournal {
             .debug_struct("EffectJournal")
             .field("committed", &self.committed.to_vec())
             .finish()
+    }
+}
+
+/// A console transcript read backwards as observed bytes: `(descriptor, byte)` from the newest
+/// write's last byte to the oldest write's first, empty writes contributing nothing.
+struct ObservedBytes<'a> {
+    /// The write being read, and how many of its bytes are still unread (they are its first
+    /// `unread` bytes).
+    write: Option<&'a LogNode<DescriptorTranscriptEntry>>,
+    unread: usize,
+}
+
+impl<'a> ObservedBytes<'a> {
+    fn newest(transcript: &'a SharedLog<DescriptorTranscriptEntry>) -> Self {
+        let write = transcript.newest.as_deref();
+        Self {
+            write,
+            unread: write.map_or(0, LogNode::byte_len),
+        }
+    }
+
+    /// Move past writes with no unread byte, so that a write is current only while it has one.
+    fn settle(&mut self) {
+        while let Some(write) = self.write
+            && self.unread == 0
+        {
+            self.write = write.parent.as_deref();
+            self.unread = self.write.map_or(0, LogNode::byte_len);
+        }
+    }
+
+    /// Whether both readers stand at the end of one shared write, with all its bytes unread:
+    /// what remains to read is then the same for both.
+    fn at_shared_write_end(&self, other: &Self) -> bool {
+        match (self.write, other.write) {
+            (Some(left), Some(right)) => {
+                std::ptr::eq(left, right)
+                    && self.unread == left.byte_len()
+                    && other.unread == right.byte_len()
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Iterator for ObservedBytes<'_> {
+    type Item = (i32, u8);
+
+    fn next(&mut self) -> Option<(i32, u8)> {
+        self.settle();
+        let write = self.write?.item.as_ref()?;
+        self.unread -= 1;
+        Some((write.descriptor, write.bytes[self.unread]))
+    }
+}
+
+impl LogNode<DescriptorTranscriptEntry> {
+    fn byte_len(&self) -> usize {
+        self.item.as_ref().map_or(0, |entry| entry.bytes.len())
     }
 }
 

@@ -1,11 +1,11 @@
 //! ```toml algorithm
 //! id = "backend.rewrite.execute"
 //! name = "depth-first exploration of a rewrite tree"
-//! sites = ["execute_using", "Execution::run", "Execution::expand", "commit_applied", "ExecutionState::leaf", "merge_equal_final_leaves", "enqueue_execution_states"]
+//! sites = ["execute_using", "Execution::run", "Execution::expand", "Execution::merged", "commit_applied", "ExecutionState::leaf", "merge_equal_final_leaves", "enqueue_execution_states"]
 //! variable = "d = maximum depth; b = maximum breadth; L = final leaves"
-//! counters = ["RewriteSteps"]
+//! counters = ["RewriteSteps", "ExecutionStatesMerged"]
 //! span = "per problem"
-//! invariant = "pending holds unexpanded states of depth <= max_depth; leaves only grows; work counts the states taken from pending, at most max_work. When retain_trace is false, commit_applied keeps only the latest rewrite entry needed for halt metadata, and leaf returns no trace."
+//! invariant = "pending holds unexpanded states of depth <= max_depth, their depths non-increasing from front to back; leaves only grows; work counts the states taken from pending, at most max_work. A state-set run that explores every branch records a state in its merge table only once the state's expansion completed without a stop, and keeps no depth below the back of pending. When retain_trace is false, commit_applied keeps only the latest rewrite entry needed for halt metadata, and leaf returns no trace."
 //! consumes = [
 //!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
 //!   { type = "k_rust_backend::rewrite::Pattern", role = "internalized pattern" },
@@ -20,6 +20,10 @@
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
 //! bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key (backend.fresh.variables) and one console observation (linear in the leaf's transcript) per such leaf, and O(L^2) key comparisons; each merged leaf's diagnostics are appended to the retained leaf's without repeats, in time the product of the two lists' lengths; a leaf is merged only into a retained leaf of its configuration that may absorb it (merge_class), and a run-ending leaf is kept as is"
+//!
+//! [[cost]]
+//! mode = "state-set exploration merge (Execution::merged)"
+//! bound = "one expansion per distinct (depth, RequestNames::state_key, effects, observed console, console availability) class, times the maximal diagnostic sets recorded for it (one set unless converging paths carry incomparable diagnostics); one E2/E3 simplification and one state_key per arriving state that has company (a pending state or a recorded one); the effects and consoles of two arrivals are compared by fingerprint in O(1) and then back to their shared history; memory: the states recorded at depths not below the shallowest pending state, about 1.4 KiB each on IMP"
 //!
 //! [[cost]]
 //! mode = "trace storage"
@@ -39,11 +43,13 @@
 //! ```
 //!
 //! Depth-first exploration of the rewrite tree (stack discipline) with a per-state pipeline and
-//! an equal-leaf merge; a depth-bounded leaf is a result whatever the other leaves' halt reasons,
-//! so the result covers every path up to the bound: O(states) steps, states <= branching^depth bounded by
-//! `max_depth` and `max_breadth`, each state one term simplification, one predicate pass, and one
-//! rewrite step; `Counter::RewriteSteps`. Not breadth-first: `enqueue_execution_states`
-//! pushes successors to the front, so children are visited before siblings.
+//! an equal-leaf merge; the result covers every path up to the bound: O(states) steps, states <=
+//! branching^depth bounded by `max_depth` and `max_breadth`, each state one term simplification,
+//! one predicate pass, and one rewrite step; `Counter::RewriteSteps`. A state-set run that explores
+//! every branch also merges each state equal at its depth to a recorded one
+//! (`exploration_merge`), so its states are the distinct states of each depth;
+//! `Counter::ExecutionStatesMerged`. Not breadth-first: `enqueue_execution_states` pushes
+//! successors to the front, so children are visited before siblings.
 
 // The phase methods return `Phase<T>` (below), whose `Err` is the finished `ExecutionLeaf`
 // itself: one leaf per state, moved once into `leaves`.
@@ -81,11 +87,13 @@ use super::work::Work;
 use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionOptions, ExecutionResult, HaltReason,
     IndeterminateReason, InitialDefinedness, InitialSimplificationStatus, Pattern, RemainderBranch,
-    RemainderSimplification, RewriteResult, SubjectDefinedness, TraceEntry, TraceKind,
-    TrivialApplication, Truth, UndecidedStep, applied_trivial_halt, initial_definedness,
-    normalize_pattern_substitution, path_trace::PathTrace, predicates_truth,
-    retain_substitution_predicates, rewrite_step_with_optional_execution, stuck, trivial_halt,
-    vacuous_halt,
+    RemainderSimplification, RewriteResult, SubjectDefinedness, TraceEntry, TraceKind, TrivialApplication, Truth,
+    UndecidedStep, applied_trivial_halt,
+    exploration_merge::{Arrival, ExplorationMerge},
+    initial_definedness, normalize_pattern_substitution,
+    path_trace::PathTrace,
+    predicates_truth, retain_substitution_predicates, rewrite_step_with_optional_execution, stuck,
+    trivial_halt, vacuous_halt,
 };
 
 pub(super) fn execute_using(
@@ -191,6 +199,15 @@ struct Execution<'a> {
     bottom_initial_simplifications: usize,
     /// The states visited and the budget (`work::Work`).
     work: Work,
+    /// The merge table of a state-set run that explores every branch; `None` otherwise.
+    merge: Option<ExplorationMerge>,
+    /// The state being expanded, as the merge table would record it once its expansion
+    /// completes; `None` when it takes no part in merging.
+    arrival: Option<Arrival>,
+    /// After each expansion: the merge table's size, its shallowest recorded depth, and the
+    /// depth of the back of `pending`.
+    #[cfg(test)]
+    merge_census: Vec<(usize, Option<u64>, Option<u64>)>,
 }
 
 impl<'a> Execution<'a> {
@@ -268,6 +285,9 @@ impl<'a> Execution<'a> {
             }
         }
         let work = Work::new(options.max_work);
+        let merge = (options.result_modality == ResultModality::StateSet
+            && options.branch_mode == ExecutionBranchMode::ExploreAll)
+            .then(ExplorationMerge::default);
         Self {
             definition,
             options,
@@ -283,6 +303,10 @@ impl<'a> Execution<'a> {
             completed_initial_simplifications: 0,
             bottom_initial_simplifications: 0,
             work,
+            merge,
+            arrival: None,
+            #[cfg(test)]
+            merge_census: Vec::new(),
         }
     }
 
@@ -357,8 +381,10 @@ impl<'a> Execution<'a> {
             }
             measure::bump(Counter::RewriteSteps);
             let mut step_timer = timeout_controller.begin_step();
+            self.arrival = None;
             match self.expand(state) {
                 Ok(successors) => {
+                    self.record_arrival();
                     enqueue_execution_states(&mut self.pending, successors);
                     if let Expansion::BreadthBound = self.breadth_checked() {
                         break;
@@ -367,7 +393,10 @@ impl<'a> Execution<'a> {
                 Err(leaf) => {
                     let ends_execution = match &leaf.halt_reason {
                         HaltReason::Stopped(cause) => stop_ends_execution(cause, &mut step_timer),
-                        _ => false,
+                        _ => {
+                            self.record_arrival();
+                            false
+                        }
                     };
                     self.leaves.push(leaf);
                     if ends_execution {
@@ -375,6 +404,72 @@ impl<'a> Execution<'a> {
                     }
                 }
             }
+            self.evict_unreachable_depths();
+        }
+    }
+
+    /// The merge point of a state-set run (after E3: the state is normalised, not bottom, and
+    /// below the depth bound): whether `state` equals, at its depth, a state whose expansion
+    /// completed ([`ExplorationMerge`]), in which case it ends with no leaf and no successor.
+    /// Otherwise the state is kept as the arrival `run` records once its own expansion completes
+    /// without a stop: a stop in the step or in the simplifications and queries after it leaves
+    /// the state unrecorded, so an equal later state is expanded itself.
+    ///
+    /// Initial inputs (which carry their definedness) and remainder states (which end as leaves
+    /// without a step) take no part. A key is computed only when another path exists: a state
+    /// is pending, or a recorded state may still be met.
+    fn merged(&mut self, state: &ExecutionState) -> bool {
+        let Some(merge) = &self.merge else {
+            return false;
+        };
+        if state.is_initial_input
+            || !matches!(state.kind, ExecutionStateKind::Rewritable)
+            || (self.pending.is_empty() && merge.is_empty())
+        {
+            return false;
+        }
+        let arrival = Arrival {
+            depth: state.depth,
+            key: self.fresh_counter.request().state_key(&state.pattern),
+            effects: state.effects.clone(),
+            io: state.io.clone(),
+            io_enabled: state.io_enabled,
+            diagnostics: state.diagnostics.clone(),
+        };
+        if merge.absorbs(&arrival) {
+            measure::bump(Counter::ExecutionStatesMerged);
+            return true;
+        }
+        self.arrival = Some(arrival);
+        false
+    }
+
+    /// Record the expanded state, if it takes part in merging.
+    fn record_arrival(&mut self) {
+        if let (Some(merge), Some(arrival)) = (&mut self.merge, self.arrival.take()) {
+            merge.record(arrival);
+        }
+    }
+
+    /// Depth-first order keeps `pending`'s depths non-increasing from front to back (a state's
+    /// successors, at its depth or one deeper, go to the front, and the state was the deepest),
+    /// so no state arrives at a depth below the back of `pending` any more.
+    fn evict_unreachable_depths(&mut self) {
+        let Some(merge) = &mut self.merge else {
+            return;
+        };
+        match self.pending.back() {
+            Some(shallowest) => merge.evict_below(shallowest.depth),
+            None => merge.clear(),
+        }
+        #[cfg(test)]
+        {
+            let (recorded, shallowest_recorded) = merge.census();
+            self.merge_census.push((
+                recorded,
+                shallowest_recorded,
+                self.pending.back().map(|state| state.depth),
+            ));
         }
     }
 
@@ -399,6 +494,9 @@ impl<'a> Execution<'a> {
         let Some(state) = self.simplify_term(state, deferred_initial_vacuity.is_some())? else {
             return Ok(Vec::new());
         };
+        if self.merged(&state) {
+            return Ok(Vec::new());
+        }
         // A `Finished` or `Branch` step attributes its diagnostics to its candidates; any other
         // result halts the state, whose leaf takes the step's whole collection.
         let (rewritten, step_diagnostics) = diagnostic::collect(|| match &state.kind {
@@ -1786,37 +1884,37 @@ fn final_leaves(
 /// before an undefined step, which its halt describes, so whole-state trivial and vacuous outcomes
 /// remain distinct.
 ///
-/// Merging drops a leaf, which is sound only when an equal leaf that stays means everything the
-/// dropped one meant; a leaf's halt can mean more than its configuration ([`merge_class`]).
-/// The leaf of a stop or of the work budget that ended the run (`MergeClass::RunEnding`) also
-/// stands for the pending states the run dropped, which no other leaf carries, so it is never
-/// merged, in either direction. A bound or stop local to one state (`MergeClass::Unexplored`) means that its
-/// configuration's subtree was not explored; an earlier leaf of that configuration represents
-/// that subtree only when its own halt is determined by the configuration (stuck, branching,
-/// undecided, failed, or itself a bound or stop). A terminal-rule leaf's halt is not: it records
-/// the rule by which its path arrived, and the same configuration reached by another rule has
-/// successors. A terminal leaf says the configuration is final; it absorbs, and is absorbed by,
-/// only leaves that say so too (stuck or terminal), and is kept beside any other equal leaf, which
-/// says the configuration goes on, is undecided, or was not explored. A later leaf merges into the first
-/// retained leaf of its configuration that may absorb it, and is otherwise retained itself, so
-/// a state-set result may show one configuration more than once, each with a different meaning.
+/// Merging drops a leaf, which is sound only when an equal leaf that stays stands for it
+/// ([`may_absorb`]); a leaf's halt can mean more than its configuration ([`merge_class`]). The leaf
+/// of a stop or of the work budget that ended the run (`MergeClass::RunEnding`) also stands for the pending states the
+/// run dropped, which no other leaf carries, so it is never merged, in either direction. A bound or
+/// stop local to one state (`MergeClass::Unexplored`) means that its configuration's subtree was
+/// not explored; an earlier leaf of that configuration represents that subtree only when its own
+/// halt is determined by the configuration (stuck, branching, undecided, failed, or itself a bound
+/// or stop). A terminal-rule leaf's halt is not: it records the rule by which its path arrived, and
+/// the same configuration reached by another rule has successors. A terminal leaf says the
+/// configuration is final; it absorbs, and is absorbed by, only leaves that say so too (stuck or
+/// terminal), and is kept beside any other equal leaf, which says the configuration goes on, is
+/// undecided, or was not explored. A later leaf merges into the first retained leaf of its
+/// configuration that may absorb it, and is otherwise retained itself, so a state-set result may
+/// show one configuration more than once, each with a different meaning.
 ///
-/// A retained leaf is the first of the leaves merged into it, the witness: it keeps its own pattern,
-/// depth, halt reason, trace, branch, observations, effects, and console transcript, which
-/// describe the one path it reports. Its diagnostics become those of every leaf merged into it,
-/// its own first and then each new one in the order the merged leaves are met. A diagnostic
-/// records that the work on its path may be incomplete (a term not known normalized, a
-/// condition or predicate left undecided, a rule possibly left unapplied for lack of budget),
-/// and the merged paths are paths of this result: dropping a merged leaf's diagnostics would
-/// make a state-set result diagnostic-free where the path-set result of the same request is
-/// not, and a run without diagnostics is what the explore-all coverage guarantee presumes
-/// (docs/backend-port.md). The retained leaf's diagnostics may therefore name work that is not
-/// on its own trace. A merged diagnostic is appended as the path that met it stated it, naming
-/// variables as that path named them: two leaves whose states differ by a renaming of the
-/// variables the request does not name merge, so a merged diagnostic may name a variable that
-/// does not occur in the retained leaf's state, and diagnostics equal up to such names are each
-/// listed. Names minted after a fork are distinct across paths (the fresh counter is
-/// request-wide), so a merged diagnostic never names one of the retained leaf's own variables.
+/// A retained leaf is the first of the leaves merged into it, the witness: it keeps its own
+/// pattern, depth, halt reason, trace, branch, observations, effects, and console transcript, which
+/// describe the one path it reports. Its diagnostics become those of every leaf merged into it, its
+/// own first and then each new one in the order the merged leaves are met. A diagnostic records
+/// that the work on its path may be incomplete (a term not known normalized, a condition or
+/// predicate left undecided, a rule possibly left unapplied for lack of budget), and the merged
+/// paths are paths of this result: dropping a merged leaf's diagnostics would make a state-set
+/// result diagnostic-free where the path-set result of the same request is not, and a run without
+/// diagnostics is what the explore-all coverage guarantee presumes (docs/backend-port.md). The
+/// retained leaf's diagnostics may therefore name work that is not on its own trace. A merged
+/// diagnostic is appended as the path that met it stated it, naming variables as that path named
+/// them: two leaves whose states differ by a renaming of the variables the request does not name
+/// merge, so a merged diagnostic may name a variable that does not occur in the retained leaf's
+/// state, and diagnostics equal up to such names are each listed. Names minted after a fork are
+/// distinct across paths (the fresh counter is request-wide), so a merged diagnostic never names
+/// one of the retained leaf's own variables.
 ///
 /// A key only tells a leaf apart from the other leaves that may be merged, so with fewer than
 /// two such leaves no key is computed: a state key renames every variable the
@@ -1924,14 +2022,22 @@ fn merge_class(halt: &HaltReason) -> MergeClass {
     }
 }
 
-/// Whether the retained leaf, of halt `retained`, means everything a later leaf of the same
-/// configuration and halt `later` means. Only leaves that take part in merging are asked.
+/// Whether the retained leaf, of halt `retained`, stands for a later leaf of the same
+/// configuration and halt `later` in a state-set result. Only leaves that take part in merging
+/// are asked.
 ///
-/// A leaf final in its own right (`Stuck`) and a terminal-rule leaf both mean that the
-/// configuration is a final one, and absorb each other; nothing else absorbs a terminal-rule leaf,
-/// and a terminal-rule leaf absorbs nothing else. A branching, cut-point, undecided or failed
-/// leaf says the configuration goes on or is not decided, and a bound or stop leaf that its
-/// subtree was not explored: none of them says that it is final.
+/// - A leaf whose halt the configuration determines (stuck, branching, cut point, undecided,
+///   failed) has the same halt on every path to that configuration, so two such leaves of one
+///   configuration agree. They differ only where the configuration's step came out differently on
+///   two paths (a solver that answered one query differently, as when it timed out), and the first
+///   then stands for both: either outcome is a correct reading of the configuration.
+/// - A bound or stop leaf says that its configuration's subtree was not explored, which stands for
+///   whatever any other leaf of the configuration says about it: a consumer that explores the
+///   subtree reaches it.
+/// - A terminal-rule leaf's halt records the rule by which its path arrived, not a property of the
+///   configuration, which reached otherwise may have successors: exploring from another leaf of
+///   it does not recover that it is final. A terminal-rule leaf therefore absorbs, and is absorbed
+///   by, only leaves that also say the configuration is final (stuck or terminal-rule).
 fn may_absorb(retained: &HaltReason, later: &HaltReason) -> bool {
     let final_in_its_own_right =
         |halt: &HaltReason| matches!(halt, HaltReason::Stuck | HaltReason::TerminalRule { .. });
@@ -3440,6 +3546,430 @@ mod tests {
             halts(vec![leaf(1, terminal.clone()), leaf(2, terminal.clone())]),
             [(1, terminal)]
         );
+        // An undecided, failed or bound leaf stands for a later stuck leaf of its configuration:
+        // the two differ only where one configuration's step came out differently on two paths,
+        // and exploring from the first reaches what the second says.
+        for earlier in [
+            HaltReason::Indeterminate(IndeterminateReason::SurvivingMacroOrAlias {
+                symbol: "m".into(),
+            }),
+            HaltReason::Simplification(SimplificationError::IterationLimit {
+                limit: 1,
+                term: subject(&definition, "same").term,
+            }),
+            HaltReason::DepthBound,
+        ] {
+            assert_eq!(
+                halts(vec![leaf(1, earlier.clone()), leaf(2, HaltReason::Stuck)]),
+                [(1, earlier.clone())],
+                "{earlier:?}"
+            );
+        }
+    }
+
+    /// `wrap("s{i}")` rewrites to `wrap("l{i}")` and `wrap("r{i}")`, both of which rewrite to
+    /// `wrap("s{i + 1}")`, for `diamonds` diamonds.
+    fn diamond_chain_axioms(diamonds: usize) -> String {
+        let rule = |label: String, from: String, to: String| {
+            format!(
+                r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(wrap{{}}(\dv{{SortS{{}}}}("{from}")), \top{{SortS{{}}}}()),
+                    wrap{{}}(\dv{{SortS{{}}}}("{to}"))
+                ) [label{{}}("{label}")]
+                "#
+            )
+        };
+        (0..diamonds)
+            .flat_map(|i| {
+                let (s, l, r, next) = (
+                    format!("s{i}"),
+                    format!("l{i}"),
+                    format!("r{i}"),
+                    format!("s{}", i + 1),
+                );
+                [
+                    rule(format!("{s}-l"), s.clone(), l.clone()),
+                    rule(format!("{s}-r"), s, r.clone()),
+                    rule(format!("{l}-s"), l, next.clone()),
+                    rule(format!("{r}-s"), r, next),
+                ]
+            })
+            .collect()
+    }
+
+    /// Run `initial` under `options` to its end, returning the execution for inspection.
+    fn explored<'a>(
+        definition: &'a BackendDefinition,
+        initial: Vec<Pattern>,
+        options: ExecutionOptions,
+        solver: &'a dyn SmtSolver,
+        observe: &'a mut dyn FnMut(&BuiltinEffect),
+    ) -> Execution<'a> {
+        let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
+            manual: None,
+            moving_average: false,
+        });
+        let mut execution =
+            Execution::seed(definition, initial, options, solver, None, None, observe);
+        execution.run(&timeout_controller);
+        execution
+    }
+
+    /// Under depth-first exploration the merge table holds no depth below the back of
+    /// `pending`, at which no state can arrive any more, and is empty whenever `pending` is: on
+    /// a chain of 200 diamonds, where the right branch of every diamond stays pending while the
+    /// left one runs to the end, every right branch's successor is merged, once.
+    #[test]
+    fn the_merge_table_keeps_only_the_depths_a_state_can_still_arrive_at() {
+        let definition = definition(&diamond_chain_axioms(200));
+        let mut observe = |_: &BuiltinEffect| {};
+        let before = measure::snapshot();
+        let execution = explored(
+            &definition,
+            vec![subject(&definition, "s0")],
+            ExecutionOptions::default(),
+            &crate::smt::NoSolver,
+            &mut observe,
+        );
+        let merged = measure::snapshot()
+            .delta(&before)
+            .get(Counter::ExecutionStatesMerged);
+        assert_eq!(merged, 200);
+        let [leaf] = execution.leaves.as_slice() else {
+            panic!("expected one leaf: {:?}", execution.leaves);
+        };
+        assert_eq!(leaf.pattern, subject(&definition, "s200"));
+        assert!(!execution.merge_census.is_empty());
+        let mut largest = 0;
+        for &(recorded, shallowest, back) in &execution.merge_census {
+            largest = largest.max(recorded);
+            match back {
+                None => assert_eq!(recorded, 0),
+                Some(back) => assert!(shallowest.is_none_or(|depth| depth >= back)),
+            }
+        }
+        // Every state of the left spine is recorded while the first right branch is pending.
+        assert!(largest >= 400, "{largest}");
+        assert_eq!(execution.merge_census.last(), Some(&(0, None, None)));
+    }
+
+    /// A run that merged states and is then cancelled ends with the cancelled leaf: merging
+    /// changes nothing about how a stop ends a run. The diamond chain merges twice; `probe`'s
+    /// step asks the solver, which cancels the request.
+    #[test]
+    fn a_merged_run_cancelled_through_its_token_ends_with_the_cancelled_leaf() {
+        // Constant constructors for the chain's states, so that only `probe` asks the solver.
+        let constants = ["s0", "l0", "r0", "s1", "l1", "r1", "s2"]
+            .map(|name| format!("symbol {name}{{}}() : SortS{{}} [constructor{{}}()]\n"))
+            .concat();
+        let chain = [
+            ("s0", "l0"),
+            ("s0", "r0"),
+            ("l0", "s1"),
+            ("r0", "s1"),
+            ("s1", "l1"),
+            ("s1", "r1"),
+            ("l1", "s2"),
+            ("r1", "s2"),
+        ]
+        .map(|(from, to)| {
+            format!(
+                "axiom{{}} \\rewrites{{SortS{{}}}}(\\and{{SortS{{}}}}({from}{{}}(), \\top{{SortS{{}}}}()), {to}{{}}()) [label{{}}(\"{from}-{to}\")]\n"
+            )
+        })
+        .concat();
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                sort SortS{{}} []
+                {constants}
+                symbol probe{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}()]
+                symbol done{{}}() : SortS{{}} [constructor{{}}()]
+                hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.eq"), smt-hook{{}}("=")]
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(
+                        probe{{}}(X:SortInt{{}}),
+                        \equals{{SortBool{{}}, SortS{{}}}}(
+                            eqInt{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("0")),
+                            \dv{{SortBool{{}}}}("true")
+                        )
+                    ),
+                    done{{}}()
+                ) [label{{}}("probe")]
+                {chain}
+            endmodule []"#
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let term = |source: &str| {
+            definition
+                .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
+                .expect("term should internalize")
+        };
+        let initial = vec![
+            Pattern {
+                term: term("s0{}()"),
+                constraints: Vec::new(),
+            },
+            Pattern {
+                term: term("probe{}(X:SortInt{})"),
+                constraints: Vec::new(),
+            },
+        ];
+        let token = crate::stop::CancellationToken::new();
+        let solver = CancelOnFirstQuery {
+            token: token.clone(),
+        };
+        let before = measure::snapshot();
+        let result = token.scope(|| {
+            super::super::execute_disjunction_with_solver_and_observer(
+                &definition,
+                initial,
+                ExecutionOptions::default(),
+                &solver,
+                |_| {},
+            )
+        });
+        let merged = measure::snapshot()
+            .delta(&before)
+            .get(Counter::ExecutionStatesMerged);
+        assert_eq!(merged, 2);
+        let halts = result
+            .leaves
+            .iter()
+            .map(|leaf| leaf.halt_reason.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            halts,
+            [HaltReason::Stuck, HaltReason::Stopped(StopCause::Cancelled)],
+            "{result:#?}"
+        );
+        assert_eq!(result.leaves[1].pattern.term, term("probe{}(X:SortInt{})"));
+    }
+
+    /// A solver that raises a passed step deadline at its `nth` query (counting from 1), once,
+    /// and otherwise decides nothing.
+    struct DeadlineAtQuery {
+        nth: usize,
+        queries: std::cell::Cell<usize>,
+    }
+
+    impl DeadlineAtQuery {
+        fn query(&self) -> Stoppable<()> {
+            self.queries.set(self.queries.get() + 1);
+            if self.queries.get() != self.nth {
+                return Ok(());
+            }
+            let _deadline = crate::stop::arm_deadline(
+                std::time::Instant::now(),
+                crate::timeout::StepTimeoutMode::Manual(std::time::Duration::ZERO),
+            );
+            crate::stop::check()
+        }
+    }
+
+    impl SmtSolver for DeadlineAtQuery {
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &crate::substitution::Substitution,
+        ) -> Stoppable<Result<crate::smt::Satisfiability, crate::smt::SmtError>> {
+            self.query()?;
+            Ok(Ok(crate::smt::Satisfiability::Sat))
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &crate::substitution::Substitution,
+            _checked: &[Predicate],
+        ) -> Stoppable<Result<crate::smt::Validity, crate::smt::SmtError>> {
+            self.query()?;
+            Ok(Ok(crate::smt::Validity::Contingent))
+        }
+    }
+
+    /// `start(X)` rewrites to `l(X)` and `r(X)`, both of which rewrite to `m(X)`; `m(X)` rewrites
+    /// to `t(f(X))` by `m-to-t`, where `f(X) = 1` where `X == 1`, which normalising `t(f(X))` asks
+    /// the solver; unless `terminal`, `m(X)` also rewrites to `done` where `X == 0`, which its step
+    /// asks the solver, at a higher priority.
+    fn stopped_merge_definition(terminal: bool) -> BackendDefinition {
+        // A terminal rule ends a path only as its state's unique successor, so with `m-to-t`
+        // terminal `m-done` is left out.
+        let m_done = if terminal {
+            ""
+        } else {
+            r#"
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        m{}(X:SortInt{}),
+                        \equals{SortBool{}, SortS{}}(
+                            eqInt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    done{}()
+                ) [label{}("m-done"), priority{}("10")]"#
+        };
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortS{} []
+                symbol start{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol l{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol r{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol m{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol t{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol f{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(X:SortInt{}), \top{SortS{}}()), l{}(X:SortInt{})
+                ) [label{}("start-l")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(X:SortInt{}), \top{SortS{}}()), r{}(X:SortInt{})
+                ) [label{}("start-r")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(l{}(X:SortInt{}), \top{SortS{}}()), m{}(X:SortInt{})
+                ) [label{}("l-m")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(r{}(X:SortInt{}), \top{SortS{}}()), m{}(X:SortInt{})
+                ) [label{}("r-m")]
+                M_DONE
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(m{}(X:SortInt{}), \top{SortS{}}()),
+                    t{}(f{}(X:SortInt{}))
+                ) [label{}("m-to-t"), priority{}("50")]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortBool{}, R}(
+                            eqInt{}(X:SortInt{}, \dv{SortInt{}}("1")),
+                            \dv{SortBool{}}("true")
+                        ),
+                        \and{R}(\in{SortInt{}, R}(X0:SortInt{}, X:SortInt{}), \top{R}())
+                    ),
+                    \equals{SortInt{}, R}(
+                        f{}(X0:SortInt{}),
+                        \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}())
+                    )
+                ) [label{}("f-one")]
+            endmodule []"#
+            .replace("M_DONE", m_done);
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// The two equal arrivals `m(X)` of the diamond merge: the first is recorded once its
+    /// expansion completes, and the second is merged into it. A stop during the first one's
+    /// expansion, in its step or after its step while normalising its terminal successor
+    /// (`m-to-t`), leaves it unrecorded, so the second is expanded itself and its leaves are
+    /// reported: a stopped expansion never stands for an equal state's subtree.
+    #[test]
+    fn an_expansion_a_stop_cut_short_is_not_recorded_for_merging() {
+        let definitions = [false, true].map(stopped_merge_definition);
+        let start = |definition: &BackendDefinition| Pattern {
+            term: definition
+                .internalize_term(&parse_pattern("start{}(X:SortInt{})").unwrap(), &[])
+                .unwrap(),
+            constraints: Vec::new(),
+        };
+        let head = |leaf: &ExecutionLeaf| match leaf.pattern.term.kind() {
+            crate::term::TermKind::Application { symbol, .. } => symbol.name.to_string(),
+            other => panic!("expected an application, found {other:?}"),
+        };
+        let deadline = || {
+            HaltReason::Stopped(StopCause::Deadline(
+                crate::timeout::StepTimeoutMode::Manual(std::time::Duration::ZERO),
+            ))
+        };
+        let run = |nth, terminal: bool| {
+            let solver = DeadlineAtQuery {
+                nth,
+                queries: std::cell::Cell::new(0),
+            };
+            let before = measure::snapshot();
+            let definition = &definitions[usize::from(terminal)];
+            let result = super::super::execute_disjunction_with_solver_and_observer(
+                definition,
+                vec![start(definition)],
+                ExecutionOptions {
+                    terminal_rules: if terminal {
+                        BTreeSet::from(["m-to-t".to_owned()])
+                    } else {
+                        BTreeSet::new()
+                    },
+                    ..ExecutionOptions::default()
+                },
+                &solver,
+                |_| {},
+            );
+            let merged = measure::snapshot()
+                .delta(&before)
+                .get(Counter::ExecutionStatesMerged);
+            (result, merged, solver.queries.get())
+        };
+
+        for terminal in [false, true] {
+            // Without a stop the second `m(X)` is merged.
+            let (unstopped, merged, queries) = run(0, terminal);
+            assert_eq!(merged, 1, "{unstopped:#?}");
+            // A stop at each query of the first `m(X)`'s expansion leaves it unrecorded: its
+            // stopped leaf is reported, and the second `m(X)` is expanded into the leaves the
+            // unstopped run reports.
+            let mut stopped_in_the_step = false;
+            let mut stopped_after_the_step = false;
+            for nth in 1..=queries {
+                let (result, merged, _) = run(nth, terminal);
+                let Some(stopped) = result
+                    .leaves
+                    .iter()
+                    .find(|leaf| leaf.halt_reason == deadline())
+                else {
+                    continue;
+                };
+                match (head(stopped).as_str(), terminal) {
+                    // The remainder of `m-done`, `m(X)` where `X =/= 0`, is a state of its own:
+                    // a stop in its expansion leaves the first `m(X)` recorded.
+                    ("m", _) if !stopped.pattern.constraints.is_empty() => {
+                        assert_eq!(merged, 1, "query {nth}: {result:#?}");
+                        continue;
+                    }
+                    ("m", _) => stopped_in_the_step = true,
+                    // A terminal successor is normalised by the expansion of the `m(X)` it
+                    // succeeds.
+                    ("t", true) => stopped_after_the_step = true,
+                    // Otherwise `t(f(X))` is a state of its own, and the stop is in its own
+                    // expansion: the first `m(X)` was recorded and the second merged into it.
+                    ("t", false) => {
+                        assert_eq!(merged, 1, "query {nth}: {result:#?}");
+                        continue;
+                    }
+                    (other, _) => panic!("query {nth} stopped `{other}`: {result:#?}"),
+                }
+                assert_eq!(merged, 0, "query {nth}: {result:#?}");
+                let rest = result
+                    .leaves
+                    .iter()
+                    .filter(|leaf| leaf.halt_reason != deadline())
+                    .cloned()
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    rest.iter().map(head).collect::<Vec<_>>(),
+                    unstopped.leaves.iter().map(head).collect::<Vec<_>>(),
+                    "query {nth}, terminal {terminal}: {result:#?}"
+                );
+            }
+            // Without the terminal rule the first `m(X)`'s step asks the solver; with it, only
+            // the normalisation of its terminal successor does.
+            assert_eq!(stopped_in_the_step, !terminal);
+            assert_eq!(stopped_after_the_step, terminal);
+        }
     }
 
     /// A leaf whose reason is decided is normalised before it is published; a normalisation

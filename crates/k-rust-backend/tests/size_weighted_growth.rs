@@ -37,10 +37,11 @@ use std::sync::Mutex;
 use k_rust_backend::{
     definition::BackendDefinition,
     externalize::constrained_pattern,
-    rewrite::{ExecutionOptions, Pattern, execute},
+    rewrite::{ExecutionOptions, Pattern, execute, execute_with_io_state},
     simplify::{SimplificationOptions, simplify, simplify_pattern_with_solver},
     smt::{NoSolver, TranslationState},
     term::Term,
+    transition::ExecutionIoState,
 };
 #[cfg(feature = "z3")]
 use k_rust_backend::{
@@ -1086,4 +1087,109 @@ fn selecting_linked_known_conjuncts_allocates_linearly_in_their_number() {
             validity_check_bytes(&definition, &known, &[checked])
         },
     );
+}
+
+// ---------- converging paths: one merged arrival per diamond ----------
+
+/// States `st(K1, K2, n, phase)`, a log hook and a console write hook. A `st(_, _, n, 0)` with
+/// `n > 0` rewrites to `st(dotk, dotk, n, 1)` and `st(dotk, dotk, n, 2)`, and both of those
+/// rewrite to `st(log("x"), write(1, "a"), n - 1, 0)`, which logs one line and writes one byte
+/// when it is built: from `st(dotk, dotk, n, 0)`, a chain of `n` diamonds, by four rules whatever
+/// `n` is.
+const LOGGING_DIAMONDS: &str = r#"[]
+module MAIN
+    hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+    hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+    hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+    sort SortK{} []
+    symbol st{}(SortK{}, SortK{}, SortInt{}, SortInt{}) : SortK{} [constructor{}()]
+    symbol dotk{}() : SortK{} [constructor{}(), total{}()]
+    hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{}
+        [function{}(), total{}(), hook{}("INT.sub"), smt-hook{}("-")]
+    hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+        [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+    hooked-symbol log{}(SortString{}) : SortK{}
+        [function{}(), total{}(), hook{}("IO.logString")]
+    hooked-symbol write{}(SortInt{}, SortString{}) : SortK{}
+        [function{}(), total{}(), hook{}("IO.write")]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(
+            st{}(K1:SortK{}, K2:SortK{}, N:SortInt{}, \dv{SortInt{}}("0")),
+            \equals{SortBool{}, SortK{}}(gtInt{}(N:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true"))
+        ),
+        \and{SortK{}}(st{}(dotk{}(), dotk{}(), N:SortInt{}, \dv{SortInt{}}("1")), \top{SortK{}}())
+    ) [label{}("left")]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(
+            st{}(K1:SortK{}, K2:SortK{}, N:SortInt{}, \dv{SortInt{}}("0")),
+            \equals{SortBool{}, SortK{}}(gtInt{}(N:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true"))
+        ),
+        \and{SortK{}}(st{}(dotk{}(), dotk{}(), N:SortInt{}, \dv{SortInt{}}("2")), \top{SortK{}}())
+    ) [label{}("right")]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(st{}(K1:SortK{}, K2:SortK{}, N:SortInt{}, \dv{SortInt{}}("1")), \top{SortK{}}()),
+        \and{SortK{}}(
+            st{}(
+                log{}(\dv{SortString{}}("x")),
+                write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("a")),
+                subInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+                \dv{SortInt{}}("0")
+            ),
+            \top{SortK{}}()
+        )
+    ) [label{}("left-join")]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(st{}(K1:SortK{}, K2:SortK{}, N:SortInt{}, \dv{SortInt{}}("2")), \top{SortK{}}()),
+        \and{SortK{}}(
+            st{}(
+                log{}(\dv{SortString{}}("x")),
+                write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("a")),
+                subInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+                \dv{SortInt{}}("0")
+            ),
+            \top{SortK{}}()
+        )
+    ) [label{}("right-join")]
+endmodule []"#;
+
+/// A state-set run of `n` converging diamonds whose paths log a line and write a byte at every
+/// diamond, with the trace retained, allocates linearly in `n`: it expands each state of a depth
+/// once (the second arrival at each diamond's end is merged), a fork shares the path's trace,
+/// effects and console instead of copying them, and the merge check compares the two arrivals'
+/// effects and consoles only back to where their paths forked. The run has one leaf, so its
+/// output is linear too. Exploring both branches of every diamond is exponential in `n`, merging
+/// on the full histories quadratic.
+#[test]
+fn a_state_set_run_of_converging_logging_diamonds_allocates_linearly() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(LOGGING_DIAMONDS);
+    assert_linear("logging diamond chain", "bytes", 50, |diamonds| {
+        let initial = pattern(
+            &definition,
+            &format!(
+                r#"st{{}}(dotk{{}}(), dotk{{}}(), \dv{{SortInt{{}}}}("{diamonds}"), \dv{{SortInt{{}}}}("0"))"#
+            ),
+        );
+        bytes_of(|| {
+            let result = execute_with_io_state(
+                &definition,
+                initial,
+                ExecutionOptions::default(),
+                ExecutionIoState::default(),
+            );
+            let [leaf] = result.leaves.as_slice() else {
+                panic!("expected one leaf: {:?}", result.leaves);
+            };
+            assert_eq!(leaf.effects.len() as u64, diamonds);
+            let rewrites = leaf
+                .trace
+                .iter()
+                .filter(|entry| entry.kind == k_rust_backend::rewrite::TraceKind::Rewrite)
+                .count();
+            assert_eq!(rewrites as u64, 2 * diamonds);
+            result
+        })
+    });
 }

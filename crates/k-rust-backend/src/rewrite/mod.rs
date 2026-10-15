@@ -13,6 +13,7 @@
 
 mod apply;
 mod execute;
+mod exploration_merge;
 mod path_trace;
 mod predicates;
 mod recover;
@@ -553,18 +554,21 @@ pub struct ExecutionOptions {
     pub assume_initial_defined: bool,
     /// How the result reads its leaves.
     ///
-    /// `StateSet` (the default) is a disjunction of configurations: a final configuration equal
-    /// to an earlier one merges into the first earlier leaf whose halt means everything its own
-    /// means (a leaf of a stop that ended the run is never merged, and a terminal-rule leaf merges
-    /// only with stuck and terminal-rule leaves), which carries the diagnostics of every leaf
-    /// merged into it. `PathSet` keeps one leaf
-    /// per explored path, so paths that converge on one configuration keep their own trace,
-    /// branch identity, and observations. Exploration is the same under both; only the final
-    /// merge differs. `ExecutionMode::Any` gives each configuration the successors of the first
-    /// rule, in priority then definition order, that gives it a defined result (and a symbolic
-    /// remainder where none applies), keeping that rule's right-hand-side alternatives, so it can
-    /// yield several leaves; the two readings coincide only when no two leaves share a
-    /// configuration.
+    /// `StateSet` (the default) is a disjunction of configurations: a final configuration equal to
+    /// an earlier one merges into the first earlier leaf that stands for it (a leaf of a stop that
+    /// ended the run is never merged, and a terminal-rule leaf merges only with stuck and
+    /// terminal-rule leaves), which carries the diagnostics of every leaf merged into it. `PathSet`
+    /// keeps one leaf per explored path, so paths that converge on one configuration keep their own
+    /// trace, branch identity, and observations. A `StateSet` run that explores every branch also
+    /// expands each distinct state of a depth once: a state equal at its depth to one whose
+    /// expansion completed, with the same effects, console and console availability and no
+    /// diagnostic the other's path lacks, is merged into it, so converging paths cost the distinct
+    /// states; exploration stays depth-first, and the leaves are those of the unmerged run but for
+    /// the duplicates of `Trivial` and `Vacuous` leaves in a merged subtree. `ExecutionMode::Any`
+    /// gives each configuration the successors of the first rule, in priority then definition
+    /// order, that gives it a defined result (and a symbolic remainder where none applies), keeping
+    /// that rule's right-hand-side alternatives, so it can yield several leaves; the two readings
+    /// coincide only when no two leaves share a configuration.
     pub result_modality: ResultModality,
     /// Retain the full path trace in each result leaf. Callers that only consume the final
     /// configuration can discard previous entries while keeping the latest rewrite for halts.

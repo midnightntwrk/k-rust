@@ -100,6 +100,20 @@ symbol = "Counter::ALL"
 
 [[node]]
 kind = "observation"
+id = "ExecutionStatesMerged"
+provenance = "table"
+area = "execution"
+name = "ExecutionStatesMerged"
+table = "Counter::ALL"
+registry_name = "execution.states_merged"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ExecutionStatesMerged"
+
+[[node]]
+kind = "observation"
 id = "KompileInjectionsInserted"
 provenance = "table"
 area = "kompile"
@@ -2433,7 +2447,7 @@ provenance = "declared"
 area = "backend"
 name = "depth-first exploration of a rewrite tree"
 variable = "d = maximum depth; b = maximum breadth; L = final leaves"
-invariant = "pending holds unexpanded states of depth <= max_depth; leaves only grows; work counts the states taken from pending, at most max_work. When retain_trace is false, commit_applied keeps only the latest rewrite entry needed for halt metadata, and leaf returns no trace."
+invariant = "pending holds unexpanded states of depth <= max_depth, their depths non-increasing from front to back; leaves only grows; work counts the states taken from pending, at most max_work. A state-set run that explores every branch records a state in its merge table only once the state's expansion completed without a stop, and keeps no depth below the back of pending. When retain_trace is false, commit_applied keeps only the latest rewrite entry needed for halt metadata, and leaf returns no trace."
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendRewriteExecute"
@@ -2466,6 +2480,11 @@ symbol = "Execution::expand"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "Execution::merged"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
 symbol = "commit_applied"
 
 [[node.sites]]
@@ -2490,6 +2509,10 @@ bound = "O(min(states, max_work)), with states at most b^d when both bounds are 
 [[node.cost]]
 mode = "final leaf merge (merge_equal_final_leaves)"
 bound = "nothing with fewer than two leaves carrying a configuration; otherwise one RequestNames::state_key (backend.fresh.variables) and one console observation (linear in the leaf's transcript) per such leaf, and O(L^2) key comparisons; each merged leaf's diagnostics are appended to the retained leaf's without repeats, in time the product of the two lists' lengths; a leaf is merged only into a retained leaf of its configuration that may absorb it (merge_class), and a run-ending leaf is kept as is"
+
+[[node.cost]]
+mode = "state-set exploration merge (Execution::merged)"
+bound = "one expansion per distinct (depth, RequestNames::state_key, effects, observed console, console availability) class, times the maximal diagnostic sets recorded for it (one set unless converging paths carry incomparable diagnostics); one E2/E3 simplification and one state_key per arriving state that has company (a pending state or a recorded one); the effects and consoles of two arrivals are compared by fingerprint in O(1) and then back to their shared history; memory: the states recorded at depths not below the shallowest pending state, about 1.4 KiB each on IMP"
 
 [[node.cost]]
 mode = "trace storage"
@@ -9853,6 +9876,12 @@ provenance = "declared"
 kind = "consumes"
 from = "backend.rewrite.execute"
 to = "k_rust_backend::rewrite::RewriteResult [rewrite result]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rewrite.execute"
+to = "ExecutionStatesMerged"
 provenance = "declared"
 
 [[edge]]

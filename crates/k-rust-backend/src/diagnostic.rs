@@ -951,6 +951,29 @@ impl IdSet {
             .is_some_and(|words| words[word] >> bit & 1 == 1)
     }
 
+    /// Whether every id of `self` is in `other`, block by block, a block shared by both taken as
+    /// is.
+    fn is_subset_of(&self, other: &Self) -> bool {
+        if Rc::ptr_eq(&self.blocks, &other.blocks) {
+            return true;
+        }
+        self.blocks.iter().enumerate().all(|(index, block)| {
+            let Some(words) = block else {
+                return true;
+            };
+            match other.blocks.get(index).and_then(Option::as_ref) {
+                Some(others) => {
+                    Rc::ptr_eq(words, others)
+                        || words
+                            .iter()
+                            .zip(others.iter())
+                            .all(|(word, other)| word & !other == 0)
+                }
+                None => words.iter().all(|word| *word == 0),
+            }
+        })
+    }
+
     fn insert(&mut self, id: u32) {
         let (block, word, bit) = Self::position(id);
         let blocks = Rc::make_mut(&mut self.blocks);
@@ -1014,6 +1037,16 @@ impl PathDiagnostics {
                 }));
             }
         }
+    }
+
+    /// Whether every diagnostic of this path is one of `other`'s. Both must be paths of one
+    /// request, which number their diagnostics alike.
+    pub(crate) fn is_subset_of(&self, other: &Self) -> bool {
+        debug_assert!(
+            Rc::ptr_eq(&self.interner, &other.interner),
+            "paths of one request share one numbering"
+        );
+        self.members.is_subset_of(&other.members)
     }
 
     pub(crate) fn to_vec(&self) -> Vec<BackendDiagnostic> {
