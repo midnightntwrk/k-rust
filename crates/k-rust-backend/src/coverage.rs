@@ -83,7 +83,10 @@ use rustc_hash::FxHashSet;
 /// Neither set depends on whether the caller kept what was recorded: an application in an
 /// attempt that was later rewound or discarded counts. A compiler-generated axiom without an id
 /// is recorded as `UNKNOWN`. Builtin hooks are not axioms and are never recorded. Claims, macro
-/// and alias rules, and `smt-lemma` axioms have no recording site.
+/// and alias rules, and `smt-lemma` axioms have no recording site, and neither has matching
+/// modulo overloads, which consults the `symbol-overload` relation the compiler generates from
+/// production attributes (`matching`), not an author's sentence; an overload equation applied as
+/// an equation is recorded as any other.
 ///
 /// The sets are a deterministic function of the definition, the request, the solver profile and
 /// the k-rust version. They depend on the backend's trial order and stopping rules (an equation
@@ -167,6 +170,19 @@ pub(crate) fn collect<T>(action: impl FnOnce() -> T) -> (T, RunCoverage) {
     let result = action();
     let inner = restore.close();
     (result, inner.into_coverage())
+}
+
+/// Report every set of `coverage`, a coverage collected earlier and stored (such as a rule's
+/// load-time discharge, `ComputedRuleAttributes::discharged_by`), to the open collection, each
+/// id to the set it was collected in.
+pub(crate) fn replay(coverage: &RunCoverage) {
+    let RunCoverage { applied, matched } = coverage;
+    for id in applied {
+        note_applied(id);
+    }
+    for id in matched {
+        note_matched(id);
+    }
 }
 
 /// Run `action` with no report collected: caller code that runs inside an execution, such as

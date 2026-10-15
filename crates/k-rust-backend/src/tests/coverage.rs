@@ -9,7 +9,7 @@ use std::{collections::BTreeSet, panic::AssertUnwindSafe};
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
-    coverage::{RunCoverage, collect, note_applied, note_matched, suspend},
+    coverage::{RunCoverage, collect, note_applied, note_matched, replay, suspend},
     definition::BackendDefinition,
     rewrite::{
         ExecutionOptions, ExecutionResult, HaltReason, Pattern, execute, execute_with_io_state,
@@ -824,4 +824,17 @@ fn a_collection_restores_the_state_when_its_action_unwinds() {
     note_applied("outside");
     let ((), empty) = collect(|| {});
     assert_eq!(empty, RunCoverage::default());
+}
+
+/// `replay` reports each set of a stored coverage to the set it was collected in.
+#[test]
+fn a_replayed_coverage_feeds_each_set_it_holds() {
+    let ((), stored) = collect(|| {
+        note_matched("tried");
+        note_applied("used");
+    });
+    let ((), replayed) = collect(|| replay(&stored));
+    assert_eq!(replayed, stored);
+    assert_eq!(replayed.applied, ids(&["used"]));
+    assert_eq!(replayed.matched, ids(&["tried", "used"]));
 }
