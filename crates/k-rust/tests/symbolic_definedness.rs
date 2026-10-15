@@ -546,6 +546,7 @@ mod request_constraints {
   syntax Res ::= yes(Int) [symbol(yes)]
                | done() [symbol(done)]
                | pos(Int, Int) [symbol(pos)]
+               | pos3(Int, Int, Int) [symbol(pos3)]
                | ens(Int, Int) [symbol(ens)]
                | rhs(Int, Int) [symbol(rhs)]
                | sti(Int) [symbol(sti)]
@@ -561,6 +562,7 @@ module DEFPROBE
   configuration <k> .K </k>
 
   rule [pos]: pos(X, Y) => yes(X /Int Y) requires X /Int Y >Int 0
+  rule [pos3]: pos3(X, Y, _Z) => yes(X /Int Y) requires X /Int Y >Int 0
   rule [ens]: ens(X, Y) => done() ensures X /Int Y >Int 0
   rule [rhs]: rhs(X, Y) => yes(X /Int Y)
   rule [sti-a]: sti(I) => a() requires I >Int 5
@@ -928,5 +930,185 @@ endmodule
             }
         }
         assert!(checked >= programs.len(), "{checked}");
+    }
+
+    const Z: &str = "Z:SortInt{}";
+    const W: &str = "W:SortInt{}";
+
+    fn equals(left: &str, right: &str) -> String {
+        format!("\\equals{{SortInt{{}}, {SORT}}}({left}, {right})")
+    }
+
+    fn times_zero(term: &str) -> String {
+        format!("Lbl'UndsStar'Int'Unds'{{}}({term}, {})", int(0))
+    }
+
+    fn pos3() -> String {
+        top(&format!("Lblpos3{{}}({X}, {Y}, {Z})"))
+    }
+
+    /// `\not(X /Int Z *Int 0 = X /Int Y *Int 0)` beside `\not(Z = 0)`, which shows its left side
+    /// defined: where `Z` is 1 and `Y` is 0 the left side is 0 and the right side undefined, so
+    /// the equality is false and its negation holds.
+    fn one_side_shown() -> String {
+        and(
+            &not(&equals(Z, &int(0))),
+            &not(&equals(
+                &times_zero(&format!("Lbl'UndsSlsh'Int'Unds'{{}}({X}, {Z})")),
+                &times_zero(&quotient()),
+            )),
+        )
+    }
+
+    /// An equality of which only one side is shown defined by the conjuncts beside it is stated
+    /// in its faithful form, so `pos3(X, Y, Z)` under [`one_side_shown`] keeps its stuck
+    /// instances where `Z` is 1 and `Y` is 0 on every route: alone, under a disjunction, and as
+    /// the argument of a `\not` consequent.
+    #[test]
+    fn an_equality_with_one_side_shown_defined_keeps_its_undefined_instances() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let pattern = and(&pos3(), &one_side_shown());
+        assert_ne!(implies_bottom(&mut backend, &pattern), "valid");
+        assert_one_stuck_initial_leaf(&mut backend, "pos3 under one side shown", &pattern);
+        let simplified: KorePattern = codec::from_value(
+            &backend
+                .simplify(PatternRequest::new(parse(&pattern)))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            !matches!(simplified, KorePattern::Bottom { .. }),
+            "{}",
+            print(&simplified)
+        );
+        let model = backend
+            .get_model(PatternRequest::new(parse(&pattern)))
+            .unwrap();
+        assert_eq!(model.satisfiable, "unknown", "{model:?}");
+        // Under a disjunction: the instances where `Z` is 1 and `Y` is 0 lie outside `Y = 5`.
+        let five = equals(Y, &int(5));
+        let disjunction = and(
+            &pos3(),
+            &format!("\\or{{{SORT}}}({five}, {})", one_side_shown()),
+        );
+        let result = backend
+            .implies(ImplicationRequest::new(
+                parse(&disjunction),
+                parse(&and(&pos3(), &five)),
+            ))
+            .unwrap();
+        assert_ne!(result.status, "valid", "{result:?}");
+        // As the argument of a `\not` consequent: `pos3(X, 0, 1)` lies inside it.
+        let instance = and(&and(&pos3(), &equals(Y, &int(0))), &equals(Z, &int(1)));
+        let result = backend
+            .implies(ImplicationRequest::new(
+                parse(&instance),
+                parse(&not(&pattern)),
+            ))
+            .unwrap();
+        assert_ne!(result.status, "valid", "{result:?}");
+    }
+
+    /// `X /Int D ==Int 3` is undefined exactly where `D` is 0, so
+    /// `\not(true = X /Int D ==Int 3) /\ \not(false = X /Int D ==Int 3)` holds exactly there.
+    fn undefined_only(divisor: &str) -> String {
+        let atom = format!(
+            "Lbl'UndsEqlsEqls'Int'Unds'{{}}(Lbl'UndsSlsh'Int'Unds'{{}}({X}, {divisor}), {})",
+            int(3)
+        );
+        and(
+            &not(&holds(&atom)),
+            &not(&format!(
+                "\\equals{{SortBool{{}}, {SORT}}}(\\dv{{SortBool{{}}}}(\"false\"), {atom})"
+            )),
+        )
+    }
+
+    /// Requests with instances, each of which a solver that read `/Int` as a total operation
+    /// found empty: a quantifier over the partial term, a guard beside a binder that shadows its
+    /// variable, implications whose premises are undefined atoms, and an equality over two
+    /// different partial terms.
+    #[test]
+    fn requests_over_quantifiers_implications_and_two_partial_terms_are_not_vacuously_valid() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let premise = |atom: &str| format!("\\implies{{{SORT}}}({atom}, {})", equals(Y, &int(1)));
+        let quotient_is_three =
+            format!("Lbl'UndsEqlsEqls'Int'Unds'{{}}({}, {})", quotient(), int(3));
+        let cases = [
+            (
+                "a guard beside a binder that shadows it",
+                and(
+                    &and(&pos(), &not(&equals(W, &int(0)))),
+                    &format!("\\exists{{{SORT}}}({W}, {})", undefined_only(W)),
+                ),
+            ),
+            (
+                "a universal over the partial term",
+                and(
+                    &pos(),
+                    &format!("\\forall{{{SORT}}}({W}, {})", not(&equals(W, &quotient()))),
+                ),
+            ),
+            (
+                "implications with undefined premises",
+                and(
+                    &and(
+                        &and(&pos(), &premise(&holds(&quotient_is_three))),
+                        &premise(&format!(
+                            "\\equals{{SortBool{{}}, {SORT}}}(\\dv{{SortBool{{}}}}(\"false\"), {quotient_is_three})"
+                        )),
+                    ),
+                    &equals(Y, &int(0)),
+                ),
+            ),
+            (
+                "an equality over two different partial terms",
+                and(
+                    &pos3(),
+                    &not(&equals(
+                        &times_zero(&format!("Lbl'UndsSlsh'Int'Unds'{{}}({X}, {Z})")),
+                        &times_zero(&quotient()),
+                    )),
+                ),
+            ),
+        ];
+        let wrong = cases
+            .iter()
+            .filter_map(|(case, antecedent)| {
+                let status = implies_bottom(&mut backend, antecedent);
+                (status == "valid").then(|| format!("{case}: {status}"))
+            })
+            .collect::<Vec<_>>();
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// A term-level `\and` denotes the intersection of its operands, `\bottom` where they differ,
+    /// so an atom over one has a definedness that its operands' does not state (`Z /\ W` of two
+    /// variables is empty unless `Z = W`). A request with such an atom is refused rather than
+    /// decided.
+    #[test]
+    fn a_request_atom_over_a_term_conjunction_is_refused() {
+        let mut backend = backend();
+        let intersection = format!(
+            "Lbl'UndsPlus'Int'Unds'{{}}(\\and{{SortInt{{}}}}({Z}, {W}), {})",
+            int(0)
+        );
+        let pattern = and(&pos3(), &not(&equals(&intersection, &int(0))));
+        let result = backend.implies(ImplicationRequest::new(
+            parse(&pattern),
+            parse(&format!("\\bottom{{{SORT}}}()")),
+        ));
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| error.0.contains("term-level")),
+            "{result:?}"
+        );
     }
 }

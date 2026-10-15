@@ -371,17 +371,20 @@ impl<'a> Admitted<'a> {
     /// undefined, so under a negation it holds there. A solver reads a partial hook as a total
     /// operation, which gives the term a value there, so it would refute `φ` on instances that
     /// satisfy it. The predicates are therefore restated as an equivalent list in which every
-    /// atom has its terms' definedness beside it under the same connective, and an equality of
-    /// two terms neither of which is shown defined is stated as
+    /// atom over a partial term has that term's definedness as a conjunct of a conjunction
+    /// enclosing the atom, and an equality of two possibly undefined terms that are not both
+    /// shown defined by the conjuncts beside it is stated as
     /// `(⌈a⌉ /\ ⌈b⌉ /\ a = b) \/ (\not ⌈a⌉ /\ \not ⌈b⌉)` (`definedness::request_definedness`).
     /// The request's denotation is unchanged, including its instances on which a term of `φ` is
     /// undefined, and a solver `Unsat` on the result shows that no instance satisfies `φ`
     /// (docs/compatibility.md, "Solver decisions over partial operations"). The form is a fixed
-    /// point, so a predicate admitted again, such as a returned leaf's constraints, is unchanged.
+    /// point: admitting the result again leaves it unchanged. A leaf k-rust returns may gain
+    /// in-place guards when admitted (a remainder whose guard is a top-level conjunct, say), an
+    /// equivalent form that prints back as the leaf did.
     ///
     /// A predicate whose definedness depends on an impure application in an operand a
-    /// conditional does not evaluate, or on an equality over a term-level `\and`, has no such
-    /// form and is refused ([`DefinitionError::UnstatedDefinedness`]).
+    /// conditional does not evaluate, or an atom over a term-level `\and`, has no such form and
+    /// is refused ([`DefinitionError::UnstatedDefinedness`]).
     fn explicit_constraints(
         self,
         predicates: Vec<crate::rule::Predicate>,
@@ -394,8 +397,8 @@ impl<'a> Admitted<'a> {
                         detail: outcome.reason().to_string(),
                     }
                 }
-                crate::definedness::RequestDefinednessFailure::EqualityOverConjunction => {
-                    UnstatedDefinedness::EqualityOverConjunction
+                crate::definedness::RequestDefinednessFailure::TermConjunction => {
+                    UnstatedDefinedness::TermConjunction
                 }
             })
         })
@@ -1079,11 +1082,10 @@ pub enum UnstatedDefinedness {
     /// evaluate depends on an impure application (of the hook or symbol `hook`), which deciding
     /// it would perform, and a constraint must not hold one (`crate::deferred`).
     Impure { hook: String, detail: String },
-    /// An equality with neither side shown defined has a side that holds a term-level `\and`,
-    /// whose definedness is more than its operands' (`Y /\ Z` of two variables is empty unless
-    /// `Y = Z`), so its faithful form `(⌈a⌉ /\ ⌈b⌉ /\ a = b) \/ (\not ⌈a⌉ /\ \not ⌈b⌉)`
-    /// cannot be stated.
-    EqualityOverConjunction,
+    /// An atom (a Boolean term, or a side of an equality) holds a term-level `\and`, whose
+    /// definedness is more than its operands' (`Y /\ Z` of two variables is empty unless
+    /// `Y = Z`), so the atom's definedness cannot be stated beside it.
+    TermConjunction,
 }
 
 impl fmt::Display for DefinitionError {
@@ -1335,11 +1337,10 @@ impl fmt::Display for DefinitionError {
                 formatter,
                 "The definedness of a predicate of the request cannot be stated: {detail} ({hook})"
             ),
-            Self::UnstatedDefinedness(UnstatedDefinedness::EqualityOverConjunction) => formatter
-                .write_str(
-                    "The definedness of a predicate of the request cannot be stated: an equality \
-                     of two terms not shown defined has a side that holds a term-level \\and",
-                ),
+            Self::UnstatedDefinedness(UnstatedDefinedness::TermConjunction) => formatter.write_str(
+                "The definedness of a predicate of the request cannot be stated: an atom holds a \
+                 term-level \\and",
+            ),
         }
     }
 }

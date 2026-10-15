@@ -260,14 +260,15 @@ impl TranslationState {
 
     pub fn translate_term(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
         match term.kind() {
+            // A term-level `\and` denotes the intersection of its operands' values, `\bottom` where
+            // they differ, not their Boolean conjunction: `true /\ false` is `\bottom`, not
+            // `false`. A Boolean one is therefore an unrelated constant, as any term without a
+            // translation.
             TermKind::And(left, right)
                 if left.sort().is_builtin(BuiltinSort::Bool)
                     && right.sort().is_builtin(BuiltinSort::Bool) =>
             {
-                Ok(SExpr::application(
-                    "and",
-                    vec![self.translate_term(left)?, self.translate_term(right)?],
-                ))
+                Ok(self.abstract_term(term, Exactness::Approximate))
             }
             TermKind::And(..) => Err(TranslationError::NonBooleanAnd(term.clone())),
             TermKind::Application {
@@ -1676,6 +1677,23 @@ mod tests {
         );
         assert_eq!(translation.mappings.get(&variable), Some(&"SMT-1".into()));
         assert_eq!(variable.sort(), Sort::simple("SortInt"));
+    }
+
+    /// A term-level `\and` is the intersection of its operands, `\bottom` where they differ, so a
+    /// Boolean one is not their conjunction: `\equals(true /\ false, false)` is false in K, while
+    /// `(= (and true false) false)` holds. It translates as an unrelated constant.
+    #[test]
+    fn a_boolean_term_conjunction_is_not_translated_as_a_conjunction() {
+        let boolean = Sort::simple("SortBool");
+        let operand = |name: &str| Term::variable(Variable::new(name, boolean.clone()));
+        let predicate = Predicate::Equals(
+            Term::and(operand("B1"), operand("B2")),
+            Term::raw_domain_value(boolean.clone(), "false"),
+        );
+        let mut state = TranslationState::new();
+        let translated = state.translate_predicate(&predicate).unwrap().to_string();
+        assert!(!translated.contains("(and"), "{translated}");
+        assert_eq!(state.exactness(), Exactness::Approximate);
     }
 
     #[test]

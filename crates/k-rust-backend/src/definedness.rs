@@ -1375,17 +1375,19 @@ pub(crate) enum RequestDefinednessFailure {
     /// The definedness of an operand that `#if`, `andThenBool` or `orElseBool` does not
     /// evaluate depends on an impure application (`crate::deferred`).
     Deferred(DeferredOutcome),
-    /// An equality with neither side shown defined has a side that holds a term-level `\and`,
-    /// whose definedness is not the conjunction of its `ceil_term` obligations.
-    EqualityOverConjunction,
+    /// An atom over a term that holds a term-level `\and`, whose definedness is more than the
+    /// conjunction of its `ceil_term` obligations (`Y /\ Z` of two variables is empty unless
+    /// `Y = Z`).
+    TermConjunction,
 }
 
 /// A request's predicates (the constraints of a pattern a client sends, or a predicate it sends
 /// alone) in definedness-explicit form: an equivalent list in which a solver that reads a
 /// partial function as a total operation answers as K does wherever the predicates hold.
 ///
-/// Two equivalences, in order. First, an equality `\equals(a, b)` with neither side shown
-/// defined becomes `(⌈a⌉ /\ ⌈b⌉ /\ a = b) \/ (\not ⌈a⌉ /\ \not ⌈b⌉)`, with `⌈t⌉` the
+/// Two equivalences, in order. First, an equality `\equals(a, b)` of two possibly undefined terms
+/// that are not both shown defined by the conjuncts beside it becomes
+/// `(⌈a⌉ /\ ⌈b⌉ /\ a = b) \/ (\not ⌈a⌉ /\ \not ⌈b⌉)`, with `⌈t⌉` the
 /// conjunction of `ceil_term(t)` ([`faithful_equalities`]): two terms that each denote at most
 /// one element are equal exactly where both denote the same element or both denote nothing,
 /// and each disjunct states the definedness of its own atoms. Then [`condition_definedness`]
@@ -1400,6 +1402,9 @@ pub(crate) fn request_definedness(
     definition: &BackendDefinition,
     predicates: Vec<Predicate>,
 ) -> Result<Vec<Predicate>, RequestDefinednessFailure> {
+    if predicates.iter().any(atom_over_term_conjunction) {
+        return Err(RequestDefinednessFailure::TermConjunction);
+    }
     if predicates_are_ceil_free(&predicates) {
         return Ok(predicates);
     }
@@ -1418,10 +1423,41 @@ pub(crate) fn request_definedness(
     condition_definedness(definition, faithful, &[]).map_err(RequestDefinednessFailure::Deferred)
 }
 
-/// `predicate` with every equality that has neither side shown defined stated in its faithful
-/// form ([`request_definedness`]). A side is shown defined when every `ceil_term` obligation of
-/// it is a conjunct beside the equality, as in the faithful form itself, so the form is a fixed
-/// point; keeping such an equality as written is the identity, whatever the conjuncts beside it.
+/// Whether an atom of `predicate` (a Boolean term, or a side of an equality) holds a term-level
+/// `\and`. An opaque atom (`\ceil`, `\floor`, `\in`, a deferred atom, an absence) needs no
+/// definedness stated beside it, and is not inspected.
+fn atom_over_term_conjunction(predicate: &Predicate) -> bool {
+    match predicate {
+        Predicate::Term(term) => contains_term_conjunction(term),
+        Predicate::Equals(left, right) => {
+            contains_term_conjunction(left) || contains_term_conjunction(right)
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::Ceil(_)
+        | Predicate::Defined(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_) => false,
+        Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
+            atom_over_term_conjunction(inner)
+        }
+        Predicate::And(inner) | Predicate::Or(inner) => {
+            inner.iter().any(atom_over_term_conjunction)
+        }
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            atom_over_term_conjunction(left) || atom_over_term_conjunction(right)
+        }
+    }
+}
+
+/// `predicate` with every equality of two possibly undefined terms that are not both shown
+/// defined stated in its faithful form ([`request_definedness`]). A side is shown defined when
+/// every `ceil_term` obligation of it is a conjunct beside the equality, as in the faithful
+/// form's first disjunct, so the form is a fixed point. Keeping an equality whose both sides are
+/// shown is the identity, and its translation is faithful wherever the conjunction holds, since
+/// there both sides have their K values; an equality with a side defined on every instance is
+/// left to [`condition_definedness`], which states the other side's definedness in place.
 fn faithful_equalities(
     definition: &BackendDefinition,
     predicate: &Predicate,
@@ -1443,11 +1479,16 @@ fn faithful_equalities(
                     beside_contains(beside, obligation)
                 })
             };
-            if shown(left) || shown(right) {
+            // An equality with a side defined on every instance is an atom over the other side,
+            // whose definedness `condition_definedness` states beside it, an equivalence that
+            // relies on nothing else. One whose two sides are both shown defined by the conjuncts
+            // beside it is kept too. Any other equality takes the faithful form, also an
+            // equivalence whatever holds beside it: a side shown defined only by its neighbours
+            // would leave the other side read as a total value where it is undefined, and
+            // stating that side's definedness in place would rely on those neighbours.
+            let defined = |term: &Term| term_is_provably_defined(definition, term, |_| false);
+            if defined(left) || defined(right) || (shown(left) && shown(right)) {
                 return Ok(predicate.clone());
-            }
-            if contains_term_conjunction(left) || contains_term_conjunction(right) {
-                return Err(RequestDefinednessFailure::EqualityOverConjunction);
             }
             let obligations = |term: &Term| {
                 ceil_term(definition, term).map_err(RequestDefinednessFailure::Deferred)
@@ -2687,24 +2728,58 @@ mod tests {
         }
     }
 
-    /// An equality with a side that holds a term-level `\and` and no side shown defined has no
-    /// faithful form, since `⌈Y /\ t⌉` is more than the obligations of `Y` and `t`.
+    /// An atom over a term that holds a term-level `\and` is refused, since `⌈Y /\ t⌉` is more
+    /// than the obligations of `Y` and `t`: an equality with partial sides, and an intersection
+    /// of two variables, which is `ceil_free` and has no obligation at all although `Y /\ Z` is
+    /// `\bottom` where `Y` and `Z` differ.
     #[test]
-    fn a_request_equality_over_a_term_conjunction_has_no_faithful_form() {
+    fn an_atom_over_a_term_conjunction_is_refused() {
         let definition = division_definition();
-        let equality = division_predicate(
-            &definition,
-            &format!(
+        for source in [
+            format!(
                 r#"\equals{{SortInt{{}}, SortInt{{}}}}(plusInt{{}}(\and{{SortInt{{}}}}(Z:SortInt{{}}, {QUOTIENT}), \dv{{SortInt{{}}}}("0")), plusInt{{}}({QUOTIENT}, \dv{{SortInt{{}}}}("1")))"#
             ),
-        );
-        let result = request_definedness(&definition, vec![equality.clone()]);
-        assert!(
-            matches!(
-                result,
-                Err(RequestDefinednessFailure::EqualityOverConjunction)
+            r#"\not{SortInt{}}(\equals{SortInt{}, SortInt{}}(plusInt{}(\and{SortInt{}}(Y:SortInt{}, Z:SortInt{}), \dv{SortInt{}}("0")), \dv{SortInt{}}("0")))"#.to_owned(),
+        ] {
+            let predicate = division_predicate(&definition, &source);
+            let result = request_definedness(&definition, vec![predicate.clone()]);
+            assert!(
+                matches!(result, Err(RequestDefinednessFailure::TermConjunction)),
+                "{predicate:?} {result:?}"
+            );
+        }
+    }
+
+    /// An equality with only one side shown defined by the conjuncts beside it is not kept as
+    /// written: the other side would be read as a total value where it is undefined. With
+    /// `⌈X /Int Z⌉` beside `\not(X /Int Z = X /Int Y)`, the equality takes its faithful form,
+    /// which is a fixed point.
+    #[test]
+    fn a_request_equality_with_one_side_shown_defined_takes_its_faithful_form() {
+        let definition = division_definition();
+        let by_z = definition
+            .internalize_term(
+                &parse_pattern("divInt{}(X:SortInt{}, Z:SortInt{})").unwrap(),
+                &[],
+            )
+            .unwrap();
+        let mut predicates = ceil_term(&definition, &by_z).unwrap();
+        assert!(!predicates.is_empty());
+        let negated = division_predicate(
+            &definition,
+            &format!(
+                r"\not{{SortInt{{}}}}(\equals{{SortInt{{}}, SortInt{{}}}}(divInt{{}}(X:SortInt{{}}, Z:SortInt{{}}), {QUOTIENT}))"
             ),
-            "{equality:?} {result:?}"
+        );
+        predicates.push(negated.clone());
+        let once = request_definedness(&definition, predicates.clone()).unwrap();
+        let Some(Predicate::Not(inner)) = once.last() else {
+            panic!("{once:?}");
+        };
+        assert!(matches!(inner.as_ref(), Predicate::Or(_)), "{once:?}");
+        assert_eq!(
+            request_definedness(&definition, once.clone()).unwrap(),
+            once
         );
     }
 }
