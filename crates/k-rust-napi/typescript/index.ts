@@ -253,6 +253,15 @@ export interface ExecuteOptions {
    * leaf's depth, so only an unobserved branching run's output is then linear in its leaves.
    */
   trace?: boolean
+  /**
+   * What the request answers when a cancellation ends its run: 'partial' (the default) returns the
+   * leaves finished before it and the stopped state as a 'cancelled' leaf; 'error' fails with the
+   * cancellation and builds no leaf beyond the stopped state's own. This host cannot cancel a
+   * request, so the field changes nothing here (a failed solver prelude is an error under both);
+   * it is accepted for parity with the wire protocol, where an embedder that cancels (the Rust
+   * `CancellationToken`) gets the error shape.
+   */
+  cancelledResult?: 'partial' | 'error'
   schemaVersion?: number
 }
 

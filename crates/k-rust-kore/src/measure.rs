@@ -479,8 +479,13 @@ pub enum Counter {
     /// Grammar and term sort encodings constructed for Z3 inference.
     ParserZ3EncodingBuilds,
     // backend
-    /// States popped by the execution loop, one per rewrite step attempted.
+    /// States popped by the execution loop, merged arrivals included: a state-set execution's
+    /// merged arrival is popped and simplified but takes no rewrite step
+    /// (`ExecutionStatesMerged`).
     RewriteSteps,
+    /// States a state-set execution merged into an equal recorded state of the same depth
+    /// instead of expanding them, one per merged arrival.
+    ExecutionStatesMerged,
     /// Rule applications attempted, including pre-matched entries.
     RewriteRuleAttempts,
     /// Rule applications whose left-hand side failed to match.
@@ -577,7 +582,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 96;
+    pub const COUNT: usize = 97;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -637,6 +642,7 @@ impl Counter {
         Counter::ParserPortableInferences,
         Counter::ParserZ3EncodingBuilds,
         Counter::RewriteSteps,
+        Counter::ExecutionStatesMerged,
         Counter::RewriteRuleAttempts,
         Counter::RewriteMatchFailures,
         Counter::RewriteRulesApplied,
@@ -740,6 +746,7 @@ impl Counter {
             Counter::ParserPortableInferences => "parser.portable_inferences",
             Counter::ParserZ3EncodingBuilds => "parser.z3_encoding_builds",
             Counter::RewriteSteps => "rewrite.steps",
+            Counter::ExecutionStatesMerged => "execution.states_merged",
             Counter::RewriteRuleAttempts => "rewrite.rule_attempts",
             Counter::RewriteMatchFailures => "rewrite.match_failures",
             Counter::RewriteRulesApplied => "rewrite.rules_applied",

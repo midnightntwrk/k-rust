@@ -12,9 +12,13 @@ use k_rust_backend::{
     definition::BackendDefinition,
     nesting::with_simplification_stack_budget,
     rewrite::{ExecutionOptions, ExecutionResult, HaltReason, Pattern, execute},
+    search::ResultModality,
     stop::{StackLimit, StopCause},
 };
-use k_rust_kore::kore::{ast as kore, parser::parse_definition};
+use k_rust_kore::{
+    kore::{ast as kore, parser::parse_definition},
+    measure::{Counter, snapshot},
+};
 
 use crate::support::internal_term;
 
@@ -225,4 +229,84 @@ fn a_run_counts_the_stack_stops_of_its_definedness_obligations() {
         bounded.stack_stops,
         bounded.leaves
     );
+}
+
+/// A rule `from => to` labelled `label`, over constructors of `SortS`.
+fn edge(label: &str, from: &str, to: &str) -> String {
+    format!(
+        r#"axiom{{}} \rewrites{{SortS{{}}}}(\and{{SortS{{}}}}({from}, \top{{SortS{{}}}}()), {to}) [label{{}}("{label}")]"#
+    )
+}
+
+/// `syntax` loaded and `state` executed under `result_modality` on an 8 MiB thread whose
+/// simplifier may not extend its stack, with the number of arrivals the run merged.
+fn run_in(syntax: kore::Definition, result_modality: ResultModality) -> (ExecutionResult, u64) {
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(move || {
+            with_simplification_stack_budget(0, || {
+                let definition = BackendDefinition::internalize(&syntax, "MAIN")
+                    .expect("the fixture internalizes");
+                let initial = Pattern {
+                    term: internal_term(&definition, "state{}()"),
+                    constraints: Vec::new(),
+                };
+                let before = snapshot();
+                let result = execute(
+                    &definition,
+                    initial,
+                    ExecutionOptions {
+                        result_modality,
+                        ..ExecutionOptions::default()
+                    },
+                );
+                let merged = snapshot()
+                    .delta(&before)
+                    .get(Counter::ExecutionStatesMerged);
+                (result, merged)
+            })
+        })
+        .expect("the thread starts")
+        .join()
+        .expect("the run does not panic")
+}
+
+/// A state-set run counts the stack stops of the states it explores: `state` rewrites to `left`
+/// and `right`, both of which rewrite to `mid`, whose successor `done(deep(100000))` runs out of
+/// stack. The path-set run reaches that successor twice and counts its stops twice; the state-set
+/// run merges the second `mid`, whose subtree the first one's stands for, and counts them once.
+#[test]
+fn a_merged_run_counts_the_stack_stops_of_the_states_it_explores() {
+    let constructor = |name: &str| {
+        format!(
+            "symbol {name}{{}}() : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]"
+        )
+    };
+    let axioms = [
+        deep_recursion().to_vec(),
+        vec![
+            constructor("left"),
+            constructor("right"),
+            constructor("mid"),
+            edge("state-left", "state{}()", "left{}()"),
+            edge("state-right", "state{}()", "right{}()"),
+            edge("left-mid", "left{}()", "mid{}()"),
+            edge("right-mid", "right{}()", "mid{}()"),
+            edge(
+                "mid-done",
+                "mid{}()",
+                r#"done{}(deep{}(\dv{SortInt{}}("100000")))"#,
+            ),
+        ],
+    ]
+    .concat();
+    let (path_set, _) = run_in(module(&axioms), ResultModality::PathSet);
+    let (state_set, merged) = run_in(module(&axioms), ResultModality::StateSet);
+    eprintln!(
+        "stack stops: path-set {}, state-set {}, merged {merged}",
+        path_set.stack_stops, state_set.stack_stops
+    );
+    assert_eq!(merged, 1, "{:?}", state_set.leaves);
+    assert!(state_set.stack_stops >= 1, "{:?}", state_set.leaves);
+    assert_eq!(path_set.stack_stops, 2 * state_set.stack_stops);
 }

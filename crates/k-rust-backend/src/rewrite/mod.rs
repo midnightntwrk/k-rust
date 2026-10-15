@@ -13,6 +13,7 @@
 
 mod apply;
 mod execute;
+mod exploration_merge;
 mod path_trace;
 mod predicates;
 mod recover;
@@ -553,18 +554,24 @@ pub struct ExecutionOptions {
     pub assume_initial_defined: bool,
     /// How the result reads its leaves.
     ///
-    /// `StateSet` (the default) is a disjunction of configurations: a final configuration equal
-    /// to an earlier one merges into the first earlier leaf whose halt means everything its own
-    /// means (a leaf of a stop that ended the run is never merged, and a terminal-rule leaf merges
-    /// only with stuck and terminal-rule leaves), which carries the diagnostics of every leaf
-    /// merged into it. `PathSet` keeps one leaf
-    /// per explored path, so paths that converge on one configuration keep their own trace,
-    /// branch identity, and observations. Exploration is the same under both; only the final
-    /// merge differs. `ExecutionMode::Any` gives each configuration the successors of the first
-    /// rule, in priority then definition order, that gives it a defined result (and a symbolic
-    /// remainder where none applies), keeping that rule's right-hand-side alternatives, so it can
-    /// yield several leaves; the two readings coincide only when no two leaves share a
-    /// configuration.
+    /// `StateSet` (the default) is a disjunction of configurations: a final configuration equal to
+    /// an earlier one merges into the first earlier leaf that stands for it (a leaf of a stop that
+    /// ended the run is never merged, and a terminal-rule leaf merges only with stuck and
+    /// terminal-rule leaves), which carries the diagnostics of every leaf merged into it. `PathSet`
+    /// keeps one leaf per explored path, so paths that converge on one configuration keep their own
+    /// trace, branch identity, and observations. A `StateSet` run that explores every branch also
+    /// expands each distinct state of a depth once: a state equal at its depth to one whose
+    /// expansion completed, with the same effects, console and console availability and no
+    /// diagnostic the other's path lacks, is merged into it, so converging paths cost the distinct
+    /// states; exploration stays depth-first, and the leaves are those of the unmerged run but for
+    /// the duplicates of `Trivial` and `Vacuous` leaves in a merged subtree. Such a run's
+    /// `max_breadth` bounds the pending states of the merged exploration, so where the unmerged run
+    /// exceeds the bound the merged run reaches it later or not at all, and its frontier can lie
+    /// deeper, so a state the unmerged run ends as `BreadthBound` can be missing from the result. `ExecutionMode::Any`
+    /// gives each configuration the successors of the first rule, in priority then definition
+    /// order, that gives it a defined result (and a symbolic remainder where none applies), keeping
+    /// that rule's right-hand-side alternatives, so it can yield several leaves; the two readings
+    /// coincide only when no two leaves share a configuration.
     pub result_modality: ResultModality,
     /// Retain the full path trace in each result leaf. Callers that only consume the final
     /// configuration can discard previous entries while keeping the latest rewrite for halts.
@@ -611,6 +618,16 @@ pub struct ExecutionOptions {
     /// diagnostics of the paths merged into it before the stop only, so they may differ from the
     /// same leaf's in a run with a larger budget.
     pub max_work: Option<u64>,
+    /// Build no result after a stop that ends the run (a cancellation, a failed solver prelude),
+    /// for a caller that will not read a stopped run's leaves (`false`, the default: the leaves
+    /// finished before the stop are returned, with the stopped state's leaf).
+    ///
+    /// When it is set, a run that such a stop ended returns no leaves and does no final merge,
+    /// with the cause in [`ExecutionResult::stopped`]; and every pass after the exploration that
+    /// builds or compares leaves (draining the frontier at the breadth bound, the state-set final
+    /// merge) polls for a stop once per state or leaf, so a cancellation that arrives during it
+    /// ends it the same way. Without it nothing polls there.
+    pub discard_stopped: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -644,6 +661,7 @@ impl Default for ExecutionOptions {
             evaluation: EvaluationMode::Proof,
             collect_coverage: false,
             max_work: None,
+            discard_stopped: false,
         }
     }
 }
@@ -856,7 +874,9 @@ pub struct ExecutionResult {
     /// The states the run visited across all its paths, the unit
     /// [`ExecutionOptions::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
-    /// The stops for lack of native stack the run met: those that ended a state (a leaf halted
+    /// The stops for lack of native stack the run met in the states it explored (a state-set run
+    /// skips a state equal to one of its depth already expanded, and the stops of its subtree):
+    /// those that ended a state (a leaf halted
     /// with [`crate::stop::StopCause::StackExhausted`]) and those met while a result was only
     /// refined (normalising a leaf's state, simplifying a definedness condition, folding a
     /// hook, deciding an undefined instance), which a site dismisses, keeping the sound but less
@@ -864,6 +884,12 @@ pub struct ExecutionResult {
     /// `nesting::with_simplification_stack_budget`, and on the stack other threads of the process
     /// hold, so a run's result is a function of its inputs only when this is zero.
     pub stack_stops: usize,
+    /// The cause of the stop that ended the run (a cancellation or a failed solver prelude), if
+    /// one did; `None` when the run ended by itself, by a bound or by its work budget, unless,
+    /// under [`ExecutionOptions::discard_stopped`], a pass after the exploration (the breadth
+    /// drain or the state-set final merge) observed such a stop. Under `discard_stopped` a run
+    /// with a cause here has no leaves.
+    pub stopped: Option<StopCause>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

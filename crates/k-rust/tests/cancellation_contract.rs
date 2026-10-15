@@ -6,9 +6,9 @@
 use std::{sync::mpsc, thread, time::Duration};
 
 use k_rust::backend::{
-    Backend, BackendError, BackendOptions, CancellationToken, ExecuteRequest, HaltReasonOutput,
-    IncompleteSearchOutput, PatternRequest, ProveRequest, ResultModalityOutput, SearchRequest,
-    StopCause,
+    Backend, BackendError, BackendOptions, CancellationToken, CancelledResultOutput,
+    ExecuteRequest, HaltReasonOutput, IncompleteSearchOutput, PatternRequest, ProveRequest,
+    ResultModalityOutput, SearchRequest, StopCause,
 };
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
 
@@ -222,4 +222,47 @@ fn a_proof_that_reached_its_counterexample_limit_keeps_its_verdict() {
     let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::default()).unwrap();
     let result = with_watchdog(|| backend.prove(ProveRequest::default())).unwrap();
     assert_eq!(result.status, "disproved");
+}
+
+/// Under `cancelledResult: error` a cancellation that ends a running `execute` answers `Err` with
+/// the `Cancelled` cause; under `partial` the same request answers `Ok` with the stopped state as
+/// its one `cancelled` leaf, or the entry error when the cancellation lands before the boundary's
+/// entry poll (point 4). The counter never ends, so the exploration's own poll observes the
+/// cancellation: the passes after it and the conversion are pinned by the backend's
+/// `a_cancellation_observed_by_the_breadth_drain_discards_its_leaves_when_asked_to` and
+/// `a_cancellation_only_the_final_merge_observes_discards_the_leaves_when_asked_to` and the
+/// facade's `an_error_shaped_request_answers_a_cancellation_its_conversion_observes`.
+#[test]
+fn an_error_shaped_cancellation_of_a_running_exploration_answers_the_cancellation() {
+    for modality in [
+        ResultModalityOutput::PathSet,
+        ResultModalityOutput::StateSet,
+    ] {
+        let mut executor = backend();
+        let error = with_watchdog(|| {
+            executor.execute(ExecuteRequest {
+                result_modality: modality,
+                cancelled_result: CancelledResultOutput::Error,
+                ..ExecuteRequest::new(start())
+            })
+        })
+        .expect_err("an error-shaped cancellation answers Err");
+        assert_cancelled(&error);
+
+        let mut executor = backend();
+        let outcome = with_watchdog(|| {
+            executor.execute(ExecuteRequest {
+                result_modality: modality,
+                cancelled_result: CancelledResultOutput::Partial,
+                ..ExecuteRequest::new(start())
+            })
+        });
+        match outcome {
+            Ok(result) => {
+                assert_eq!(result.leaves.len(), 1, "{modality:?}");
+                assert_eq!(result.leaves[0].reason, HaltReasonOutput::Cancelled);
+            }
+            Err(error) => assert_cancelled(&error),
+        }
+    }
 }

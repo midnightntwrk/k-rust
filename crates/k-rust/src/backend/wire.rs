@@ -294,6 +294,19 @@ pub struct ObservedRequest<T> {
     pub rules: Option<Vec<String>>,
 }
 
+/// What an `execute` answers when a cancellation ends it ([`super::ExecuteRequest::cancelled_result`]).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CancelledResultOutput {
+    /// `Ok` with the leaves finished before the cancellation and the stopped state as a
+    /// `cancelled` leaf.
+    #[default]
+    Partial,
+    /// `Err` with the cancellation's cause, and no leaf is built after the cancellation is
+    /// observed.
+    Error,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ResultModalityOutput {
@@ -1645,8 +1658,29 @@ fn incomplete_searches_output<K: WireKore, E>(
     Ok(output)
 }
 
+/// An execute request's answer to its backend result, by the request's `cancelledResult`:
+/// under `error`, a run that a stop ended (`stopped`) answers that stop's error and converts no
+/// leaf, and any other result is converted with a poll before each leaf, so a cancellation that
+/// arrives during the conversion answers its error too; under `partial` the result is converted
+/// whole, unpolled.
+pub(super) fn execute_answer<K: WireKore>(
+    shape: CancelledResultOutput,
+    result: k_rust_backend::rewrite::ExecutionResult,
+) -> Result<ExecutionResult<K>, BackendError> {
+    match (shape, &result.stopped) {
+        (CancelledResultOutput::Error, Some(cause)) => Err(BackendError::from(cause.clone())),
+        (CancelledResultOutput::Error, None) => execution_response(result, true),
+        (CancelledResultOutput::Partial, _) => execution_response(result, false),
+    }
+}
+
+/// The wire form of a backend execution result. With `polled` (`cancelledResult: error`), a stop
+/// is polled before each leaf is converted, and a stop observed there answers `Err` with its cause
+/// and converts no further leaf; without it nothing is polled, so a run that completed is
+/// converted whole whenever a cancellation arrives.
 pub(super) fn execution_response<K: WireKore>(
     result: k_rust_backend::rewrite::ExecutionResult,
+    polled: bool,
 ) -> Result<ExecutionResult<K>, BackendError> {
     Ok(ExecutionResult {
         modality: result.modality.into(),
@@ -1654,6 +1688,12 @@ pub(super) fn execution_response<K: WireKore>(
             .leaves
             .into_iter()
             .map(|leaf| {
+                if polled {
+                    k_rust_backend::stop::check()
+                        .map_err(|stop| BackendError::from(stop.into_cause()))?;
+                }
+                #[cfg(test)]
+                tests::CONVERTED_LEAVES.with(|converted| converted.set(converted.get() + 1));
                 let (reason, detail) = halt_reason(&leaf.halt_reason, &leaf.pattern.term.sort())?;
                 let (rule_id, rule_label) = match &leaf.halt_reason {
                     HaltReason::Trivial { rule_id, label, .. } => (rule_id.clone(), label.clone()),
@@ -1837,6 +1877,146 @@ mod tests {
     use k_rust_backend::stop::Stoppable;
 
     use super::*;
+
+    thread_local! {
+        /// Leaves `execution_response` converted on this thread.
+        pub(super) static CONVERTED_LEAVES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// A backend result of three finished `Stuck` leaves, `a`, `b` and `c`.
+    fn three_finished_leaves() -> k_rust_backend::rewrite::ExecutionResult {
+        use k_rust_backend::{
+            definition::BackendDefinition,
+            rewrite::{ExecutionOptions, execute_disjunction_with_solver_and_observer},
+            search::ResultModality,
+            smt::NoSolver,
+        };
+        use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                symbol c{}() : SortS{} [constructor{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let initial = ["a{}()", "b{}()", "c{}()"]
+            .map(|source| {
+                definition
+                    .admit_unverified(&parse_pattern(source).unwrap(), &[])
+                    .internalize_pattern()
+                    .unwrap()
+            })
+            .to_vec();
+        execute_disjunction_with_solver_and_observer(
+            &definition,
+            initial,
+            ExecutionOptions {
+                result_modality: ResultModality::PathSet,
+                ..ExecutionOptions::default()
+            },
+            &NoSolver,
+            |_| {},
+        )
+    }
+
+    /// Under `cancelledResult: error` the conversion of a result polls before each leaf, so a
+    /// cancellation observed there answers its error having converted no leaf; under `partial`
+    /// a completed run's leaves are all converted whenever a cancellation arrives.
+    #[test]
+    fn a_cancellation_during_the_conversion_is_observed_under_error() {
+        let result = three_finished_leaves();
+        assert_eq!(result.leaves.len(), 3);
+        let token = k_rust_backend::stop::CancellationToken::new();
+        token.cancel();
+
+        CONVERTED_LEAVES.with(|converted| converted.set(0));
+        let error = token
+            .scope(|| execution_response::<Value>(result.clone(), true))
+            .unwrap_err();
+        assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
+        assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
+
+        CONVERTED_LEAVES.with(|converted| converted.set(0));
+        let converted = token
+            .scope(|| execution_response::<Value>(result, false))
+            .unwrap();
+        assert_eq!(converted.leaves.len(), 3);
+        assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 3);
+    }
+
+    /// The answer a request selects for a completed run inside a cancelled scope: under `error`
+    /// the conversion's poll observes the cancellation and answers it having converted no leaf,
+    /// and a run that a stop ended answers that stop without converting; under `partial` the
+    /// leaves are converted whole.
+    #[test]
+    fn an_error_shaped_request_answers_a_cancellation_its_conversion_observes() {
+        let result = three_finished_leaves();
+        assert_eq!(result.stopped, None);
+        let token = k_rust_backend::stop::CancellationToken::new();
+        token.cancel();
+
+        CONVERTED_LEAVES.with(|converted| converted.set(0));
+        let error = token
+            .scope(|| execute_answer::<Value>(CancelledResultOutput::Error, result.clone()))
+            .unwrap_err();
+        assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
+        assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
+
+        let stopped = k_rust_backend::rewrite::ExecutionResult {
+            stopped: Some(StopCause::Cancelled),
+            ..result.clone()
+        };
+        let error = execute_answer::<Value>(CancelledResultOutput::Error, stopped).unwrap_err();
+        assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
+        assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
+
+        let converted = token
+            .scope(|| execute_answer::<Value>(CancelledResultOutput::Partial, result))
+            .unwrap();
+        assert_eq!(converted.leaves.len(), 3);
+        assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 3);
+    }
+
+    /// `cancelledResult` reads `partial` and `error`, defaults to `partial`, and writes back the
+    /// same text.
+    #[test]
+    fn cancelled_result_round_trips_on_the_wire() {
+        for (text, value) in [
+            ("\"partial\"", CancelledResultOutput::Partial),
+            ("\"error\"", CancelledResultOutput::Error),
+        ] {
+            assert_eq!(
+                serde_json::from_str::<CancelledResultOutput>(text).unwrap(),
+                value
+            );
+            assert_eq!(serde_json::to_string(&value).unwrap(), text);
+        }
+        assert_eq!(
+            CancelledResultOutput::default(),
+            CancelledResultOutput::Partial
+        );
+        let request = |extra: &str| {
+            serde_json::from_str::<super::super::ExecuteRequest>(&format!(
+                r#"{{"state": {{"format": "KORE", "version": 1, "term": {{"tag": "Top", "sort": {{"tag": "SortApp", "name": "SortS", "args": []}}}}}}{extra}}}"#
+            ))
+            .unwrap()
+            .cancelled_result
+        };
+        assert_eq!(request(""), CancelledResultOutput::Partial);
+        assert_eq!(
+            request(r#", "cancelledResult": "error""#),
+            CancelledResultOutput::Error
+        );
+        assert_eq!(
+            request(r#", "cancelledResult": "partial""#),
+            CancelledResultOutput::Partial
+        );
+    }
 
     #[test]
     fn raw_kore_fields_accept_deep_patterns() {

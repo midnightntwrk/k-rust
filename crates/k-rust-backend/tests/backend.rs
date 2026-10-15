@@ -17,6 +17,8 @@ mod definedness_classes;
 mod evaluation_mode;
 #[path = "backend/execution_stack_stops.rs"]
 mod execution_stack_stops;
+#[path = "backend/exploration_merge.rs"]
+mod exploration_merge;
 #[path = "backend/hook_result_sorts.rs"]
 mod hook_result_sorts;
 #[path = "backend/issue_4114_overload.rs"]
