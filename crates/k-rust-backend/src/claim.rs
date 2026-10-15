@@ -44,7 +44,7 @@ pub struct ClaimAttributes {
 /// the claim's instances, read with their matching-logic meaning: a Boolean atom `b` means
 /// `\equals(b, true)`, which is `\bottom` wherever a term of `b` is undefined, and an equality of
 /// two terms holds where both denote the same element or both denote nothing. They are stored in
-/// definedness-explicit form ([`with_explicit_definedness`]), an equivalent list in which a
+/// definedness-explicit form (`with_explicit_definedness`), an equivalent list in which a
 /// solver that reads a partial operation as total answers as that meaning does, so the claim
 /// keeps one meaning as the initial state of its own proof, as a destination, and as an applied
 /// circularity or trusted lemma. A claim whose constraints have no such form keeps them as
