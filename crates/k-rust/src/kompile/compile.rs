@@ -273,6 +273,16 @@ fn stage<T, E: fmt::Display>(
 ///
 /// Hosts must load the definition with [`CompilationBackend::load_options`] (the modules of
 /// [`CompilationBackend::excluded_module_attribute`] left out) before calling this function. No filesystem or external backend process is used here.
+///
+/// Compilation reads only its arguments and the process-wide inputs `docs/compatibility.md`
+/// names (in builds with `mpfr-folding`, the process's `LC_NUMERIC`): several threads may
+/// compile one shared [`LoadedDefinition`] (or distinct ones) at once, and each call returns the
+/// artifacts, or the [`CompileError`], that the same call returns alone on one thread. Every
+/// stage runs on a stack sized from the definition's deepest term, so the artifacts do not depend
+/// on the calling thread's stack size; only whether an input deep enough to need a mapped stack
+/// segment is refused also depends on the calling thread's remaining stack and on the host. Wall
+/// time and peak memory under concurrency are not promised (`docs/compatibility.md`,
+/// "Determinism and concurrency").
 pub fn compile_loaded_definition(
     loaded: &LoadedDefinition,
     options: CompileOptions,
@@ -286,6 +296,10 @@ pub fn compile_loaded_definition(
 /// The stage names are the pipeline's documented order; `crates/k-rust/tests/phase_timings.rs`
 /// pins the list. A failed compile returns no timings here; use
 /// [`compile_loaded_definition_with_timings`] to keep the timings of the stages that ran.
+///
+/// Like [`compile_loaded_definition`], it may run on several threads at once over one shared
+/// [`LoadedDefinition`] and returns the same artifacts or error; the timings are wall-clock and
+/// are not covered.
 pub fn compile_loaded_definition_timed(
     loaded: &LoadedDefinition,
     options: CompileOptions,

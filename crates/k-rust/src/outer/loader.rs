@@ -427,6 +427,13 @@ fn write_location(
 ///     source_table: Default::default(), definition, diagnostics: Vec::new() })
 /// # }
 /// ```
+///
+/// A `LoadedDefinition` is `Send + Sync`, and nothing reads it but its methods and the compile
+/// entry points, which take it by shared reference: one value, behind an `Arc`, may serve
+/// [`Self::with_definition`] and [`crate::kompile::compile_loaded_definition`] on several
+/// threads at once. Its lazily computed tables (those of [`ResolvedDefinition`]) are filled
+/// idempotently from the definition, so which thread fills one does not change what it holds
+/// (`docs/compatibility.md`, "Determinism and concurrency").
 #[derive(Clone, Debug)]
 pub struct LoadedDefinition {
     /// Parsed files in dependency-first `requires` order.
@@ -593,6 +600,10 @@ impl LoadedDefinition {
 
     /// [`from_loaded_parts`](Self::from_loaded_parts) of `definition` with this value's files,
     /// source table and diagnostics.
+    ///
+    /// It reads only `self` and `definition`, so several threads may relink mutants from one
+    /// shared value at once, and each call returns what it returns alone on one thread
+    /// (`docs/compatibility.md`, "Determinism and concurrency").
     pub fn with_definition(&self, definition: Definition) -> Result<Self, LoadError> {
         Self::from_loaded_parts(LoadedParts {
             files: self.files.clone(),
