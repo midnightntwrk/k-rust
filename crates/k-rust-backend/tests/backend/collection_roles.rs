@@ -192,5 +192,48 @@ fn a_constructor_role_symbol_is_refused() {
         "symbol dotLI{}() : SortLI{} [constructor{}(), functional{}()]",
     );
     let result = internalize(&source);
-    assert!(result.is_err(), "a constructor unit symbol loaded");
+    assert!(
+        matches!(
+            result,
+            Err(DefinitionError::Verification(_) | DefinitionError::CollectionRoleMisfit { .. })
+        ),
+        "a constructor unit symbol must be refused as a constructor of a hooked sort or as a \
+         role misfit: {:?}",
+        result.err()
+    );
+}
+
+/// The refusal names the role symbol where its declaration was written, not where another
+/// declaration of the collection was.
+#[test]
+fn the_refusal_carries_the_role_symbols_written_position() {
+    const SOURCE: &str = "org'Stop'kframework'Stop'attributes'Stop'Source{}";
+    const LOCATION: &str = "org'Stop'kframework'Stop'attributes'Stop'Location{}";
+    let located = |line: u32| {
+        format!(r#"{SOURCE}("Source(/p/role.k)"), {LOCATION}("Location({line},18,{line},40)")"#)
+    };
+    let source = with(
+        UNIT,
+        &format!(
+            "symbol dotLI{{}}(SortInt{{}}) : SortLI{{}} [function{{}}(), total{{}}(), {}]",
+            located(6)
+        ),
+    )
+    .replace(
+        ELEMENT,
+        &format!(
+            "symbol liItem{{}}(SortInt{{}}) : SortLI{{}} [function{{}}(), total{{}}(), {}]",
+            located(7)
+        ),
+    );
+    match internalize(&source) {
+        Err(DefinitionError::CollectionRoleMisfit {
+            symbol, position, ..
+        }) => {
+            assert_eq!(symbol, "dotLI");
+            assert_eq!(position.as_deref(), Some("/p/role.k:6:18"));
+        }
+        Ok(_) => panic!("the definition loaded"),
+        Err(error) => panic!("the definition was refused for another reason: {error}"),
+    }
 }
