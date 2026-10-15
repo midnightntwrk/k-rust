@@ -516,3 +516,417 @@ endmodule
         );
     }
 }
+
+/// A request's own constraints are read with the definedness of each atom stated where the atom
+/// stands, an equivalence (`Admitted`), so k-rust decides nothing on the instances where a term
+/// of the constraint is undefined as a solver that reads `/Int` as a total operation would.
+///
+/// In `pos(X, Y) /\ \not(X /Int Y >Int 5) /\ \not(X /Int Y <=Int 5)` each atom `\equals(true, b)`
+/// is `\bottom` where `Y = 0`, so its negation holds there: the pattern denotes the `Y = 0`
+/// instances of `pos(X, Y)`, on which the rule's `requires` is undefined, so they are stuck.
+/// `\equals(X /Int Y, X /Int Y +Int 1)` holds exactly where both sides are undefined (`Y = 0`).
+mod request_constraints {
+    use k_rust::{
+        backend::{
+            Backend, BackendError, ExecuteRequest, HaltReasonOutput, ImplicationRequest,
+            PatternRequest, ResultModalityOutput, SearchRequest,
+        },
+        kore::{ast::Pattern as KorePattern, codec, parser::parse_pattern, printer::Printer},
+    };
+    use k_rust_backend::{
+        externalize, smt::Satisfiability, stop::StopCause, substitution::Substitution,
+    };
+
+    use super::shared;
+
+    /// The probe definition of the request (`UNSATDEF`), named as `super::compile` expects.
+    const SOURCE: &str = r#"module DEFPROBE-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Res ::= yes(Int) [symbol(yes)]
+               | done() [symbol(done)]
+               | pos(Int, Int) [symbol(pos)]
+               | ens(Int, Int) [symbol(ens)]
+               | rhs(Int, Int) [symbol(rhs)]
+               | sti(Int) [symbol(sti)]
+               | a() [symbol(a)] | b() [symbol(b)] | c() [symbol(c)]
+endmodule
+
+module DEFPROBE
+  imports DEFPROBE-SYNTAX
+  imports BASIC-K
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> .K </k>
+
+  rule [pos]: pos(X, Y) => yes(X /Int Y) requires X /Int Y >Int 0
+  rule [ens]: ens(X, Y) => done() ensures X /Int Y >Int 0
+  rule [rhs]: rhs(X, Y) => yes(X /Int Y)
+  rule [sti-a]: sti(I) => a() requires I >Int 5
+  rule [sti-b]: sti(I) => b() requires I <=Int 5
+  rule [sti-c]: sti(_) => c() [owise]
+endmodule
+"#;
+
+    const SORT: &str = "SortGeneratedTopCell{}";
+    const X: &str = "X:SortInt{}";
+    const Y: &str = "Y:SortInt{}";
+
+    fn backend() -> Backend {
+        static KORE: shared::Shared<String> = shared::Shared::new();
+        super::backend_over(&KORE.get(|| super::compile(SOURCE)))
+    }
+
+    fn top(program: &str) -> String {
+        format!(
+            "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortRes{{}}, SortKItem{{}}}}({program}), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
+        )
+    }
+
+    fn and(left: &str, right: &str) -> String {
+        format!("\\and{{{SORT}}}({left}, {right})")
+    }
+
+    fn not(predicate: &str) -> String {
+        format!("\\not{{{SORT}}}({predicate})")
+    }
+
+    fn holds(term: &str) -> String {
+        format!("\\equals{{SortBool{{}}, {SORT}}}(\\dv{{SortBool{{}}}}(\"true\"), {term})")
+    }
+
+    fn int(value: i64) -> String {
+        format!("\\dv{{SortInt{{}}}}(\"{value}\")")
+    }
+
+    fn quotient() -> String {
+        format!("Lbl'UndsSlsh'Int'Unds'{{}}({X}, {Y})")
+    }
+
+    fn greater(left: &str, right: &str) -> String {
+        format!("Lbl'Unds-GT-'Int'Unds'{{}}({left}, {right})")
+    }
+
+    fn at_most(left: &str, right: &str) -> String {
+        format!("Lbl'Unds-LT-Eqls'Int'Unds'{{}}({left}, {right})")
+    }
+
+    fn pos() -> String {
+        top(&format!("Lblpos{{}}({X}, {Y})"))
+    }
+
+    /// `\not(X /Int Y >Int 5) /\ \not(X /Int Y <=Int 5)`, which holds exactly where `Y = 0`.
+    fn negated_atoms() -> String {
+        and(
+            &not(&holds(&greater(&quotient(), &int(5)))),
+            &not(&holds(&at_most(&quotient(), &int(5)))),
+        )
+    }
+
+    /// `\equals(X /Int Y, X /Int Y +Int 1)`, which holds exactly where `Y = 0`.
+    fn undefined_equality() -> String {
+        format!(
+            "\\equals{{SortInt{{}}, {SORT}}}({}, Lbl'UndsPlus'Int'Unds'{{}}({}, {}))",
+            quotient(),
+            quotient(),
+            int(1)
+        )
+    }
+
+    /// The caller pattern: `pos(X, Y)` under [`negated_atoms`].
+    fn caller_pattern() -> String {
+        and(&pos(), &negated_atoms())
+    }
+
+    fn parse(text: &str) -> KorePattern {
+        parse_pattern(text).unwrap()
+    }
+
+    fn print(pattern: &KorePattern) -> String {
+        Printer::compact().print_pattern(pattern)
+    }
+
+    #[derive(Debug)]
+    #[allow(
+        dead_code,
+        reason = "the payload is read through Debug in a failure message"
+    )]
+    enum ProbeError {
+        Backend(BackendError),
+        Stop(StopCause),
+    }
+
+    impl From<BackendError> for ProbeError {
+        fn from(error: BackendError) -> Self {
+            Self::Backend(error)
+        }
+    }
+
+    impl From<StopCause> for ProbeError {
+        fn from(cause: StopCause) -> Self {
+            Self::Stop(cause)
+        }
+    }
+
+    /// The solver's answer on the constraints of `pattern` as a client reads them back:
+    /// admitted, internalized, and given to `is_sat`.
+    fn satisfiability(backend: &mut Backend, pattern: &KorePattern) -> String {
+        backend
+            .with_solver(None, |definition, solver| -> Result<String, ProbeError> {
+                let internal = definition
+                    .admit_unverified(pattern, &[])
+                    .internalize_pattern()
+                    .map_err(|error| BackendError(error.to_string()))?;
+                if internal.constraints.is_empty() {
+                    return Ok("no constraints".into());
+                }
+                Ok(
+                    match solver.is_sat(&internal.constraints, &Substitution::new()) {
+                        Ok(Ok(Satisfiability::Sat)) => "sat".into(),
+                        Ok(Ok(Satisfiability::Unsat)) => "unsat".into(),
+                        Ok(Ok(Satisfiability::Unknown(reason))) => format!("unknown {reason}"),
+                        Ok(Err(error)) => format!("error {error:?}"),
+                        Err(stop) => {
+                            stop.forgo_refinement();
+                            "stopped".into()
+                        }
+                    },
+                )
+            })
+            .unwrap()
+    }
+
+    struct Leaf {
+        depth: u64,
+        reason: HaltReasonOutput,
+        state: KorePattern,
+    }
+
+    impl std::fmt::Debug for Leaf {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                formatter,
+                "depth {} {:?}: {}",
+                self.depth,
+                self.reason,
+                print(&self.state)
+            )
+        }
+    }
+
+    fn execute(backend: &mut Backend, pattern: &str, assume_state_defined: bool) -> Vec<Leaf> {
+        backend
+            .execute(ExecuteRequest {
+                assume_state_defined,
+                result_modality: ResultModalityOutput::PathSet,
+                max_depth: Some(4),
+                ..ExecuteRequest::new(parse(pattern))
+            })
+            .unwrap()
+            .leaves
+            .into_iter()
+            .map(|leaf| Leaf {
+                depth: leaf.depth,
+                reason: leaf.reason,
+                state: codec::from_value(&leaf.state).unwrap(),
+            })
+            .collect()
+    }
+
+    fn implies_bottom(backend: &mut Backend, antecedent: &str) -> String {
+        backend
+            .implies(ImplicationRequest::new(
+                parse(antecedent),
+                parse(&format!("\\bottom{{{SORT}}}()")),
+            ))
+            .unwrap()
+            .status
+    }
+
+    /// `pattern` executed with both `assume_state_defined` values is one Stuck leaf at depth 0
+    /// whose constraints the solver finds satisfiable.
+    fn assert_one_stuck_initial_leaf(backend: &mut Backend, case: &str, pattern: &str) {
+        for assume in [false, true] {
+            let leaves = execute(backend, pattern, assume);
+            let [leaf] = leaves.as_slice() else {
+                panic!("{case} assume={assume}: expected one leaf: {leaves:#?}");
+            };
+            assert!(
+                leaf.depth == 0 && leaf.reason == HaltReasonOutput::Stuck,
+                "{case} assume={assume}: expected a Stuck leaf at depth 0: {leaves:#?}"
+            );
+            let answer = satisfiability(backend, &leaf.state);
+            assert_eq!(answer, "sat", "{case} assume={assume}: {leaves:#?}");
+        }
+    }
+
+    #[test]
+    fn a_negated_partial_atom_in_the_request_keeps_its_undefined_instances() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        assert_one_stuck_initial_leaf(&mut backend, "caller pattern", &caller_pattern());
+    }
+
+    #[test]
+    fn the_same_request_searched_returns_its_stuck_state() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let response = backend
+            .search(SearchRequest::new(parse(&caller_pattern())))
+            .unwrap();
+        assert!(
+            response.states.len() == 1 && response.incomplete.is_empty(),
+            "expected one final state and no incomplete entry: {response:#?}"
+        );
+        let state: KorePattern = codec::from_value(&response.states[0].state).unwrap();
+        assert!(
+            response.states[0].depth == 0 && print(&state).contains("Lblpos{}"),
+            "expected the stuck pos(X, Y): {}",
+            print(&state)
+        );
+    }
+
+    #[test]
+    fn an_implication_from_a_negated_partial_atom_is_not_vacuously_valid() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let status = implies_bottom(&mut backend, &caller_pattern());
+        assert_ne!(status, "valid", "pos(X, Y) has instances where Y = 0");
+        // Control: `yes(X /Int Y)` is undefined exactly where the constraints hold.
+        let control = and(
+            &top(&format!("Lblyes{{}}({})", quotient())),
+            &negated_atoms(),
+        );
+        assert_eq!(implies_bottom(&mut backend, &control), "valid");
+    }
+
+    #[test]
+    fn simplify_keeps_a_request_with_a_negated_partial_atom() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let simplified = backend
+            .simplify(PatternRequest::new(parse(&caller_pattern())))
+            .unwrap();
+        let simplified: KorePattern = codec::from_value(&simplified).unwrap();
+        assert!(
+            !matches!(simplified, KorePattern::Bottom { .. }),
+            "the pattern has instances where Y = 0: {}",
+            print(&simplified)
+        );
+    }
+
+    #[test]
+    fn get_model_of_a_negated_partial_atom_is_unknown() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        for (case, pattern) in [
+            ("pattern", caller_pattern()),
+            ("predicate", negated_atoms()),
+        ] {
+            let model = backend
+                .get_model(PatternRequest::new(parse(&pattern)))
+                .unwrap();
+            assert_eq!(model.satisfiable, "unknown", "{case}: {model:?}");
+        }
+    }
+
+    #[test]
+    fn a_request_equality_of_two_undefined_terms_holds_where_both_are_undefined() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let pattern = and(&pos(), &undefined_equality());
+        assert_one_stuck_initial_leaf(&mut backend, "pos(X, Y) /\\ X/Y = X/Y + 1", &pattern);
+        let status = implies_bottom(&mut backend, &pattern);
+        assert_ne!(status, "valid", "pos(X, Y) has instances where Y = 0");
+    }
+
+    /// The one request route that internalizes outside `Admitted`: the argument of a `\not`
+    /// consequent. `pos(X, Y)` and `pos(X, Y) /\ X/Y = X/Y + 1` share the instances `Y = 0`, so
+    /// `pos(X, Y) -> \not(pos(X, Y) /\ X/Y = X/Y + 1)` is not valid.
+    #[test]
+    fn a_negated_consequent_with_a_request_equality_is_not_vacuously_valid() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let consequent = not(&and(&pos(), &undefined_equality()));
+        let result = backend
+            .implies(ImplicationRequest::new(parse(&pos()), parse(&consequent)))
+            .unwrap();
+        assert_ne!(result.status, "valid", "{result:?}");
+    }
+
+    #[test]
+    fn a_positive_partial_atom_in_the_request_leaves_no_empty_remainder() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let pattern = and(&pos(), &holds(&greater(&quotient(), &int(0))));
+        for assume in [false, true] {
+            let leaves = execute(&mut backend, &pattern, assume);
+            assert!(
+                matches!(leaves.as_slice(), [leaf] if leaf.depth == 1
+                    && print(&leaf.state).contains("Lblyes{}")),
+                "assume={assume}: expected the one step to yes(X /Int Y): {leaves:#?}"
+            );
+        }
+    }
+
+    /// Admitting a leaf a run printed gives internal constraints that admitting their printed
+    /// form again leaves unchanged: the definedness-explicit form is a fixed point.
+    #[test]
+    fn a_printed_leaf_admits_back_to_its_own_constraints() {
+        let mut backend = backend();
+        let mut programs = ["pos", "ens", "rhs"]
+            .map(|name| top(&format!("Lbl{name}{{}}({X}, {Y})")))
+            .to_vec();
+        programs.push(top(&format!("Lblsti{{}}({})", quotient())));
+        programs.push(caller_pattern());
+        programs.push(and(&pos(), &undefined_equality()));
+        programs.push(and(&pos(), &holds(&greater(&quotient(), &int(0)))));
+        let mut checked = 0;
+        for program in &programs {
+            for assume in [false, true] {
+                for leaf in execute(&mut backend, program, assume) {
+                    // An empty leaf has no term to admit.
+                    if matches!(leaf.state, KorePattern::Bottom { .. }) {
+                        continue;
+                    }
+                    let (first, second) = backend
+                        .with_solver(None, |definition, _| -> Result<_, ProbeError> {
+                            let admit = |pattern: &KorePattern| {
+                                definition
+                                    .admit_unverified(pattern, &[])
+                                    .internalize_pattern()
+                                    .map_err(|error| BackendError(error.to_string()))
+                            };
+                            let first = admit(&leaf.state)?;
+                            let second = admit(&externalize::constrained_pattern(&first))?;
+                            Ok((
+                                format!("{:?}", first.constraints),
+                                format!("{:?}", second.constraints),
+                            ))
+                        })
+                        .unwrap();
+                    assert_eq!(first, second, "{leaf:?}");
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked >= programs.len(), "{checked}");
+    }
+}

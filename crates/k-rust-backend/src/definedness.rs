@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.definedness.discharge"
 //! name = "structural definedness constraint generation and discharge"
-//! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_walk", "ceil_term_without_attribute", "ceil_term_node", "KeyGroups", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
+//! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_walk", "ceil_term_without_attribute", "ceil_term_node", "KeyGroups", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness", "beside_members", "request_definedness", "faithful_equalities"]
 //! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; k = nodes of the keys (elements) of one map (set); g = groups of those keys by apartness skeleton; v = variables of one term; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 //! counters = []
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
@@ -15,7 +15,11 @@
 //!
 //! [[cost]]
 //! mode = "one rule or equation condition (condition_definedness)"
-//! bound = "one ceil_term call per Boolean atom and per atom side tested for provable definedness, each bounded as above, plus O(c + k) hashing of the c conditions and k known predicates when an obligation is hoisted"
+//! bound = "one ceil_term call per Boolean atom and per atom side tested for provable definedness, each bounded as above, plus O(c + k) hashing of the c conditions, the members of their conjunctions and the k known predicates when an obligation is hoisted, and, per obligation stated in place, a scan of the k known predicates and of the conjuncts beside the atom in the conjunctions on its path (Vec::contains), without copying them"
+//!
+//! [[cost]]
+//! mode = "one request's predicates (request_definedness)"
+//! bound = "O(1) per term when every term's stored ceil_free attribute is true; otherwise one recursive walk of each predicate, with, per equality, up to two ceil_term calls and, per obligation, a scan of the conjuncts beside the equality in the conjunctions on its path (term_is_provably_defined), and per equality with no side shown defined, two more ceil_term calls and one deduplication of their obligations; then one condition_definedness call as above on the result"
 //!
 //! [[cost]]
 //! mode = "one definition (BackendDefinition::discharge_rewrite_definedness)"
@@ -45,8 +49,8 @@ use crate::{
         Absence, KeyedCollection, Predicate, RewriteRule, RuleRhs, applicable_groups, term_index,
     },
     simplify::{
-        EquationInstances, Instance, SimplificationOptions, equation_instances,
-        simplify_predicates_with_solver, term_is_provably_defined,
+        EquationInstances, Instance, SimplificationOptions, contains_term_conjunction,
+        equation_instances, simplify_predicates_with_solver, term_is_provably_defined,
     },
     smt::{NoSolver, SmtSolver},
     stop::Stoppable,
@@ -981,8 +985,11 @@ fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<
 /// simplifier can reduce `b` to a value that no longer shows the partial subterm, and a solver
 /// that maps a partial function to a total operation gives it a value there.
 ///
-/// A hoisted obligation already in `known` or among the conditions is not restated. A
-/// condition whose terms are all `ceil_free` is returned as it is after one read of the stored
+/// A hoisted obligation already in `known` or among the conditions (or the members of a
+/// conjunction among them) is not restated, nor is an obligation in place that is a conjunct
+/// beside its atom ([`nested_condition_definedness`]), so the result is a fixed point: applied
+/// to its own output, as a list or as the conjunction of that list, this returns it unchanged.
+/// A condition whose terms are all `ceil_free` is returned as it is after one read of the stored
 /// attribute per term, and one whose partial subterms are defined by an unconditional ceil
 /// equation gains only what that equation leaves undecided.
 pub(crate) fn condition_definedness(
@@ -1012,7 +1019,14 @@ pub(crate) fn condition_definedness(
         Default::default(),
     );
     seen.extend(known.iter().cloned());
-    seen.extend(rewritten.iter().cloned());
+    // A member of a conjunction among the conditions is a condition too, as hoisting reads it.
+    let mut pending = rewritten.iter().collect::<Vec<_>>();
+    while let Some(condition) = pending.pop() {
+        if let Predicate::And(conjuncts) = condition {
+            pending.extend(conjuncts);
+        }
+        seen.insert(condition.clone());
+    }
     let mut result = Vec::with_capacity(obligations.len() + rewritten.len());
     for obligation in obligations {
         if seen.insert(obligation.clone()) {
@@ -1214,18 +1228,28 @@ fn hoist_condition_definedness(
         obligations.extend(ceil_term_walk(definition, term, AtCeilFree::Skip)?);
         return Ok(predicate.clone());
     }
-    nested_condition_definedness(definition, predicate, known)
+    nested_condition_definedness(definition, predicate, known, None)
 }
 
 /// A predicate below a connective other than a top-level conjunction: an atom becomes
 /// `\ceil(b) /\ atom` in place.
+///
+/// `beside` are the conjuncts beside `predicate` in the conjunctions on its path below the top
+/// level (each conjunction's other members, as written). Wherever the conjunction holds they
+/// hold, so an obligation among them is not restated in place: the atom's definedness is then
+/// stated under the same conjunction, which is what a solver needs to read the atom as K reads
+/// it. They are not facts of the context: they do not show a side of an equality defined, which
+/// would make the atom's rewriting depend on a sibling that may itself be rewritten. With this,
+/// a definedness-explicit predicate is a fixed point of [`condition_definedness`].
 fn nested_condition_definedness(
     definition: &BackendDefinition,
     predicate: &Predicate,
     known: &[Predicate],
+    beside: Beside<'_>,
 ) -> Result<Predicate, DeferredOutcome> {
-    let nested =
-        |inner: &Predicate| nested_condition_definedness(definition, inner, known).map(Box::new);
+    let nested = |inner: &Predicate| {
+        nested_condition_definedness(definition, inner, known, beside).map(Box::new)
+    };
     Ok(match predicate {
         Predicate::True
         | Predicate::False
@@ -1239,7 +1263,9 @@ fn nested_condition_definedness(
                 return Ok(predicate.clone());
             };
             let mut conjuncts = ceil_term_walk(definition, term, AtCeilFree::Skip)?;
-            conjuncts.retain(|obligation| !known.contains(obligation));
+            conjuncts.retain(|obligation| {
+                !known.contains(obligation) && !beside_contains(beside, obligation)
+            });
             if conjuncts.is_empty() {
                 return Ok(predicate.clone());
             }
@@ -1249,22 +1275,30 @@ fn nested_condition_definedness(
         Predicate::Not(inner) => Predicate::Not(nested(inner)?),
         Predicate::Exists(variable, inner) => Predicate::Exists(
             variable.clone(),
-            Box::new(under_binder(definition, variable, inner, known)?),
+            Box::new(under_binder(definition, variable, inner, known, beside)?),
         ),
         Predicate::Forall(variable, inner) => Predicate::Forall(
             variable.clone(),
-            Box::new(under_binder(definition, variable, inner, known)?),
+            Box::new(under_binder(definition, variable, inner, known, beside)?),
         ),
         Predicate::And(inner) => Predicate::And(
             inner
                 .iter()
-                .map(|inner| nested_condition_definedness(definition, inner, known))
+                .enumerate()
+                .map(|(position, conjunct)| {
+                    let link = BesideLink {
+                        conjunction: inner,
+                        position,
+                        outer: beside,
+                    };
+                    nested_condition_definedness(definition, conjunct, known, Some(&link))
+                })
                 .collect::<Result<_, _>>()?,
         ),
         Predicate::Or(inner) => Predicate::Or(
             inner
                 .iter()
-                .map(|inner| nested_condition_definedness(definition, inner, known))
+                .map(|inner| nested_condition_definedness(definition, inner, known, beside))
                 .collect::<Result<_, _>>()?,
         ),
         Predicate::Implies(left, right) => Predicate::Implies(nested(left)?, nested(right)?),
@@ -1272,27 +1306,214 @@ fn nested_condition_definedness(
     })
 }
 
+/// The conjuncts beside a predicate in the conjunctions on its path, innermost first: `None`
+/// outside every conjunction.
+type Beside<'a> = Option<&'a BesideLink<'a>>;
+
+/// One conjunction on the path to a predicate: its members other than the one at `position`
+/// lie beside the predicate.
+#[derive(Clone, Copy)]
+struct BesideLink<'a> {
+    conjunction: &'a [Predicate],
+    /// The member on the path; `usize::MAX` when every member lies beside it.
+    position: usize,
+    outer: Beside<'a>,
+}
+
+/// The members of every conjunction of `beside` that lie beside the predicate it leads to.
+fn beside_members<'a>(beside: Beside<'a>) -> impl Iterator<Item = &'a Predicate> {
+    std::iter::successors(beside, |link| link.outer).flat_map(|link| {
+        link.conjunction
+            .iter()
+            .enumerate()
+            .filter(move |(member, _)| *member != link.position)
+            .map(|(_, predicate)| predicate)
+    })
+}
+
+fn beside_contains(beside: Beside<'_>, predicate: &Predicate) -> bool {
+    beside_members(beside).any(|member| member == predicate)
+}
+
 /// [`nested_condition_definedness`] of `inner`, the body of a quantifier over `variable`.
 ///
-/// A known fact that mentions `variable` free is about the variable of that name outside the
-/// quantifier, not about the one it binds, so it is set aside under the binder: an obligation
-/// about the bound variable is stated even when a fact of the same text is known outside.
+/// A known fact or a conjunct beside the quantifier that mentions `variable` free is about the
+/// variable of that name outside the quantifier, not about the one it binds, so it is set aside
+/// under the binder: an obligation about the bound variable is stated even when a fact of the
+/// same text holds outside.
 fn under_binder(
     definition: &BackendDefinition,
     variable: &Variable,
     inner: &Predicate,
     known: &[Predicate],
+    beside: Beside<'_>,
 ) -> Result<Predicate, DeferredOutcome> {
     let holds = |fact: &Predicate| !crate::rule::mentions_free(fact, variable);
-    if known.iter().all(holds) {
-        return nested_condition_definedness(definition, inner, known);
+    if known.iter().chain(beside_members(beside)).all(holds) {
+        return nested_condition_definedness(definition, inner, known, beside);
     }
-    let unshadowed = known
+    let unshadowed_known = known
         .iter()
         .filter(|fact| holds(fact))
         .cloned()
         .collect::<Vec<_>>();
-    nested_condition_definedness(definition, inner, &unshadowed)
+    let unshadowed_beside = beside_members(beside)
+        .filter(|fact| holds(fact))
+        .cloned()
+        .collect::<Vec<_>>();
+    let link = BesideLink {
+        conjunction: &unshadowed_beside,
+        position: usize::MAX,
+        outer: None,
+    };
+    nested_condition_definedness(definition, inner, &unshadowed_known, Some(&link))
+}
+
+/// Why a request's predicates have no definedness-explicit form ([`request_definedness`]).
+#[derive(Debug)]
+pub(crate) enum RequestDefinednessFailure {
+    /// The definedness of an operand that `#if`, `andThenBool` or `orElseBool` does not
+    /// evaluate depends on an impure application (`crate::deferred`).
+    Deferred(DeferredOutcome),
+    /// An equality with neither side shown defined has a side that holds a term-level `\and`,
+    /// whose definedness is not the conjunction of its `ceil_term` obligations.
+    EqualityOverConjunction,
+}
+
+/// A request's predicates (the constraints of a pattern a client sends, or a predicate it sends
+/// alone) in definedness-explicit form: an equivalent list in which a solver that reads a
+/// partial function as a total operation answers as K does wherever the predicates hold.
+///
+/// Two equivalences, in order. First, an equality `\equals(a, b)` with neither side shown
+/// defined becomes `(⌈a⌉ /\ ⌈b⌉ /\ a = b) \/ (\not ⌈a⌉ /\ \not ⌈b⌉)`, with `⌈t⌉` the
+/// conjunction of `ceil_term(t)` ([`faithful_equalities`]): two terms that each denote at most
+/// one element are equal exactly where both denote the same element or both denote nothing,
+/// and each disjunct states the definedness of its own atoms. Then [`condition_definedness`]
+/// states the definedness of every other atom where it stands. Neither drops an instance on
+/// which a term of the predicates is undefined: under a negation such an atom keeps holding
+/// there. A definedness-explicit list is a fixed point.
+///
+/// A rule's condition is not read this way: [`condition_definedness`] alone leaves an equality
+/// with no side shown defined as written. The predicates are returned as they are, after one
+/// read of the stored attribute per term, when every term is `ceil_free`.
+pub(crate) fn request_definedness(
+    definition: &BackendDefinition,
+    predicates: Vec<Predicate>,
+) -> Result<Vec<Predicate>, RequestDefinednessFailure> {
+    if predicates_are_ceil_free(&predicates) {
+        return Ok(predicates);
+    }
+    let faithful = predicates
+        .iter()
+        .enumerate()
+        .map(|(position, predicate)| {
+            let link = BesideLink {
+                conjunction: &predicates,
+                position,
+                outer: None,
+            };
+            faithful_equalities(definition, predicate, Some(&link))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    condition_definedness(definition, faithful, &[]).map_err(RequestDefinednessFailure::Deferred)
+}
+
+/// `predicate` with every equality that has neither side shown defined stated in its faithful
+/// form ([`request_definedness`]). A side is shown defined when every `ceil_term` obligation of
+/// it is a conjunct beside the equality, as in the faithful form itself, so the form is a fixed
+/// point; keeping such an equality as written is the identity, whatever the conjuncts beside it.
+fn faithful_equalities(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    beside: Beside<'_>,
+) -> Result<Predicate, RequestDefinednessFailure> {
+    let nested = |inner: &Predicate| faithful_equalities(definition, inner, beside).map(Box::new);
+    Ok(match predicate {
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Ceil(_)
+        | Predicate::Defined(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_) => predicate.clone(),
+        Predicate::Equals(left, right) => {
+            let shown = |term: &Term| {
+                term_is_provably_defined(definition, term, |obligation| {
+                    beside_contains(beside, obligation)
+                })
+            };
+            if shown(left) || shown(right) {
+                return Ok(predicate.clone());
+            }
+            if contains_term_conjunction(left) || contains_term_conjunction(right) {
+                return Err(RequestDefinednessFailure::EqualityOverConjunction);
+            }
+            let obligations = |term: &Term| {
+                ceil_term(definition, term).map_err(RequestDefinednessFailure::Deferred)
+            };
+            let (left_defined, right_defined) = (obligations(left)?, obligations(right)?);
+            let conjunction = |mut members: Vec<Predicate>| {
+                deduplicate(&mut members);
+                if members.len() == 1 {
+                    members.pop().expect("one member")
+                } else {
+                    Predicate::And(members)
+                }
+            };
+            let mut both_defined = left_defined.clone();
+            both_defined.extend(right_defined.iter().cloned());
+            both_defined.push(predicate.clone());
+            let neither_defined = vec![
+                Predicate::Not(Box::new(conjunction(left_defined))),
+                Predicate::Not(Box::new(conjunction(right_defined))),
+            ];
+            Predicate::Or(vec![
+                conjunction(both_defined),
+                conjunction(neither_defined),
+            ])
+        }
+        Predicate::Not(inner) => Predicate::Not(nested(inner)?),
+        Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+            let holds = |fact: &Predicate| !crate::rule::mentions_free(fact, variable);
+            let unshadowed = beside_members(beside)
+                .filter(|fact| holds(fact))
+                .cloned()
+                .collect::<Vec<_>>();
+            let link = BesideLink {
+                conjunction: &unshadowed,
+                position: usize::MAX,
+                outer: None,
+            };
+            let inner = Box::new(faithful_equalities(definition, inner, Some(&link))?);
+            match predicate {
+                Predicate::Exists(..) => Predicate::Exists(variable.clone(), inner),
+                _ => Predicate::Forall(variable.clone(), inner),
+            }
+        }
+        Predicate::And(inner) => Predicate::And(
+            inner
+                .iter()
+                .enumerate()
+                .map(|(position, conjunct)| {
+                    let link = BesideLink {
+                        conjunction: inner,
+                        position,
+                        outer: beside,
+                    };
+                    faithful_equalities(definition, conjunct, Some(&link))
+                })
+                .collect::<Result<_, _>>()?,
+        ),
+        Predicate::Or(inner) => Predicate::Or(
+            inner
+                .iter()
+                .map(|inner| faithful_equalities(definition, inner, beside))
+                .collect::<Result<_, _>>()?,
+        ),
+        Predicate::Implies(left, right) => Predicate::Implies(nested(left)?, nested(right)?),
+        Predicate::Iff(left, right) => Predicate::Iff(nested(left)?, nested(right)?),
+    })
 }
 
 fn ceil_predicate(
@@ -2295,6 +2516,195 @@ mod tests {
                 .computed_attributes
                 .undefined_symbols
                 .is_empty()
+        );
+    }
+
+    /// `divInt` (`INT.tdiv`, partial) with the ceil equation
+    /// `⌈divInt(I1, I2)⌉ = (neInt(I2, 0) = true)`, and the total `gtInt`, `plusInt` and `neInt`,
+    /// over the hooked `SortInt` and `SortBool`.
+    fn division_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+                hooked-symbol plusInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                hooked-symbol neInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
+                axiom{R} \implies{R}(\top{R}(), \equals{R, R}(
+                    \ceil{SortInt{}, R}(divInt{}(I1:SortInt{}, I2:SortInt{})),
+                    \and{R}(
+                        \equals{SortBool{}, R}(
+                            neInt{}(I2:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")),
+                        \top{R}())))
+                    [label{}("ceil-div"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("the division definition parses");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("the division definition internalizes")
+    }
+
+    const QUOTIENT: &str = "divInt{}(X:SortInt{}, Y:SortInt{})";
+
+    /// `QUOTIENT >Int bound` as a predicate atom over the sort `SortInt`.
+    fn quotient_above(bound: &str) -> String {
+        format!(
+            r#"\equals{{SortBool{{}}, SortInt{{}}}}(\dv{{SortBool{{}}}}("true"), gtInt{{}}({QUOTIENT}, \dv{{SortInt{{}}}}("{bound}")))"#
+        )
+    }
+
+    fn division_predicate(definition: &BackendDefinition, source: &str) -> Predicate {
+        definition
+            .internalize_predicate(&parse_pattern(source).unwrap(), &[])
+            .unwrap_or_else(|error| panic!("{source}: {error}"))
+            .0
+    }
+
+    /// The predicates over `X /Int Y` the fixed-point tests below rewrite: a negated atom, a
+    /// disjunction, a negated conjunction, and a positive atom.
+    fn division_cases() -> Vec<(&'static str, String)> {
+        vec![
+            (
+                "negated atom",
+                format!(r"\not{{SortInt{{}}}}({})", quotient_above("5")),
+            ),
+            (
+                "disjunction",
+                format!(
+                    r"\or{{SortInt{{}}}}({}, {})",
+                    quotient_above("5"),
+                    quotient_above("-5")
+                ),
+            ),
+            (
+                "nested conjunction",
+                format!(
+                    r"\not{{SortInt{{}}}}(\and{{SortInt{{}}}}({}, \not{{SortInt{{}}}}({})))",
+                    quotient_above("5"),
+                    quotient_above("0")
+                ),
+            ),
+            ("positive atom", quotient_above("0")),
+        ]
+    }
+
+    /// `condition_definedness` applied to its own output returns it unchanged: an atom under a
+    /// conjunction does not restate an obligation that is a sibling conjunct, and an obligation
+    /// among the members of a conjunction of the conditions is not hoisted again. So a
+    /// definedness-explicit predicate, as a list or as the conjunction of that list, is a fixed
+    /// point.
+    #[test]
+    fn condition_definedness_is_a_fixed_point_of_its_own_output() {
+        let definition = division_definition();
+        for (case, source) in division_cases() {
+            let predicate = division_predicate(&definition, &source);
+            let once = condition_definedness(&definition, vec![predicate.clone()], &[]).unwrap();
+            assert_ne!(once, vec![predicate], "{case}: no obligation was stated");
+            let twice = condition_definedness(&definition, once.clone(), &[]).unwrap();
+            assert_eq!(twice, once, "{case}");
+            let conjunction = if once.len() == 1 {
+                once[0].clone()
+            } else {
+                Predicate::And(once.clone())
+            };
+            let again = condition_definedness(&definition, vec![conjunction.clone()], &[]).unwrap();
+            assert_eq!(again, vec![conjunction], "{case}: as one conjunction");
+        }
+    }
+
+    /// `X /Int Y = X /Int Y +Int 1`, which holds exactly where `Y = 0`, where both sides are
+    /// undefined.
+    fn undefined_equality() -> String {
+        format!(
+            r#"\equals{{SortInt{{}}, SortInt{{}}}}({QUOTIENT}, plusInt{{}}({QUOTIENT}, \dv{{SortInt{{}}}}("1")))"#
+        )
+    }
+
+    /// A request's equality of two terms neither of which is shown defined is stated as
+    /// `(⌈a⌉ /\ ⌈b⌉ /\ a = b) \/ (\not ⌈a⌉ /\ \not ⌈b⌉)`, here with `⌈a⌉ = ⌈b⌉`, while a rule
+    /// condition keeps it as written (`condition_definedness`).
+    #[test]
+    fn a_request_equality_of_two_undefined_terms_is_stated_in_its_faithful_form() {
+        let definition = division_definition();
+        let equality = division_predicate(&definition, &undefined_equality());
+        let defined = ceil_term(
+            &definition,
+            &definition
+                .internalize_term(&parse_pattern(QUOTIENT).unwrap(), &[])
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(!defined.is_empty());
+        let mut both = defined.clone();
+        both.push(equality.clone());
+        let neither = Predicate::Not(Box::new(if defined.len() == 1 {
+            defined[0].clone()
+        } else {
+            Predicate::And(defined.clone())
+        }));
+        assert_eq!(
+            request_definedness(&definition, vec![equality.clone()]).unwrap(),
+            vec![Predicate::Or(vec![Predicate::And(both), neither])]
+        );
+        assert_eq!(
+            condition_definedness(&definition, vec![equality.clone()], &[]).unwrap(),
+            vec![equality]
+        );
+    }
+
+    /// `request_definedness` applied to its own output returns it unchanged, as a list or as
+    /// the conjunction of that list, for the atoms of `division_cases` and for an equality of
+    /// two undefined terms, plain and negated.
+    #[test]
+    fn request_definedness_is_a_fixed_point_of_its_own_output() {
+        let definition = division_definition();
+        let mut cases = division_cases();
+        cases.push(("equality", undefined_equality()));
+        cases.push((
+            "negated equality",
+            format!(r"\not{{SortInt{{}}}}({})", undefined_equality()),
+        ));
+        for (case, source) in cases {
+            let predicate = division_predicate(&definition, &source);
+            let once = request_definedness(&definition, vec![predicate.clone()]).unwrap();
+            assert_ne!(once, vec![predicate], "{case}: no obligation was stated");
+            let twice = request_definedness(&definition, once.clone()).unwrap();
+            assert_eq!(twice, once, "{case}");
+            let conjunction = if once.len() == 1 {
+                once[0].clone()
+            } else {
+                Predicate::And(once.clone())
+            };
+            let again = request_definedness(&definition, vec![conjunction.clone()]).unwrap();
+            assert_eq!(again, vec![conjunction], "{case}: as one conjunction");
+        }
+    }
+
+    /// An equality with a side that holds a term-level `\and` and no side shown defined has no
+    /// faithful form, since `⌈Y /\ t⌉` is more than the obligations of `Y` and `t`.
+    #[test]
+    fn a_request_equality_over_a_term_conjunction_has_no_faithful_form() {
+        let definition = division_definition();
+        let equality = division_predicate(
+            &definition,
+            &format!(
+                r#"\equals{{SortInt{{}}, SortInt{{}}}}(plusInt{{}}(\and{{SortInt{{}}}}(Z:SortInt{{}}, {QUOTIENT}), \dv{{SortInt{{}}}}("0")), plusInt{{}}({QUOTIENT}, \dv{{SortInt{{}}}}("1")))"#
+            ),
+        );
+        let result = request_definedness(&definition, vec![equality.clone()]);
+        assert!(
+            matches!(
+                result,
+                Err(RequestDefinednessFailure::EqualityOverConjunction)
+            ),
+            "{equality:?} {result:?}"
         );
     }
 }

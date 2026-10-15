@@ -327,9 +327,11 @@ pub fn check_negated_consequent(
     let kore::Pattern::Not { argument, .. } = consequent.pattern() else {
         return Ok(Ok(ImplicationVerdict::Indeterminate { outside: None }));
     };
+    // The argument is a request's pattern like the consequent itself: its constraints are
+    // admitted definedness-explicit (`Admitted`), an equality of two undefined terms included.
     let (negated, negated_existentials) = match consequent
-        .definition()
-        .internalize_implication_pattern(argument, consequent.sort_variables())
+        .subpattern(argument)
+        .internalize_implication_pattern()
     {
         Ok(internalized) => internalized,
         Err(error) => return Ok(Err(error)),
