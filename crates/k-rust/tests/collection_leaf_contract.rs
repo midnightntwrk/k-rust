@@ -3,10 +3,11 @@
 //!
 //! A leaf's state writes each collection with its sort's own unit, element and concat symbols,
 //! one element application per item, and internalizes back to an equal term. Its content is its
-//! items, not the order they were inserted in; no leaf but the `work-bound` one holds a map or set
-//! with two syntactically equal keys or elements, since such a collection is undefined where it is
-//! built; and keys or
-//! elements that are neither equal nor apart split the step on their definedness condition.
+//! items, not the order they were inserted in. No leaf whose state was normalised holds a map or
+//! set with two syntactically equal keys or elements, since such a collection is undefined where
+//! it is built; a leaf taken before its state was normalised (work-bound, breadth-bound, timeout)
+//! keeps the state as given. Keys or elements that are neither equal nor apart split the step on
+//! their definedness condition.
 //! Every run goes through the facade as a consumer does: strategy `all`, the path-set modality,
 //! and `execute` and `execute_observed` giving the same leaves.
 
@@ -122,15 +123,20 @@ fn program(number: u32) -> String {
 /// The last program of `SOURCE`.
 const LAST: u32 = 19;
 
-fn request(state: &str, assume_state_defined: bool, max_work: Option<u64>) -> ExecuteRequest {
-    ExecuteRequest {
+/// The request of `state`, with `bound` applied to it (a work, breadth or step-time bound).
+fn request(state: &str, assume_state_defined: bool, bound: Bound) -> ExecuteRequest {
+    let mut request = ExecuteRequest {
         result_modality: ResultModalityOutput::PathSet,
         strategy: ExecutionStrategy::All,
         assume_state_defined,
-        max_work,
         ..ExecuteRequest::new(parse_pattern(state).unwrap())
-    }
+    };
+    bound(&mut request);
+    request
 }
+
+/// A change to a request that bounds its run.
+type Bound = fn(&mut ExecuteRequest);
 
 fn text(leaf: &ExecutionLeaf) -> String {
     Printer::compact().print_pattern(&state(leaf))
@@ -153,22 +159,22 @@ fn summary(result: &ExecutionResult) -> Summary {
 /// The leaves of `state` under strategy `all` and the path-set modality, which `execute` and
 /// `execute_observed` must give alike.
 fn run_state(backend: &mut Backend, state: &str, assume_state_defined: bool) -> ExecutionResult {
-    run_budgeted(backend, state, assume_state_defined, None)
+    run_bounded(backend, state, assume_state_defined, |_| {})
 }
 
-/// [`run_state`] within a work budget of `max_work` states.
-fn run_budgeted(
+/// [`run_state`] with `bound` applied to both requests.
+fn run_bounded(
     backend: &mut Backend,
     state: &str,
     assume_state_defined: bool,
-    max_work: Option<u64>,
+    bound: Bound,
 ) -> ExecutionResult {
     let plain = backend
-        .execute(request(state, assume_state_defined, max_work))
+        .execute(request(state, assume_state_defined, bound))
         .unwrap();
     let observed = backend
         .execute_observed(ObservedRequest {
-            request: request(state, assume_state_defined, max_work),
+            request: request(state, assume_state_defined, bound),
             rules: Some(Vec::new()),
         })
         .unwrap();
@@ -408,15 +414,33 @@ fn no_leaf_state_holds_a_repeated_key_or_element() {
         assert_eq!(vacuous.depth, 0);
         assert_eq!(text(vacuous), BOTTOM, "{assume_state_defined}");
     }
-    // The exception: a work budget of 0 stops before the initial state is normalised, and the
-    // `work-bound` leaf holds that state as it was given, repeat included. It still reads back
+    // The exception: a leaf taken before its state is normalised keeps the state as it was
+    // given, repeat included. A work budget of 0, a breadth bound of 0 and a step time of 0 each
+    // stop before the initial state is normalised, deterministically. The leaf still reads back
     // and is written again alike.
-    for assume_state_defined in [false, true] {
-        let result = run_budgeted(&mut backend, &initial, assume_state_defined, Some(0));
+    let bounds: [(Bound, HaltReasonOutput); 3] = [
+        (
+            |request| request.max_work = Some(0),
+            HaltReasonOutput::WorkBound,
+        ),
+        (
+            |request| request.max_breadth = Some(0),
+            HaltReasonOutput::BreadthBound,
+        ),
+        (
+            |request| request.step_timeout_ms = Some(0),
+            HaltReasonOutput::Timeout,
+        ),
+    ];
+    for ((bound, reason), assume_state_defined) in bounds
+        .into_iter()
+        .flat_map(|bound| [(bound, false), (bound, true)])
+    {
+        let result = run_bounded(&mut backend, &initial, assume_state_defined, bound);
         let [bound] = &result.leaves[..] else {
-            panic!("{assume_state_defined}: {:#?}", summary(&result));
+            panic!("{reason:?} {assume_state_defined}: {:#?}", summary(&result));
         };
-        assert_eq!(bound.reason, HaltReasonOutput::WorkBound);
+        assert_eq!(bound.reason, reason, "{assume_state_defined}");
         assert_eq!(bound.depth, 0);
         let pattern = internalized(&definition, &state(bound));
         assert!(has_repeat(&pattern.term), "{}", text(bound));

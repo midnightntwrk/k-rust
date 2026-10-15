@@ -746,9 +746,10 @@ pub enum TermKind {
     /// rooted at a role symbol (a function or anywhere equation, `concrete`, `symbolic` or
     /// neither, or a `simplification`); the load reports the executable equations among them
     /// without `symbolic` as [`crate::confluence::ViolationKind::IndexedAt`] of a collection index.
-    /// The state of an execution leaf is normalised, so a map read back from it binds no key
-    /// twice, except the state of a `work-bound` leaf, which is taken unnormalised and keeps a
-    /// repeated key as it was given.
+    /// A map read back from the state of an execution leaf whose state was normalised binds no
+    /// key twice; a leaf whose state was taken before it was normalised (work-bound,
+    /// breadth-bound, stopped, or one whose normalisation failed) keeps the state as given or
+    /// built, repeated key included (`docs/compatibility.md`, "Collections in results").
     Map {
         definition: Arc<MapDefinition>,
         entries: Items<(Term, Term)>,
