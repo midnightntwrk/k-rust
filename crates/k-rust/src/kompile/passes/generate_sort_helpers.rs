@@ -37,6 +37,9 @@ use crate::definition::configuration::cell_map_key_label;
 use serde_json::{Value, json};
 
 use crate::definition::production_kind::{FieldProjectionSource, NoJunkAxiom};
+use crate::definition::sort_helpers::{
+    sort_helper_items, sort_predicate_production, sort_projection_production,
+};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{AttributeKey, DefinitionViews, ModuleId, ProductionId};
 use crate::kast::ProductionIdentity;
@@ -110,30 +113,10 @@ fn generate_sort_predicate_syntax_from_resolved(
             .iter()
             .filter(|sort| sort.role().has_sort_predicate())
         {
-            let label = Label::sort_predicate(sort);
-            let production = Sentence::Production {
-                label: Some(label.clone()),
-                parameters: Vec::new(),
-                sort: Sort::builtin(BuiltinSort::Bool),
-                items: vec![
-                    ProductionItem::Terminal(label.name.clone()),
-                    ProductionItem::Terminal("(".into()),
-                    ProductionItem::NonTerminal {
-                        sort: Sort::builtin(BuiltinSort::K),
-                        name: None,
-                    },
-                    ProductionItem::Terminal(")".into()),
-                ],
-                attributes: {
-                    let mut attributes = Attributes::from_pairs([
-                        (AttributeKey::Function, Value::String(String::new())),
-                        (AttributeKey::Predicate, sort_json(sort)),
-                    ]);
-                    attributes.declare_total(TotalityWitness::covering_predicate());
-                    attributes
-                },
-            };
-            generated.push(production);
+            generated.push(sort_predicate_production(
+                sort,
+                Attributes::from_pairs([(AttributeKey::Predicate, sort_json(sort))]),
+            ));
         }
         let mut generated = retain_new_sentences(
             visible
@@ -209,15 +192,7 @@ pub(crate) fn regenerate_sort_predicate_syntax_pass(
             else {
                 unreachable!("copy-on-write keeps the sentence decided above");
             };
-            *items = vec![
-                ProductionItem::Terminal(label.name.clone()),
-                ProductionItem::Terminal("(".into()),
-                ProductionItem::NonTerminal {
-                    sort: Sort::builtin(BuiltinSort::K),
-                    name: None,
-                },
-                ProductionItem::Terminal(")".into()),
-            ];
+            *items = sort_helper_items(&label.name);
         }
     }
     Ok(generate_sort_predicate_syntax_from_resolved(
@@ -365,24 +340,8 @@ fn sort_projection(sort: &Sort, label: Label) -> [Sentence; 2] {
     };
     let mut projection_attributes = Attributes::default();
     projection_attributes.mark(AttributeKey::Projection);
-    let mut production_attributes = projection_attributes.clone();
-    production_attributes.mark(AttributeKey::Function);
     [
-        Sentence::Production {
-            label: Some(label.clone()),
-            parameters: Vec::new(),
-            sort: sort.clone(),
-            items: vec![
-                ProductionItem::Terminal(label.name.clone()),
-                ProductionItem::Terminal("(".into()),
-                ProductionItem::NonTerminal {
-                    sort: Sort::builtin(BuiltinSort::K),
-                    name: None,
-                },
-                ProductionItem::Terminal(")".into()),
-            ],
-            attributes: production_attributes,
-        },
+        sort_projection_production(sort, label.clone(), Attributes::default()),
         Sentence::Rule {
             body: Term::Rewrite {
                 left: Box::new(Term::Apply {

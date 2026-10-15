@@ -20,17 +20,23 @@
 //! and one semantic-cast resolution of the sentence; reading every path back out of the typing
 //! (`PathMap::iter`) costs O(N x h). `kompile.macros.expand` computes this view once per rewrite of a
 //! sentence when some macro rule has a parametric head.
+//!
+//! Building a typer computes the productions compilation adds to the module's closure, one scan
+//! of the closure's V sentences and its sort universe (O(V log V)), and, when it adds any, one
+//! production catalog over the closure and the added productions (O(P log P) for P
+//! productions) in place of the module's cached one.
 
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 
 use crate::definition::{
-    AttributeKey, Attributes, PartialOrder, ProductionItem, ResolvedDefinition, Sentence,
+    AttributeKey, Attributes, LabelHead, ModuleId, PartialOrder, ProductionCatalog, ProductionItem,
+    ResolvedDefinition, Sentence,
 };
-use crate::kast::parser::parse_sort_text;
-use crate::kast::{GeneratedLabel, InternalLabel, Sort, Term};
+use crate::kast::{InternalLabel, Sort, Term};
 use crate::kompile::passes::{
     ResolveSemanticCastsError, resolve_semantic_casts_in_sentence, semantic_cast_variable_sorts,
     with_kitem_subsorts,
@@ -325,10 +331,12 @@ impl fmt::Display for SentenceTypingError {
 
 impl std::error::Error for SentenceTypingError {}
 
-/// The typing of `sentence`, a rule or claim of `module`, at the loaded layer.
+/// The typing of `sentence`, a rule or claim of `module`'s import closure, at the loaded layer,
+/// in `module`'s view.
 ///
 /// Equivalent to `SentenceTyper::new(definition, module)?.typing(sentence)`; build a
-/// [`SentenceTyper`] once to type several sentences of one module.
+/// [`SentenceTyper`] once to type several sentences. Compilation's typing of a sentence is its
+/// typing in the main module's view ([`SentenceTyper::for_compilation`]).
 pub fn sentence_typing(
     definition: &ResolvedDefinition,
     module: &str,
@@ -337,7 +345,21 @@ pub fn sentence_typing(
     SentenceTyper::new(definition, module)?.typing(sentence)
 }
 
-/// Types the loaded rule-like sentences of one module.
+/// Types the loaded rule-like sentences of one module's import closure in that module's view.
+///
+/// Compilation injects every rule-like sentence of the main module's import closure with one
+/// injector built for the main module, over the main module's closure. The typer of a module
+/// types with the same injector built for that module, over the same closure, and with the
+/// productions compilation adds to it before injection for the labels the closure does not
+/// declare: the sort predicates and sort and field projections compilation declares over the
+/// closure, from the constructors it declares them with, and the rule-language constructs a
+/// loaded rule may name (local functions, `:=K` and `:/=K`, the ML connectives, the RULE-CELLS
+/// cells). So the typer of the main module ([`SentenceTyper::for_compilation`]) is compilation's
+/// typing of every rule and claim of that closure: if compilation accepts the definition, every
+/// such sentence the source declares types, and a typing error is an error compilation stops at.
+/// A sentence's own module may see fewer sorts, overloads or helpers than the main module, so
+/// its typer is not compilation's typing of the sentence. A function rule with configuration
+/// context (`#withConfig`) is not typed yet.
 ///
 /// The typing is a read of compilation's own computation. Semantic casts are resolved by the
 /// resolution pass (its variable sorts and errors), a body with a rewrite is projected into its
@@ -354,15 +376,60 @@ pub fn sentence_typing(
 /// The injector runs after cell concretization, which a loaded sentence has not had; the view
 /// keeps the loaded shapes: `#cells`, `#dots` and `#noDots` have no sort and place no
 /// requirement, an authored cell `L(#dots|#noDots, body, #dots|#noDots)` has its production's
-/// sort and places its body at the cell's single content sort, and a loaded `project:S` is typed
-/// as `S ::= project:S(K)`. It types in the order injection runs in, where every non-parser sort
-/// is declared below `KItem`.
+/// sort and places its body at the cell's single content sort. It types in the order injection
+/// runs in, where every non-parser sort is declared below `KItem`.
 ///
 /// The view does not infer: a variable nothing types reports no sort, though its position still
 /// reports its requirement. A cast's operand reports the cast's sort as its requirement.
 pub struct SentenceTyper<'a> {
     injector: SortInjector<'a, 'a>,
     declared: PartialOrder<Sort>,
+}
+
+/// The production catalog compilation injects the sentences of `module`'s import closure with,
+/// as far as a loaded sentence can name it: the closure's productions, plus the productions of
+/// the labels a loaded rule may name that compilation declares or lowers before it injects
+/// ([`crate::inner::rule_language_productions`]), each only when the closure has no production
+/// of its label.
+///
+/// The label filter also keeps a typer built on a definition that already declares the sort
+/// helpers (macro expansion runs one after the generating passes) from meeting a second one.
+/// When nothing is added the cached catalog of the module is shared.
+fn compilation_catalog<'a>(
+    definition: &'a ResolvedDefinition,
+    module: ModuleId,
+) -> View<'a, ProductionCatalog<'a>> {
+    let base = definition.production_catalog(module);
+    let added = crate::inner::rule_language_productions(definition, module)
+        .into_iter()
+        .filter(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => base.productions_for(&LabelHead::from(label)).is_empty(),
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => false,
+        })
+        .map(Arc::new)
+        .collect::<Vec<_>>();
+    if added.is_empty() {
+        return View::Shared(base);
+    }
+    let mut sentences = definition.sentence_arcs(module);
+    sentences.extend(added);
+    View::Owned(ProductionCatalog::from_deduplicated_arcs(
+        sentences,
+        definition.local_sentence_arcs(module),
+    ))
 }
 
 impl<'a> SentenceTyper<'a> {
@@ -382,7 +449,7 @@ impl<'a> SentenceTyper<'a> {
         let subsorts = with_kitem_subsorts(&declared, sorts.all_sorts()).map_err(cycle)?;
         Ok(Self {
             injector: SortInjector {
-                productions: View::Shared(definition.production_catalog(module_id)),
+                productions: compilation_catalog(definition, module_id),
                 sorts: View::Owned(sorts),
                 subsorts: View::Owned(subsorts),
                 next_sort_parameter: Cell::new(0),
@@ -392,6 +459,14 @@ impl<'a> SentenceTyper<'a> {
             },
             declared,
         })
+    }
+
+    /// The typer of the definition's main module: compilation's typing of every rule and claim
+    /// of the main module's import closure.
+    pub fn for_compilation(
+        definition: &'a ResolvedDefinition,
+    ) -> Result<Self, SentenceTypingError> {
+        Self::new(definition, &definition.main_module().name)
     }
 
     pub fn typing(&self, sentence: &Sentence) -> Result<SentenceTyping, SentenceTypingError> {
@@ -1027,39 +1102,6 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
                     && is_authored_cell(self.injector, loaded, label, arguments)? =>
             {
                 self.authored_cell(loaded, resolved, path)
-            }
-            Term::Apply { label, arguments }
-                if !self.injector.has_production(loaded, label)
-                    && matches!(label.generated(), Some(GeneratedLabel::Projection { .. })) =>
-            {
-                let Some(GeneratedLabel::Projection { sort_text }) = label.generated() else {
-                    unreachable!("matched above")
-                };
-                let target = parse_sort_text(sort_text)
-                    .map_err(|_| SortInjectionError::UnknownLabel(label.name.clone()))?;
-                let (
-                    Term::Apply {
-                        arguments: resolved_arguments,
-                        ..
-                    },
-                    [argument],
-                ) = (resolved.unannotated(), arguments.as_slice())
-                else {
-                    return Err(SortInjectionError::InvalidArity {
-                        label: label.name.clone(),
-                        expected: 1,
-                        actual: arguments.len(),
-                    });
-                };
-                // `project:S` is declared by a later stage as `S ::= "project:S" "(" K ")"`.
-                let k = Sort::builtin(BuiltinSort::K);
-                let slot = self.child(argument, &resolved_arguments[0], path, 0, &k)?;
-                self.place_child(path, 0, &slot, &k)?;
-                self.record(path, reported(&target));
-                Ok(Slot {
-                    term: self.projected(resolved),
-                    sort: Some(target),
-                })
             }
             _ => self.injected(loaded, resolved, path, hint),
         }

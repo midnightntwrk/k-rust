@@ -34,6 +34,7 @@ use web_time::Instant;
 
 use crate::definition::AttributeKey;
 use crate::definition::relations::SubsortDeclaration;
+use crate::definition::sort_helpers::{sort_predicate_production, sort_projection_production};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
@@ -51,7 +52,7 @@ use super::config::{
 };
 use super::location::{locate_ambiguity_places, span_location};
 use super::parser::{
-    Grammar, ParseError, TokenPrecedenceDeclaration, named_projection_productions,
+    Grammar, ParseError, TokenPrecedenceDeclaration, field_projection_productions,
 };
 use super::sort_universe::{
     CastTarget, GrammarSort, RULE_BRACKET_SEED_ORDER, RULE_CAST_SEED_ORDER, RULE_GRAMMAR,
@@ -589,6 +590,131 @@ fn inject_rule_cell_sentences<'a>(
     }
 }
 
+/// The sort helpers compilation declares for the sentences of `view`: the sort predicate
+/// `isS` of every sort of the view whose role has one, the sort projection `project:S` of every
+/// sort whose role has one, and the field projections `project:L:F` of every production of the
+/// view with named nonterminals, each only when no production of the view already has its
+/// label. Every production carries `attributes` on top of its family's own.
+///
+/// The sorts of the view are those of its [`SortUniverse`]: declared or given a position by one
+/// of its sentences. The productions come from the constructors compilation declares the helpers
+/// with ([`crate::definition::sort_helpers`],
+/// [`crate::definition::production_kind::FieldProjectionSource::projection_production`]), so a
+/// helper has the same signature wherever it is offered.
+///
+/// The view decides which helpers there are. The rule grammar of a module passes its signature
+/// view, the syntax its rules may write; the typing view passes the module's import closure, over
+/// which compilation declares them ([`rule_language_productions`]).
+pub(crate) fn helper_productions(view: &[&Sentence], attributes: &Attributes) -> Vec<Sentence> {
+    helpers_over(&SortUniverse::members_of(view), view, attributes)
+}
+
+/// [`helper_productions`] over a universe already computed for `view`.
+fn helpers_over(
+    universe: &SortUniverse,
+    view: &[&Sentence],
+    attributes: &Attributes,
+) -> Vec<Sentence> {
+    let labels = view
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.as_str()),
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let mut helpers = universe
+        .members()
+        .filter(|member| rule_member_productions(member.role()).predicate)
+        .filter(|member| !labels.contains(Label::sort_predicate(member.sort()).name.as_str()))
+        .map(|member| sort_predicate_production(member.sort(), attributes.clone()))
+        .collect::<Vec<_>>();
+    helpers.extend(
+        universe
+            .members()
+            .filter(|member| rule_member_productions(member.role()).projection)
+            .filter_map(|member| Label::projection(member.sort()).map(|label| (member, label)))
+            .filter(|(_, label)| !labels.contains(label.name.as_str()))
+            .map(|(member, label)| {
+                sort_projection_production(member.sort(), label, attributes.clone())
+            }),
+    );
+    helpers.extend(field_projection_productions(
+        view.iter().copied(),
+        attributes,
+    ));
+    helpers
+}
+
+/// The marker of the syntax the rule grammar adds to a module's own.
+fn generated_helper_attributes() -> Attributes {
+    let mut attributes = Attributes::default();
+    attributes.mark(AttributeKey::GeneratedRuleSyntax);
+    attributes
+}
+
+/// The productions a loaded rule or claim of `module`'s import closure can name that the closure
+/// itself does not declare, in the closure view compilation injects the module with.
+///
+/// They are the ML-SYNTAX connectives and the RULE-CELLS cells the rule grammar adds to a view
+/// ([`rule_grammar_view_and_signature`]), the sort helpers compilation declares over the closure
+/// ([`helper_productions`]), and the rule-language constructs `#fun2`, `#fun3`, `#let`, `:=K`
+/// and `:/=K`, which compilation lowers before it injects ([`k_rule_productions`]). The rewrite
+/// and `#as` productions of the Z3 rule grammar are not among them: a loaded term holds
+/// [`Term::Rewrite`] and [`Term::As`], never an application of their labels. The connectives
+/// and cells are listed when the closure has no equivalent production, the helpers and
+/// constructs when it has no production of their label.
+pub(crate) fn rule_language_productions(
+    resolved: &ResolvedDefinition,
+    module: ModuleId,
+) -> Vec<Sentence> {
+    let mut view = resolved.sentences(module);
+    let closure = view.len();
+    add_implicit_ml_syntax(resolved, &mut view);
+    inject_rule_cell_sentences(resolved, &mut view);
+    let mut added = view[closure..]
+        .iter()
+        .map(|sentence| (*sentence).clone())
+        .collect::<Vec<_>>();
+    added.extend(helper_productions(&view, &Attributes::default()));
+    let labels = view
+        .iter()
+        .copied()
+        .chain(&added)
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.clone()),
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
+        })
+        .collect::<BTreeSet<_>>();
+    added.extend(k_rule_productions(&labels));
+    added
+}
+
 fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Grammar, ParseError> {
     let (visible, signature) = rule_grammar_view_and_signature(resolved, module);
     reject_kernel_position_contradiction(&visible)?;
@@ -659,27 +785,11 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         .iter()
         .filter(|sentence| !is_cell(sentence))
         .count();
-    let has_production_labeled = |name: &str| {
-        visible.iter().any(|sentence| {
-            matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == name)
-        })
-    };
-    parsing_sentences.extend(
-        universe
-            .members()
-            .filter(|member| rule_member_productions(member.role()).predicate)
-            .filter(|member| !has_production_labeled(&Label::sort_predicate(member.sort()).name))
-            .map(|member| sort_predicate_production(&member)),
-    );
-    parsing_sentences.extend(
-        universe
-            .members()
-            .filter(|member| rule_member_productions(member.role()).projection)
-            .filter_map(|member| Label::projection(member.sort()).map(|label| (member, label)))
-            .filter(|(_, label)| !has_production_labeled(&label.name))
-            .map(|(member, label)| sort_projection_production(&member, label)),
-    );
-    parsing_sentences.extend(named_projection_productions(visible.iter().copied()));
+    parsing_sentences.extend(helpers_over(
+        &universe,
+        &visible,
+        &generated_helper_attributes(),
+    ));
     if !parsing_sentences
         .iter()
         .any(|sentence| matches!(sentence, Sentence::SyntaxSort { sort, .. } if sort.name == FrontendSort::Bag.as_str()))
@@ -833,51 +943,6 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
     grammar.assert_generated_sort_roles(&universe);
     grammar.read_token_text_as_program_text();
     Ok(grammar)
-}
-
-fn sort_predicate_production(sort: &GrammarSort) -> Sentence {
-    let label = Label::sort_predicate(sort.sort());
-    let mut attributes = Attributes::default();
-    attributes.mark(AttributeKey::Function);
-    attributes.declare_total(TotalityWitness::covering_predicate());
-    attributes.mark(AttributeKey::GeneratedRuleSyntax);
-    Sentence::Production {
-        label: Some(label.clone()),
-        parameters: Vec::new(),
-        sort: Sort::new("Bool"),
-        items: vec![
-            ProductionItem::Terminal(label.name),
-            ProductionItem::Terminal("(".into()),
-            ProductionItem::NonTerminal {
-                sort: Sort::new("K"),
-                name: None,
-            },
-            ProductionItem::Terminal(")".into()),
-        ],
-        attributes,
-    }
-}
-
-fn sort_projection_production(sort: &GrammarSort, label: Label) -> Sentence {
-    let mut attributes = Attributes::default();
-    attributes.mark(AttributeKey::Function);
-    attributes.mark(AttributeKey::Projection);
-    attributes.mark(AttributeKey::GeneratedRuleSyntax);
-    Sentence::Production {
-        label: Some(label.clone()),
-        parameters: Vec::new(),
-        sort: sort.sort().clone(),
-        items: vec![
-            ProductionItem::Terminal(label.name),
-            ProductionItem::Terminal("(".into()),
-            ProductionItem::NonTerminal {
-                sort: Sort::new("K"),
-                name: None,
-            },
-            ProductionItem::Terminal(")".into()),
-        ],
-        attributes,
-    }
 }
 
 fn add_rule_k_syntax(
@@ -1175,6 +1240,12 @@ fn add_rewrite_rule_sentences(sentences: &mut Vec<Sentence>) {
 /// parameter is therefore not observable in the rule it loads.
 fn add_k_rule_sentences(sentences: &mut Vec<Sentence>) {
     let labels = production_labels(sentences);
+    sentences.extend(k_rule_productions(&labels));
+}
+
+/// The productions of [`add_k_rule_sentences`] whose labels are not among `labels`.
+fn k_rule_productions(labels: &BTreeSet<String>) -> Vec<Sentence> {
+    let mut sentences = Vec::new();
     let has_label = |name: &str| labels.contains(name);
     let parameter = Sort::new("Sort");
     let generated_attributes = generated_rule_attributes();
@@ -1293,6 +1364,7 @@ fn add_k_rule_sentences(sentences: &mut Vec<Sentence>) {
             attributes,
         });
     }
+    sentences
 }
 
 fn add_rule_cells(
@@ -1914,6 +1986,72 @@ endmodule
             ],
             false,
         )
+    }
+
+    /// KINK-03/1: the rule grammar of a module offers exactly the helpers
+    /// [`helper_productions`] gives for its signature view, so a rule of the module writes only
+    /// the helpers of the sorts and productions it sees. The closure view, over which compilation
+    /// declares the helpers and the typing view types, also has those of the sorts and productions
+    /// a closure module reaches only through a private import.
+    #[test]
+    fn the_rule_grammar_offers_the_helpers_of_its_signature_view() {
+        let loaded = load_with_prelude(
+            r#"
+module MAIN
+  imports PRIV-B
+endmodule
+
+module PRIV-B
+  imports private PRIV-C
+  imports BOOL
+endmodule
+
+module PRIV-C
+  imports INT-SYNTAX
+  syntax Foo ::= foo()
+  syntax Pair ::= pair(fst: Int, snd: Int) [symbol(pair)]
+endmodule
+"#,
+        );
+        let resolved = loaded.resolved();
+        for module in ["MAIN", "PRIV-B", "PRIV-C"] {
+            let id = resolved.module_id(module).expect("the module is resolved");
+            let helpers = helper_productions(
+                &rule_grammar_view(resolved, id),
+                &generated_helper_attributes(),
+            );
+            assert!(!helpers.is_empty(), "{module}");
+            let grammar = module_rule_grammar_of(resolved, module);
+            // Invariant: every helper before `helper` has its production in the grammar.
+            for helper in &helpers {
+                let Sentence::Production { sort, items, .. } = helper else {
+                    unreachable!("helpers are productions")
+                };
+                assert!(
+                    grammar.has_equivalent_production(sort, items, false),
+                    "{module}: {helper:?}"
+                );
+            }
+        }
+        let main = resolved.module_id("MAIN").expect("the module is resolved");
+        let signature =
+            helper_productions(&rule_grammar_view(resolved, main), &Attributes::default());
+        let closure = rule_language_productions(resolved, main);
+        let (signature, closure) = (production_labels(&signature), production_labels(&closure));
+        for label in [
+            "isFoo",
+            "project:Foo",
+            "isPair",
+            "project:pair:fst",
+            "project:pair:snd",
+        ] {
+            assert!(
+                !signature.contains(label),
+                "MAIN's rules cannot write {label}"
+            );
+            assert!(closure.contains(label), "compilation declares {label}");
+        }
+        assert!(signature.is_subset(&closure), "{signature:?} {closure:?}");
     }
 
     /// A module that sees the kernel syntax of KSEQ, whose sorts include `KItem`, `KConfigVar`,

@@ -933,3 +933,354 @@ fn a_cast_rewrite_places_its_sides_where_the_rewrite_stands() {
         axiom_of(&kore, "CAST.cast")
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The typing view of the main module: compilation's catalog and view.
+
+/// `source` loaded as kink loads a definition, with the embedded `kast.md` and `prelude.md`
+/// implicit, and `requires` resolved from the embedded sources, then from `directory`.
+fn load_main(
+    name: &str,
+    source: &str,
+    main: &str,
+    directory: Option<&std::path::Path>,
+) -> LoadedDefinition {
+    let mut resolver = |_: &str, required: &str| {
+        builtin::embedded(required)
+            .or_else(|| {
+                let path = directory?.join(required);
+                let text = std::fs::read_to_string(&path).ok()?;
+                Some(ResolvedSource::new(
+                    path.to_string_lossy().into_owned(),
+                    text,
+                ))
+            })
+            .ok_or_else(|| required.to_owned())
+    };
+    load_for_compilation(
+        ResolvedSource::new(name, source.to_owned()),
+        main,
+        None,
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![
+                builtin::embedded("kast.md").unwrap(),
+                builtin::embedded("prelude.md").unwrap(),
+            ],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust
+                    .excluded_module_attribute()
+                    .to_owned(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{name}: {error}"))
+    .0
+}
+
+/// The typer of the definition's main module, which types every sentence of its closure.
+fn main_typer(loaded: &LoadedDefinition) -> SentenceTyper<'_> {
+    let resolved = loaded.resolved();
+    SentenceTyper::new(resolved, &resolved.main_module().name).unwrap()
+}
+
+/// Every rule and claim of the main module's import closure, with its module's name.
+fn closure_sentences(loaded: &LoadedDefinition) -> Vec<(&str, &Sentence)> {
+    let resolved = loaded.resolved();
+    let main = resolved.main_module_id();
+    let closure = resolved.transitive_imports(main);
+    loaded
+        .definition()
+        .modules
+        .iter()
+        .filter(|module| {
+            let id = resolved.module_id(&module.name).unwrap();
+            id == main || closure.contains(&id)
+        })
+        .flat_map(|module| {
+            module
+                .local_sentences
+                .iter()
+                .filter(|sentence| {
+                    matches!(&***sentence, Sentence::Rule { .. } | Sentence::Claim { .. })
+                })
+                .map(|sentence| (module.name.as_str(), &**sentence))
+        })
+        .collect()
+}
+
+/// The compiled definition, or the panic that names the failing stage.
+fn assert_compiles(loaded: &LoadedDefinition, name: &str) {
+    compile_loaded_definition(loaded, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("{name}: {error} {:?}", error.diagnostics));
+}
+
+/// Every rule and claim of the main closure types with the main module's typer; the failures
+/// are listed together.
+fn assert_closure_types(loaded: &LoadedDefinition, name: &str) -> usize {
+    let typer = main_typer(loaded);
+    let sentences = closure_sentences(loaded);
+    let failures = sentences
+        .iter()
+        .filter_map(|(module, sentence)| {
+            typer
+                .typing(sentence)
+                .err()
+                .map(|error| format!("{module}: {error}"))
+        })
+        .collect::<Vec<_>>();
+    assert!(failures.is_empty(), "{name}: {failures:#?}");
+    sentences.len()
+}
+
+const GENERATED_RULE_SYNTAX: &str =
+    include_str!("fixtures/sentence-typing/generated-rule-syntax.k");
+const PRIVATE_HELPERS: &str = include_str!("fixtures/sentence-typing/private-helpers.k");
+const INFERRED_PARENT: &str = include_str!("fixtures/sentence-typing/inferred-parent.k");
+const OWN_PREDICATE: &str = include_str!("fixtures/sentence-typing/own-predicate.k");
+
+// Sort predicates, sort and field projections, local functions and `:=K`/`:/=K` have no
+// production in the loaded module; compilation declares or lowers them, and the main module's
+// typer types them in compilation's catalog.
+#[test]
+fn a_rule_using_generated_rule_syntax_types() {
+    let loaded = load_main(
+        "generated-rule-syntax.k",
+        GENERATED_RULE_SYNTAX,
+        "TYPER-PROBE",
+        None,
+    );
+    assert_compiles(&loaded, "TYPER-PROBE");
+    assert_closure_types(&loaded, "TYPER-PROBE");
+    let typer = main_typer(&loaded);
+    let typed = |label: &str| {
+        typer
+            .typing(labelled(loaded.definition(), label))
+            .unwrap_or_else(|error| panic!("{label}: {error}"))
+    };
+
+    // `Bool ::= isInt(K)`: the predicate is a Bool condition and its argument stands at `K`.
+    let predicate = typed("TYPER-PROBE.pred-int");
+    assert_eq!(at(&predicate, &[1]), &sorted(Some("Bool"), Some("Bool")));
+    assert_eq!(at(&predicate, &[1, 0]).required, Some(Sort::new("K")));
+
+    // `Int ::= fst(Pair)`: the field projection is an `Int` argument of `b`, and its argument a
+    // `Pair`.
+    let field = typed("TYPER-PROBE.field");
+    assert_eq!(at(&field, &[0, 1, 0]), &sorted(Some("Int"), Some("Int")));
+    assert_eq!(
+        at(&field, &[0, 1, 0, 0]),
+        &sorted(Some("Pair"), Some("Pair"))
+    );
+
+    // `{X}:>Int` is `Int ::= project:Int(K)`.
+    let projection = typed("TYPER-PROBE.proj");
+    assert_eq!(at(&projection, &[0, 1, 0]).sort, Some(Sort::new("Int")));
+}
+
+// PRIV-B reaches `Foo` and `pair` only through a private import, so PRIV's rule grammar offers
+// neither `isFoo` nor `fst`; compilation still declares both over the closure it injects, and
+// PRIV-B's rules use them.
+#[test]
+fn a_helper_of_a_privately_imported_sort_types_in_the_main_view() {
+    let loaded = load_main("private-helpers.k", PRIVATE_HELPERS, "PRIV", None);
+    assert_compiles(&loaded, "PRIV");
+    assert_closure_types(&loaded, "PRIV");
+    let typer = main_typer(&loaded);
+    let field = typer
+        .typing(labelled(loaded.definition(), "PRIV-B.field"))
+        .unwrap();
+    assert_eq!(at(&field, &[0, 1, 0]), &sorted(Some("Int"), Some("Int")));
+    assert_eq!(at(&field, &[0, 1, 0, 0]).sort, Some(Sort::new("Pair")));
+}
+
+// A projection whose parent's instance the injector infers (`#if`, `#Equals`) is typed by the
+// same signature as any other argument of that parent.
+#[test]
+fn a_projection_below_an_inferred_parent_types() {
+    let loaded = load_main(
+        "inferred-parent.k",
+        INFERRED_PARENT,
+        "INFERRED-PARENT",
+        None,
+    );
+    assert_compiles(&loaded, "INFERRED-PARENT");
+    assert_closure_types(&loaded, "INFERRED-PARENT");
+    let typing = main_typer(&loaded)
+        .typing(labelled(loaded.definition(), "INFERRED-PARENT.ite"))
+        .unwrap();
+    assert_eq!(at(&typing, &[0, 1, 0]), &sorted(Some("Int"), Some("Int")));
+    assert_eq!(
+        at(&typing, &[0, 1, 0, 1]),
+        &sorted(Some("Int"), Some("Int"))
+    );
+}
+
+// Module B of K's issue-2114 regression sees no `K` of its own (it imports only a private module
+// declaring `Foo`); compilation types its rule with the main module's order, and so does the
+// main module's typer.
+#[test]
+fn a_sentence_whose_module_lacks_k_types_in_the_main_view() {
+    let loaded = load_main(
+        "issue-2114.k",
+        include_str!("fixtures/sentence-typing/regression/issue-2114.k"),
+        "TEST",
+        None,
+    );
+    assert_compiles(&loaded, "issue-2114");
+    let module_b = loaded
+        .definition()
+        .modules
+        .iter()
+        .find(|module| module.name == "B")
+        .unwrap();
+    let rule = module_b
+        .local_sentences
+        .iter()
+        .find(|sentence| matches!(&***sentence, Sentence::Rule { .. }))
+        .unwrap();
+    let typing = main_typer(&loaded).typing(rule).unwrap();
+    assert_eq!(at(&typing, &[0, 0]).sort, Some(Sort::new("Foo")));
+}
+
+// A module that declares its own `isFoo` keeps it: the generated helpers are added only for
+// labels the catalog lacks, so the typer sees one production and uses its signature. (This
+// definition does not compile, since the predicate pass also declares `Bool ::= isFoo(K)` for the
+// sort `Foo`; the test pins the typer's catalog, not the typing contract.)
+#[test]
+fn a_module_with_its_own_is_foo_keeps_it() {
+    let loaded = load_main("own-predicate.k", OWN_PREDICATE, "OWN-PREDICATE", None);
+    assert_closure_types(&loaded, "OWN-PREDICATE");
+    let typing = main_typer(&loaded)
+        .typing(labelled(loaded.definition(), "OWN-PREDICATE.use"))
+        .unwrap();
+    assert_eq!(at(&typing, &[0, 1, 0]), &sorted(Some("Int"), Some("Int")));
+    assert_eq!(
+        at(&typing, &[0, 1, 0, 0]),
+        &sorted(Some("Int"), Some("Int"))
+    );
+}
+
+// The rule parser refuses the text `b(isInt(X) +Int 1)`; a structured edit that puts the Bool
+// predicate at `b`'s Int argument is refused by the typer with the error compilation stops at.
+#[test]
+fn a_structured_ill_sorted_predicate_fails_typing_and_compilation_alike() {
+    let loaded = load_main(
+        "generated-rule-syntax.k",
+        GENERATED_RULE_SYNTAX,
+        "TYPER-PROBE",
+        None,
+    );
+    let ill_sorted = edited(
+        &loaded,
+        "TYPER-PROBE.field",
+        &[0, 1, 0],
+        Term::apply("isInt", vec![var("X", None)]),
+    );
+    let error = main_typer(&loaded).typing(&ill_sorted).unwrap_err();
+    assert!(
+        matches!(&error, SentenceTypingError::Sort { error: SortInjectionError::IllSortedTerm(mismatch), .. }
+            if mismatch.found == Sort::new("Bool") && mismatch.required == Sort::new("Int")),
+        "{error}"
+    );
+    let compiled = compiled_kore(&relinked(
+        &loaded,
+        "TYPER-PROBE",
+        "TYPER-PROBE.field",
+        ill_sorted,
+    ))
+    .expect_err("compilation rejects a Bool at an Int argument");
+    assert_eq!(compiled.stage, "add sort injections", "{compiled}");
+    let SentenceTypingError::Sort { error: typed, .. } = &error else {
+        unreachable!("matched above")
+    };
+    assert!(
+        compiled.message.contains(&typed.to_string()),
+        "{compiled}\n{typed}"
+    );
+}
+
+/// The definitions of the corpus property: the single-module reference fixtures, the
+/// sentence-typing fixtures, and copies of K regression definitions (`pyk/regression-new`, files
+/// kept byte for byte) whose rules use local functions, `:=K`, field projections and a module
+/// that lacks `K`.
+fn corpus() -> Vec<(String, String, String, Option<std::path::PathBuf>)> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut corpus = Vec::new();
+    let reference = root.join("reference");
+    let mut files = std::fs::read_dir(&reference)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "k"))
+        .collect::<Vec<_>>();
+    files.sort();
+    for path in files {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let main = text
+            .lines()
+            .rev()
+            .find_map(|line| line.trim_start().strip_prefix("module "))
+            .unwrap()
+            .trim()
+            .to_owned();
+        corpus.push((
+            path.file_name().unwrap().to_string_lossy().into_owned(),
+            text,
+            main,
+            Some(reference.clone()),
+        ));
+    }
+    for (file, main) in [
+        ("regression/equals-pattern.k", "TEST"),
+        ("regression/let-test.k", "TEST"),
+        ("regression/total-proj.k", "TEST"),
+        ("regression/issue-2114.k", "TEST"),
+        ("generated-rule-syntax.k", "TYPER-PROBE"),
+        ("private-helpers.k", "PRIV"),
+        ("inferred-parent.k", "INFERRED-PARENT"),
+    ] {
+        let path = root.join("sentence-typing").join(file);
+        corpus.push((
+            file.to_owned(),
+            std::fs::read_to_string(&path).unwrap(),
+            main.to_owned(),
+            None,
+        ));
+    }
+    corpus
+}
+
+// The typing contract: if compilation accepts a definition, every rule and claim of its main
+// module's import closure (the prelude included) types with the main module's typer.
+#[test]
+fn every_sentence_of_a_compiled_definition_types_in_the_main_view() {
+    let mut compiled = Vec::new();
+    let mut failures = Vec::new();
+    for (name, text, main, directory) in corpus() {
+        let loaded = load_main(&name, &text, &main, directory.as_deref());
+        if compile_loaded_definition(&loaded, CompileOptions::default()).is_err() {
+            continue;
+        }
+        compiled.push(name.clone());
+        let typer = main_typer(&loaded);
+        for (module, sentence) in closure_sentences(&loaded) {
+            if let Err(error) = typer.typing(sentence) {
+                failures.push(format!("{name} {module}: {error}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert!(compiled.len() >= 25, "only {compiled:?} compiled");
+}
+
+// `for_compilation` is the typer of the main module.
+#[test]
+fn the_compilation_typer_is_the_main_modules() {
+    let loaded = load_main("private-helpers.k", PRIVATE_HELPERS, "PRIV", None);
+    let typer = SentenceTyper::for_compilation(loaded.resolved()).unwrap();
+    let main = SentenceTyper::new(loaded.resolved(), "PRIV").unwrap();
+    for (_, sentence) in closure_sentences(&loaded) {
+        assert_eq!(typer.typing(sentence), main.typing(sentence));
+    }
+}

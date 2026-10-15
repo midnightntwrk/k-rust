@@ -19,6 +19,7 @@ pub(crate) mod head_totality;
 pub mod json;
 pub mod partial_order;
 pub(crate) mod production_kind;
+pub(crate) mod sort_helpers;
 /// K token regexes, defined in the dependency-free `k-rust-regex` crate.
 pub use k_rust_regex as regex;
 pub mod relations;

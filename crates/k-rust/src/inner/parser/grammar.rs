@@ -1166,6 +1166,17 @@ impl<'c, 'a> SourceLinks<'c, 'a> {
 pub(in crate::inner) fn named_projection_productions<'a>(
     sentences: impl IntoIterator<Item = &'a Sentence>,
 ) -> Vec<Sentence> {
+    let mut attributes = Attributes::default();
+    attributes.mark(AttributeKey::GeneratedRuleSyntax);
+    field_projection_productions(sentences, &attributes)
+}
+
+/// The field projection productions of [`named_projection_productions`], each with `attributes`
+/// (and `function`, which [`FieldProjectionSource::projection_production`] marks).
+pub(in crate::inner) fn field_projection_productions<'a>(
+    sentences: impl IntoIterator<Item = &'a Sentence>,
+    attributes: &Attributes,
+) -> Vec<Sentence> {
     let sentences = sentences.into_iter().collect::<Vec<_>>();
     let defined = sentences
         .iter()
@@ -1206,9 +1217,7 @@ pub(in crate::inner) fn named_projection_productions<'a>(
             continue;
         }
         for (field_sort, name) in fields {
-            let mut attributes = Attributes::default();
-            attributes.mark(AttributeKey::GeneratedRuleSyntax);
-            generated.push(source.projection_production(field_sort, name, attributes));
+            generated.push(source.projection_production(field_sort, name, attributes.clone()));
         }
     }
     generated

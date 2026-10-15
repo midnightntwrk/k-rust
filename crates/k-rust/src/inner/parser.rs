@@ -110,7 +110,7 @@ use self::forest::*;
 use self::grammar::Placeholder;
 use self::grammar::ProductionText;
 use self::grammar::catalog_production;
-pub(super) use self::grammar::named_projection_productions;
+pub(super) use self::grammar::{field_projection_productions, named_projection_productions};
 #[cfg(feature = "z3-inference")]
 use self::grammar::{render_added_production, render_production};
 use self::inference::SortTable;
