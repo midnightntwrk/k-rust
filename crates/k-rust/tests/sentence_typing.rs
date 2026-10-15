@@ -1433,3 +1433,32 @@ fn a_function_rule_with_nested_configuration_context_types() {
     );
     assert_eq!(at(&typing, &[1]), &sorted(Some("Bool"), Some("Bool")));
 }
+
+// K's withConfig2 regression: its context is a `<k>` cell with a frame. krust refuses the
+// definition for its fresh-variable function rule, so the corpus property skips it; its
+// `#withConfig` rule still types as the rule compilation would lower.
+#[test]
+fn a_configuration_context_with_a_k_cell_frame_types() {
+    let loaded = load_main(
+        "withConfig2.k",
+        include_str!("fixtures/sentence-typing/regression/withConfig2.k"),
+        "TEST",
+        None,
+    );
+    let typer = main_typer(&loaded);
+    let with_config = closure_sentences(&loaded)
+        .into_iter()
+        .filter(|(module, sentence)| {
+            *module == "TEST"
+                && matches!(
+                    sentence,
+                    Sentence::Rule { body, .. }
+                        if matches!(body.unannotated(), Term::Apply { label, .. } if label.name == "#withConfig")
+                )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(with_config.len(), 1);
+    let typing = typer.typing(with_config[0].1).unwrap();
+    assert_eq!(at(&typing, &[0, 0, 0]), &sorted(Some("Int"), Some("Int")));
+    assert_eq!(at(&typing, &[0, 0, 1]), &sorted(Some("Int"), Some("Int")));
+}
