@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition load"
-//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens)"
+//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)"
 //!
 //! [[cost]]
 //! mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -394,19 +394,8 @@ impl<'a> Admitted<'a> {
         self,
         predicates: Vec<crate::rule::Predicate>,
     ) -> Result<Vec<crate::rule::Predicate>, DefinitionError> {
-        crate::definedness::request_definedness(self.definition, predicates).map_err(|failure| {
-            DefinitionError::UnstatedDefinedness(match failure {
-                crate::definedness::RequestDefinednessFailure::Deferred(outcome) => {
-                    UnstatedDefinedness::Impure {
-                        hook: outcome.hook().to_owned(),
-                        detail: outcome.reason().to_string(),
-                    }
-                }
-                crate::definedness::RequestDefinednessFailure::TermConjunction => {
-                    UnstatedDefinedness::TermConjunction
-                }
-            })
-        })
+        crate::definedness::request_definedness(self.definition, predicates)
+            .map_err(|failure| DefinitionError::UnstatedDefinedness(failure.into()))
     }
 
     /// Refuse a request that equates a pattern holding a term in predicate position, such as
@@ -1190,6 +1179,38 @@ pub enum UnstatedDefinedness {
     /// that equality would be read as the `\iff` of its operands taken as predicates, which is
     /// not its meaning.
     TermReadAsPredicate,
+}
+
+impl From<crate::definedness::RequestDefinednessFailure> for UnstatedDefinedness {
+    fn from(failure: crate::definedness::RequestDefinednessFailure) -> Self {
+        match failure {
+            crate::definedness::RequestDefinednessFailure::Deferred(outcome) => Self::Impure {
+                hook: outcome.hook().to_owned(),
+                detail: outcome.reason().to_string(),
+            },
+            crate::definedness::RequestDefinednessFailure::TermConjunction => Self::TermConjunction,
+        }
+    }
+}
+
+/// Why a pattern's predicates have no definedness-explicit form, without naming whose they are.
+impl fmt::Display for UnstatedDefinedness {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Impure { hook, detail } => write!(
+                formatter,
+                "the definedness of a predicate depends on an impure application: {detail} \
+                 ({hook})"
+            ),
+            Self::TermConjunction => formatter.write_str(
+                "an atom holds a term-level \\and, whose definedness cannot be stated beside it",
+            ),
+            Self::TermReadAsPredicate => formatter.write_str(
+                "an \\equals whose operands are not both terms holds a term where a predicate is \
+                 read",
+            ),
+        }
+    }
 }
 
 impl fmt::Display for DefinitionError {
@@ -2464,6 +2485,13 @@ impl BackendDefinition {
         );
         result.record_pattern_tokens();
         result.discharge_rewrite_definedness();
+        // A claim's constraints are stated with their definedness once the definition is
+        // complete: the statement reads its ceil equations and value claims.
+        let claims = std::mem::take(&mut result.reachability_claims);
+        result.reachability_claims = claims
+            .into_iter()
+            .map(|claim| crate::claim::with_explicit_definedness(&result, claim))
+            .collect();
         Ok(result)
     }
 

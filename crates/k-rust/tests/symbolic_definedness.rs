@@ -26,6 +26,10 @@ use k_rust::{
 #[path = "support/shared.rs"]
 mod shared;
 
+#[path = "support/proof_sources.rs"]
+#[allow(dead_code)]
+mod proof_sources;
+
 const SOURCE: &str = r#"module DEFPROBE-SYNTAX
   imports INT-SYNTAX
   imports BOOL-SYNTAX
@@ -1543,6 +1547,83 @@ endmodule
         assert!(
             is_one_stuck_halt(&leaves, None),
             "wrap(s(X)) assume=true: {leaves:#?}"
+        );
+    }
+}
+
+/// Claims whose own constraints hold a partial term, proved in either build
+/// (`support/proof_sources.rs`, `DEFPROBE`). Without a solver the prover decides less, but a
+/// claim's constraints keep their meaning: no claim is proven whose answer with Z3 is not
+/// (`proof_semantics.rs`), and `cposctl`, whose strict `requires` the simplifier alone decides once
+/// its definedness is stated, is proven.
+mod claim_constraints {
+    use k_rust::{
+        backend::{Backend, BackendOptions, ProveRequest},
+        builtin::embedded,
+        definition::CheckMode,
+        kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+        outer::{LoadOptions, ResolvedSource, load_with_options},
+    };
+
+    use super::proof_sources::{DEFPROBE, DEFPROBE_SPEC};
+
+    fn compile() -> String {
+        let source = format!("{DEFPROBE}{DEFPROBE_SPEC}");
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("spec.k", &source),
+            "DEFPROBE-SPEC",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                configuration_module: Some("DEFPROBE".to_owned()),
+                ..CompilationBackend::Rust.load_options()
+            },
+        )
+        .unwrap();
+        compile_loaded_definition(
+            &loaded,
+            CompileOptions {
+                backend: CompilationBackend::Rust,
+                default_claims_to_all_path: true,
+                check_mode: CheckMode::Proof {
+                    definition_module: "DEFPROBE".to_owned(),
+                },
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap()
+        .definition_kore
+    }
+
+    #[test]
+    fn a_claim_is_proven_only_where_its_constraints_meaning_makes_it_hold() {
+        let kore = compile();
+        let mut backend = Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::default()).unwrap();
+        let mut statuses = Vec::new();
+        for claim in [
+            "cpos", "cposctl", "cneg", "cnoteq", "cnegml", "cmeq", "crhs", "crhsatom", "cens",
+            "cdiv",
+        ] {
+            let result = backend
+                .prove(ProveRequest {
+                    claim: Some(format!("DEFPROBE-SPEC.{claim}")),
+                    max_depth: Some(8),
+                    ..ProveRequest::default()
+                })
+                .unwrap_or_else(|error| panic!("{claim}: {error:?}"));
+            statuses.push((claim, result.status));
+        }
+        for (claim, status) in &statuses {
+            if ["cnoteq", "cnegml", "cmeq", "crhs", "crhsatom"].contains(claim) {
+                assert_ne!(status, "proven", "{claim}: {statuses:?}");
+            }
+        }
+        assert!(
+            statuses.contains(&("cposctl", "proven".to_owned())),
+            "{statuses:?}"
         );
     }
 }

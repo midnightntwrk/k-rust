@@ -22,8 +22,9 @@ use k_rust::{
 #[path = "support/proof_sources.rs"]
 mod proof_sources;
 use proof_sources::{
-    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_KEPT, LATER_BINDING_RECOVERED, LATER_BINDING_RULE,
-    LET_PARTIAL_CONDITION, NEGATIVE_POWER, UNDEFINED_STEP,
+    ANYWHERE_OVERLOAD_REMAINDER, DEFPROBE, DEFPROBE_REFUSED_SPEC, DEFPROBE_SPEC,
+    LATER_BINDING_KEPT, LATER_BINDING_RECOVERED, LATER_BINDING_RULE, LET_PARTIAL_CONDITION,
+    NEGATIVE_POWER, UNDEFINED_STEP,
 };
 
 /// The KORE of `source` compiled for proving `spec` against `definition`, as `kprove` compiles a
@@ -2334,4 +2335,231 @@ endmodule
         },
     );
     assert_eq!(assumed.status, "proven", "{assumed:?}");
+}
+
+/// `DEFPROBE-SPEC` over `DEFPROBE`, compiled as `kprove` compiles it, with the
+/// claims of `HAND`, hand-written KORE over the same configuration: `neg` and `eq` state in KORE
+/// what `cnegml` and `cmeq` state in K (each holds exactly at `Y = 0`, where `pos(X, 0)` is stuck),
+/// and `rhsneg` and `rhseq` are destinations that fail where `Y` (or exactly one of `Y` and `Z`) is
+/// 0. Returns the backend and the name of the module that holds `HAND`.
+fn defprobe_backend() -> (Backend, String) {
+    const SORT: &str = "SortGeneratedTopCell{}";
+    let top = |program: &str| {
+        format!(
+            "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortRes{{}}, SortKItem{{}}}}({program}), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
+        )
+    };
+    let and = |left: &str, right: &str| format!("\\and{{{SORT}}}({left}, {right})");
+    let not = |predicate: &str| format!("\\not{{{SORT}}}({predicate})");
+    let holds = |term: &str| {
+        format!("\\equals{{SortBool{{}}, {SORT}}}(\\dv{{SortBool{{}}}}(\"true\"), {term})")
+    };
+    let int = |value: i64| format!("\\dv{{SortInt{{}}}}(\"{value}\")");
+    let quotient = |divisor: &str| format!("Lbl'UndsSlsh'Int'Unds'{{}}(X:SortInt{{}}, {divisor})");
+    let equals =
+        |left: &str, right: &str| format!("\\equals{{SortInt{{}}, {SORT}}}({left}, {right})");
+    let y = quotient("Y:SortInt{}");
+    let z = quotient("Z:SortInt{}");
+    let done = "Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortRes{}, SortKItem{}}(Lbldone{}()), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen1:SortInt{}))";
+    let pos = top("Lblpos{}(X:SortInt{}, Y:SortInt{})");
+    let w3 = top("Lblw3{}(X:SortInt{}, Y:SortInt{}, Z:SortInt{})");
+    let negated = and(
+        &not(&holds(&format!(
+            "Lbl'Unds-GT-'Int'Unds'{{}}({y}, {})",
+            int(5)
+        ))),
+        &not(&holds(&format!(
+            "Lbl'Unds-LT-Eqls'Int'Unds'{{}}({y}, {})",
+            int(5)
+        ))),
+    );
+    let to_done = |constraint: &str| {
+        format!(
+            "\\implies{{{SORT}}}({}, weakAlwaysFinally{{{SORT}}}(\\exists{{{SORT}}}(Var'QuesUnds'Gen1:SortInt{{}}, \\and{{{SORT}}}({done}, \\top{{{SORT}}}()))))",
+            and(&pos, constraint)
+        )
+    };
+    let to_self = |constraint: &str| {
+        format!(
+            "\\implies{{{SORT}}}({w3}, weakAlwaysFinally{{{SORT}}}({}))",
+            and(&w3, constraint)
+        )
+    };
+    let times_zero = |term: &str| format!("Lbl'UndsStar'Int'Unds'{{}}({term}, {})", int(0));
+    let claims = [
+        ("neg", to_done(&negated)),
+        (
+            "eq",
+            to_done(&equals(
+                &y,
+                &format!("Lbl'UndsPlus'Int'Unds'{{}}({y}, {})", int(1)),
+            )),
+        ),
+        ("rhsneg", to_self(&negated)),
+        ("rhseq", to_self(&equals(&times_zero(&y), &times_zero(&z)))),
+    ];
+    let module = format!(
+        "module HAND\n import DEFPROBE-SPEC []\n{}\nendmodule []",
+        claims
+            .iter()
+            .map(|(name, claim)| format!(" claim{{}} {claim} [label{{}}(\"HAND.{name}\")]"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    let kore = compile(
+        &format!("{DEFPROBE}{DEFPROBE_SPEC}"),
+        "DEFPROBE-SPEC",
+        "DEFPROBE",
+    );
+    let mut backend = Backend::new(&kore, "DEFPROBE-SPEC", BackendOptions::default()).unwrap();
+    let name = backend.add_module(&module, false).unwrap();
+    (backend, name)
+}
+
+/// The status of `claim` (`DEFPROBE-SPEC.<claim>`, or a `HAND.<claim>` of `hand`) and the outcome
+/// and depth of each of its leaves.
+fn defprobe_result(
+    backend: &mut Backend,
+    hand: &str,
+    claim: &str,
+) -> (String, Vec<(ProofLeafOutcomeOutput, u64)>) {
+    let (module_name, claim) = match claim.strip_prefix("HAND.") {
+        Some(_) => (Some(hand.to_owned()), claim.to_owned()),
+        None => (None, format!("DEFPROBE-SPEC.{claim}")),
+    };
+    let result = backend
+        .prove(ProveRequest {
+            module_name,
+            claim: Some(claim.clone()),
+            max_depth: Some(8),
+            ..ProveRequest::default()
+        })
+        .unwrap_or_else(|error| panic!("{claim}: {error:?}"));
+    (
+        result.status,
+        result
+            .leaves
+            .iter()
+            .map(|leaf| (leaf.outcome, leaf.depth))
+            .collect(),
+    )
+}
+
+/// A claim's constraints carry their matching-logic meaning: a negated atom over `X /Int Y` holds
+/// where `Y` is 0, so the claims `HAND.neg`, `cnoteq` and `cnegml` hold exactly there, where
+/// `pos(X, 0)` is stuck, and they are not proven vacuously. Each fails on that stuck state, the
+/// claim's left-hand side at depth 0.
+#[test]
+fn a_claim_over_a_negated_partial_atom_is_not_proven_vacuously() {
+    let (mut backend, hand) = defprobe_backend();
+    for claim in ["HAND.neg", "cnoteq", "cnegml"] {
+        let (status, leaves) = defprobe_result(&mut backend, &hand, claim);
+        assert_eq!(status, "failed", "{claim}: {leaves:?}");
+        assert_eq!(
+            leaves,
+            [(ProofLeafOutcomeOutput::Stuck, 0)],
+            "{claim}: {status}"
+        );
+    }
+}
+
+/// A strict `requires` over `X /Int Y` holds on no instance where `Y` is 0, so `cpos` and
+/// `cposctl` speak only about configurations the rule rewrites to `yes`: both are proven, by one
+/// step, and the excluded `pos(X, 0)` leaves no stuck leaf.
+#[test]
+fn a_strict_claim_requires_over_a_partial_term_excludes_its_undefined_instances() {
+    let (mut backend, hand) = defprobe_backend();
+    for claim in ["cpos", "cposctl"] {
+        let (status, leaves) = defprobe_result(&mut backend, &hand, claim);
+        assert_eq!(status, "proven", "{claim}: {leaves:?}");
+        assert_eq!(
+            leaves,
+            [(ProofLeafOutcomeOutput::Proven, 1)],
+            "{claim}: {status}"
+        );
+    }
+}
+
+/// An ML equality of two terms holds where both denote nothing: `HAND.eq` and `cmeq` hold exactly
+/// at `Y = 0`, where `pos(X, 0)` is stuck, and are not proven.
+#[test]
+fn a_claim_equality_of_two_undefined_terms_holds_where_both_are_undefined() {
+    let (mut backend, hand) = defprobe_backend();
+    for claim in ["HAND.eq", "cmeq"] {
+        let (status, leaves) = defprobe_result(&mut backend, &hand, claim);
+        assert_eq!(status, "failed", "{claim}: {leaves:?}");
+        assert_eq!(
+            leaves,
+            [(ProofLeafOutcomeOutput::Stuck, 0)],
+            "{claim}: {status}"
+        );
+    }
+}
+
+/// A destination equality of two partial terms is false where exactly one of them is undefined,
+/// so `HAND.rhseq` and `crhs` (`X /Int Y *Int 0 = X /Int Z *Int 0`) are not proven.
+#[test]
+fn a_destination_equality_of_two_partial_terms_is_not_proven_where_one_is_undefined() {
+    let (mut backend, hand) = defprobe_backend();
+    for claim in ["HAND.rhseq", "crhs"] {
+        let (status, leaves) = defprobe_result(&mut backend, &hand, claim);
+        assert_eq!(status, "failed", "{claim}: {leaves:?}");
+    }
+}
+
+/// Claims whose answer the reading of their constraints does not change: `cneg` holds on no
+/// instance and is proven; `crhsatom`'s destination atom is undefined at `Y = 0` and it is
+/// disproved; `HAND.rhsneg` fails; `cens`'s negated destination equality holds at `Y = 0`, and
+/// `cdiv`, an ML `ensures` with one defined side, holds where its divisor is not 0: both proven.
+#[test]
+fn claims_whose_answer_their_constraints_reading_keeps() {
+    let (mut backend, hand) = defprobe_backend();
+    for (claim, expected) in [
+        ("cneg", "proven"),
+        ("crhsatom", "disproved"),
+        ("HAND.rhsneg", "failed"),
+        ("cens", "proven"),
+        ("cdiv", "proven"),
+    ] {
+        let (status, leaves) = defprobe_result(&mut backend, &hand, claim);
+        assert_eq!(status, expected, "{claim}: {leaves:?}");
+    }
+}
+
+/// A claim whose constraint's definedness depends on an impure application has no
+/// definedness-explicit form: the definition still loads, the claim beside it is proven, and
+/// proving the refused claim returns the typed refusal.
+#[test]
+fn a_claim_whose_constraints_have_no_explicit_form_is_refused_alone() {
+    let kore = compile(
+        &format!("{DEFPROBE}{DEFPROBE_REFUSED_SPEC}"),
+        "DEFPROBE-REFUSED-SPEC",
+        "DEFPROBE",
+    );
+    let mut backend =
+        Backend::new(&kore, "DEFPROBE-REFUSED-SPEC", BackendOptions::default()).unwrap();
+    let proven = backend
+        .prove(ProveRequest {
+            claim: Some("DEFPROBE-REFUSED-SPEC.cposctl".into()),
+            ..ProveRequest::default()
+        })
+        .unwrap();
+    assert_eq!(proven.status, "proven");
+    let refused = backend
+        .prove(ProveRequest {
+            claim: Some("DEFPROBE-REFUSED-SPEC.crefused".into()),
+            ..ProveRequest::default()
+        })
+        .expect_err("the claim is refused");
+    assert!(
+        matches!(
+            refused.claim_refusal(),
+            Some(k_rust::backend::UnstatedDefinedness::Impure { .. })
+        ),
+        "{refused:?}"
+    );
+    assert!(
+        refused.message().contains("cannot be read faithfully"),
+        "{refused}"
+    );
 }

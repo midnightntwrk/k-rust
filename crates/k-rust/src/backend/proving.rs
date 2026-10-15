@@ -117,6 +117,15 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
         .collect()
 }
 
+/// The meaning k-rust gives a claim's KORE, which [`saved_proofs_digest`] names. A proof
+/// certifies its claim under that meaning, and a later k-rust may give the same KORE another, so
+/// proofs saved under another reading are not reused. Readings, latest last:
+/// - none named: a claim's own constraints were decided as written, with a partial operation
+///   read as total;
+/// - `claim-constraints-with-definedness-1`: a claim's own constraints, on both sides, are read
+///   with their matching-logic meaning, definedness included (`ReachabilityClaim`).
+const CLAIM_READING: &str = "claim-constraints-with-definedness-1";
+
 /// The assumptions of a proof run that change what a `proven` claim certifies, beside the
 /// compiled definition ([`saved_proofs_digest`]).
 pub struct ProofAssumptions<'a> {
@@ -129,8 +138,8 @@ pub struct ProofAssumptions<'a> {
     pub allow_vacuous: bool,
 }
 
-/// The digest a run's saved proofs are bound to: the [`definition_digest`] and the run's
-/// [`ProofAssumptions`].
+/// The digest a run's saved proofs are bound to: the [`CLAIM_READING`], the
+/// [`definition_digest`] and the run's [`ProofAssumptions`].
 ///
 /// A proof certifies its claim only under the assumptions it was made under, so a saved proof is
 /// reused only by a run that makes the same ones. A trusted claim counts as the claim sentence
@@ -145,6 +154,18 @@ pub fn saved_proofs_digest(
     definition: &Definition,
     spec_module: &str,
     assumptions: &ProofAssumptions<'_>,
+) -> String {
+    saved_proofs_digest_under_reading(definition, spec_module, assumptions, Some(CLAIM_READING))
+}
+
+/// [`saved_proofs_digest`] under the claim reading `reading`; `None` is the digest a k-rust that
+/// named no reading wrote. For tests of files saved by an earlier k-rust.
+#[doc(hidden)]
+pub fn saved_proofs_digest_under_reading(
+    definition: &Definition,
+    spec_module: &str,
+    assumptions: &ProofAssumptions<'_>,
+    reading: Option<&str>,
 ) -> String {
     use sha2::{Digest, Sha256};
     let printer = Printer::compact();
@@ -166,6 +187,10 @@ pub fn saved_proofs_digest(
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(bytes);
     };
+    if let Some(reading) = reading {
+        part(b"claim-reading");
+        part(reading.as_bytes());
+    }
     part(b"definition");
     part(definition_digest(definition, spec_module).as_bytes());
     part(b"trusted");
@@ -402,10 +427,10 @@ impl SavedProofs {
             });
         if digest != Some(definition) {
             eprintln!(
-                "warning: saved proof file `{}` was written for another compiled definition or \
-                 under other assumptions (trusted claims, SMT prelude, --allow-vacuous) (digest \
-                 {}, this run's {definition}); its proofs are not reused, and the file is \
-                 rewritten with this run's",
+                "warning: saved proof file `{}` was written for another compiled definition, \
+                 under other assumptions (trusted claims, SMT prelude, --allow-vacuous) or by a \
+                 k-rust that read claims otherwise (digest {}, this run's {definition}); its \
+                 proofs are not reused, and the file is rewritten with this run's",
                 path.display(),
                 digest.unwrap_or("missing"),
             );

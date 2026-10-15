@@ -468,7 +468,7 @@ A claim whose left-hand side is a disjunction (`(A #Or B) => C`) holds only if i
 A saved proof is a verdict, so `kprove` saves and reuses only proofs that stand on their own: a claim is saved once every disjunct is proven, under an id that names one claim body (a claim written in KORE with no `UNIQUE'Unds'ID`, or with another claim's label, is proven but never saved or reused), and only from a run in which every claim is proven, saved or trusted, since each claim of a run is a circularity of the others' proofs; otherwise the run's new proofs are not saved, and `kprove` names them.
 A saved proof file carries the format marker `kRustSavedProofsV2` and the SHA-256 digest of what its proofs were made under (`kRustSavedProofsDefinition`).
 The digest covers the compiled definition: every declaration and axiom of the compiled KORE, lemmas of the specification module included, in any order, with their attributes, which name the source file and line of each sentence, so moving a file or a sentence within it gives another digest; it leaves out the claims and the specification module's name, so a claim proven under one specification module is reused under another whose sentences come from the same files at the same positions.
-It covers as well the assumptions of the run that change what a proof certifies: every claim the run trusts (by `[trusted]` or `--trusted`), the text of the `--smt-prelude`, and `--allow-vacuous`.
+It covers as well the assumptions of the run that change what a proof certifies: every claim the run trusts (by `[trusted]` or `--trusted`), the text of the `--smt-prelude`, and `--allow-vacuous`; and it names the reading k-rust gives a claim's KORE, so a proof saved by a k-rust that decided a claim's constraints as written, without their definedness, is not reused (docs/compatibility.md, "Undefined instances of the initial configuration").
 The bounds (`--depth`, `--breadth`, `--min-depth`, `--max-counterexamples`, `--max-simplification-iterations`, `--set-step-timeout`, `--moving-average`, the SMT timeout and retry limit), the search order (`--graph-search`) and `--disable-stuck-check` decide only whether a proof is found, and `--claim` and `--exclude` only which claims the run proves, whose proofs a saved file records claim by claim; none of them is bound.
 A file made under another digest is not reused, with a warning, and is rewritten. A file in another format (the earlier `kRustModalitySafeProofsV1`, one without a marker, or a later format) is rejected with a message that names it; remove the file and rerun `kprove` to regenerate it.
 
@@ -504,6 +504,10 @@ detail in words when it has one, then its configuration:
   whenever one of its instances would, and `--allow-vacuous` accepts it.
 - `indeterminate`, `depth bound`, `breadth bound`: the search could not decide a leaf, or hit a
   bound.
+- `refused (<reason>)`: the claim's constraints have no definedness-explicit form (their
+  definedness depends on an impure application under `#if`, `andThenBool` or `orElseBool`, or an
+  atom holds a term-level `\and`), so the claim is not proven; the run goes on with the next
+  claim.
 
 When leaves disagree the first word of this list applies, in the order `disproved`, `failed`,
 `indeterminate`, `depth bound`, `breadth bound`. The Node.js and WebAssembly `status` field uses the

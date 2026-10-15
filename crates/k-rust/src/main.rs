@@ -81,7 +81,7 @@ use k_rust::{
 use k_rust_backend::{
     definition::Admission,
     externalize::{self, External},
-    proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
+    proof::{ProofError, ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{ExecutionMode, Pattern},
     search::SearchType,
     simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
@@ -3698,22 +3698,39 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             step_timeout: options.step_timeout,
             moving_average_timeout: options.moving_average_timeout,
         };
-        let result = backend
-            .with_solver(None, |definition, solver| {
-                k_rust::backend::proving::run_claim(
-                    definition,
-                    claim,
-                    &circularities,
-                    proof_options,
-                    solver,
-                )
-                .map_err(|error| {
-                    KproveSolverError::Backend(BackendError::new(format!(
-                        "could not prove claim: {error}"
-                    )))
+        let result = backend.with_solver(None, |definition, solver| {
+            k_rust::backend::proving::run_claim(
+                definition,
+                claim,
+                &circularities,
+                proof_options,
+                solver,
+            )
+            .map_err(|error| {
+                KproveSolverError::Backend(match error {
+                    ProofError::UnstatedDefinedness(reason) => BackendError::refused_claim(reason),
+                    error @ (ProofError::Implication(_) | ProofError::ZeroCounterexampleLimit) => {
+                        BackendError::new(format!("could not prove claim: {error}"))
+                    }
                 })
             })
-            .map_err(kprove_solver_error)?;
+        });
+        let result = match result {
+            Ok(result) => result,
+            // A refused claim is not proven, and the run goes on with the others.
+            Err(KproveSolverError::Backend(error)) if error.claim_refusal().is_some() => {
+                let reason = error.claim_refusal().expect("the error refuses the claim");
+                writeln!(output, "claim {name}: refused ({reason})")?;
+                timings.claims.push(ClaimTiming {
+                    label: name,
+                    seconds: started.elapsed().as_secs_f64(),
+                    status: "refused".into(),
+                });
+                all_proven = false;
+                continue;
+            }
+            Err(error) => return Err(kprove_solver_error(error).into()),
+        };
         let seconds = started.elapsed().as_secs_f64();
         timings.proof_seconds += seconds;
         timings.claims.push(ClaimTiming {

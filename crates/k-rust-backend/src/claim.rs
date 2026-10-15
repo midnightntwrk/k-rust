@@ -6,7 +6,10 @@ use k_rust_kore::kore::ast as kore;
 use k_rust_kore::names::KoreAttribute;
 
 use crate::{
-    definition::{BackendDefinition, DefinitionError, PendingAxiom, UnlicensedInjectionSite},
+    definition::{
+        BackendDefinition, DefinitionError, PendingAxiom, UnlicensedInjectionSite,
+        UnstatedDefinedness,
+    },
     rewrite::Pattern,
     rule::{RuleAttributes, internalize_rule_pattern, term_disjuncts},
     term::Variable,
@@ -35,6 +38,17 @@ pub struct ClaimAttributes {
     pub sentence: usize,
 }
 
+/// A modal reachability claim `lhs => rhs`, one per disjunct of its sentence's left-hand side.
+///
+/// The constraints of `lhs` and of every pattern of `rhs` are the claim author's statement about
+/// the claim's instances, read with their matching-logic meaning: a Boolean atom `b` means
+/// `\equals(b, true)`, which is `\bottom` wherever a term of `b` is undefined, and an equality of
+/// two terms holds where both denote the same element or both denote nothing. They are stored in
+/// definedness-explicit form ([`with_explicit_definedness`]), an equivalent list in which a
+/// solver that reads a partial operation as total answers as that meaning does, so the claim
+/// keeps one meaning as the initial state of its own proof, as a destination, and as an applied
+/// circularity or trusted lemma. A claim whose constraints have no such form keeps them as
+/// written and carries the reason in `unstated`; it is not proven ([`crate::proof::ProofError`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReachabilityClaim {
     pub lhs: Pattern,
@@ -42,6 +56,8 @@ pub struct ReachabilityClaim {
     pub existentials: BTreeSet<Variable>,
     pub mode: ReachabilityMode,
     pub attributes: ClaimAttributes,
+    /// Why the claim's constraints have no definedness-explicit form, when they have none.
+    pub unstated: Option<UnstatedDefinedness>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -145,9 +161,47 @@ pub(crate) fn internalize_reachability_claim(
                 existentials: existentials.clone(),
                 mode,
                 attributes: attributes.clone(),
+                unstated: None,
             })
         })
         .collect()
+}
+
+/// `claim` with the constraints of its left-hand side and of every right-hand disjunct in
+/// definedness-explicit form, as a request's are (`definedness::request_definedness`).
+///
+/// A claim's constraints select the instances the claim speaks about, and their meaning is the
+/// pattern's alone: an atom over a term implies that term's definedness in every context, and an
+/// equality of two possibly undefined terms holds where both denote nothing. Each rewrite of the
+/// helper is an equivalence, so the claim denotes the same configurations after it, and the
+/// statement is a fixed point. It reads the definition's ceil equations and value claims, so it
+/// runs once the definition is complete. A side with no such form (an impure application whose
+/// definedness a conditional would decide, an atom over a term-level `\and`) leaves the claim as
+/// written, with the reason in `unstated`, so that the definition still loads and its other
+/// claims and its execution are unaffected.
+pub(crate) fn with_explicit_definedness(
+    definition: &BackendDefinition,
+    mut claim: ReachabilityClaim,
+) -> ReachabilityClaim {
+    let stated = |constraints: &[crate::rule::Predicate]| {
+        crate::definedness::request_definedness(definition, constraints.to_vec())
+            .map_err(UnstatedDefinedness::from)
+    };
+    let sides = std::iter::once(&claim.lhs)
+        .chain(&claim.rhs)
+        .map(|side| stated(&side.constraints))
+        .collect::<Result<Vec<_>, _>>();
+    match sides {
+        Ok(sides) => {
+            let mut sides = sides.into_iter();
+            claim.lhs.constraints = sides.next().expect("the left-hand side is stated");
+            for (side, constraints) in claim.rhs.iter_mut().zip(sides) {
+                side.constraints = constraints;
+            }
+        }
+        Err(refusal) => claim.unstated = Some(refusal),
+    }
+    claim
 }
 
 fn extract_existentials(mut pattern: &kore::Pattern) -> (&kore::Pattern, Vec<&kore::Variable>) {
@@ -181,6 +235,57 @@ mod tests {
         );
         let syntax = parse_definition(&source).expect("definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// A claim's constraints are its author's statement about its instances. `\not(true = p(X))`
+    /// of a partial `p` holds where `p(X)` is undefined, so the stored form states `p(X)`'s
+    /// definedness beside the atom, under the negation, and is a fixed point of the statement.
+    #[test]
+    fn stores_a_claims_constraints_with_their_definedness_stated_where_they_stand() {
+        let source = r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                sort SortT{} []
+                sort SortBool{} [hasDomainValues{}()]
+                symbol c{}(SortS{}) : SortT{} [constructor{}()]
+                symbol p{}(SortS{}) : SortBool{} [function{}(), no-evaluators{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                claim{} \implies{SortT{}}(
+                    \and{SortT{}}(
+                        c{}(X:SortS{}),
+                        \not{SortT{}}(\equals{SortBool{}, SortT{}}(
+                            \dv{SortBool{}}("true"),
+                            p{}(X:SortS{})
+                        ))
+                    ),
+                    weakAlwaysFinally{SortT{}}(\and{SortT{}}(c{}(X:SortS{}), \top{SortT{}}()))
+                ) [label{}("negated")]
+            endmodule []"#;
+        let syntax = parse_definition(source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let [claim] = definition.reachability_claims() else {
+            panic!("one claim: {:?}", definition.reachability_claims());
+        };
+        assert_eq!(claim.unstated, None);
+        let [stored] = claim.lhs.constraints.as_slice() else {
+            panic!("one constraint: {:?}", claim.lhs.constraints);
+        };
+        let crate::rule::Predicate::Not(negated) = stored else {
+            panic!("the negation stays the constraint: {stored:?}");
+        };
+        let rendered = format!("{negated:?}");
+        assert!(
+            rendered.contains("Defined") || rendered.contains("Ceil"),
+            "the atom's definedness is stated under the negation: {negated:?}"
+        );
+        assert_eq!(
+            crate::definedness::request_definedness(&definition, claim.lhs.constraints.clone())
+                .expect("a stated form is stated again"),
+            claim.lhs.constraints,
+            "the stored form is a fixed point"
+        );
     }
 
     #[test]

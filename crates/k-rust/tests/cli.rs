@@ -20,8 +20,9 @@ use execution_sources::{NO_EVALUATOR, PINNED_PLUGIN_BN128, SEARCH_BOUND, SIZE_BO
 #[path = "support/proof_sources.rs"]
 mod proof_sources;
 use proof_sources::{
-    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_KEPT, LATER_BINDING_RECOVERED, LATER_BINDING_RULE,
-    LET_PARTIAL_CONDITION, NEGATIVE_POWER, UNDEFINED_STEP,
+    ANYWHERE_OVERLOAD_REMAINDER, DEFPROBE, DEFPROBE_REFUSED_SPEC, DEFPROBE_SPEC,
+    LATER_BINDING_KEPT, LATER_BINDING_RECOVERED, LATER_BINDING_RULE, LET_PARTIAL_CONDITION,
+    NEGATIVE_POWER, UNDEFINED_STEP,
 };
 
 /// A `KRUST-PROVENANCE` document written by the version 7 writer (k-rust `480a0d3b`), as an
@@ -12203,6 +12204,186 @@ endmodule
     assert!(
         matches!(lines.as_slice(), [line] if !line.contains("proven")),
         "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The verdict word of each `claim <spec>.<label>: <word> ...` line of `output`, by label.
+fn claim_verdicts(output: &std::process::Output, spec: &str) -> BTreeMap<String, String> {
+    claim_lines(output)
+        .iter()
+        .filter_map(|line| {
+            let rest = line.strip_prefix(&format!("claim {spec}."))?;
+            let (label, verdict) = rest.split_once(": ")?;
+            Some((
+                label.to_owned(),
+                verdict.split_whitespace().next()?.to_owned(),
+            ))
+        })
+        .collect()
+}
+
+/// `kprove` reads a claim's own constraints with their matching-logic meaning
+/// (`support/proof_sources.rs`, `DEFPROBE`): `cpos` and `cposctl` exclude their undefined
+/// instances and are proven; `cnoteq`, `cnegml` and `cmeq` hold exactly on the stuck `pos(X, 0)`
+/// and fail; `crhs`'s destination equality fails where exactly one quotient is undefined.
+#[test]
+fn kprove_reads_a_claim_condition_with_its_definedness() {
+    let (root, definition) = fixture();
+    fs::write(&definition, format!("{DEFPROBE}{DEFPROBE_SPEC}")).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "DEFPROBE-SPEC", "DEFPROBE", &compiled);
+    let run = kprove_compiled(&compiled, "DEFPROBE-SPEC", &["--depth", "8"]);
+    assert!(!run.status.success(), "{:?}", claim_lines(&run));
+    let verdicts = claim_verdicts(&run, "DEFPROBE-SPEC");
+    let expected = [
+        ("cdiv", "proven"),
+        ("cens", "proven"),
+        ("cmeq", "failed"),
+        ("cneg", "proven"),
+        ("cnegml", "failed"),
+        ("cnoteq", "failed"),
+        ("cpos", "proven"),
+        ("cposctl", "proven"),
+        ("crhs", "failed"),
+        ("crhsatom", "disproved"),
+    ]
+    .map(|(label, verdict)| (label.to_owned(), verdict.to_owned()));
+    assert_eq!(
+        verdicts,
+        BTreeMap::from(expected),
+        "{:?}",
+        claim_lines(&run)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A claim whose constraint has no definedness-explicit form (its definedness depends on the
+/// impure `imp()` under an `#if`) is reported `refused` and the run goes on: the claim after it
+/// is proven, the exit is nonzero, and the saved-proof file is written. Since the run's claims
+/// are circularities of each other's proofs, the file keeps no proof of it.
+#[test]
+fn kprove_reports_a_refused_claim_and_proves_the_rest() {
+    let (root, definition) = fixture();
+    fs::write(&definition, format!("{DEFPROBE}{DEFPROBE_REFUSED_SPEC}")).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "DEFPROBE-REFUSED-SPEC", "DEFPROBE", &compiled);
+    let saved = root.join("proofs.kore");
+    let run = kprove_compiled(
+        &compiled,
+        "DEFPROBE-REFUSED-SPEC",
+        &["--save-proofs", saved.to_str().unwrap()],
+    );
+    let lines = claim_lines(&run);
+    assert!(!run.status.success(), "{lines:?}");
+    assert!(
+        matches!(lines.as_slice(), [refused, proven]
+            if refused.starts_with("claim DEFPROBE-REFUSED-SPEC.crefused: refused (")
+                && refused.contains("impure")
+                && proven.starts_with("claim DEFPROBE-REFUSED-SPEC.cposctl: proven (")),
+        "{lines:?}"
+    );
+    let file = parse_definition(&fs::read_to_string(&saved).unwrap()).unwrap();
+    assert!(
+        !file.modules[0]
+            .sentences
+            .iter()
+            .any(|sentence| matches!(sentence, k_rust::kore::ast::Sentence::Claim { .. })),
+        "a proof of the run was saved"
+    );
+    assert!(
+        String::from_utf8_lossy(&run.stderr).contains("not saved (DEFPROBE-REFUSED-SPEC.cposctl)"),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A saved proof certifies its claim under the meaning k-rust gave the claim's KORE when it was
+/// made. A file written by a k-rust that decided a claim's constraints as written, which proved
+/// `cnoteq` vacuously, carries that k-rust's digest: it is not reused, with the warning, and
+/// `cnoteq` is proven again (here, failed) and never `proven (saved)`.
+#[test]
+fn kprove_does_not_reuse_a_proof_saved_under_the_earlier_claim_reading() {
+    use k_rust::backend::proving::{
+        ProofAssumptions, SAVED_PROOFS_DEFINITION, saved_proofs_digest_under_reading,
+    };
+    use k_rust::kore::ast::{KoreString, Sentence};
+    let (root, definition) = fixture();
+    fs::write(&definition, format!("{DEFPROBE}{DEFPROBE_SPEC}")).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_proving(&definition, "DEFPROBE-SPEC", "DEFPROBE", &compiled);
+    let saved = root.join("proofs.kore");
+    let first = kprove_compiled(
+        &compiled,
+        "DEFPROBE-SPEC",
+        &["--claim", "cneg", "--save-proofs", saved.to_str().unwrap()],
+    );
+    assert!(first.status.success(), "{:?}", claim_lines(&first));
+    // The file as the earlier k-rust wrote it after proving `cnoteq`: its digest names no claim
+    // reading, and it records `cnoteq`.
+    let syntax =
+        parse_definition(&fs::read_to_string(compiled.join("definition.kore")).unwrap()).unwrap();
+    let earlier = saved_proofs_digest_under_reading(
+        &syntax,
+        "DEFPROBE-SPEC",
+        &ProofAssumptions {
+            trusted: &BTreeSet::new(),
+            smt_prelude: None,
+            allow_vacuous: false,
+        },
+        None,
+    );
+    let cnoteq = syntax
+        .modules
+        .iter()
+        .find(|module| module.name == "DEFPROBE-SPEC")
+        .unwrap()
+        .sentences
+        .iter()
+        .find(|sentence| {
+            matches!(sentence, Sentence::Claim { .. })
+                && k_rust::kore::printer::Printer::compact()
+                    .print_sentence(sentence)
+                    .contains("\"DEFPROBE-SPEC.cnoteq\"")
+        })
+        .unwrap()
+        .clone();
+    let mut file = parse_definition(&fs::read_to_string(&saved).unwrap()).unwrap();
+    let module = &mut file.modules[0];
+    module.sentences.push(cnoteq);
+    for attribute in &mut module.attributes.0 {
+        if let Pattern::Application { symbol, arguments } = attribute
+            && symbol.name == SAVED_PROOFS_DEFINITION
+        {
+            *arguments = vec![Pattern::String(KoreString::from_bytes(earlier.as_bytes()))];
+        }
+    }
+    fs::write(
+        &saved,
+        k_rust::kore::printer::Printer::pretty(100).print_definition(&file),
+    )
+    .unwrap();
+    let rerun = kprove_compiled(
+        &compiled,
+        "DEFPROBE-SPEC",
+        &[
+            "--claim",
+            "cnoteq",
+            "--save-proofs",
+            saved.to_str().unwrap(),
+        ],
+    );
+    let lines = claim_lines(&rerun);
+    assert!(!rerun.status.success(), "{lines:?}");
+    assert!(
+        matches!(lines.as_slice(), [line] if line.starts_with("claim DEFPROBE-SPEC.cnoteq: failed")),
+        "{lines:?}"
+    );
+    assert!(
+        String::from_utf8_lossy(&rerun.stderr).contains("read claims otherwise"),
+        "{}",
+        String::from_utf8_lossy(&rerun.stderr)
     );
     fs::remove_dir_all(root).unwrap();
 }
