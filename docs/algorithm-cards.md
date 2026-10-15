@@ -477,11 +477,6 @@ files = [
 ]
 classification = "phase-only"
 reason = "stage-table transformations with no independent algorithm identity or distinct cost claim"
-
-[[without_primary_card]]
-files = ["crates/k-rust/src/kompile/passes/constant_folding_float.rs"]
-classification = "responsibility-only"
-reason = "floating-point support for kompile.constant_folding.evaluate, whose primary card is in constant_folding.rs"
 ```
 
 Stage-table phases whose transformation is a linear rewrite with no worklist and no counter of its own are phase-only; the pipeline phase node is their only graph presence:

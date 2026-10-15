@@ -6,9 +6,10 @@
 //! `Infinity`, and `-Infinity`. The operations follow IEEE 754 in the operands'
 //! format.
 //!
-//! The pinned native frontend folds a FLOAT-hooked application whose arguments
-//! are all tokens, which it cannot do without MPFR, so every operation below is
-//! applied to a variable and the programs supply the values. `negate` leaves
+//! The native frontend folds a FLOAT-hooked application whose arguments are all
+//! tokens, which KRS records as a capability its native routes do not claim yet,
+//! so every operation below is applied to a variable and the programs supply
+//! the values. `negate` leaves
 //! a Float in the computation cell, so both routes print a Float result.
 
 use k::builtin::{Bool, Float, Int, KSequence, bool, float, int, kequal};

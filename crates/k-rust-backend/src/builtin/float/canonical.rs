@@ -624,3 +624,6 @@ fn floor_div(x: &BigInt, divisor: u64) -> BigInt {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, feature = "mpfr-oracle"))]
+mod mpfr_oracle;

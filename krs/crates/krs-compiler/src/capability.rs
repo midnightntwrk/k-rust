@@ -29,7 +29,7 @@ pub enum CapabilityFeature {
     /// A rule with K's `anywhere` attribute (`#[k::rule(anywhere)]`).
     AnywhereRule,
     /// A `FLOAT`-hooked application whose arguments are all tokens, which the
-    /// native frontend folds at compile time and can fold only with MPFR.
+    /// native frontend folds at compile time through k-rust's backend.
     GroundFloatFolding,
     /// A Float token, or a `round`, `max_value`, or `from_int` format argument
     /// pair, whose precision is neither binary32 (`p24x8`) nor binary64 (`p53x11`).
@@ -310,10 +310,10 @@ impl TermUse {
         ) {
             self.console_write = true;
         }
-        // k-rust folds every hooked application whose arguments are all tokens
-        // (`constant_folding.rs`); its FLOAT hooks need the MPFR build, which
-        // KRS does not enable (upstream k-rust/mpfr-folding-disabled, reviewed,
-        // not a request).
+        // k-rust folds the hooked applications whose arguments are all tokens
+        // that its backend evaluates (`constant_folding.rs`); a native run of a
+        // folded FLOAT application is not gated yet, so the route row stays
+        // conservative.
         if operation
             .spec()
             .k_hook
@@ -526,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn ground_float_applications_need_mpfr_folding() {
+    fn ground_float_applications_are_folded_by_the_native_frontend() {
         let float = |value| token(BuiltinSort::Float, value);
         let int = |value| token(BuiltinSort::Int, value);
         let ground = apply(BuiltinOperation::FloatAdd, vec![float("0.1"), float("0.2")]);

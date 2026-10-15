@@ -1,8 +1,8 @@
 //! Float sentences that only Java K evaluates (KF-033).
 //!
-//! The pinned native frontend folds every FLOAT-hooked application whose
-//! arguments are all tokens, which needs MPFR, and k-rust evaluates only the
-//! binary32 and binary64 formats. KRS records both as capability requirements,
+//! The native frontend folds the FLOAT-hooked applications whose arguments are
+//! all tokens, which KRS's native routes do not claim yet, and k-rust evaluates
+//! only the binary32 and binary64 formats. KRS records both as capability requirements,
 //! so the native routes refuse this definition before compiling it, while Java
 //! K's LLVM backend runs it.
 

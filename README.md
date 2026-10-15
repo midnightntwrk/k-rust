@@ -120,7 +120,7 @@ A Rust host embeds the in-process backend through `k_rust::backend`, which re-ex
 
 ## Install and build
 
-The native frontend enables statically linked Z3 and MPFR support by default.
+The native frontend enables statically linked Z3 support by default.
 Z3 is downloaded from its official GitHub release rather than compiled from source:
 
 ```console
@@ -598,7 +598,7 @@ and `witnesses` fields without flattening those bindings into one KORE conjuncti
 
 The separate `@midnightntwrk/k-rust-wasm` package exposes the portable frontend through standard
 WebAssembly and ES modules. It has the same typed KAST/KORE and virtual-source API as the native
-package, but does not bundle Z3 or MPFR and can run in browsers and workers.
+package, but does not bundle Z3 and can run in browsers and workers.
 
 Build and test it locally:
 
@@ -778,8 +778,8 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   `HashSet` traversal and can differ. The difference is deliberate
   ([compatibility](docs/compatibility.md#comparison-contract)). The exact corpus does not
   normalize arbitrary user labels.
-- The WASM-compatible feature set intentionally omits Z3 inference, MPFR constant folding, and
-  host-clock-dependent step timeouts.
+- The WASM-compatible feature set intentionally omits Z3 inference and host-clock-dependent
+  step timeouts.
 - Coverage instrumentation and the optional unsafe-`anywhere` removal mode are not exposed by the
   CLI. They are identity stages here; K's `kompile` runs them only when explicitly requested.
 - LSP and `kserver` are outside the current CLI scope; Bison and Flex remain external system tools whose executable and shared-library artifacts are supported through the CLI interoperability contract.

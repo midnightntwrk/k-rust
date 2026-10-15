@@ -85,7 +85,7 @@ cargo +1.99.0 check -p 'krs*' --all-targets --locked --offline
 cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --workspace
 ```
 
-A workspace-wide build unifies `k-rust`'s default features (MPFR folding, a downloaded Z3) into the `k-rust` that KRS links, while `-p 'krs*'` builds it with only the features KRS requests; KRS reads which ones it got from `k_rust::MPFR_FOLDING` and `k_rust::Z3_INFERENCE`, and its tests pass either way.
+A workspace-wide build unifies `k-rust`'s default features (a downloaded Z3) into the `k-rust` that KRS links, while `-p 'krs*'` builds it with only the features KRS requests; KRS reads which ones it got from `k_rust::Z3_INFERENCE`, and its tests pass either way.
 
 Set `UPDATE_EXPECT=1` for a workspace test run to re-record Rust test snapshots after an intended output change.
 Review the resulting golden files and inline expectations before running the tests again without it.

@@ -152,6 +152,13 @@ jobs:
       - name: Run doc-tests with native Z3 inference
         run: cargo test --doc --workspace --exclude k-rust-napi --locked
 
+      # The canonical Float text against MPFR, an independent implementation of the rounding;
+      # no other build links MPFR.
+      - name: Check the canonical Float text against MPFR
+        run: >-
+          cargo test --locked -p k-rust-backend --features mpfr-oracle --lib
+          the_backend_canonical_float_text_agrees_with_mpfr
+
       - name: Run native measurement ratchet
         run: scripts/measure-ratchet.sh --gh-release
 

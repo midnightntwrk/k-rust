@@ -334,8 +334,8 @@ FLOAT_OUTPUTS = {
 """The `floats` programs whose result holds a Float, each printed by every `--output` format."""
 FLOAT_KORE = re.compile(r'\\dv\{SortFloat\{\}\}\("([^"]*)"\)')
 
-# Refused natively: `ground` by the conservative GroundFloatFolding row (KRS builds
-# without MPFR; upstream k-rust/mpfr-folding-disabled, reviewed, not a request) and
+# Refused natively: `ground` by the conservative GroundFloatFolding row (no native run of
+# a folded Float application is gated yet) and
 # `binary128` a precision beyond binary64, which k-rust reports as an unsupported
 # hook (upstream k-rust/float-beyond-binary64).
 FLOAT_JAVA_ONLY = Fixture(MANIFEST, "krs-builtin-float-java-only")

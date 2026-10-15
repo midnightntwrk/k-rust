@@ -9,9 +9,6 @@ exclude = ["krs/browser", "krs/docs-site", "krs/semantics", "krs/tests"]
 [workspace.dependencies]
 clap = { version = "4.5", features = ["derive"] }
 expect-test = "1.5.1"
-gmp-mpfr-sys = { version = "1.7.1", default-features = false, features = [
-  "mpfr",
-] }
 indoc = "2.0.7"
 indexmap = "2.14.0"
 insta = "1.48.0"

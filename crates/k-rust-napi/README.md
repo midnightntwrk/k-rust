@@ -63,8 +63,8 @@ const {
 
 `compileDefinition` runs the same ordered frontend pipeline as `krust kcompile` without writing
 files. The backend defaults to `rust`; select `llvm` only when emitting input for the external LLVM
-backend. Native compilation includes Z3-backed sort inference and MPFR-backed floating-point
-constant folding. `includePrelude` defaults to `true` in this package.
+backend. Native compilation includes Z3-backed sort inference. `includePrelude` defaults to
+`true` in this package.
 
 ## Backend example
 

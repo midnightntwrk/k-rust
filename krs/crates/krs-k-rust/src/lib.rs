@@ -99,8 +99,6 @@ pub struct FrontendCapabilities {
     pub backends: &'static [Backend],
     /// Availability of Z3-backed ambiguity inference.
     pub z3_inference: CapabilityAvailability,
-    /// Availability of MPFR-backed constant folding.
-    pub mpfr_folding: CapabilityAvailability,
     /// Availability of KRS-owned invariant-preserving structured `Definition`
     /// preparation over the pinned public primitives.
     pub structured_definition_preparation: CapabilityAvailability,
@@ -198,12 +196,12 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
         reason: "K 7.1.337's Haskell backend rejects them (and --allow-anywhere-haskell would drop them); run this on the LLVM or k-rust route",
         evidence: "Java kompile --backend haskell refuses an `anywhere` rule unless --allow-anywhere-haskell, which drops it; k-rust implements anywhere rules (docs/compatibility.md)",
     },
-    // upstream k-rust/mpfr-folding-disabled (reviewed, not a request: KRS builds without MPFR).
+    // Conservative until a native run of a ground Float application is gated.
     RouteCapability {
         feature: "GroundFloatFolding",
         unavailable_on: &[Route::NativeRust, Route::NativeLlvm, Route::Browser],
-        reason: "the native frontend folds ground Float applications only with MPFR; bind a variable or write the folded literal",
-        evidence: "KRS's own crates request k-rust without the mpfr-folding feature, though a workspace build may unify it in (k_rust::MPFR_FOLDING, FRONTEND_CAPABILITIES.mpfr_folding); without it k-rust's constant fold leaves a ground FLOAT application as written for execution to evaluate (crates/k-rust/src/kompile/passes/constant_folding.rs; docs/compatibility.md, Constant folding), so this row is conservative until a native run of one is gated",
+        reason: "the native frontend folds ground Float applications through k-rust's backend, which no native run of KRS has been checked against yet; bind a variable or write the folded literal",
+        evidence: "the fold computes ground binary32 and binary64 Float applications the backend evaluates, through the backend's evaluation entry, in every build, and leaves every other one as written for execution, which does not compute it either (crates/k-rust/src/kompile/passes/constant_folding.rs; docs/compatibility.md, Constant folding); this row is conservative until a native run of one is gated",
     },
     // upstream k-rust/float-beyond-binary64
     RouteCapability {
@@ -277,11 +275,6 @@ pub const FRONTEND_CAPABILITIES: FrontendCapabilities = FrontendCapabilities {
         CapabilityAvailability::Available
     } else {
         CapabilityAvailability::Unavailable("k-rust is built without the z3-inference feature")
-    },
-    mpfr_folding: if k_rust::MPFR_FOLDING {
-        CapabilityAvailability::Available
-    } else {
-        CapabilityAvailability::Unavailable("k-rust is built without the mpfr-folding feature")
     },
     structured_definition_preparation: CapabilityAvailability::Available,
 };
