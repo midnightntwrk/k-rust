@@ -4,9 +4,11 @@
 //!
 //! The concurrent comparison catches shared mutable state on the compile path only when a race
 //! happens to show in a run, so a passing run is evidence, not proof; new statics on the path
-//! still need review.
+//! still need review. Run it with the default (`cli`) features too, which add MPFR's Float
+//! folding (`folded_floats_compile_concurrently_as_alone`); `concurrent_compiles_stress` repeats
+//! the concurrent comparison and is ignored by default.
 
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 
 use indoc::indoc;
 use k_rust::{
@@ -189,6 +191,171 @@ fn a_failing_compile_fails_identically_on_every_thread() {
                 .expect("a thread does not panic")
                 .expect_err("the failing mutant does not compile");
             assert!(error == sequential, "thread {thread} failed differently");
+        }
+    });
+}
+
+/// Eight threads compile one shared baseline and one shared relinked mutant at once, before any
+/// compile has filled the lazy tables they share, and every result equals the compile of a fresh
+/// load.
+#[test]
+fn concurrent_compiles_of_one_shared_loaded_definition_return_the_fresh_artifacts() {
+    let mutation = mutant(MUTATIONS[0].0, MUTATIONS[0].1);
+    let fresh_baseline =
+        compile_loaded_definition(&load(CALC), CompileOptions::default()).expect("it compiles");
+    let fresh_mutant = relink_and_compile(&load(CALC), &mutation).expect("it compiles");
+    let baseline = Arc::new(load(CALC));
+    let relinked = Arc::new(
+        baseline
+            .with_definition(mutation)
+            .expect("the mutant relinks"),
+    );
+    let start = Barrier::new(8);
+    std::thread::scope(|scope| {
+        let threads = (0..8)
+            .map(|thread| {
+                let (baseline, relinked, start) = (&baseline, &relinked, &start);
+                scope.spawn(move || {
+                    start.wait();
+                    let (first, second): (&LoadedDefinition, &LoadedDefinition) = if thread % 2 == 0
+                    {
+                        (baseline, relinked)
+                    } else {
+                        (relinked, baseline)
+                    };
+                    let compile = |loaded: &LoadedDefinition| {
+                        compile_loaded_definition(loaded, CompileOptions::default())
+                            .expect("it compiles")
+                    };
+                    let (first, second) = (compile(first), compile(second));
+                    if thread % 2 == 0 {
+                        (first, second)
+                    } else {
+                        (second, first)
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for (thread, handle) in threads.into_iter().enumerate() {
+            let (baseline, mutant) = handle.join().expect("a thread does not panic");
+            assert!(
+                baseline == fresh_baseline,
+                "thread {thread}: the shared baseline compiled otherwise"
+            );
+            assert!(
+                mutant == fresh_mutant,
+                "thread {thread}: the shared mutant compiled otherwise"
+            );
+        }
+    });
+}
+
+/// The concurrent comparison repeated `K_RUST_COMPILE_CONCURRENCY_ROUNDS` times (20 by default):
+/// each round, eight threads relink and compile every mutant and compile the shared baseline.
+#[test]
+#[ignore = "a stress run of several minutes; run it explicitly"]
+fn concurrent_compiles_stress() {
+    let rounds = std::env::var("K_RUST_COMPILE_CONCURRENCY_ROUNDS")
+        .ok()
+        .and_then(|rounds| rounds.parse::<usize>().ok())
+        .unwrap_or(20);
+    let mutants = MUTATIONS
+        .iter()
+        .map(|(from, to)| mutant(from, to))
+        .collect::<Vec<_>>();
+    let fresh = mutants
+        .iter()
+        .map(|mutant| relink_and_compile(&load(CALC), mutant).expect("the mutant compiles"))
+        .collect::<Vec<_>>();
+    let fresh_baseline =
+        compile_loaded_definition(&load(CALC), CompileOptions::default()).expect("it compiles");
+    for round in 0..rounds {
+        let baseline = Arc::new(load(CALC));
+        std::thread::scope(|scope| {
+            let threads = (0..8)
+                .map(|_| {
+                    let (baseline, mutants) = (&baseline, &mutants);
+                    scope.spawn(move || {
+                        let compiled = mutants
+                            .iter()
+                            .map(|mutant| {
+                                relink_and_compile(baseline, mutant).expect("the mutant compiles")
+                            })
+                            .collect::<Vec<_>>();
+                        let own = compile_loaded_definition(baseline, CompileOptions::default())
+                            .expect("it compiles");
+                        (compiled, own)
+                    })
+                })
+                .collect::<Vec<_>>();
+            for (thread, handle) in threads.into_iter().enumerate() {
+                let (compiled, own) = handle.join().expect("a thread does not panic");
+                assert!(
+                    compiled == fresh,
+                    "round {round}, thread {thread}: a mutant compiled otherwise"
+                );
+                assert!(
+                    own == fresh_baseline,
+                    "round {round}, thread {thread}: the baseline compiled otherwise"
+                );
+            }
+        });
+    }
+}
+
+/// Builds that fold `Float` constants with MPFR: four threads compiling one shared definition
+/// whose rules fold `Float` arithmetic give the artifacts of a compile of a fresh load. (The
+/// process's `LC_NUMERIC` is an input of these builds; the test leaves it at the `C` locale.)
+#[cfg(feature = "mpfr-folding")]
+#[test]
+fn folded_floats_compile_concurrently_as_alone() {
+    const FLOATS: &str = indoc! {r#"
+        module FLOATS
+          imports DOMAINS
+          imports FLOAT
+          syntax Float ::= sum() [function] | third() [function]
+          rule sum() => 1.5 +Float 1.25
+          rule third() => 1.0 /Float 3.0
+        endmodule
+    "#};
+    let load_floats = || {
+        let prelude = embedded("prelude.md").expect("the embedded prelude exists");
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        load_with_options(
+            ResolvedSource::new("floats.k", FLOATS),
+            "FLOATS",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![prelude],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .expect("the definition loads")
+    };
+    let fresh =
+        compile_loaded_definition(&load_floats(), CompileOptions::default()).expect("it compiles");
+    assert!(
+        fresh.definition_kore.contains("2.7500000000000000e+00"),
+        "the sum is folded"
+    );
+    let shared = load_floats();
+    std::thread::scope(|scope| {
+        let threads = (0..4)
+            .map(|_| {
+                scope.spawn(|| {
+                    compile_loaded_definition(&shared, CompileOptions::default())
+                        .expect("it compiles")
+                })
+            })
+            .collect::<Vec<_>>();
+        for (thread, handle) in threads.into_iter().enumerate() {
+            let artifacts = handle.join().expect("a thread does not panic");
+            assert!(artifacts == fresh, "thread {thread} folded otherwise");
         }
     });
 }

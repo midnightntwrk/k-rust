@@ -1770,6 +1770,7 @@ The inputs are:
 - the resolver's answers;
 - for `load_structured`, the `Definition` value it is given, and for `LoadedDefinition::with_definition`, the receiver and the `Definition` value;
 - `LoadOptions` and `CompileOptions`;
+- in builds that fold `Float` constants with MPFR (the `mpfr-folding` feature, part of `cli`), the process's numeric locale (`LC_NUMERIC`): the fold writes each folded `Float` through MPFR's formatting, which takes its decimal point from the locale, so under a locale other than `C` the fold gives other texts or none;
 - the environment variable `KRUST_PARSE_DIAGNOSTIC_WORK`, read once per process, which bounds the work spent explaining a failed parse (`DiagnosticWork`; it changes which diagnostic a failed load reports, never whether a load succeeds).
 
 The `*_timed` and `*_with_timings` variants return the same artifacts or errors; the timings they also return are wall-clock and are not covered.
@@ -1784,8 +1785,9 @@ The order and representation of the artifacts may change between builds; a host 
 ### Concurrency
 
 `LoadedDefinition`, `Definition`, `CompileOptions` and `CompiledKoreArtifacts` are `Send + Sync`; `LoadError` and `CompileError` are `Send`; `Backend` is `Send`.
-Relinking (`LoadedDefinition::with_definition`) and compiling (`compile_loaded_definition`) read only their arguments, so several threads may call them at once on one shared `LoadedDefinition` (an `Arc<LoadedDefinition>` is the shared baseline) or on distinct ones, and each call returns what the same call returns alone on one thread: equal artifacts or an equal `CompileError`.
-The tables a `LoadedDefinition` computes lazily (those of `ResolvedDefinition`) are filled idempotently from the definition, so which thread fills one does not change what it holds; no process-wide mutable state reaches the artifacts (the process-wide counters of the `measure` feature only count, and `KRUST_PARSE_DIAGNOSTIC_WORK` is an input, read once per process).
+Relinking (`LoadedDefinition::with_definition`) and compiling (`compile_loaded_definition`) read only their arguments and the process-wide inputs of the Compile paragraph, so several threads may call them at once on one shared `LoadedDefinition` (an `Arc<LoadedDefinition>` is the shared baseline) or on distinct ones, and each call returns what the same call returns alone on one thread: equal artifacts or an equal `CompileError`.
+The tables a `LoadedDefinition` computes lazily (those of `ResolvedDefinition`) are filled idempotently from the definition, so which thread fills one does not change what it holds.
+Two of the Compile paragraph's inputs are process-wide: `KRUST_PARSE_DIAGNOSTIC_WORK`, read once per process, and, in builds with `mpfr-folding`, the process's `LC_NUMERIC`, which any thread of the host may change with `setlocale`, so a host that changes it while compiles run changes their artifacts; apart from these, no state shared between threads reaches the artifacts (the process-wide counters of the `measure` feature only count).
 Every compile stage runs on a stack sized from the definition's deepest term, so the artifacts do not depend on the calling thread's stack size; refusals for lack of stack are as stated for compiles above.
 Wall time and peak memory under concurrency are not promised.
 Building `Backend`s on several threads at once is covered by the Execute paragraph below, including the load-time critical-pair check that `Backend::new` runs.
