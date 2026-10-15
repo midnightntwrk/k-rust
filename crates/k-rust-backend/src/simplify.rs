@@ -3552,7 +3552,7 @@ pub(crate) fn term_is_provably_defined(
 }
 
 /// Whether `term` contains a term-level `\and` anywhere.
-fn contains_term_conjunction(term: &Term) -> bool {
+pub(crate) fn contains_term_conjunction(term: &Term) -> bool {
     match term.kind() {
         TermKind::And(..) => true,
         TermKind::Application { arguments, .. } => arguments.iter().any(contains_term_conjunction),

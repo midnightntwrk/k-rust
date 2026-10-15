@@ -5897,16 +5897,18 @@ fn a_predicate_lemma_binding_a_discarded_operand_does_not_evaluate_it() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stdout}\n{stderr}");
     assert!(!stderr.contains("stack"), "{stderr}");
+    // The request's constraint is admitted with its definedness stated (`Admitted`): the
+    // deferred obligation of `loopi()` is hoisted ahead of the equality, and it stays first.
     let expected = format!(
-        r#"\and{{SortGeneratedTopCell{{}}}}({}, \and{{SortGeneratedTopCell{{}}}}(\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(\dv{{SortBool{{}}}}("true"), {positive}), {}))"#,
+        r#"\and{{SortGeneratedTopCell{{}}}}({}, \and{{SortGeneratedTopCell{{}}}}({}, \equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(\dv{{SortBool{{}}}}("true"), {positive})))"#,
         top_with("inj{SortExp{}, SortKItem{}}(Lbldone{}(VarN:SortInt{}))"),
         ceil_of("SortInt", "Lblloopi{}()"),
     );
     assert_eq!(squashed(&stdout), squashed(&expected), "{stdout}");
 
     // `#Not` is not strict in its operand, so the lemma over the negated equality cannot be
-    // used under the open obligation of `Y`: the constraint is kept as it is, and `loopi()` is
-    // not evaluated to decide the obligation either.
+    // used under the open obligation of `Y`: the constraint is kept, and `loopi()` is not
+    // evaluated to decide the obligation either.
     let negated = PREDICATE_LEMMA_OVER_CONDITIONAL.replace(
         "rule {#if B #then X:Int #else Y:Int #fi #Equals Z:Int} => {true #Equals B} #And {X #Equals Z} [simplification]",
         "rule #Not({#if B #then X:Int #else Y:Int #fi #Equals Z:Int}) => {false #Equals B} [simplification]",
@@ -5925,8 +5927,14 @@ fn a_predicate_lemma_binding_a_discarded_operand_does_not_evaluate_it() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stdout}\n{stderr}");
     assert!(!stderr.contains("stack"), "{stderr}");
+    // The constraint is admitted with the deferred obligation of `loopi()` stated in place under
+    // the negation (`Admitted`), an equivalent form the lemma does not match either.
+    let guarded = format!(
+        r#"\not{{SortGeneratedTopCell{{}}}}(\and{{SortGeneratedTopCell{{}}}}({}, \equals{{SortInt{{}}, SortGeneratedTopCell{{}}}}(Lblite{{SortInt{{}}}}({positive}, \dv{{SortInt{{}}}}("1"), Lblloopi{{}}()), \dv{{SortInt{{}}}}("1"))))"#,
+        ceil_of("SortInt", "Lblloopi{}()"),
+    );
     let expected = format!(
-        "\\and{{SortGeneratedTopCell{{}}}}({}, {constraint})",
+        "\\and{{SortGeneratedTopCell{{}}}}({}, {guarded})",
         top_with("inj{SortExp{}, SortKItem{}}(Lbldone{}(VarN:SortInt{}))")
     );
     assert_eq!(squashed(&stdout), squashed(&expected), "{stdout}");

@@ -2847,7 +2847,7 @@ pub(crate) fn has_term_in_predicate_position_with<'p>(
     }
 }
 
-fn is_term_pattern(pattern: &kore::Pattern) -> bool {
+pub(crate) fn is_term_pattern(pattern: &kore::Pattern) -> bool {
     matches!(
         pattern,
         kore::Pattern::String(_)

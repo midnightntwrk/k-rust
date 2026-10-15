@@ -143,6 +143,16 @@ impl DeferredOutcome {
             term: application.clone(),
         }
     }
+
+    /// The hook of the impure application, or its symbol's name when it has none.
+    pub(crate) fn hook(&self) -> &str {
+        &self.hook
+    }
+
+    /// Why the application is not performed.
+    pub(crate) fn reason(&self) -> &UnsupportedHookReason {
+        &self.reason
+    }
 }
 
 impl From<DeferredOutcome> for SimplificationError {

@@ -1715,6 +1715,21 @@ symbol = "nested_condition_definedness"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "beside_members"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "request_definedness"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "faithful_equalities"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definition.rs"
 symbol = "BackendDefinition::discharge_rewrite_definedness"
 
@@ -1724,7 +1739,11 @@ bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_f
 
 [[node.cost]]
 mode = "one rule or equation condition (condition_definedness)"
-bound = "one ceil_term call per Boolean atom and per atom side tested for provable definedness, each bounded as above, plus O(c + k) hashing of the c conditions and k known predicates when an obligation is hoisted"
+bound = "one ceil_term call per Boolean atom and per atom side tested for provable definedness, each bounded as above, plus O(c + k) hashing of the c conditions, the members of their conjunctions and the k known predicates when an obligation is hoisted, and, per obligation stated in place, a scan of the k known predicates and of the conjuncts beside the atom in the conjunctions on its path (Vec::contains), without copying them"
+
+[[node.cost]]
+mode = "one request's predicates (request_definedness)"
+bound = "O(1) per term when every term's stored ceil_free attribute is true; otherwise one recursive walk of each predicate, with, per equality, up to two ceil_term calls and, per obligation, a scan of the conjuncts beside the equality in the conjunctions on its path (term_is_provably_defined), and per equality with no side shown defined, two more ceil_term calls and one deduplication of their obligations; then one condition_definedness call as above on the result"
 
 [[node.cost]]
 mode = "one definition (BackendDefinition::discharge_rewrite_definedness)"

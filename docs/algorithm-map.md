@@ -126,7 +126,7 @@ No phase contains these algorithms and no representation connects them to a comm
 
 - backend.alias.unfold — O(p + o log^2 o + v log o): every node it visits… +1 mode — at backend/alias.rs `expand`
 - backend.confluence.critical_pairs — one pass over the e equations for the rows of the… — at backend/confluence.rs `check`
-- backend.definedness.discharge — O(1) when the term's stored ceil_free attribute… +2 modes — in: [match result] — at backend/definedness.rs `rule_is_defined`
+- backend.definedness.discharge — O(1) when the term's stored ceil_free attribute… +3 modes — in: [match result] — at backend/definedness.rs `rule_is_defined`
 - backend.definition.closure — at most h rounds, each O(|S| x |C|) +1 mode — at backend/definition.rs `build_sort_graph`
 - backend.execution.captured_stdout — O(d + l + b * h) term visits and buffer copies… — at k-rust/backend/execution.rs `captured_stdout_buffer`
 - backend.fresh.object_language — O((t + r) x log s) opacity pre-pass, then O((k +… +1 mode — at backend/builtin/substitution.rs `evaluate`

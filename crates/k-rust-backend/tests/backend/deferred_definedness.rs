@@ -445,3 +445,50 @@ fn a_nested_conditional_states_its_discarded_atoms_once() {
         [defined(&definition, r#"two{}(\dv{SortInt{}}("2"))"#)]
     );
 }
+
+/// A request's constraints are admitted with the definedness of their atoms stated (`Admitted`).
+/// When that definedness depends on an impure application in an operand a conditional does not
+/// evaluate (here `1 /Int imp()`, discarded or not by `#if X ==Int 0`), no equivalent predicate
+/// states it without performing the effect, and a constraint must not hold the application, so
+/// the request is refused with a typed error rather than read as written. The same request over
+/// the pure `two(1)` is admitted, its discarded operand's definedness stated as a deferred atom.
+#[test]
+fn a_request_whose_definedness_depends_on_an_impure_application_is_refused() {
+    use k_rust_backend::definition::{DefinitionError, UnstatedDefinedness};
+    use k_rust_kore::kore::parser::parse_pattern;
+
+    let definition = definition();
+    let request = |divisor: &str| {
+        parse_pattern(&format!(
+            r#"\and{{SortState{{}}}}(hold{{}}(X:SortInt{{}}), \equals{{SortInt{{}}, SortState{{}}}}(ite{{}}(eqInt{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("0")), \dv{{SortInt{{}}}}("1"), tdiv{{}}(\dv{{SortInt{{}}}}("1"), {divisor})), \dv{{SortInt{{}}}}("1")))"#
+        ))
+        .unwrap()
+    };
+    let impure = request("imp{}()");
+    let refused = definition
+        .admit_unverified(&impure, &[])
+        .internalize_pattern();
+    assert!(
+        matches!(
+            refused,
+            Err(DefinitionError::UnstatedDefinedness(
+                UnstatedDefinedness::Impure { .. }
+            ))
+        ),
+        "{refused:?}"
+    );
+    let pure = request(r#"two{}(\dv{SortInt{}}("1"))"#);
+    let admitted = definition
+        .admit_unverified(&pure, &[])
+        .internalize_pattern()
+        .expect("a pure discarded operand is stated");
+    let atom = defined(
+        &definition,
+        r#"tdiv{}(\dv{SortInt{}}("1"), two{}(\dv{SortInt{}}("1")))"#,
+    );
+    assert!(
+        admitted.constraints.contains(&atom),
+        "{:?}",
+        admitted.constraints
+    );
+}
