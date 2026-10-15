@@ -334,37 +334,15 @@ impl Resolver<'_, '_, '_> {
         arguments: Vec<Term>,
         attributes: Attributes,
     ) -> Term {
-        let (body, argument) = match (InternalLabel::of(&source_label.name), arguments.as_slice()) {
-            (Some(InternalLabel::Fun3), [left, right, argument]) => (
-                Term::Rewrite {
-                    left: Box::new(left.clone()),
-                    right: Box::new(right.clone()),
-                },
-                argument.clone(),
-            ),
-            (Some(InternalLabel::Let), [left, argument, right]) => (
-                Term::Rewrite {
-                    left: Box::new(left.clone()),
-                    right: Box::new(right.clone()),
-                },
-                argument.clone(),
-            ),
-            (_, [body, argument]) => (body.clone(), argument.clone()),
-            _ => {
+        let local = match LocalFunction::of(&source_label, arguments.len()) {
+            Some(Ok(local)) => local,
+            Some(Err(expected)) => {
                 self.diagnostics.push(Diagnostic::error_at(
                     DiagnosticCode::InvalidLocalFunction,
                     format!(
-                        "{} has invalid arity {}; expected {}",
+                        "{} has invalid arity {}; expected {expected}",
                         source_label.name,
                         arguments.len(),
-                        if [InternalLabel::Fun3, InternalLabel::Let]
-                            .iter()
-                            .any(|internal| source_label.is(*internal))
-                        {
-                            3
-                        } else {
-                            2
-                        }
                     ),
                     &attributes,
                 ));
@@ -373,7 +351,10 @@ impl Resolver<'_, '_, '_> {
                     arguments,
                 };
             }
+            None => unreachable!("special_application selects local functions"),
         };
+        let body = local.equation(&arguments);
+        let argument = arguments[local.argument_index()].clone();
 
         let hint1 = underlying_variable(&argument)
             .map(|(name, _)| name)
@@ -388,45 +369,26 @@ impl Resolver<'_, '_, '_> {
         };
         let lambda = self.unique_lambda(&hint1, &hint2);
         let left = rewrite_left(&body);
-        let right = rewrite_right(&body);
-        let lhs_sort = self.term_sort(&left, &attributes);
-        let argument_sort = self.term_sort(&argument, &attributes);
-        // The parameter must contain the argument's sort (for the call) and the pattern's sort
-        // (for the equation); the least such sort is their least upper bound. An unsorted
-        // variable pattern matches any term, so the parameter takes `K`, the sort of every term,
-        // regardless of the concrete argument sort. A variable that carries a sort, its own or
-        // one recorded in its metadata, is a pattern of that sort, as its cast spelling
-        // `#SemanticCastToS(X:S)` is, and goes through the least upper bound like it.
-        let parameter_sort = match (lhs_sort, argument_sort) {
-            _ if matches!(variable_pattern_sort(&left), Some(None)) => {
-                Sort::builtin(BuiltinSort::K)
-            }
-            (Some(lhs), Some(argument)) => self
-                .injector
-                .least_upper_bound(&[lhs.clone(), argument.clone()], None)
-                .unwrap_or_else(|_| common_k_sort(&lhs, &argument)),
-            _ => Sort::builtin(BuiltinSort::K),
-        };
+        let diagnostics = &mut *self.diagnostics;
+        let LambdaSorts {
+            parameter: parameter_sort,
+            result: result_sort,
+        } = lambda_sorts(&self.injector, local, &arguments, |error| {
+            diagnostics.push(Diagnostic::error_at(
+                DiagnosticCode::InvalidLocalFunction,
+                format!("Could not compute sort of local-function term: {error}"),
+                &attributes,
+            ));
+        });
         let closure = closure_variables(&body);
-        let predicate = [InternalLabel::KEqualsK, InternalLabel::KNotEqualsK]
-            .iter()
-            .any(|internal| source_label.is(*internal));
+        let predicate = local.is_predicate();
 
         // A lambda has no value on an argument its pattern does not match.
         // A variable pattern covers every argument only when every semantic cast on the path
         // to the variable, and any sort the variable carries, equal the parameter sort.
         // A narrower sort anywhere on that path restricts the generated equation.
         // The generated equation's right-hand side must also denote a defined value.
-        let covering = [InternalLabel::Fun2, InternalLabel::Fun3, InternalLabel::Let]
-            .iter()
-            .any(|internal| source_label.is(*internal))
-            && pattern_covers(&left, &parameter_sort);
-        let result_sort = if predicate {
-            Sort::builtin(BuiltinSort::Bool)
-        } else {
-            self.term_sort(&right, &attributes)
-                .unwrap_or_else(|| Sort::builtin(BuiltinSort::K))
-        };
+        let covering = !predicate && pattern_covers(&left, &parameter_sort);
         // The production keeps its place before the lambdas nested in its body; it is declared
         // total once the body is known to be defined.
         let production = self.productions.len();
@@ -739,20 +701,6 @@ impl Resolver<'_, '_, '_> {
         candidates
     }
 
-    fn term_sort(&mut self, term: &Term, attributes: &Attributes) -> Option<Sort> {
-        match self.injector.term_sort(term, None) {
-            Ok(sort) => Some(sort),
-            Err(error) => {
-                self.diagnostics.push(Diagnostic::error_at(
-                    DiagnosticCode::InvalidLocalFunction,
-                    format!("Could not compute sort of local-function term: {error}"),
-                    attributes,
-                ));
-                None
-            }
-        }
-    }
-
     fn unique_lambda(&mut self, hint1: &str, hint2: &str) -> Label {
         let mut attempt = 0usize;
         // Invariant: every lambda label for `hint1` and `hint2` with a suffix tried so far is already in `self.labels`, and `attempt` counts those attempts; each iteration tries a new suffix, so the finite `self.labels` bounds the loop to `self.labels.len() + 1` iterations.
@@ -890,6 +838,163 @@ enum LambdaResult {
     Constant(Term),
 }
 
+/// How the lowering reads a local function's arguments: which of them holds the equation the
+/// generated lambda is defined by, and which the value it is applied to.
+///
+/// `#fun3(P, B, E)` and `#let(P, E, B)` hold the pattern `P` and the body `B` apart; every other
+/// form, `#fun2(P => B, E)` and the matches `P :=K E` and `P :/=K E`, holds its equation in its
+/// first argument and its value in its second. A match is a predicate: its lambda is `true` on the
+/// pattern's instances and `false` elsewhere. This is the one reading of these constructs, used
+/// by the lowering and by the typing view.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct LocalFunction {
+    form: LocalFunctionForm,
+    predicate: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalFunctionForm {
+    /// `#fun3(P, B, E)`.
+    Fun3,
+    /// `#let(P, E, B)`.
+    Let,
+    /// The equation in the first argument, the value in the second.
+    Equation,
+}
+
+impl LocalFunction {
+    /// The local function `label` applied to `arity` arguments: `None` when `label` is no local
+    /// function, `Some(Err(expected))` when the arity has no reading, with the arity expected.
+    pub(crate) fn of(label: &Label, arity: usize) -> Option<Result<Self, usize>> {
+        let internal = InternalLabel::of(&label.name).filter(|internal| {
+            matches!(
+                internal,
+                InternalLabel::Fun2
+                    | InternalLabel::Fun3
+                    | InternalLabel::Let
+                    | InternalLabel::KEqualsK
+                    | InternalLabel::KNotEqualsK
+            )
+        })?;
+        let predicate = matches!(
+            internal,
+            InternalLabel::KEqualsK | InternalLabel::KNotEqualsK
+        );
+        let form = match (internal, arity) {
+            (InternalLabel::Fun3, 3) => LocalFunctionForm::Fun3,
+            (InternalLabel::Let, 3) => LocalFunctionForm::Let,
+            (_, 2) => LocalFunctionForm::Equation,
+            (InternalLabel::Fun3 | InternalLabel::Let, _) => return Some(Err(3)),
+            _ => return Some(Err(2)),
+        };
+        Some(Ok(Self { form, predicate }))
+    }
+
+    /// The equation `P => B` of the generated lambda, or the pattern alone for a match.
+    pub(crate) fn equation(self, arguments: &[Term]) -> Term {
+        match self.form {
+            LocalFunctionForm::Fun3 => Term::Rewrite {
+                left: Box::new(arguments[0].clone()),
+                right: Box::new(arguments[1].clone()),
+            },
+            LocalFunctionForm::Let => Term::Rewrite {
+                left: Box::new(arguments[0].clone()),
+                right: Box::new(arguments[2].clone()),
+            },
+            LocalFunctionForm::Equation => arguments[0].clone(),
+        }
+    }
+
+    /// The index of the argument holding the value the lambda is applied to.
+    pub(crate) fn argument_index(self) -> usize {
+        match self.form {
+            LocalFunctionForm::Fun3 => 2,
+            LocalFunctionForm::Let => 1,
+            LocalFunctionForm::Equation => 1,
+        }
+    }
+
+    /// The pattern and the body of the equation as they stand in the construct's `arguments`,
+    /// each with its path below the construct; the body is `None` for a match, whose lambda is a
+    /// predicate. A `#fun2` equation and a match's pattern are the first argument: when it is a
+    /// rewrite, its left side is the pattern and its right side the body (the lowering's
+    /// `rewrite_left` and `rewrite_right` of it); otherwise it is both.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only a rewrite separates an equation's sides"
+    )]
+    pub(crate) fn equation_parts(
+        self,
+        arguments: &[Term],
+    ) -> ((&Term, Vec<u32>), Option<(&Term, Vec<u32>)>) {
+        let (pattern, body) = match self.form {
+            LocalFunctionForm::Fun3 => ((&arguments[0], vec![0]), (&arguments[1], vec![1])),
+            LocalFunctionForm::Let => ((&arguments[0], vec![0]), (&arguments[2], vec![2])),
+            LocalFunctionForm::Equation => match arguments[0].unannotated() {
+                Term::Rewrite { left, right } => ((&**left, vec![0, 0]), (&**right, vec![0, 1])),
+                _ => ((&arguments[0], vec![0]), (&arguments[0], vec![0])),
+            },
+        };
+        (pattern, (!self.predicate).then_some(body))
+    }
+
+    /// Whether the lambda is a predicate (a match), whose result sort is `Bool`.
+    pub(crate) fn is_predicate(self) -> bool {
+        self.predicate
+    }
+}
+
+/// The parameter and result sorts of the lambda a local function lowers to.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LambdaSorts {
+    pub(crate) parameter: Sort,
+    pub(crate) result: Sort,
+}
+
+/// The sorts of the lambda that `local`, applied to `arguments`, lowers to, computed by
+/// `injector`, the injector of the module that declares the sentence; `error` receives each
+/// sort the injector cannot compute, in the order the terms are read (the pattern, the value,
+/// the body), and the sort falls back to `K`.
+///
+/// The parameter must contain the argument's sort (for the call) and the pattern's sort (for
+/// the equation); the least such sort is their least upper bound. An unsorted variable pattern
+/// matches any term, so the parameter takes `K`, the sort of every term, regardless of the
+/// concrete argument sort. A variable that carries a sort, its own or one recorded in its
+/// metadata, is a pattern of that sort, as its cast spelling `#SemanticCastToS(X:S)` is, and goes
+/// through the least upper bound like it. The result is the body's sort, or `Bool` for a match.
+pub(crate) fn lambda_sorts(
+    injector: &SortInjector<'_, '_>,
+    local: LocalFunction,
+    arguments: &[Term],
+    mut error: impl FnMut(SortInjectionError),
+) -> LambdaSorts {
+    let body = local.equation(arguments);
+    let argument = &arguments[local.argument_index()];
+    let left = rewrite_left(&body);
+    let mut sort = |term: &Term| match injector.term_sort(term, None) {
+        Ok(sort) => Some(sort),
+        Err(failure) => {
+            error(failure);
+            None
+        }
+    };
+    let lhs_sort = sort(&left);
+    let argument_sort = sort(argument);
+    let parameter = match (lhs_sort, argument_sort) {
+        _ if matches!(variable_pattern_sort(&left), Some(None)) => Sort::builtin(BuiltinSort::K),
+        (Some(lhs), Some(argument)) => injector
+            .least_upper_bound(&[lhs.clone(), argument.clone()], None)
+            .unwrap_or_else(|_| common_k_sort(&lhs, &argument)),
+        _ => Sort::builtin(BuiltinSort::K),
+    };
+    let result = if local.is_predicate() {
+        Sort::builtin(BuiltinSort::Bool)
+    } else {
+        sort(&rewrite_right(&body)).unwrap_or_else(|| Sort::builtin(BuiltinSort::K))
+    };
+    LambdaSorts { parameter, result }
+}
+
 fn special_application(term: &Term) -> Option<(Label, Vec<Term>)> {
     let Term::Apply { label, arguments } = term.unannotated() else {
         return None;
@@ -907,13 +1012,15 @@ fn special_application(term: &Term) -> Option<(Label, Vec<Term>)> {
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct ClosureVariable {
+pub(crate) struct ClosureVariable {
     name: String,
     sort: Option<Sort>,
 }
 
 impl ClosureVariable {
-    fn term(self) -> Term {
+    /// The variable as the lowering passes it: with the sort of its innermost semantic cast, or
+    /// its own sort.
+    pub(crate) fn term(self) -> Term {
         Term::Variable {
             name: self.name,
             sort: self.sort,
@@ -931,7 +1038,7 @@ impl ClosureVariable {
 /// pattern binds in its own body only, a nested local function is a scope of its own, the
 /// matching pattern of `:=K` and `:/=K` binds its own variables, and an anonymous variable is
 /// read from outside only where it is not also matched.
-fn closure_variables(body: &Term) -> Vec<ClosureVariable> {
+pub(crate) fn closure_variables(body: &Term) -> Vec<ClosureVariable> {
     let mut seen = BTreeSet::new();
     local_function_free_variables(body)
         .into_iter()

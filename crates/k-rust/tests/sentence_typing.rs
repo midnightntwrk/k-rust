@@ -1025,7 +1025,7 @@ fn assert_closure_types(loaded: &LoadedDefinition, name: &str) -> usize {
         .iter()
         .filter_map(|(module, sentence)| {
             typer
-                .typing(sentence)
+                .typing_in(sentence, module)
                 .err()
                 .map(|error| format!("{module}: {error}"))
         })
@@ -1277,7 +1277,7 @@ fn every_sentence_of_a_compiled_definition_types_in_the_main_view() {
         compiled.push(name.clone());
         let typer = main_typer(&loaded);
         for (module, sentence) in closure_sentences(&loaded) {
-            if let Err(error) = typer.typing(sentence) {
+            if let Err(error) = typer.typing_in(sentence, module) {
                 failures.push(format!("{name} {module}: {error}"));
             }
         }
@@ -1296,13 +1296,39 @@ fn every_sentence_of_a_compiled_definition_types_in_the_main_view() {
     );
 }
 
-// An exception to the typing contract until local functions are typed as their lowering:
-// compilation computes the lambda of `#let X:A = c() #in X` in B, where `D1` is the one common
-// supersort of `A` and `C`; the main module adds a second, `D2`, so the main view instantiates
-// the parametric `#let` ambiguously although the definition compiles.
-#[test]
-fn a_local_function_typed_in_the_main_view_may_fail_where_compilation_succeeds() {
-    let source = r#"
+/// The signatures `(arguments, result)` of the lambda symbols of a compiled definition's KORE.
+fn lambda_signatures(kore: &str) -> Vec<(Vec<String>, String)> {
+    kore.lines()
+        .map(str::trim_start)
+        .filter(|line| line.starts_with("symbol Lbl'Hash'lambda"))
+        .map(|line| {
+            let open = line.find("}(").expect("a symbol's argument sorts") + 2;
+            let close = open
+                + line[open..]
+                    .find(')')
+                    .expect("the end of the argument sorts");
+            let arguments = line[open..close]
+                .split(", ")
+                .filter(|sort| !sort.is_empty())
+                .map(str::to_owned)
+                .collect();
+            let result = line[close..]
+                .trim_start_matches(") : ")
+                .split_whitespace()
+                .next()
+                .expect("a result sort")
+                .to_owned();
+            (arguments, result)
+        })
+        .collect()
+}
+
+/// The KORE spelling `SortS{}` of the nullary sort `name`.
+fn kore_name(name: &str) -> String {
+    format!("Sort{name}{{}}")
+}
+
+const LAMBDA_VIEWS: &str = r#"
 module MAIN
   imports B
   syntax D2 ::= A | C
@@ -1318,17 +1344,256 @@ module B
   rule [lam]: h(_) => g(#let X:A = c() #in X)
 endmodule
 "#;
-    let loaded = load_main("local-function-view.k", source, "MAIN", None);
-    assert_compiles(&loaded, "MAIN");
-    let error = main_typer(&loaded)
-        .typing(labelled(loaded.definition(), "B.lam"))
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("several incomparable least instantiations"),
-        "{error}"
+
+// Compilation computes the lambda of `#let X:A = c() #in X` in B, where `D1` is the one common
+// supersort of `A` and `C`; the main module adds a second, `D2`. Typed in B, the module that
+// declares the rule, the local function reports the lambda's sorts: the construct at its result
+// `A`, the value `c()` required at its parameter `D1`.
+#[test]
+fn a_local_function_types_with_the_lambda_sorts_of_its_module() {
+    let loaded = load_main("local-function-view.k", LAMBDA_VIEWS, "MAIN", None);
+    let kore = compiled_kore(&loaded).unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        lambda_signatures(&kore),
+        vec![(vec![kore_name("D1")], kore_name("A"))],
+        "{kore}"
     );
+    let rule = labelled(loaded.definition(), "B.lam");
+    let typing = main_typer(&loaded).typing_in(rule, "B").unwrap();
+    assert_eq!(at(&typing, &[0, 1, 0]).sort, Some(Sort::new("A")));
+    assert_eq!(at(&typing, &[0, 1, 0, 1]), &sorted(Some("C"), Some("D1")));
+    assert_eq!(at(&typing, &[0, 1, 0, 0]).required, Some(Sort::new("D1")));
+    // The typer's own module is MAIN, whose order has no least upper bound of `A` and `C`; `typing`
+    // computes the lambda there, and reports the parameter the lowering would give it in MAIN.
+    let typing = main_typer(&loaded).typing(rule).unwrap();
+    assert_eq!(
+        at(&typing, &[0, 1, 0, 1]).required,
+        Some(Sort::new("KItem"))
+    );
+}
+
+// A lambda in B whose pattern sort `A` and argument sort `C` have no common supersort in B, while
+// the main module adds `D ::= A | C`: compilation gives the lambda B's parameter, which the view
+// reports, not the main module's `D`.
+#[test]
+fn a_lambda_signature_is_the_sentence_modules() {
+    let source = r#"
+module MAIN
+  imports B
+  syntax D ::= A | C
+endmodule
+
+module B
+  imports INT
+  imports BOOL
+  syntax A ::= a()
+  syntax C ::= c()
+  syntax KItem ::= h(K) | g(K)
+  rule [lam]: h(_) => g(#let X:A = c() #in X)
+endmodule
+"#;
+    let loaded = load_main("lambda-signature.k", source, "MAIN", None);
+    let kore = compiled_kore(&loaded).unwrap_or_else(|error| panic!("{error}"));
+    let [(parameters, result)] = lambda_signatures(&kore).try_into().expect("one lambda");
+    let typing = main_typer(&loaded)
+        .typing_in(labelled(loaded.definition(), "B.lam"), "B")
+        .unwrap();
+    let parameter = at(&typing, &[0, 1, 0, 1]).required.clone().unwrap();
+    assert_eq!(kore_sort(&parameter), Some(parameters[0].clone()));
+    assert_ne!(parameter, Sort::new("D"));
+    let sort = at(&typing, &[0, 1, 0]).sort.clone().unwrap();
+    assert_eq!(kore_sort(&sort), Some(result));
+}
+
+/// The one definition `MAIN` holding `rule`, its rule's typing in MAIN, and the signature of its
+/// one compiled lambda.
+fn one_lambda(rule: &str) -> (SentenceTyping, (Vec<String>, String)) {
+    let source = format!(
+        "module MAIN\n  imports INT\n  imports BOOL\n  imports K-EQUAL\n  syntax KItem ::= h(K) | g(K) | m(Int)\n  rule [r]: {rule}\nendmodule\n"
+    );
+    let loaded = load_main("one-lambda.k", &source, "MAIN", None);
+    let kore = compiled_kore(&loaded).unwrap_or_else(|error| panic!("{rule}: {error}"));
+    let [signature] = lambda_signatures(&kore)
+        .try_into()
+        .unwrap_or_else(|signatures| panic!("{rule}: {signatures:?}"));
+    let typing = main_typer(&loaded)
+        .typing_in(labelled(loaded.definition(), "MAIN.r"), "MAIN")
+        .unwrap_or_else(|error| panic!("{rule}: {error}"));
+    (typing, signature)
+}
+
+// `#fun(P => B)(E)` loads as `#fun2(P => B, E)` in the Z3 build and as `#fun3(P, B, E)` in the
+// portable one. Either way the pattern, the body and the value each have a position: the pattern
+// and the value at the lambda's parameter, the body at its result; in the Z3 build the
+// equation's rewrite has each side's typing.
+#[test]
+fn a_fun_with_an_inner_rewrite_types_its_pattern() {
+    let (typing, (parameters, result)) = one_lambda("m(X) => g(#fun(Y => Y +Int 1)(X))");
+    assert_eq!(parameters, vec![kore_name("Int")]);
+    assert_eq!(result, kore_name("Int"));
+    assert_eq!(at(&typing, &[0, 1, 0]).sort, Some(Sort::new("Int")));
+    #[cfg(feature = "z3-inference")]
+    let (pattern, body, value) = {
+        // Both sides of this equation are `Int` at `Int`, so its rewrite has one typing; one
+        // whose body has another sort than its pattern is typed per side.
+        assert_eq!(
+            at(&typing, &[0, 1, 0, 0]),
+            &sorted(Some("Int"), Some("Int"))
+        );
+        let (typing, (parameters, result)) = one_lambda("m(X) => g(#fun(Y => Y ==Int 1)(X))");
+        assert_eq!(
+            (parameters, result),
+            (vec![kore_name("Int")], kore_name("Bool"))
+        );
+        let branches = typing
+            .branches
+            .get(&[0, 1, 0, 0])
+            .expect("the equation's rewrite");
+        assert_eq!(branches.left, sorted(Some("Int"), Some("Int")));
+        assert_eq!(branches.right, sorted(Some("Bool"), Some("Bool")));
+        ([0, 1, 0, 0, 0], [0, 1, 0, 0, 1], [0, 1, 0, 1])
+    };
+    #[cfg(not(feature = "z3-inference"))]
+    let (pattern, body, value) = ([0, 1, 0, 0], [0, 1, 0, 1], [0, 1, 0, 2]);
+    assert_eq!(at(&typing, &pattern), &sorted(Some("Int"), Some("Int")));
+    assert_eq!(at(&typing, &body), &sorted(Some("Int"), Some("Int")));
+    assert_eq!(at(&typing, &value), &sorted(Some("Int"), Some("Int")));
+}
+
+// The lambda of `#let` and of `#fun` with a sorted pattern: the construct at the compiled
+// lambda's result sort, the value required at its parameter sort.
+#[test]
+fn let_and_fun_positions_are_the_lowering_sorts() {
+    for (rule, construct, value) in [
+        (
+            "m(X) => g(#let Y = X #in Y +Int 1)",
+            [0, 1, 0].as_slice(),
+            [0, 1, 0, 1].as_slice(),
+        ),
+        (
+            "m(X) => g(#fun(Y:Int => Y +Int 1)(X))",
+            &[0, 1, 0],
+            if cfg!(feature = "z3-inference") {
+                &[0, 1, 0, 1]
+            } else {
+                &[0, 1, 0, 2]
+            },
+        ),
+        ("h(X) => g(#let Y = X #in Y)", &[0, 1, 0], &[0, 1, 0, 1]),
+    ] {
+        let (typing, (parameters, result)) = one_lambda(rule);
+        let reported = at(&typing, construct).sort.clone().unwrap();
+        assert_eq!(kore_sort(&reported), Some(result), "{rule}");
+        let required = at(&typing, value).required.clone().unwrap();
+        assert_eq!(kore_sort(&required), Some(parameters[0].clone()), "{rule}");
+    }
+}
+
+// `P :=K E` is a predicate: a Bool condition whose value is required at the lambda's parameter.
+#[test]
+fn a_match_reports_bool() {
+    let (typing, (parameters, result)) = one_lambda("m(X) => g(0) requires X :=K 0");
+    assert_eq!(result, kore_name("Bool"));
+    assert_eq!(at(&typing, &[1]), &sorted(Some("Bool"), Some("Bool")));
+    let required = at(&typing, &[1, 1]).required.clone().unwrap();
+    assert_eq!(kore_sort(&required), Some(parameters[0].clone()));
+    assert_eq!(at(&typing, &[1, 0]).required, Some(required));
+}
+
+// A local function in the body of another is its own scope: both are typed as their lambdas.
+#[test]
+fn a_nested_local_function_types() {
+    let source = "module MAIN\n  imports INT\n  syntax KItem ::= m(Int) | g(K)\n  rule [r]: m(X) => g(#let Y = X #in #let Z = Y #in Z +Int 1)\nendmodule\n";
+    let loaded = load_main("nested.k", source, "MAIN", None);
+    let kore = compiled_kore(&loaded).unwrap_or_else(|error| panic!("{error}"));
+    // Both patterns are unsorted variables, so both lambdas take `K`, and both bodies are `Int`.
+    assert_eq!(
+        lambda_signatures(&kore),
+        vec![(vec![kore_name("K")], kore_name("Int")); 2],
+        "{kore}"
+    );
+    let typing = main_typer(&loaded)
+        .typing_in(labelled(loaded.definition(), "MAIN.r"), "MAIN")
+        .unwrap();
+    // The outer construct and the inner one (the outer body) at the result, their values `X`
+    // and `Y` at the parameter, the inner body `Z +Int 1` at `Int`.
+    for (path, sort, required) in [
+        ([0, 1, 0].as_slice(), Some("Int"), None),
+        (&[0, 1, 0, 1], None, Some("K")),
+        (&[0, 1, 0, 2], Some("Int"), None),
+        (&[0, 1, 0, 2, 1], None, Some("K")),
+        (&[0, 1, 0, 2, 2], Some("Int"), None),
+    ] {
+        let position = at(&typing, path);
+        if let Some(sort) = sort {
+            assert_eq!(position.sort, Some(Sort::new(sort)), "{path:?}");
+        }
+        if let Some(required) = required {
+            assert_eq!(position.required, Some(Sort::new(required)), "{path:?}");
+        }
+    }
+}
+
+// The rule parser gives one variable one sort across a rule, but a structured edit can bind a
+// pattern variable that shadows an enclosing one with another sort. Compilation lowers the local
+// function before it resolves semantic casts, so the generated equation's `X:Bool` and the
+// enclosing rule's `X:Int` are resolved apart; the view resolves them in the same scopes.
+#[test]
+fn a_pattern_variable_that_shadows_an_enclosing_one_is_resolved_in_its_own_scope() {
+    let source = "module MAIN\n  imports INT\n  imports BOOL\n  syntax KItem ::= h(K) | g(K)\n  rule [r]: h(Y) => g(#let X = 1 #in Y)\nendmodule\n";
+    let loaded = load_main("shadow.k", source, "MAIN", None);
+    let original = labelled(loaded.definition(), "MAIN.r").clone();
+    let Sentence::Rule { body, .. } = &original else {
+        panic!("a rule")
+    };
+    let Term::Rewrite { left, right } = body.unannotated() else {
+        panic!("{body}")
+    };
+    let (Term::Apply { label: h, .. }, Term::Apply { label: g, .. }) =
+        (left.unannotated(), right.unannotated())
+    else {
+        panic!("{body}")
+    };
+    let truth = Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    let shadowing = edited(
+        &loaded,
+        "MAIN.r",
+        &[0],
+        rewrite(
+            Term::Apply {
+                label: h.clone(),
+                arguments: vec![cast("Int", var("X", None))],
+            },
+            Term::Apply {
+                label: g.clone(),
+                arguments: vec![Term::apply(
+                    "#let",
+                    vec![cast("Bool", var("X", None)), truth, var("X", None)],
+                )],
+            },
+        ),
+    );
+    let relinked = relinked(&loaded, "MAIN", "MAIN.r", shadowing.clone());
+    let kore = compiled_kore(&relinked).unwrap_or_else(|error| panic!("{error}"));
+    let typing = main_typer(&relinked)
+        .typing_in(&shadowing, "MAIN")
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        lambda_signatures(&kore),
+        vec![(vec![kore_name("Bool")], kore_name("K"))]
+    );
+    // `X` is an `Int` in the enclosing rule, a `Bool` in the equation; the unsorted body `X`
+    // gives the lambda the result `K`.
+    assert_eq!(at(&typing, &[0, 0, 0]).sort, Some(Sort::new("Int")));
+    assert_eq!(at(&typing, &[0, 1, 0]).sort, Some(Sort::new("K")));
+    assert_eq!(
+        at(&typing, &[0, 1, 0, 0]),
+        &sorted(Some("Bool"), Some("Bool"))
+    );
+    assert_eq!(at(&typing, &[0, 1, 0, 2]).sort, Some(Sort::new("Bool")));
 }
 
 // `for_compilation` is the typer of the main module.

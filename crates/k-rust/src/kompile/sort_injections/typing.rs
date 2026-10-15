@@ -40,8 +40,8 @@ use crate::definition::{
 };
 use crate::kast::{InternalLabel, Sort, Term};
 use crate::kompile::passes::{
-    FunctionRuleWithContext, ResolveSemanticCastsError, resolve_semantic_casts_in_sentence,
-    semantic_cast_variable_sorts, with_kitem_subsorts,
+    FunctionRuleWithContext, LambdaSorts, ResolveSemanticCastsError,
+    resolve_semantic_casts_in_sentence, semantic_cast_variable_sorts, with_kitem_subsorts,
 };
 use crate::kompile::view::View;
 use crate::names::BuiltinSort;
@@ -49,6 +49,10 @@ use crate::names::BuiltinSort;
 use super::{
     SortInjectionError, SortInjector, SortMismatch, has_rewrite, render_term, rewrite_projection,
 };
+
+mod local_functions;
+
+use local_functions::{Locals, LoweredLocal};
 
 /// The sorts at one position of a sentence.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -362,13 +366,15 @@ pub fn sentence_typing(
 /// A sentence's own module may see fewer sorts, overloads or helpers than the main module, so
 /// its typer is not compilation's typing of the sentence.
 ///
-/// Local functions are an exception to that contract. A local function (`#let`, `#fun2`,
-/// `#fun3`) is typed as an application of its parametric rule-language production in the
-/// module's view, while compilation computes the lambda's sorts with the injector of the
-/// sentence's own module: a typing error under a local function does not imply a compile error
-/// (a main module that adds a second common supersort of the pattern's and the value's sorts
-/// makes the instance ambiguous here only), and the positions inside one report the production's
-/// instance, not the lambda's sorts.
+/// A local function (`#fun2`, `#fun3`, `#let`, `:=K`, `:/=K`) is typed as compilation lowers
+/// it before it resolves semantic casts and injects: an application, at the generated lambda's
+/// result sort, to the value, which is placed at the lambda's parameter sort, plus the lambda's
+/// equation, a scope of its own with its own semantic casts, typed as the rule compilation
+/// generates. Compilation computes a lambda's sorts with the injector of the module that
+/// declares the sentence; [`SentenceTyper::typing_in`] computes them in the module it is given,
+/// so `typing_in` with the declaring module is compilation's typing of the sentence, and
+/// [`SentenceTyper::typing`] computes them in the typer's module, which is compilation's for the
+/// sentences of that module.
 ///
 /// The typing is a read of compilation's own computation. Semantic casts are resolved by the
 /// resolution pass (its variable sorts and errors), a body with a rewrite is projected into its
@@ -397,6 +403,11 @@ pub fn sentence_typing(
 pub struct SentenceTyper<'a> {
     injector: SortInjector<'a, 'a>,
     declared: PartialOrder<Sort>,
+    definition: &'a ResolvedDefinition,
+    module: ModuleId,
+    /// The injector of each module whose sentences' local functions were typed, as
+    /// `kompile::passes::resolve_fun` builds it to compute their lambdas' sorts.
+    lambda_injectors: std::cell::RefCell<BTreeMap<ModuleId, std::rc::Rc<SortInjector<'a, 'a>>>>,
 }
 
 /// The production catalog compilation injects the sentences of `module`'s import closure with,
@@ -467,6 +478,9 @@ impl<'a> SentenceTyper<'a> {
                 left_aliases: std::cell::RefCell::default(),
             },
             declared,
+            definition,
+            module: module_id,
+            lambda_injectors: std::cell::RefCell::default(),
         })
     }
 
@@ -478,8 +492,56 @@ impl<'a> SentenceTyper<'a> {
         Self::new(definition, &definition.main_module().name)
     }
 
+    /// The typing of `sentence`, a rule or claim of the typer's module's import closure, with
+    /// the lambdas of its local functions computed in the typer's module.
     pub fn typing(&self, sentence: &Sentence) -> Result<SentenceTyping, SentenceTypingError> {
-        self.typing_at(sentence, None)
+        self.typing_at(sentence, None, self.module)
+    }
+
+    /// The typing of `sentence`, a rule or claim of the typer's module's import closure that
+    /// `module` declares (or that a caller places there), with the lambdas of its local
+    /// functions computed in `module`, as compilation computes them.
+    ///
+    /// Everything else is typed as [`Self::typing`] types it; the two differ only inside local
+    /// functions of a sentence of another module than the typer's.
+    pub fn typing_in(
+        &self,
+        sentence: &Sentence,
+        module: &str,
+    ) -> Result<SentenceTyping, SentenceTypingError> {
+        let module = self
+            .definition
+            .module_id(module)
+            .ok_or_else(|| SentenceTypingError::MissingModule(module.to_owned()))?;
+        self.typing_at(sentence, None, module)
+    }
+
+    /// The injector `kompile::passes::resolve_fun` computes the lambdas of `module`'s local
+    /// functions with: the module's own productions, sorts and declared subsorts, built once.
+    fn lambda_injector(
+        &self,
+        module: ModuleId,
+    ) -> Result<std::rc::Rc<SortInjector<'a, 'a>>, SortInjectionError> {
+        if let Some(injector) = self.lambda_injectors.borrow().get(&module) {
+            return Ok(std::rc::Rc::clone(injector));
+        }
+        let subsorts = self
+            .definition
+            .subsorts(module)
+            .map_err(|cycle| SortInjectionError::CircularSubsort(cycle.path))?;
+        let injector = std::rc::Rc::new(SortInjector {
+            productions: View::Shared(self.definition.production_catalog(module)),
+            sorts: View::Owned(self.definition.sort_catalog(module)),
+            subsorts: View::Owned(subsorts),
+            next_sort_parameter: Cell::new(0),
+            natural_sorts: std::cell::RefCell::default(),
+            variable_names: std::cell::RefCell::default(),
+            left_aliases: std::cell::RefCell::default(),
+        });
+        self.lambda_injectors
+            .borrow_mut()
+            .insert(module, std::rc::Rc::clone(&injector));
+        Ok(injector)
     }
 
     /// Type a ground value at the position from which its emitted instance is inferred.
@@ -502,6 +564,7 @@ impl<'a> SentenceTyper<'a> {
                 attributes: Attributes::default(),
             },
             Some(position),
+            self.module,
         )
     }
 
@@ -509,6 +572,7 @@ impl<'a> SentenceTyper<'a> {
         &self,
         sentence: &Sentence,
         top: Option<&Sort>,
+        module: ModuleId,
     ) -> Result<SentenceTyping, SentenceTypingError> {
         let (Sentence::Rule {
             body,
@@ -539,10 +603,35 @@ impl<'a> SentenceTyper<'a> {
                 error: SortInjectionError::label_parameters(error),
             }
         })?;
-        let variables = semantic_cast_variable_sorts(sentence, &self.declared)
-            .map_err(SentenceTypingError::SemanticCasts)?;
-        let resolved = resolve_semantic_casts_in_sentence(&self.declared, sentence.clone())
-            .map_err(SentenceTypingError::SemanticCasts)?;
+        // Compilation lowers local functions before it resolves semantic casts; a sentence with
+        // one is split into the scopes the lowering creates, each resolved apart.
+        let (variables, resolved, locals) =
+            if local_functions::has_local_function([body, requires, ensures]) {
+                let injector =
+                    self.lambda_injector(module)
+                        .map_err(|error| SentenceTypingError::Sort {
+                            location: location.clone(),
+                            error,
+                        })?;
+                let lowered = local_functions::lower(sentence, &injector, &self.declared).map_err(
+                    |error| match error {
+                        local_functions::LoweringError::Sort(error) => SentenceTypingError::Sort {
+                            location: location.clone(),
+                            error,
+                        },
+                        local_functions::LoweringError::Casts(error) => {
+                            SentenceTypingError::SemanticCasts(error)
+                        }
+                    },
+                )?;
+                (lowered.variables, lowered.sentence, lowered.locals)
+            } else {
+                let variables = semantic_cast_variable_sorts(sentence, &self.declared)
+                    .map_err(SentenceTypingError::SemanticCasts)?;
+                let resolved = resolve_semantic_casts_in_sentence(&self.declared, sentence.clone())
+                    .map_err(SentenceTypingError::SemanticCasts)?;
+                (variables, resolved, Locals::new())
+            };
         let (Sentence::Rule {
             body: resolved_body,
             requires: resolved_requires,
@@ -561,6 +650,7 @@ impl<'a> SentenceTyper<'a> {
         self.typing_of(
             [body, requires, ensures],
             [resolved_body, resolved_requires, resolved_ensures],
+            &locals,
             variables,
             top,
         )
@@ -571,20 +661,23 @@ impl<'a> SentenceTyper<'a> {
         &self,
         loaded: [&Term; 3],
         resolved: [&Term; 3],
+        locals: &Locals,
         variables: BTreeMap<String, Sort>,
         top: Option<&Sort>,
     ) -> Result<SentenceTyping, SortInjectionError> {
         let injector = &self.injector;
         injector.next_sort_parameter.set(0);
-        // Every term the walks type is a node of `resolved`, or a projection built for one and
-        // typed outside the memo, so the injector's sort memo holds for the whole typing.
-        injector.memoized(|| self.typing_with_memo(loaded, resolved, variables, top))
+        // Every term the walks type is a node of `resolved` or of a local function's parts in
+        // `locals`, or a projection built for one and typed outside the memo, so the injector's
+        // sort memo holds for the whole typing.
+        injector.memoized(|| self.typing_with_memo(loaded, resolved, locals, variables, top))
     }
 
     fn typing_with_memo(
         &self,
         loaded: [&Term; 3],
         resolved: [&Term; 3],
+        locals: &Locals,
         variables: BTreeMap<String, Sort>,
         top: Option<&Sort>,
     ) -> Result<SentenceTyping, SortInjectionError> {
@@ -611,7 +704,7 @@ impl<'a> SentenceTyper<'a> {
             None => (loaded[0], resolved[0]),
         };
 
-        let mut conditions = Walk::new(injector, Branch::Only, &mut trie, &projections);
+        let mut conditions = Walk::new(injector, Branch::Only, &mut trie, &projections, locals);
         for (field, loaded, resolved) in
             [(1u32, loaded[1], resolved[1]), (2, loaded[2], resolved[2])]
         {
@@ -636,7 +729,7 @@ impl<'a> SentenceTyper<'a> {
                 &Sort::builtin(BuiltinSort::KItem),
             )?;
         }
-        let (mut positions, mut instances) = conditions.finish();
+        let (mut positions, mut instances, mut walk_branches) = conditions.finish();
         // As `inject_rule_body`: a body with a rewrite is the rewrite of its two projections,
         // typed at their least upper bound below the top hint, and each projection is
         // injected at that bound; a body without one is typed below the top hint and
@@ -658,7 +751,7 @@ impl<'a> SentenceTyper<'a> {
         };
         let mut sorts = Vec::new();
         for branch in branches {
-            let mut walk = Walk::new(injector, *branch, &mut trie, &projections);
+            let mut walk = Walk::new(injector, *branch, &mut trie, &projections, locals);
             let mut path = body(walk.trie);
             sorts.extend(
                 walk.visit(body_loaded, body_resolved, &mut path, &top)?
@@ -673,7 +766,7 @@ impl<'a> SentenceTyper<'a> {
         let mut maps = Vec::new();
         let mut branch_instances = Vec::new();
         for branch in branches {
-            let mut walk = Walk::new(injector, *branch, &mut trie, &projections);
+            let mut walk = Walk::new(injector, *branch, &mut trie, &projections, locals);
             let mut path = body(walk.trie);
             let hint = position.clone().unwrap_or_else(|| top.clone());
             let slot = walk.visit(body_loaded, body_resolved, &mut path, &hint)?;
@@ -682,31 +775,18 @@ impl<'a> SentenceTyper<'a> {
             {
                 walk.place(&path, &slot, position)?;
             }
-            let (positions, instances) = walk.finish();
+            let (positions, instances, branches) = walk.finish();
             maps.push(positions);
             branch_instances.push(instances);
+            merge_into(&mut walk_branches, branches);
         }
         // The walks name positions by the nodes of one trie, so the branches' typings of a
         // position are merged by node.
-        let mut branch_typings = Vec::new();
+        let mut branches = walk_branches;
         let first = maps.remove(0);
         match maps.pop() {
             None => merge_into(&mut positions, first),
-            Some(right) => {
-                let mut left = first;
-                for (node, right) in right.into_iter().enumerate() {
-                    let Some(right) = right else {
-                        continue;
-                    };
-                    let left = left.get_mut(node).and_then(Option::take);
-                    match left {
-                        Some(left) if left == right => set(&mut positions, node, left),
-                        Some(left) => branch_typings.push((node, BranchTyping { left, right })),
-                        None => set(&mut positions, node, right),
-                    }
-                }
-                merge_into(&mut positions, left);
-            }
+            Some(right) => merge_sides(first, right, &mut positions, &mut branches),
         }
         let first = branch_instances.remove(0);
         match branch_instances.pop() {
@@ -726,10 +806,6 @@ impl<'a> SentenceTyper<'a> {
             }
         }
         let trie = std::sync::Arc::new(trie);
-        let mut branches = Vec::new();
-        for (node, typing) in branch_typings {
-            set(&mut branches, node, typing);
-        }
         Ok(SentenceTyping {
             positions: PathMap::over(std::sync::Arc::clone(&trie), positions),
             branches: PathMap::over(std::sync::Arc::clone(&trie), branches),
@@ -742,11 +818,41 @@ impl<'a> SentenceTyper<'a> {
 /// Values by trie node.
 type NodeValues<V> = Vec<Option<V>>;
 
+/// What a walk types: positions, instances, and the equation positions typed per side.
+type WalkTyping = (
+    NodeValues<PositionTyping>,
+    NodeValues<Vec<Option<Sort>>>,
+    NodeValues<BranchTyping>,
+);
+
 fn set<V>(values: &mut NodeValues<V>, node: usize, value: V) {
     if values.len() <= node {
         values.resize_with(node + 1, || None);
     }
     values[node] = Some(value);
+}
+
+/// Merge the typings of two walks of one term, a left and a right side, into `positions` where
+/// they agree and into `branches` where they differ.
+fn merge_sides(
+    mut left: NodeValues<PositionTyping>,
+    right: NodeValues<PositionTyping>,
+    positions: &mut NodeValues<PositionTyping>,
+    branches: &mut NodeValues<BranchTyping>,
+) {
+    // Invariant: every node before `node` that the right walk typed is in `positions` or
+    // `branches`, and taken from `left`; each iteration consumes one node.
+    for (node, right) in right.into_iter().enumerate() {
+        let Some(right) = right else {
+            continue;
+        };
+        match left.get_mut(node).and_then(Option::take) {
+            Some(left) if left == right => set(positions, node, left),
+            Some(left) => set(branches, node, BranchTyping { left, right }),
+            None => set(positions, node, right),
+        }
+    }
+    merge_into(positions, left);
 }
 
 /// Add each value of `from` to `into` at its node.
@@ -759,6 +865,7 @@ fn merge_into<V>(into: &mut NodeValues<V>, from: NodeValues<V>) {
 }
 
 /// The current path of a walk, as the trie nodes of its prefixes.
+#[derive(Clone)]
 struct Cursor {
     nodes: Vec<usize>,
 }
@@ -878,8 +985,13 @@ struct Walk<'a, 'view, 'definition, 't> {
     /// The paths of the typing's positions; the walk's values are indexed by its nodes.
     trie: &'t mut PathTrie,
     projections: &'t Projections,
+    /// The sentence's local functions, by the stand-in variable that replaces each in the
+    /// resolved terms.
+    locals: &'t Locals,
     positions: NodeValues<PositionTyping>,
     instances: NodeValues<Vec<Option<Sort>>>,
+    /// The positions of a local function's equation that its two sides type differently.
+    branches: NodeValues<BranchTyping>,
     /// Positions whose term occupies an enclosing position's slot (a rewrite's side in a branch,
     /// an as-pattern's alias in the right branch, the operand of a cast the projection drops):
     /// the enclosing requirement applies to them. Inner pairs come first.
@@ -899,14 +1011,17 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
         branch: Branch,
         trie: &'t mut PathTrie,
         projections: &'t Projections,
+        locals: &'t Locals,
     ) -> Self {
         Self {
             injector,
             branch,
             trie,
             projections,
+            locals,
             positions: Vec::new(),
             instances: Vec::new(),
+            branches: Vec::new(),
             delegates: Vec::new(),
             projecting: branch != Branch::Only,
             is_lhs: branch == Branch::Left,
@@ -930,7 +1045,7 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
         slot
     }
 
-    fn finish(mut self) -> (NodeValues<PositionTyping>, NodeValues<Vec<Option<Sort>>>) {
+    fn finish(mut self) -> WalkTyping {
         for (from, to) in std::mem::take(&mut self.delegates).into_iter().rev() {
             let required = self
                 .position(from)
@@ -939,7 +1054,111 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
                 position.required = required;
             }
         }
-        (self.positions, self.instances)
+        (self.positions, self.instances, self.branches)
+    }
+
+    /// A local function, whose resolved form is the stand-in variable `resolved` of
+    /// `lowered`, typed as compilation lowers it: an application of the lambda, at the lambda's
+    /// result sort, to the value, placed at the lambda's parameter sort; and the lambda's
+    /// equation, typed as the rule compilation generates.
+    fn local_function<'r>(
+        &mut self,
+        loaded: &Term,
+        resolved: &'r Term,
+        path: &mut Cursor,
+        lowered: &'t LoweredLocal,
+    ) -> Result<Slot<'r>, SortInjectionError> {
+        let Term::Apply { arguments, .. } = loaded.unannotated() else {
+            unreachable!("a local function is an application")
+        };
+        let LambdaSorts { parameter, result } = &lowered.sorts;
+        self.record(path, reported(result));
+        let index = lowered.local.argument_index();
+        let slot = self.child(&arguments[index], &lowered.argument, path, index, parameter)?;
+        self.place_child(path, index, &slot, parameter)?;
+        self.equation(arguments, lowered, path)?;
+        Ok(Slot {
+            term: Cow::Borrowed(resolved),
+            sort: Some(result.clone()),
+        })
+    }
+
+    /// The generated equation `lambda(P, C1..Cn) => B` of the local function at `path`, whose
+    /// arguments are `arguments`, typed as injection types that rule: the left side is the
+    /// lambda's application, at its result sort, whose argument `P` is placed at the parameter
+    /// sort; the body `B` is typed below the rule's top sort and both sides are placed at their
+    /// least upper bound. A match's equation is its pattern alone. A position of both sides (the
+    /// rewrite a `#fun2` equation is) is reported per side.
+    fn equation(
+        &mut self,
+        arguments: &[Term],
+        lowered: &'t LoweredLocal,
+        path: &Cursor,
+    ) -> Result<(), SortInjectionError> {
+        let injector = self.injector;
+        let (locals, projections) = (self.locals, self.projections);
+        let LambdaSorts { parameter, result } = &lowered.sorts;
+        let ((pattern, pattern_steps), body) = lowered.local.equation_parts(arguments);
+        let extend = |trie: &mut PathTrie, steps: &[u32]| {
+            let mut cursor = path.clone();
+            for step in steps {
+                cursor.push(trie, *step);
+            }
+            cursor
+        };
+        let mut walk = Walk::new(injector, Branch::Only, &mut *self.trie, projections, locals);
+        walk.is_lhs = true;
+        let mut cursor = extend(walk.trie, &pattern_steps);
+        let slot = walk.visit(pattern, &lowered.pattern, &mut cursor, parameter)?;
+        walk.place(&cursor, &slot, parameter)?;
+        let pattern_sort = slot.sort;
+        let (mut left, instances, branches) = walk.finish();
+        merge_into(&mut self.instances, instances);
+        merge_into(&mut self.branches, branches);
+        let (Some((body, body_steps)), Some(resolved_body)) = (body, &lowered.body) else {
+            merge_into(&mut self.positions, left);
+            return Ok(());
+        };
+        let top = injector.fresh_sort_parameter();
+        let sort = {
+            let mut walk = Walk::new(injector, Branch::Only, &mut *self.trie, projections, locals);
+            let mut cursor = extend(walk.trie, &body_steps);
+            walk.visit(body, resolved_body, &mut cursor, &top)?.sort
+        };
+        let mut sorts = vec![result.clone()];
+        sorts.extend(sort);
+        let position = injector.least_upper_bound(&sorts, Some(&top))?;
+        let mut walk = Walk::new(injector, Branch::Only, &mut *self.trie, projections, locals);
+        let mut cursor = extend(walk.trie, &body_steps);
+        let slot = walk.visit(body, resolved_body, &mut cursor, &position)?;
+        walk.place(&cursor, &slot, &position)?;
+        let body_sort = slot.sort;
+        // The rewrite that holds a `#fun2` equation's two sides has each side's typing.
+        let rewrite = (pattern_steps.len() == 2 && body_steps.len() == 2)
+            .then(|| walk.trie.child(path.node(), pattern_steps[0]));
+        let (mut right, instances, branches) = walk.finish();
+        if let Some(node) = rewrite {
+            set(
+                &mut left,
+                node,
+                PositionTyping {
+                    sort: pattern_sort.as_ref().and_then(reported),
+                    required: reported(parameter),
+                },
+            );
+            set(
+                &mut right,
+                node,
+                PositionTyping {
+                    sort: body_sort.as_ref().and_then(reported),
+                    required: reported(&position),
+                },
+            );
+        }
+        merge_into(&mut self.instances, instances);
+        merge_into(&mut self.branches, branches);
+        merge_sides(left, right, &mut self.positions, &mut self.branches);
+        Ok(())
     }
 
     fn position(&self, node: usize) -> Option<&PositionTyping> {
@@ -1057,6 +1276,11 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
         hint: &Sort,
     ) -> Result<Slot<'r>, SortInjectionError> {
         self.record(path, None);
+        if let Term::Variable { name, .. } = resolved.unannotated()
+            && let Some(lowered) = self.locals.get(name)
+        {
+            return self.local_function(loaded, resolved, path, lowered);
+        }
         match loaded.unannotated() {
             Term::Apply { label, arguments } if label.semantic_cast_sort().is_some() => {
                 let target = label.semantic_cast_sort().expect("a semantic cast");
