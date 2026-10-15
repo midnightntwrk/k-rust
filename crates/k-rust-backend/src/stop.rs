@@ -235,6 +235,15 @@ impl Stop {
         Self::mint(StopCause::SolverPrelude(failure))
     }
 
+    /// The simplifier's recursion was refused another stack segment by `limit`; the enclosing
+    /// [`with_poll_budget`] scope records it.
+    #[cfg(not(target_family = "wasm"))]
+    #[cfg_attr(debug_assertions, track_caller)]
+    fn out_of_stack(limit: StackLimit) -> Self {
+        REGISTRY.with(|registry| registry.borrow().record_stack_stop());
+        Self::mint(StopCause::StackExhausted(limit))
+    }
+
     pub fn cause(&self) -> &StopCause {
         &self.cause
     }
@@ -339,6 +348,30 @@ struct Registry {
     /// The earliest deadline of the active steps, with the mode of the step that armed it.
     #[cfg(not(target_arch = "wasm32"))]
     deadline: Option<(Instant, StepTimeoutMode)>,
+    /// The budget of polls of the enclosing [`with_poll_budget`] scope, if any.
+    polls: Option<PollBudget>,
+}
+
+/// A budget of polls ([`with_poll_budget`]): a bound on the work of a computation that is a
+/// function of the computation alone, since it counts the points at which the computation polls.
+/// It is a `Cell` because [`check`] reads the registry through a shared borrow.
+struct PollBudget {
+    /// The polls that may still pass.
+    remaining: Cell<u64>,
+    /// The cause every poll past the budget raises.
+    mode: StepTimeoutMode,
+    /// What the scope met so far.
+    record: Cell<PollBudgetRecord>,
+}
+
+/// What a [`with_poll_budget`] scope met: whether its budget refused a poll, and whether a stop
+/// for lack of native stack was minted on its thread while it ran, whether or not that stop
+/// reached the scope's caller (a site that only refines a sound outcome may dismiss it,
+/// [`Stop::forgo_refinement`]).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PollBudgetRecord {
+    pub(crate) budget_exhausted: bool,
+    pub(crate) stack_exhausted: bool,
 }
 
 impl Registry {
@@ -347,10 +380,12 @@ impl Registry {
         solvers: Vec::new(),
         #[cfg(not(target_arch = "wasm32"))]
         deadline: None,
+        polls: None,
     };
 
     /// The raised cause of widest scope, if any: the signals are read in decreasing
-    /// `StopScope` order (solver, request, step deadline), so the first raised one wins.
+    /// `StopScope` order (solver, request, step deadline, poll budget), so the first raised one
+    /// wins. Called once per poll: a poll that reaches the budget spends one poll of it.
     fn raised(&self) -> Option<StopCause> {
         if let Some(failure) = self.raised_prelude() {
             return Some(StopCause::SolverPrelude(failure.clone()));
@@ -364,7 +399,34 @@ impl Registry {
         {
             return Some(StopCause::Deadline(mode));
         }
+        if let Some(budget) = &self.polls {
+            match budget.remaining.get().checked_sub(1) {
+                Some(remaining) => budget.remaining.set(remaining),
+                None => {
+                    budget.record.set(PollBudgetRecord {
+                        budget_exhausted: true,
+                        ..budget.record.get()
+                    });
+                    // The budget, not a clock, is spent; the cause is the step deadline's because
+                    // a spent budget means what a passed deadline means to every site the stop
+                    // crosses: the step's work ended before its answer.
+                    return Some(StopCause::Deadline(budget.mode));
+                }
+            }
+        }
         None
+    }
+
+    /// Note in the enclosing [`with_poll_budget`] scope, if any, that a stop for lack of native
+    /// stack was minted.
+    #[cfg(not(target_family = "wasm"))]
+    fn record_stack_stop(&self) {
+        if let Some(budget) = &self.polls {
+            budget.record.set(PollBudgetRecord {
+                stack_exhausted: true,
+                ..budget.record.get()
+            });
+        }
     }
 
     fn raised_prelude(&self) -> Option<&PreludeFailure> {
@@ -566,15 +628,10 @@ fn on_new_segment_within<R, E: From<Stop>>(
         .checked_add(segment)
         .filter(|holding| *holding <= budget)
     else {
-        return Err(Stop::mint(StopCause::StackExhausted(StackLimit::ThreadBudget(budget))).into());
+        return Err(Stop::out_of_stack(StackLimit::ThreadBudget(budget)).into());
     };
     if !reserve_segment(process, segment, process_budget) {
-        return Err(
-            Stop::mint(StopCause::StackExhausted(StackLimit::ProcessBudget(
-                process_budget,
-            )))
-            .into(),
-        );
+        return Err(Stop::out_of_stack(StackLimit::ProcessBudget(process_budget)).into());
     }
     SIMPLIFICATION_SEGMENTS.with(|segments| segments.set((holding, budget)));
     let _release = Release {
@@ -584,12 +641,7 @@ fn on_new_segment_within<R, E: From<Stop>>(
     };
     match crate::nesting::map_segment(segment, work) {
         Ok(result) => result,
-        Err(refused) => Err(
-            Stop::mint(StopCause::StackExhausted(StackLimit::MappingRefused(
-                refused,
-            )))
-            .into(),
-        ),
+        Err(refused) => Err(Stop::out_of_stack(StackLimit::MappingRefused(refused)).into()),
     }
 }
 
@@ -622,10 +674,10 @@ impl CancellationToken {
 
 struct RequestGuard(Option<CancellationToken>);
 
-/// Runs `action` with no request cancellation, no solver prelude signal and no step deadline in
-/// force on this thread, and restores them afterwards: a computation whose result is cached with
-/// a definition (the load-time critical-pair check) must not depend on the request that happens
-/// to load it. Stops `action` arms itself (its own deadline) still apply inside.
+/// Runs `action` with no request cancellation, no solver prelude signal, no step deadline and no
+/// poll budget in force on this thread, and restores them afterwards: a computation whose result
+/// is cached with a definition (the load-time critical-pair check) must not depend on the request
+/// that happens to load it. Stops `action` arms itself (its own poll budget) still apply inside.
 pub(crate) fn detached<T>(action: impl FnOnce() -> T) -> T {
     let saved =
         REGISTRY.with(|registry| std::mem::replace(&mut *registry.borrow_mut(), Registry::EMPTY));
@@ -726,6 +778,48 @@ pub fn operation<T>(solver: &dyn SmtSolver, body: impl FnOnce() -> T) -> Stoppab
         None => Ok(value),
         Some(failure) => Err(Stop::solver_prelude(failure.clone())),
     }
+}
+
+/// Runs `action` with at most `polls` polls of [`check`] passing on this thread: every later poll
+/// raises `StopCause::Deadline(mode)`, as a passed deadline of that mode would, so every site the
+/// stop crosses treats it as it treats a deadline. Unlike a deadline, the budget is spent by the
+/// computation's own polls, so where it stops the computation is a function of the computation
+/// alone, not of the time it takes on a loaded host or of the clock (which wasm32 lacks). Once
+/// spent it stays spent for the rest of the scope, so a stop a site dismisses is raised again at
+/// the next poll.
+///
+/// The budget replaces an enclosing one for the scope and is restored when the scope ends,
+/// including on unwinding; a budget installed under it is the only one in force while it runs.
+/// Returns `action`'s value and what the scope met ([`PollBudgetRecord`]).
+pub(crate) fn with_poll_budget<T>(
+    polls: u64,
+    mode: StepTimeoutMode,
+    action: impl FnOnce() -> T,
+) -> (T, PollBudgetRecord) {
+    struct Restore(Option<PollBudget>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            REGISTRY.with(|registry| registry.borrow_mut().polls = previous);
+        }
+    }
+    let budget = PollBudget {
+        remaining: Cell::new(polls),
+        mode,
+        record: Cell::new(PollBudgetRecord::default()),
+    };
+    let previous = REGISTRY.with(|registry| registry.borrow_mut().polls.replace(budget));
+    let restore = Restore(previous);
+    let value = action();
+    let record = REGISTRY.with(|registry| {
+        registry
+            .borrow()
+            .polls
+            .as_ref()
+            .map_or_else(PollBudgetRecord::default, |budget| budget.record.get())
+    });
+    drop(restore);
+    (value, record)
 }
 
 /// Arm the step deadline for the rest of the enclosing scope, keeping the earlier one (and its
@@ -947,8 +1041,97 @@ mod tests {
             let no_deadline = registry.deadline.is_none();
             #[cfg(target_arch = "wasm32")]
             let no_deadline = true;
-            registry.request.is_none() && registry.solvers.is_empty() && no_deadline
+            registry.request.is_none()
+                && registry.solvers.is_empty()
+                && no_deadline
+                && registry.polls.is_none()
         })
+    }
+
+    /// A budget of `n` polls lets `n` polls pass, raises the mode's deadline cause at every later
+    /// one, records that it did, and is gone when its scope ends.
+    #[test]
+    fn a_poll_budget_passes_its_polls_then_stops_every_later_one() {
+        for polls in [0, 1, 3] {
+            let (outcomes, record) = with_poll_budget(polls, MANUAL, || {
+                (0..polls + 2).map(|_| polled()).collect::<Vec<_>>()
+            });
+            let passed = usize::try_from(polls).unwrap();
+            assert!(
+                outcomes[..passed].iter().all(Option::is_none),
+                "{outcomes:?}"
+            );
+            assert!(
+                outcomes[passed..]
+                    .iter()
+                    .all(|outcome| *outcome == Some(StopCause::Deadline(MANUAL))),
+                "{outcomes:?}"
+            );
+            assert_eq!(
+                record,
+                PollBudgetRecord {
+                    budget_exhausted: true,
+                    stack_exhausted: false
+                }
+            );
+            assert!(registry_is_empty());
+        }
+        let ((), record) = with_poll_budget(2, MANUAL, || {
+            assert_eq!((polled(), polled()), (None, None));
+        });
+        assert_eq!(record, PollBudgetRecord::default());
+    }
+
+    /// An inner budget is the only one in force in its scope, the outer one is restored after it
+    /// (on unwinding too), a detached computation runs without either, and a wider cause still
+    /// wins over a spent budget.
+    #[test]
+    fn a_poll_budget_is_scoped() {
+        let ((), outer) = with_poll_budget(1, MANUAL, || {
+            let ((), inner) = with_poll_budget(0, AVERAGE, || {
+                assert_eq!(polled(), Some(StopCause::Deadline(AVERAGE)));
+            });
+            assert!(inner.budget_exhausted);
+            detached(|| assert_eq!(polled(), None));
+            let unwound = catch_unwind(AssertUnwindSafe(|| {
+                with_poll_budget(0, AVERAGE, || panic!("unwinds through the scope"))
+            }));
+            assert!(unwound.is_err());
+            assert_eq!(polled(), None);
+            assert_eq!(polled(), Some(StopCause::Deadline(MANUAL)));
+            cancelled_token().scope(|| assert_eq!(polled(), Some(StopCause::Cancelled)));
+        });
+        assert!(outer.budget_exhausted);
+        assert!(registry_is_empty());
+    }
+
+    /// A stack stop minted inside a budget's scope is recorded there, even when a site dismisses
+    /// it before it reaches the scope's caller.
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn a_poll_budget_records_a_dismissed_stack_stop() {
+        let record = std::thread::Builder::new()
+            .stack_size(64 * 1024)
+            .spawn(|| {
+                with_poll_budget(u64::MAX, MANUAL, || {
+                    with_segment_budget(0, || {
+                        with_stack_headroom(|| Ok::<_, Stop>(()))
+                            .expect_err("the thread's budget refuses a segment")
+                            .forgo_refinement();
+                    });
+                })
+                .1
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(
+            record,
+            PollBudgetRecord {
+                budget_exhausted: false,
+                stack_exhausted: true
+            }
+        );
     }
 
     fn raised_signal(failure: PreludeFailure) -> PreludeSignal {

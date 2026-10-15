@@ -85,7 +85,22 @@ const COLLECTIONS: &str = r#"
 fn definition(extra: &str) -> BackendDefinition {
     let source = format!("[] module MAIN {SIGNATURE} {COLLECTIONS} {extra} endmodule []");
     let syntax = parse_definition(&source).expect("the definition parses");
-    BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
+    internalized(&syntax)
+}
+
+/// `syntax` internalized at module `MAIN`. No fixture of these tests is meant to stop the check:
+/// each of their conditions is decided within the budget of polls, and none needs more stack
+/// than a test thread has, so the check records no stop.
+fn internalized(syntax: &k_rust_kore::kore::ast::Definition) -> BackendDefinition {
+    let definition =
+        BackendDefinition::internalize(syntax, "MAIN").expect("the definition internalizes");
+    let counts = definition.value_claims().counts();
+    assert_eq!(
+        (counts.condition_budget_stops, counts.condition_stack_stops),
+        (0, 0),
+        "the check stopped: {counts:?}"
+    );
+    definition
 }
 
 fn term(definition: &BackendDefinition, source: &str) -> Term {

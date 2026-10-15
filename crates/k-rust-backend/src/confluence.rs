@@ -209,7 +209,7 @@ pub enum CheckScope {
     /// (`docs/compatibility.md`, "Anywhere rules"). When both scopes classify each pair this one
     /// classifies alike, every value claim, the taint of every such symbol and every warned pair
     /// are those of [`Self::All`]; classification reads counters that earlier pairs advance (the
-    /// spelling of renamed variables) and a per-condition deadline, so that equality is tested
+    /// spelling of renamed variables) and a per-condition budget of polls, so that equality is tested
     /// (V9), not derived. What differs is the work counted and the non-joined pairs that withdraw
     /// no claim, which are not computed. The scope of every load.
     Gate,
@@ -582,6 +582,17 @@ pub struct CheckCounts {
     /// Stage-2 candidate pairs not classified because neither equation is relevant (zero under
     /// [`CheckScope::All`]); `pairs` does not count them.
     pub skipped: usize,
+    /// Condition simplifications that their budget of polls for a stop stopped (the check's
+    /// bound on the work of one condition, `docs/backend-port.md`): each decided nothing. Where the budget stops a simplification is a function of the definition,
+    /// so these stops are part of the verdict and the same on every load.
+    pub condition_budget_stops: usize,
+    /// Condition simplifications during which the simplifier ran out of native stack (a
+    /// [`StopCause::StackExhausted`](crate::stop::StopCause::StackExhausted) stop was minted,
+    /// whether or not the simplification went on without the part it stopped). Unlike the poll
+    /// budget, the stack the simplifier may use depends on the loading thread's stack, on the
+    /// stack other threads of the process hold at the time (`nesting`), and on the build profile,
+    /// so the verdict is a function of the definition only when this is zero.
+    pub condition_stack_stops: usize,
 }
 
 impl CheckCounts {
@@ -1330,33 +1341,33 @@ impl<'d> Context<'d> {
 
     /// The predicate simplified with no assumption and no solver, `None` on a failure or stop.
     ///
-    /// A condition of a definition whose evaluation does not end (outside precondition P0) can
-    /// keep the simplifier evaluating without bound, so each call runs under a step deadline of
-    /// [`CONDITION_SECONDS`]; a stopped call decides nothing. Under P0 every condition the
-    /// corpus has simplifies in microseconds, far from it. The check runs detached from the
-    /// loading request ([`check`]), so that deadline, and a stack-exhaustion stop on a condition
-    /// far deeper than any in the corpus, are the only stops it can meet; both lose precision
-    /// only. `wasm32` has no clock: there a condition outside P0 keeps the load from ending, as
-    /// an evaluation of it would.
+    /// A condition of a definition whose evaluation does not end (outside precondition P0), or
+    /// ends only after very long, can keep the simplifier evaluating without bound, so each call
+    /// may poll for a stop at most [`CONDITION_POLLS`] times; a stopped call decides nothing.
+    /// The simplifier polls at every round, ground function steps included, so the budget bounds
+    /// its work, and where it stops depends only on the condition and the definition: the verdict
+    /// is the same on every load, on every thread and under any load of the host, and on wasm32,
+    /// which has no clock. The check runs detached from the loading request ([`check`]), so the
+    /// budget, and a stack-exhaustion stop on a condition far deeper than any in the corpus, are
+    /// the only stops it can meet; both lose precision only, and each is counted
+    /// ([`CheckCounts::condition_budget_stops`], [`CheckCounts::condition_stack_stops`]).
     fn simplify_now(&mut self, predicate: Predicate) -> Option<Predicate> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let _deadline = {
-            let limit = std::time::Duration::from_secs(CONDITION_SECONDS);
-            crate::stop::arm_deadline(
-                std::time::Instant::now() + limit,
-                crate::timeout::StepTimeoutMode::Manual(limit),
-            )
-        };
-        match simplify_predicate_with_solver(
-            self.definition,
-            &predicate,
-            &[],
-            SimplificationOptions {
-                max_iterations: CONDITION_ITERATIONS,
-                ..SimplificationOptions::default()
-            },
-            &NoSolver,
-        ) {
+        let (simplified, record) =
+            crate::stop::with_poll_budget(CONDITION_POLLS, CONDITION_BUDGET_SPENT, || {
+                simplify_predicate_with_solver(
+                    self.definition,
+                    &predicate,
+                    &[],
+                    SimplificationOptions {
+                        max_iterations: CONDITION_ITERATIONS,
+                        ..SimplificationOptions::default()
+                    },
+                    &NoSolver,
+                )
+            });
+        self.counts.condition_budget_stops += usize::from(record.budget_exhausted);
+        self.counts.condition_stack_stops += usize::from(record.stack_exhausted);
+        match simplified {
             Ok(Ok(simplified)) => Some(simplified),
             Ok(Err(_)) => None,
             Err(stop) => {
@@ -1450,8 +1461,29 @@ pub(crate) fn recording_overlaps<R>(run: impl FnOnce() -> R) -> (R, Vec<Recorded
     (result, recorded)
 }
 
-/// The seconds a condition of the check may take to simplify (see `Context::simplify`).
-const CONDITION_SECONDS: u64 = 1;
+/// The polls for a stop (`stop::check`) the simplification of one condition of the check may
+/// make (`Context::simplify_now`). The simplifier polls at every round of a term's
+/// simplification, at every predicate simplification and in the loops of hooks, so the budget
+/// bounds the rounds, ground function steps included, that one condition may take; a condition
+/// that needs more decides nothing.
+///
+/// Measured on 2026-10-15 (release build, `KINK-06/3`): no condition of the 205 compiled
+/// definitions of the conformance corpus, of the definitions of the light reference gates (the
+/// compile corpus, the execution, RPC and proof cases, IMP and its verification module), of
+/// `tests/fixtures`, or of this crate's own tests takes more than 29 polls. A ground step of a
+/// recursive function such as `slow(N) = slow(N -Int 1) requires N >Int 0` takes 14 polls, and
+/// a release build makes about 2.0 million polls a second on a 32-CPU workstation at half load.
+/// The budget is about two seconds of such polls: far above the corpus, and above what one
+/// second of evaluation reaches on an idle host somewhat faster than that one, so a condition the
+/// former one-second deadline decided there is decided within it.
+const CONDITION_POLLS: u64 = 4_000_000;
+
+/// The cause the spent budget of [`CONDITION_POLLS`] raises inside the simplifier: a step
+/// deadline, so that every site it crosses treats it as the step deadline it replaced (of one
+/// second). It is a budget of polls, not a clock, and it never leaves the check:
+/// `Context::simplify_now` consumes every stop.
+const CONDITION_BUDGET_SPENT: crate::timeout::StepTimeoutMode =
+    crate::timeout::StepTimeoutMode::Manual(std::time::Duration::from_secs(1));
 
 /// The equation iterations a condition of the check may take to simplify. A condition the
 /// simplifier does not decide within it is neither refuted nor shown to hold, which loses
@@ -1763,8 +1795,8 @@ pub(crate) fn check(
     memo: ConditionMemo,
 ) -> ValueClaims {
     // The verdict is cached with the definition, so it must not depend on the request that loads
-    // it: the check reads no request cancellation and no outer step deadline, only the deadline
-    // it arms for each condition (R1.6).
+    // it: the check reads no request cancellation and no outer step deadline, only the budget of
+    // polls it installs for each condition, whose stops depend on the definition alone.
     crate::stop::detached(|| check_detached(definition, scope, memo))
 }
 

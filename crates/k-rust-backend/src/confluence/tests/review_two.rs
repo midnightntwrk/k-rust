@@ -62,7 +62,7 @@ fn load(declarations: &str, axioms: &[String]) -> BackendDefinition {
         axioms.join("\n")
     );
     let syntax = parse_definition(&source).expect("the probe parses");
-    BackendDefinition::internalize(&syntax, "MAIN").expect("the probe internalizes")
+    super::internalized(&syntax)
 }
 
 fn tainted(definition: &BackendDefinition, symbol: &str) -> bool {
