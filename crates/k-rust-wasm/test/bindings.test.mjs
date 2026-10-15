@@ -412,6 +412,12 @@ test('searches and observes the persistent portable backend graph', () => {
     backend.executeObserved({ state: a, resultModality: 'path-set' }).modality,
     'path-set',
   )
+  assert.equal(backend.capabilities.coverage, true)
+  assert.equal(backend.execute({ state: a }).coverage, undefined)
+  assert.deepEqual(backend.execute({ state: a, collectCoverage: true }).coverage, {
+    applied: ['a-to-b', 'b-to-c'],
+    matched: ['a-to-b', 'b-to-c'],
+  })
 
   assert.throws(() => backend.search({ state: a, schemaVersion: 99 }), /schema version 99/)
   assert.throws(() => backend.search({ state: a, maxDeph: 1 }), /unknown field.*maxDeph/i)

@@ -1730,6 +1730,7 @@ pub(super) fn execution_response<K: WireKore>(
             .into_iter()
             .map(uncommitted_observation_output)
             .collect(),
+        coverage: result.coverage.map(Into::into),
     })
 }
 
