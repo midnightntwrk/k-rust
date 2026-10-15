@@ -29,6 +29,7 @@ pub use programs::{
 pub(crate) use programs::{prepared_bison_program_sentences, program_start_sort};
 pub use rules::{RuleError, RuleParseError, parse_rule_content, resolve_rule_bubbles};
 pub(crate) use rules::{
-    grammar_injected_sentences, resolve_rule_bubbles_with_resolved, rule_language_productions,
+    grammar_injected_sentences, helper_productions, resolve_rule_bubbles_with_resolved,
+    rule_language_productions,
 };
 pub(crate) use sort_universe::unbound_sorts;

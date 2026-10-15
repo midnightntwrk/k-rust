@@ -2,13 +2,13 @@
 //! id = "kompile.functions.lift"
 //! name = "lifting of local functions into generated productions and rules"
 //! sites = ["resolve_fun", "resolve_fun_pass", "closure_variables"]
-//! variable = "N = traversed term nodes; G = generated sentences; L = local sentences per module; S = visible sentences of a module; P = visible productions; R = sentences of the definition"
+//! variable = "N = traversed term nodes; G = generated sentences; L = local sentences per module; S = visible sentences of a module; P = visible productions; R = sentences of the definition; V = sentences of a module's import closure"
 //! counters = []
 //! no_counter = "local-function lifting has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N + (L + G) x G) plus one SortInjector::with_views per module, and, in a module where a lambda body applies a partial function, one O(S) pass over its visible rules with O(P) per configuration-context cell level, and one O(R) count of the rule heads of the whole definition per pass, and one main-module equation judgement in O(P + R + sum of right-hand-side sizes + overload elements squared)"
+//! bound = "O(N + (L + G) x G) plus one SortInjector::with_views per module, and, in a module that holds a local function, one sort-helper set over its import closure in O(V log V) and one production catalog over the closure and those helpers in O(P log P) (lambda_productions), and, in a module where a lambda body applies a partial function, one O(S) pass over its visible rules with O(P) per configuration-context cell level, and one O(R) count of the rule heads of the whole definition per pass, and one main-module equation judgement in O(P + R + sum of right-hand-side sizes + overload elements squared)"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
@@ -154,7 +154,21 @@ pub(crate) fn resolve_fun_pass(
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let injector = match SortInjector::with_views(&views, module_id) {
+        // A module whose sentences hold a local function computes its lambdas' sorts with the
+        // sort helpers compilation declares over its closure.
+        let injector = match module
+            .local_sentences
+            .iter()
+            .any(|sentence| holds_local_function(sentence))
+            .then(|| lambda_productions(resolved, module_id))
+            .flatten()
+        {
+            Some(productions) => {
+                SortInjector::with_views_and_productions(&views, module_id, productions)
+            }
+            None => SortInjector::with_views(&views, module_id),
+        };
+        let injector = match injector {
             Ok(injector) => injector,
             Err(error) => {
                 diagnostics.push(sort_error(error));
@@ -941,6 +955,67 @@ impl LocalFunction {
 /// A part of a local function's equation as it stands in the construct, with its path below the
 /// construct.
 pub(crate) type EquationPart<'t> = (&'t Term, Vec<u32>);
+
+/// The productions the lambdas of `module`'s local functions are typed over: the module's import
+/// closure, plus the sort predicates `isS`, sort projections `project:S` and field projections
+/// `project:L:F` that compilation declares over that closure a few stages later
+/// (`generate_sort_predicate_syntax`, `generate_sort_projections`), built by the constructors it
+/// declares them with ([`crate::inner::helper_productions`]), each for a label the closure does
+/// not declare. `None` when there is none to add.
+///
+/// A lambda's sorts are the sorts of its pattern, value and body; a body `isInt(Y)` is a `Bool`
+/// and `{X}:>Int` an `Int` whichever stage declares their productions, so the lambda is typed as
+/// the helpers it names are declared. The lowering must run before the helpers are declared,
+/// since they range over the lambda productions it generates.
+pub(crate) fn lambda_productions(
+    resolved: &ResolvedDefinition,
+    module: ModuleId,
+) -> Option<ProductionCatalog<'static>> {
+    let helpers =
+        crate::inner::helper_productions(&resolved.sentences(module), &Attributes::default());
+    if helpers.is_empty() {
+        return None;
+    }
+    let mut sentences = resolved.sentence_arcs(module);
+    sentences.extend(helpers.into_iter().map(Arc::new));
+    Some(ProductionCatalog::from_deduplicated_arcs(
+        sentences,
+        resolved.local_sentence_arcs(module),
+    ))
+}
+
+/// Whether `sentence`, a rule or context, holds a local function.
+fn holds_local_function(sentence: &Sentence) -> bool {
+    let terms: Vec<&Term> = match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        } => vec![body, requires, ensures],
+        Sentence::Context { body, requires, .. }
+        | Sentence::ContextAlias { body, requires, .. } => vec![body, requires],
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => Vec::new(),
+    };
+    let mut found = false;
+    for term in terms {
+        term.visit_preorder(&mut |term| {
+            found |= matches!(
+                term.unannotated(),
+                Term::Apply { label, arguments } if LocalFunction::of(label, arguments.len()).is_some()
+            );
+        });
+    }
+    found
+}
 
 /// The parameter and result sorts of the lambda a local function lowers to.
 #[derive(Clone, Debug, Eq, PartialEq)]

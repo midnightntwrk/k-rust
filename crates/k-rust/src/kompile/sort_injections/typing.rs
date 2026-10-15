@@ -26,7 +26,10 @@
 //! of the closure's V sentences and its sort universe (O(V log V)), and builds its own
 //! production catalog over the closure and the added productions (O(P log P) for P
 //! productions) in place of the module's cached one: no definition declares the rule-language
-//! constructs, so something is always added.
+//! constructs, so something is always added. Typing the local functions of a module's sentences
+//! builds, once per such module, that module's lambda injector: its sort helpers over its
+//! closure (O(V log V)) and one more production catalog over the closure and the helpers
+//! (O(P log P), `kompile::passes::lambda_productions`).
 
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -383,7 +386,9 @@ pub fn sentence_typing(
 /// declares the sentence; [`SentenceTyper::typing_in`] computes them in the module it is given,
 /// so `typing_in` with the declaring module is compilation's typing of the sentence, and
 /// [`SentenceTyper::typing`] computes them in the typer's module, which is compilation's for the
-/// sentences of that module.
+/// sentences of that module. A typing error that renders the application of a lambda names it
+/// `#localFunctionN`, the typer's stand-in for it, where compilation's error names the
+/// generated `#lambda…` symbol; the two are the same application.
 ///
 /// The typing is a read of compilation's own computation. Semantic casts are resolved by the
 /// resolution pass (its variable sorts and errors), a body with a rewrite is projected into its
@@ -526,9 +531,11 @@ impl<'a> SentenceTyper<'a> {
     }
 
     /// `work` with the injector `kompile::passes::resolve_fun` computes the lambdas of
-    /// `module`'s local functions with: the module's own productions, sorts and declared
-    /// subsorts, built once and kept by value, so the typer stays `Send`. `work` must not type
-    /// a sentence (it holds the cache borrowed).
+    /// `module`'s local functions with: the productions it types them over
+    /// (`kompile::passes::lambda_productions`: the module's import closure and the sort helpers
+    /// compilation declares over it), the module's sorts and its declared subsorts; built once
+    /// and kept by value, so the typer stays `Send`. `work` must not type a sentence (it holds
+    /// the cache borrowed).
     fn with_lambda_injector<T>(
         &self,
         module: ModuleId,
@@ -539,8 +546,14 @@ impl<'a> SentenceTyper<'a> {
                 .definition
                 .subsorts(module)
                 .map_err(|cycle| SortInjectionError::CircularSubsort(cycle.path))?;
+            // The productions `resolve_fun` types the module's lambdas over.
+            let productions =
+                match crate::kompile::passes::lambda_productions(self.definition, module) {
+                    Some(productions) => View::Owned(productions),
+                    None => View::Shared(self.definition.production_catalog(module)),
+                };
             let injector = SortInjector {
-                productions: View::Shared(self.definition.production_catalog(module)),
+                productions,
                 sorts: View::Owned(self.definition.sort_catalog(module)),
                 subsorts: View::Owned(subsorts),
                 next_sort_parameter: Cell::new(0),

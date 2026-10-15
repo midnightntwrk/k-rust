@@ -887,6 +887,17 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         })
     }
 
+    /// [`Self::with_views`], with `productions` in place of the module's production catalog.
+    pub(crate) fn with_views_and_productions(
+        views: &'view DefinitionViews<'definition>,
+        module: ModuleId,
+        productions: ProductionCatalog<'definition>,
+    ) -> Result<Self, SortInjectionError> {
+        let mut injector = Self::with_views(views, module)?;
+        injector.productions = View::Owned(productions);
+        Ok(injector)
+    }
+
     /// Run `work` with the natural-sort memo active ([`NaturalSorts`]). Every term `work`
     /// infers sorts of must stay alive and in place until `work` returns, except terms it
     /// builds itself, which it infers inside [`Self::unmemoized`].

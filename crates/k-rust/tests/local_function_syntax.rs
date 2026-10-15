@@ -598,3 +598,119 @@ fn a_lambda_whose_pattern_does_not_cover_its_parameter_is_bottom_off_it() {
         assert_eq!(refutations(covering), [], "{covering}");
     }
 }
+
+/// A module `H` over `h(K)`, `m(Bool)`, `g(Int)` and the named `pair(fst:, snd:)` whose only
+/// rule is `rule`: the definition compiles, its one lambda has the signature `signature`
+/// (`(argument sorts) : result`, KORE sorts), and the main module's typer types the rule in `H`.
+fn assert_helper_lambda(rule: &str, signature: &str) {
+    let source = format!(
+        "module H\n  imports INT\n  imports BOOL\n  \
+         syntax KItem ::= h(K) | m(Bool) | g(Int)\n  \
+         syntax Pair ::= pair(fst: Int, snd: Int) [symbol(pair)]\n  rule [r]: {rule}\nendmodule\n"
+    );
+    let loaded = load("H", &source);
+    let declarations = lambda_declarations(&loaded);
+    let [declaration] = declarations.as_slice() else {
+        panic!("{rule}: {declarations:?}")
+    };
+    assert!(declaration.contains(signature), "{rule}: {declaration}");
+    let sentence = loaded
+        .definition()
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| {
+            sentence
+                .attributes()
+                .string(k_rust::definition::AttributeKey::Label)
+                == Some("H.r")
+        })
+        .unwrap();
+    let typer = k_rust::kompile::SentenceTyper::for_compilation(loaded.resolved()).unwrap();
+    typer
+        .typing_in(sentence, "H")
+        .unwrap_or_else(|error| panic!("{rule}: {error}"));
+}
+
+// A local function may name the sort predicates and projections compilation declares: the
+// lambda's sorts are computed with the productions compilation declares for them, the predicate
+// at `Bool`, the projections at their sorts.
+#[test]
+fn a_let_body_may_test_a_sort() {
+    assert_helper_lambda(
+        "h(X) => m(#let Y = X #in isInt(Y))",
+        "(SortK{}) : SortBool{}",
+    );
+}
+
+#[test]
+fn a_let_value_may_be_a_projection() {
+    assert_helper_lambda(
+        "h(X) => g(#let Y = {X}:>Int #in Y)",
+        "(SortInt{}) : SortInt{}",
+    );
+}
+
+#[test]
+fn a_fun_body_may_read_a_field() {
+    assert_helper_lambda(
+        "h(_X) => g(#fun(P => fst(P))(pair(1, 2)))",
+        "(SortPair{}) : SortInt{}",
+    );
+}
+
+// A local function in an imported module that names a helper of a sort declared there, while
+// the main module holds none: the lambda is typed over that module's closure and its helpers.
+#[test]
+fn a_local_function_of_an_imported_module_may_test_a_sort_declared_there() {
+    let source = "module MAIN\n  imports LIB\nendmodule\n\nmodule LIB\n  imports BOOL\n  \
+                  syntax Foo ::= foo()\n  syntax KItem ::= h(K) | m(Bool)\n  \
+                  rule [r]: h(X) => m(#let Y = X #in isFoo(Y))\nendmodule\n";
+    let loaded = load("MAIN", source);
+    let declarations = lambda_declarations(&loaded);
+    let [declaration] = declarations.as_slice() else {
+        panic!("{declarations:?}")
+    };
+    assert!(
+        declaration.contains("(SortK{}) : SortBool{}"),
+        "{declaration}"
+    );
+    let sentence = loaded
+        .definition()
+        .modules
+        .iter()
+        .find(|module| module.name == "LIB")
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| {
+            sentence
+                .attributes()
+                .string(k_rust::definition::AttributeKey::Label)
+                == Some("LIB.r")
+        })
+        .unwrap();
+    k_rust::kompile::SentenceTyper::for_compilation(loaded.resolved())
+        .unwrap()
+        .typing_in(sentence, "LIB")
+        .unwrap_or_else(|error| panic!("{error}"));
+}
+
+// A projection in a local function's pattern lands on the generated equation's left-hand side,
+// where a projection is refused, as on any left-hand side.
+#[test]
+fn a_projection_in_a_local_function_pattern_is_refused() {
+    let source = "module H\n  imports INT\n  imports BOOL\n  syntax KItem ::= h(K) | m(Bool)\n  \
+                  rule [r]: h(X) => m(#let {_}:>Int = X #in true)\nendmodule\n";
+    let loaded = load("H", source);
+    let error = compile_loaded_definition(&loaded, CompileOptions::default())
+        .expect_err("a projection on a left-hand side is refused");
+    assert!(
+        error.diagnostics.iter().any(|diagnostic| diagnostic.code
+            == k_rust::diagnostic::DiagnosticCode::IllegalFunctionOnLhs
+            && diagnostic.message.contains("project:Int")),
+        "{error} {:?}",
+        error.diagnostics
+    );
+}
