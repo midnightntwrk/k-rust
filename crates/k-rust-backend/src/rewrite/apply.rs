@@ -190,6 +190,33 @@ fn trivial_application(
     }
 }
 
+/// The `Refuted` entry of `application`, whose result the step took as defined on its defined
+/// sub-case `D` but whose successor's normalization shows undefined (`obligation`, with
+/// `contradicted_total` when an equation of a `total` symbol produced the undefined term): the
+/// entry stands for `D`, the rest of the application's applicability being its carried entry's.
+pub(super) fn undefined_successor_application(
+    application: RuleApplication,
+    obligation: Predicate,
+    contradicted_total: Option<Box<ContradictedTotal>>,
+) -> TrivialApplication {
+    let applicability = application.defined.undefined_after_all();
+    TrivialApplication {
+        rule_id: application.applied.unique_id,
+        label: application.applied.label,
+        #[cfg(test)]
+        kind: super::TrivialKind::Refuted,
+        obligation,
+        undefined: applicability.as_predicate().clone(),
+        applicability,
+        remainder: application.remainder,
+        before: application.applied.before,
+        effects: application.applied.effects,
+        diagnostics: Vec::new(),
+        remainder_simplifications: application.applied.remainder_simplifications,
+        contradicted_total,
+    }
+}
+
 /// The `Carried` entry of `application`, whose carried result condition `obligation` leaves the
 /// instances of its sub-case `applicability` outside `application.defined` without a result.
 fn carried_trivial_application(

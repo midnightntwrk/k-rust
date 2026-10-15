@@ -140,6 +140,12 @@ impl DefinedSubcase {
         negation(&self.0)
     }
 
+    /// `D` as the sub-case a result found undefined after the step rewrites to bottom: every
+    /// instance the application was to take to a defined result has none.
+    pub(super) fn undefined_after_all(&self) -> Applicability {
+        Applicability(self.0.clone())
+    }
+
     pub(super) fn as_predicate(&self) -> &Predicate {
         &self.0
     }

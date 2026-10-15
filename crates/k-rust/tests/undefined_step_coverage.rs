@@ -49,9 +49,15 @@ const SOURCE: &str = r#"module UNDEF-SYNTAX
                 | mapv(Map) [symbol(mapv)]
                 | sib(Int) [symbol(sib)]
                 | sibr(Int) [symbol(sibr)]
+                | bis(Int) [symbol(bis)]
+                | s3(Int) [symbol(s3)]
+                | w(Int) [symbol(w)]
+                | rem(Int, Int) [symbol(rem)]
+                | rem2(Int, Int) [symbol(rem2)]
   syntax Int ::= g(Int) [function, total, symbol(g)]
                | f(Int) [function, total, symbol(f)]
                | td(Int) [function, total, symbol(td)]
+               | f2(Int) [function, total, symbol(f2)]
   syntax Map ::= dup(Int) [function, total, symbol(dup)]
 endmodule
 
@@ -93,6 +99,16 @@ module UNDEF
   rule [sibok]:   <k> sib(_) => done </k>
   rule [sibrtd]:  <k> sibr(_) => val(td(0)) </k>
   rule [sibrok]:  <k> sibr(I) => done </k> requires I >Int 0
+  rule [bisok]:   <k> bis(_) => done </k>
+  rule [bistd]:   <k> bis(_) => val(td(0)) </k>
+  rule [s3a]:     <k> s3(I) => val(td(I)) </k> requires I ==Int 0
+  rule [s3b]:     <k> s3(I) => w(td(I)) </k> requires I ==Int 0
+  rule [f2pos]:   f2(I) => 1 requires I >Int 0
+  rule [f2neg]:   f2(I) => 2 requires I <=Int 0
+  rule [remhi]:   <k> rem(X, _) => done </k> requires X >Int 0 [priority(10)]
+  rule [remlo]:   <k> rem(_, J) => val(td(J -Int 2)) </k> [priority(50)]
+  rule [rem2hi]:  <k> rem2(X, _) => done </k> requires X >Int 0 [priority(10)]
+  rule [rem2lo]:  <k> rem2(_, J) => val(10 /Int (J -Int 2)) </k> [priority(50)]
 endmodule
 "#;
 
@@ -852,4 +868,323 @@ fn an_undefined_successor_found_after_the_step_is_trivial_only_where_no_sibling_
         "{:#?}",
         summary(&symbolic)
     );
+}
+
+fn request_with(program: &str, configure: impl FnOnce(&mut ExecuteRequest)) -> ExecuteRequest {
+    let mut request = request(program);
+    configure(&mut request);
+    request
+}
+
+/// The leaves of `request`, with their observations, after checking that observing the run
+/// changes no leaf's state, depth, reason, rule or trace.
+fn execute_both(backend: &mut Backend, request: ExecuteRequest) -> ExecutionResult {
+    let plain = backend.execute(request.clone()).unwrap();
+    let observed = backend
+        .execute_observed(ObservedRequest {
+            request,
+            rules: None,
+        })
+        .unwrap();
+    let key = |result: &ExecutionResult| {
+        result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                (
+                    leaf.reason,
+                    leaf.depth,
+                    text(leaf),
+                    leaf.rule_label.clone(),
+                    leaf.trace.clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        key(&plain),
+        key(&observed),
+        "observation must not change the leaves"
+    );
+    observed
+}
+
+/// Under strategy `any` the step commits to the first rule of a priority that gives an instance
+/// a defined result, so it decides there whether a candidate's result is undefined, also when
+/// only the successor's normalization shows it (a contradicted `total`). `sibtd` is tried before
+/// `sibok` on `sib(0)`, `bisok` before `bistd` on `bis(0)`: in either order `done` is reached and
+/// no undefined step is reported. On `sibr(I)` the instances where `sibrok` does not apply are
+/// the undefined step, and only those.
+#[test]
+fn under_strategy_any_a_candidate_undefined_after_the_step_leaves_its_instances_to_later_rules() {
+    let mut backend = backend();
+    let any = |request: &mut ExecuteRequest| request.strategy = ExecutionStrategy::Any;
+    for program in [
+        format!("Lblsib{{}}({})", int(0)),
+        format!("Lblbis{{}}({})", int(0)),
+        format!("Lblsib{{}}({X})"),
+        format!("Lblsibr{{}}({})", int(1)),
+    ] {
+        let result = execute_both(&mut backend, request_with(&program, any));
+        assert_eq!(
+            summary(&result)
+                .into_iter()
+                .map(|(reason, depth, state)| (reason, depth, state.contains("Lbldone{}()")))
+                .collect::<Vec<_>>(),
+            [(HaltReasonOutput::Stuck, 1, true)],
+            "{program}: {:#?}",
+            summary(&result)
+        );
+    }
+    let ground = execute_both(
+        &mut backend,
+        request_with(&format!("Lblsibr{{}}({})", int(0)), any),
+    );
+    assert_eq!(
+        summary(&ground),
+        [(
+            HaltReasonOutput::Trivial,
+            0,
+            top(&format!("Lblsibr{{}}({})", int(0)))
+        )],
+    );
+    assert_trivial_rule(&backend, &ground.leaves[0], "sibrtd");
+    assert!(ground.leaves[0].contradicted_total.is_some());
+    if !backend.capabilities().smt {
+        return;
+    }
+    let symbolic = execute_both(
+        &mut backend,
+        request_with(&format!("Lblsibr{{}}({X})"), any),
+    );
+    assert_sibr_symbolic(&backend, &symbolic);
+}
+
+/// The symbolic `sibr(X)` run: one `Trivial` leaf of `sibrtd` over `sibr(X)` at depth 0 under
+/// `not (X >Int 0)`, the instances where `sibrok` does not apply, and `done` beside it.
+fn assert_sibr_symbolic(backend: &Backend, result: &ExecutionResult) {
+    let [trivial] = trivial_leaves(result)[..] else {
+        panic!("one Trivial leaf: {:#?}", summary(result));
+    };
+    assert_eq!(trivial.depth, 0, "{:#?}", summary(result));
+    assert!(is_pre_step(trivial, "Lblsibr{}(X:SortInt{})"));
+    assert_trivial_rule(backend, trivial, "sibrtd");
+    let excluded = format!(
+        "\\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(\\dv{{SortBool{{}}}}(\"true\"), Lbl'Unds-GT-'Int'Unds'{{}}({X}, {}))",
+        int(0)
+    );
+    assert!(
+        text(trivial).contains(&format!("\\not{{SortGeneratedTopCell{{}}}}({excluded})")),
+        "{:#?}",
+        summary(result)
+    );
+    assert!(
+        result.leaves.iter().any(
+            |leaf| leaf.reason == HaltReasonOutput::Stuck && text(leaf).contains("Lbldone{}()")
+        ),
+        "{:#?}",
+        summary(result)
+    );
+}
+
+/// Without a solver the step on `sibr(X)` cannot decide `sibrok`'s condition, so the run ends
+/// `Indeterminate` at the pre-step state and claims no undefined step; with Z3 it is the
+/// undefined step of the instances `not (X >Int 0)`. Observing the run changes no leaf.
+#[test]
+fn a_symbolic_post_step_undefined_candidate_beside_a_conditional_sibling() {
+    let mut backend = backend();
+    let result = execute_both(&mut backend, request(&format!("Lblsibr{{}}({X})")));
+    if backend.capabilities().smt {
+        assert_sibr_symbolic(&backend, &result);
+    } else {
+        assert_eq!(
+            reasons(&result),
+            [HaltReasonOutput::Indeterminate],
+            "{:#?}",
+            summary(&result)
+        );
+        assert_eq!(result.leaves[0].depth, 0);
+    }
+}
+
+/// Stopping at branches, the candidates of a step are normalized in the step. One normalized to
+/// `\bottom` with an undefined result is an undefined step of the pre-step state where no defined
+/// candidate applies, not a dropped candidate: `sibr(X)` reports the instances `not (X >Int 0)`,
+/// and `s3(0)`, whose two candidates are both undefined, ends in two `Trivial` leaves at depth 0
+/// rather than `Stuck`. Without its undefined sibling the defined candidate is the state's
+/// unique successor, so the stop rules apply to it: `sib(0)` stops at the cut point `sibok`
+/// before the step, or at the terminal rule `sibok` after it. Under strategy `any` the step
+/// itself drops `sibtd` there, with or without stopping at branches.
+#[test]
+fn stopping_at_branches_reports_a_candidate_undefined_after_the_step() {
+    let mut backend = backend();
+    let stop = |request: &mut ExecuteRequest| request.stop_at_branch = true;
+    let both = execute_both(
+        &mut backend,
+        request_with(&format!("Lbls3{{}}({})", int(0)), stop),
+    );
+    assert_eq!(
+        reasons(&both),
+        [HaltReasonOutput::Trivial, HaltReasonOutput::Trivial],
+        "{:#?}",
+        summary(&both)
+    );
+    assert!(both.leaves.iter().all(|leaf| leaf.depth == 0
+        && text(leaf) == top(&format!("Lbls3{{}}({})", int(0)))
+        && leaf.contradicted_total.is_some()
+        && leaf.branch.is_empty()));
+    assert_trivial_rule(&backend, &both.leaves[0], "s3a");
+    assert_trivial_rule(&backend, &both.leaves[1], "s3b");
+    assert_eq!(both.discarded.len(), 2, "both transitions are rolled back");
+
+    for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+        let mut cut = request(&format!("Lblsib{{}}({})", int(0)));
+        cut.stop_at_branch = true;
+        cut.strategy = strategy;
+        cut.cut_point_rules = vec!["UNDEF.sibok".into()];
+        let result = execute_both(&mut backend, cut);
+        assert_eq!(
+            summary(&result),
+            [(
+                HaltReasonOutput::CutPoint,
+                0,
+                top(&format!("Lblsib{{}}({})", int(0)))
+            )],
+            "{strategy:?}"
+        );
+        let mut terminal = request(&format!("Lblsib{{}}({})", int(0)));
+        terminal.stop_at_branch = true;
+        terminal.strategy = strategy;
+        terminal.terminal_rules = vec!["UNDEF.sibok".into()];
+        let result = execute_both(&mut backend, terminal);
+        assert_eq!(
+            reasons(&result),
+            [HaltReasonOutput::Terminal],
+            "{strategy:?}: {:#?}",
+            summary(&result)
+        );
+        assert_eq!(result.leaves[0].depth, 1);
+    }
+    // Under `any` the step drops `sibtd`, so the stop rules apply exploring all paths too.
+    let mut cut = request(&format!("Lblsib{{}}({})", int(0)));
+    cut.strategy = ExecutionStrategy::Any;
+    cut.cut_point_rules = vec!["UNDEF.sibok".into()];
+    assert_eq!(
+        reasons(&backend.execute(cut).unwrap()),
+        [HaltReasonOutput::CutPoint]
+    );
+
+    if !backend.capabilities().smt {
+        return;
+    }
+    let symbolic = execute_both(
+        &mut backend,
+        request_with(&format!("Lblsibr{{}}({X})"), stop),
+    );
+    assert_sibr_symbolic(&backend, &symbolic);
+}
+
+/// Two candidates of one step, `s3a` and `s3b`, are both undefined only after the step, where
+/// `I ==Int 0`. Each is an undefined step of `s3(X)` under `X = 0`, under either strategy and
+/// whether or not the run stops at branches, and the other instances are the stuck remainder:
+/// no instance is lost. On `s3(0)` every leaf is the undefined step of `s3(0)`: exploring all
+/// paths reports one per candidate, as its successors are expanded, and strategy `any`, whose
+/// step finds both candidates undefined, reports one for the step as a whole, as for any step
+/// with no defined candidate.
+#[test]
+fn two_candidates_undefined_after_the_step_are_each_an_undefined_step() {
+    let mut backend = backend();
+    for (strategy, leaves) in [(ExecutionStrategy::All, 2), (ExecutionStrategy::Any, 1)] {
+        let ground = execute_both(
+            &mut backend,
+            request_with(&format!("Lbls3{{}}({})", int(0)), |request| {
+                request.strategy = strategy;
+            }),
+        );
+        assert_eq!(
+            summary(&ground),
+            vec![
+                (
+                    HaltReasonOutput::Trivial,
+                    0,
+                    top(&format!("Lbls3{{}}({})", int(0)))
+                );
+                leaves
+            ],
+            "{strategy:?}"
+        );
+        assert_trivial_rule(&backend, &ground.leaves[0], "s3a");
+    }
+    if !backend.capabilities().smt {
+        return;
+    }
+    for (strategy, stop_at_branch) in [
+        (ExecutionStrategy::All, false),
+        (ExecutionStrategy::All, true),
+        (ExecutionStrategy::Any, false),
+    ] {
+        let result = execute_both(
+            &mut backend,
+            request_with(&format!("Lbls3{{}}({X})"), |request| {
+                request.strategy = strategy;
+                request.stop_at_branch = stop_at_branch;
+            }),
+        );
+        let context = format!("{strategy:?} {stop_at_branch}: {:#?}", summary(&result));
+        let trivial = trivial_leaves(&result);
+        assert_eq!(trivial.len(), 2, "{context}");
+        let zero = format!(
+            "\\equals{{SortInt{{}}, SortGeneratedTopCell{{}}}}({X}, {})",
+            int(0)
+        );
+        for leaf in trivial {
+            assert_eq!(leaf.depth, 0, "{context}");
+            assert!(is_pre_step(leaf, "Lbls3{}(X:SortInt{})"), "{context}");
+            assert!(text(leaf).ends_with(&format!("{zero})")), "{context}");
+        }
+        let stuck = result
+            .leaves
+            .iter()
+            .filter(|leaf| leaf.reason == HaltReasonOutput::Stuck)
+            .collect::<Vec<_>>();
+        assert_eq!(stuck.len(), 1, "{context}");
+        assert!(
+            text(stuck[0]).contains(&format!("\\not{{SortGeneratedTopCell{{}}}}({zero})")),
+            "{context}"
+        );
+    }
+}
+
+/// A lower-priority candidate is applied to the higher priority's remainder after its
+/// simplification (`f2(X)` is `2` where `not (X >Int 0)`). When that candidate's result is
+/// undefined, the leaf's path goes through that simplification, whether the undefinedness is
+/// found after the step (`remlo`, through the contradicted `total` `td`) or by the step itself
+/// (`rem2lo`, a partial division): the two leaves have the same state, trace and observations.
+#[test]
+fn an_undefined_step_on_a_simplified_remainder_traces_the_simplification() {
+    let mut backend = backend();
+    if !backend.capabilities().smt {
+        return;
+    }
+    let trivial_of = |backend: &mut Backend, program: &str| {
+        let result = execute_both(backend, request(program));
+        let [trivial] = trivial_leaves(&result)[..] else {
+            panic!("one Trivial leaf: {:#?}", summary(&result));
+        };
+        trivial.clone()
+    };
+    let after = trivial_of(&mut backend, &format!("Lblrem{{}}({X}, Lblf2{{}}({X}))"));
+    let within = trivial_of(&mut backend, &format!("Lblrem2{{}}({X}, Lblf2{{}}({X}))"));
+    assert_trivial_rule(&backend, &after, "remlo");
+    assert_trivial_rule(&backend, &within, "rem2lo");
+    assert_eq!(after.depth, 0);
+    assert!(is_pre_step(&after, &format!("Lblrem{{}}({X}, {})", int(2))));
+    assert_eq!(text(&after).replace("Lblrem{}", "Lblrem2{}"), text(&within));
+    assert!(
+        !after.trace.is_empty(),
+        "the remainder's simplification is traced"
+    );
+    assert_eq!(after.trace, within.trace);
+    assert_eq!(after.observations.len(), within.observations.len());
+    assert!(!after.observations.is_empty());
 }
