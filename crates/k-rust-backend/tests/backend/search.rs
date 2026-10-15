@@ -17,76 +17,9 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::parse_definition;
 
-use crate::support::{ceil_div_definition, first_origin, internal_term};
-
-/// A definition over constructors `start`, `a`, `b`, `c`, `ok` with:
-/// - `g(X) = g(g(X))`, a simplification equation under which simplifying any `g` application
-///   exhausts every budget;
-/// - `check(X) = ok requires g(X) == g(X)` (`check-ok`) and `norm(X) = c requires g(X) == g(X)`
-///   (`norm-c`): simplifying the condition exhausts the budget, and the unsimplified condition
-///   still holds, so the equation applies and the application reports the exhaustion;
-/// - `stall(X) = ok requires g(X) == a` (`stall-ok`): the condition exhausts the budget and its
-///   unsimplified form is undecided, so `stall(X)` stays unevaluated;
-/// - the rewrite rules `rules`.
-fn search_definition(rules: &str) -> BackendDefinition {
-    let conditional = |symbol: &str, result: &str, right: &str, label: &str| {
-        format!(
-            r#"
-                axiom{{R}} \implies{{R}}(
-                    \and{{R}}(
-                        \equals{{SortS{{}}, R}}(g{{}}(X:SortS{{}}), {right}),
-                        \and{{R}}(\in{{SortS{{}}, R}}(X0:SortS{{}}, X:SortS{{}}), \top{{R}}())
-                    ),
-                    \equals{{SortS{{}}, R}}(
-                        {symbol}{{}}(X0:SortS{{}}),
-                        \and{{SortS{{}}}}({result}{{}}(), \top{{SortS{{}}}}())
-                    )
-                ) [label{{}}("{label}")]"#
-        )
-    };
-    let source = format!(
-        r#"[]
-            module MAIN
-                sort SortS{{}} []
-                symbol start{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
-                symbol a{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
-                symbol b{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
-                symbol c{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
-                symbol ok{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
-                symbol held{{}}(SortS{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
-                symbol g{{}}(SortS{{}}) : SortS{{}} [function{{}}(), functional{{}}()]
-                symbol check{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
-                symbol norm{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
-                symbol stall{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
-                axiom{{R}} \implies{{R}}(
-                    \top{{R}}(),
-                    \equals{{SortS{{}}, R}}(
-                        g{{}}(X:SortS{{}}),
-                        \and{{SortS{{}}}}(g{{}}(g{{}}(X:SortS{{}})), \top{{SortS{{}}}}())
-                    )
-                ) [label{{}}("grow"), simplification{{}}()]
-                {check}
-                {norm}
-                {stall}
-                {rules}
-            endmodule []"#,
-        check = conditional("check", "ok", "g{}(X:SortS{})", "check-ok"),
-        norm = conditional("norm", "c", "g{}(X:SortS{})", "norm-c"),
-        stall = conditional("stall", "ok", "a{}()", "stall-ok"),
-    );
-    let syntax = parse_definition(&source).expect("definition should parse");
-    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
-}
-
-fn rule(label: &str, left: &str, right: &str) -> String {
-    format!(
-        r#"
-                axiom{{}} \rewrites{{SortS{{}}}}(
-                    \and{{SortS{{}}}}({left}, \top{{SortS{{}}}}()),
-                    \and{{SortS{{}}}}({right}, \top{{SortS{{}}}}())
-                ) [label{{}}("{label}")]"#
-    )
-}
+use crate::support::{
+    ceil_div_definition, condition_exhausted, internal_term, rule, search_definition,
+};
 
 /// `start => held(g(a))`, and `start => b` when `branching`.
 fn growing_definition(branching: bool) -> BackendDefinition {
@@ -117,24 +50,6 @@ fn term_exhausted(limit: usize) -> BackendDiagnostic {
         limit,
         subject: BudgetSubject::Term,
     }
-}
-
-fn condition_exhausted(
-    definition: &BackendDefinition,
-    rule_id: &str,
-    limit: usize,
-) -> [BackendDiagnostic; 2] {
-    [
-        BackendDiagnostic::SimplificationBudgetExhausted {
-            limit,
-            subject: BudgetSubject::Predicates,
-        },
-        BackendDiagnostic::RuleConditionUnsimplified {
-            rule_id: rule_id.to_owned(),
-            origin: first_origin(definition, rule_id),
-            limit,
-        },
-    ]
 }
 
 fn head(pattern: &Pattern) -> &str {
