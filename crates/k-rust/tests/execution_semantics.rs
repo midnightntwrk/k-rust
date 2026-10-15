@@ -2690,3 +2690,52 @@ endmodule
         assert_eq!(diagnosed, [false, true], "{rules:?}");
     }
 }
+
+/// The work budget through the facade: `maxWork` is read from a JSON request, every result
+/// reports `work`, and a budgeted run that has not ended stops after that many states with one
+/// `work-bound` leaf, its last.
+#[test]
+fn a_work_budget_stops_a_run_after_that_many_states_with_one_work_bound_leaf() {
+    const SOURCE: &str = r#"
+module LOOP
+  imports INT
+  syntax Pgm ::= loop(Int) | done(Int)
+  rule loop(N) => loop(N +Int 1)
+endmodule
+"#;
+    let compiled = compile(SOURCE, "LOOP", "LOOP", "Pgm", "loop(0)");
+    let mut backend = Backend::new(&compiled.kore, "LOOP", BackendOptions::default()).unwrap();
+
+    let budgeted = backend
+        .execute(ExecuteRequest {
+            max_work: Some(5),
+            ..ExecuteRequest::new(compiled.initial.clone())
+        })
+        .unwrap();
+    assert_eq!(budgeted.work, 5);
+    let reasons = budgeted
+        .leaves
+        .iter()
+        .map(|leaf| leaf.reason)
+        .collect::<Vec<_>>();
+    assert_eq!(reasons, vec![HaltReasonOutput::WorkBound]);
+
+    let request = serde_json::from_value::<ExecuteRequest>(serde_json::json!({
+        "state": codec::to_value(&compiled.initial).unwrap(),
+        "maxWork": 5,
+    }))
+    .unwrap();
+    assert_eq!(request.max_work, Some(5));
+    let output: serde_json::Value =
+        serde_json::from_str(&backend.execute_json(request).unwrap()).unwrap();
+    assert_eq!(output["work"], 5);
+    assert_eq!(output["leaves"][0]["reason"], "work-bound");
+
+    let finished = compile(SOURCE, "LOOP", "LOOP", "Pgm", "done(0)");
+    let mut backend = Backend::new(&finished.kore, "LOOP", BackendOptions::default()).unwrap();
+    let unbounded = backend
+        .execute(ExecuteRequest::new(finished.initial.clone()))
+        .unwrap();
+    assert_eq!(unbounded.work, 1);
+    assert_eq!(unbounded.leaves[0].reason, HaltReasonOutput::Stuck);
+}

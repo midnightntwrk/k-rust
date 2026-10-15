@@ -211,6 +211,7 @@ impl Display for AtSort<'_, HaltReason> {
             }
             HaltReason::DepthBound => formatter.write_str("the depth bound was reached"),
             HaltReason::BreadthBound => formatter.write_str("the breadth bound was exceeded"),
+            HaltReason::WorkBound => formatter.write_str("the work budget was reached"),
             HaltReason::Indeterminate(reason) => write!(formatter, "{}", reason.at(self.sort)),
             HaltReason::Simplification(error) => write!(formatter, "{}", error.at(self.sort)),
         }

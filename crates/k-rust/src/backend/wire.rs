@@ -1408,6 +1408,7 @@ fn execution_candidates_output<K: WireKore>(
         | HaltReason::TerminalRule { .. }
         | HaltReason::DepthBound
         | HaltReason::BreadthBound
+        | HaltReason::WorkBound
         | HaltReason::Indeterminate(_)
         | HaltReason::Simplification(_) => Ok((None, None)),
     }
@@ -1664,6 +1665,7 @@ pub(super) fn execution_response<K: WireKore>(
                     | HaltReason::TerminalRule { .. }
                     | HaltReason::DepthBound
                     | HaltReason::BreadthBound
+                    | HaltReason::WorkBound
                     | HaltReason::Indeterminate(_)
                     | HaltReason::Simplification(_) => (None, None),
                 };
@@ -1685,6 +1687,7 @@ pub(super) fn execution_response<K: WireKore>(
                     | HaltReason::TerminalRule { .. }
                     | HaltReason::DepthBound
                     | HaltReason::BreadthBound
+                    | HaltReason::WorkBound
                     | HaltReason::Indeterminate(_)
                     | HaltReason::Simplification(_) => None,
                 };
@@ -1702,6 +1705,7 @@ pub(super) fn execution_response<K: WireKore>(
                     | HaltReason::TerminalRule { .. }
                     | HaltReason::DepthBound
                     | HaltReason::BreadthBound
+                    | HaltReason::WorkBound
                     | HaltReason::Simplification(_) => None,
                 };
                 let (candidates, remainder) = execution_candidates_output(leaf.halt_reason)?;
@@ -1731,6 +1735,7 @@ pub(super) fn execution_response<K: WireKore>(
             .map(uncommitted_observation_output)
             .collect(),
         coverage: result.coverage.map(Into::into),
+        work: result.work,
     })
 }
 

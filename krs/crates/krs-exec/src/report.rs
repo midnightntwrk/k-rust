@@ -123,7 +123,8 @@ impl Halt {
             | HaltReasonOutput::Branch
             | HaltReasonOutput::CutPoint
             | HaltReasonOutput::Terminal
-            | HaltReasonOutput::BreadthBound => Self::Interrupted,
+            | HaltReasonOutput::BreadthBound
+            | HaltReasonOutput::WorkBound => Self::Interrupted,
         }
     }
 

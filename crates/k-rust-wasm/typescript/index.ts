@@ -248,6 +248,12 @@ export interface ExecuteOptions {
    * and those whose condition it began to decide (docs/compatibility.md, "Run coverage").
    */
   collectCoverage?: boolean
+  /**
+   * The most states the run may visit across all its paths; absent: no bound. A run that
+   * reaches it ends with one 'work-bound' leaf for the state it did not visit, the last leaf,
+   * and does not explore the other pending states (docs/compatibility.md, "Work budget").
+   */
+  maxWork?: number
   schemaVersion?: number
 }
 
@@ -271,7 +277,10 @@ export interface ExecutionLeaf {
    * instance and, under strategy 'all', none has a defined successor (under 'any', none from a
    * rule of that priority through the collection candidate the step follows); the constraint is
    * not checked for satisfiability.
-   * Under strategy 'all' without stops or diagnostics, the leaves' constraints cover the initial state.
+   * 'work-bound': the request's `maxWork` was reached before this state was visited; the state is
+   * where exploration stopped, unexpanded and unnormalised, not a result, and the pending states
+   * were not explored.
+   * Under strategy 'all' without stops, bounds or diagnostics, the leaves' constraints cover the initial state.
    */
   reason:
     | 'cancelled'
@@ -283,6 +292,7 @@ export interface ExecutionLeaf {
     | 'terminal'
     | 'depth-bound'
     | 'breadth-bound'
+    | 'work-bound'
     | 'indeterminate'
     | 'unsupported-hook'
     | 'simplification-error'
@@ -329,6 +339,8 @@ export interface ExecutionResult {
   /** Compatibility copy of effects when execution retains exactly one leaf. */
   effects: BackendEffect[]
   discarded?: UncommittedObservation[]
+  /** The states the run visited across all its paths, the unit `maxWork` bounds. */
+  work: number
   /** Present exactly when the request set `collectCoverage`. */
   coverage?: RunCoverage
 }

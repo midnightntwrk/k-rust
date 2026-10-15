@@ -1330,7 +1330,8 @@ fn run_backend_in_execution(
             | HaltReason::CutPointRule { .. }
             | HaltReason::TerminalRule { .. }
             | HaltReason::DepthBound
-            | HaltReason::BreadthBound => false,
+            | HaltReason::BreadthBound
+            | HaltReason::WorkBound => false,
         })
     {
         let sort = leaf.pattern.term.sort();
@@ -1480,6 +1481,7 @@ fn run_backend_in_execution(
                 | HaltReason::TerminalRule { .. }
                 | HaltReason::DepthBound
                 | HaltReason::BreadthBound
+                | HaltReason::WorkBound
                 | HaltReason::Indeterminate(_)
                 | HaltReason::Simplification(_) => {
                     unreachable!("all dropped leaves were checked above")
