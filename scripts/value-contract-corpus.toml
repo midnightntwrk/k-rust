@@ -13,7 +13,9 @@
 # `condition_memo_refusals` the memo keys whose answer the memo refused to store (each such key is
 # simplified as written from then on).
 # `condition_budget_stops` and `condition_stack_stops` count the simplifications of the check that
-# spent their budget of polls or ran out of native stack; every case expects none, so a stop in the
+# spent their budget of polls or ran out of native stack, and `discharge_budget_stops` and
+# `discharge_stack_stops` the rewrite rules whose load-time definedness discharge did
+# (`BackendDefinition::discharge_counts`); every case expects none, so a stop in the
 # corpus fails the gate (the values for `wasm` and `kevm` are the expectation, measured by the
 # KINK-06/3 heavy gate).
 
@@ -51,6 +53,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "simple-untyped"
@@ -86,6 +90,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "simple-typed-static"
@@ -121,6 +127,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "simple-typed-dynamic"
@@ -156,6 +164,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "kool-untyped"
@@ -191,6 +201,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "kool-typed-dynamic"
@@ -226,6 +238,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "kool-typed-static"
@@ -261,6 +275,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "iele-bison-glr-bug"
@@ -296,6 +312,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "glr2"
@@ -331,6 +349,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "glr3"
@@ -366,6 +386,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "glr4"
@@ -401,6 +423,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "overload"
@@ -436,6 +460,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "issue-1090"
@@ -471,6 +497,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "issue-2909-llvm"
@@ -506,6 +534,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "issue-2909-haskell"
@@ -541,6 +571,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "issue-4142"
@@ -576,6 +608,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "issue-4114"
@@ -611,6 +645,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 [[case]]
 name = "wasm"
@@ -646,6 +682,8 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0
 
 # KEVM withdraws a claim (a relevant non-joined pair), so the manifest covers it; it is compiled
 # here and measured at a host UID (scripts/gates.toml, value-contract-corpus).
@@ -683,3 +721,5 @@ condition_budget_stops = 0
 condition_stack_stops = 0
 full_condition_budget_stops = 0
 full_condition_stack_stops = 0
+discharge_budget_stops = 0
+discharge_stack_stops = 0

@@ -578,6 +578,22 @@ pub struct PendingAxiom {
     pub attributes: kore::Attributes,
 }
 
+/// The stops the load's discharge of rewrite-rule definedness met
+/// ([`BackendDefinition::discharge_counts`]), one per rule whose discharge met a stop. A rule
+/// whose discharge stopped stays undischarged: each application of it states the definedness of
+/// its right-hand side again at run time.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DischargeCounts {
+    /// Rules whose discharge spent its budget of polls for a stop. Where the budget stops is a
+    /// function of the definition, so these are the same on every load.
+    pub budget_stops: usize,
+    /// Rules whose discharge ran out of native stack (a `StackExhausted` stop was minted, whether
+    /// or not a site dismissed it). The stack the simplifier may use depends on the loading
+    /// thread's stack and on the stack other threads of the process hold, so the loaded rewrite
+    /// theory is a function of the definition only when this is zero.
+    pub stack_stops: usize,
+}
+
 /// A validated immutable semantic snapshot of a selected KORE module closure.
 ///
 /// Its signature, source sentences, executable theories, constructor-domain facts and lazy
@@ -825,6 +841,9 @@ pub struct BackendDefinition {
     /// carry value claims. [`crate::confluence::ValueClaims::withheld`] until `internalize`
     /// computes it, so that the check itself runs with every claim withheld.
     value_claims: crate::confluence::ValueClaims,
+    /// The stops the load's discharge of rewrite-rule definedness met
+    /// (`discharge_rewrite_definedness`).
+    discharge_counts: DischargeCounts,
     /// Whether some simplification axiom states an equation between terms but was filed in
     /// `predicate_simplification_theory`, because its left-hand side is not a term pattern (an
     /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
@@ -1705,25 +1724,47 @@ impl BackendDefinition {
     /// role = "part"
     /// sites = ["BackendDefinition::discharge_rewrite_definedness"]
     /// ```
+    ///
+    /// The discharge is cached with the definition, so, like the critical-pair check, it runs
+    /// detached from the request that loads it (no cancellation, deadline or solver signal of the
+    /// caller reaches it), and each rule's discharge, which may simplify a ceil equation's
+    /// instance, runs under the check's budget of polls (`confluence::budgeted`). A rule whose
+    /// discharge met a budget or stack stop stays undischarged, which only keeps its definedness
+    /// obligation for run time, and the stop is counted ([`Self::discharge_counts`]).
     fn discharge_rewrite_definedness(&mut self) {
         let _span = measure::algorithm_span(Algorithm::BackendDefinedness);
         let mut discharged = Vec::new();
+        let mut counts = DischargeCounts::default();
         {
             let definition: &BackendDefinition = self;
-            for (index, groups) in &definition.rewrite_theory {
-                for (priority, rules) in groups {
-                    for (position, rule) in rules.iter().enumerate() {
-                        // The equations the discharge applies or decides are what a run of the
-                        // rule relies on in place of the obligations it removes
-                        // (`crate::coverage`).
-                        let (is_defined, coverage) = crate::coverage::collect(|| {
-                            crate::definedness::rule_is_defined(definition, &rule.rule)
-                        });
-                        discharged.push((index.clone(), *priority, position, is_defined, coverage));
+            crate::stop::detached(|| {
+                for (index, groups) in &definition.rewrite_theory {
+                    for (priority, rules) in groups {
+                        for (position, rule) in rules.iter().enumerate() {
+                            // The equations the discharge applies or decides are what a run of
+                            // the rule relies on in place of the obligations it removes
+                            // (`crate::coverage`).
+                            let ((is_defined, coverage), stops) =
+                                crate::confluence::budgeted(|| {
+                                    crate::coverage::collect(|| {
+                                        crate::definedness::rule_is_defined(definition, &rule.rule)
+                                    })
+                                });
+                            counts.budget_stops += usize::from(stops.budget_exhausted);
+                            counts.stack_stops += usize::from(stops.stack_exhausted);
+                            discharged.push((
+                                index.clone(),
+                                *priority,
+                                position,
+                                is_defined && !stops.any(),
+                                coverage,
+                            ));
+                        }
                     }
                 }
-            }
+            });
         }
+        self.discharge_counts = counts;
 
         for (index, priority, position, is_defined, coverage) in discharged {
             if !is_defined {
@@ -2334,6 +2375,7 @@ impl BackendDefinition {
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
             value_claims: crate::confluence::ValueClaims::withheld(),
+            discharge_counts: DischargeCounts::default(),
             term_equation_in_predicate_theory: false,
             deepest,
             #[cfg(feature = "check-normal-forms")]
@@ -2428,6 +2470,14 @@ impl BackendDefinition {
     /// claims, and the pairs that withdrew the others (`confluence`).
     pub fn value_claims(&self) -> &crate::confluence::ValueClaims {
         &self.value_claims
+    }
+
+    /// The stops the load's discharge of rewrite-rule definedness met. The discharge runs after
+    /// the critical-pair check, so its stops are not part of the check's verdict
+    /// ([`crate::confluence::CheckCounts`]), which [`Self::value_claims_checked`] can compute
+    /// again on its own; they are read beside it.
+    pub fn discharge_counts(&self) -> DischargeCounts {
+        self.discharge_counts
     }
 
     /// The verdict of the critical-pair check run again in `scope`, on a copy of this definition

@@ -135,6 +135,8 @@ fn value_contract_corpus() {
             "condition_stack_stops": counts.condition_stack_stops,
             "full_condition_budget_stops": full.counts().condition_budget_stops,
             "full_condition_stack_stops": full.counts().condition_stack_stops,
+            "discharge_budget_stops": definition.discharge_counts().budget_stops,
+            "discharge_stack_stops": definition.discharge_counts().stack_stops,
         });
         println!("VALUE_CONTRACT {line}");
     }

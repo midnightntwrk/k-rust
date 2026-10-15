@@ -197,7 +197,10 @@ fn a_failing_compile_fails_identically_on_every_thread() {
 
 /// Eight threads compile one shared baseline and one shared relinked mutant at once, before any
 /// compile has filled the lazy tables they share, and every result equals the compile of a fresh
-/// load.
+/// load. The tables a compile shares with its `LoadedDefinition` (through
+/// `ResolvedDefinition::update`) are the import closures and the production catalogs with their
+/// key indexes; the relinked mutant is resolved afresh, so its import closures start empty. A
+/// change that shares more state between compiles should extend this test to it.
 #[test]
 fn concurrent_compiles_of_one_shared_loaded_definition_return_the_fresh_artifacts() {
     let mutation = mutant(MUTATIONS[0].0, MUTATIONS[0].1);

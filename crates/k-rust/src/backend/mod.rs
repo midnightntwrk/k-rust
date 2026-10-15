@@ -36,8 +36,8 @@
 //!    [`Backend::add_module`], [`Backend::rule_catalog`], [`Backend::select_definition`] and the
 //!    internalizing constructors ([`Backend::internalize_definition`],
 //!    [`Backend::internalize_source_definition`]) have no boundary and never answer `Cancelled`;
-//!    those that load a definition (`select_definition`, the internalizing constructors) read
-//!    the token during the load, as point 6 says.
+//!    those that load a definition (`select_definition`, the internalizing constructors) do not
+//!    read the token, as point 6 says.
 //! 2. A cancellation observed while [`Backend::execute`] or a search ([`Backend::search`] and its
 //!    path and pattern variants) explores ends the whole run, and the run reports it in its
 //!    result. `execute` returns `Ok` with the leaves completed before the cancellation and the
@@ -69,17 +69,14 @@
 //! 6. Loading a module's definition (on construction, or on a module's first use) happens before
 //!    the boundary and is not cancellable: a cancellation does not interrupt it, and a
 //!    [`Backend`] constructed inside a cancelled scope loads its default module and then fails at
-//!    the boundary as in point 1. The load-time critical-pair check does not read the token.
-//!    The discharge of rewrite rules' definedness obligations at load does read it: a definition
-//!    loaded while a token is cancelled, whether a module first used by a cancelled request and
-//!    then cached, or one an internalizing constructor returns, may keep rewrite rules whose
-//!    definedness is left undischarged. Such a definition is sound, but requests on it pay for
-//!    the obligations at run time and may record different traces and diagnostics and, where
-//!    run-time simplification cannot decide an obligation, different leaves. A host therefore
-//!    constructs its backends, calls the internalizing constructors, and selects every module it
-//!    will use ([`Backend::select_definition`]) outside a token's scope.
-//!    The rewrite rules' definedness discharge reads the token during a load; this is what
-//!    makes a load under a cancelled token weaker.
+//!    the boundary as in point 1. A load is detached from the request's token: neither the
+//!    load-time critical-pair check nor the discharge of rewrite rules' definedness obligations
+//!    reads it, so a definition loaded or cached inside a cancelled request (a module first used
+//!    by a cancelled request, or one an internalizing constructor returns inside a cancelled
+//!    scope) equals one loaded outside any token's scope
+//!    (`crates/k-rust/tests/load_cancellation.rs`). Both are bounded by a budget of polls
+//!    instead, so a load ends however its definition's conditions evaluate
+//!    (`docs/backend-port.md`, the critical-pair check).
 //!
 //! With the `z3-inference` feature, a solver whose prelude failed stops every operation that uses
 //! it, as `Err(e)` with a `SolverPrelude` cause, at the boundary or during the run.
@@ -988,6 +985,13 @@ impl Backend {
         self.session.default_module()
     }
 
+    /// Whether this backend already holds the internalized definition of `module`: a module
+    /// other than the default one is internalized by the first request that names it (or by
+    /// [`Self::select_definition`]) and kept for later requests.
+    pub fn is_loaded(&self, module: &str) -> bool {
+        self.session.is_loaded(module)
+    }
+
     /// Return the compiled rules in the definition selected for execution.
     ///
     /// A written sentence's kind is found by matching its `Source` and `Location` against
@@ -1791,8 +1795,9 @@ impl Backend {
     /// see the module docs, "Bounding an operation".
     ///
     /// The definition of `module` is loaded, on first use, before the boundary; a cancellation
-    /// does not interrupt the load, but a load under a cancelled token may leave rewrite rules'
-    /// definedness undischarged (module docs, "Bounding an operation", point 6).
+    /// does not interrupt the load, and the load does not read the token, so the definition it
+    /// caches is the one a load outside any token's scope gives (module docs, "Bounding an
+    /// operation", point 6).
     ///
     /// The operation runs on a stack that holds the definition's recursive passes over its own
     /// patterns and terms (`BackendDefinition::with_stack_for`); an operation over a request's
