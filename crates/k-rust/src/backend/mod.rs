@@ -809,11 +809,12 @@ impl Backend {
     /// states must not decide a claim; prove through [`Self::prove`]
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
-    /// The result is a function of the definition, the module, the options and the request, the
-    /// same on a fresh `Backend` and on this one after other requests, in any process and on any
-    /// thread, outside the exclusions of docs/compatibility.md, "Determinism and concurrency"
-    /// (step timeouts, cancellation, stack exhaustion, results near the memory allowance, a
-    /// load-time check stopped for lack of stack, and SMT timeouts in builds with Z3).
+    /// The result is a function of the backend's inputs and the request, the same on a fresh
+    /// `Backend` and on this one after other requests, in any process and on any thread, outside
+    /// the exclusions of docs/compatibility.md, "Determinism and concurrency" (cancellation, step
+    /// timeouts, any stack stop, which the result does not always show, a `Bytes` result the
+    /// memory allowance bounds, a load-time check stopped for lack of stack, and SMT timeouts in
+    /// builds with Z3).
     ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
