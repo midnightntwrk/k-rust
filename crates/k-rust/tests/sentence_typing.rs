@@ -1246,6 +1246,10 @@ fn corpus() -> Vec<(String, String, String, Option<std::path::PathBuf>)> {
         ("generated-rule-syntax.k", "TYPER-PROBE"),
         ("private-helpers.k", "PRIV"),
         ("inferred-parent.k", "INFERRED-PARENT"),
+        ("regression/withConfig.k", "TEST"),
+        ("regression/withConfig2.k", "TEST"),
+        ("configuration-context.k", "TYPER-CFG"),
+        ("transaction-data.k", "TX-DATA"),
     ] {
         let path = root.join("sentence-typing").join(file);
         corpus.push((
@@ -1282,7 +1286,7 @@ fn every_sentence_of_a_compiled_definition_types_in_the_main_view() {
     assert_compiles(&typed, "TYPED");
     assert_closure_types(&typed, "TYPED");
     assert!(failures.is_empty(), "{failures:#?}");
-    assert!(compiled.len() >= 25, "only {compiled:?} compiled");
+    assert!(compiled.len() >= 29, "only {compiled:?} compiled");
 }
 
 // An exception to the typing contract until local functions are typed as their lowering:
@@ -1368,4 +1372,64 @@ fn a_helper_of_a_parse_only_cell_sort_is_not_typed() {
         ))
         .is_err()
     );
+}
+
+const CONFIGURATION_CONTEXT: &str =
+    include_str!("fixtures/sentence-typing/configuration-context.k");
+const TRANSACTION_DATA: &str = include_str!("fixtures/sentence-typing/transaction-data.k");
+
+// `[[ cnt() => N ]] <n> N </n>` loads as `#withConfig(cnt() => N, <n> N </n>)`: its first argument
+// is the function rule, typed as a rule body, and its second the configuration context, a cell
+// fragment typed as an authored cell elsewhere (at its production's sort, its body at the cell's
+// content sort). The construct itself has no sort.
+#[test]
+fn a_function_rule_with_configuration_context_types() {
+    let loaded = load_main(
+        "configuration-context.k",
+        CONFIGURATION_CONTEXT,
+        "TYPER-CFG",
+        None,
+    );
+    assert_compiles(&loaded, "TYPER-CFG");
+    assert_closure_types(&loaded, "TYPER-CFG");
+    let typing = main_typer(&loaded)
+        .typing(labelled(loaded.definition(), "TYPER-CFG.withconfig"))
+        .unwrap();
+    assert_eq!(at(&typing, &[0]).sort, None);
+    assert_eq!(at(&typing, &[0, 1]).sort, Some(Sort::new("NCell")));
+    assert_eq!(at(&typing, &[0, 0]).sort, Some(Sort::new("Int")));
+    assert_eq!(at(&typing, &[0, 0, 0]), &sorted(Some("Int"), Some("Int")));
+    assert_eq!(at(&typing, &[0, 0, 1]), &sorted(Some("Int"), Some("Int")));
+    let cell_body = typing
+        .positions
+        .iter()
+        .filter(|(path, _)| path.starts_with(&[0, 1]) && path.len() == 3)
+        .map(|(_, position)| position.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        cell_body.contains(&sorted(Some("Int"), Some("Int"))),
+        "{:#?}",
+        typing.positions
+    );
+}
+
+// A KEVM-shaped `#getTxData` rule: several context cells, a nested cell with `...`, and a
+// condition reading context variables.
+#[test]
+fn a_function_rule_with_nested_configuration_context_types() {
+    let loaded = load_main("transaction-data.k", TRANSACTION_DATA, "TX-DATA", None);
+    assert_compiles(&loaded, "TX-DATA");
+    assert_closure_types(&loaded, "TX-DATA");
+    let typing = main_typer(&loaded)
+        .typing(labelled(loaded.definition(), "TX-DATA.tx-data"))
+        .unwrap();
+    assert_eq!(
+        at(&typing, &[0, 0, 0]),
+        &sorted(Some("TxData"), Some("TxData"))
+    );
+    assert_eq!(
+        at(&typing, &[0, 0, 1]),
+        &sorted(Some("TxData"), Some("TxData"))
+    );
+    assert_eq!(at(&typing, &[1]), &sorted(Some("Bool"), Some("Bool")));
 }
