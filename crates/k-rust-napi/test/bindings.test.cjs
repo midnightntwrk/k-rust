@@ -347,6 +347,8 @@ test('searches and observes the persistent native backend graph', () => {
     backend.executeObserved({ state: a, resultModality: 'path-set' }).modality,
     'path-set',
   )
+  assert.ok(backend.execute({ state: a }).leaves.every(({ trace }) => trace.length > 0))
+  assert.ok(backend.execute({ state: a, trace: false }).leaves.every(({ trace }) => trace.length === 0))
 
   assert.throws(() => backend.search({ state: a, schemaVersion: 99 }), /schema version 99/)
   assert.throws(() => backend.search({ state: a, maxDeph: 1 }), /unknown field.*maxDeph/i)

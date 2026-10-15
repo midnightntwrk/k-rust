@@ -2601,17 +2601,25 @@ endmodule
 }
 
 /// A branching pair (`start(I)` steps to `left()` and to `right()`) and an undefined step
-/// (`half(0)` divides by zero), whose `trivial` leaf names its rule.
+/// (`half(0)` divides by zero), whose `trivial` leaf names the rule of the step that is
+/// undefined. And a two-step chain (`gf(0)` to `gd(0)` to `wrap(dv(0))`) whose last rule
+/// `preserves-definedness`: its successor is undefined, and the `trivial` leaf at depth 2 names
+/// the rule it read from the path's latest rewrite entry, which a run without traces must keep.
 const TRACES: &str = r#"
 module TRACES
   imports INT
   syntax KItem ::= start(Int) | half(Int) | val(Int) | left() | right() | done()
+                 | gf(Int) | gd(Int) | wrap(Int)
+  syntax Int ::= dv(Int) [function]
   configuration <k> $PGM:KItem </k>
   rule [to-left]:  <k> start(I) => left() </k> requires I >Int 0
   rule [to-right]: <k> start(I) => right() </k> requires I >Int 0
   rule [to-half]:  <k> left() => half(0) </k>
   rule [half]:     <k> half(I) => val(10 /Int I) </k>
   rule [to-done]:  <k> right() => done() </k>
+  rule dv(I) => 10 /Int I
+  rule [gf]:       <k> gf(I) => gd(I) </k>
+  rule [gd]:       <k> gd(I) => wrap(dv(I)) </k> [preserves-definedness]
 endmodule
 "#;
 
@@ -2632,52 +2640,62 @@ fn leaves_without_traces(result: &ExecutionResult) -> (Vec<serde_json::Value>, b
 }
 
 /// A request that asks for no traces gets the same leaves, with every field but `trace` equal
-/// (the `trivial` leaf still names its rule), and empty traces; so does an observed run, whose
-/// branch identities and observations are fields of its leaves.
+/// (each `trivial` leaf still names its rule, also one read from the path's latest rewrite
+/// entry), and empty traces; so does an observed run, whose branch identities and observations
+/// are fields of its leaves.
 #[test]
 fn an_execution_without_traces_keeps_the_halt_metadata() {
     use k_rust::backend::{ObservedRequest, ResultModalityOutput};
 
-    let compiled = compile(TRACES, "TRACES", "TRACES", "KItem", "start(1)");
-    let mut backend = Backend::new(&compiled.kore, "TRACES", BackendOptions::default()).unwrap();
-    for modality in [
-        ResultModalityOutput::StateSet,
-        ResultModalityOutput::PathSet,
-    ] {
-        for observed in [false, true] {
-            let mut run = |trace: bool| {
-                let request = ExecuteRequest {
-                    result_modality: modality,
-                    trace,
-                    ..ExecuteRequest::new(compiled.initial.clone())
+    for (program, rule, depth) in [("start(1)", "TRACES.half", 2), ("gf(0)", "TRACES.gd", 2)] {
+        let compiled = compile(TRACES, "TRACES", "TRACES", "KItem", program);
+        let mut backend =
+            Backend::new(&compiled.kore, "TRACES", BackendOptions::default()).unwrap();
+        for modality in [
+            ResultModalityOutput::StateSet,
+            ResultModalityOutput::PathSet,
+        ] {
+            for observed in [false, true] {
+                let mut run = |trace: bool| {
+                    let request = ExecuteRequest {
+                        result_modality: modality,
+                        trace,
+                        ..ExecuteRequest::new(compiled.initial.clone())
+                    };
+                    if observed {
+                        backend.execute_observed(ObservedRequest {
+                            request,
+                            rules: None,
+                        })
+                    } else {
+                        backend.execute(request)
+                    }
+                    .unwrap()
                 };
-                if observed {
-                    backend.execute_observed(ObservedRequest {
-                        request,
-                        rules: None,
-                    })
-                } else {
-                    backend.execute(request)
-                }
-                .unwrap()
-            };
-            let with = run(true);
-            let without = run(false);
-            let (with_leaves, with_empty) = leaves_without_traces(&with);
-            let (without_leaves, without_empty) = leaves_without_traces(&without);
-            assert!(!with_empty, "{modality:?}, observed {observed}");
-            assert!(without_empty, "{modality:?}, observed {observed}");
-            assert_eq!(
-                with_leaves, without_leaves,
-                "{modality:?}, observed {observed}"
-            );
-            let trivial = without
-                .leaves
-                .iter()
-                .find(|leaf| leaf.reason == HaltReasonOutput::Trivial)
-                .expect("the undefined step is a trivial leaf");
-            assert_eq!(trivial.rule_label.as_deref(), Some("TRACES.half"));
-            assert!(trivial.rule_id.is_some());
+                let with = run(true);
+                let without = run(false);
+                let (with_leaves, with_empty) = leaves_without_traces(&with);
+                let (without_leaves, without_empty) = leaves_without_traces(&without);
+                assert!(!with_empty, "{modality:?}, observed {observed}");
+                assert!(without_empty, "{modality:?}, observed {observed}");
+                assert_eq!(
+                    with_leaves, without_leaves,
+                    "{modality:?}, observed {observed}"
+                );
+                let trivial = |result: &ExecutionResult| {
+                    let leaf = result
+                        .leaves
+                        .iter()
+                        .find(|leaf| leaf.reason == HaltReasonOutput::Trivial)
+                        .expect("the undefined step is a trivial leaf");
+                    (leaf.depth, leaf.rule_label.clone(), leaf.rule_id.clone())
+                };
+                let (leaf_depth, label, id) = trivial(&without);
+                assert_eq!(leaf_depth, depth, "{program}");
+                assert_eq!(label.as_deref(), Some(rule), "{program}");
+                assert!(id.is_some(), "{program}");
+                assert_eq!(trivial(&with), (leaf_depth, label, id), "{program}");
+            }
         }
     }
 }

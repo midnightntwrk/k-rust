@@ -278,8 +278,10 @@ pub struct ExecuteRequest {
     pub result_modality: ResultModalityOutput,
     /// Whether each leaf carries its path's trace ([`ExecutionLeaf::trace`]), O(depth) entries
     /// per leaf; `true` when omitted. A caller that does not read traces sets `false`: every
-    /// leaf's `trace` is then empty and every other field of the result is unchanged, and a
-    /// branching run's output is linear in its leaves instead of their total path length.
+    /// leaf's `trace` is then empty and every other field of the result is unchanged, so the
+    /// traces no longer grow with the total path length. An observed run's `branch` and
+    /// `observations` stay O(depth) per leaf, so only an unobserved branching run's output is
+    /// then linear in its leaves (state sizes aside).
     #[serde(default = "default_trace")]
     pub trace: bool,
     #[serde(default = "default_backend_schema_version")]
@@ -368,8 +370,9 @@ pub struct ExecutionLeaf<K = Value> {
     /// `cause`, `candidates`, `remainder`, `branch`, and `observations` for structured evidence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
-    /// The rule applications on this leaf's path, in order; empty when the request asked for no
-    /// traces ([`ExecuteRequest::trace`]).
+    /// The rewrite, remainder and simplification entries of this leaf's path, in order, ending
+    /// with the simplifications of the leaf's own pattern; empty when the request set
+    /// `trace: false` ([`ExecuteRequest::trace`]).
     pub trace: Vec<TraceEntry>,
     /// Committed transition identities, independent of the observation rule filter.
     /// Unobserved execution leaves this empty; an empty allowlist retains every identity.
