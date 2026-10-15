@@ -8,8 +8,10 @@
 //!
 //! This module is the supported surface for embedding k-rust in a Rust host.
 //! Besides its own items, it re-exports by name the backend items a host needs to bound an
-//! operation ([`CancellationToken`], [`StopCause`], [`StackLimit`], [`PreludeFailure`]) and the
-//! [`VARIABLE_IDENTITY`] contract version beside [`BACKEND_SCHEMA_VERSION`].
+//! operation and to match or construct the cause of a stop ([`CancellationToken`],
+//! [`StopCause`], [`StopScope`], [`StackLimit`], [`SegmentRefused`], [`PreludeFailure`],
+//! [`StepTimeoutMode`]) and the [`VARIABLE_IDENTITY`] contract version beside
+//! [`BACKEND_SCHEMA_VERSION`].
 //! The backend types that [`Backend::with_solver`] and the internalizing constructors carry are
 //! named through [`crate::k_rust_backend`], which makes no stability promise of its own.
 //!
@@ -18,8 +20,10 @@
 //! A host bounds a request with a [`CancellationToken`]: it runs the request inside
 //! [`CancellationToken::scope`] on the thread that performs it, and calls
 //! [`CancellationToken::cancel`] from any thread.
-//! An operation that stops does so for a [`StopCause`]; an operation run through
-//! [`Backend::with_solver`] receives that cause through its error type's `From<StopCause>`.
+//! An operation that stops does so for a [`StopCause`].
+//! With the `z3-inference` feature, a stop that [`Backend::with_solver`]'s operation boundary
+//! observes (a request cancelled before the operation starts, or a failed solver prelude) reaches
+//! the caller of [`Backend::with_solver`] as `Err(E::from(cause))`; see [`Backend::with_solver`].
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -80,8 +84,12 @@ pub mod simplification;
 mod wire;
 pub use wire::*;
 
-pub use k_rust_backend::stop::{CancellationToken, PreludeFailure, StackLimit, StopCause};
+pub use k_rust_backend::nesting::SegmentRefused;
+pub use k_rust_backend::stop::{
+    CancellationToken, PreludeFailure, StackLimit, StopCause, StopScope,
+};
 pub use k_rust_backend::term::names::VARIABLE_IDENTITY;
+pub use k_rust_backend::timeout::StepTimeoutMode;
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]

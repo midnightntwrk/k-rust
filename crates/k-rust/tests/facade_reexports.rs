@@ -6,10 +6,11 @@
 //! these paths goes away.
 
 use k_rust::backend::{
-    Backend, BackendError, BackendOptions, CancellationToken, PreludeFailure, StackLimit,
-    StopCause, VARIABLE_IDENTITY,
+    Backend, BackendError, BackendOptions, CancellationToken, PreludeFailure, SegmentRefused,
+    StackLimit, StepTimeoutMode, StopCause, StopScope, VARIABLE_IDENTITY,
 };
 use k_rust::k_rust_backend::{definition::BackendDefinition, smt::SmtSolver};
+use std::time::Duration;
 
 const DEFINITION: &str = r#"[]
 module TEST
@@ -49,10 +50,13 @@ impl From<StopCause> for HostError {
 fn cause_name(cause: &StopCause) -> &'static str {
     match cause {
         StopCause::Cancelled => "cancelled",
-        StopCause::Deadline(_) => "deadline",
+        StopCause::Deadline(StepTimeoutMode::Manual(_)) => "manual deadline",
+        StopCause::Deadline(StepTimeoutMode::MovingAverage(_)) => "moving-average deadline",
         StopCause::StackExhausted(StackLimit::ThreadBudget(_)) => "thread budget",
         StopCause::StackExhausted(StackLimit::ProcessBudget(_)) => "process budget",
-        StopCause::StackExhausted(StackLimit::MappingRefused(_)) => "mapping refused",
+        StopCause::StackExhausted(StackLimit::MappingRefused(SegmentRefused { .. })) => {
+            "mapping refused"
+        }
         StopCause::SolverPrelude(PreludeFailure::Inconsistent) => "inconsistent prelude",
         StopCause::SolverPrelude(PreludeFailure::Unknown(_)) => "undecided prelude",
     }
@@ -91,6 +95,13 @@ fn the_reexports_are_the_backend_items() {
     );
     let cause = accepts_backend_cause(StopCause::Cancelled);
     assert_eq!(cause_name(&cause), "cancelled");
+    assert_eq!(cause.scope(), StopScope::Request);
+    let deadline = StopCause::Deadline(StepTimeoutMode::Manual(Duration::from_millis(5)));
+    assert_eq!(cause_name(&deadline), "manual deadline");
+    assert_eq!(deadline.scope(), StopScope::Step);
+    let refused =
+        StopCause::StackExhausted(StackLimit::MappingRefused(SegmentRefused { size: 1 << 20 }));
+    assert_eq!(cause_name(&refused), "mapping refused");
     let error = HostError::from(cause);
     assert!(matches!(error, HostError::Stopped(StopCause::Cancelled)));
 }
