@@ -1781,6 +1781,16 @@ An input deep enough that a compile pass needs a mapped stack segment is refused
 The order and representation of the artifacts may change between builds; a host that caches them keys the cache on the build (or on the binary's identity).
 [compile_determinism.rs](../crates/k-rust/tests/compile_determinism.rs) compiles representative definitions twice in one process, on a small-stack thread, on concurrent threads and in two child processes, whose hash seeds and address layouts differ, and requires equal artifacts and identical bytes, an identical failure for a definition that fails to load and for one that fails to compile, different `Source` attributes for two resolver identities of one text, and equal artifacts for two logical names under one identity.
 
+### Concurrency
+
+`LoadedDefinition`, `Definition`, `CompileOptions` and `CompiledKoreArtifacts` are `Send + Sync`; `LoadError` and `CompileError` are `Send`; `Backend` is `Send`.
+Relinking (`LoadedDefinition::with_definition`) and compiling (`compile_loaded_definition`) read only their arguments, so several threads may call them at once on one shared `LoadedDefinition` (an `Arc<LoadedDefinition>` is the shared baseline) or on distinct ones, and each call returns what the same call returns alone on one thread: equal artifacts or an equal `CompileError`.
+The tables a `LoadedDefinition` computes lazily (those of `ResolvedDefinition`) are filled idempotently from the definition, so which thread fills one does not change what it holds; no process-wide mutable state reaches the artifacts (the process-wide counters of the `measure` feature only count, and `KRUST_PARSE_DIAGNOSTIC_WORK` is an input, read once per process).
+Every compile stage runs on a stack sized from the definition's deepest term, so the artifacts do not depend on the calling thread's stack size; refusals for lack of stack are as stated for compiles above.
+Wall time and peak memory under concurrency are not promised.
+Building `Backend`s on several threads at once is covered by the Execute paragraph below, including the load-time critical-pair check that `Backend::new` runs.
+[compile_concurrency.rs](../crates/k-rust/tests/compile_concurrency.rs) pins the bounds and compares concurrent relinks and compiles of one baseline, and of a mutant that fails to compile, with the sequential ones.
+
 ### Execute
 
 For one build of k-rust (as for compiles), the result of `Backend::execute`, `execute_observed` or `execute_observed_to_writer` (its leaves and their order, states, predicates, halt reasons, traces, branch identities, observations and diagnostics) is a function of the backend's inputs and the request: it is the same on a fresh `Backend` and on one that ran other requests before, in any process and on any thread.
