@@ -9148,6 +9148,88 @@ fn folded_and_evaluated_applications_agree() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Hooks declared at `Val`, a strict supersort of `Int`, the sort of their values: `INT.add` and
+/// `MAP.size`. Their arguments come from the program, so the constant fold leaves them to
+/// execution.
+const SUBSORT_HOOK_DEFINITION: &str = r#"
+module SUBSORT-HOOK-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= tAddV(Int, Int) | tSzV(Int, Int)
+endmodule
+
+module SUBSORT-HOOK
+  imports SUBSORT-HOOK-SYNTAX
+  imports DOMAINS
+  configuration <k> $PGM:Op </k>
+  syntax Val ::= Int
+  syntax KItem ::= res(K) [symbol(res)]
+  syntax Val ::= addV(Int, Int) [function, total, hook(INT.add)]
+  syntax Val ::= szV(Map) [function, total, hook(MAP.size)]
+  rule tAddV(I, J) => res(addV(I, J))
+  rule tSzV(I, J) => res(szV(I |-> J))
+endmodule
+"#;
+
+/// A hook's value at a strict subsort of the declared result sort is its injection into that
+/// sort, the one term of the result sort that denotes it, for every hook: `addV(2, 3)` at `Val`
+/// is `inj{Int, Val}(5)` and `szV(2 |-> 3)` is `inj{Int, Val}(1)`. In the `K` cell, where `res`
+/// injects it into `KItem`, the two injections compose to `inj{Int, KItem}`.
+#[test]
+fn krun_injects_a_hook_value_of_a_subsort_of_the_declared_sort() {
+    let (root, _) = fixture();
+    let path = root.join("subsort-hook.k");
+    fs::write(&path, SUBSORT_HOOK_DEFINITION).unwrap();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            path.to_str().unwrap(),
+            "--main-module",
+            "SUBSORT-HOOK",
+            "--output-directory",
+        ])
+        .arg(&compiled)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    for (program, value) in [("tAddV(2, 3)", "5"), ("tSzV(2, 3)", "1")] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                "--definition",
+                compiled.to_str().unwrap(),
+                "--sort",
+                "Op",
+                "--expression",
+                program,
+                "--io",
+                "off",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{program}: {stderr}");
+        let stdout = String::from_utf8(output.stdout)
+            .unwrap()
+            .split_whitespace()
+            .collect::<String>();
+        let expected = format!(
+            r#"Lblres{{}}(kseq{{}}(inj{{SortInt{{}},SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}")),dotk{{}}()))"#
+        );
+        assert!(
+            stdout.contains(&expected),
+            "{program}: expected {expected} in {stdout}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A definition over `STRING-BUFFER`, whose appends are nested to the left so that the sentence
 /// has one reading whichever `+String` a frontend considers.
 const STRING_BUFFER_DEFINITION: &str = r#"

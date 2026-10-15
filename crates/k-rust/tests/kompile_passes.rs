@@ -4002,16 +4002,17 @@ fn folds_string_and_token_conversions() {
     );
 }
 
-/// Applications the backend's evaluation entry gives no value of their declared sort outside an
-/// execution, and that the fold therefore leaves as written: `INT.add` declared at a token sort
-/// (`addT`), at a supersort of `Int` (`addV`, whose value is an `Int`) and at a sort hooked
-/// `INT.Int` under another name (`+MyInt`, whose operands the `INT` hooks do not read), a
-/// `String2Token` of a text that names no element of its `Int`-kinded sort, and `findChar`,
-/// whose meaning is the definition's equations. A `macro` or `alias` hooked production means its
-/// expansion (`myAdd(1, 2)` is `1 -Int 2`), which no hook evaluation gives, and a literal of a
-/// strict subsort of its argument's declared sort is injected there, where the `INT` and `STRING`
-/// hooks read no value (`addVV`, `tok2s`). `String2MyInt("07")` is the integer 7, written in its
-/// canonical text, and `1 +Int 2` folds to 3.
+/// Applications for which the backend's evaluation entry gives no token of their declared sort
+/// outside an execution, and that the fold therefore leaves as written: `INT.add` declared at a
+/// token sort (`addT`), at a supersort of `Int` (`addV`, whose value is the injection of an
+/// `Int`, which no token writes) and at a sort hooked `INT.Int` under another name (`+MyInt`,
+/// whose operands the `INT` hooks do not read), a `String2Token` of a text that names no element
+/// of its `Int`-kinded sort, and `findChar`, whose meaning is the definition's equations. A
+/// `macro` or `alias` hooked production means its expansion (`myAdd(1, 2)` is `1 -Int 2`), which
+/// no hook evaluation gives, and a literal of a strict subsort of its argument's declared sort is
+/// injected there, where the `INT` and `STRING` hooks read no value (`addVV`, `tok2s`).
+/// `String2MyInt("07")` is the integer 7, written in its canonical text, and `1 +Int 2` folds to
+/// 3.
 const FOLD_PARITY: &str = r#"
 module FOLD-PARITY-SYNTAX
   imports INT-SYNTAX

@@ -165,13 +165,16 @@ pub(crate) fn gives_member(hook: &str) -> bool {
     matches!(signature(hook), Some((_, Gives::Member)))
 }
 
-/// `value`, an element `hook` gives, as a value of `result_sort`: itself when its sort is
-/// `result_sort`, its injection when that is a strict subsort, `None` otherwise (a declaration
-/// [`misfit`] rejects). Without a declared result sort the value is the hook's own.
+/// `value`, a value a hook gives (an element of a collection argument, a builtin's value, an
+/// `ite` branch), as a value of `result_sort`, the declared result sort of the applied symbol:
+/// itself when its sort is `result_sort`, its injection when that is a strict subsort in the
+/// order `facts` state, `None` otherwise. KORE has no implicit subsorting, so `inj{S', S}(v)` is
+/// the one term of `S` that denotes a value `v` of a strict subsort `S'`. Without facts no sort
+/// is a strict subsort of another; without a declared result sort the value is the hook's own.
 pub(crate) fn member_of_result(
     value: crate::term::Term,
     result_sort: Option<&Sort>,
-    sorts: Option<&SortGraph>,
+    facts: Option<&dyn super::DeclarationFacts<Sort = Sort>>,
 ) -> Option<crate::term::Term> {
     let Some(result_sort) = result_sort else {
         return Some(value);
@@ -180,9 +183,9 @@ pub(crate) fn member_of_result(
     if from == *result_sort {
         return Some(value);
     }
-    let below =
-        sorts.is_some_and(|sorts| matches!(sorts.check_subsort(&from, result_sort), Ok(true)));
-    below.then(|| crate::term::Term::injection(from, result_sort.clone(), value))
+    facts
+        .is_some_and(|facts| facts.check_subsort(&from, result_sort))
+        .then(|| crate::term::Term::injection(from, result_sort.clone(), value))
 }
 
 /// What a collection holds, in the sorts of the definition at hand: a list's or set's element
