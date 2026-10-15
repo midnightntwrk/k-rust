@@ -192,17 +192,27 @@ endmodule []"#;
 #[test]
 fn a_proof_cancelled_after_a_certified_refutation_keeps_its_verdict() {
     let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::default()).unwrap();
-    // The backend is built and its module loaded, so the operation reaches its entry poll at
-    // once; the delay leaves the proof time to find the stuck leaf.
-    let result = with_watchdog_after(Duration::from_millis(300), || {
-        backend.prove(ProveRequest {
-            max_counterexamples: 2,
-            ..ProveRequest::default()
-        })
-    })
-    .unwrap();
-    assert_eq!(result.status, "disproved");
-    assert!(result.unexplored_states > 0, "{result:?}");
+    let request = ProveRequest {
+        max_counterexamples: 2,
+        ..ProveRequest::default()
+    };
+    // The facade has no hook to cancel once the stuck leaf is recorded, so the watchdog waits.
+    // The stuck leaf is two steps from the start and is found within microseconds; a host so
+    // slow that the cancellation lands first gets `Err(Cancelled)`, which the contract also
+    // allows (the proof had decided nothing yet), and the test retries with a longer delay.
+    for delay in [300, 1_200, 4_800] {
+        match with_watchdog_after(Duration::from_millis(delay), || {
+            backend.prove(request.clone())
+        }) {
+            Ok(result) => {
+                assert_eq!(result.status, "disproved");
+                assert!(result.unexplored_states > 0, "{result:?}");
+                return;
+            }
+            Err(error) => assert_cancelled(&error),
+        }
+    }
+    panic!("the proof never recorded its stuck leaf before the cancellation");
 }
 
 /// With the default limit of one counterexample, the stuck leaf ends the proof; a watchdog that

@@ -35,7 +35,9 @@
 //!    unknown module or a module that fails to load, and a state too deep for the backend.
 //!    [`Backend::add_module`], [`Backend::rule_catalog`], [`Backend::select_definition`] and the
 //!    internalizing constructors ([`Backend::internalize_definition`],
-//!    [`Backend::internalize_source_definition`]) have no boundary and do not observe the token.
+//!    [`Backend::internalize_source_definition`]) have no boundary and never answer `Cancelled`;
+//!    those that load a definition (`select_definition`, the internalizing constructors) read
+//!    the token during the load, as point 6 says.
 //! 2. A cancellation observed while [`Backend::execute`] or a search ([`Backend::search`] and its
 //!    path and pattern variants) explores ends the whole run, and the run reports it in its
 //!    result. `execute` returns `Ok` with the leaves completed before the cancellation and the
@@ -68,12 +70,14 @@
 //!    the boundary and is not cancellable: a cancellation does not interrupt it, and a
 //!    [`Backend`] constructed inside a cancelled scope loads its default module and then fails at
 //!    the boundary as in point 1. The load-time critical-pair check does not read the token.
-//!    The discharge of rewrite rules' definedness obligations at load does read it: a module
-//!    first loaded while its request's token is cancelled may be cached with rewrite rules whose
-//!    definedness is left undischarged. Such a definition is sound, but later requests on it pay
-//!    for the obligations at run time and may record different traces and diagnostics. A host
-//!    therefore constructs its backends, and selects every module it will use
-//!    ([`Backend::select_definition`]), outside a token's scope.
+//!    The discharge of rewrite rules' definedness obligations at load does read it: a definition
+//!    loaded while a token is cancelled, whether a module first used by a cancelled request and
+//!    then cached, or one an internalizing constructor returns, may keep rewrite rules whose
+//!    definedness is left undischarged. Such a definition is sound, but requests on it pay for
+//!    the obligations at run time and may record different traces and diagnostics and, where
+//!    run-time simplification cannot decide an obligation, different leaves. A host therefore
+//!    constructs its backends, calls the internalizing constructors, and selects every module it
+//!    will use ([`Backend::select_definition`]) outside a token's scope.
 //!    The rewrite rules' definedness discharge reads the token during a load; this is what
 //!    makes a load under a cancelled token weaker.
 //!
