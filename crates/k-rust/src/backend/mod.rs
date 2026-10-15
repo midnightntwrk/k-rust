@@ -208,9 +208,10 @@ pub struct ExecutionResult<K = Value> {
 /// brought in are admitted in that form, and a request whose constraints have no such form is
 /// refused. Proof leaves are outside this statement, and so is a definition whose rule, equation or
 /// claim condition holds an `\equals` of two possibly undefined terms, or whose axioms hold an
-/// `\equals` that reads a term as a predicate (docs/compatibility.md, "Solver decisions over
-/// partial operations"). For a state a client writes itself,
-/// [`Backend::implies`] with a `\bottom` consequent decides whether it has an instance.
+/// `\equals` that reads a term as a predicate or a condition over a Boolean term-level `\and`
+/// (docs/compatibility.md, "Solver decisions over partial operations"). For a state a client
+/// writes itself, [`Backend::implies`] with a `\bottom` consequent decides whether it has an
+/// instance.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]

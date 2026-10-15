@@ -1139,8 +1139,9 @@ pub enum Satisfiability {
     /// (docs/compatibility.md, "Solver decisions over partial operations"); otherwise only the
     /// translation has no model. Every predicate the backend poses is, except over a definition
     /// whose rule, equation or claim condition equates two possibly undefined terms or whose
-    /// axioms hold an `\equals` that reads a term as a predicate, and on the prove route, which
-    /// does not state the definedness of a claim's own constraints (that section's gaps).
+    /// axioms hold an `\equals` that reads a term as a predicate or a condition over a Boolean
+    /// term-level `\and`, and on the prove route, which does not state the definedness of a
+    /// claim's own constraints (that section's gaps).
     Unsat,
     /// The solver ran within its own per-query bounds (its timeout, resource limit and retries)
     /// and did not decide the query; the payload is its reason. Never a stop: a query that stopped (a
