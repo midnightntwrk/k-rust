@@ -165,7 +165,7 @@ fn reference_cell(result: &WorkloadResult) -> Option<String> {
 }
 
 /// Least-squares slope of log(y) over log(x) for the last points with y ≥ `floor`.
-fn growth(points: &[(f64, f64)], floor: f64) -> Option<f64> {
+pub fn growth(points: &[(f64, f64)], floor: f64) -> Option<f64> {
     let usable: Vec<(f64, f64)> = points
         .iter()
         .filter(|(x, y)| *x > 0.0 && *y >= floor)

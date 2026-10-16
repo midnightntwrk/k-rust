@@ -31,6 +31,16 @@ pub fn median(values: &[f64]) -> Option<f64> {
 }
 
 impl Samples {
+    pub fn push(&mut self, sample: &crate::measure::Sample) {
+        self.wall_seconds.push(sample.wall_seconds);
+        if let Some(cpu) = sample.cpu_seconds {
+            self.cpu_seconds.push(cpu);
+        }
+        if let Some(peak) = sample.peak_bytes {
+            self.peak_bytes.push(peak);
+        }
+    }
+
     pub fn wall(&self) -> Option<f64> {
         median(&self.wall_seconds)
     }

@@ -3,12 +3,15 @@
 //! See `benchmarks/README.md`.
 
 mod check;
+mod compare;
+mod compare_report;
 mod expand;
 mod measure;
 mod registry;
 mod report;
 mod results;
 mod runner;
+mod stats;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -16,7 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Parser, Subcommand};
 
-use crate::registry::{Engine, ReferenceStatus, Registry, Tier, Workload};
+use crate::registry::{Engine, ReferenceStatus, Registry, Selection, Tier, Workload, matches};
 use crate::results::{
     Host, Measurement, Point, RESULTS_SCHEMA, ReferenceCache, ReferenceResult, Run, WorkloadResult,
 };
@@ -37,11 +40,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// List the registered workloads.
+    /// List the registered workloads, or the members of a set.
     List {
         #[arg(long, default_value = "heavy")]
         tier: String,
+        /// Only the workloads of these sets (any tier).
+        #[arg(long)]
+        set: Vec<String>,
     },
+    /// List the named workload sets.
+    Sets,
     /// Check the registry and the reference cache.
     Validate,
     /// Measure krust on the selected workloads and print the report.
@@ -52,6 +60,9 @@ enum Commands {
         /// Only workloads whose id starts with one of these prefixes (`*` matches anything).
         #[arg(long)]
         only: Vec<String>,
+        /// Only the workloads of these named sets (`kbench sets`), whatever their tier.
+        #[arg(long)]
+        set: Vec<String>,
         /// The krust binary (default: target/release/krust, or KRUST_BIN).
         #[arg(long)]
         krust: Option<PathBuf>,
@@ -88,6 +99,71 @@ enum Commands {
         #[arg(long)]
         no_cgroup: bool,
     },
+    /// Compare two krust binaries on the selected workloads: interleaved runs, identical output
+    /// required, CPU, wall, and peak memory with a noise band and a verdict per metric.
+    Compare {
+        /// The base binary (A).
+        #[arg(long)]
+        base: PathBuf,
+        /// The candidate binary (B).
+        #[arg(long)]
+        candidate: PathBuf,
+        /// The workloads of these named sets (`kbench sets`); their compare ladder caps apply.
+        #[arg(long)]
+        set: Vec<String>,
+        /// Workloads whose id starts with one of these prefixes (`*` matches anything); with
+        /// --set, narrows the set.
+        #[arg(long)]
+        only: Vec<String>,
+        /// Timed runs per binary and point (default: the largest `runs` of the selected sets,
+        /// otherwise 5).
+        #[arg(long)]
+        runs: Option<u32>,
+        /// Also count work: one KRUST_COUNTERS run per binary and point (measure builds only).
+        #[arg(long)]
+        counters: bool,
+        /// The measure build that counts for the base (default: --base); implies --counters.
+        #[arg(long)]
+        counters_base: Option<PathBuf>,
+        /// The measure build that counts for the candidate (default: --candidate); implies
+        /// --counters.
+        #[arg(long)]
+        counters_candidate: Option<PathBuf>,
+        /// The smallest change, in percent, that a verdict calls better or worse.
+        #[arg(long, default_value_t = compare::DEFAULT_MIN_EFFECT * 100.0)]
+        min_effect: f64,
+        /// The smallest change of CPU or wall time, in seconds, that a verdict calls better or
+        /// worse.
+        #[arg(long, default_value_t = compare::DEFAULT_MIN_SECONDS)]
+        min_seconds: f64,
+        /// Run every ladder value, ignoring the sets' compare caps (`ladder_max`).
+        #[arg(long)]
+        full_ladders: bool,
+        /// The output directory (default: target/kbench/compare/<timestamp>).
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Print the selected workloads and both binaries' commands without running anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Measure without a delegated cgroup scope (peak memory unknown).
+        #[arg(long)]
+        no_cgroup: bool,
+    },
+    /// Render the report of a compare results.toml, optionally judged again.
+    CompareReport {
+        results: PathBuf,
+        /// Judge with this minimum change in percent instead of the recorded one.
+        #[arg(long)]
+        min_effect: Option<f64>,
+        /// Judge with this minimum change of CPU or wall time in seconds instead of the
+        /// recorded one.
+        #[arg(long)]
+        min_seconds: Option<f64>,
+        /// Keep only the first N timed runs of each binary (the first N pairs), to see what a
+        /// compare with fewer runs would have concluded.
+        #[arg(long)]
+        first: Option<usize>,
+    },
     /// Print the reference cache key of a paired workload.
     Key { id: String },
     /// Render the report of a results.toml.
@@ -123,23 +199,14 @@ fn parse_tier(text: &str) -> Result<Tier, String> {
     Tier::parse(text).ok_or_else(|| format!("unknown tier {text} (quick, standard, heavy)"))
 }
 
-fn selected(workload: &Workload, tier: Tier, only: &[String]) -> bool {
-    workload.tier <= tier
-        && (only.is_empty() || only.iter().any(|pattern| matches(pattern, &workload.id)))
-}
-
-/// A prefix match where `*` matches any run of characters.
-fn matches(pattern: &str, id: &str) -> bool {
-    fn go(pattern: &[u8], text: &[u8]) -> bool {
-        match pattern.split_first() {
-            None => true,
-            Some((b'*', rest)) => (0..=text.len()).any(|i| go(rest, &text[i..])),
-            Some((c, rest)) => text
-                .split_first()
-                .is_some_and(|(t, tail)| t == c && go(rest, tail)),
-        }
-    }
-    go(pattern.as_bytes(), id.as_bytes())
+/// Whether a run selects a workload: a member of the named sets (any tier) or, without sets,
+/// of the tier; and, with `--only`, matching one of its patterns.
+fn selected(workload: &Workload, tier: Tier, only: &[String], sets: Option<&Selection>) -> bool {
+    let base = match sets {
+        Some(selection) => selection.ids.contains(&workload.id),
+        None => workload.tier <= tier,
+    };
+    base && (only.is_empty() || only.iter().any(|pattern| matches(pattern, &workload.id)))
 }
 
 /// Re-runs this command inside a delegated user systemd scope so runs can be measured as
@@ -344,10 +411,29 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
     let registry_dir = workspace.join("benchmarks/registry");
     let cache_path = workspace.join("benchmarks/reference.toml");
     match cli.command {
-        Commands::List { tier } => {
+        Commands::Sets => {
+            let registry = Registry::load(&registry_dir)?;
+            for (name, set) in &registry.sets {
+                let selection = registry.resolve_sets(std::slice::from_ref(name))?;
+                println!(
+                    "{name:<22} {:>3} workloads  {}",
+                    selection.ids.len(),
+                    set.description.trim()
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::List { tier, set } => {
             let tier = parse_tier(&tier)?;
             let registry = Registry::load(&registry_dir)?;
-            for workload in registry.workloads.iter().filter(|w| w.tier <= tier) {
+            let sets = (!set.is_empty())
+                .then(|| registry.resolve_sets(&set))
+                .transpose()?;
+            for workload in registry
+                .workloads
+                .iter()
+                .filter(|w| selected(w, tier, &[], sets.as_ref()))
+            {
                 let reference =
                     workload
                         .reference
@@ -405,12 +491,13 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
                     .count()
             };
             println!(
-                "{} workloads ({} paired, {} unsupported, {} untested), {} prepare steps, {} cached reference measurements",
+                "{} workloads ({} paired, {} unsupported, {} untested), {} prepare steps, {} sets, {} cached reference measurements",
                 registry.workloads.len(),
                 count(ReferenceStatus::Paired),
                 count(ReferenceStatus::Unsupported),
                 count(ReferenceStatus::Untested),
                 registry.prepare.len(),
+                registry.sets.len(),
                 cache.measurement.len()
             );
             Ok(if problems == 0 {
@@ -444,9 +531,222 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
             print!("{}", report::render(&run, baseline.as_ref()));
             Ok(ExitCode::SUCCESS)
         }
+        Commands::CompareReport {
+            results,
+            min_effect,
+            min_seconds,
+            first,
+        } => {
+            let mut comparison = compare::Comparison::load(&results)?;
+            if let Some(percent) = min_effect {
+                comparison.min_effect = percent / 100.0;
+            }
+            if let Some(seconds) = min_seconds {
+                comparison.min_seconds = seconds;
+            }
+            if let Some(first) = first {
+                comparison.truncate_runs(first);
+            }
+            print!("{}", compare_report::render(&comparison));
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::Compare {
+            base,
+            candidate,
+            set,
+            only,
+            runs,
+            counters,
+            counters_base,
+            counters_candidate,
+            min_effect,
+            min_seconds,
+            full_ladders,
+            output,
+            dry_run,
+            no_cgroup,
+        } => {
+            if set.is_empty() && only.is_empty() {
+                return Err("name the workloads with --set NAME or --only ID".to_owned());
+            }
+            if runs == Some(0) {
+                return Err("--runs must be at least 1".to_owned());
+            }
+            if !dry_run
+                && !no_cgroup
+                && let Some(code) = reexec_in_scope()
+            {
+                return Ok(code);
+            }
+            let registry = Registry::load(&registry_dir)?;
+            let sets = (!set.is_empty())
+                .then(|| registry.resolve_sets(&set))
+                .transpose()?;
+            let chosen: Vec<&Workload> = registry
+                .workloads
+                .iter()
+                .filter(|w| selected(w, Tier::Heavy, &only, sets.as_ref()))
+                .collect();
+            if chosen.is_empty() {
+                return Err("the selection names no workload".to_owned());
+            }
+            for path in [&base, &candidate] {
+                if !path.is_file() {
+                    return Err(format!("{} does not exist", path.display()));
+                }
+            }
+            let canonical = |p: &Path| std::fs::canonicalize(p).map_err(|e| e.to_string());
+            if canonical(&base)? == canonical(&candidate)? {
+                return Err(
+                    "--base and --candidate are the same file; to compare a binary with itself, copy it to a second path"
+                        .to_owned(),
+                );
+            }
+            let absolute = |p: PathBuf| canonical(&p);
+            let environment_a = Environment::discover(&workspace, Some(absolute(base)?))?;
+            let environment_b = Environment::discover(&workspace, Some(absolute(candidate)?))?;
+            let counting = counters || counters_base.is_some() || counters_candidate.is_some();
+            let counter_environments = if counting {
+                let a = absolute(counters_base.unwrap_or_else(|| environment_a.krust.clone()))?;
+                let b =
+                    absolute(counters_candidate.unwrap_or_else(|| environment_b.krust.clone()))?;
+                for path in [&a, &b] {
+                    if !compare::is_measure_build(path)? {
+                        return Err(format!(
+                            "{} is not a measure build (it cannot write KRUST_COUNTERS); build one with `cargo build --profile profiling -p k-rust --features cli,measure --bin krust`, or pass --counters-base/--counters-candidate",
+                            path.display()
+                        ));
+                    }
+                }
+                Some((
+                    Environment::discover(&workspace, Some(a))?,
+                    Environment::discover(&workspace, Some(b))?,
+                ))
+            } else {
+                None
+            };
+            let caps = sets
+                .as_ref()
+                .map(|s| s.ladder_max.clone())
+                .unwrap_or_default();
+            let set_runs = sets.as_ref().map(|s| s.runs.clone()).unwrap_or_default();
+            let mut selection: Vec<String> = set.iter().map(|s| format!("set:{s}")).collect();
+            selection.extend(only.iter().map(|o| format!("only:{o}")));
+            let (started_at, stamp) = utc_now();
+            let work =
+                output.unwrap_or_else(|| workspace.join("target/kbench/compare").join(&stamp));
+            if dry_run {
+                let runner_a = Runner::new(&environment_a, &registry, work.join("base"));
+                let runner_b = Runner::new(&environment_b, &registry, work.join("candidate"));
+                for workload in &chosen {
+                    let cap = caps.get(&workload.id).copied().filter(|_| !full_ladders);
+                    let values = workload.ladder.as_ref().map(|l| {
+                        compare::ladder_values(l, cap, full_ladders)
+                            .iter()
+                            .map(i64::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    });
+                    println!(
+                        "[{}]{}{}",
+                        workload.id,
+                        values.map_or(String::new(), |v| format!(" values {v}")),
+                        if compare::runs_krust(workload) {
+                            ""
+                        } else {
+                            " (not compared: does not run krust)"
+                        }
+                    );
+                    let engine = workload.krust.engine.unwrap_or(Engine::Krust);
+                    for (label, runner) in [("base", &runner_a), ("candidate", &runner_b)] {
+                        for line in runner.describe(workload, &workload.krust, engine)? {
+                            println!("  {label}: {line}");
+                        }
+                    }
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
+            std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+            if no_cgroup {
+                eprintln!("kbench: measuring without a cgroup scope; peak memory is unknown");
+            }
+            let mut sides = compare::Sides {
+                base: Runner::new(&environment_a, &registry, work.join("base")),
+                candidate: Runner::new(&environment_b, &registry, work.join("candidate")),
+                counters: counter_environments.as_ref().map(|(a, b)| {
+                    (
+                        Runner::new(a, &registry, work.join("counters-base")),
+                        Runner::new(b, &registry, work.join("counters-candidate")),
+                    )
+                }),
+            };
+            let mut comparison = compare::Comparison {
+                schema: compare::COMPARE_SCHEMA.to_owned(),
+                compare_id: stamp.clone(),
+                started_at,
+                finished_at: String::new(),
+                selection,
+                runs: runs.unwrap_or(compare::DEFAULT_RUNS),
+                min_effect: min_effect / 100.0,
+                min_seconds,
+                level: stats::LEVEL,
+                full_ladders,
+                commit: git(&workspace, &["rev-parse", "HEAD"]).unwrap_or_default(),
+                base: compare::binary(&environment_a)?,
+                candidate: compare::binary(&environment_b)?,
+                counters_base: counter_environments
+                    .as_ref()
+                    .map(|(a, _)| compare::binary(a))
+                    .transpose()?,
+                counters_candidate: counter_environments
+                    .as_ref()
+                    .map(|(_, b)| compare::binary(b))
+                    .transpose()?,
+                method: sides.base.meter.method_description().to_owned(),
+                host: host(),
+                workload: Vec::new(),
+            };
+            let mut options = compare::Options {
+                runs: compare::DEFAULT_RUNS,
+                full_ladders,
+            };
+            let results = work.join("results.toml");
+            for workload in &chosen {
+                eprintln!("[{}] {}", workload.id, workload.title);
+                let cap = caps.get(&workload.id).copied();
+                options.runs = runs
+                    .or_else(|| set_runs.get(&workload.id).copied())
+                    .unwrap_or(compare::DEFAULT_RUNS);
+                let result = compare::compare_workload(&mut sides, workload, cap, &options, &work);
+                if result.status != "ok" {
+                    eprintln!(
+                        "  {}: {}",
+                        result.status,
+                        result.detail.as_deref().unwrap_or("")
+                    );
+                }
+                comparison.workload.push(result);
+                comparison.save(&results)?;
+            }
+            let (finished_at, _) = utc_now();
+            comparison.finished_at = finished_at;
+            comparison.host.load_after = load_average();
+            comparison.save(&results)?;
+            let text = compare_report::render(&comparison);
+            std::fs::write(work.join("report.md"), &text).map_err(|e| e.to_string())?;
+            print!("{text}");
+            eprintln!("kbench: results {}", results.display());
+            eprintln!("kbench: report {}", work.join("report.md").display());
+            Ok(if comparison.passed() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            })
+        }
         Commands::Run {
             tier,
             only,
+            set,
             krust,
             output,
             history,
@@ -463,6 +763,9 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
                 return Ok(code);
             }
             let registry = Registry::load(&registry_dir)?;
+            let sets = (!set.is_empty())
+                .then(|| registry.resolve_sets(&set))
+                .transpose()?;
             let cache = ReferenceCache::load(&cache_path)?;
             let environment = Environment::discover(&workspace, krust)?;
             if !dry_run && !environment.krust.exists() {
@@ -490,7 +793,7 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
                 for workload in registry
                     .workloads
                     .iter()
-                    .filter(|w| selected(w, tier, &only))
+                    .filter(|w| selected(w, tier, &only, sets.as_ref()))
                 {
                     println!("[{}]", workload.id);
                     for line in runner.describe(
@@ -512,7 +815,11 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
                 started_at,
                 finished_at: String::new(),
                 tier: tier.name().to_owned(),
-                filter: only.clone(),
+                filter: set
+                    .iter()
+                    .map(|s| format!("set:{s}"))
+                    .chain(only.iter().cloned())
+                    .collect(),
                 commit,
                 dirty,
                 krust_path: environment.krust.display().to_string(),
@@ -536,7 +843,7 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
             let mut failed = 0;
             for workload in &registry.workloads {
                 let reference = reference_result(&environment, &registry, &cache, workload);
-                if !selected(workload, tier, &only) {
+                if !selected(workload, tier, &only, sets.as_ref()) {
                     run.workload.push(skeleton(workload, "skipped", reference));
                     continue;
                 }
@@ -623,7 +930,7 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
             for workload in registry
                 .workloads
                 .iter()
-                .filter(|w| selected(w, tier, &only))
+                .filter(|w| selected(w, tier, &only, None))
             {
                 let Some(reference) = workload
                     .reference

@@ -439,6 +439,9 @@ argv = [
 [workload.krust.check]
 stdout = ['"result"']
 files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+[workload.compare]
+reason = "rpc-metrics.json records the request's wall time and the server's peak RSS, which vary between runs."
+ignore_files = ["${run}/rpc-metrics.json"]
 [workload.reference]
 status = "untested"
 note = "The counterpart is kore-rpc-booster on a reference definition with the same request sent by kore-rpc-client; it needs a step that starts the server and stops it after the response."
@@ -478,6 +481,9 @@ argv = [
 [workload.krust.check]
 stdout = ['"result"']
 files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+[workload.compare]
+reason = "rpc-metrics.json records the request's wall time and the server's peak RSS, which vary between runs."
+ignore_files = ["${run}/rpc-metrics.json"]
 [workload.reference]
 status = "untested"
 note = "The counterpart is kore-rpc-booster on a reference definition with the same request sent by kore-rpc-client; it needs a step that starts the server and stops it after the response."

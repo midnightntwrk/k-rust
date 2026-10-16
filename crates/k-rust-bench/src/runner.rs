@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use crate::check;
 use crate::expand::Vars;
 use crate::measure::{Invocation, Meter, Outcome, Sample};
-use crate::registry::{Engine, Prepare, Registry, Side, Workload};
+use crate::registry::{Check, Engine, Ladder, Prepare, Registry, Side, Workload};
 use crate::results::{Point, Samples};
 
 pub const REFERENCE_K_OPTS: &str = "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1";
@@ -214,7 +214,7 @@ impl Environment {
         Ok(())
     }
 
-    fn prepared_root(&self, engine: Engine) -> &Path {
+    pub fn prepared_root(&self, engine: Engine) -> &Path {
         match engine {
             Engine::Reference => &self.prepared_reference,
             Engine::Krust | Engine::Command => &self.prepared_krust,
@@ -430,6 +430,7 @@ impl<'a> Runner<'a> {
             cwd: self.environment.workspace.clone(),
             timeout: Duration::from_secs(step.timeout_seconds.unwrap_or(3600)),
             memory_max_bytes: PREPARE_MEMORY_GIB * GIB,
+            counters: None,
         };
         let sample = self.meter.run(&invocation).map_err(|e| e.to_string())?;
         if sample.outcome != Outcome::Ok || !creates.exists() {
@@ -560,27 +561,7 @@ impl<'a> Runner<'a> {
             point_vars.set(&ladder.param, value.to_string());
             let input = directory.join(format!("input-{value}"));
             point_vars.set("input", input.display().to_string());
-            let text = match (&ladder.input, &ladder.generator) {
-                (Some(template), _) => point_vars.expand(template)?,
-                (None, Some(generator)) => {
-                    let argv = point_vars.expand_all(generator)?;
-                    let output = Command::new(&argv[0])
-                        .args(&argv[1..])
-                        .current_dir(&self.environment.workspace)
-                        .output()
-                        .map_err(|error| format!("generator {}: {error}", argv[0]))?;
-                    if !output.status.success() {
-                        return Err(format!(
-                            "generator {} failed: {}",
-                            argv.join(" "),
-                            String::from_utf8_lossy(&output.stderr)
-                        ));
-                    }
-                    String::from_utf8(output.stdout).map_err(|e| e.to_string())?
-                }
-                (None, None) => unreachable!("validated"),
-            };
-            fs::write(&input, text).map_err(|e| e.to_string())?;
+            self.write_ladder_input(ladder, &point_vars, &input)?;
             let point = [
                 (ladder.param.clone(), value.to_string()),
                 ("input".to_owned(), input.display().to_string()),
@@ -621,22 +602,79 @@ impl<'a> Runner<'a> {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn repeat(
+    /// Writes a ladder value's generated input to `input`; `point_vars` binds the parameter.
+    pub fn write_ladder_input(
+        &self,
+        ladder: &Ladder,
+        point_vars: &Vars,
+        input: &Path,
+    ) -> Result<(), String> {
+        let text = match (&ladder.input, &ladder.generator) {
+            (Some(template), _) => point_vars.expand(template)?,
+            (None, Some(generator)) => {
+                let argv = point_vars.expand_all(generator)?;
+                let output = Command::new(&argv[0])
+                    .args(&argv[1..])
+                    .current_dir(&self.environment.workspace)
+                    .output()
+                    .map_err(|error| format!("generator {}: {error}", argv[0]))?;
+                if !output.status.success() {
+                    return Err(format!(
+                        "generator {} failed: {}",
+                        argv.join(" "),
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+                String::from_utf8(output.stdout).map_err(|e| e.to_string())?
+            }
+            (None, None) => unreachable!("validated"),
+        };
+        fs::write(input, text).map_err(|e| e.to_string())
+    }
+
+    /// Runs the prepare steps of a side for one point (`point` binds a ladder value's parameter
+    /// and `${input}`; empty for a plain workload).
+    pub fn prepare_side(
         &mut self,
+        side: &Side,
+        engine: Engine,
+        point: &[(String, String)],
+    ) -> Result<(), String> {
+        for step in self.registry.prepare_order(&side.prepare)? {
+            self.ensure_prepared(step, engine, point)?;
+        }
+        Ok(())
+    }
+
+    /// The variables of a measured side: the engine's prepared root and the run directory.
+    pub fn side_vars(&self, engine: Engine, run_dir: &Path) -> Vars {
+        let mut vars = self.environment.base_vars();
+        vars.set(
+            "prepared",
+            self.environment.prepared_root(engine).display().to_string(),
+        );
+        vars.set("run", run_dir.display().to_string());
+        vars
+    }
+
+    /// The invocation of one side at one point, with `${expect}` bound. Standard output goes to
+    /// `directory/stdout` when the check reads it or `capture_stdout` asks for it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn point_run(
+        &self,
         workload: &Workload,
         side: &Side,
         engine: Engine,
         vars: &Vars,
         directory: &Path,
         params: &BTreeMap<String, i64>,
-        warmup: u32,
-        runs: u32,
-    ) -> Result<(String, Samples), String> {
+        capture_stdout: bool,
+    ) -> Result<PointRun, String> {
         let mut vars = vars.clone();
         check::bind_expect(&side.check, &mut vars, params)?;
         let run_dir = PathBuf::from(vars.get("run").unwrap_or_default());
-        let stdout = side.check.reads_stdout().then(|| directory.join("stdout"));
+        let stdout =
+            (capture_stdout || side.check.reads_stdout()).then(|| directory.join("stdout"));
         let stderr = directory.join("stderr");
         let stdin = match &side.stdin {
             Some(path) => PathBuf::from(vars.expand(path)?),
@@ -652,58 +690,106 @@ impl<'a> Runner<'a> {
             })
             .collect::<Result<Vec<_>, String>>()?;
         let (env, env_remove) = Environment::engine_env(engine, &side.env, &vars)?;
-        let invocation = Invocation {
-            steps,
-            env,
-            env_remove,
-            stdin,
-            stdout: stdout.clone(),
-            stderr: stderr.clone(),
-            cwd: self.environment.workspace.clone(),
-            timeout: Duration::from_secs(workload.timeout_seconds()),
-            memory_max_bytes: workload.memory_gib() * GIB,
+        Ok(PointRun {
+            invocation: Invocation {
+                steps,
+                env,
+                env_remove,
+                stdin,
+                stdout,
+                stderr,
+                cwd: self.environment.workspace.clone(),
+                timeout: Duration::from_secs(workload.timeout_seconds()),
+                memory_max_bytes: workload.memory_gib() * GIB,
+                counters: None,
+            },
+            check: side.check.clone(),
+            vars,
+            run_dir,
+        })
+    }
+
+    /// Runs a point once in an emptied run directory and checks it. The outer error is a setup
+    /// failure; the inner one is the run's failure (its outcome or its check, with the end of
+    /// its standard error).
+    pub fn run_point(&mut self, point: &PointRun) -> Result<(Sample, Result<(), String>), String> {
+        if point.run_dir.exists() {
+            fs::remove_dir_all(&point.run_dir).map_err(|e| e.to_string())?;
+        }
+        fs::create_dir_all(&point.run_dir).map_err(|e| e.to_string())?;
+        let sample: Sample = self
+            .meter
+            .run(&point.invocation)
+            .map_err(|e| e.to_string())?;
+        let verdict = match exit_code(sample.outcome) {
+            None => Err(sample.outcome.describe()),
+            Some(code) => check::verify(
+                &point.check,
+                &point.vars,
+                code,
+                point.invocation.stdout.as_deref(),
+            )
+            .map_err(|error| format!("check: {error}")),
         };
+        let verdict = verdict.map_err(|failure| {
+            let tail = crate::measure::tail(&point.invocation.stderr, 400);
+            let tail = tail.trim();
+            if tail.is_empty() {
+                failure
+            } else {
+                format!("{failure} (stderr: …{})", tail.replace('\n', " ⏎ "))
+            }
+        });
+        Ok((sample, verdict))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn repeat(
+        &mut self,
+        workload: &Workload,
+        side: &Side,
+        engine: Engine,
+        vars: &Vars,
+        directory: &Path,
+        params: &BTreeMap<String, i64>,
+        warmup: u32,
+        runs: u32,
+    ) -> Result<(String, Samples), String> {
+        let point = self.point_run(workload, side, engine, vars, directory, params, false)?;
         let mut samples = Samples::default();
         for index in 0..warmup + runs {
-            if run_dir.exists() {
-                fs::remove_dir_all(&run_dir).map_err(|e| e.to_string())?;
-            }
-            fs::create_dir_all(&run_dir).map_err(|e| e.to_string())?;
-            let sample: Sample = self.meter.run(&invocation).map_err(|e| e.to_string())?;
-            let verdict = match exit_code(sample.outcome) {
-                None => Err(sample.outcome.describe()),
-                Some(code) => check::verify(&side.check, &vars, code, stdout.as_deref())
-                    .map_err(|error| format!("check: {error}")),
-            };
+            let (sample, verdict) = self.run_point(&point)?;
             if let Err(failure) = verdict {
-                let tail = crate::measure::tail(&stderr, 400);
-                let tail = tail.trim();
-                let detail = if tail.is_empty() {
-                    failure
-                } else {
-                    format!("{failure} (stderr: …{})", tail.replace('\n', " ⏎ "))
-                };
-                return Ok((detail, samples));
+                return Ok((failure, samples));
             }
             if index >= warmup {
-                samples.wall_seconds.push(sample.wall_seconds);
-                if let Some(cpu) = sample.cpu_seconds {
-                    samples.cpu_seconds.push(cpu);
-                }
-                if let Some(peak) = sample.peak_bytes {
-                    samples.peak_bytes.push(peak);
-                }
+                samples.push(&sample);
             }
         }
-        if let Some(path) = &stdout
+        point.clean_up();
+        Ok((String::from("ok"), samples))
+    }
+}
+
+/// One side's invocation at one point, ready to run repeatedly.
+pub struct PointRun {
+    pub invocation: Invocation,
+    pub check: Check,
+    pub vars: Vars,
+    pub run_dir: PathBuf,
+}
+
+impl PointRun {
+    /// Removes a large standard output and the run directory once the point is done.
+    pub fn clean_up(&self) {
+        if let Some(path) = &self.invocation.stdout
             && fs::metadata(path).is_ok_and(|m| m.len() > KEEP_STDOUT_BYTES)
         {
             let _ = fs::remove_file(path);
         }
-        if run_dir.exists() {
-            let _ = fs::remove_dir_all(&run_dir);
+        if self.run_dir.exists() {
+            let _ = fs::remove_dir_all(&self.run_dir);
         }
-        Ok((String::from("ok"), samples))
     }
 }
 

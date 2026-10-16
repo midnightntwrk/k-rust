@@ -6,6 +6,20 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+/// A prefix match where `*` matches any run of characters (`--only` and set patterns).
+pub fn matches(pattern: &str, id: &str) -> bool {
+    fn go(pattern: &[u8], text: &[u8]) -> bool {
+        match pattern.split_first() {
+            None => true,
+            Some((b'*', rest)) => (0..=text.len()).any(|i| go(rest, &text[i..])),
+            Some((c, rest)) => text
+                .split_first()
+                .is_some_and(|(t, tail)| t == c && go(rest, tail)),
+        }
+    }
+    go(pattern.as_bytes(), id.as_bytes())
+}
+
 pub const SEMANTICS: &[&str] = &[
     "imp", "fun", "simple", "kool", "lambda", "toy", "kevm", "kwasm", "kmir", "krs",
 ];
@@ -214,6 +228,9 @@ pub struct Workload {
     pub krust: Side,
     pub reference: Option<Reference>,
     pub ladder: Option<Ladder>,
+    /// The parts of the measured side's output that `kbench compare` must not require to be
+    /// identical, and why.
+    pub compare: Option<CompareOptOut>,
     /// The registry file the workload was read from, for messages.
     #[serde(skip)]
     pub file: PathBuf,
@@ -281,10 +298,69 @@ pub struct Gap {
     pub note: String,
 }
 
+/// `[workload.compare]`: output that differs between runs of the same binary (timings, for
+/// example), so `kbench compare` leaves it out of the output digest.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompareOptOut {
+    pub reason: String,
+    /// Leave standard output out of the digest.
+    #[serde(default)]
+    pub ignore_stdout: bool,
+    /// Leave these `check.files` entries out of the digest.
+    #[serde(default)]
+    pub ignore_files: Vec<String>,
+}
+
+/// A named selection of workloads (`[[set]]`), for `kbench run --set` and `kbench compare --set`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Set {
+    pub name: String,
+    pub description: String,
+    /// Workload ids, or patterns containing `*` (a prefix match where `*` matches anything, as
+    /// `--only`).
+    #[serde(default)]
+    pub workloads: Vec<String>,
+    /// Other sets whose workloads this one includes.
+    #[serde(default)]
+    pub sets: Vec<String>,
+    /// `kbench compare` only: the largest ladder value to run per workload id, so the set fits
+    /// its time budget; `kbench run` and `compare --full-ladders` run every value.
+    #[serde(default)]
+    pub ladder_max: BTreeMap<String, i64>,
+    /// `kbench compare` only: the default timed runs per binary and point for the workloads this
+    /// set names itself, where they are noisier than the default allows (`--runs` overrides it).
+    pub runs: Option<u32>,
+    /// The registry file the set was read from, for messages.
+    #[serde(skip)]
+    pub file: PathBuf,
+}
+
+/// Whether a set entry names a workload: an exact id, or a pattern when it contains `*`.
+pub fn set_entry_matches(entry: &str, id: &str) -> bool {
+    if entry.contains('*') {
+        matches(entry, id)
+    } else {
+        entry == id
+    }
+}
+
+/// The workloads a selection names, and the compare ladder caps that apply to them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Selection {
+    pub ids: BTreeSet<String>,
+    pub ladder_max: BTreeMap<String, i64>,
+    /// Per workload id: the largest `runs` of the sets that select it.
+    pub runs: BTreeMap<String, u32>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
     version: u32,
+    #[serde(default)]
+    set: Vec<Set>,
     #[serde(default)]
     gap: Vec<Gap>,
     #[serde(default)]
@@ -296,6 +372,8 @@ struct File {
 pub struct Registry {
     pub prepare: BTreeMap<String, Prepare>,
     pub gaps: Vec<Gap>,
+    /// Named workload sets, by name.
+    pub sets: BTreeMap<String, Set>,
     /// Sorted by semantics, operation, then id: the report's row order.
     pub workloads: Vec<Workload>,
 }
@@ -312,6 +390,7 @@ impl Registry {
         let mut prepare = BTreeMap::new();
         let mut workloads = Vec::new();
         let mut gaps = Vec::new();
+        let mut sets = BTreeMap::new();
         let mut errors = Vec::new();
         for path in &files {
             let text = std::fs::read_to_string(path)
@@ -341,6 +420,13 @@ impl Registry {
                 prepare.insert(step.name.clone(), step);
             }
             gaps.extend(file.gap);
+            for mut set in file.set {
+                set.file.clone_from(path);
+                if sets.contains_key(&set.name) {
+                    errors.push(format!("{}: duplicate set {}", path.display(), set.name));
+                }
+                sets.insert(set.name.clone(), set);
+            }
             for mut workload in file.workload {
                 workload.file.clone_from(path);
                 workloads.push(workload);
@@ -356,6 +442,7 @@ impl Registry {
         let registry = Registry {
             prepare,
             gaps,
+            sets,
             workloads,
         };
         errors.extend(registry.validate());
@@ -430,6 +517,23 @@ impl Registry {
                     errors.push(format!("{at}: unknown pin {pin}"));
                 }
             }
+            if let Some(opt_out) = &workload.compare {
+                if opt_out.reason.trim().is_empty() {
+                    errors.push(format!("{at}: [workload.compare] needs a reason"));
+                }
+                if !opt_out.ignore_stdout && opt_out.ignore_files.is_empty() {
+                    errors.push(format!(
+                        "{at}: [workload.compare] ignores neither stdout nor a file"
+                    ));
+                }
+                for file in &opt_out.ignore_files {
+                    if !workload.krust.check.files.contains(file) {
+                        errors.push(format!(
+                            "{at}: [workload.compare] ignores {file}, which is not a check file"
+                        ));
+                    }
+                }
+            }
             errors.extend(self.validate_side(&at, "krust", &workload.krust));
             if workload.krust.engine == Some(Engine::Reference) {
                 errors.push(format!(
@@ -488,7 +592,112 @@ impl Registry {
                 }
             }
         }
+        errors.extend(self.validate_sets());
         errors
+    }
+
+    fn validate_sets(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+        for set in self.sets.values() {
+            let at = format!("set {} ({})", set.name, set.file.display());
+            if set.description.trim().is_empty() {
+                errors.push(format!("{at}: description is required"));
+            }
+            if set.runs == Some(0) {
+                errors.push(format!("{at}: runs must be at least 1"));
+            }
+            if set.workloads.is_empty() && set.sets.is_empty() {
+                errors.push(format!("{at}: names no workloads and no sets"));
+            }
+            for pattern in &set.workloads {
+                if !self
+                    .workloads
+                    .iter()
+                    .any(|w| set_entry_matches(pattern, &w.id))
+                {
+                    errors.push(format!("{at}: {pattern} matches no workload"));
+                }
+            }
+            for name in &set.sets {
+                if !self.sets.contains_key(name) {
+                    errors.push(format!("{at}: unknown set {name}"));
+                }
+            }
+            match self.resolve_sets(std::slice::from_ref(&set.name)) {
+                Err(error) => errors.push(format!("{at}: {error}")),
+                Ok(selection) => {
+                    for (id, cap) in &set.ladder_max {
+                        if !selection.ids.contains(id) {
+                            errors.push(format!(
+                                "{at}: ladder_max names {id}, which is not in the set"
+                            ));
+                            continue;
+                        }
+                        let ladder = self
+                            .workloads
+                            .iter()
+                            .find(|w| &w.id == id)
+                            .and_then(|w| w.ladder.as_ref());
+                        match ladder {
+                            None => errors.push(format!("{at}: ladder_max names {id}, which has no ladder")),
+                            Some(ladder) if !ladder.values.contains(cap) => errors.push(format!(
+                                "{at}: ladder_max {id} = {cap} is not one of its ladder values {:?}",
+                                ladder.values
+                            )),
+                            Some(_) => {}
+                        }
+                    }
+                }
+            }
+        }
+        errors
+    }
+
+    /// The union of the named sets: their workload ids, and the smallest ladder cap any of them
+    /// (or a set they include) gives a workload.
+    pub fn resolve_sets(&self, names: &[String]) -> Result<Selection, String> {
+        fn visit(
+            registry: &Registry,
+            name: &str,
+            stack: &mut Vec<String>,
+            selection: &mut Selection,
+        ) -> Result<(), String> {
+            if stack.iter().any(|s| s == name) {
+                return Err(format!("set cycle: {} -> {name}", stack.join(" -> ")));
+            }
+            let Some(set) = registry.sets.get(name) else {
+                let known: Vec<&str> = registry.sets.keys().map(String::as_str).collect();
+                return Err(format!("unknown set {name} (known: {})", known.join(", ")));
+            };
+            stack.push(name.to_owned());
+            for included in &set.sets {
+                visit(registry, included, stack, selection)?;
+            }
+            stack.pop();
+            for workload in &registry.workloads {
+                if set
+                    .workloads
+                    .iter()
+                    .any(|p| set_entry_matches(p, &workload.id))
+                {
+                    selection.ids.insert(workload.id.clone());
+                    if let Some(runs) = set.runs {
+                        let entry = selection.runs.entry(workload.id.clone()).or_insert(runs);
+                        *entry = (*entry).max(runs);
+                    }
+                }
+            }
+            for (id, cap) in &set.ladder_max {
+                let entry = selection.ladder_max.entry(id.clone()).or_insert(*cap);
+                *entry = (*entry).min(*cap);
+            }
+            Ok(())
+        }
+        let mut selection = Selection::default();
+        for name in names {
+            visit(self, name, &mut Vec::new(), &mut selection)?;
+        }
+        Ok(selection)
     }
 
     fn validate_side(&self, at: &str, label: &str, side: &Side) -> Vec<String> {
@@ -541,5 +750,170 @@ impl Registry {
             visit(self, name, &mut Vec::new(), &mut done, &mut order)?;
         }
         Ok(order)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WORKLOADS: &str = r#"
+version = 1
+
+[[workload]]
+id = "imp/a"
+semantics = "imp"
+operation = "execute"
+title = "a"
+stresses = "a"
+tier = "quick"
+[workload.ladder]
+param = "n"
+values = [1, 2, 3, 4]
+input = "${n}"
+[workload.krust]
+argv = ["krun", "${input}"]
+[workload.reference]
+status = "untested"
+
+[[workload]]
+id = "imp/b"
+semantics = "imp"
+operation = "execute"
+title = "b"
+stresses = "b"
+tier = "heavy"
+[workload.krust]
+argv = ["krun"]
+[workload.reference]
+status = "untested"
+
+[[workload]]
+id = "fun/c"
+semantics = "fun"
+operation = "execute"
+title = "c"
+stresses = "c"
+tier = "quick"
+[workload.krust]
+argv = ["krun"]
+[workload.reference]
+status = "untested"
+"#;
+
+    fn load(sets: &str) -> Result<Registry, String> {
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "kbench-registry-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("w.toml"), WORKLOADS).unwrap();
+        std::fs::write(dir.join("sets.toml"), sets).unwrap();
+        let registry = Registry::load(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        registry
+    }
+
+    #[test]
+    fn sets_resolve_patterns_includes_and_the_smallest_cap() {
+        let registry = load(
+            r#"
+version = 1
+[[set]]
+name = "imp"
+description = "IMP"
+workloads = ["imp/*"]
+ladder_max = { "imp/a" = 3 }
+[[set]]
+name = "small"
+description = "small"
+workloads = ["*/c", "imp/a"]
+ladder_max = { "imp/a" = 2 }
+runs = 8
+[[set]]
+name = "all"
+description = "all"
+sets = ["imp", "small"]
+"#,
+        )
+        .unwrap();
+        let all = registry.resolve_sets(&["all".to_owned()]).unwrap();
+        assert_eq!(
+            all.ids.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec!["fun/c", "imp/a", "imp/b"]
+        );
+        assert_eq!(all.ladder_max["imp/a"], 2);
+        assert_eq!(all.runs.get("imp/a"), Some(&8));
+        assert_eq!(all.runs.get("fun/c"), Some(&8));
+        assert_eq!(all.runs.get("imp/b"), None);
+        let imp = registry.resolve_sets(&["imp".to_owned()]).unwrap();
+        assert_eq!(imp.ladder_max["imp/a"], 3);
+        assert!(imp.runs.is_empty());
+        assert!(registry.resolve_sets(&["nope".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn invalid_sets_are_rejected() {
+        let cases = [
+            // a pattern that matches nothing
+            r#"
+version = 1
+[[set]]
+name = "x"
+description = "x"
+workloads = ["kevm/*"]
+"#,
+            // an id is exact, not a prefix
+            r#"
+version = 1
+[[set]]
+name = "x"
+description = "x"
+workloads = ["imp/"]
+"#,
+            // a cap on a workload without a ladder
+            r#"
+version = 1
+[[set]]
+name = "x"
+description = "x"
+workloads = ["imp/*"]
+ladder_max = { "imp/b" = 1 }
+"#,
+            // a cap that is not a ladder value
+            r#"
+version = 1
+[[set]]
+name = "x"
+description = "x"
+workloads = ["imp/a"]
+ladder_max = { "imp/a" = 5 }
+"#,
+            // a cycle
+            r#"
+version = 1
+[[set]]
+name = "x"
+description = "x"
+sets = ["y"]
+[[set]]
+name = "y"
+description = "y"
+sets = ["x"]
+"#,
+            // an unknown included set
+            r#"
+version = 1
+[[set]]
+name = "x"
+description = "x"
+sets = ["z"]
+"#,
+        ];
+        for case in cases {
+            assert!(load(case).is_err(), "accepted: {case}");
+        }
     }
 }
