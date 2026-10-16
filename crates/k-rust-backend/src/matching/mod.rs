@@ -65,9 +65,9 @@ pub(crate) use collections::{
 #[cfg(test)]
 pub(crate) use collections::cancel_common_opaque_chunks;
 use collections::{
-    CommonKeys, MapRemainder, PairRemainder, binds_each_key_once, find_common_elements,
-    find_common_keys, is_opaque_concat, list_update_cannot_match, pair_prefix, pair_suffix,
-    prepend,
+    CommonKeys, MapRemainder, PairRemainder, PatternMapRemainder, binds_each_key_once,
+    find_common_elements, find_common_keys, is_opaque_concat, list_update_cannot_match,
+    pair_prefix, pair_suffix, prepend,
 };
 
 use std::{
@@ -1961,7 +1961,7 @@ impl<'a> Matcher<'a> {
         } = found.split(subject_entries);
 
         // The pattern's other entries are in key order (sorted above), the stored order.
-        let pattern = MapRemainder::new(Items::from_vec(pattern_only), pattern_rest);
+        let pattern = PatternMapRemainder::new(pattern_only, pattern_rest);
         let subject = MapRemainder::new(subject_only, subject_rest);
         let mut rest = self.match_map_remainders(&definition, pattern, subject)?;
         values.append(&mut rest);
@@ -2205,7 +2205,7 @@ impl<'a> Matcher<'a> {
     fn match_map_remainders(
         &mut self,
         definition: &Arc<MapDefinition>,
-        pattern: MapRemainder,
+        pattern: PatternMapRemainder,
         subject: MapRemainder,
     ) -> Result<Vec<(Term, Term)>, FailReason> {
         if pattern.concrete() > 0 {
