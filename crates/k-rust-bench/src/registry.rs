@@ -329,6 +329,9 @@ pub struct Set {
     /// its time budget; `kbench run` and `compare --full-ladders` run every value.
     #[serde(default)]
     pub ladder_max: BTreeMap<String, i64>,
+    /// `kbench compare` only: the default timed runs per binary and point for the workloads this
+    /// set names itself, where they are noisier than the default allows (`--runs` overrides it).
+    pub runs: Option<u32>,
     /// The registry file the set was read from, for messages.
     #[serde(skip)]
     pub file: PathBuf,
@@ -348,6 +351,8 @@ pub fn set_entry_matches(entry: &str, id: &str) -> bool {
 pub struct Selection {
     pub ids: BTreeSet<String>,
     pub ladder_max: BTreeMap<String, i64>,
+    /// Per workload id: the largest `runs` of the sets that select it.
+    pub runs: BTreeMap<String, u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -598,6 +603,9 @@ impl Registry {
             if set.description.trim().is_empty() {
                 errors.push(format!("{at}: description is required"));
             }
+            if set.runs == Some(0) {
+                errors.push(format!("{at}: runs must be at least 1"));
+            }
             if set.workloads.is_empty() && set.sets.is_empty() {
                 errors.push(format!("{at}: names no workloads and no sets"));
             }
@@ -673,6 +681,10 @@ impl Registry {
                     .any(|p| set_entry_matches(p, &workload.id))
                 {
                     selection.ids.insert(workload.id.clone());
+                    if let Some(runs) = set.runs {
+                        let entry = selection.runs.entry(workload.id.clone()).or_insert(runs);
+                        *entry = (*entry).max(runs);
+                    }
                 }
             }
             for (id, cap) in &set.ladder_max {
@@ -819,6 +831,7 @@ name = "small"
 description = "small"
 workloads = ["*/c", "imp/a"]
 ladder_max = { "imp/a" = 2 }
+runs = 8
 [[set]]
 name = "all"
 description = "all"
@@ -832,8 +845,12 @@ sets = ["imp", "small"]
             vec!["fun/c", "imp/a", "imp/b"]
         );
         assert_eq!(all.ladder_max["imp/a"], 2);
+        assert_eq!(all.runs.get("imp/a"), Some(&8));
+        assert_eq!(all.runs.get("fun/c"), Some(&8));
+        assert_eq!(all.runs.get("imp/b"), None);
         let imp = registry.resolve_sets(&["imp".to_owned()]).unwrap();
         assert_eq!(imp.ladder_max["imp/a"], 3);
+        assert!(imp.runs.is_empty());
         assert!(registry.resolve_sets(&["nope".to_owned()]).is_err());
     }
 

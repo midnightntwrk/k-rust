@@ -9,7 +9,9 @@ use std::fmt::Write;
 use crate::compare::{Comparison, PointComparison, WorkloadComparison};
 use crate::report::{growth, mib, seconds};
 use crate::results::Samples;
-use crate::stats::{Interval, MetricComparison, Verdict, compare_metric, paired_ratios};
+use crate::stats::{
+    Interval, MetricComparison, Verdict, compare_metric, judge_pooled, paired_ratios,
+};
 
 const MIB: f64 = 1_048_576.0;
 /// Below this base CPU time a point is dominated by process start and is left out of the noise
@@ -30,6 +32,65 @@ pub fn metrics(point: &PointComparison, comparison: &Comparison) -> [MetricCompa
         compare(&point.base.wall_seconds, &point.candidate.wall_seconds),
         compare(&peaks(&point.base), &peaks(&point.candidate)),
     ]
+}
+
+/// The timed runs of the selected workloads: one number, or the most common and the others.
+fn runs_summary(comparison: &Comparison) -> String {
+    let mut counts: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+    for workload in comparison.workload.iter().filter(|w| w.status != "skipped") {
+        let runs = if workload.runs == 0 {
+            comparison.runs
+        } else {
+            workload.runs
+        };
+        *counts.entry(runs).or_default() += 1;
+    }
+    let mut entries: Vec<(u32, usize)> = counts.into_iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    match entries.split_first() {
+        None => comparison.runs.to_string(),
+        Some(((runs, _), [])) => runs.to_string(),
+        Some(((runs, _), rest)) => format!(
+            "{runs} ({})",
+            rest.iter()
+                .map(|(r, n)| format!("{r} for {n} workload{}", if *n == 1 { "" } else { "s" }))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+/// The number of CPU pairs `pooled_cpu` pools.
+fn pooled_pairs(workload: &WorkloadComparison) -> usize {
+    let completed: Vec<&PointComparison> = workload.point.iter().filter(|p| ok(p)).collect();
+    let above: Vec<&&PointComparison> = completed
+        .iter()
+        .filter(|p| p.base.cpu().is_some_and(|c| c >= NOISE_FLOOR_SECONDS))
+        .collect();
+    let count =
+        |p: &PointComparison| paired_ratios(&p.base.cpu_seconds, &p.candidate.cpu_seconds).len();
+    if above.is_empty() {
+        completed.iter().map(|p| count(p)).sum()
+    } else {
+        above.iter().map(|p| count(p)).sum()
+    }
+}
+
+/// The workload-level CPU verdict: the paired CPU ratios of every completed point whose base
+/// CPU is at least `NOISE_FLOOR_SECONDS` (of every completed point when none is), pooled.
+pub fn pooled_cpu(workload: &WorkloadComparison, comparison: &Comparison) -> MetricComparison {
+    let completed: Vec<&PointComparison> = workload.point.iter().filter(|p| ok(p)).collect();
+    let above: Vec<&PointComparison> = completed
+        .iter()
+        .copied()
+        .filter(|p| p.base.cpu().is_some_and(|c| c >= NOISE_FLOOR_SECONDS))
+        .collect();
+    let pooled = if above.is_empty() { completed } else { above };
+    let ratios: Vec<f64> = pooled
+        .iter()
+        .flat_map(|p| paired_ratios(&p.base.cpu_seconds, &p.candidate.cpu_seconds))
+        .collect();
+    judge_pooled(&ratios, comparison.level, comparison.min_effect)
 }
 
 fn ok(point: &PointComparison) -> bool {
@@ -117,7 +178,52 @@ fn growth_of(workload: &WorkloadComparison, candidate: bool) -> (Option<f64>, Op
     (growth(&cpu, 0.05), growth(&peak, 64.0 * MIB))
 }
 
-/// Counters of a point that differ between the binaries.
+/// Counters that vary slightly between runs of the same binary, and the relative difference
+/// below which a difference is not reported. Two copies of one binary differed by at most
+/// 6e-5 in `allocation.count` and 3.5e-5 in `allocation.bytes` over 70 points on 2026-10-16;
+/// every other counter was identical.
+const VARYING_COUNTERS: &[(&str, f64)] = &[("allocation.count", 1e-3), ("allocation.bytes", 1e-3)];
+
+/// Whether two values of a counter differ beyond its run-to-run variation.
+fn counter_differs(name: &str, a: Option<u64>, b: Option<u64>) -> bool {
+    let (a, b) = (a.unwrap_or(0), b.unwrap_or(0));
+    if a == b {
+        return false;
+    }
+    match VARYING_COUNTERS
+        .iter()
+        .find(|(counter, _)| *counter == name)
+    {
+        #[allow(clippy::cast_precision_loss)]
+        Some((_, tolerance)) => (a.abs_diff(b) as f64) > tolerance * (a.max(b) as f64),
+        None => true,
+    }
+}
+
+/// The unit of the cost per step: `rewrite.steps` where the run counts them, otherwise
+/// `rewrite.rules_applied`; `None` when neither side counted either.
+fn cost_unit(point: &PointComparison) -> Option<(&'static str, Option<u64>, Option<u64>)> {
+    ["rewrite.steps", "rewrite.rules_applied"]
+        .into_iter()
+        .map(|name| {
+            (
+                name,
+                point.base_counters.get(name).copied(),
+                point.candidate_counters.get(name).copied(),
+            )
+        })
+        .find(|(_, a, b)| a.unwrap_or(0) > 0 || b.unwrap_or(0) > 0)
+        .map(|(name, a, b)| {
+            let unit = if name == "rewrite.steps" {
+                "steps"
+            } else {
+                "rules applied"
+            };
+            (unit, a, b)
+        })
+}
+
+/// Counters of a point that differ between the binaries beyond their run-to-run variation.
 fn counter_differences(point: &PointComparison) -> Vec<(String, Option<u64>, Option<u64>)> {
     let names: BTreeSet<&String> = point
         .base_counters
@@ -129,7 +235,7 @@ fn counter_differences(point: &PointComparison) -> Vec<(String, Option<u64>, Opt
         .filter_map(|name| {
             let a = point.base_counters.get(name).copied();
             let b = point.candidate_counters.get(name).copied();
-            (a.unwrap_or(0) != b.unwrap_or(0)).then(|| (name.clone(), a, b))
+            counter_differs(name, a, b).then(|| (name.clone(), a, b))
         })
         .collect()
 }
@@ -233,7 +339,7 @@ pub fn render(comparison: &Comparison) -> String {
     let _ = writeln!(
         out,
         "| Statistics | {} timed runs per binary and point, interleaved A B, B A, …; B/A is the ratio of the medians; the interval is the sign-test interval of the median of the paired ratios B/A (at least {:.0} % coverage where the run count allows); better or worse needs the whole interval on one side of 1 and B/A beyond ±{:.0} % |",
-        comparison.runs,
+        runs_summary(comparison),
         comparison.level * 100.0,
         comparison.min_effect * 100.0
     );
@@ -316,8 +422,37 @@ pub fn render(comparison: &Comparison) -> String {
             failed.len()
         );
     }
+    let mut workload_tally = Tally {
+        better: 0,
+        worse: 0,
+        noise: 0,
+        unknown: 0,
+    };
+    let judged: Vec<&&WorkloadComparison> =
+        selected.iter().filter(|w| headline(w).is_some()).collect();
+    for workload in &judged {
+        match pooled_cpu(workload, comparison).verdict {
+            Verdict::Better => workload_tally.better += 1,
+            Verdict::Worse => workload_tally.worse += 1,
+            Verdict::WithinNoise => workload_tally.noise += 1,
+            Verdict::Unknown => workload_tally.unknown += 1,
+        }
+    }
+    let _ = writeln!(
+        out,
+        "- CPU per workload (pooled over its points): {} better, {} worse, {} within noise, {} without a verdict (of {} workloads).",
+        workload_tally.better,
+        workload_tally.worse,
+        workload_tally.noise,
+        workload_tally.unknown,
+        judged.len()
+    );
     for (tally, name) in tallies.iter().zip(["CPU", "Wall", "Peak"]) {
-        let _ = writeln!(out, "{}", tally.line(name, points.len()));
+        let _ = writeln!(
+            out,
+            "{}",
+            tally.line(&format!("{name} per point"), points.len())
+        );
     }
     if counters {
         let differing: usize = points
@@ -350,35 +485,40 @@ pub fn render(comparison: &Comparison) -> String {
     let _ = writeln!(out, "## Summary\n");
     let _ = writeln!(
         out,
-        "One row per workload, at the largest point both binaries completed.\n"
+        "One row per workload. Pooled: the paired CPU ratios of all its points with a base CPU of at least {NOISE_FLOOR_SECONDS} s (all points when none is), their median, interval, and verdict: the workload's CPU verdict.\n\
+         The other columns are at the largest point both binaries completed.\n"
     );
     let _ = writeln!(
         out,
-        "| Workload | Point | CPU A | CPU B | CPU B/A | CPU interval | CPU | Wall B/A | Wall | Peak A | Peak B | Peak B/A | Peak | Output |"
+        "| Workload | Pairs | Pooled CPU B/A | Pooled interval | Pooled CPU | Point | CPU A | CPU B | CPU B/A | CPU | Wall B/A | Wall | Peak A | Peak B | Peak B/A | Peak | Output |"
     );
     let _ = writeln!(
         out,
-        "|:--|:--|--:|--:|--:|:--|:--|--:|:--|--:|--:|--:|:--|:--|"
+        "|:--|--:|--:|:--|:--|:--|--:|--:|--:|:--|--:|:--|--:|--:|--:|:--|:--|"
     );
     for workload in &selected {
         let Some(point) = headline(workload) else {
             let _ = writeln!(
                 out,
-                "| `{}` | — | — | — | — | — | — | — | — | — | — | — | — | {} |",
+                "| `{}` | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | {} |",
                 workload.id, workload.status
             );
             continue;
         };
         let [cpu, wall, peak] = metrics(point, comparison);
+        let pooled = pooled_cpu(workload, comparison);
         let _ = writeln!(
             out,
-            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             workload.id,
+            pooled_pairs(workload),
+            ratio(pooled.ratio),
+            interval(pooled.interval.as_ref()),
+            pooled.verdict.label(),
             point_label(workload, point),
             seconds(cpu.base),
             seconds(cpu.candidate),
             ratio(cpu.ratio),
-            interval(cpu.interval.as_ref()),
             cpu.verdict.label(),
             ratio(wall.ratio),
             wall.verdict.label(),
@@ -547,61 +687,63 @@ pub fn render(comparison: &Comparison) -> String {
         let _ = writeln!(out, "## Cost per step\n");
         let _ = writeln!(
             out,
-            "Steps are `rewrite.steps`, the states the execution loop visited (one rewrite step each; in a search, merged arrivals included); merged is `execution.states_merged`.\n\
-             CPU per step divides the median timed CPU by the counted steps; allocations per step divide `allocation.count`.\n"
+            "The unit is `rewrite.steps`, the states the execution loop visited (one rewrite step each; merged arrivals included, `execution.states_merged` of them), or, where the run takes no such step (a `--search` run's breadth-first search counts no visited states), `rewrite.rules_applied`, the successors that rule applications produced.\n\
+             CPU per unit divides the median timed CPU by the count; allocations per unit divide `allocation.count`.\n"
         );
         let _ = writeln!(
             out,
-            "| Workload | Point | Steps A | Steps B | Merged A | Merged B | µs CPU per step A | µs CPU per step B | B/A | Allocations per step A | Allocations per step B |"
+            "| Workload | Point | Unit | Count A | Count B | Merged A | Merged B | µs CPU per unit A | µs CPU per unit B | B/A | Allocations per unit A | Allocations per unit B |"
         );
-        let _ = writeln!(out, "|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|");
+        let _ = writeln!(out, "|:--|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|");
         for workload in &selected {
             for point in workload.point.iter().filter(|p| ok(p)) {
-                let steps_a = point.base_counters.get("rewrite.steps").copied();
-                let steps_b = point.candidate_counters.get("rewrite.steps").copied();
-                if steps_a.unwrap_or(0) == 0 && steps_b.unwrap_or(0) == 0 {
+                let Some((unit, units_a, units_b)) = cost_unit(point) else {
                     continue;
-                }
+                };
                 let merged_a = point.base_counters.get("execution.states_merged").copied();
                 let merged_b = point
                     .candidate_counters
                     .get("execution.states_merged")
                     .copied();
-                let per_step_a = per(point.base.cpu(), steps_a, 1e6);
-                let per_step_b = per(point.candidate.cpu(), steps_b, 1e6);
+                let per_unit_a = per(point.base.cpu(), units_a, 1e6);
+                let per_unit_b = per(point.candidate.cpu(), units_b, 1e6);
                 #[allow(clippy::cast_precision_loss)]
                 let allocations = |counters: &std::collections::BTreeMap<String, u64>,
-                                   steps: Option<u64>| {
+                                   units: Option<u64>| {
                     per(
                         counters.get("allocation.count").map(|v| *v as f64),
-                        steps,
+                        units,
                         1.0,
                     )
                 };
-                let per_step_ratio = match (per_step_a, per_step_b) {
+                let per_unit_ratio = match (per_unit_a, per_unit_b) {
                     (Some(a), Some(b)) if a > 0.0 => Some(b / a),
                     _ => None,
                 };
                 let _ = writeln!(
                     out,
-                    "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                    "| `{}` | {} | {unit} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                     workload.id,
                     point_label(workload, point),
-                    count(steps_a),
-                    count(steps_b),
+                    count(units_a),
+                    count(units_b),
                     count(merged_a),
                     count(merged_b),
-                    decimal(per_step_a),
-                    decimal(per_step_b),
-                    ratio(per_step_ratio),
-                    decimal(allocations(&point.base_counters, steps_a)),
-                    decimal(allocations(&point.candidate_counters, steps_b)),
+                    decimal(per_unit_a),
+                    decimal(per_unit_b),
+                    ratio(per_unit_ratio),
+                    decimal(allocations(&point.base_counters, units_a)),
+                    decimal(allocations(&point.candidate_counters, units_b)),
                 );
             }
         }
         let _ = writeln!(out);
 
         let _ = writeln!(out, "## Counter differences\n");
+        let _ = writeln!(
+            out,
+            "Every counter whose values differ at a point; `allocation.count` and `allocation.bytes` vary by up to 6e-5 between runs of the same binary, so their differences below 0.1 % are not listed.\n"
+        );
         let rows: Vec<String> = selected
             .iter()
             .flat_map(|w| {
@@ -633,7 +775,7 @@ pub fn render(comparison: &Comparison) -> String {
         let _ = writeln!(out, "## Counters at the summary point\n");
         let _ = writeln!(
             out,
-            "Every counter that is not zero on either side, in the order of the dump; ≠ marks a difference.\n"
+            "Every counter that is not zero on either side; ≠ marks a difference, ≈ a difference within the counter's run-to-run variation.\n"
         );
         for workload in &selected {
             let Some(point) = headline(workload) else {
@@ -661,10 +803,12 @@ pub fn render(comparison: &Comparison) -> String {
                 if a.unwrap_or(0) == 0 && b.unwrap_or(0) == 0 {
                     continue;
                 }
-                let mark = if a.unwrap_or(0) == b.unwrap_or(0) {
-                    ""
-                } else {
+                let mark = if counter_differs(name, a, b) {
                     "≠"
+                } else if a != b {
+                    "≈"
+                } else {
+                    ""
                 };
                 let _ = writeln!(out, "| `{name}` | {} | {} | {mark} |", count(a), count(b));
             }
@@ -762,6 +906,7 @@ mod tests {
                 semantics: "imp".to_owned(),
                 operation: "execute".to_owned(),
                 title: String::new(),
+                runs: 5,
                 status: if output == "differs" {
                     "mismatch"
                 } else {
@@ -790,11 +935,15 @@ mod tests {
     #[test]
     fn identical_runs_render_within_noise_and_a_slowdown_worse() {
         let same = render(&comparison(1.0, "identical"));
-        assert!(same.contains("- CPU: 0 better, 0 worse, 1 within noise"));
+        assert!(same.contains("- CPU per point: 0 better, 0 worse, 1 within noise"));
+        assert!(same.contains(
+            "- CPU per workload (pooled over its points): 0 better, 0 worse, 1 within noise"
+        ));
         assert!(same.contains("- Output: identical"));
         assert!(same.contains("Exit status: 0"));
         let slower = render(&comparison(1.1, "identical"));
-        assert!(slower.contains("- CPU: 0 better, 1 worse, 0 within noise"));
+        assert!(slower.contains("- CPU per point: 0 better, 1 worse, 0 within noise"));
+        assert!(slower.contains("(pooled over its points): 0 better, 1 worse"));
         assert!(slower.contains("| 1.100 |"));
     }
 
@@ -804,6 +953,42 @@ mod tests {
         assert!(text.contains("**Output: DIFFERS** on `imp/x`"));
         assert!(text.contains("Exit status: 1"));
         assert!(text.contains("## Failures"));
+    }
+
+    #[test]
+    fn allocation_counters_tolerate_run_to_run_variation() {
+        assert!(!counter_differs(
+            "allocation.count",
+            Some(1_000_000),
+            Some(1_000_050)
+        ));
+        assert!(counter_differs(
+            "allocation.count",
+            Some(1_000_000),
+            Some(1_002_000)
+        ));
+        assert!(counter_differs(
+            "rewrite.steps",
+            Some(1_000_000),
+            Some(1_000_001)
+        ));
+        assert!(!counter_differs("rewrite.steps", Some(5), Some(5)));
+        assert!(counter_differs("rewrite.steps", None, Some(1)));
+    }
+
+    #[test]
+    fn search_runs_cost_per_applied_rule() {
+        let mut point = PointComparison::default();
+        point
+            .base_counters
+            .insert("rewrite.rules_applied".to_owned(), 10);
+        point
+            .candidate_counters
+            .insert("rewrite.rules_applied".to_owned(), 10);
+        assert_eq!(cost_unit(&point).unwrap().0, "rules applied");
+        point.base_counters.insert("rewrite.steps".to_owned(), 7);
+        assert_eq!(cost_unit(&point), Some(("steps", Some(7), None)));
+        assert!(cost_unit(&PointComparison::default()).is_none());
     }
 
     #[test]

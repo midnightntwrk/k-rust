@@ -63,6 +63,9 @@ pub struct WorkloadComparison {
     pub semantics: String,
     pub operation: String,
     pub title: String,
+    /// Timed runs per binary and point.
+    #[serde(default)]
+    pub runs: u32,
     /// `ok`, `failed` (a run failed or its check did not pass), `mismatch` (the outputs
     /// differ), `error` (setup), or `skipped`.
     pub status: String,
@@ -94,6 +97,7 @@ pub struct Comparison {
     pub finished_at: String,
     /// The selection as given: `set:NAME` and `only:PATTERN` entries.
     pub selection: Vec<String>,
+    /// `--runs`, or the default where neither it nor a set gives a workload its runs.
     pub runs: u32,
     pub min_effect: f64,
     pub level: f64,
@@ -134,8 +138,10 @@ impl Comparison {
 
     /// Keeps the first `runs` timed runs of each side of every point.
     pub fn truncate_runs(&mut self, runs: usize) {
-        self.runs = self.runs.min(u32::try_from(runs).unwrap_or(u32::MAX));
+        let cap = u32::try_from(runs).unwrap_or(u32::MAX);
+        self.runs = self.runs.min(cap);
         for workload in &mut self.workload {
+            workload.runs = workload.runs.min(cap);
             for point in &mut workload.point {
                 for samples in [&mut point.base, &mut point.candidate] {
                     samples.wall_seconds.truncate(runs);
@@ -435,6 +441,7 @@ pub fn compare_workload(
         semantics: workload.semantics.clone(),
         operation: workload.operation.clone(),
         title: workload.title.clone(),
+        runs: options.runs,
         status: "ok".to_owned(),
         detail: None,
         ladder_param: workload.ladder.as_ref().map(|l| l.param.clone()),
@@ -742,6 +749,26 @@ mod tests {
             input: Some(String::new()),
             generator: None,
         }
+    }
+
+    fn workload(krust: &str) -> Workload {
+        toml::from_str(&format!(
+            "id = \"imp/x\"\nsemantics = \"imp\"\noperation = \"rpc\"\ntitle = \"x\"\nstresses = \"x\"\ntier = \"quick\"\n[krust]\n{krust}\n"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn only_workloads_that_run_the_krust_binary_are_compared() {
+        assert!(runs_krust(&workload(r#"argv = ["krun"]"#)));
+        assert!(runs_krust(&workload(
+            r#"engine = "command"
+argv = ["python3", "rpc.py", "--krust", "${krust}"]"#
+        )));
+        assert!(!runs_krust(&workload(
+            r#"engine = "command"
+argv = ["${prepared}/krs-tool/krs", "build"]"#
+        )));
     }
 
     #[test]

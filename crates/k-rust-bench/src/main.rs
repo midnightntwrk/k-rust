@@ -115,9 +115,10 @@ enum Commands {
         /// --set, narrows the set.
         #[arg(long)]
         only: Vec<String>,
-        /// Timed runs per binary and point.
-        #[arg(long, default_value_t = compare::DEFAULT_RUNS)]
-        runs: u32,
+        /// Timed runs per binary and point (default: the largest `runs` of the selected sets,
+        /// otherwise 5).
+        #[arg(long)]
+        runs: Option<u32>,
         /// Also count work: one KRUST_COUNTERS run per binary and point (measure builds only).
         #[arg(long)]
         counters: bool,
@@ -555,7 +556,7 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
             if set.is_empty() && only.is_empty() {
                 return Err("name the workloads with --set NAME or --only ID".to_owned());
             }
-            if runs == 0 {
+            if runs == Some(0) {
                 return Err("--runs must be at least 1".to_owned());
             }
             if !dry_run
@@ -615,6 +616,7 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
                 .as_ref()
                 .map(|s| s.ladder_max.clone())
                 .unwrap_or_default();
+            let set_runs = sets.as_ref().map(|s| s.runs.clone()).unwrap_or_default();
             let mut selection: Vec<String> = set.iter().map(|s| format!("set:{s}")).collect();
             selection.extend(only.iter().map(|o| format!("only:{o}")));
             let (started_at, stamp) = utc_now();
@@ -671,7 +673,7 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
                 started_at,
                 finished_at: String::new(),
                 selection,
-                runs,
+                runs: runs.unwrap_or(compare::DEFAULT_RUNS),
                 min_effect: min_effect / 100.0,
                 level: stats::LEVEL,
                 full_ladders,
@@ -690,11 +692,17 @@ fn execute(cli: Cli) -> Result<ExitCode, String> {
                 host: host(),
                 workload: Vec::new(),
             };
-            let options = compare::Options { runs, full_ladders };
+            let mut options = compare::Options {
+                runs: compare::DEFAULT_RUNS,
+                full_ladders,
+            };
             let results = work.join("results.toml");
             for workload in &chosen {
                 eprintln!("[{}] {}", workload.id, workload.title);
                 let cap = caps.get(&workload.id).copied();
+                options.runs = runs
+                    .or_else(|| set_runs.get(&workload.id).copied())
+                    .unwrap_or(compare::DEFAULT_RUNS);
                 let result = compare::compare_workload(&mut sides, workload, cap, &options, &work);
                 if result.status != "ok" {
                     eprintln!(

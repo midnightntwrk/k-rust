@@ -113,6 +113,38 @@ pub struct MetricComparison {
     pub verdict: Verdict,
 }
 
+/// The verdict of a point estimate of B/A and the interval of `pairs` paired ratios.
+fn judge(ratio: Option<f64>, interval: Option<Interval>, pairs: usize, min_effect: f64) -> Verdict {
+    match (ratio, interval) {
+        (Some(ratio), Some(interval)) if pairs >= MIN_PAIRS => {
+            if interval.high < 1.0 && ratio < 1.0 - min_effect {
+                Verdict::Better
+            } else if interval.low > 1.0 && ratio > 1.0 + min_effect {
+                Verdict::Worse
+            } else {
+                Verdict::WithinNoise
+            }
+        }
+        _ => Verdict::Unknown,
+    }
+}
+
+/// Judges paired ratios pooled from several points (a ladder's sizes): the estimate is their
+/// median, the interval the sign-test interval of that median. Pooling assumes the change is
+/// about the same factor at every pooled size; it multiplies the pairs, so one noisy run
+/// moves the interval much less than within a single point.
+pub fn judge_pooled(ratios: &[f64], level: f64, min_effect: f64) -> MetricComparison {
+    let ratio = median(ratios);
+    let interval = median_interval(ratios, level);
+    MetricComparison {
+        base: None,
+        candidate: None,
+        ratio,
+        interval,
+        verdict: judge(ratio, interval, ratios.len(), min_effect),
+    }
+}
+
 /// Compares the paired samples of one metric, where lower is better. A change is better or
 /// worse only when the whole interval lies on one side of 1 and the ratio of the medians moves
 /// by more than `min_effect` (a fraction): the interval alone flags tiny steady differences that
@@ -131,18 +163,7 @@ pub fn compare_metric(
     };
     let ratios = paired_ratios(base, candidate);
     let interval = median_interval(&ratios, level);
-    let verdict = match (ratio, interval) {
-        (Some(ratio), Some(interval)) if ratios.len() >= MIN_PAIRS => {
-            if interval.high < 1.0 && ratio < 1.0 - min_effect {
-                Verdict::Better
-            } else if interval.low > 1.0 && ratio > 1.0 + min_effect {
-                Verdict::Worse
-            } else {
-                Verdict::WithinNoise
-            }
-        }
-        _ => Verdict::Unknown,
-    };
+    let verdict = judge(ratio, interval, ratios.len(), min_effect);
     MetricComparison {
         base: base_median,
         candidate: candidate_median,
@@ -226,6 +247,19 @@ mod tests {
         let metric = compare_metric(&base, &candidate, LEVEL, 0.03);
         assert!(metric.interval.unwrap().low < 1.0);
         assert_eq!(metric.verdict, Verdict::WithinNoise);
+    }
+
+    #[test]
+    fn pooling_points_outvotes_one_noisy_pair() {
+        // Three points of five pairs at 10 % slower, with one pair per point on the other
+        // side of 1: each point alone is within noise, the pooled fifteen pairs are worse.
+        let point = [1.1, 1.12, 0.95, 1.09, 1.11];
+        let single = median_interval(&point, LEVEL).unwrap();
+        assert!(single.low < 1.0);
+        let pooled: Vec<f64> = point.iter().cycle().take(15).copied().collect();
+        let metric = judge_pooled(&pooled, LEVEL, 0.03);
+        assert_eq!(metric.verdict, Verdict::Worse);
+        assert!((metric.ratio.unwrap() - 1.1).abs() < 1e-9);
     }
 
     #[test]

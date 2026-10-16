@@ -10,7 +10,7 @@ version = 1
 
 [[set]]
 name = "slowness-concrete"
-description = "Concrete execution with a high cost per rewrite step: the long IMP, SIMPLE, and FUN runs and their ladders (compare: about 9 minutes)."
+description = "Concrete execution with a high cost per rewrite step: the long IMP, SIMPLE, and FUN runs and their ladders (compare: about 8 minutes)."
 workloads = [
   "imp/krun-tutorial-collatz-300",
   "imp/krun-tutorial-primes-1000",
@@ -21,12 +21,12 @@ workloads = [
   "toy/growth-map-update-control",
 ]
 # The cost per step is constant along these ladders, so the largest values add time, not
-# information: SIMPLE m = 160 alone is 22 s per run, FUN n = 16,000 7 s.
-ladder_max = { "simple/krun-collatz-input" = 80, "fun/krun-tail-recursion-ladder" = 4000, "fun/krun-callcc-loop-ladder" = 4000 }
+# information: SIMPLE m = 160 alone is 22 s per run, m = 80 8 s, FUN n = 16,000 7 s.
+ladder_max = { "simple/krun-collatz-input" = 40, "fun/krun-tail-recursion-ladder" = 4000, "fun/krun-callcc-loop-ladder" = 4000 }
 
 [[set]]
 name = "slowness-search"
-description = "`krun --search-final` on strict-heated semantics, superlinear in the program size, with its linear controls (compare: about 8 minutes)."
+description = "`krun --search-final` on strict-heated semantics, superlinear in the program size, with its linear controls (compare: about 10 minutes at 8 runs)."
 workloads = [
   "imp/search-kink-sum",
   "imp/search-strict-heating",
@@ -37,9 +37,13 @@ workloads = [
   "simple/search-collatz-input",
   "imp/search-sum",
 ]
-# Each cap keeps at least three values above 0.05 s for the growth exponent and drops the one
-# value that costs 15-35 s per run.
-ladder_max = { "imp/search-kink-sum" = 1000, "imp/search-strict-heating" = 2048, "imp/search-kink-wide8" = 256, "simple/search-collatz-input" = 30, "imp/search-sum" = 3000 }
+# Each cap keeps at least three values above 0.05 s for the growth exponent and drops the
+# values that cost 8-35 s per run.
+ladder_max = { "imp/search-kink-sum" = 1000, "imp/search-strict-heating" = 2048, "imp/search-kink-wide8" = 256, "simple/search-collatz-input" = 20, "imp/search-sum" = 3000 }
+# Search runs allocate gigabytes per second and their CPU time varies by 20-40 % with the load
+# of other jobs on the host; at five runs, two identical binaries got two false verdicts on
+# 2026-10-16, at eight none (draft-personal/perf/wave1/measure.md).
+runs = 8
 
 [[set]]
 name = "slowness-frontend"
@@ -64,7 +68,7 @@ ladder_max = { "toy/growth-predicate-ornot-chain" = 8000, "toy/growth-predicate-
 
 [[set]]
 name = "slowness"
-description = "Every workload of the 2026-10-16 slowness findings: concrete execution, search, frontend, and simplifier (compare: about 22 minutes)."
+description = "Every workload of the 2026-10-16 slowness findings: concrete execution, search, frontend, and simplifier (compare: about 23 minutes; search at 8 runs)."
 sets = ["slowness-concrete", "slowness-search", "slowness-frontend", "slowness-simplifier"]
 
 [[set]]
