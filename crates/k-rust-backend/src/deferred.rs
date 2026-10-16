@@ -177,6 +177,11 @@ pub(crate) fn is_impure_application(definition: &BackendDefinition, application:
     let TermKind::Application { symbol, .. } = application.kind() else {
         return false;
     };
+    is_impure_symbol(definition, symbol)
+}
+
+/// Whether an application of `symbol` performs an effect ([`is_impure_application`]).
+pub(crate) fn is_impure_symbol(definition: &BackendDefinition, symbol: &Symbol) -> bool {
     definition.is_impure(&symbol.name)
         || symbol
             .attributes
@@ -229,7 +234,8 @@ fn console_domain(application: &Term) -> Option<bool> {
 }
 
 /// The immediate subterms of `term`.
-fn children(term: &Term) -> Vec<&Term> {
+/// The immediate subterms of `term`.
+pub(crate) fn children(term: &Term) -> Vec<&Term> {
     match term.kind() {
         TermKind::Application { arguments, .. } => arguments.iter().collect(),
         TermKind::And(left, right) => vec![left, right],

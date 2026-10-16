@@ -34,7 +34,12 @@
 // The phase functions return `Phase<T>` (below), whose `Err` is the `RuleAttempt` itself.
 #![allow(clippy::result_large_err)]
 
-use std::{cell::RefCell, collections::BTreeSet, ops::Range, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::BTreeSet,
+    ops::Range,
+    sync::Arc,
+};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
@@ -91,6 +96,22 @@ pub(super) enum RuleAttempt {
     Indeterminate(IndeterminateReason),
     /// Simplifying a term or condition of the rule failed, so the attempt could not be decided.
     Simplification(SimplificationError),
+}
+
+/// Where a rule attempt asked to report it ([`apply_rule_reporting`]) ended, among the two
+/// exits whose `NotApplicable` reads nothing but the left-hand side's match against the subject
+/// and the `requires` instantiated by it (`rewrite::refutation_memo`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RefutationSite {
+    /// Neither of the exits below (yet).
+    Other,
+    /// The initial match succeeded directly, without the recovery ladder; the attempt goes on.
+    Matched,
+    /// The initial match failed (P3).
+    Match,
+    /// The initial match succeeded directly with no match condition, and the instantiated
+    /// `requires` simplified to `False` (P11).
+    Requires,
 }
 
 impl RuleAttempt {
@@ -380,6 +401,35 @@ pub(super) fn apply_rule(
     io: Option<&ExecutionIoState>,
     ground_halt: bool,
 ) -> Stoppable<RuleAttempt> {
+    apply_rule_reporting(
+        definition,
+        rule,
+        pattern,
+        fresh_counter,
+        simplification_options,
+        solver,
+        assume_initial_defined,
+        io,
+        ground_halt,
+        None,
+    )
+}
+
+/// [`apply_rule`], recording in `site` where a `NotApplicable` came from ([`RefutationSite`]):
+/// only the attempt's own phases record it, not an attempt it re-enters.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn apply_rule_reporting(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    fresh_counter: &mut FreshCounter,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    assume_initial_defined: bool,
+    io: Option<&ExecutionIoState>,
+    ground_halt: bool,
+    site: Option<&Cell<RefutationSite>>,
+) -> Stoppable<RuleAttempt> {
     let attempt = apply_rule_with_match(
         definition,
         rule,
@@ -391,6 +441,7 @@ pub(super) fn apply_rule(
         None,
         io,
         ground_halt,
+        site,
     )?;
     refuse_carried_uncomputed_applications(definition, attempt)
 }
@@ -452,6 +503,8 @@ struct RuleContext<'a> {
     /// The emission-position ranges of this attempt level's nested units of work (re-entered
     /// sub-attempts and right-hand-side alternatives), which attribute their own diagnostics.
     nested_units: &'a RefCell<Vec<Range<u64>>>,
+    /// Where this attempt level records its [`RefutationSite`], when its caller asked for it.
+    site: Option<&'a Cell<RefutationSite>>,
 }
 
 impl RuleContext<'_> {
@@ -470,6 +523,18 @@ impl RuleContext<'_> {
     fn one_state(&self) -> bool {
         self.pattern.term.concrete_after_normalization()
             || (self.ground_halt && self.pattern.term.attributes().variables.is_empty())
+    }
+
+    /// Record that this attempt level reached `site`.
+    fn reached(&self, site: RefutationSite) {
+        if let Some(cell) = self.site {
+            cell.set(site);
+        }
+    }
+
+    /// Whether this attempt level recorded `site` last.
+    fn last_reached(&self, site: RefutationSite) -> bool {
+        self.site.is_some_and(|cell| cell.get() == site)
     }
 
     /// Run `work` as a nested unit of this attempt level.
@@ -530,6 +595,7 @@ pub(super) fn apply_rule_with_match(
     matched: Option<PartialRuleMatch>,
     io: Option<&ExecutionIoState>,
     ground_halt: bool,
+    site: Option<&Cell<RefutationSite>>,
 ) -> Stoppable<RuleAttempt> {
     // A partial match was computed against the rule this attempt already applies, which is
     // renamed apart from the subject when it had to be.
@@ -551,6 +617,7 @@ pub(super) fn apply_rule_with_match(
             None,
             io,
             ground_halt,
+            None,
         );
     }
     let _span = measure::algorithm_span(Algorithm::BackendRewriteApply);
@@ -566,6 +633,7 @@ pub(super) fn apply_rule_with_match(
         io,
         ground_halt,
         nested_units: &nested_units,
+        site,
     };
     // The attempt is one retraction scope: a report raised while it was made (of a call left
     // unevaluated in its `requires`, say) is kept only if the attempt's outcome still holds the
@@ -692,6 +760,7 @@ fn reenter(
             Some(matched),
             context.io,
             context.ground_halt,
+            None,
         )
     })
 }
@@ -763,6 +832,7 @@ fn dispatch_match(
     match matching {
         MatchResult::Failed(_) => {
             measure::bump(Counter::RewriteMatchFailures);
+            context.reached(RefutationSite::Match);
             Err(PhaseExit::Attempt(RuleAttempt::NotApplicable))
         }
         MatchResult::Indeterminate {
@@ -806,7 +876,10 @@ fn dispatch_match(
                 }
             }
         }
-        MatchResult::Success(substitution) => Ok((substitution, Vec::new())),
+        MatchResult::Success(substitution) => {
+            context.reached(RefutationSite::Matched);
+            Ok((substitution, Vec::new()))
+        }
     }
 }
 
@@ -1418,6 +1491,9 @@ fn requires(
         }
     };
     if predicates_truth(&requires) == Truth::False {
+        if match_conditions.is_empty() && context.last_reached(RefutationSite::Matched) {
+            context.reached(RefutationSite::Requires);
+        }
         return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
     }
     if context.one_state() {

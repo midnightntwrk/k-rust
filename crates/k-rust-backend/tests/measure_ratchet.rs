@@ -417,6 +417,38 @@ fn counting_execution_to_depth_100_stays_within_the_pinned_rewrite_work() {
     assert_eq!(delta.get(Counter::SmtQueries), 0);
 }
 
+/// A sequential (`Any`) step whose rule applies with applicability `True` leaves the remaining
+/// subject `False`. Nothing reads that subject further, so the step does not simplify it again,
+/// and the step's simplifier entries are those of the rule's attempt and of the successor.
+#[test]
+fn sequential_steps_do_not_resimplify_a_subject_left_false() {
+    let definition = definition(COUNTING);
+    let execute_any = |depth: u64| {
+        let initial = pattern(&definition, r#"inc{}(\dv{SortInt{}}("0"))"#);
+        let (result, delta) = measured(|| {
+            execute(
+                &definition,
+                initial,
+                ExecutionOptions {
+                    max_depth: depth,
+                    mode: k_rust_backend::rewrite::ExecutionMode::Any,
+                    ..ExecutionOptions::default()
+                },
+            )
+        });
+        assert_eq!(result.leaves.len(), 1, "{result:#?}");
+        delta
+    };
+    let step = execute_any(11).delta(&execute_any(10));
+    eprintln!("one sequential counting step: {:?}", nonzero(&step));
+    assert_eq!(step.get(Counter::RewriteSteps), 1);
+    assert_eq!(step.get(Counter::RewriteRulesApplied), 1);
+    assert_eq!(
+        step.get(Counter::SimplifyInvocations),
+        SEQUENTIAL_STEP_SIMPLIFY_INVOCATIONS
+    );
+}
+
 #[test]
 fn counting_execution_work_grows_linearly_with_depth() {
     let definition = definition(COUNTING);
@@ -946,3 +978,7 @@ const EXPLORED_10: u64 = 11;
 const COLLECTION_PROBLEMS_4: u64 = 2;
 /// Additive slack of the `f(2n) <= 2 f(n) + c` growth assertions.
 const LINEAR_SLACK: u64 = 16;
+
+/// Simplifier entries of one sequential step of `COUNTING`, measured: 7 while the step still
+/// resimplified the remaining subject an applied rule leaves `False`.
+const SEQUENTIAL_STEP_SIMPLIFY_INVOCATIONS: u64 = 6;

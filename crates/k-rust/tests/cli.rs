@@ -23650,3 +23650,67 @@ fn a_module_that_sees_the_configuration_names_the_compiler_added_cell() {
         String::from_utf8_lossy(&compiled.stderr)
     );
 }
+
+/// A destination whose `<x>` key `?L` only a found key's value in another map binds (`<p>`'s
+/// `0 |-> ?L`), while `<p>`'s other keys are bound by a third map (`<q>`), is matched against
+/// each reached state as written: at the initial state `<x>` lacks the key `?L` comes to denote,
+/// so the destination does not match there, and exploration reaches `end`, where it matches with
+/// `?L = 7`. Matching `<x>` before `<p>` has bound `?L` leaves the destination undecided on the
+/// initial state, whose implication obligations over `<p>`'s two existential keys cannot be
+/// prepared, and the claim was reported failed, stuck at depth 0.
+#[test]
+fn kprove_proves_a_claim_whose_map_key_is_bound_through_another_maps_found_value() {
+    let (root, _) = fixture();
+    fs::write(
+        root.join("t4.k"),
+        r#"
+module T4-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= "run" | "mid" | "mid2" | "end"
+endmodule
+
+module T4
+  imports T4-SYNTAX
+  imports INT
+  imports BOOL
+  imports MAP
+  configuration <T> <p> .Map </p> <x> .Map </x> <q> .Map </q> <k> $PGM:Pgm </k> </T>
+  rule <k> run => mid </k>
+  rule <k> mid => mid2 </k>
+  rule <k> mid2 => end </k> <x> M => M[7 <- 70] </x>
+endmodule
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("t4b-spec.k"),
+        r#"
+requires "t4.k"
+module T4B-SPEC
+  imports T4
+  claim <k> run => ?_K:Pgm </k>
+        <p> 0 |-> 7 1 |-> 1 2 |-> 2 3 |-> 3 => 0 |-> ?L:Int ?A:Int |-> ?_:Int ?_B:Int |-> ?_:Int ?_:Map </p>
+        <x> 5 |-> V1:Int 6 |-> V2:Int => ?L |-> ?_:Int ?_:Map </x>
+        <q> 1 |-> 0 => ?A |-> 0 </q>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .current_dir(&root)
+        .args([
+            "kprove",
+            "t4b-spec.k",
+            "--main-module",
+            "T4B-SPEC",
+            "--definition-module",
+            "T4",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let context = format!("{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(), "{context}");
+    assert!(stdout.contains("claim #1: proven"), "{context}");
+}
