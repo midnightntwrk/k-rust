@@ -15,7 +15,7 @@ use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern
 use k_rust_backend::nesting::with_simplification_stack_budget;
 use kink_native::exclusion::{
     BUILTIN_OPEN_HOOKS, DOMAINS_OPEN_HOOKS, DefinitionExclusions, Exclusion,
-    IMPLEMENTATION_CHOSEN_HOOKS, K_RUST_IMPLEMENTATION_CHOSEN_HOOKS,
+    IMPLEMENTATION_CHOSEN_HOOKS, K_RUST_IMPLEMENTATION_CHOSEN_HOOKS, UNDOCUMENTED_EVALUATED_HOOKS,
     state_references_implementation_chosen,
 };
 use kink_native::execution::{
@@ -134,7 +134,7 @@ fn k_rust_backend() -> PathBuf {
 /// k-rust source the workspace builds against: its match arms, the hooks of the binary Float
 /// operations `float::mixed_destination` accepts (`BinaryOperation::of`) and the one hook
 /// `float::nan_sign` reads. `IMPLEMENTATION_CHOSEN_HOOKS` is that list and the kink-side
-/// `DOMAINS_OPEN_HOOKS` and `BUILTIN_OPEN_HOOKS`, each once. A change of any of them in k-rust fails this test, so a
+/// `DOMAINS_OPEN_HOOKS`, `BUILTIN_OPEN_HOOKS` and `UNDOCUMENTED_EVALUATED_HOOKS`, each once. A change of any of them in k-rust fails this test, so a
 /// re-pin re-derives the list.
 ///
 /// Re-pin R0c deliverable 5 (R0b review 1 minor): reading arms and two helper calls misses a
@@ -208,6 +208,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
         .copied()
         .chain(DOMAINS_OPEN_HOOKS.iter().map(|(hook, _, _)| *hook))
         .chain(BUILTIN_OPEN_HOOKS.iter().map(|(_, hook, _, _)| *hook))
+        .chain(UNDOCUMENTED_EVALUATED_HOOKS.iter().copied())
         .collect::<Vec<_>>();
     assert_eq!(IMPLEMENTATION_CHOSEN_HOOKS, all.as_slice());
     assert_eq!(
@@ -424,6 +425,308 @@ fn builtin_files_leave_these_hook_values_open() {
     );
 }
 
+/// Every hook k-rust 501f18b9's builtin dispatch evaluates: each hook literal written before a
+/// match arm's `=>` or `|` in k-rust-backend `src/builtin.rs` and `src/builtin/**/*.rs`.
+const K_RUST_EVALUATED_HOOKS: [&str; 196] = [
+    "BOOL.and",
+    "BOOL.andThen",
+    "BOOL.eq",
+    "BOOL.implies",
+    "BOOL.ne",
+    "BOOL.not",
+    "BOOL.or",
+    "BOOL.orElse",
+    "BOOL.xor",
+    "BYTES.bytes2int",
+    "BYTES.bytes2string",
+    "BYTES.concat",
+    "BYTES.decodeBytes",
+    "BYTES.empty",
+    "BYTES.encodeBytes",
+    "BYTES.get",
+    "BYTES.int2bytes",
+    "BYTES.length",
+    "BYTES.padLeft",
+    "BYTES.padRight",
+    "BYTES.replaceAt",
+    "BYTES.reverse",
+    "BYTES.string2bytes",
+    "BYTES.substr",
+    "BYTES.update",
+    "FLOAT.abs",
+    "FLOAT.add",
+    "FLOAT.ceil",
+    "FLOAT.div",
+    "FLOAT.eq",
+    "FLOAT.exponentBits",
+    "FLOAT.float2int",
+    "FLOAT.floor",
+    "FLOAT.ge",
+    "FLOAT.gt",
+    "FLOAT.int2float",
+    "FLOAT.isNaN",
+    "FLOAT.le",
+    "FLOAT.lt",
+    "FLOAT.max",
+    "FLOAT.maxValue",
+    "FLOAT.min",
+    "FLOAT.mul",
+    "FLOAT.neg",
+    "FLOAT.precision",
+    "FLOAT.root",
+    "FLOAT.round",
+    "FLOAT.sign",
+    "FLOAT.sub",
+    "FLOAT.trunc",
+    "HASH.keccak256",
+    "HASH.ripemd160",
+    "HASH.sha256",
+    "HASH.sha3_256",
+    "INT.abs",
+    "INT.add",
+    "INT.and",
+    "INT.bitRange",
+    "INT.ediv",
+    "INT.emod",
+    "INT.eq",
+    "INT.ge",
+    "INT.gt",
+    "INT.le",
+    "INT.log2",
+    "INT.lt",
+    "INT.max",
+    "INT.min",
+    "INT.mul",
+    "INT.ne",
+    "INT.not",
+    "INT.or",
+    "INT.pow",
+    "INT.powmod",
+    "INT.shl",
+    "INT.shr",
+    "INT.signExtendBitRange",
+    "INT.sub",
+    "INT.tdiv",
+    "INT.tmod",
+    "INT.xor",
+    "IO.getc",
+    "IO.logString",
+    "IO.putc",
+    "IO.read",
+    "IO.write",
+    "KEQUAL.eq",
+    "KEQUAL.ite",
+    "KEQUAL.ne",
+    "KRYPTO.bn128add",
+    "KRYPTO.bn128ate",
+    "KRYPTO.bn128g2valid",
+    "KRYPTO.bn128mul",
+    "KRYPTO.bn128valid",
+    "KRYPTO.ecdsaPubKey",
+    "KRYPTO.ecdsaRecover",
+    "KRYPTO.keccak256",
+    "KRYPTO.keccak256raw",
+    "KRYPTO.ripemd160",
+    "KRYPTO.ripemd160raw",
+    "KRYPTO.sha256",
+    "KRYPTO.sha256raw",
+    "KRYPTO.sha3256",
+    "KRYPTO.sha512_256raw",
+    "LIST.concat",
+    "LIST.element",
+    "LIST.get",
+    "LIST.in",
+    "LIST.make",
+    "LIST.range",
+    "LIST.size",
+    "LIST.unit",
+    "LIST.update",
+    "LIST.updateAll",
+    "MAP.choice",
+    "MAP.concat",
+    "MAP.difference",
+    "MAP.element",
+    "MAP.in_keys",
+    "MAP.inclusion",
+    "MAP.keys",
+    "MAP.keys_list",
+    "MAP.lookup",
+    "MAP.lookupOrDefault",
+    "MAP.remove",
+    "MAP.removeAll",
+    "MAP.size",
+    "MAP.unit",
+    "MAP.update",
+    "MAP.updateAll",
+    "MAP.values",
+    "MINT.add",
+    "MINT.and",
+    "MINT.ashr",
+    "MINT.bitwidth",
+    "MINT.eq",
+    "MINT.integer",
+    "MINT.lshr",
+    "MINT.mul",
+    "MINT.ne",
+    "MINT.neg",
+    "MINT.not",
+    "MINT.or",
+    "MINT.sdiv",
+    "MINT.sge",
+    "MINT.sgt",
+    "MINT.shl",
+    "MINT.sle",
+    "MINT.slt",
+    "MINT.srem",
+    "MINT.sub",
+    "MINT.svalue",
+    "MINT.udiv",
+    "MINT.uge",
+    "MINT.ugt",
+    "MINT.ule",
+    "MINT.ult",
+    "MINT.urem",
+    "MINT.uvalue",
+    "MINT.xor",
+    "SECP256K1.ecdsaRecover",
+    "SET.choice",
+    "SET.concat",
+    "SET.difference",
+    "SET.element",
+    "SET.in",
+    "SET.inclusion",
+    "SET.intersection",
+    "SET.list2set",
+    "SET.set2list",
+    "SET.size",
+    "SET.union",
+    "SET.unit",
+    "STRING.base2string",
+    "STRING.chr",
+    "STRING.concat",
+    "STRING.countAllOccurrences",
+    "STRING.eq",
+    "STRING.find",
+    "STRING.ge",
+    "STRING.gt",
+    "STRING.int2string",
+    "STRING.le",
+    "STRING.length",
+    "STRING.lt",
+    "STRING.ne",
+    "STRING.ord",
+    "STRING.replaceAll",
+    "STRING.rfind",
+    "STRING.string2base",
+    "STRING.string2int",
+    "STRING.string2token",
+    "STRING.substr",
+    "STRING.token2string",
+    "SUBSTITUTION.substMany",
+    "SUBSTITUTION.substOne",
+];
+
+/// The hook literals of match arms in `text`: a `"NAMESPACE.name"` literal followed, after
+/// spaces, by `=>` or `|`.
+fn dispatch_arm_hooks(text: &str) -> BTreeSet<String> {
+    let mut hooks = BTreeSet::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('"') {
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('"') else { break };
+        let literal = &after[..end];
+        let tail = after[end + 1..].trim_start();
+        let (namespace, name) = literal.split_once('.').unwrap_or(("", ""));
+        if !namespace.is_empty()
+            && namespace
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            && namespace.starts_with(|c: char| c.is_ascii_uppercase())
+            && !name.is_empty()
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && (tail.starts_with("=>") || tail.starts_with('|'))
+        {
+            hooks.insert(literal.to_owned());
+        }
+        rest = &after[end + 1..];
+    }
+    hooks
+}
+
+/// Every `hook(NAMESPACE.name)` attribute in `text`, however many a line holds (`smt-hook(..)`
+/// is not one: its argument has no namespace).
+fn hook_attributes(text: &str) -> BTreeSet<String> {
+    text.match_indices("hook(")
+        .filter_map(|(at, _)| {
+            let start = at + "hook(".len();
+            let end = text[start..].find(')')? + start;
+            let hook = &text[start..end];
+            let (namespace, name) = hook.split_once('.')?;
+            (!namespace.is_empty()
+                && namespace
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                && !name.is_empty()
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+            .then(|| hook.to_owned())
+        })
+        .collect()
+}
+
+/// Re-pin R0c-fix-2 deliverable 7 (R0c-fix-1 review minor): a hook k-rust evaluates that no
+/// builtin file it ships documents has a value the definition does not specify, so it is on the
+/// census list (`UNDOCUMENTED_EVALUATED_HOOKS`: the `KRYPTO`, `HASH` and `SECP256K1` hooks). The
+/// evaluated set is read from k-rust-backend's dispatch source (every hook literal of a match
+/// arm in `builtin.rs` and `builtin/`) and pinned, so a re-pin that adds an evaluated hook fails
+/// here; the documented set is every `hook(..)` the builtin files declare.
+#[test]
+fn evaluated_hooks_no_builtin_file_documents_are_open() {
+    let backend = k_rust_backend().join("src");
+    let mut files = vec![backend.join("builtin.rs")];
+    let mut pending = vec![backend.join("builtin")];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    let evaluated = files
+        .iter()
+        .flat_map(|path| dispatch_arm_hooks(&std::fs::read_to_string(path).unwrap()))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        evaluated,
+        K_RUST_EVALUATED_HOOKS
+            .iter()
+            .map(|hook| (*hook).to_owned())
+            .collect::<BTreeSet<_>>(),
+        "k-rust's evaluated hooks changed: sweep them again"
+    );
+    let dir = k_rust_backend().join("../k-rust/builtin");
+    let documented = BUILTIN_FILES
+        .iter()
+        .flat_map(|(name, _)| hook_attributes(&std::fs::read_to_string(dir.join(name)).unwrap()))
+        .collect::<BTreeSet<_>>();
+    let undocumented = evaluated
+        .difference(&documented)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        undocumented,
+        UNDOCUMENTED_EVALUATED_HOOKS
+            .iter()
+            .map(|hook| (*hook).to_owned())
+            .collect::<BTreeSet<_>>()
+    );
+    for hook in UNDOCUMENTED_EVALUATED_HOOKS {
+        assert!(IMPLEMENTATION_CHOSEN_HOOKS.contains(hook), "{hook}");
+    }
+}
+
 /// Re-pin R0c-fix-1 deliverable 2 (R0c review 1 major 3, the reviewer's alpha-equivalence probe):
 /// beta reduction through `SUBSTITUTION.substOne`. On `run(app(lam(x, lam(y, x)), y))` the
 /// baseline gives `out(lam(y0, y))` and the mutant, which routes the substitution through `y0`,
@@ -500,10 +803,10 @@ fn prelude_stream_rules_are_counted_whatever_their_source() {
 /// `at` and `oe` (`andThenBool`, `orElseBool`, which domains.md calls short-circuiting), `cond`
 /// (`#if`) and `imp` (`impliesBool`) are each a `Trivial` leaf naming the rule in k-rust, where
 /// a short-circuiting backend gives `res(..)`; before R0c-fix-1 each was a complete terminal. On
-/// 1 each is a defined value and not excluded. `rqa`, whose condition is a top-level
-/// conjunction, `gd`, whose condition calls a conjunctive guard
+/// 1 each is a defined value and not excluded by its leaves. `rqa`, whose condition is a
+/// top-level conjunction, `gd`, whose condition calls a conjunctive guard
 /// (`I =/=Int 0 andBool 10 /Int I >Int 0`), and `ctl`, whose operands are total, are not
-/// flagged; nothing flags the definition as a whole.
+/// flagged. Since re-pin R0c-fix-2 the flagged rules exclude the definition as a whole.
 #[test]
 fn a_short_circuit_step_over_an_undefined_operand_is_excluded() {
     on_a_big_stack(|| {
@@ -513,7 +816,13 @@ fn a_short_circuit_step_over_an_undefined_operand_is_excluded() {
             exclusions.short_circuit_conditions.is_empty(),
             "{exclusions:?}"
         );
-        assert_eq!(exclusions.definition_exclusion(), None);
+        // Re-pin R0c-fix-2 deliverable 6: any such rule excludes the whole definition too (an
+        // undefined candidate beside a defined same-priority sibling leaves no leaf). Before:
+        // no definition exclusion.
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::ShortCircuitReading)
+        );
         let catalog = backend(&side, &module).rule_catalog(None).unwrap();
         let id = |label: &str| {
             catalog
@@ -531,6 +840,19 @@ fn a_short_circuit_step_over_an_undefined_operand_is_excluded() {
                 .map(|label| id(&format!("SCRHS.{label}")))
                 .collect::<BTreeSet<_>>()
         );
+        assert_eq!(
+            exclusions
+                .short_circuit_results
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            exclusions.short_circuit_rules
+        );
+        // The leaf check stays: a Trivial leaf of a flagged rule names its rule.
+        let leaf_only = DefinitionExclusions {
+            short_circuit_results: Vec::new(),
+            ..exclusions.clone()
+        };
         for label in flagged {
             let symbol = format!("Lbl{label}");
             let undefined = run(&side, &module, support::app(&symbol, vec![support::int(0)]));
@@ -540,18 +862,67 @@ fn a_short_circuit_step_over_an_undefined_operand_is_excluded() {
             assert_eq!(leaf.halt, HaltClass::Trivial, "{label}(0)");
             assert!(leaf.contradicted_total.is_none(), "{label}(0)");
             assert_eq!(
-                exclusions.run_exclusion(&undefined),
+                leaf_only.run_exclusion(&undefined),
                 Some(Exclusion::ShortCircuitReading),
                 "{label}(0)"
             );
             let defined = run(&side, &module, support::app(&symbol, vec![support::int(1)]));
-            assert_eq!(exclusions.run_exclusion(&defined), None, "{label}(1)");
+            assert_eq!(leaf_only.run_exclusion(&defined), None, "{label}(1)");
+            assert_eq!(
+                exclusions.run_exclusion(&defined),
+                Some(Exclusion::ShortCircuitReading),
+                "{label}(1)"
+            );
         }
         for label in ["rqa", "ctl", "gd"] {
             let symbol = format!("Lbl{label}");
             let execution = run(&side, &module, support::app(&symbol, vec![support::int(0)]));
-            assert_eq!(exclusions.run_exclusion(&execution), None, "{label}(0)");
+            assert_eq!(leaf_only.run_exclusion(&execution), None, "{label}(0)");
         }
+    });
+}
+
+/// Re-pin R0c-fix-2 deliverable 6 (R0c-fix-1 review major, the reviewer's `scsib.k`): `siba`'s
+/// right-hand side applies `andBool` over `10 /Int (I -Int 1) >Int 0` beside the same-priority
+/// sibling `sibb`. On `sib(1)` k-rust drops `siba`'s undefined candidate and the run is one
+/// complete Stuck leaf `other()` with no undefined-step leaf to read, where a short-circuiting
+/// backend also reaches `res(false)`: the leaf check misses it, and the definition-level rule
+/// excludes it. Before R0c-fix-2 the run was evidence.
+#[test]
+fn a_short_circuit_candidate_beside_a_sibling_excludes_the_definition() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scsib");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let siba = backend(&side, &module)
+            .rule_catalog(None)
+            .unwrap()
+            .into_iter()
+            .find(|rule| rule.label.as_deref() == Some("SCSIB.siba"))
+            .expect("siba")
+            .id;
+        assert_eq!(exclusions.short_circuit_results, [siba]);
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        let execution = run(
+            &side,
+            &module,
+            support::app("Lblsib", vec![support::int(1)]),
+        );
+        let [leaf] = execution.leaves() else {
+            panic!("sib(1): one leaf")
+        };
+        assert_eq!(leaf.halt, HaltClass::Stuck);
+        let leaf_only = DefinitionExclusions {
+            short_circuit_results: Vec::new(),
+            ..exclusions.clone()
+        };
+        assert_eq!(leaf_only.run_exclusion(&execution), None);
+        assert_eq!(
+            exclusions.run_exclusion(&execution),
+            Some(Exclusion::ShortCircuitReading)
+        );
     });
 }
 
@@ -713,6 +1084,9 @@ fn definition_exclusions_over_testdata() {
                 "testdata/k/t12hook.k",
                 "testdata/k/t12probe.k",
                 "testdata/k/t12unev.k",
+                // Re-pin R0c-fix-2: `keccak` is hooked `KRYPTO.keccak256`, which k-rust evaluates
+                // and no builtin file documents.
+                "testdata/k/t13implemented.k",
             ]
             .map(str::to_owned)
             .into_iter()

@@ -194,11 +194,8 @@ pub fn campaign_manifest_multi_with_budget(
         }
         Err(e) => return Err(encode(e)),
     };
-    let support = campaign
-        .tests
-        .iter()
-        .any(|t| !t.initial_state.variable_occurrences().is_empty())
-        .then(|| ClaimSupport::new(baseline));
+    // Every mutant runs claim-free (re-pin R0c-fix-2), so its census covers that definition.
+    let support = ClaimSupport::new(baseline);
     let baseline_input = SemanticInput::of(baseline).map_err(encode)?;
     let baseline_digest = baseline_input.digest().to_string();
     let tests = Value::Array(campaign.tests.iter().map(|test| Ok(json!({
@@ -214,7 +211,7 @@ pub fn campaign_manifest_multi_with_budget(
     let mut mutants = Vec::new();
     let mut operators = Vec::new();
     let mut differs = false;
-    let mut identities: Vec<Option<(Sha256Digest, kink_patch::Withdrawal)>> = Vec::new();
+    let mut identities: Vec<Option<crate::runner::MutantIdentity>> = Vec::new();
     for (operator_index, (generation, operator)) in
         input.generations.iter().zip(input.operators).enumerate()
     {
@@ -236,8 +233,7 @@ pub fn campaign_manifest_multi_with_budget(
             if !candidate.patch.is_pinned() {
                 return Err(ManifestError::Unpinned);
             }
-            let identity =
-                crate::runner::mutant_identity(baseline, &candidate.patch, support.as_ref());
+            let identity = crate::runner::mutant_identity(baseline, &candidate.patch, &support);
             let same_as = identity.as_ref().and_then(|identity| {
                 identities
                     .iter()
@@ -275,7 +271,6 @@ pub fn campaign_manifest_multi_with_budget(
                             kink_native::equivalent_compilation(&compiled, &side),
                             Ok(false)
                         )
-                        && let Some(support) = &support
                     {
                         let claims = support
                             .withdraw(baseline, &candidate.patch)

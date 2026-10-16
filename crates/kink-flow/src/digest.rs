@@ -172,6 +172,9 @@ pub fn outcome_context(
         "oracles": ORACLE_SLOTS,
         "classifier": CLASSIFIER,
         "schedule": SCHEDULE,
+        // A mutant is built without the claims its edit leaves unbacked (re-pin R0c-fix-2), so
+        // its identity depends on the removal algorithm.
+        "claim_removal": kink_patch::CLAIM_REMOVAL_VERSION,
     })
 }
 

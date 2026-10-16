@@ -1787,8 +1787,11 @@ id = "choice-differs"
 }
 
 /// Re-pin R0c-fix-1 deliverable 1 (decision 2 per test, Sebastien 2026-10-17), through
-/// kink-flow's first-kill search: the mutation `I +Int 0` of a `total` function's equation
-/// contradicts the claim on `tdiv(0)` and distinguishes on `tdiv(1)`. In both program orders the
+/// kink-flow's first-kill search: the mutation `I +Int 0` of the rewrite rule `tdiv` keeps `td`'s
+/// `total` (re-pin R0c-fix-2: its edit does not reach `td`, so the claim stays), contradicts it
+/// on `tdiv(-1)` and distinguishes on `tdiv(1)`. (Before R0c-fix-2 the mutation edited `td`'s
+/// equation and contradicted the claim on `tdiv(0)`; such a mutation now runs without the claim
+/// and `tdiv(0)` kills it, see `a_mutation_drops_the_claims_its_edit_leaves_unbacked`.) In both program orders the
 /// mutation is killed by `kill`, whose runs are clean, and the contradicting program is listed
 /// `unknown` with failure `contradicted-claim` when it ran (under R0c's mutant-wide rule the
 /// contradicting program first made the mutation `unknown` and wrote no record). The killing
@@ -1807,13 +1810,13 @@ module CONTRA
   imports INT
   configuration <k> $PGM:Prog </k>
   rule [tdeq]: td(I) => 10 /Int (I +Int 1)
-  rule [tdiv]: <k> tdiv(I) => val(td(I)) </k>
+  rule [tdiv]: <k> tdiv(I) => val(td(I +Int 1)) </k>
 endmodule
 ";
     let mutations = r#"[[mutation]]
 id = "denominator"
   [[mutation.edit]]
-  rule = "tdeq"
+  rule = "tdiv"
   find = "I +Int 1"
   replace = "I +Int 0"
 "#;
@@ -1826,7 +1829,7 @@ id = "denominator"
             .map(|id| {
                 format!(
                     "[[program]]\nid = \"{id}\"\ntext = \"tdiv({})\"\n",
-                    if *id == "contra" { 0 } else { 1 }
+                    if *id == "contra" { -1 } else { 1 }
                 )
             })
             .collect::<String>();
@@ -1882,5 +1885,76 @@ id = "denominator"
                 "{order:?}"
             );
         }
+    }
+}
+
+/// Re-pin R0c-fix-2 (a mutant drops the claims its edit leaves unbacked), through kink-flow: the
+/// mutation `I +Int 0` of `td`'s equation leaves `td`'s `total` unbacked, so every program runs on
+/// the mutant without it. On `tdiv(0)` the claim-free mutant takes an undefined step (`10 /Int 0`
+/// is undefined in every model of it) where the baseline gives `val(10)`: `zero` kills it, and
+/// its runs are clean. Before R0c-fix-2 the mutant carried the claim, contradicted it on
+/// `tdiv(0)`, and the program was `unknown` (`contradicted-claim`). The row's `removed_claims`
+/// names the removed claim, the outcome file repeats it, and the tier-1 context names the
+/// claim-removal algorithm.
+#[test]
+fn a_mutation_drops_the_claims_its_edit_leaves_unbacked() {
+    let definition = r"module DROP-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= tdiv(Int) [symbol(tdiv)]
+                | val(Int) [symbol(val)]
+  syntax Int ::= td(Int) [function, total, symbol(td)]
+endmodule
+
+module DROP
+  imports DROP-SYNTAX
+  imports INT
+  configuration <k> $PGM:Prog </k>
+  rule [tdeq]: td(I) => 10 /Int (I +Int 1)
+  rule [tdiv]: <k> tdiv(I) => val(td(I)) </k>
+endmodule
+";
+    let dir = scratch("claim-free");
+    fs::write(dir.join("drop.k"), definition).unwrap();
+    fs::write(
+        dir.join("FLOW.toml"),
+        "[spec]\nentry = \"drop.k\"\nmain_module = \"DROP\"\nsyntax_module = \"DROP-SYNTAX\"\n\n\
+         [[program]]\nid = \"zero\"\ntext = \"tdiv(0)\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("MUTATIONS.toml"),
+        r#"[[mutation]]
+id = "denominator"
+  [[mutation.edit]]
+  rule = "tdeq"
+  find = "I +Int 1"
+  replace = "I +Int 0"
+"#,
+    )
+    .unwrap();
+    let manifest = dir.join("FLOW.toml");
+    let (document, ok) = search(&manifest, &dir.join("MUTATIONS.toml"), &[]);
+    assert!(ok, "{document:#}");
+    let row = mutation(&document, "denominator");
+    assert_eq!(
+        (row["status"].as_str(), row["killer"].as_str()),
+        (Some("killed"), Some("zero")),
+        "{row:#}"
+    );
+    let removed = row["removed_claims"]["removed"].as_array().unwrap();
+    assert_eq!(removed.len(), 1, "{row:#}");
+    assert_eq!(
+        (removed[0]["module"].as_str(), removed[0]["key"].as_str()),
+        (Some("DROP-SYNTAX"), Some("total")),
+        "{row:#}"
+    );
+    assert_eq!(row["removed_claims"]["unsupported"], json!([]));
+    if kink_native::execution::SolverProfile::BUILD == kink_native::execution::SolverProfile::NoZ3 {
+        let file = read_json(&outcome_file(&manifest, &document, "denominator"));
+        assert_eq!(file["removed_claims"], row["removed_claims"], "{file:#}");
+        assert_eq!(
+            file["context"]["claim_removal"],
+            json!(kink_patch::CLAIM_REMOVAL_VERSION)
+        );
     }
 }

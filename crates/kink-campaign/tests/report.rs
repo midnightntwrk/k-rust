@@ -1227,9 +1227,9 @@ fn supplied_evidence_and_claims_keep_their_exact_schema() {
         run.baseline[1].run = SideRun::Failed(ExecutionFailureKind::TimeLimit);
         let m = &mut run.mutants[0];
         m.plan.tests[0].run = TestRun::Compared(vec![OracleOutcome::Unknown]);
-        m.plan.tests[1].run = TestRun::Failed(ExecutionFailureKind::UnsupportedClaims);
+        m.plan.tests[1].run = TestRun::Failed(ExecutionFailureKind::ContradictedClaim);
         m.evidence[0].run = SideRun::Sides { sides };
-        m.evidence[1].run = SideRun::Failed(ExecutionFailureKind::UnsupportedClaims);
+        m.evidence[1].run = SideRun::Failed(ExecutionFailureKind::ContradictedClaim);
         m.plan.claims.withdrawn.push(Claim {
             origin: SentenceOrigin::Baseline(support::rule(b, "COUNTER.increment")),
             key: "total".into(),

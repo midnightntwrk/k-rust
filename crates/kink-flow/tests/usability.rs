@@ -189,7 +189,7 @@ fn an_exit_stop_kill_names_its_slot_and_both_sides() {
     let row = mutation(&document, "guard-dropped");
     assert_eq!(row["status"], "killed");
     assert_eq!(row["killer"], "by-zero");
-    assert_eq!(document["version"], 3);
+    assert_eq!(document["version"], 4);
     assert_eq!(
         entry(&document, "guard-dropped", "by-zero")["slots"],
         json!({

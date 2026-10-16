@@ -1523,8 +1523,8 @@ fn test_sides(
 /// baseline on every instance (both stop at `half`), yet under the inherited `total` of f and
 /// d the symbolic test matched and killed it. Its patch changes d's equation, which f's
 /// equations mention, so both claims are withdrawn from the definition its symbolic test runs
-/// on, and that side is `Unknown`: the mutant is not killed. Its ground tests run on the patched
-/// definition as written and agree with the baseline.
+/// on, and that side is `Unknown`: the mutant is not killed. Its ground tests agree with the
+/// baseline (since re-pin R0c-fix-2 they too run on the claim-free mutant).
 #[test]
 fn probe3_symbolic_test_does_not_kill_an_equivalent_mutant() {
     with_stack(|| {
@@ -1564,8 +1564,10 @@ fn probe3_symbolic_test_does_not_kill_an_equivalent_mutant() {
         assert!(claims.trusted());
         assert!(claims.patch().is_some());
 
-        // Ground campaigns are unchanged: both sides stop at `half`, the mutant survives, and
-        // with no symbolic test nothing is withdrawn.
+        // Ground campaigns: both sides stop at `half` and the mutant survives. Re-pin R0c-fix-2:
+        // every test runs on the claim-free mutant, so a ground campaign withdraws the same
+        // claims (before: nothing was withdrawn without a symbolic test); the status is
+        // unchanged.
         for test in campaign.tests().into_iter().skip(1) {
             let run = campaign.run(std::slice::from_ref(&test), &[campaign.d("0")]);
             assert_eq!(
@@ -1578,7 +1580,13 @@ fn probe3_symbolic_test_does_not_kill_an_equivalent_mutant() {
                 [(test.id.as_str(), Ok(&no_match[..]))]
             );
             assert_eq!(mutant.report.status, MutantStatus::Survived, "{}", test.id);
-            assert_eq!(mutant.report.claims, Withdrawal::default());
+            assert_eq!(
+                campaign.names(&mutant.report.claims.withdrawn),
+                [
+                    ("f".to_owned(), "total".to_owned()),
+                    ("d".to_owned(), "total".to_owned())
+                ]
+            );
         }
     });
 }
@@ -1687,17 +1695,20 @@ fn equation_ensures_mutation_makes_symbolic_test_unknown_but_keeps_ground_kill()
                 ("1", Ok(&matches[..]))
             ]
         );
+        // Re-pin R0c-fix-2 (a mutant drops the claims its edit leaves unbacked): the edited
+        // `ensures` is an unbacked claim no removal takes away (dropping it changes what the
+        // equation says), so no claim-free mutant exists and none of its tests runs. Before: the
+        // symbolic test Failed(UnsupportedClaims) and the ground test 0 killed the mutant as
+        // written, which carried the false `ensures`; now Killed -> Unknown
+        // (UnsupportedClaims).
         let mutant = &run.mutants[0];
+        assert!(mutant.evidence.is_empty());
         assert_eq!(
-            test_sides(&mutant.evidence),
-            [
-                ("X", Err(ExecutionFailureKind::UnsupportedClaims)),
-                ("0", Ok(&[unmatched()][..])),
-                ("1", Ok(&matches[..]))
-            ]
+            mutant.plan.mutant_failure,
+            Some(MutantScopeFailure::UnsupportedClaims)
         );
-        assert_eq!(mutant.report.status, MutantStatus::Killed);
-        assert_eq!(mutant.report.killing_test_ids, ["0"]);
+        assert_eq!(mutant.report.status, MutantStatus::Unknown);
+        assert!(mutant.report.killing_test_ids.is_empty());
         assert!(mutant.report.claims.withdrawn.is_empty());
         assert_eq!(
             campaign.names(&mutant.report.claims.unsupported),
@@ -1713,8 +1724,8 @@ fn equation_ensures_mutation_makes_symbolic_test_unknown_but_keeps_ground_kill()
 /// A mutant of a rewrite rule no claim rests on withdraws nothing, and its symbolic test runs
 /// on its patched definition and keeps its verdict: `load` never fires, so no instance loads.
 /// A mutant that adds `preserves-definedness` to `half` asserts a claim nobody supports:
-/// withdrawing it would undo the mutant, so its symbolic test does not run, while its ground
-/// tests still do.
+/// withdrawing it would undo the mutant, so no claim-free mutant exists and none of its tests
+/// runs (re-pin R0c-fix-2).
 #[test]
 fn unrelated_and_claim_asserting_mutants() {
     with_stack(|| {
@@ -1748,18 +1759,13 @@ fn unrelated_and_claim_asserting_mutants() {
         assert_eq!(unrelated.report.status, MutantStatus::Killed);
         assert_eq!(unrelated.report.killing_test_ids, ["X", "z", "s(z)"]);
 
-        let matches = [matched()];
+        // Re-pin R0c-fix-2: the claim the patch writes refuses the whole mutant, ground tests
+        // included (before: only its symbolic test, Failed(UnsupportedClaims), and the ground
+        // tests ran on the mutant as written; the status was Unknown and stays Unknown).
+        assert!(asserting.evidence.is_empty());
         assert_eq!(
-            test_sides(&asserting.evidence),
-            [
-                ("X", Err(ExecutionFailureKind::UnsupportedClaims)),
-                ("z", Ok(&matches[..])),
-                ("s(z)", Ok(&matches[..]))
-            ]
-        );
-        assert_eq!(
-            outcomes_or_failures(&asserting.plan.tests)[0],
-            TestRun::Failed(ExecutionFailureKind::UnsupportedClaims)
+            asserting.plan.mutant_failure,
+            Some(MutantScopeFailure::UnsupportedClaims)
         );
         assert_eq!(asserting.report.status, MutantStatus::Unknown);
         let claims = &asserting.report.claims;
@@ -1772,8 +1778,4 @@ fn unrelated_and_claim_asserting_mutants() {
         );
         assert!(!claims.trusted());
     });
-}
-
-fn outcomes_or_failures(tests: &[TestPlan]) -> Vec<TestRun> {
-    tests.iter().map(|test| test.run.clone()).collect()
 }

@@ -1,49 +1,67 @@
-//! Trusted claims of a definition, and their withdrawal from a mutant.
+//! Trusted claims of a definition, and their removal from a mutant.
 //!
-//! k-rust takes some attributes as axioms and never checks them: on a production `total`,
-//! `functional`, `injective`, `smt-hook` and `smtlib`; on a rule `preserves-definedness`; and
-//! the lemmas, `simplification` and `smt-lemma` rules; and a non-trivial `ensures` on an
-//! equation. They are claims about what terms
-//! denote. The baseline's author vouches for them. A mutant inherits them, although its
-//! patch may have changed what they are about.
+//! k-rust takes some attributes and axioms as true and never checks them (its "contract", k-rust
+//! 501f18b9 `docs/compatibility.md` 1010, and [`TRUSTED_CLAIMS`] with a citation for each): on a
+//! production `total`, `functional`, `injective`, `smt-hook` and `smtlib`; on a rule
+//! `preserves-definedness` and `smt-lemma`; the `simplification` lemmas; a non-trivial `ensures`
+//! of a function equation; that an equation restricted by `concrete` or `symbolic` is a theorem
+//! of the executable equations; and that a hooked symbol's equations agree with its hook. They
+//! are claims about what terms denote, which the baseline's author vouches for.
+//!
+//! The principle (Sebastien, 2026-10-17): a claim is the spec author's assertion about the
+//! definition they wrote. When a mutation edits part of the definition, every claim whose truth
+//! depends on the edited part is no longer backed by anyone, and the mutant must not carry it.
+//! kink builds each mutant with those claims removed ([`ClaimSupport::withdraw`], the one
+//! function every route that builds a mutant goes through), so the mutant is a consistent theory
+//! that k-rust executes without trusting them. The baseline keeps all its claims: the author's
+//! claims about the unedited specification stay a trusted premise.
 //!
 //! What a term denotes is fixed by the equational part of a definition: the equations of each
-//! symbol (function rules, `anywhere` rules and macro rules headed by it), the claims, and
-//! the sorts and constructors that make up each sort's values. Rewrite rules are transitions
-//! and never change what a term denotes, and neither do contexts or reachability claims.
-//! So a claim about a symbol `f` is true or false by the equations of the symbols `f`'s
-//! equations mention, transitively, and by the claims about those symbols; a claim of a rule
-//! (its `preserves-definedness`, or the lemma it states) by the rule's own terms and by the
-//! same closure over the symbols it mentions.
+//! symbol (function rules, `anywhere` rules and macro rules headed by it, an `smt-lemma` among
+//! them unless it is a `simplification`), the claims, and the sorts and constructors that make
+//! up each sort's values. Rewrite rules are transitions and never change what a term denotes,
+//! and neither do contexts or reachability claims. So a claim about a symbol `f` is true or false
+//! by the equations of the symbols `f`'s equations mention (left side, right side, `requires`
+//! and `ensures`), transitively, and by the claims about those symbols; a claim of a rule (its
+//! `preserves-definedness`, or the lemma it states) by the rule's own terms and by the same
+//! closure over the symbols it mentions.
 //!
 //! [`ClaimSupport`] names that relation over one baseline. A patch *redefines* a symbol when
 //! it edits, deletes or inserts an equation headed by it (in the baseline or in the mutant)
-//! or edits a claim of its production. When a patch's effect on the equational part is not
-//! known this precisely (it edits a production otherwise, a sort, a configuration, or a rule
-//! whose head cannot be read), every symbol counts as redefined. A claim is *supported* in
-//! the mutant when no symbol of its closure is redefined and the patch left its own sentence
-//! alone: then every sentence and claim it rests on is the baseline's, and it holds in the
-//! mutant exactly as in the baseline. Every other claim of the mutant is withdrawn when an
-//! attribute removal can withdraw it, and otherwise is *unsupported*: a claim the patch
-//! itself writes (a hypothesis that withdrawing would undo), and a lemma, whose removal
-//! would change the rule rather than the trust in it.
+//! or edits a claim of its production: these are the edited symbols E, read from the head of
+//! each edited sentence. A symbol *reaches* E when one of its equations applies a symbol of E
+//! or a symbol that reaches E (the reverse call-graph closure). When a patch's effect on the
+//! equational part is not known this precisely (it edits a production otherwise, a sort, a
+//! configuration, or a rule whose head cannot be read), every symbol counts as redefined. A
+//! claim is *supported* in the mutant when no symbol of its closure is redefined and the patch
+//! left its own sentence alone: then every sentence and claim it rests on is the baseline's,
+//! and it holds in the mutant exactly as in the baseline. An edit of a rewrite rule only
+//! redefines nothing, so it removes only that rule's own claims.
 //!
-//! An equation's open `ensures` is assumed wherever the equation applies, whether the equation
-//! is a lemma or a definition. An equation's non-trivial `ensures` is therefore a claim of the
-//! equation, supported by its sentence and by the equations of every symbol it mentions.
+//! Every other claim is removed from the mutant ([`Withdrawal::withdrawn`]): the symbol claims of
+//! every symbol in E or reaching E (a `RemoveAttribute`), the `preserves-definedness` and
+//! `smt-lemma` attributes of every rule that is edited or mentions such a symbol, and every
+//! `simplification` lemma that mentions one (a `DeleteSentence`: a lemma is a claim as a whole,
+//! and removing an axiom only weakens the theory). A claim that no removal takes away without
+//! changing the definition is *unsupported* ([`Withdrawal::unsupported`]), and the mutant is
+//! refused rather than built with it: a claim the patch itself writes (removing it would undo
+//! the mutant), a lemma the patch edits or inserts, an equation's non-trivial `ensures` (k-rust
+//! reads an `ensures` that is false as an undefined application, so dropping it changes what the
+//! equation says), a `concrete` or `symbolic` equation, and an equation of a hooked symbol.
 //!
 //! The lambdas k-rust generates for `#let` and `#fun` are not claims of the written definition.
 //! They are generated when the mutant is compiled, after the patch, and a lambda is declared
 //! `total` only when its pattern is a variable and its body is built from constructors, `total`
 //! functions and such lambdas (k-rust KK-71). Its claim is thus derived from the mutant's own
 //! body, and it rests on the claims of the functions that body calls, which this relation
-//! already withdraws when their support is touched.
+//! already withdraws when their support is touched. Likewise kompile derives `constructor`,
+//! `injective` freeness and a value production's `functional` from the mutant's own sentences.
 //!
 //! Withdrawing is sound: removing an axiom that holds only weakens the theory, and one that
 //! may not hold can no longer make it inconsistent. The withdrawn definition is an ordinary
-//! original-relative patch result: the patch's own edits and a `RemoveAttribute` per
-//! withdrawn claim (a claim a replacement sentence carries over from the sentence it replaces
-//! is dropped from the replacement instead).
+//! original-relative patch result: the patch's own edits, a `RemoveAttribute` per withdrawn
+//! attribute and a `DeleteSentence` per withdrawn lemma (a claim a replacement sentence carries
+//! over from the sentence it replaces is dropped from the replacement instead).
 
 use crate::apply::{Mutant, SentenceOrigin, apply};
 use crate::failure::PatchFailure;
@@ -52,6 +70,95 @@ use k_rust::definition::{AttributeKey, Definition, Sentence};
 use k_rust::kast::Term;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+
+/// The version of the claim-removal algorithm ([`ClaimSupport::withdraw`]): a mutant's identity
+/// depends on it, so every cache of mutant outcomes names it (kink-flow's tier-1 context).
+pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v1";
+
+/// One kind of claim k-rust trusts, how kink removes it from a mutant, and where k-rust 501f18b9
+/// says it is trusted (paths relative to `crates/` or `docs/` of the k-rust tree).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TrustedClaim {
+    /// The attribute key, or `ensures`, `concrete-equation` or `hooked-equation`.
+    pub claim: &'static str,
+    pub removal: ClaimRemoval,
+    pub citation: &'static str,
+}
+
+/// How kink takes a trusted claim away from a mutant.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClaimRemoval {
+    /// `RemoveAttribute` on the sentence (or dropped from a replacing sentence).
+    Attribute,
+    /// `DeleteSentence`: the sentence is a lemma, a claim as a whole.
+    Sentence,
+    /// No removal keeps the definition: the mutant is refused (unsupported).
+    Refused,
+}
+
+/// Every claim k-rust 501f18b9 trusts in a definition it executes, with its removal. Not claims:
+/// `constructor` (kompile drops a source `constructor` and derives freeness itself,
+/// `k-rust/src/kompile/module_to_kore.rs` 1524-1535 and 1551-1557), a value production's
+/// `functional` (derived from its equations, `compatibility.md` 1028-1031), `trusted` (on
+/// reachability claims, which execution never reads, `compatibility.md` 1833) and kompile's
+/// generated lambdas (KK-71). kink-patch's test `trusted_claims_are_pinned` pins this list.
+pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
+    TrustedClaim {
+        claim: "total",
+        removal: ClaimRemoval::Attribute,
+        citation: "compatibility.md 1010, 1376-1384; backend-port.md 322",
+    },
+    TrustedClaim {
+        claim: "functional",
+        removal: ClaimRemoval::Attribute,
+        citation: "compatibility.md 1033, 1378; backend-port.md 322",
+    },
+    TrustedClaim {
+        claim: "injective",
+        removal: ClaimRemoval::Attribute,
+        citation: "compatibility.md 1046 (a user-written injective is an axiom)",
+    },
+    TrustedClaim {
+        claim: "smt-hook",
+        removal: ClaimRemoval::Attribute,
+        citation: "compatibility.md 2266; backend-port.md 315; k-rust-backend/src/smt.rs 207",
+    },
+    TrustedClaim {
+        claim: "smtlib",
+        removal: ClaimRemoval::Attribute,
+        citation: "compatibility.md 2266-2267; k-rust-backend/src/smt.rs 207",
+    },
+    TrustedClaim {
+        claim: "preserves-definedness",
+        removal: ClaimRemoval::Attribute,
+        citation: "backend-port.md 322",
+    },
+    TrustedClaim {
+        claim: "smt-lemma",
+        removal: ClaimRemoval::Attribute,
+        citation: "compatibility.md 2266; backend-port.md 315; k-rust-backend/src/smt.rs 207, 1013-1024",
+    },
+    TrustedClaim {
+        claim: "simplification",
+        removal: ClaimRemoval::Sentence,
+        citation: "compatibility.md 1010, 1134, 1313",
+    },
+    TrustedClaim {
+        claim: "ensures",
+        removal: ClaimRemoval::Refused,
+        citation: "backend-port.md 340; compatibility.md 943 (a false ensures makes the application bottom)",
+    },
+    TrustedClaim {
+        claim: "concrete-equation",
+        removal: ClaimRemoval::Refused,
+        citation: "compatibility.md 1010 (concrete or symbolic equations are theorems of the executable equations)",
+    },
+    TrustedClaim {
+        claim: "hooked-equation",
+        removal: ClaimRemoval::Refused,
+        citation: "compatibility.md 1010 (a hooked symbol's equations agree with its hook)",
+    },
+];
 
 /// Production attributes that assert a property of the symbol's equations.
 const SYMBOL_CLAIMS: [AttributeKey; 5] = [
@@ -63,10 +170,14 @@ const SYMBOL_CLAIMS: [AttributeKey; 5] = [
 ];
 
 /// Rule attributes that assert a property of the rule, withdrawn by removing the attribute.
-const RULE_CLAIMS: [AttributeKey; 1] = [AttributeKey::PreservesDefinedness];
+const RULE_CLAIMS: [AttributeKey; 2] = [AttributeKey::PreservesDefinedness, AttributeKey::SmtLemma];
 
-/// Rule attributes that make the rule a lemma about other rules rather than a definition.
-const LEMMAS: [AttributeKey; 2] = [AttributeKey::Simplification, AttributeKey::SmtLemma];
+/// The rule attribute that makes the rule a lemma about other rules rather than a definition.
+const LEMMA: AttributeKey = AttributeKey::Simplification;
+
+/// Attributes that restrict when an equation is used, not what it states: k-rust trusts such an
+/// equation to be a theorem of the executable equations.
+const CONCRETENESS: [AttributeKey; 2] = [AttributeKey::Concrete, AttributeKey::Symbolic];
 
 /// One trusted claim of a mutant: an attribute or a non-trivial equation `ensures`.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,13 +188,16 @@ pub struct Claim {
     pub value: Value,
 }
 
-/// The claims a patch leaves unsupported, and the patch that withdraws those it can.
+/// The claims a patch leaves unbacked: those removed from the mutant, those no removal can take
+/// away, and the patch that builds the claim-free mutant.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Withdrawal {
-    /// Claims whose support the patch touched, removed from the withdrawn definition.
+    /// Claims whose support the patch touched, removed from the withdrawn definition: an
+    /// attribute removed, or a lemma (key `simplification`) deleted.
     pub withdrawn: Vec<Claim>,
-    /// Claims the patch itself writes, and lemmas or equation `ensures` whose support it
-    /// touched. No definition with only supported claims exists for such a mutant.
+    /// Claims the patch itself writes, lemmas it edits or inserts, and an equation's `ensures`,
+    /// `concrete` or `symbolic` restriction or hook agreement whose support it touched. No
+    /// definition with only supported claims exists for such a mutant: it is refused.
     pub unsupported: Vec<Claim>,
     patch: Option<Patch>,
 }
@@ -108,9 +222,10 @@ impl Withdrawal {
 /// How a rule sentence takes part in the equational theory.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Role {
-    /// An equation of the symbol: a function, `anywhere` or macro rule headed by it.
+    /// An equation of the symbol: a function, `anywhere` or macro rule headed by it (an
+    /// `smt-lemma` that is not a `simplification` included: k-rust loads it as an equation).
     Equation(String),
-    /// A lemma (`simplification`, `smt-lemma`): a claim, never a definition.
+    /// A lemma (`simplification`): a claim, never a definition.
     Lemma,
     /// A transition, which never changes what a term denotes.
     Rewrite,
@@ -124,6 +239,8 @@ pub struct ClaimSupport {
     /// Labels whose applications are equationally defined: a production with `function` or a
     /// macro-like attribute.
     defined: BTreeSet<String>,
+    /// Labels whose production carries a `hook`: their equations are trusted to agree with it.
+    hooked: BTreeSet<String>,
     /// For each symbol, the symbols whose equations mention it.
     dependents: BTreeMap<String, BTreeSet<String>>,
 }
@@ -147,12 +264,15 @@ impl ClaimSupport {
         }
         Self {
             defined,
+            hooked: hooked_labels(definition),
             dependents,
         }
     }
 
-    /// The claims of `patch`'s mutant that the patch leaves unsupported, and the withdrawing
-    /// patch.
+    /// The claims `patch`'s edit leaves unbacked: those removed from the mutant
+    /// ([`Withdrawal::withdrawn`]) with the patch that builds the claim-free mutant, and those no
+    /// removal can take away ([`Withdrawal::unsupported`], which refuse the mutant). The one
+    /// function by which kink builds a mutant (see the module documentation).
     ///
     /// # Errors
     ///
@@ -193,17 +313,23 @@ impl ClaimSupport {
             };
             match sentence {
                 Sentence::Production { label, .. } => {
+                    let label_affected = label
+                        .as_ref()
+                        .is_none_or(|label| is_affected(&BTreeSet::from([label.name.clone()])));
                     for key in SYMBOL_CLAIMS {
                         let Some(claim) = claim(key) else { continue };
                         if writes(key) {
                             withdrawal.unsupported.push(claim);
-                        } else if label
-                            .as_ref()
-                            .is_none_or(|label| is_affected(&BTreeSet::from([label.name.clone()])))
-                        {
+                        } else if label_affected {
                             removals.push(removal(baseline_at, &claim));
                             withdrawal.withdrawn.push(claim);
                         }
+                    }
+                    // A production's `concrete` or `symbolic` restricts every equation of it.
+                    if label_affected {
+                        withdrawal
+                            .unsupported
+                            .extend(CONCRETENESS.into_iter().filter_map(claim));
                     }
                 }
                 Sentence::Rule { .. }
@@ -213,21 +339,45 @@ impl ClaimSupport {
                     let replaced = baseline_at.and_then(|at| replacing_edit(edits, at));
                     let edited = baseline_at.is_none_or(|at| touched.contains(at));
                     let unsupported = edited || is_affected(&mentions(sentence));
-                    if let Sentence::Rule { ensures, .. } = sentence
-                        && matches!(role(sentence, &self.defined), Role::Equation(_))
-                        && !trivial_ensures(ensures)
+                    let equation = match (sentence, role(sentence, &self.defined)) {
+                        (Sentence::Rule { .. }, Role::Equation(head)) => Some(head),
+                        _ => None,
+                    };
+                    if let (Some(head), Sentence::Rule { ensures, .. }) = (&equation, sentence)
                         && unsupported
                     {
-                        withdrawal.unsupported.push(Claim {
-                            origin: origin.clone(),
-                            key: "ensures".to_owned(),
-                            value: Value::String(ensures.to_string()),
-                        });
-                    }
-                    for claim in LEMMAS.into_iter().filter_map(claim) {
-                        if unsupported {
-                            withdrawal.unsupported.push(claim);
+                        if !trivial_ensures(ensures) {
+                            withdrawal.unsupported.push(Claim {
+                                origin: origin.clone(),
+                                key: "ensures".to_owned(),
+                                value: Value::String(ensures.to_string()),
+                            });
                         }
+                        withdrawal
+                            .unsupported
+                            .extend(CONCRETENESS.into_iter().filter_map(claim));
+                        if self.hooked.contains(head) {
+                            withdrawal.unsupported.push(Claim {
+                                origin: origin.clone(),
+                                key: "hooked-equation".to_owned(),
+                                value: Value::String(head.clone()),
+                            });
+                        }
+                    }
+                    if let Some(lemma) = claim(LEMMA)
+                        && matches!(sentence, Sentence::Rule { .. })
+                    {
+                        // A lemma is a claim as a whole: one the patch writes stays the patch's
+                        // own and refuses the mutant; one resting on a redefined symbol goes.
+                        if edited {
+                            withdrawal.unsupported.push(lemma);
+                        } else if unsupported {
+                            removals.push(Edit::DeleteSentence {
+                                at: baseline_at.expect("an unedited baseline lemma").clone(),
+                            });
+                            withdrawal.withdrawn.push(lemma);
+                        }
+                        continue;
                     }
                     for key in RULE_CLAIMS {
                         let Some(claim) = claim(key) else { continue };
@@ -450,6 +600,19 @@ fn defined_labels(definition: &Definition) -> BTreeSet<String> {
         .collect()
 }
 
+fn hooked_labels(definition: &Definition) -> BTreeSet<String> {
+    sentences(definition)
+        .filter_map(|(_, sentence)| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if attributes.has(AttributeKey::Hook) => Some(label.name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn role(sentence: &Sentence, defined: &BTreeSet<String>) -> Role {
     let Sentence::Rule {
         body, attributes, ..
@@ -457,7 +620,7 @@ fn role(sentence: &Sentence, defined: &BTreeSet<String>) -> Role {
     else {
         return Role::Rewrite;
     };
-    if attributes.has_any(&LEMMAS) {
+    if attributes.has(LEMMA) {
         return Role::Lemma;
     }
     let left = match body.unannotated() {

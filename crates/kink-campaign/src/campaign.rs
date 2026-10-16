@@ -72,6 +72,14 @@ pub enum MutantScopeFailure {
     LoweringResourceLimit,
     /// Token representation admission refused the compiled side before execution (VI-T12).
     RepresentationRefused,
+    /// The patch leaves unbacked a trusted claim that no removal takes away (a claim the patch
+    /// writes, a lemma it edits or inserts, or an equation's `ensures`, `concrete`/`symbolic`
+    /// restriction or hook agreement whose support it touched; [`Withdrawal::unsupported`]):
+    /// no claim-free mutant exists, so none runs (re-pin R0c-fix-2).
+    UnsupportedClaims,
+    /// k-rust refuses to compile the mutant once the claims its edit leaves unbacked are removed
+    /// (`stripped-claim-compile-failure`, re-pin R0c-fix-2): no claim-free mutant runs.
+    StrippedClaimCompileFailure,
     /// Infrastructure failure affecting the whole mutant, for example a
     /// backend that cannot be prepared for the validated mutant.
     Infrastructure,
@@ -85,7 +93,10 @@ impl MutantScopeFailure {
             Self::EquivalentCompilation => MutantStatus::Equivalent,
             Self::Rejected | Self::LoweringNontermination => MutantStatus::Invalid,
             Self::LoweringTimeLimit => MutantStatus::Timeout,
-            Self::LoweringResourceLimit | Self::RepresentationRefused => MutantStatus::Unknown,
+            Self::LoweringResourceLimit
+            | Self::RepresentationRefused
+            | Self::UnsupportedClaims
+            | Self::StrippedClaimCompileFailure => MutantStatus::Unknown,
             Self::Infrastructure => MutantStatus::Error,
         }
     }
@@ -111,11 +122,6 @@ pub enum ExecutionFailureKind {
     TimeLimit,
     /// The worker, backend or other infrastructure failed during the run.
     Infrastructure,
-    /// A symbolic test was not run: the mutant has a trusted claim that its patch writes, or
-    /// a lemma whose support it touched ([`Withdrawal::unsupported`]), or its withdrawn
-    /// definition did not compile. A symbolic verdict is a claim about every ground instance,
-    /// which k-rust's answer supports only while the definition's trusted claims hold.
-    UnsupportedClaims,
     /// The run counted a stop for lack of native stack (`stackStops`): its result can depend on
     /// the thread's stack and on other threads, so it is no evidence for any slot
     /// ([`kink_native::exclusion::Exclusion::StackStop`]).
@@ -148,7 +154,6 @@ impl ExecutionFailureKind {
         match self {
             Self::Indeterminate
             | Self::ResourceLimit
-            | Self::UnsupportedClaims
             | Self::StackStop
             | Self::LoadStackStop
             | Self::ContradictedClaim
@@ -172,11 +177,9 @@ impl ExecutionFailureKind {
             Self::ImplementationChosenHook => Exclusion::ImplementationChosenHook,
             Self::ShortCircuitReading => Exclusion::ShortCircuitReading,
             Self::AllowanceRefusal => Exclusion::AllowanceRefusal,
-            Self::Indeterminate
-            | Self::ResourceLimit
-            | Self::TimeLimit
-            | Self::Infrastructure
-            | Self::UnsupportedClaims => return None,
+            Self::Indeterminate | Self::ResourceLimit | Self::TimeLimit | Self::Infrastructure => {
+                return None;
+            }
         })
     }
 }
@@ -254,9 +257,9 @@ pub struct MutantPlan {
     pub tests: Vec<TestPlan>,
     /// Failure invalidating every test's evidence; it decides the status.
     pub mutant_failure: Option<MutantScopeFailure>,
-    /// The trusted claims withdrawn from the definition the symbolic tests ran on, and those
-    /// that could not be withdrawn. Ground tests run on the patched definition as written, so
-    /// this is empty when no test is symbolic.
+    /// The trusted claims removed from the mutant every test ran on, and those no removal takes
+    /// away (which refuse the mutant, [`MutantScopeFailure::UnsupportedClaims`]); empty for a
+    /// mutant stopped before the removal (rejected, refused or equivalent as written).
     pub claims: Withdrawal,
 }
 

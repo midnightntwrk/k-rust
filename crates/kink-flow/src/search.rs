@@ -63,8 +63,8 @@ use crate::{
     mutation::{InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve, rule_texts},
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
     report::{
-        RUN_SCHEMA, RUN_VERSION, action, executed_cause, rules_value, slots_value, survivors,
-        untargeted_rules, unusable_programs,
+        RUN_SCHEMA, RUN_VERSION, action, claims_value, executed_cause, rules_value, slots_value,
+        survivors, untargeted_rules, unusable_programs,
     },
     results::{
         BaselineRunner, ORACLE_SLOTS, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass,
@@ -79,7 +79,7 @@ use kink_campaign::{
 };
 use kink_corpus::{Store, admission::AdmissionRecord};
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
-use kink_patch::{CandidateGeneration, SentenceRef, Sha256Digest, Withdrawal};
+use kink_patch::{CandidateGeneration, ClaimSupport, SentenceRef, Sha256Digest, Withdrawal};
 use serde_json::{Map, Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -299,6 +299,9 @@ struct Search<'a> {
     mismatches: Vec<Value>,
     /// How the programs are ordered inside each tier of O.
     order: ProgramOrder,
+    /// The baseline's claim support, for each row's `removed_claims` (the runner builds every
+    /// mutant with the same function, re-pin R0c-fix-2).
+    support: ClaimSupport,
 }
 
 impl Search<'_> {
@@ -656,6 +659,13 @@ impl Search<'_> {
             "identity".into(),
             json!(identity.map(|identity| identity.to_string())),
         );
+        let removed_claims = self
+            .support
+            .withdraw(self.spec.validator.baseline(), &resolved.patch)
+            .map_or(Value::Null, |withdrawal| {
+                claims_value(self.spec.validator.baseline(), &withdrawal)
+            });
+        row.insert("removed_claims".into(), removed_claims);
         let key = hint_key(mutation, resolved);
         let records = self.valid_records(identity, &order, &mut row);
         // Tier 2: the hint, when it names a comparable program; otherwise it is removed.
@@ -838,7 +848,13 @@ impl Search<'_> {
                 .flat_map(|(_, run)| self.live_records(run))
                 .collect::<Vec<_>>();
             if !records.is_empty() {
-                match store.write(&self.store, identity, &mutation.id, &records) {
+                match store.write(
+                    &self.store,
+                    identity,
+                    &mutation.id,
+                    &row["removed_claims"],
+                    &records,
+                ) {
                     Ok(written) => self.stats.records_written += written,
                     Err(e) => {
                         row.insert(
@@ -1262,6 +1278,7 @@ pub fn run_with(
         stats: Stats::default(),
         mismatches: Vec::new(),
         order: options.order,
+        support: ClaimSupport::new(spec.validator.baseline()),
     };
     let outcome_cache = |search: &Search<'_>| {
         json!({

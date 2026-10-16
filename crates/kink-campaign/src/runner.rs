@@ -39,17 +39,18 @@
 //!   both runs gave sides, so a run whose leaves contradict a claim never gives a
 //!   `Distinguish`, whatever else it is (timed out, stack-stopped, failed to bridge).
 //!
-//! A test whose initial state has an element or set variable is symbolic: its verdict is a
-//! claim about every ground instance, and k-rust's answer supports that claim only while the
-//! definition's trusted claims (`total`, `functional`, `preserves-definedness`, lemmas, ...)
-//! hold. The baseline's are its author's, and every baseline test runs on the baseline as
-//! written. A mutant's patch can falsify them, so a mutant runs its symbolic tests on its
-//! withdrawn definition ([`kink_patch::ClaimSupport::withdraw`]): the patch plus the removal
-//! of every claim whose support the patch touched. A mutant whose patch writes a claim itself,
-//! or touches a lemma's support, has no such definition, and its symbolic tests are
-//! `Failed(UnsupportedClaims)`. A ground test compares two concrete runs, what the backend
-//! computed for each definition as written, so it runs on the mutant as written.
-//!
+//! Every mutant is built without the claims its edit leaves unbacked (re-pin R0c-fix-2,
+//! Sebastien 2026-10-17): a claim (`total`, `functional`, `preserves-definedness`, a lemma, ...)
+//! is its author's assertion about the definition they wrote, and an edit of the part it rests on
+//! leaves nobody backing it. The baseline keeps its claims, a trusted premise, and every baseline
+//! test runs on the baseline as written. Every test of a mutant, ground or symbolic, runs on its
+//! withdrawn definition ([`kink_patch::ClaimSupport::withdraw`]): the patch plus the removal of
+//! every claim whose support the patch touched, so the mutant is a consistent theory k-rust
+//! executes without trusting them. Equivalence is decided on the mutant as written, before the
+//! removal. A mutant whose patch writes a claim itself, edits a lemma, or touches the support of
+//! a claim no removal can take away has no such definition and is `UnsupportedClaims`; one whose
+//! withdrawn definition does not compile is `StrippedClaimCompileFailure`. Both are unknown.
+
 //! A run the watchdog cancelled is `TestRun::Failed(TimeLimit)`; an adapter or bridge
 //! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing. The
 //! mutants are the candidates of one folded generation derived from the campaign's own
@@ -79,9 +80,7 @@ use kink_native::bridge::{
     validate_test_initial_state,
 };
 use kink_native::coverage::{RuleAuthors, TestCoverage};
-use kink_native::exclusion::{
-    DefinitionExclusions, Exclusion, state_references_implementation_chosen,
-};
+use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, HaltClass,
     SolverProfile, StepRunFailure, SteppedExecution,
@@ -551,8 +550,7 @@ pub struct BaselineRecording {
 
 /// What one campaign call through a session ran: every baseline request, in test order, and
 /// every live mutant run, per mutant in run order (a test skipped after a kill, a test of a
-/// mutant stopped before execution, a shared piece of evidence and an unsupported symbolic
-/// side have none).
+/// mutant stopped before execution and a shared piece of evidence have none).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CallRecording {
     pub baseline: Vec<BaselineRecording>,
@@ -852,14 +850,9 @@ pub fn run_campaign_multi_with(
             "the generation was derived from another baseline than the validator's",
         ));
     }
-    let symbolic = campaign
-        .tests
-        .iter()
-        .map(|test| !test.initial_state.variable_occurrences().is_empty())
-        .collect::<Vec<_>>();
-    let support = symbolic
-        .contains(&true)
-        .then(|| ClaimSupport::new(campaign.validator.baseline()));
+    // Every mutant is built claim-free (re-pin R0c-fix-2): the support relation is needed for
+    // every campaign, ground or symbolic.
+    let support = ClaimSupport::new(campaign.validator.baseline());
 
     let Ok(baseline) = campaign.validator.compile_baseline() else {
         return Err(admission_failure(BaselineAdmission::Invalid));
@@ -959,7 +952,6 @@ pub fn run_campaign_multi_with(
                     test,
                     baseline,
                     coverage,
-                    symbolic: !test.initial_state.variable_occurrences().is_empty(),
                 },
             )
         })
@@ -975,14 +967,9 @@ pub fn run_campaign_multi_with(
         .flat_map(|generation| generation.candidates())
         .collect::<Vec<_>>();
     let mut runs: Vec<MutantRun> = Vec::with_capacity(candidates.len());
-    let mut identities: Vec<Option<(Sha256Digest, Withdrawal)>> =
-        Vec::with_capacity(candidates.len());
+    let mut identities: Vec<Option<MutantIdentity>> = Vec::with_capacity(candidates.len());
     for (index, candidate) in candidates.into_iter().enumerate() {
-        let identity = mutant_identity(
-            campaign.validator.baseline(),
-            &candidate.patch,
-            support.as_ref(),
-        );
+        let identity = mutant_identity(campaign.validator.baseline(), &candidate.patch, &support);
         let same_as = identity.as_ref().and_then(|identity| {
             identities
                 .iter()
@@ -996,7 +983,7 @@ pub fn run_campaign_multi_with(
             &baseline,
             &paired,
             options,
-            support.as_ref(),
+            &support,
             &mut observations,
         );
         session
@@ -1104,35 +1091,51 @@ struct BaselineObservations<'a> {
     evidence: Option<BTreeMap<(EvidenceKey, String), CachedEvidence>>,
 }
 
-/// E2 compares the applied structure and the complete withdrawal value, including its patch.
+/// E2: two mutants with this identity behave alike. It is the applied structure (equivalence is
+/// decided on the mutant as written) and the claim-free mutant every test runs on: its applied
+/// structure when claims are removed, or that no definition without unbacked claims exists.
 /// An unavailable identity never removes a mutant from counting.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct MutantIdentity {
+    structure: Sha256Digest,
+    claim_free: ClaimFree,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ClaimFree {
+    /// The patch leaves no claim unbacked: the mutant as written.
+    AsWritten,
+    /// The applied structure of the withdrawn definition.
+    Withdrawn(Sha256Digest),
+    /// Some unbacked claim cannot be removed: the mutant is refused.
+    Unsupported,
+}
+
 pub(crate) fn mutant_identity(
     baseline: &Baseline,
     patch: &Patch,
-    support: Option<&ClaimSupport>,
-) -> Option<(Sha256Digest, Withdrawal)> {
+    support: &ClaimSupport,
+) -> Option<MutantIdentity> {
     let applied = apply(baseline, patch).ok()?;
     let structure = structure_sha256(applied.definition()).ok()?;
-    let claims = match support {
-        Some(support) => support.withdraw(baseline, patch).ok()?,
-        None => Withdrawal::default(),
+    let claims = support.withdraw(baseline, patch).ok()?;
+    let claim_free = if !claims.trusted() {
+        ClaimFree::Unsupported
+    } else if let Some(withdrawing) = claims.patch() {
+        ClaimFree::Withdrawn(
+            structure_sha256(apply(baseline, withdrawing).ok()?.definition()).ok()?,
+        )
+    } else {
+        ClaimFree::AsWritten
     };
-    Some((structure, claims))
+    Some(MutantIdentity {
+        structure,
+        claim_free,
+    })
 }
 
-/// E3 includes the symbolic-side choice even for a ground test.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct EvidenceKey {
-    patched: Sha256Digest,
-    symbolic: SymbolicEvidenceKey,
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum SymbolicEvidenceKey {
-    Patched,
-    Unsupported,
-    Withdrawn(Sha256Digest),
-}
+/// E3: the compiled definition a mutant's tests run on (the claim-free mutant).
+type EvidenceKey = Sha256Digest;
 
 #[derive(Clone)]
 struct CachedEvidence {
@@ -1146,7 +1149,6 @@ struct PairedTest<'a> {
     test: &'a TestCase,
     baseline: &'a TestEvidence,
     coverage: &'a TestCoverage,
-    symbolic: bool,
 }
 
 struct MutantExecution {
@@ -1177,15 +1179,15 @@ fn run_mutant(
     compiled_baseline: &ValidatedDefinition,
     paired: &BTreeMap<&str, PairedTest<'_>>,
     options: &CampaignOptions,
-    support: Option<&ClaimSupport>,
+    support: &ClaimSupport,
     observations: &mut BaselineObservations<'_>,
 ) -> MutantExecution {
     match prepare_mutant(campaign, patch, compiled_baseline, support) {
-        Err(failure) => MutantExecution {
+        Err((failure, claims)) => MutantExecution {
             tests: Vec::new(),
             failure: Some(failure),
             evidence: Vec::new(),
-            claims: Withdrawal::default(),
+            claims,
             selection: None,
             recordings: Vec::new(),
         },
@@ -1253,7 +1255,7 @@ fn mutant_selection(
     let mut global = false;
     for test in campaign.tests {
         let pair = &paired[test.id.as_str()];
-        let edit = sides.edit(pair.symbolic);
+        let edit = &sides.edit;
         let groups = site_ids
             .iter()
             .map(|ids| ids.intersection(&edit.removed_rule_ids).cloned().collect())
@@ -1286,146 +1288,67 @@ fn mutant_selection(
     })
 }
 
-/// Validates and compiles the mutant side, then, when a test is symbolic (`support` is
-/// given), the side its symbolic tests run on; or the mutant-scope failure.
+/// Builds the mutant every test runs on, or its mutant-scope failure with the claims its patch
+/// leaves unbacked (re-pin R0c-fix-2, Sebastien 2026-10-17: a mutant drops the claims its edit
+/// leaves unbacked).
+///
+/// The mutant as written is validated, admitted and checked for an equivalent compilation first,
+/// with the baseline's claims, so a semantically null edit stays `EquivalentCompilation` and
+/// removing claims never makes a mutant equivalent. Then [`ClaimSupport::withdraw`] removes every
+/// claim the edit leaves unbacked, and the claim-free mutant is compiled and prepared: every
+/// test, ground or symbolic, runs on it. A mutant with an unbacked claim no removal takes away is
+/// `UnsupportedClaims`; one whose claim-free definition k-rust refuses to compile is
+/// `StrippedClaimCompileFailure`. Both are unknown, never killed.
 fn prepare_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
     compiled_baseline: &ValidatedDefinition,
-    support: Option<&ClaimSupport>,
-) -> Result<(MutantSides, Withdrawal), MutantScopeFailure> {
+    support: &ClaimSupport,
+) -> Result<(MutantSides, Withdrawal), (MutantScopeFailure, Withdrawal)> {
+    let unclaimed = |failure| (failure, Withdrawal::default());
     let side = campaign
         .validator
         .validate(patch)
-        .map_err(|rejection| MutantScopeFailure::from(&rejection))?;
-    validate_representation(&side).map_err(|_| MutantScopeFailure::RepresentationRefused)?;
+        .map_err(|rejection| unclaimed(MutantScopeFailure::from(&rejection)))?;
+    validate_representation(&side)
+        .map_err(|_| unclaimed(MutantScopeFailure::RepresentationRefused))?;
     match kink_native::equivalent_compilation(compiled_baseline, &side) {
-        Ok(true) => return Err(MutantScopeFailure::EquivalentCompilation),
+        Ok(true) => return Err(unclaimed(MutantScopeFailure::EquivalentCompilation)),
         Ok(false) => {}
-        Err(_) => return Err(MutantScopeFailure::Infrastructure),
+        Err(_) => return Err(unclaimed(MutantScopeFailure::Infrastructure)),
     }
-    // A preparation failure here is the mutant side's.
-    let patched_edit = CompiledEdit::between(compiled_baseline, &side);
-    let patched =
-        Runtime::prepare(campaign, &side).map_err(|_| MutantScopeFailure::Infrastructure)?;
-    let Some(support) = support else {
-        return Ok((
-            MutantSides {
-                patched,
-                patched_edit,
-                symbolic_edit: None,
-                symbolic: SymbolicSide::Patched,
-            },
-            Withdrawal::default(),
-        ));
-    };
     // The patch applied during validation, so it applies here too.
     let claims = support
         .withdraw(campaign.validator.baseline(), patch)
-        .map_err(|_| MutantScopeFailure::Infrastructure)?;
-    let mut symbolic_edit = None;
-    let symbolic = if !claims.trusted() {
-        SymbolicSide::Unsupported
-    } else if let Some(withdrawing) = claims.patch() {
-        match campaign.validator.validate(withdrawing) {
-            Ok(side) => {
-                validate_representation(&side)
-                    .map_err(|_| MutantScopeFailure::RepresentationRefused)?;
-                symbolic_edit = Some(CompiledEdit::between(compiled_baseline, &side));
-                SymbolicSide::Withdrawn(Box::new(
-                    Runtime::prepare(campaign, &side)
-                        .map_err(|_| MutantScopeFailure::Infrastructure)?,
-                ))
-            }
-            Err(_) => SymbolicSide::Unsupported,
-        }
-    } else {
-        SymbolicSide::Patched
-    };
-    Ok((
-        MutantSides {
-            patched,
-            symbolic,
-            patched_edit,
-            symbolic_edit,
+        .map_err(|_| unclaimed(MutantScopeFailure::Infrastructure))?;
+    if !claims.trusted() {
+        return Err((MutantScopeFailure::UnsupportedClaims, claims));
+    }
+    let side = match claims.patch() {
+        None => side,
+        Some(withdrawing) => match campaign.validator.validate(withdrawing) {
+            Ok(side) => side,
+            Err(_) => return Err((MutantScopeFailure::StrippedClaimCompileFailure, claims)),
         },
-        claims,
-    ))
+    };
+    let fail = |failure| (failure, claims.clone());
+    validate_representation(&side).map_err(|_| fail(MutantScopeFailure::RepresentationRefused))?;
+    // A preparation failure here is the mutant side's.
+    let edit = CompiledEdit::between(compiled_baseline, &side);
+    let runtime =
+        Runtime::prepare(campaign, &side).map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
+    Ok((MutantSides { runtime, edit }, claims))
 }
 
-/// A prepared mutant: the patched definition, and what its symbolic tests run on.
+/// A prepared mutant: the claim-free definition every test runs on, and its compiled edit.
 struct MutantSides {
-    patched: Runtime,
-    symbolic: SymbolicSide,
-    patched_edit: CompiledEdit,
-    symbolic_edit: Option<CompiledEdit>,
-}
-
-enum SymbolicSide {
-    /// The patched definition: no test is symbolic, or the patch touched no claim's support.
-    Patched,
-    /// The withdrawn definition.
-    Withdrawn(Box<Runtime>),
-    /// No definition whose trusted claims are all supported: symbolic tests do not run.
-    Unsupported,
+    runtime: Runtime,
+    edit: CompiledEdit,
 }
 
 impl MutantSides {
     fn evidence_key(&self) -> EvidenceKey {
-        EvidenceKey {
-            patched: self.patched.digest,
-            symbolic: match &self.symbolic {
-                SymbolicSide::Patched => SymbolicEvidenceKey::Patched,
-                SymbolicSide::Unsupported => SymbolicEvidenceKey::Unsupported,
-                SymbolicSide::Withdrawn(runtime) => SymbolicEvidenceKey::Withdrawn(runtime.digest),
-            },
-        }
-    }
-
-    fn edit(&self, symbolic: bool) -> &CompiledEdit {
-        if symbolic {
-            self.symbolic_edit.as_ref().unwrap_or(&self.patched_edit)
-        } else {
-            &self.patched_edit
-        }
-    }
-
-    fn run(
-        &mut self,
-        campaign: &Campaign<'_>,
-        test: &TestCase,
-        symbolic: bool,
-    ) -> (TestEvidence, RunCache) {
-        match (&mut self.symbolic, symbolic) {
-            (SymbolicSide::Withdrawn(runtime), true) => runtime.run(campaign, test),
-            (SymbolicSide::Unsupported, true) => (
-                TestEvidence {
-                    test_id: test.id.clone(),
-                    run: SideRun::Failed(ExecutionFailureKind::UnsupportedClaims),
-                },
-                RunCache::default(),
-            ),
-            _ => self.patched.run(campaign, test),
-        }
-    }
-
-    /// The runtime a test runs on: the withdrawn side for a symbolic test when there is one,
-    /// otherwise the patched side; `None` for a symbolic test whose side is unsupported.
-    fn runtime_mut(&mut self, symbolic: bool) -> Option<&mut Runtime> {
-        match (&mut self.symbolic, symbolic) {
-            (SymbolicSide::Withdrawn(runtime), true) => Some(runtime),
-            (SymbolicSide::Unsupported, true) => None,
-            _ => Some(&mut self.patched),
-        }
-    }
-
-    fn facts(&mut self, symbolic: bool) -> Result<DefinitionFacts, String> {
-        match (&mut self.symbolic, symbolic) {
-            (SymbolicSide::Withdrawn(runtime), true) => runtime.facts(),
-            // An unsupported symbolic side has already produced Failed(UnsupportedClaims).
-            (SymbolicSide::Unsupported, true) => Err("unsupported symbolic side".into()),
-            _ => self.patched.facts(),
-        }
+        self.runtime.digest
     }
 }
 
@@ -1445,7 +1368,7 @@ fn run_tests(
     let mut killed = false;
     for id in order {
         let pair = &paired[id.as_str()];
-        let (test, baseline, symbolic) = (pair.test, pair.baseline, pair.symbolic);
+        let (test, baseline) = (pair.test, pair.baseline);
         if killed {
             tests.push(TestPlan {
                 test_id: test.id.clone(),
@@ -1468,7 +1391,7 @@ fn run_tests(
                     recording: None,
                 },
             ),
-            None => sides.run(campaign, test, symbolic),
+            None => sides.runtime.run(campaign, test),
         };
         if let Some(recording) = &cache.recording {
             recordings.push(recording.clone());
@@ -1479,7 +1402,8 @@ fn run_tests(
             .facts()
             .and_then(|baseline_facts| {
                 sides
-                    .facts(symbolic)
+                    .runtime
+                    .facts()
                     .map(|mutant_facts| baseline_facts.signature == mutant_facts.signature)
             })
             .unwrap_or(false);
@@ -1502,7 +1426,7 @@ fn run_tests(
                 test,
                 &observations.observation,
                 cache.stepped.as_ref(),
-                sides.runtime_mut(symbolic),
+                Some(&mut sides.runtime),
             );
             if cached.is_none() {
                 replace_patterns(test, &mut mutant, Some(&mutant_patterns));
@@ -1792,23 +1716,27 @@ impl Runtime {
                     },
                     &|term| decider.terminal_value(term),
                 );
-                let state_exclusion =
-                    state_references_implementation_chosen(definition, &test.initial_state)
-                        .then_some(Exclusion::ImplementationChosenHook)
-                        .or_else(|| {
-                            exclusions
-                                .state_depends_on_short_circuit(definition, &test.initial_state)
-                                .then_some(Exclusion::ShortCircuitReading)
-                        });
+                let state_exclusion = exclusions.state_exclusion(definition, &test.initial_state);
                 Ok::<_, k_rust::backend::BackendError>((bridged, state_exclusion))
             }) {
                 // No decider: every slot is unknown, unless the run is excluded, which is read
-                // from its leaves alone. An excluded run gives no side, so no slot, a pattern slot
-                // `run_tests` fills from the stepped run included, can take one from it.
+                // from its leaves and from the test's initial state on the selected definition
+                // (re-pin R0c-fix-2, R0c-fix-1 review minor), or no definition can be selected to
+                // read the state on, which gives no side either. An excluded run gives no side, so
+                // no slot, a pattern slot `run_tests` fills from the stepped run included, can
+                // take one from it.
                 Err(_) => match exclusions.run_exclusion(execution) {
                     Some(exclusion) => SideRun::Failed(exclusion.into()),
-                    None => SideRun::Sides {
-                        sides: vec![OracleSide::Unknown; test.oracles.len()],
+                    None => match self.backend.select_definition(None) {
+                        Err(_) => SideRun::Failed(ExecutionFailureKind::Infrastructure),
+                        Ok(definition) => {
+                            match exclusions.state_exclusion(&definition, &test.initial_state) {
+                                Some(exclusion) => SideRun::Failed(exclusion.into()),
+                                None => SideRun::Sides {
+                                    sides: vec![OracleSide::Unknown; test.oracles.len()],
+                                },
+                            }
+                        }
                     },
                 },
                 Ok((Err(failure), _)) => SideRun::Failed((&failure).into()),
@@ -2817,15 +2745,12 @@ mod tests {
                         test,
                         baseline: &baseline,
                         coverage: &coverage,
-                        symbolic: true,
                     },
                 )]);
                 // The total definition as the mutant side.
                 let mut sides = MutantSides {
-                    patched: Runtime::prepare(&campaign, &total_side).unwrap_or_else(|_| panic!()),
-                    symbolic: SymbolicSide::Patched,
-                    patched_edit: CompiledEdit::between(&base_side, &total_side),
-                    symbolic_edit: None,
+                    runtime: Runtime::prepare(&campaign, &total_side).unwrap_or_else(|_| panic!()),
+                    edit: CompiledEdit::between(&base_side, &total_side),
                 };
                 let mut observations = BaselineObservations {
                     runtime: &mut runtime,
@@ -2853,7 +2778,7 @@ mod tests {
                     assert_eq!(evidence[0].run, decided);
                     // The same mutant run decided on the baseline's definition: its leaf is
                     // refuted and the side is Unknown.
-                    let (_, mutant_cache) = sides.patched.run(&campaign, test);
+                    let (_, mutant_cache) = sides.runtime.run(&campaign, test);
                     assert_eq!(
                         observations.runtime.step_sides(
                             &campaign,
@@ -2873,8 +2798,10 @@ mod tests {
             .unwrap();
     }
 
-    /// Equal patched KORE does not identify the symbolic side: an equation metadata edit
-    /// still withdraws claims whose support it touched, while the transition-only twin does not.
+    /// Equal patched KORE does not identify the mutant's claim-free side: an equation metadata
+    /// edit still withdraws claims whose support it touched, while the transition-only twin does
+    /// not, so the two run on different definitions (re-pin R0c-fix-2: every test runs on the
+    /// claim-free mutant).
     #[test]
     fn evidence_cache_separates_symbolic_sides_and_test_ids() {
         std::thread::Builder::new()
@@ -2980,7 +2907,6 @@ mod tests {
                                     test,
                                     baseline,
                                     coverage,
-                                    symbolic: true,
                                 },
                             )
                         })
@@ -2991,15 +2917,13 @@ mod tests {
                         evidence: Some(BTreeMap::new()),
                     };
                     let (mut sides_a, claims_a) =
-                        prepare_mutant(&campaign, &a, &compiled, Some(&support)).unwrap();
+                        prepare_mutant(&campaign, &a, &compiled, &support).unwrap();
                     let (mut sides_b, claims_b) =
-                        prepare_mutant(&campaign, &b, &compiled, Some(&support)).unwrap();
+                        prepare_mutant(&campaign, &b, &compiled, &support).unwrap();
                     assert!(claims_a.withdrawn.is_empty());
                     assert_eq!(claims_b.withdrawn.len(), 2);
-                    assert_eq!(sides_a.patched.digest, sides_b.patched.digest);
+                    assert!(claims_b.patch().is_some());
                     assert_ne!(sides_a.evidence_key(), sides_b.evidence_key());
-                    assert!(matches!(sides_a.symbolic, SymbolicSide::Patched));
-                    assert!(matches!(sides_b.symbolic, SymbolicSide::Withdrawn(_)));
                     let order = tests.iter().map(|test| test.id.clone()).collect::<Vec<_>>();
                     let (_, first, _) = run_tests(
                         &campaign,
@@ -3022,7 +2946,7 @@ mod tests {
                     assert_eq!(
                         observations.evidence.as_ref().unwrap().len(),
                         4,
-                        "different symbolic side must miss"
+                        "a different claim-free side must miss"
                     );
                     let key = (sides_a.evidence_key(), "one".into());
                     let cached = observations
@@ -3033,7 +2957,7 @@ mod tests {
                         .unwrap();
                     cached.evidence.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
                     let (mut repeated, _) =
-                        prepare_mutant(&campaign, &a, &compiled, Some(&support)).unwrap();
+                        prepare_mutant(&campaign, &a, &compiled, &support).unwrap();
                     let (_, hit, _) = run_tests(
                         &campaign,
                         &mut repeated,

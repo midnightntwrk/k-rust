@@ -6,8 +6,8 @@ mod support;
 use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::{Sort, Term};
 use kink_patch::{
-    Baseline, ClaimSupport, Edit, InsertPosition, Patch, SentenceOrigin, SentenceRef, TermRef,
-    Withdrawal, apply,
+    Baseline, ClaimRemoval, ClaimSupport, Edit, InsertPosition, Patch, SentenceOrigin, SentenceRef,
+    TRUSTED_CLAIMS, TermRef, Withdrawal, apply,
 };
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -115,8 +115,13 @@ fn assert_withdrawn_patch(baseline: &Baseline, withdrawal: &Withdrawal) {
             .origins()
             .iter()
             .find(|(_, origin)| **origin == claim.origin)
-            .map(|(output, _)| output)
-            .expect("the sentence survives");
+            .map(|(output, _)| output);
+        // A withdrawn lemma is deleted as a whole (re-pin R0c-fix-2).
+        if claim.key == SIMPLIFICATION {
+            assert!(output.is_none(), "{at:?} is a deleted lemma");
+            continue;
+        }
+        let output = output.expect("the sentence survives");
         let sentence = mutant
             .definition()
             .modules
@@ -135,6 +140,9 @@ fn assert_withdrawn_patch(baseline: &Baseline, withdrawal: &Withdrawal) {
 /// Probe 3's literal mutant `d() => 0`: f's equations divide by d(), so f's `total`, d's
 /// `total`, `step`'s `preserves-definedness` (it mentions f) and the lemma about f all rest
 /// on the changed equation; g, `go` and the lemma about g do not.
+///
+/// Re-pin R0c-fix-2: the lemma about f is removed with the rest, by deleting it (a lemma is a
+/// claim as a whole). Before: it was unsupported, and the mutant's symbolic tests did not run.
 #[test]
 fn a_changed_equation_withdraws_every_claim_resting_on_it() {
     let baseline = baseline();
@@ -142,16 +150,21 @@ fn a_changed_equation_withdraws_every_claim_resting_on_it() {
     let withdrawal = withdraw(&baseline, vec![edit.clone()]);
     assert_eq!(
         named(&baseline, &withdrawal.withdrawn),
-        set(&[("f", TOTAL), ("d", TOTAL), ("step", DEFINED)])
+        set(&[
+            ("f", TOTAL),
+            ("d", TOTAL),
+            ("step", DEFINED),
+            ("lemma", SIMPLIFICATION)
+        ])
     );
-    assert_eq!(
-        named(&baseline, &withdrawal.unsupported),
-        set(&[("lemma", SIMPLIFICATION)])
-    );
-    assert!(!withdrawal.trusted());
+    assert!(withdrawal.unsupported.is_empty());
+    assert!(withdrawal.trusted());
     let patch = withdrawal.patch().expect("a withdrawing patch");
     assert!(patch.edits().contains(&edit));
-    assert_eq!(patch.edits().len(), 4);
+    assert_eq!(patch.edits().len(), 5);
+    assert!(patch.edits().contains(&Edit::DeleteSentence {
+        at: rule(&baseline, "lemma"),
+    }));
     assert!(patch.edits().contains(&Edit::RemoveAttribute {
         at: production(&baseline, "f"),
         key: TOTAL.to_owned(),
@@ -171,12 +184,9 @@ fn support_follows_what_equations_mention_not_who_mentions_them() {
     );
     assert_eq!(
         named(&baseline, &withdrawal.withdrawn),
-        set(&[("f", TOTAL), ("step", DEFINED)])
+        set(&[("f", TOTAL), ("step", DEFINED), ("lemma", SIMPLIFICATION)])
     );
-    assert_eq!(
-        named(&baseline, &withdrawal.unsupported),
-        set(&[("lemma", SIMPLIFICATION)])
-    );
+    assert!(withdrawal.unsupported.is_empty());
     assert_withdrawn_patch(&baseline, &withdrawal);
 }
 
@@ -246,12 +256,9 @@ fn claims_the_patch_writes_are_unsupported_and_removals_propagate() {
     );
     assert_eq!(
         named(&baseline, &withdrawal.withdrawn),
-        set(&[("f", TOTAL), ("step", DEFINED)])
+        set(&[("f", TOTAL), ("step", DEFINED), ("lemma", SIMPLIFICATION)])
     );
-    assert_eq!(
-        named(&baseline, &withdrawal.unsupported),
-        set(&[("lemma", SIMPLIFICATION)])
-    );
+    assert!(withdrawal.unsupported.is_empty());
     assert_withdrawn_patch(&baseline, &withdrawal);
 }
 
@@ -287,7 +294,12 @@ fn inserted_and_replaced_sentences() {
     );
     assert_eq!(
         named(&baseline, &withdrawal.withdrawn),
-        set(&[("f", TOTAL), ("d", TOTAL), ("step", DEFINED)])
+        set(&[
+            ("f", TOTAL),
+            ("d", TOTAL),
+            ("step", DEFINED),
+            ("lemma", SIMPLIFICATION)
+        ])
     );
 
     let step = rule(&baseline, "step");
@@ -318,9 +330,14 @@ fn inserted_and_replaced_sentences() {
 }
 
 /// An edit whose effect on what terms denote is not known symbol by symbol, here deleting a
-/// production (which changes its sort's values), withdraws every claim and leaves every
-/// lemma unsupported. Load-stage change (VI-03F, k-rust 378a97ca): initKCell totality
-/// is derived during compilation per side, so it is not a trusted loaded-stage claim.
+/// production (which changes its sort's values), withdraws every claim. Load-stage change
+/// (VI-03F, k-rust 378a97ca): initKCell totality is derived during compilation per side, so it
+/// is not a trusted loaded-stage claim.
+///
+/// Re-pin R0c-fix-2: every lemma is now withdrawn by deletion, and every equation of a hooked
+/// prelude symbol (its agreement with the hook) and every `concrete` prelude equation are
+/// unsupported, since they rest on everything, so no claim-free mutant exists and the mutant is
+/// refused. Before: the lemmas were unsupported.
 #[test]
 fn an_unknown_effect_withdraws_every_claim() {
     let baseline = baseline();
@@ -338,19 +355,27 @@ fn an_unknown_effect_withdraws_every_claim() {
             ("g", TOTAL),
             ("step", DEFINED),
             ("go", DEFINED),
+            ("lemma", SIMPLIFICATION),
+            ("glemma", SIMPLIFICATION),
         ])
     );
-    assert_eq!(
-        named(&baseline, &withdrawal.unsupported),
-        set(&[("lemma", SIMPLIFICATION), ("glemma", SIMPLIFICATION)])
+    assert!(named(&baseline, &withdrawal.unsupported).is_empty());
+    assert!(!withdrawal.unsupported.is_empty());
+    assert!(
+        withdrawal
+            .unsupported
+            .iter()
+            .all(|claim| ["hooked-equation", "concrete"].contains(&claim.key.as_str())),
+        "{:?}",
+        withdrawal.unsupported
     );
+    assert!(!withdrawal.trusted());
     assert!(
         withdrawal.withdrawn.iter().any(
             |claim| matches!(&claim.origin, SentenceOrigin::Baseline(at) if at.module != "CLAIMS")
         ),
         "prelude claims are withdrawn too"
     );
-    assert_withdrawn_patch(&baseline, &withdrawal);
 }
 
 /// A function equation's result assertion depends on its own sentence and on equations
@@ -397,4 +422,160 @@ fn withdraw_for(baseline: &Baseline, edits: Vec<Edit>) -> Withdrawal {
     ClaimSupport::new(baseline)
         .withdraw(baseline, &Patch::new(edits).expect("patch"))
         .expect("the patch applies")
+}
+
+/// Re-pin R0c-fix-2 deliverable 1: the claims k-rust 501f18b9 trusts, each with how kink removes
+/// it from a mutant (`kink_patch::TRUSTED_CLAIMS` cites k-rust's docs and code for each). A change
+/// of the set needs the k-rust contract read again.
+#[test]
+fn trusted_claims_are_pinned() {
+    let pinned = TRUSTED_CLAIMS
+        .iter()
+        .map(|claim| (claim.claim, claim.removal))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        pinned,
+        [
+            ("total", ClaimRemoval::Attribute),
+            ("functional", ClaimRemoval::Attribute),
+            ("injective", ClaimRemoval::Attribute),
+            ("smt-hook", ClaimRemoval::Attribute),
+            ("smtlib", ClaimRemoval::Attribute),
+            ("preserves-definedness", ClaimRemoval::Attribute),
+            ("smt-lemma", ClaimRemoval::Attribute),
+            ("simplification", ClaimRemoval::Sentence),
+            ("ensures", ClaimRemoval::Refused),
+            ("concrete-equation", ClaimRemoval::Refused),
+            ("hooked-equation", ClaimRemoval::Refused),
+        ]
+    );
+    assert!(
+        TRUSTED_CLAIMS
+            .iter()
+            .all(|claim| !claim.citation.is_empty())
+    );
+    assert!(
+        !TRUSTED_CLAIMS
+            .iter()
+            .any(|claim| claim.claim == "constructor")
+    );
+}
+
+fn reach() -> Baseline {
+    support::load_path(
+        &std::path::Path::new(support::DIR).join("r0c/claimreach.k"),
+        "CLAIMREACH",
+    )
+}
+
+/// The user-written claims of `testdata/k/r0c/claimreach.k`, by (sentence name, key).
+fn reach_named(baseline: &Baseline, claims: &[kink_patch::Claim]) -> BTreeSet<(String, String)> {
+    claims
+        .iter()
+        .filter_map(|claim| match &claim.origin {
+            SentenceOrigin::Baseline(at) if at.module.starts_with("CLAIMREACH") => {
+                let name = match baseline.sentence(at).expect("a baseline sentence") {
+                    Sentence::Production {
+                        label: Some(label), ..
+                    } => label.name.clone(),
+                    sentence => sentence
+                        .attributes()
+                        .string(AttributeKey::Label)
+                        .and_then(|label| label.strip_prefix("CLAIMREACH."))
+                        .expect("a labelled rule")
+                        .to_owned(),
+                };
+                Some((name, claim.key.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn reach_literal(baseline: &Baseline, label: &str, path: &[u32], to: &str) -> Edit {
+    let at = TermRef::new(
+        support::rule(baseline, &format!("CLAIMREACH.{label}")),
+        path,
+    );
+    Edit::ReplaceTerm {
+        expected: baseline.term(&at).expect("baseline term").clone(),
+        at,
+        replacement: int(to),
+    }
+}
+
+/// Re-pin R0c-fix-2 deliverables 1 and 5: the reach of an edit is the reverse call-graph closure
+/// over equations (left side, right side and condition). An edit of f's equation (`I +Int 1` to
+/// `I +Int 0`, which makes f partial at 0) removes f's `total` and `smtlib`, the `total` of g
+/// (whose equation applies f) and of h (whose condition applies g: transitive), the lemma about f
+/// (deleted), and the `preserves-definedness` of `use`, whose condition applies g. k, its lemma
+/// and `other` rest on nothing the edit touches and keep their claims. The claim-free mutant
+/// compiles.
+#[test]
+fn an_edit_removes_the_claims_of_every_symbol_that_reaches_it() {
+    let baseline = reach();
+    let withdrawal = ClaimSupport::new(&baseline)
+        .withdraw(
+            &baseline,
+            &Patch::new(vec![reach_literal(&baseline, "f", &[0, 1, 1, 1], "0")]).expect("patch"),
+        )
+        .expect("the patch applies");
+    assert_eq!(
+        reach_named(&baseline, &withdrawal.withdrawn),
+        set(&[
+            ("f", TOTAL),
+            ("f", "smtlib"),
+            ("g", TOTAL),
+            ("h", TOTAL),
+            ("flemma", SIMPLIFICATION),
+            ("use", DEFINED),
+        ])
+    );
+    assert!(withdrawal.unsupported.is_empty());
+    assert_withdrawn_patch(&baseline, &withdrawal);
+}
+
+/// Re-pin R0c-fix-2 deliverable 5: an edit of a rewrite rule only redefines no symbol, so it
+/// removes that rule's own claim and nothing from any function; one of a rule that carries no
+/// claim removes nothing.
+#[test]
+fn a_rewrite_rule_edit_removes_nothing_from_functions() {
+    let baseline = reach();
+    let support = ClaimSupport::new(&baseline);
+    let withdraw = |edit| {
+        support
+            .withdraw(&baseline, &Patch::new(vec![edit]).expect("patch"))
+            .expect("the patch applies")
+    };
+    let withdrawal = withdraw(reach_literal(&baseline, "use", &[1, 1], "1"));
+    assert_eq!(
+        reach_named(&baseline, &withdrawal.withdrawn),
+        set(&[("use", DEFINED)])
+    );
+    assert!(withdrawal.unsupported.is_empty());
+    assert_withdrawn_patch(&baseline, &withdrawal);
+    // k's equation: k, its lemma and `other` (whose condition applies k), nothing of f, g or h.
+    let withdrawal = withdraw(reach_literal(&baseline, "k", &[0, 1, 1], "3"));
+    assert_eq!(
+        reach_named(&baseline, &withdrawal.withdrawn),
+        set(&[("k", TOTAL), ("klemma", SIMPLIFICATION), ("other", DEFINED)])
+    );
+}
+
+/// Re-pin R0c-fix-2: a lemma the patch edits is the patch's own claim. Deleting it would undo the
+/// mutant, so it is unsupported and the mutant is refused.
+#[test]
+fn an_edited_lemma_is_unsupported() {
+    let baseline = reach();
+    let withdrawal = ClaimSupport::new(&baseline)
+        .withdraw(
+            &baseline,
+            &Patch::new(vec![reach_literal(&baseline, "klemma", &[0, 0, 1], "1")]).expect("patch"),
+        )
+        .expect("the patch applies");
+    assert_eq!(
+        reach_named(&baseline, &withdrawal.unsupported),
+        set(&[("klemma", SIMPLIFICATION)])
+    );
+    assert!(!withdrawal.trusted());
 }

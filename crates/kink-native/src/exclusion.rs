@@ -24,11 +24,12 @@
 //! - [`Exclusion::ImplementationChosenHook`]: the definition references a hook for which k-rust
 //!   chooses a value the definition leaves open (re-pin decision 1, findings D-10, E-10, E-11):
 //!   kills are relative to the definition, not to k-rust's model of it. The hooks are k-rust's
-//!   own list and those whose value k-rust's builtin files (`domains.md`, `substitution.md`,
+//!   own list, those whose value k-rust's builtin files (`domains.md`, `substitution.md`,
 //!   `json.md`, `timer.md`, `ffi.md`, `unification.k`) leave to the backend, the implementation
-//!   or the environment ([`IMPLEMENTATION_CHOSEN_HOOKS`], [`DOMAINS_OPEN_HOOKS`],
-//!   [`BUILTIN_OPEN_HOOKS`]). The census reads the definition's own sentences and every rewrite
-//!   rule whatever its source: kompile copies the prelude's stream rules (`#getc`, `#write`,
+//!   or the environment, and those k-rust evaluates that no builtin file documents
+//!   ([`IMPLEMENTATION_CHOSEN_HOOKS`], [`DOMAINS_OPEN_HOOKS`], [`BUILTIN_OPEN_HOOKS`],
+//!   [`UNDOCUMENTED_EVALUATED_HOOKS`]). The census reads the definition's own sentences and every
+//!   rewrite rule whatever its source: kompile copies the prelude's stream rules (`#getc`, `#write`,
 //!   `Float2String`) into a definition with stream cells, keeping their prelude source.
 //! - [`Exclusion::ShortCircuitReading`]: the run's result can depend on whether `andBool`,
 //!   `orBool`, `impliesBool`, `#if`, `andThenBool` or `orElseBool` skip an operand that may be
@@ -39,7 +40,12 @@
 //!   A `Trivial` leaf of a rewrite rule whose right-hand side applies one makes the run
 //!   excluded; a rule whose condition depends on one, or whose right-hand side applies a
 //!   function whose condition does, gives no leaf signal (the rule is just not applied), so the
-//!   definition is excluded ([`DefinitionExclusions::short_circuit_conditions`]).
+//!   definition is excluded ([`DefinitionExclusions::short_circuit_conditions`]). Since re-pin
+//!   R0c-fix-2 a rule whose right-hand side applies one over an operand that may be undefined
+//!   excludes the definition too ([`DefinitionExclusions::short_circuit_results`]): its
+//!   undefined candidate beside a defined same-priority sibling leaves no leaf. "May be
+//!   undefined" is read on the definition the side runs, a mutant's after the claims its edit
+//!   leaves unbacked are removed (a function whose `total` was removed is partial there).
 //! - [`Exclusion::AllowanceRefusal`]: a leaf reports a hook left unevaluated whose refusal reads
 //!   the process's memory allowance (Execute promise exclusion, findings A-07, B-02, B-07): the
 //!   result is a function of the host, not of the inputs a key names.
@@ -441,9 +447,40 @@ pub const BUILTIN_OPEN_HOOKS: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
+/// The hooks k-rust 501f18b9's builtin dispatch evaluates that no builtin file it ships declares
+/// (re-pin R0c-fix-2, R0c-fix-1 review minor): the user declares them, and no text of the
+/// definition specifies their value, so a kill through one is relative to k-rust's evaluator,
+/// not to the definition (decision 1). The kink-native test
+/// `evaluated_hooks_no_builtin_file_documents_are_open` derives this list from the dispatch
+/// source (every hook literal of a match arm in k-rust-backend `builtin.rs` and `builtin/`) and
+/// the builtin files, and pins both lists: a re-pin that adds an evaluated hook fails it.
+pub const UNDOCUMENTED_EVALUATED_HOOKS: &[&str] = &[
+    "HASH.keccak256",
+    "HASH.ripemd160",
+    "HASH.sha256",
+    "HASH.sha3_256",
+    "KRYPTO.bn128add",
+    "KRYPTO.bn128ate",
+    "KRYPTO.bn128g2valid",
+    "KRYPTO.bn128mul",
+    "KRYPTO.bn128valid",
+    "KRYPTO.ecdsaPubKey",
+    "KRYPTO.ecdsaRecover",
+    "KRYPTO.keccak256",
+    "KRYPTO.keccak256raw",
+    "KRYPTO.ripemd160",
+    "KRYPTO.ripemd160raw",
+    "KRYPTO.sha256",
+    "KRYPTO.sha256raw",
+    "KRYPTO.sha3256",
+    "KRYPTO.sha512_256raw",
+    "SECP256K1.ecdsaRecover",
+];
+
 /// Decision 1's census hooks: [`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`], the hooks of
-/// [`DOMAINS_OPEN_HOOKS`] and those of [`BUILTIN_OPEN_HOOKS`], in that order (the kink-native
-/// test `implementation_chosen_hooks_are_k_rusts` checks that it is exactly their union).
+/// [`DOMAINS_OPEN_HOOKS`], those of [`BUILTIN_OPEN_HOOKS`] and [`UNDOCUMENTED_EVALUATED_HOOKS`], in
+/// that order (the kink-native test `implementation_chosen_hooks_are_k_rusts` checks that it is
+/// exactly their union).
 pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "MAP.keys_list",
     "MAP.values",
@@ -513,6 +550,26 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "FFI.bytes_address",
     "FFI.read",
     "FFI.write",
+    "HASH.keccak256",
+    "HASH.ripemd160",
+    "HASH.sha256",
+    "HASH.sha3_256",
+    "KRYPTO.bn128add",
+    "KRYPTO.bn128ate",
+    "KRYPTO.bn128g2valid",
+    "KRYPTO.bn128mul",
+    "KRYPTO.bn128valid",
+    "KRYPTO.ecdsaPubKey",
+    "KRYPTO.ecdsaRecover",
+    "KRYPTO.keccak256",
+    "KRYPTO.keccak256raw",
+    "KRYPTO.ripemd160",
+    "KRYPTO.ripemd160raw",
+    "KRYPTO.sha256",
+    "KRYPTO.sha256raw",
+    "KRYPTO.sha3256",
+    "KRYPTO.sha512_256raw",
+    "SECP256K1.ecdsaRecover",
 ];
 
 /// The hooks of the operators whose operands a backend may or may not skip (domains.md
@@ -605,6 +662,11 @@ pub struct DefinitionExclusions {
     /// operator over an operand that may be undefined, directly or through a function whose
     /// equation does: a `Trivial` leaf of one is no evidence ([`Exclusion::ShortCircuitReading`]).
     pub short_circuit_rules: BTreeSet<String>,
+    /// The same rewrite rules, each as its id, label or position: any one excludes the whole
+    /// definition (re-pin R0c-fix-2, R0c-fix-1 review major). An undefined candidate beside a
+    /// defined same-priority sibling leaves no leaf (k-rust drops it and keeps the sibling's
+    /// successor), so the leaf check alone cannot see every step that depends on the reading.
+    pub short_circuit_results: Vec<String>,
     /// The function symbols whose value depends on the short-circuit reading (an equation's
     /// condition or right-hand side does, directly or through another such symbol): a test's
     /// initial state that applies one is no evidence.
@@ -741,6 +803,7 @@ impl DefinitionExclusions {
         short_circuit.close_over(kore);
         let mut short_circuit_conditions = BTreeSet::new();
         let mut short_circuit_rules = BTreeSet::new();
+        let mut short_circuit_results = BTreeSet::new();
         for module in &kore.modules {
             for sentence in &module.sentences {
                 let Sentence::Axiom {
@@ -762,10 +825,11 @@ impl DefinitionExclusions {
                 {
                     short_circuit_conditions.insert(sentence_name(attributes));
                 }
-                if short_circuit.result(right)
-                    && let Some(id) = string_attribute(attributes, KoreAttribute::UniqueId)
-                {
-                    short_circuit_rules.insert(id.to_owned());
+                if short_circuit.result(right) {
+                    short_circuit_results.insert(sentence_name(attributes));
+                    if let Some(id) = string_attribute(attributes, KoreAttribute::UniqueId) {
+                        short_circuit_rules.insert(id.to_owned());
+                    }
                 }
             }
         }
@@ -776,6 +840,7 @@ impl DefinitionExclusions {
             preserves_definedness,
             short_circuit_conditions: short_circuit_conditions.into_iter().collect(),
             short_circuit_rules,
+            short_circuit_results: short_circuit_results.into_iter().collect(),
             short_circuit_symbols: short_circuit
                 .undefined
                 .union(&short_circuit.valued)
@@ -839,6 +904,7 @@ impl DefinitionExclusions {
                 .union(&other.short_circuit_rules)
                 .cloned()
                 .collect(),
+            short_circuit_results: union(&self.short_circuit_results, &other.short_circuit_results),
             short_circuit_symbols: self
                 .short_circuit_symbols
                 .union(&other.short_circuit_symbols)
@@ -848,7 +914,7 @@ impl DefinitionExclusions {
     }
 
     /// The exclusion every run on this definition has, if any: a load stack stop first, then an
-    /// implementation-chosen hook, then a rule whose condition or value depends on the
+    /// implementation-chosen hook, then a rule whose condition, value or result depends on the
     /// short-circuit reading.
     #[must_use]
     pub fn definition_exclusion(&self) -> Option<Exclusion> {
@@ -856,7 +922,9 @@ impl DefinitionExclusions {
             Some(Exclusion::LoadStackStop)
         } else if !self.implementation_chosen.is_empty() {
             Some(Exclusion::ImplementationChosenHook)
-        } else if !self.short_circuit_conditions.is_empty() {
+        } else if !self.short_circuit_conditions.is_empty()
+            || !self.short_circuit_results.is_empty()
+        {
             Some(Exclusion::ShortCircuitReading)
         } else {
             None
@@ -919,6 +987,24 @@ impl DefinitionExclusions {
                 .undefined_rule
                 .as_ref()
                 .is_some_and(|rule| self.short_circuit_rules.contains(&rule.id))
+    }
+
+    /// The exclusion of `state`, a test's initial state on `definition` (the definition these
+    /// facts were read from), if any: it applies an implementation-chosen hook
+    /// ([`state_references_implementation_chosen`]), or a function or operator whose value
+    /// depends on the short-circuit reading ([`Self::state_depends_on_short_circuit`]).
+    #[must_use]
+    pub fn state_exclusion(
+        &self,
+        definition: &BackendDefinition,
+        state: &Pattern,
+    ) -> Option<Exclusion> {
+        state_references_implementation_chosen(definition, state)
+            .then_some(Exclusion::ImplementationChosenHook)
+            .or_else(|| {
+                self.state_depends_on_short_circuit(definition, state)
+                    .then_some(Exclusion::ShortCircuitReading)
+            })
     }
 
     /// Whether `state`, a test's initial state on `definition` (the definition these facts were

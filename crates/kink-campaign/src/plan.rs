@@ -81,8 +81,7 @@ fn plan_value(
     )
     .map_err(|e| e.to_string())?;
     let mut operators = Vec::new();
-    // Plan for the general (including symbolic) campaign: E2 includes the full
-    // withdrawal value, just as the manifest and runner do.
+    // E2 is the applied structure and the claim-free mutant's, as the manifest and runner use.
     let support = ClaimSupport::new(baseline);
     let mut structures = Vec::new();
     for (spec, generation) in specs.iter().zip(&generations) {
@@ -91,11 +90,8 @@ fn plan_value(
             .map_err(|e| e.to_string())?;
         let mut distinct = Vec::new();
         for candidate in generation.candidates() {
-            let identity =
-                crate::runner::mutant_identity(baseline, &candidate.patch, Some(&support))
-                    .ok_or_else(|| {
-                        "cannot compute the E2 structure/withdrawal identity".to_owned()
-                    })?;
+            let identity = crate::runner::mutant_identity(baseline, &candidate.patch, &support)
+                .ok_or_else(|| "cannot compute the E2 structure/withdrawal identity".to_owned())?;
             if !distinct.contains(&identity) {
                 distinct.push(identity);
             }

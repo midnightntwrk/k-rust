@@ -177,25 +177,33 @@ fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
         .unwrap();
 }
 
-/// Decision 2 (finding A-13): a mutant that makes `td`'s `total` claim false at the test's input
-/// (k-rust names the contradicted claim), or `pd`'s `preserves-definedness` claim false, ends in
-/// an undefined step where the baseline computes `val(10)`. Before R0b that undefined step was a
-/// complete terminal and killed the mutant (`Distinguish` on both slots); now the mutant's run is
-/// excluded and the mutant is `Unknown`, in both schedules.
+/// Decision 2 (finding A-13): a mutant that contradicts a trusted claim at the test's input (k-rust
+/// names the contradicted `total`, or the undefined step's rule carries `preserves-definedness`)
+/// ends in an undefined step where the baseline computes a value. Before R0b that undefined step
+/// was a complete terminal and killed the mutant; now the mutant's run is excluded and the mutant
+/// is `Unknown`, in both schedules.
+///
+/// Re-pin R0c-fix-2: a mutant now keeps only the claims its edit does not reach (kink-patch
+/// `ClaimSupport::withdraw`), so the guard fires for a baseline claim the mutant still carries.
+/// `r0c/tdivshift.k`'s mutants of the rewrite rules `tdiv` and `go` drop a shift and reach -1,
+/// where `td`'s `total` and `pd`'s `preserves-definedness` are false. The TDIV mutants this test
+/// used before (edits of `td`'s equation and of `pd`'s own rule) now run without the claim their
+/// edit falsified and are killed (`a_mutant_whose_edit_falsified_a_claim_runs_claim_free`).
 #[test]
 fn a_mutant_that_contradicts_a_claim_is_unknown() {
     on_a_big_stack(|| {
-        let validator = validator("tdiv");
+        let validator = r0c_validator("tdivshift");
         let baseline = validator.baseline();
-        for (rule, symbol) in [("TDIV.tdeq", "Lbltdiv"), ("TDIV.pd", "Lblpd")] {
+        for (rule, symbol) in [("TDIVSHIFT.tdiv", "Lbltdiv"), ("TDIVSHIFT.go", "Lblgo")] {
             let generation = one_to_zero(baseline, rule);
-            let tests = [test("t", support::app(symbol, vec![support::int(0)]))];
-            let campaign = campaign(&validator, "TDIV", &tests);
+            let tests = [test("t", support::app(symbol, vec![support::int(-1)]))];
+            let campaign = campaign(&validator, "TDIVSHIFT", &tests);
             for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
                 let run = run_campaign(&campaign, &generation, schedule).unwrap();
                 let [mutant] = run.mutants.as_slice() else {
                     panic!("one mutant")
                 };
+                assert!(mutant.report.claims.withdrawn.is_empty(), "{rule}");
                 assert_eq!(
                     mutant.plan.tests[0].run,
                     TestRun::Failed(ExecutionFailureKind::ContradictedClaim),
@@ -207,6 +215,59 @@ fn a_mutant_that_contradicts_a_claim_is_unknown() {
                     "{rule} {schedule:?}"
                 );
                 assert!(mutant.report.killing_test_ids.is_empty());
+            }
+        }
+    });
+}
+
+/// Re-pin R0c-fix-2 (a mutant drops the claims its edit leaves unbacked): the TDIV mutant of
+/// `td`'s equation (`I +Int 0`) runs without `td`'s `total`, and the mutant of `pd`'s own rule
+/// without its `preserves-definedness`. On 0 each takes an undefined step of the claim-free
+/// mutant (`10 /Int 0` is undefined in every model of it), where the baseline computes `val(10)`:
+/// a kill on a consistent theory, in both schedules. Before R0c-fix-2 each mutant carried the
+/// claim its edit falsified, contradicted it, and was `Unknown` (`contradicted-claim`).
+#[test]
+fn a_mutant_whose_edit_falsified_a_claim_runs_claim_free() {
+    on_a_big_stack(|| {
+        let validator = validator("tdiv");
+        let baseline = validator.baseline();
+        for (rule, symbol, removed) in [
+            ("TDIV.tdeq", "Lbltdiv", "total"),
+            ("TDIV.pd", "Lblpd", "preserves-definedness"),
+        ] {
+            let generation = one_to_zero(baseline, rule);
+            let tests = [test("t", support::app(symbol, vec![support::int(0)]))];
+            let campaign = campaign(&validator, "TDIV", &tests);
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                assert_eq!(
+                    mutant
+                        .report
+                        .claims
+                        .withdrawn
+                        .iter()
+                        .map(|claim| claim.key.as_str())
+                        .collect::<Vec<_>>(),
+                    [removed],
+                    "{rule}"
+                );
+                assert_eq!(
+                    mutant.plan.tests[0].run,
+                    TestRun::Compared(vec![
+                        kink_campaign::OracleOutcome::Distinguish,
+                        kink_campaign::OracleOutcome::Distinguish,
+                    ]),
+                    "{rule} {schedule:?}"
+                );
+                assert_eq!(
+                    mutant.report.status,
+                    MutantStatus::Killed,
+                    "{rule} {schedule:?}"
+                );
+                assert_clean(&run, mutant, "t");
             }
         }
     });
@@ -271,8 +332,9 @@ fn an_excluded_baseline_is_refused() {
 }
 
 /// Re-pin R0c-fix-1 deliverable 1 (decision 2 per test, Sebastien 2026-10-17: "killing test
-/// only"): `TDIV.tdeq` with `I +Int 0` distinguishes on `tdiv(1)` (`val(10)` against the
-/// baseline's `val(5)`) and contradicts `td`'s `total` claim on `tdiv(0)`. The contradicting test
+/// only"): the mutant distinguishes on `tdiv(1)` and contradicts `td`'s `total` claim on
+/// another input (since re-pin R0c-fix-2 `r0c/tdivshift.k`'s `tdiv` with `I +Int 0`, which keeps
+/// the claim: `val(5)` against the baseline's `val(3)` on 1, `td(-1)` on -1). The contradicting test
 /// is unknown and the kill by `tdiv(1)` stands, in both orders and both schedules, so `Full` and
 /// `FirstKill` agree (under R0c's mutant-wide rule `Full`, and `FirstKill` with the contradicting
 /// test first, gave `Unknown`). The killing test is free of contradictions: both of its runs gave
@@ -280,11 +342,14 @@ fn an_excluded_baseline_is_refused() {
 #[test]
 fn a_contradicted_claim_leaves_the_kill_of_another_test_standing() {
     on_a_big_stack(|| {
-        let validator = validator("tdiv");
+        // Re-pin R0c-fix-2: `r0c/tdivshift.k`'s mutant of the rewrite rule `tdiv` keeps `td`'s
+        // `total` (its edit does not reach `td`) and contradicts it on tdiv(-1). Before, the TDIV
+        // mutant of `td`'s equation contradicted it on tdiv(0); it now runs without the claim.
+        let validator = r0c_validator("tdivshift");
         let baseline = validator.baseline();
-        let generation = one_to_zero(baseline, "TDIV.tdeq");
+        let generation = one_to_zero(baseline, "TDIVSHIFT.tdiv");
         let kill = || test("kill", support::app("Lbltdiv", vec![support::int(1)]));
-        let contra = || test("contra", support::app("Lbltdiv", vec![support::int(0)]));
+        let contra = || test("contra", support::app("Lbltdiv", vec![support::int(-1)]));
         let distinguish = TestRun::Compared(vec![
             kink_campaign::OracleOutcome::Agree,
             kink_campaign::OracleOutcome::Distinguish,
@@ -312,7 +377,7 @@ fn a_contradicted_claim_leaves_the_kill_of_another_test_standing() {
                 vec![distinguish.clone(), TestRun::SkippedAfterKill],
             ),
         ] {
-            let campaign = campaign(&validator, "TDIV", &tests);
+            let campaign = campaign(&validator, "TDIVSHIFT", &tests);
             let run = run_campaign(&campaign, &generation, schedule).unwrap();
             let [mutant] = run.mutants.as_slice() else {
                 panic!("one mutant")

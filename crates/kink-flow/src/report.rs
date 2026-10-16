@@ -22,6 +22,11 @@
 //! Flow F-13 (version 3): an executed entry's `slots` names each oracle slot
 //! ([`slots_value`]); a stopped run's cause carries its leaf census ([`census_clause`]).
 //!
+//! Re-pin R0c-fix-2 (version 4): every resolved mutation's row carries `removed_claims`
+//! ([`claims_value`]): the trusted claims its edit leaves unbacked, which the mutant every
+//! program runs on does not carry (`removed`), and those no removal takes away, which refuse the
+//! mutant (`unsupported`, status `unknown`, reason `unsupported-claims`).
+//!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
 //! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
@@ -37,6 +42,7 @@ use kink_campaign::{
     TestRun,
 };
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
+use kink_patch::{Baseline, Claim, SentenceOrigin, Withdrawal};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -46,8 +52,38 @@ use std::{
 /// The `schema` of the run document, which is also the report.
 pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// The run document's version: 2 since F-06 added the survivor fields; 3 since F-13 named the
-/// oracle slots of an executed entry (`slots` is an object keyed by slot name).
-pub const RUN_VERSION: u64 = 3;
+/// oracle slots of an executed entry (`slots` is an object keyed by slot name); 4 since re-pin
+/// R0c-fix-2 added each row's `removed_claims`.
+pub const RUN_VERSION: u64 = 4;
+/// The claims a mutation's edit leaves unbacked (kink-patch `ClaimSupport::withdraw`):
+/// `{removed: [claim], unsupported: [claim]}`, each claim `{module, index, label, key, value}`
+/// for a baseline sentence (`label` null when it has none) or `{inserted: <edit index>, key,
+/// value}` for a sentence the patch inserts. A removed `simplification` claim is a deleted lemma.
+pub fn claims_value(baseline: &Baseline, withdrawal: &Withdrawal) -> Value {
+    let claim = |claim: &Claim| match &claim.origin {
+        SentenceOrigin::Baseline(at) => json!({
+            "module": at.module,
+            "index": at.index,
+            "label": baseline.sentence(at).and_then(|sentence| {
+                sentence
+                    .attributes()
+                    .value(k_rust::definition::AttributeKey::Label)
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            }),
+            "key": claim.key,
+            "value": claim.value,
+        }),
+        SentenceOrigin::Inserted { edit } => {
+            json!({"inserted": edit, "key": claim.key, "value": claim.value})
+        }
+    };
+    json!({
+        "removed": withdrawal.withdrawn.iter().map(claim).collect::<Vec<_>>(),
+        "unsupported": withdrawal.unsupported.iter().map(claim).collect::<Vec<_>>(),
+    })
+}
+
 /// The `schema` of the document `report` prints when there is no report to print.
 pub const MISSING_SCHEMA: &str = "kink-flow-report";
 
@@ -317,9 +353,6 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
                 .into()
         }
         ExecutionFailureKind::Infrastructure => "the backend failed during the mutant's run".into(),
-        ExecutionFailureKind::UnsupportedClaims => {
-            "the mutant's run was not started: it writes a trusted claim".into()
-        }
         ExecutionFailureKind::StackStop => {
             "stack-stop: the mutant's run met a stop for lack of native stack, so its result can \
              depend on the host's threads"

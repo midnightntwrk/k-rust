@@ -39,7 +39,10 @@ pub use candidate::{
     SelectionPolicy, Site, SiteSelector, derive_sites, derive_sites_in, select,
 };
 pub use catalogue::catalogue_v1;
-pub use claims::{Claim, ClaimSupport, Withdrawal};
+pub use claims::{
+    CLAIM_REMOVAL_VERSION, Claim, ClaimRemoval, ClaimSupport, TRUSTED_CLAIMS, TrustedClaim,
+    Withdrawal,
+};
 pub use codec::CodecError;
 pub use digest::{
     CAMPAIGN_MANIFEST_DOMAIN, CANONICAL_PATCH_DOMAIN, COMPILED_KORE_DOMAIN, OBSERVATION_DOMAIN,
