@@ -10,6 +10,8 @@ It verifies that the displayed `tour-minimal` mirror is byte-for-byte identical 
 The primary navigation contains all 17 canonical chapters from `../krs/docs-plan/tour.toml` plus the checked five-minute synthesis.
 Its hover/focus glosses and canonical destinations are generated from the ledger rather than copied into a second glossary.
 `bun run check` validates the curriculum, reviewed public surfaces, complete page graph and anchors, generated compatibility and port summaries, terminology, gloss accessibility contracts, synced snippets, Rust-Twoslash failure controls, and the authoritative Cargo/KRS fixtures.
+Pages show `krs` command outputs recorded under `src/snippets/outputs/` from the commands `recorded-outputs.toml` lists.
+`bun run check` compares their input and output digests without running `krs` and fails when a fixture, an entry, or an output changed; `bun run record:outputs` records them again, and `bun run verify:outputs` runs every command and compares the outputs byte for byte.
 `bun run check:types && bun run build` is the production release gate, including Vocs dead-link checking.
 
 Rust Twoslash is supplementary.

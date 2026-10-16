@@ -1,0 +1,14 @@
+{
+  "tour-minimal-depth-0": {
+    "inputs": "cd1c26d46c0fe38afde6537fbf67525b08423a44c6e95af01e5c7710ab8b1b8e",
+    "output": "12aedcc9decb230f5f8d4f2b456b19622b09ee77e413f9e41aa54ecae0c1c2e2"
+  },
+  "tour-minimal-run": {
+    "inputs": "31da92c62b38c33a016256d3089b65205a6972449d81d9fd7a8265db24db18e1",
+    "output": "145c6611d858d6a2748b747d6ca7edcecd3783b2a9716038974f2ed276362c22"
+  },
+  "tour-minimal-trace": {
+    "inputs": "499ee84ce4b2a7d66bad9d70243cbe99d4331130777bb6e9c06a0091d4e95ff7",
+    "output": "ca8add5e3a34568bca4efe3e40e808d8b7ecd3ec2c075d8666b809c895882842"
+  }
+}
