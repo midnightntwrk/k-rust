@@ -8,7 +8,7 @@ publish = false
 description = "Grammar-directed printing of KORE terms, as K's kprint and kast --output program print them"
 
 [dependencies]
-k-rust = { version = "=0.6.0", path = "../../../crates/k-rust", default-features = false }
+k-rust = { version = "=0.7.0", path = "../../../crates/k-rust", default-features = false }
 
 [lints]
 workspace = true

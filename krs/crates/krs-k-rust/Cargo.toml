@@ -12,7 +12,7 @@ default = ["z3-inference"]
 z3-inference = ["k-rust/z3-inference"]
 
 [dependencies]
-k-rust = { version = "=0.6.0", path = "../../../crates/k-rust", default-features = false }
+k-rust = { version = "=0.7.0", path = "../../../crates/k-rust", default-features = false }
 krs-ir = { path = "../krs-ir" }
 krs-ir-levels = { path = "../krs-ir-levels" }
 krs-diagnostic = { path = "../krs-diagnostic" }
