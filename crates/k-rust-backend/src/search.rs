@@ -1,9 +1,9 @@
 //! ```toml algorithm
 //! id = "backend.search.configurations"
 //! name = "breadth-first search over configurations"
-//! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state"]
+//! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state", "SearchFrontier::floor", "forget_depths_below", "RetainedTrace::extend"]
 //! variable = "n = distinct (depth, pattern, is_rewritable) keys at one depth; r = results retained"
-//! counters = ["SearchStatesDeduplicated"]
+//! counters = ["SearchStatesVisited", "SearchStatesDeduplicated"]
 //! span = "per problem"
 //! consumes = [{ type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" }]
 //!
@@ -14,6 +14,14 @@
 //! [[cost]]
 //! mode = "result or pattern bound reached"
 //! bound = "one extra rewrite step in state_may_expand"
+//!
+//! [[cost]]
+//! mode = "deduplication memory"
+//! bound = "the keys of the depths not below the lowest depth queued or being expanded (forget_depths_below): the depths the frontier spans, two unless remainders are queued behind deeper successors, rather than every depth visited"
+//!
+//! [[cost]]
+//! mode = "trace storage"
+//! bound = "O(1) per fork and per appended entry: a queued state shares its path's trace with the states it forked from (rewrite::path_trace); O(entries) per reported state to materialise its trace; nothing when retain_trace is false (RetainedTrace drops every entry)"
 //! ```
 //!
 //! ```toml algorithm
@@ -21,8 +29,7 @@
 //! name = "breadth-first enumeration of simple rewrite paths"
 //! sites = ["search_paths_using", "search_paths_collecting"]
 //! variable = "d = path depth; b = branching factor"
-//! counters = []
-//! no_counter = "path enumeration has no dedicated counter"
+//! counters = ["SearchStatesVisited"]
 //! span = "per problem"
 //! consumes = [{ type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" }]
 //!
@@ -81,15 +88,16 @@
 //! name (`RequestNames::state_key`, a canonical numbering per state), O(distinct states per
 //! depth) rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first enumeration of
 //! simple paths with a per-path visited list of the same keys, exponential in branching plus
-//! O(depth) per pop; pattern search over the result set. A state result, and a pattern
-//! search's solution (`RequestNames::solution_key`), is retained once up to the same renaming,
-//! one key per result. `normalize_match_condition` is the
+//! O(depth) per pop; both count the states they take from their frontier
+//! (`Counter::SearchStatesVisited`); pattern search over the result set. A state result, and a
+//! pattern search's solution (`RequestNames::solution_key`), is retained once up to the same
+//! renaming, one key per result. `normalize_match_condition` is the
 //! output-restricted variant of substitution extraction, O(c^2 x t) for c constraints plus the
 //! definedness of each solved value that is not `ceil_free`, no counter.
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque, btree_map::Entry};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
@@ -108,8 +116,8 @@ use crate::{
     rewrite::{
         AppliedRule, IndeterminateReason, InitialDefinedness, Pattern, RemainderBranch,
         RewriteResult, TraceEntry, TraceKind, Truth, UndecidedStep, initial_definedness,
-        predicates_truth, rewrite_step_restricted, rewrite_step_with_options,
-        simplify_result_pattern, stuck,
+        path_trace::PathTrace, predicates_truth, rewrite_step_restricted,
+        rewrite_step_with_options, simplify_result_pattern, stuck,
     },
     rule::Predicate,
     simplify::{
@@ -177,6 +185,13 @@ pub struct SearchOptions {
     /// evaluation of the search sees it, the conditions of rules and equations and the matching
     /// of the target included.
     pub evaluation: EvaluationMode,
+    /// Whether every state the configuration search reports carries its path's trace
+    /// (`SearchState::trace`), as by default. A caller that reads no trace passes `false`: the
+    /// search then records no entry, and every state it reports has an empty trace. Nothing the
+    /// search decides reads a trace, so its states, results and every other field of what it
+    /// reports are the same either way. The path search keeps every witness's trace whatever
+    /// this says.
+    pub retain_trace: bool,
 }
 
 impl Default for SearchOptions {
@@ -189,6 +204,7 @@ impl Default for SearchOptions {
             max_simplification_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
             request_names: RequestNames::default(),
             evaluation: EvaluationMode::Proof,
+            retain_trace: true,
         }
     }
 }
@@ -738,12 +754,14 @@ fn search_graph_collecting(
     // step by the number of distinct states rather than by the number of interleavings that
     // reach them. Comparing the patterns by name instead would keep two branches that each
     // introduced a variable apart, since the request's counter names the two variables apart.
-    let mut expanded: HashSet<(u64, Pattern, bool)> = HashSet::new();
+    // The keys are held per depth: a key is only ever compared with keys of its own depth, and
+    // the depths below every state still to be popped are dropped (`forget_depths_below`).
+    let mut expanded: BTreeMap<u64, HashSet<(Pattern, bool)>> = BTreeMap::new();
 
     // The initial states, and those of them found to have no instance before any step.
     let initial_count = initial.len();
     let mut initial_without_instance = 0;
-    let mut pending = VecDeque::with_capacity(initial.len());
+    let mut pending = SearchFrontier::with_capacity(initial.len());
     // Invariant: `pending` holds, in input order, the initial states without a surviving macro or
     // alias symbol, and `incomplete` one entry per other initial state.
     for pattern in initial {
@@ -756,6 +774,7 @@ fn search_graph_collecting(
                 observations: Vec::new(),
                 diagnostics: Vec::new(),
             },
+            trace: PathTrace::default(),
             observation: None,
             diagnostics: request_diagnostics.empty_like(),
             kind: QueuedStateKind::Rewritable,
@@ -774,7 +793,7 @@ fn search_graph_collecting(
     // the first state, leaving the initial states unexplored.
     if options.max_breadth == Some(0)
         && let Some(exceeded) =
-            breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |work| {
+            pending.breadth_exceeded(&mut incomplete, options.max_breadth, |work| {
                 work.materialize(&observation_log)
             })
     {
@@ -796,14 +815,16 @@ fn search_graph_collecting(
         };
     }
 
-    // `pending` is FIFO, so popped depths never decrease; `expanded` holds the key of every
-    // `(depth, simplified pattern)` expanded so far, so a state is expanded once per depth.
+    // `expanded` holds the key of every `(depth, simplified pattern)` expanded so far at a depth
+    // a state still to be popped can have, so a state is expanded once per depth.
     // Invariant: `pending` holds unexpanded states no deeper than `max_depth`; `states` only grows.
     let end = loop {
-        let work = match pop_or_exhausted(&mut pending) {
+        let work = match pending.pop_front() {
             Ok(work) => work,
             Err(exhausted) => break SearchEnd::Exhausted(exhausted),
         };
+        measure::bump(Counter::SearchStatesVisited);
+        forget_depths_below(&mut expanded, pending.floor(work.state.depth));
         // Publish a stop of the state's exploration as its `Stopped` entry; the search ends when
         // the stop ends every remaining state ([`stop_ends_search`]). Never falls through.
         macro_rules! publish_stop {
@@ -824,6 +845,7 @@ fn search_graph_collecting(
         }
         let SearchWorkState {
             mut state,
+            mut trace,
             observation: mut observation_head,
             mut diagnostics,
             kind,
@@ -832,7 +854,7 @@ fn search_graph_collecting(
         if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
             incomplete.push(IncompleteSearch::Indeterminate {
                 state: materialize_search_state(
-                    state,
+                    with_trace(state, trace),
                     observation_head,
                     &diagnostics,
                     &observation_log,
@@ -858,7 +880,7 @@ fn search_graph_collecting(
             Ok(Err(error)) => {
                 incomplete.push(IncompleteSearch::Simplification {
                     state: materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log,
@@ -868,7 +890,12 @@ fn search_graph_collecting(
                 continue;
             }
             Err(stop) => publish_stop!(
-                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
+                materialize_search_state(
+                    with_trace(state, trace),
+                    observation_head,
+                    &diagnostics,
+                    &observation_log
+                ),
                 stop
             ),
         }
@@ -902,24 +929,22 @@ fn search_graph_collecting(
                     simplified.effects.iter().cloned(),
                     &mut observe,
                 );
-                state
-                    .trace
-                    .extend(
-                        simplified
-                            .applied_rules
-                            .into_iter()
-                            .map(|unique_id| TraceEntry {
-                                depth: state.depth,
-                                kind: TraceKind::Simplification,
-                                label: None,
-                                unique_id,
-                            }),
-                    );
+                RetainedTrace::new(&mut trace, options.retain_trace).extend(
+                    simplified
+                        .applied_rules
+                        .into_iter()
+                        .map(|unique_id| TraceEntry {
+                            depth: state.depth,
+                            kind: TraceKind::Simplification,
+                            label: None,
+                            unique_id,
+                        }),
+                );
             }
             Ok(Err(error)) => {
                 incomplete.push(IncompleteSearch::Simplification {
                     state: materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log,
@@ -929,7 +954,12 @@ fn search_graph_collecting(
                 continue;
             }
             Err(stop) => publish_stop!(
-                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
+                materialize_search_state(
+                    with_trace(state, trace),
+                    observation_head,
+                    &diagnostics,
+                    &observation_log
+                ),
                 stop
             ),
         }
@@ -960,7 +990,7 @@ fn search_graph_collecting(
             Ok(Err(error)) => {
                 incomplete.push(IncompleteSearch::Simplification {
                     state: materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log,
@@ -970,14 +1000,18 @@ fn search_graph_collecting(
                 continue;
             }
             Err(stop) => publish_stop!(
-                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
+                materialize_search_state(
+                    with_trace(state, trace),
+                    observation_head,
+                    &diagnostics,
+                    &observation_log
+                ),
                 stop
             ),
         };
         // A duplicate takes its own path's diagnostics with it: the state kept for this key
         // reports the path recorded first, like its trace.
-        if !expanded.insert((
-            state.depth,
+        if !expanded.entry(state.depth).or_default().insert((
             fresh_counter.request().state_key(&state.pattern),
             is_rewritable,
         )) {
@@ -990,10 +1024,11 @@ fn search_graph_collecting(
         let retention = if is_result {
             match externalise_result(
                 definition,
-                state.clone(),
+                with_trace(state.clone(), trace.clone()),
                 observation_head,
                 diagnostics.clone(),
                 options.max_simplification_iterations,
+                options.retain_trace,
                 solver,
                 &mut effects,
                 &mut observe,
@@ -1051,7 +1086,7 @@ fn search_graph_collecting(
         }
         if at_depth_bound {
             incomplete.push(IncompleteSearch::DepthBound(materialize_search_state(
-                state,
+                with_trace(state, trace),
                 observation_head,
                 &diagnostics,
                 &observation_log,
@@ -1075,7 +1110,7 @@ fn search_graph_collecting(
                 diagnostics.extend(&step_diagnostics);
                 publish_stop!(
                     materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log
@@ -1095,10 +1130,11 @@ fn search_graph_collecting(
                 state.pattern = pattern;
                 let retention = match externalise_result(
                     definition,
-                    state,
+                    with_trace(state, trace),
                     observation_head,
                     diagnostics,
                     options.max_simplification_iterations,
+                    options.retain_trace,
                     solver,
                     &mut effects,
                     &mut observe,
@@ -1137,7 +1173,7 @@ fn search_graph_collecting(
                 state.pattern = pattern;
                 incomplete.push(IncompleteSearch::Indeterminate {
                     state: materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log,
@@ -1149,7 +1185,7 @@ fn search_graph_collecting(
                 state.pattern = pattern;
                 incomplete.push(IncompleteSearch::Simplification {
                     state: materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log,
@@ -1162,7 +1198,8 @@ fn search_graph_collecting(
                 pending.push_back(next_search_work_state(
                     definition,
                     state.depth,
-                    state.trace,
+                    trace,
+                    options.retain_trace,
                     observation_head,
                     diagnostics,
                     applied,
@@ -1170,7 +1207,7 @@ fn search_graph_collecting(
                     observation,
                 ));
                 if let Some(exceeded) =
-                    breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |work| {
+                    pending.breadth_exceeded(&mut incomplete, options.max_breadth, |work| {
                         work.materialize(&observation_log)
                     })
                 {
@@ -1187,7 +1224,8 @@ fn search_graph_collecting(
                     pending.push_back(next_search_work_state(
                         definition,
                         state.depth,
-                        state.trace.clone(),
+                        trace.clone(),
+                        options.retain_trace,
                         observation_head,
                         diagnostics.clone(),
                         applied,
@@ -1204,7 +1242,8 @@ fn search_graph_collecting(
                     let remaining = remaining_search_work_state(
                         definition,
                         state.depth,
-                        state.trace,
+                        trace,
+                        options.retain_trace,
                         observation_head,
                         diagnostics,
                         state.pattern,
@@ -1215,7 +1254,7 @@ fn search_graph_collecting(
                     pending.push_back(remaining);
                 }
                 if let Some(exceeded) =
-                    breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |work| {
+                    pending.breadth_exceeded(&mut incomplete, options.max_breadth, |work| {
                         work.materialize(&observation_log)
                     })
                 {
@@ -1234,9 +1273,93 @@ fn search_graph_collecting(
     }
 }
 
+/// The configuration search's frontier: its queued work states in FIFO order, with the number
+/// of them queued at each depth.
+struct SearchFrontier {
+    pending: VecDeque<SearchWorkState>,
+    /// How many states of `pending` have each depth; a depth none has is absent.
+    depths: BTreeMap<u64, usize>,
+}
+
+impl SearchFrontier {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            pending: VecDeque::with_capacity(capacity),
+            depths: BTreeMap::new(),
+        }
+    }
+
+    fn push_back(&mut self, work: SearchWorkState) {
+        *self.depths.entry(work.state.depth).or_default() += 1;
+        self.pending.push_back(work);
+    }
+
+    fn pop_front(&mut self) -> Result<SearchWorkState, Exhausted> {
+        let work = pop_or_exhausted(&mut self.pending)?;
+        if let Entry::Occupied(mut queued) = self.depths.entry(work.state.depth) {
+            *queued.get_mut() -= 1;
+            if *queued.get() == 0 {
+                queued.remove();
+            }
+        }
+        Ok(work)
+    }
+
+    /// The lowest depth a state popped from now on can have, while a state of depth `expanding`
+    /// is being expanded: no lower than `expanding` nor than any queued state's depth, since a
+    /// step queues its state's successors one deeper (`next_state`) and its remainder at its own
+    /// depth (`remaining_state`), so every state popped later is queued now, or descends from a
+    /// queued state or from the one being expanded, and is no shallower than it.
+    ///
+    /// The popped depths themselves are not monotone: a remainder is queued behind the
+    /// successors, one deeper, of the states popped before it.
+    fn floor(&self, expanding: u64) -> u64 {
+        self.depths
+            .first_key_value()
+            .map_or(expanding, |(&queued, _)| queued.min(expanding))
+    }
+
+    /// [`breadth_exceeded`] over the queued states; a drained frontier has no depths either.
+    fn breadth_exceeded(
+        &mut self,
+        incomplete: &mut Vec<IncompleteSearch>,
+        max_breadth: Option<usize>,
+        materialize: impl FnMut(SearchWorkState) -> SearchState,
+    ) -> Option<BreadthExceeded> {
+        let exceeded = breadth_exceeded(&mut self.pending, incomplete, max_breadth, materialize);
+        if exceeded.is_some() {
+            self.depths.clear();
+        }
+        exceeded
+    }
+}
+
+impl retention::Frontier for SearchFrontier {
+    fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+}
+
+/// Drop the deduplication keys of every depth below `floor`, the lowest depth a state still to
+/// be popped can have ([`SearchFrontier::floor`]). A key is only compared with the keys of its
+/// own depth, so no state will be compared with a dropped key: every deduplication decision,
+/// hence every state expanded and every result, is the one the search makes keeping every key,
+/// while the keys held are those of the depths the frontier spans rather than of every depth.
+fn forget_depths_below(expanded: &mut BTreeMap<u64, HashSet<(Pattern, bool)>>, floor: u64) {
+    while let Some(lowest) = expanded.first_entry()
+        && *lowest.key() < floor
+    {
+        lowest.remove();
+    }
+}
+
 #[derive(Clone)]
 struct SearchWorkState {
+    /// The state, whose `trace` stays empty while it is queued: its path's trace is `trace`.
     state: SearchState,
+    /// The path's trace, shared with the paths it forked from, so a fork costs a handle copy
+    /// rather than a copy of every entry of the path.
+    trace: PathTrace,
     observation: ObservationHead,
     /// The diagnostics of this state's path so far, shared with the paths it forks into;
     /// materialised into `SearchState::diagnostics` when the state is reported.
@@ -1253,7 +1376,7 @@ enum QueuedStateKind {
 impl SearchWorkState {
     fn materialize(self, observation_log: &ObservationLog) -> SearchState {
         materialize_search_state(
-            self.state,
+            with_trace(self.state, self.trace),
             self.observation,
             &self.diagnostics,
             observation_log,
@@ -1365,7 +1488,8 @@ const fn halts(rewrite: &RewriteResult) -> bool {
 }
 
 /// Externalise a search result in the simplifier's normal form
-/// (`rewrite::simplify_leaf_pattern`), materializing its observations.
+/// (`rewrite::simplify_leaf_pattern`), materializing its observations. The simplification's
+/// trace entries join the result's trace when `retain_trace` holds.
 ///
 /// The work state that continues the search keeps its loop-head constraints as path knowledge;
 /// only the reported copy is simplified. `Ok(None)` is a result whose constraints simplify to
@@ -1387,6 +1511,7 @@ fn externalise_result(
     mut observation: ObservationHead,
     mut diagnostics: PathDiagnostics,
     max_iterations: usize,
+    retain_trace: bool,
     solver: &dyn SmtSolver,
     effects: &mut Vec<BuiltinEffect>,
     observe: &mut impl FnMut(&BuiltinEffect),
@@ -1401,7 +1526,7 @@ fn externalise_result(
             max_iterations,
             solver,
             state.depth,
-            &mut state.trace,
+            &mut RetainedTrace::new(&mut state.trace, retain_trace),
             Some(&mut observation),
             observation_log,
             observation_options,
@@ -1445,7 +1570,8 @@ fn externalise_result(
 fn next_search_work_state(
     definition: &BackendDefinition,
     depth: u64,
-    trace: Vec<TraceEntry>,
+    mut trace: PathTrace,
+    retain_trace: bool,
     observation: ObservationHead,
     mut diagnostics: PathDiagnostics,
     applied: AppliedRule,
@@ -1466,8 +1592,14 @@ fn next_search_work_state(
         );
     }
     let observation = observation_log.append_applied(observation, &applied, observation_options);
+    let state = next_state(
+        depth,
+        &mut RetainedTrace::new(&mut trace, retain_trace),
+        applied,
+    );
     SearchWorkState {
-        state: next_state(depth, trace, applied),
+        state,
+        trace,
         observation,
         diagnostics,
         kind: QueuedStateKind::Rewritable,
@@ -1478,7 +1610,8 @@ fn next_search_work_state(
 fn remaining_search_work_state(
     definition: &BackendDefinition,
     depth: u64,
-    trace: Vec<TraceEntry>,
+    mut trace: PathTrace,
+    retain_trace: bool,
     observation: ObservationHead,
     mut diagnostics: PathDiagnostics,
     before: Pattern,
@@ -1495,12 +1628,49 @@ fn remaining_search_work_state(
         observation_log,
         observation_options,
     );
+    let state = remaining_state(
+        depth,
+        &mut RetainedTrace::new(&mut trace, retain_trace),
+        remainder,
+    );
     SearchWorkState {
-        state: remaining_state(depth, trace, remainder),
+        state,
+        trace,
         observation,
         diagnostics,
         kind,
     }
+}
+
+/// A path's trace that takes the entries appended to it only when the search retains traces
+/// (`SearchOptions::retain_trace`); otherwise it drops them unread, so a search whose caller reads
+/// no trace stores none.
+struct RetainedTrace<'t, T> {
+    trace: &'t mut T,
+    retain: bool,
+}
+
+impl<'t, T> RetainedTrace<'t, T> {
+    const fn new(trace: &'t mut T, retain: bool) -> Self {
+        Self { trace, retain }
+    }
+}
+
+impl<T: Extend<TraceEntry>> Extend<TraceEntry> for RetainedTrace<'_, T> {
+    fn extend<I: IntoIterator<Item = TraceEntry>>(&mut self, entries: I) {
+        if self.retain {
+            self.trace.extend(entries);
+        }
+    }
+}
+
+/// `state`, whose own `trace` is empty while it is queued, with `trace`, its path's trace,
+/// materialised as its entries, oldest first: every state the configuration search reports
+/// leaves it through here.
+fn with_trace(mut state: SearchState, trace: PathTrace) -> SearchState {
+    debug_assert!(state.trace.is_empty());
+    state.trace = trace.into_vec();
+    state
 }
 
 /// Search for one witness per distinct acyclic semantic path.
@@ -1649,6 +1819,7 @@ fn search_paths_collecting(
             Ok(path) => path,
             Err(exhausted) => break SearchEnd::Exhausted(exhausted),
         };
+        measure::bump(Counter::SearchStatesVisited);
         // Publish a stop of the path's exploration as its `Stopped` entry; the search ends when
         // the stop ends every remaining path ([`stop_ends_search`]). Never falls through.
         macro_rules! publish_stop {
@@ -2044,7 +2215,9 @@ fn next_path_state(
     }
     path.observation =
         observation_log.append_applied(path.observation, &applied, observation_options);
-    path.state = next_state(path.state.depth, path.state.trace, applied);
+    let mut trace = std::mem::take(&mut path.state.trace);
+    path.state = next_state(path.state.depth, &mut trace, applied);
+    path.state.trace = trace;
     path.kind = QueuedStateKind::Rewritable;
     path
 }
@@ -2070,7 +2243,9 @@ fn remaining_path_state(
         observation_options,
     );
     path.observation = observation;
-    path.state = remaining_state(path.state.depth, path.state.trace, remainder);
+    let mut trace = std::mem::take(&mut path.state.trace);
+    path.state = remaining_state(path.state.depth, &mut trace, remainder);
+    path.state.trace = trace;
     path.kind = kind;
     path
 }
@@ -2969,7 +3144,11 @@ fn record_applied_effects(
     record_effects(recorded, applied.effects.iter().cloned(), observe);
 }
 
-fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> SearchState {
+fn next_state(
+    depth: u64,
+    trace: &mut impl Extend<TraceEntry>,
+    applied: AppliedRule,
+) -> SearchState {
     for simplification in &applied.remainder_simplifications {
         trace.extend(
             simplification
@@ -2984,16 +3163,16 @@ fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> S
                 }),
         );
     }
-    trace.push(TraceEntry {
+    trace.extend(std::iter::once(TraceEntry {
         depth: depth + 1,
         kind: TraceKind::Rewrite,
         label: applied.label,
         unique_id: applied.unique_id,
-    });
+    }));
     SearchState {
         pattern: applied.pattern,
         depth: depth + 1,
-        trace,
+        trace: Vec::new(),
         branch: Vec::new(),
         observations: Vec::new(),
         diagnostics: Vec::new(),
@@ -3002,15 +3181,15 @@ fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> S
 
 fn remaining_state(
     depth: u64,
-    mut trace: Vec<TraceEntry>,
+    trace: &mut impl Extend<TraceEntry>,
     remainder: RemainderBranch,
 ) -> SearchState {
-    trace.push(TraceEntry {
+    trace.extend(std::iter::once(TraceEntry {
         depth,
         kind: TraceKind::Remainder,
         label: None,
         unique_id: remainder.rule_ids.join(","),
-    });
+    }));
     for simplification in &remainder.simplifications {
         trace.extend(
             simplification
@@ -3028,7 +3207,7 @@ fn remaining_state(
     SearchState {
         pattern: remainder.pattern,
         depth,
-        trace,
+        trace: Vec::new(),
         branch: Vec::new(),
         observations: Vec::new(),
         diagnostics: Vec::new(),
@@ -3213,6 +3392,55 @@ mod tests {
         .expect("conditional-remainder search definition should parse");
         BackendDefinition::internalize(&syntax, "SEARCH-REMAINDER")
             .expect("conditional-remainder search definition should internalize")
+    }
+
+    /// Two states of depth 1 that differ only in their constraints, `X =/= 0` and `X =/= 1`,
+    /// each take one of two conditional rules and leave the same remainder, `X =/= 0` and
+    /// `X =/= 1`, at depth 1. Each remainder is queued behind the successor, at depth 2, of its
+    /// own state, so the search pops a state of depth 2 between the two remainders.
+    #[cfg(feature = "z3")]
+    fn rejoining_remainders_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module SEARCH-REMAINDERS
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortS{} []
+                symbol initial{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol middle{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        initial{}(X:SortInt{}),
+                        \not{SortS{}}(\equals{SortInt{}, SortS{}}(X:SortInt{}, \dv{SortInt{}}("0")))
+                    ),
+                    middle{}(X:SortInt{})
+                ) [label{}("initial-not-zero")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        initial{}(X:SortInt{}),
+                        \not{SortS{}}(\equals{SortInt{}, SortS{}}(X:SortInt{}, \dv{SortInt{}}("1")))
+                    ),
+                    middle{}(X:SortInt{})
+                ) [label{}("initial-not-one")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        middle{}(X:SortInt{}),
+                        \equals{SortInt{}, SortS{}}(X:SortInt{}, \dv{SortInt{}}("0"))
+                    ),
+                    done{}()
+                ) [label{}("middle-zero")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        middle{}(X:SortInt{}),
+                        \equals{SortInt{}, SortS{}}(X:SortInt{}, \dv{SortInt{}}("1"))
+                    ),
+                    done{}()
+                ) [label{}("middle-one")]
+            endmodule []"#,
+        )
+        .expect("rejoining-remainders search definition should parse");
+        BackendDefinition::internalize(&syntax, "SEARCH-REMAINDERS")
+            .expect("rejoining-remainders search definition should internalize")
     }
 
     fn search_bound_definition() -> BackendDefinition {
@@ -4356,6 +4584,123 @@ mod tests {
         );
     }
 
+    /// A state the configuration search reports carries the trace of the first path that reached
+    /// it at its depth, entry for entry and in order, although a queued state shares its path's
+    /// entries with the states it forked from: the path search, which keeps each path's trace in
+    /// a vector of its own and explores the paths in the same breadth-first order, reports that
+    /// path's trace as the first witness of the state at that depth. Every state of the fixture
+    /// but the last forks, and up to three paths rejoin at each state.
+    #[test]
+    fn a_reported_trace_is_the_first_path_to_its_state() {
+        let definition = interleaving_definition();
+        let initial = pattern(&definition, "state{}(a0{}(), b0{}(), c0{}())");
+        for (search_type, max_depth) in [
+            (SearchType::Star, u64::MAX),
+            (SearchType::Final, u64::MAX),
+            (SearchType::Final, 5),
+        ] {
+            let options = SearchOptions {
+                search_type,
+                max_depth,
+                ..SearchOptions::default()
+            };
+            let states = search_graph(&definition, initial.clone(), options.clone());
+            let paths = search_paths(&definition, initial.clone(), options);
+            let reported = states
+                .states
+                .iter()
+                .chain(states.incomplete.iter().filter_map(|entry| match entry {
+                    IncompleteSearch::DepthBound(state) => Some(state),
+                    _ => None,
+                }))
+                .collect::<Vec<_>>();
+            assert!(!reported.is_empty(), "{search_type:?} at {max_depth}");
+            for state in reported {
+                let witness = paths
+                    .witnesses
+                    .iter()
+                    .find(|witness| {
+                        witness.depth == state.depth && witness.pattern == state.pattern
+                    })
+                    .unwrap_or_else(|| panic!("no path reaches {state:?}"));
+                assert_eq!(
+                    state
+                        .trace
+                        .iter()
+                        .filter(|entry| entry.kind == TraceKind::Rewrite)
+                        .count(),
+                    usize::try_from(state.depth).unwrap(),
+                    "one rewrite entry per step: {:?}",
+                    state.trace
+                );
+                assert_eq!(state.trace, witness.trace, "{search_type:?} at {max_depth}");
+            }
+        }
+    }
+
+    /// A search that retains no trace reports what one that retains them reports, with every
+    /// trace empty, and does the same work: nothing the search decides reads a trace.
+    #[test]
+    fn a_search_without_traces_differs_only_in_its_traces() {
+        fn clear(state: &mut SearchState) {
+            state.trace.clear();
+        }
+        fn without_traces(mut result: SearchResult) -> SearchResult {
+            result.states.iter_mut().for_each(clear);
+            for entry in &mut result.incomplete {
+                match entry {
+                    IncompleteSearch::BreadthBound(states) => states.iter_mut().for_each(clear),
+                    IncompleteSearch::DepthBound(state)
+                    | IncompleteSearch::Indeterminate { state, .. }
+                    | IncompleteSearch::Stopped { state, .. }
+                    | IncompleteSearch::Simplification { state, .. }
+                    | IncompleteSearch::Match { state, .. }
+                    | IncompleteSearch::Smt { state, .. } => clear(state),
+                }
+            }
+            result
+        }
+        let definition = interleaving_definition();
+        let initial = pattern(&definition, "state{}(a0{}(), b0{}(), c0{}())");
+        for (search_type, max_depth, max_breadth) in [
+            (SearchType::Star, u64::MAX, None),
+            (SearchType::Final, u64::MAX, None),
+            (SearchType::Final, 5, None),
+            (SearchType::Final, u64::MAX, Some(6)),
+        ] {
+            let options = SearchOptions {
+                search_type,
+                max_depth,
+                max_breadth,
+                ..SearchOptions::default()
+            };
+            let before = measure::snapshot();
+            let retained = search_graph(&definition, initial.clone(), options.clone());
+            let middle = measure::snapshot();
+            let discarded = search_graph(
+                &definition,
+                initial.clone(),
+                SearchOptions {
+                    retain_trace: false,
+                    ..options
+                },
+            );
+            let after = measure::snapshot();
+            // Some reported state, a result or an incomplete entry's, has a trace to drop.
+            assert_ne!(
+                without_traces(retained.clone()),
+                retained,
+                "{search_type:?}"
+            );
+            assert_eq!(
+                without_traces(retained.clone()),
+                discarded,
+                "{search_type:?} at {max_depth}, breadth {max_breadth:?}"
+            );
+            assert_eq!(middle.delta(&before), after.delta(&middle));
+        }
+    }
+
     #[test]
     fn search_traces_are_always_valid_paths() {
         for definition in [definition(), converging_definition()] {
@@ -4504,6 +4849,85 @@ mod tests {
                 "{search_type:?}: {paths:#?}"
             );
         }
+    }
+
+    /// A remainder is compared with the keys of its own depth after the search has popped a
+    /// deeper state, so the keys of a depth are kept while a state of that depth is queued:
+    /// the second remainder is dropped as a duplicate of the first and reported once.
+    #[test]
+    #[cfg(feature = "z3")]
+    fn a_remainder_popped_after_a_deeper_state_is_deduplicated() {
+        let definition = rejoining_remainders_definition();
+        let initial = pattern(&definition, "initial{}(X:SortInt{})");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        let before = measure::snapshot();
+        let graph = search_graph_with_solver(
+            &definition,
+            initial,
+            SearchOptions {
+                search_type: SearchType::Final,
+                ..SearchOptions::default()
+            },
+            &solver,
+        );
+        let counted = measure::snapshot().delta(&before);
+        assert!(graph.incomplete.is_empty(), "{graph:#?}");
+        let remainders = graph
+            .states
+            .iter()
+            .filter(|state| {
+                state
+                    .trace
+                    .iter()
+                    .any(|entry| entry.kind == TraceKind::Remainder)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(remainders.len(), 1, "{graph:#?}");
+        assert_eq!(remainders[0].depth, 1);
+        // The initial state, its two successors, their two successors and their two remainders.
+        assert_eq!(counted.get(Counter::SearchStatesVisited), 7);
+        assert_eq!(counted.get(Counter::SearchStatesDeduplicated), 1);
+    }
+
+    /// The floor of a frontier holding a remainder behind deeper successors is the remainder's
+    /// depth, whatever the depth of the state being expanded; the keys below the floor go.
+    #[test]
+    fn the_floor_waits_for_a_remainder_queued_behind_deeper_successors() {
+        let definition = definition();
+        let work = |depth| SearchWorkState {
+            state: SearchState {
+                pattern: initial(&definition),
+                depth,
+                trace: Vec::new(),
+                branch: Vec::new(),
+                observations: Vec::new(),
+                diagnostics: Vec::new(),
+            },
+            trace: PathTrace::default(),
+            observation: None,
+            diagnostics: PathDiagnostics::new_request(),
+            kind: QueuedStateKind::Rewritable,
+        };
+        let mut frontier = SearchFrontier::with_capacity(4);
+        for depth in [1, 2, 1, 2] {
+            frontier.push_back(work(depth));
+        }
+        let popped = |frontier: &mut SearchFrontier| {
+            let depth = frontier.pop_front().ok().unwrap().state.depth;
+            (depth, frontier.floor(depth))
+        };
+        assert_eq!(popped(&mut frontier), (1, 1));
+        assert_eq!(popped(&mut frontier), (2, 1));
+        assert_eq!(popped(&mut frontier), (1, 1));
+        assert_eq!(popped(&mut frontier), (2, 2));
+        assert!(frontier.pop_front().is_err());
+
+        let mut expanded = BTreeMap::<u64, HashSet<(Pattern, bool)>>::new();
+        for depth in [1, 2, 3] {
+            expanded.entry(depth).or_default();
+        }
+        forget_depths_below(&mut expanded, 2);
+        assert_eq!(expanded.keys().copied().collect::<Vec<_>>(), [2, 3]);
     }
 
     #[test]

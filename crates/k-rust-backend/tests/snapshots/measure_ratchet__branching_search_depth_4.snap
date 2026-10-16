@@ -12,5 +12,6 @@ simplify.nodes_skipped_evaluated = 18
 simplify.builtin_evaluations = 8
 simplify.predicate_nodes_visited = 20
 simplify.conjunct_nodes = 4
+search.states_visited = 9
 search.states_deduplicated = 4
 term.constructed = 40

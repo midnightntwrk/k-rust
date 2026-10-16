@@ -14,7 +14,7 @@
 mod apply;
 mod execute;
 mod exploration_merge;
-mod path_trace;
+pub(crate) mod path_trace;
 mod predicates;
 mod recover;
 mod roles;

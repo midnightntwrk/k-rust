@@ -229,6 +229,8 @@ pub(super) fn retain_witness(
         path.observation,
         path.diagnostics.clone(),
         options.max_simplification_iterations,
+        // The path search keeps every witness's trace.
+        true,
         solver,
         effects,
         &mut |_| {},
