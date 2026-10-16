@@ -79,11 +79,12 @@ krs emit-k \
 ```
 
 K accepts claims only outside an executable definition, so `definition.k` holds no claims.
-`spec.k` wraps them in a `<MAIN>-SPEC` module that `requires "definition.k"` and imports the main module: kompile `definition.k` once, then pass `spec.k` to `kprove` against that kompiled definition.
+`spec.k` `requires "definition.k"` and holds the proof modules: each author spec module (`#[k::spec_module]`), then, when the definition states claims, a generated `<MAIN>-SPEC` module that imports the main module and wraps them.
+Kompile `definition.k` once, then pass `spec.k` to `kprove` against that kompiled definition.
 
 `krs build` continues from Definition IR to selected LLVM or Haskell KORE artifacts.
 The Haskell target carries the claims for proving; LLVM executes but does not prove, so its build omits the claims and reports how many.
-It does not execute the object program, and KRS currently has no `run` command.
+It does not execute the object program: `krs run`, `krs search`, and `krs prove` do, in-process ([run, search, and prove](/reference/workflow#run-search-and-prove)).
 
 ## Identity and diagnostics
 

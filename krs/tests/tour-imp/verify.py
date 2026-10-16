@@ -45,9 +45,12 @@ def artifact_bytes(directory: Path) -> dict[str, bytes]:
 
 
 def walkthrough_artifacts(expansion: str, artifacts: Path, gate: Path, environment: dict[str, str]) -> dict[Path, str]:
-    source = SOURCE.read_text(encoding="utf-8")
-    readable_line = next(line for line in source.splitlines() if "eval_add" in line)
-    readable = f"k::rules! {{\n    in Machine.k;\n\n{readable_line}\n}}\n"
+    lines = SOURCE.read_text(encoding="utf-8").splitlines()
+    rule = next(index for index, line in enumerate(lines) if "eval_add" in line)
+    # The excerpt keeps its block's own `for` and `use` header, so it is valid KRS.
+    opening = max(index for index in range(rule) if lines[index] == "k::rules! {")
+    header = [line for line in lines[opening + 1:rule] if line.lstrip().startswith(("for ", "use "))]
+    readable = "k::rules! {\n" + "\n".join(header) + f"\n\n{lines[rule]}\n}}\n"
     expansion_start = expansion.index('#[k::rule(label = "eval-add")]')
     expansion_end = expansion.index("\n#[k::rule", expansion_start + 1)
     expanded = expansion[expansion_start:expansion_end].rstrip() + "\n"
