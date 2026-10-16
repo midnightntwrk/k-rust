@@ -2805,6 +2805,10 @@ bound = "O(n) rewrite steps plus O(r) pattern comparisons per retained result"
 mode = "result or pattern bound reached"
 bound = "one extra rewrite step in state_may_expand"
 
+[[node.cost]]
+mode = "trace storage"
+bound = "O(1) per fork and per appended entry: a queued state shares its path's trace with the states it forked from (rewrite::path_trace); O(entries) per reported state to materialise its trace"
+
 [[node]]
 kind = "algorithm"
 id = "backend.search.output"

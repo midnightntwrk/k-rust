@@ -8,6 +8,9 @@
 //! appending path sees. The latest rewrite entry, which the halts that name the rule producing a
 //! state read, is cached beside the newest node. A leaf materialises its trace once, in time and
 //! memory linear in the entries it returns, moving out the entries no pending fork shares.
+//!
+//! The execute engine (`rewrite::execute`) and the configuration search
+//! (`search::search_graph_collecting`) keep their paths' traces here.
 
 use std::rc::Rc;
 
@@ -15,7 +18,7 @@ use super::{TraceEntry, TraceKind};
 
 /// One path's trace: a shared-prefix list of [`TraceEntry`] with its latest rewrite entry.
 #[derive(Clone, Default)]
-pub(super) struct PathTrace {
+pub(crate) struct PathTrace {
     newest: Option<Rc<TraceNode>>,
     /// The newest node whose entry is a [`TraceKind::Rewrite`], when the path has one.
     last_rewrite: Option<Rc<TraceNode>>,
@@ -69,7 +72,7 @@ impl PathTrace {
     /// The path's entries, oldest first, for the leaf that ends the path: an entry no other
     /// path shares is moved out, and only the entries shared with a pending fork are cloned, so
     /// a path that never forked returns its trace without holding a second copy of it.
-    pub(super) fn into_vec(mut self) -> Vec<TraceEntry> {
+    pub(crate) fn into_vec(mut self) -> Vec<TraceEntry> {
         let mut entries = Vec::with_capacity(self.len);
         // The cache is a second handle on a node of the chain; without it, a node this path
         // holds alone has one owner and can be taken apart.

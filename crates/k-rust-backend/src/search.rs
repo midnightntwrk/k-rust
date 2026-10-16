@@ -14,6 +14,10 @@
 //! [[cost]]
 //! mode = "result or pattern bound reached"
 //! bound = "one extra rewrite step in state_may_expand"
+//!
+//! [[cost]]
+//! mode = "trace storage"
+//! bound = "O(1) per fork and per appended entry: a queued state shares its path's trace with the states it forked from (rewrite::path_trace); O(entries) per reported state to materialise its trace"
 //! ```
 //!
 //! ```toml algorithm
@@ -108,8 +112,8 @@ use crate::{
     rewrite::{
         AppliedRule, IndeterminateReason, InitialDefinedness, Pattern, RemainderBranch,
         RewriteResult, TraceEntry, TraceKind, Truth, UndecidedStep, initial_definedness,
-        predicates_truth, rewrite_step_restricted, rewrite_step_with_options,
-        simplify_result_pattern, stuck,
+        path_trace::PathTrace, predicates_truth, rewrite_step_restricted,
+        rewrite_step_with_options, simplify_result_pattern, stuck,
     },
     rule::Predicate,
     simplify::{
@@ -756,6 +760,7 @@ fn search_graph_collecting(
                 observations: Vec::new(),
                 diagnostics: Vec::new(),
             },
+            trace: PathTrace::default(),
             observation: None,
             diagnostics: request_diagnostics.empty_like(),
             kind: QueuedStateKind::Rewritable,
@@ -825,6 +830,7 @@ fn search_graph_collecting(
         }
         let SearchWorkState {
             mut state,
+            mut trace,
             observation: mut observation_head,
             mut diagnostics,
             kind,
@@ -833,7 +839,7 @@ fn search_graph_collecting(
         if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
             incomplete.push(IncompleteSearch::Indeterminate {
                 state: materialize_search_state(
-                    state,
+                    with_trace(state, trace),
                     observation_head,
                     &diagnostics,
                     &observation_log,
@@ -859,7 +865,7 @@ fn search_graph_collecting(
             Ok(Err(error)) => {
                 incomplete.push(IncompleteSearch::Simplification {
                     state: materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log,
@@ -869,7 +875,12 @@ fn search_graph_collecting(
                 continue;
             }
             Err(stop) => publish_stop!(
-                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
+                materialize_search_state(
+                    with_trace(state, trace),
+                    observation_head,
+                    &diagnostics,
+                    &observation_log
+                ),
                 stop
             ),
         }
@@ -903,24 +914,22 @@ fn search_graph_collecting(
                     simplified.effects.iter().cloned(),
                     &mut observe,
                 );
-                state
-                    .trace
-                    .extend(
-                        simplified
-                            .applied_rules
-                            .into_iter()
-                            .map(|unique_id| TraceEntry {
-                                depth: state.depth,
-                                kind: TraceKind::Simplification,
-                                label: None,
-                                unique_id,
-                            }),
-                    );
+                trace.extend(
+                    simplified
+                        .applied_rules
+                        .into_iter()
+                        .map(|unique_id| TraceEntry {
+                            depth: state.depth,
+                            kind: TraceKind::Simplification,
+                            label: None,
+                            unique_id,
+                        }),
+                );
             }
             Ok(Err(error)) => {
                 incomplete.push(IncompleteSearch::Simplification {
                     state: materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log,
@@ -930,7 +939,12 @@ fn search_graph_collecting(
                 continue;
             }
             Err(stop) => publish_stop!(
-                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
+                materialize_search_state(
+                    with_trace(state, trace),
+                    observation_head,
+                    &diagnostics,
+                    &observation_log
+                ),
                 stop
             ),
         }
@@ -961,7 +975,7 @@ fn search_graph_collecting(
             Ok(Err(error)) => {
                 incomplete.push(IncompleteSearch::Simplification {
                     state: materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log,
@@ -971,7 +985,12 @@ fn search_graph_collecting(
                 continue;
             }
             Err(stop) => publish_stop!(
-                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
+                materialize_search_state(
+                    with_trace(state, trace),
+                    observation_head,
+                    &diagnostics,
+                    &observation_log
+                ),
                 stop
             ),
         };
@@ -991,7 +1010,7 @@ fn search_graph_collecting(
         let retention = if is_result {
             match externalise_result(
                 definition,
-                state.clone(),
+                with_trace(state.clone(), trace.clone()),
                 observation_head,
                 diagnostics.clone(),
                 options.max_simplification_iterations,
@@ -1052,7 +1071,7 @@ fn search_graph_collecting(
         }
         if at_depth_bound {
             incomplete.push(IncompleteSearch::DepthBound(materialize_search_state(
-                state,
+                with_trace(state, trace),
                 observation_head,
                 &diagnostics,
                 &observation_log,
@@ -1076,7 +1095,7 @@ fn search_graph_collecting(
                 diagnostics.extend(&step_diagnostics);
                 publish_stop!(
                     materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log
@@ -1096,7 +1115,7 @@ fn search_graph_collecting(
                 state.pattern = pattern;
                 let retention = match externalise_result(
                     definition,
-                    state,
+                    with_trace(state, trace),
                     observation_head,
                     diagnostics,
                     options.max_simplification_iterations,
@@ -1138,7 +1157,7 @@ fn search_graph_collecting(
                 state.pattern = pattern;
                 incomplete.push(IncompleteSearch::Indeterminate {
                     state: materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log,
@@ -1150,7 +1169,7 @@ fn search_graph_collecting(
                 state.pattern = pattern;
                 incomplete.push(IncompleteSearch::Simplification {
                     state: materialize_search_state(
-                        state,
+                        with_trace(state, trace),
                         observation_head,
                         &diagnostics,
                         &observation_log,
@@ -1163,7 +1182,7 @@ fn search_graph_collecting(
                 pending.push_back(next_search_work_state(
                     definition,
                     state.depth,
-                    state.trace,
+                    trace,
                     observation_head,
                     diagnostics,
                     applied,
@@ -1188,7 +1207,7 @@ fn search_graph_collecting(
                     pending.push_back(next_search_work_state(
                         definition,
                         state.depth,
-                        state.trace.clone(),
+                        trace.clone(),
                         observation_head,
                         diagnostics.clone(),
                         applied,
@@ -1205,7 +1224,7 @@ fn search_graph_collecting(
                     let remaining = remaining_search_work_state(
                         definition,
                         state.depth,
-                        state.trace,
+                        trace,
                         observation_head,
                         diagnostics,
                         state.pattern,
@@ -1237,7 +1256,11 @@ fn search_graph_collecting(
 
 #[derive(Clone)]
 struct SearchWorkState {
+    /// The state, whose `trace` stays empty while it is queued: its path's trace is `trace`.
     state: SearchState,
+    /// The path's trace, shared with the paths it forked from, so a fork costs a handle copy
+    /// rather than a copy of every entry of the path.
+    trace: PathTrace,
     observation: ObservationHead,
     /// The diagnostics of this state's path so far, shared with the paths it forks into;
     /// materialised into `SearchState::diagnostics` when the state is reported.
@@ -1254,7 +1277,7 @@ enum QueuedStateKind {
 impl SearchWorkState {
     fn materialize(self, observation_log: &ObservationLog) -> SearchState {
         materialize_search_state(
-            self.state,
+            with_trace(self.state, self.trace),
             self.observation,
             &self.diagnostics,
             observation_log,
@@ -1446,7 +1469,7 @@ fn externalise_result(
 fn next_search_work_state(
     definition: &BackendDefinition,
     depth: u64,
-    trace: Vec<TraceEntry>,
+    mut trace: PathTrace,
     observation: ObservationHead,
     mut diagnostics: PathDiagnostics,
     applied: AppliedRule,
@@ -1467,8 +1490,10 @@ fn next_search_work_state(
         );
     }
     let observation = observation_log.append_applied(observation, &applied, observation_options);
+    let state = next_state(depth, &mut trace, applied);
     SearchWorkState {
-        state: next_state(depth, trace, applied),
+        state,
+        trace,
         observation,
         diagnostics,
         kind: QueuedStateKind::Rewritable,
@@ -1479,7 +1504,7 @@ fn next_search_work_state(
 fn remaining_search_work_state(
     definition: &BackendDefinition,
     depth: u64,
-    trace: Vec<TraceEntry>,
+    mut trace: PathTrace,
     observation: ObservationHead,
     mut diagnostics: PathDiagnostics,
     before: Pattern,
@@ -1496,12 +1521,23 @@ fn remaining_search_work_state(
         observation_log,
         observation_options,
     );
+    let state = remaining_state(depth, &mut trace, remainder);
     SearchWorkState {
-        state: remaining_state(depth, trace, remainder),
+        state,
+        trace,
         observation,
         diagnostics,
         kind,
     }
+}
+
+/// `state`, whose own `trace` is empty while it is queued, with `trace`, its path's trace,
+/// materialised as its entries, oldest first: every state the configuration search reports
+/// leaves it through here.
+fn with_trace(mut state: SearchState, trace: PathTrace) -> SearchState {
+    debug_assert!(state.trace.is_empty());
+    state.trace = trace.into_vec();
+    state
 }
 
 /// Search for one witness per distinct acyclic semantic path.
@@ -2046,7 +2082,9 @@ fn next_path_state(
     }
     path.observation =
         observation_log.append_applied(path.observation, &applied, observation_options);
-    path.state = next_state(path.state.depth, path.state.trace, applied);
+    let mut trace = std::mem::take(&mut path.state.trace);
+    path.state = next_state(path.state.depth, &mut trace, applied);
+    path.state.trace = trace;
     path.kind = QueuedStateKind::Rewritable;
     path
 }
@@ -2072,7 +2110,9 @@ fn remaining_path_state(
         observation_options,
     );
     path.observation = observation;
-    path.state = remaining_state(path.state.depth, path.state.trace, remainder);
+    let mut trace = std::mem::take(&mut path.state.trace);
+    path.state = remaining_state(path.state.depth, &mut trace, remainder);
+    path.state.trace = trace;
     path.kind = kind;
     path
 }
@@ -2971,7 +3011,11 @@ fn record_applied_effects(
     record_effects(recorded, applied.effects.iter().cloned(), observe);
 }
 
-fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> SearchState {
+fn next_state(
+    depth: u64,
+    trace: &mut impl Extend<TraceEntry>,
+    applied: AppliedRule,
+) -> SearchState {
     for simplification in &applied.remainder_simplifications {
         trace.extend(
             simplification
@@ -2986,16 +3030,16 @@ fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> S
                 }),
         );
     }
-    trace.push(TraceEntry {
+    trace.extend(std::iter::once(TraceEntry {
         depth: depth + 1,
         kind: TraceKind::Rewrite,
         label: applied.label,
         unique_id: applied.unique_id,
-    });
+    }));
     SearchState {
         pattern: applied.pattern,
         depth: depth + 1,
-        trace,
+        trace: Vec::new(),
         branch: Vec::new(),
         observations: Vec::new(),
         diagnostics: Vec::new(),
@@ -3004,15 +3048,15 @@ fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> S
 
 fn remaining_state(
     depth: u64,
-    mut trace: Vec<TraceEntry>,
+    trace: &mut impl Extend<TraceEntry>,
     remainder: RemainderBranch,
 ) -> SearchState {
-    trace.push(TraceEntry {
+    trace.extend(std::iter::once(TraceEntry {
         depth,
         kind: TraceKind::Remainder,
         label: None,
         unique_id: remainder.rule_ids.join(","),
-    });
+    }));
     for simplification in &remainder.simplifications {
         trace.extend(
             simplification
@@ -3030,7 +3074,7 @@ fn remaining_state(
     SearchState {
         pattern: remainder.pattern,
         depth,
-        trace,
+        trace: Vec::new(),
         branch: Vec::new(),
         observations: Vec::new(),
         diagnostics: Vec::new(),
@@ -4356,6 +4400,60 @@ mod tests {
                 || labels == ["initial-next2", "next2-final1"],
             "unexpected witness: {labels:?}"
         );
+    }
+
+    /// A state the configuration search reports carries the trace of the first path that reached
+    /// it at its depth, entry for entry and in order, although a queued state shares its path's
+    /// entries with the states it forked from: the path search, which keeps each path's trace in
+    /// a vector of its own and explores the paths in the same breadth-first order, reports that
+    /// path's trace as the first witness of the state at that depth. Every state of the fixture
+    /// but the last forks, and up to three paths rejoin at each state.
+    #[test]
+    fn a_reported_trace_is_the_first_path_to_its_state() {
+        let definition = interleaving_definition();
+        let initial = pattern(&definition, "state{}(a0{}(), b0{}(), c0{}())");
+        for (search_type, max_depth) in [
+            (SearchType::Star, u64::MAX),
+            (SearchType::Final, u64::MAX),
+            (SearchType::Final, 5),
+        ] {
+            let options = SearchOptions {
+                search_type,
+                max_depth,
+                ..SearchOptions::default()
+            };
+            let states = search_graph(&definition, initial.clone(), options.clone());
+            let paths = search_paths(&definition, initial.clone(), options);
+            let reported = states
+                .states
+                .iter()
+                .chain(states.incomplete.iter().filter_map(|entry| match entry {
+                    IncompleteSearch::DepthBound(state) => Some(state),
+                    _ => None,
+                }))
+                .collect::<Vec<_>>();
+            assert!(!reported.is_empty(), "{search_type:?} at {max_depth}");
+            for state in reported {
+                let witness = paths
+                    .witnesses
+                    .iter()
+                    .find(|witness| {
+                        witness.depth == state.depth && witness.pattern == state.pattern
+                    })
+                    .unwrap_or_else(|| panic!("no path reaches {state:?}"));
+                assert_eq!(
+                    state
+                        .trace
+                        .iter()
+                        .filter(|entry| entry.kind == TraceKind::Rewrite)
+                        .count(),
+                    usize::try_from(state.depth).unwrap(),
+                    "one rewrite entry per step: {:?}",
+                    state.trace
+                );
+                assert_eq!(state.trace, witness.trace, "{search_type:?} at {max_depth}");
+            }
+        }
     }
 
     #[test]
