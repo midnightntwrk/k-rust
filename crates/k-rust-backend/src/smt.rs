@@ -1751,7 +1751,7 @@ mod tests {
         let variable = Variable::new("X", Sort::simple("SortInt"));
         let predicate = Predicate::Exists(
             variable.clone(),
-            Box::new(Predicate::Equals(Term::variable(variable), integer("1"))),
+            Arc::new(Predicate::Equals(Term::variable(variable), integer("1"))),
         );
 
         assert_eq!(
@@ -1776,7 +1776,7 @@ mod tests {
             )
         };
         let implies =
-            |left: Predicate, right: Predicate| Predicate::Implies(Box::new(left), Box::new(right));
+            |left: Predicate, right: Predicate| Predicate::Implies(Arc::new(left), Arc::new(right));
         let translate = |predicate: &Predicate| {
             TranslationState::new()
                 .translate_predicate(predicate)
@@ -1817,9 +1817,9 @@ mod tests {
             Exactness::Approximate
         );
         assert_eq!(
-            translation_exactness(&[Predicate::Not(Box::new(Predicate::Exists(
+            translation_exactness(&[Predicate::Not(Arc::new(Predicate::Exists(
                 variable,
-                Box::new(Predicate::Or(vec![equality(uninterpreted)])),
+                Arc::new(Predicate::Or(vec![equality(uninterpreted)].into())),
             )))]),
             Exactness::Approximate
         );
@@ -1838,17 +1838,17 @@ mod tests {
         };
 
         assert_eq!(
-            translation_exactness(&[Predicate::Forall(nat.clone(), Box::new(body(&nat)))]),
+            translation_exactness(&[Predicate::Forall(nat.clone(), Arc::new(body(&nat)))]),
             Exactness::Approximate
         );
         assert_eq!(
-            translation_exactness(&[Predicate::Exists(nat, Box::new(Predicate::True))]),
+            translation_exactness(&[Predicate::Exists(nat, Arc::new(Predicate::True))]),
             Exactness::Approximate
         );
         assert_eq!(
             translation_exactness(&[Predicate::Exists(
                 int.clone(),
-                Box::new(Predicate::Equals(Term::variable(int), integer("1"))),
+                Arc::new(Predicate::Equals(Term::variable(int), integer("1"))),
             )]),
             Exactness::Exact
         );
@@ -1944,7 +1944,7 @@ mod tests {
         let element = Term::variable(Variable::new("X", Sort::simple("SortElement")));
         let pattern = Term::variable(Variable::new("P", Sort::simple("SortElement")));
         let membership = Predicate::In(element, pattern);
-        let negated = Predicate::Not(Box::new(membership.clone()));
+        let negated = Predicate::Not(Arc::new(membership.clone()));
         let mut translation = TranslationState::new();
 
         assert_eq!(

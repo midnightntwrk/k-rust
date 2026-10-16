@@ -10,6 +10,7 @@ use k_rust_kore::kore::{
 use k_rust_kore::names::BuiltinSort;
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 use super::lean_bridge::generators;
 use crate::{
@@ -48,17 +49,19 @@ fn predicate() -> impl Strategy<Value = Predicate> {
         prop_oneof![
             inner
                 .clone()
-                .prop_map(|inner| Predicate::Not(Box::new(inner))),
-            prop::collection::vec(inner.clone(), 0..3).prop_map(Predicate::And),
-            prop::collection::vec(inner.clone(), 0..3).prop_map(Predicate::Or),
+                .prop_map(|inner| Predicate::Not(Arc::new(inner))),
+            prop::collection::vec(inner.clone(), 0..3)
+                .prop_map(|items| Predicate::And(items.into())),
+            prop::collection::vec(inner.clone(), 0..3)
+                .prop_map(|items| Predicate::Or(items.into())),
             (inner.clone(), inner.clone())
-                .prop_map(|(left, right)| Predicate::Implies(Box::new(left), Box::new(right))),
+                .prop_map(|(left, right)| Predicate::Implies(Arc::new(left), Arc::new(right))),
             (inner.clone(), inner.clone())
-                .prop_map(|(left, right)| Predicate::Iff(Box::new(left), Box::new(right))),
+                .prop_map(|(left, right)| Predicate::Iff(Arc::new(left), Arc::new(right))),
             (variable.clone(), inner.clone())
-                .prop_map(|(variable, inner)| Predicate::Exists(variable, Box::new(inner))),
+                .prop_map(|(variable, inner)| Predicate::Exists(variable, Arc::new(inner))),
             (variable, inner)
-                .prop_map(|(variable, inner)| Predicate::Forall(variable, Box::new(inner))),
+                .prop_map(|(variable, inner)| Predicate::Forall(variable, Arc::new(inner))),
         ]
     })
 }
@@ -268,7 +271,7 @@ fn element(name: &str) -> Variable {
 fn bound_next_to(binder: &str, free: &str) -> Predicate {
     Predicate::Exists(
         element(binder),
-        Box::new(Predicate::Equals(
+        Arc::new(Predicate::Equals(
             Term::variable(element(binder)),
             Term::variable(element(free)),
         )),
@@ -332,13 +335,16 @@ fn a_spelling_clash_is_renamed_only_where_a_binder_captures() {
     let result_sort = Sort::simple("SortK");
     let deep = Predicate::Exists(
         element("Ex#X!0"),
-        Box::new(Predicate::And(vec![
-            Predicate::True,
-            Predicate::Forall(
-                element("Y"),
-                Box::new(Predicate::Not(Box::new(bound_next_to("Z", "Ex-hX-b0")))),
-            ),
-        ])),
+        Arc::new(Predicate::And(
+            vec![
+                Predicate::True,
+                Predicate::Forall(
+                    element("Y"),
+                    Arc::new(Predicate::Not(Arc::new(bound_next_to("Z", "Ex-hX-b0")))),
+                ),
+            ]
+            .into(),
+        )),
     );
     let printed = predicate_pattern(&deep, &result_sort);
     let kore::Pattern::Exists { variable, .. } = &printed else {
@@ -346,10 +352,8 @@ fn a_spelling_clash_is_renamed_only_where_a_binder_captures() {
     };
     assert_ne!(variable.name, "Ex-hX-b0", "{printed}");
     assert!(externalize::apart_binders(&deep).is_some());
-    let siblings = Predicate::And(vec![
-        bound_next_to("Ex#X!0", "Y"),
-        bound_next_to("Ex-hX-b0", "Y"),
-    ]);
+    let siblings =
+        Predicate::And(vec![bound_next_to("Ex#X!0", "Y"), bound_next_to("Ex-hX-b0", "Y")].into());
     assert_eq!(externalize::apart_binders(&siblings), None);
 }
 

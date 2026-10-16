@@ -555,7 +555,7 @@ impl Join<'_, '_> {
             let predicates = predicates.ok()?;
             if !matches!(
                 self.context
-                    .simplify(crate::rule::Predicate::And(predicates)),
+                    .simplify(crate::rule::Predicate::And(predicates.into())),
                 Some(crate::rule::Predicate::True)
             ) {
                 return None;

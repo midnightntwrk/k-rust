@@ -1,6 +1,7 @@
 //! Constructor schemas build values only at free instance sorts, including after alias expansion.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
@@ -69,7 +70,7 @@ fn complete_schema_domain_keeps_the_non_g_branch_feasible() {
     let x = Term::variable(Variable::new("X", foo));
     assert!(!violates_finite_constructor_domain(
         &definition,
-        &[Predicate::Not(Box::new(Predicate::Equals(x, g)))],
+        &[Predicate::Not(Arc::new(Predicate::Equals(x, g)))],
     ));
 }
 

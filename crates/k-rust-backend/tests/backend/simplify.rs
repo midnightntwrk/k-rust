@@ -14,6 +14,7 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 use k_rust_kore::measure::{Counter, snapshot};
+use std::sync::Arc;
 
 // Explicit imports shadow the glob: these tests arm no stop and assert on the failure layer.
 use crate::support::{
@@ -152,16 +153,19 @@ fn free_application_equality_keeps_nested_possibly_empty_binary_images() {
 #[test]
 fn free_application_equality_refutes_disequal_arguments() {
     let definition = free_application_definition();
-    let predicate = Predicate::And(vec![
-        Predicate::Equals(
-            term(&definition, "a{}(X:SortS{})"),
-            term(&definition, "a{}(Y:SortS{})"),
-        ),
-        Predicate::Not(Box::new(Predicate::Equals(
-            term(&definition, "X:SortS{}"),
-            term(&definition, "Y:SortS{}"),
-        ))),
-    ]);
+    let predicate = Predicate::And(
+        vec![
+            Predicate::Equals(
+                term(&definition, "a{}(X:SortS{})"),
+                term(&definition, "a{}(Y:SortS{})"),
+            ),
+            Predicate::Not(Arc::new(Predicate::Equals(
+                term(&definition, "X:SortS{}"),
+                term(&definition, "Y:SortS{}"),
+            ))),
+        ]
+        .into(),
+    );
     assert_eq!(
         simplify_predicate(&definition, &predicate),
         Predicate::False
@@ -191,16 +195,19 @@ fn free_application_equality_decomposes_multiple_argument_pairs() {
         term(&definition, "p{}(X:SortS{}, Z:SortS{})"),
         term(&definition, "p{}(Y:SortS{}, W:SortS{})"),
     );
-    let expected = Predicate::And(vec![
-        Predicate::Equals(
-            term(&definition, "X:SortS{}"),
-            term(&definition, "Y:SortS{}"),
-        ),
-        Predicate::Equals(
-            term(&definition, "Z:SortS{}"),
-            term(&definition, "W:SortS{}"),
-        ),
-    ]);
+    let expected = Predicate::And(
+        vec![
+            Predicate::Equals(
+                term(&definition, "X:SortS{}"),
+                term(&definition, "Y:SortS{}"),
+            ),
+            Predicate::Equals(
+                term(&definition, "Z:SortS{}"),
+                term(&definition, "W:SortS{}"),
+            ),
+        ]
+        .into(),
+    );
     assert_eq!(simplify_predicate(&definition, &predicate), expected,);
 }
 
@@ -255,40 +262,46 @@ fn free_application_equality_flattens_with_only_one_defined_side() {
             "p{}(f{}(Y:SortS{}), p{}(f{}(W:SortS{}), f{}(V:SortS{})))",
         ),
     );
-    let expected = Predicate::And(vec![
-        Predicate::Equals(
-            term(&definition, "X:SortS{}"),
-            term(&definition, "f{}(Y:SortS{})"),
-        ),
-        Predicate::Equals(
-            term(&definition, "Z:SortS{}"),
-            term(&definition, "f{}(W:SortS{})"),
-        ),
-        Predicate::Equals(
-            term(&definition, "U:SortS{}"),
-            term(&definition, "f{}(V:SortS{})"),
-        ),
-    ]);
+    let expected = Predicate::And(
+        vec![
+            Predicate::Equals(
+                term(&definition, "X:SortS{}"),
+                term(&definition, "f{}(Y:SortS{})"),
+            ),
+            Predicate::Equals(
+                term(&definition, "Z:SortS{}"),
+                term(&definition, "f{}(W:SortS{})"),
+            ),
+            Predicate::Equals(
+                term(&definition, "U:SortS{}"),
+                term(&definition, "f{}(V:SortS{})"),
+            ),
+        ]
+        .into(),
+    );
     assert_eq!(simplify_predicate(&definition, &predicate), expected);
     let Predicate::Equals(left, right) = predicate else {
         unreachable!()
     };
     assert_eq!(
         simplify_predicate(&definition, &Predicate::Equals(right, left)),
-        Predicate::And(vec![
-            Predicate::Equals(
-                term(&definition, "f{}(Y:SortS{})"),
-                term(&definition, "X:SortS{}")
-            ),
-            Predicate::Equals(
-                term(&definition, "f{}(W:SortS{})"),
-                term(&definition, "Z:SortS{}")
-            ),
-            Predicate::Equals(
-                term(&definition, "f{}(V:SortS{})"),
-                term(&definition, "U:SortS{}")
-            ),
-        ])
+        Predicate::And(
+            vec![
+                Predicate::Equals(
+                    term(&definition, "f{}(Y:SortS{})"),
+                    term(&definition, "X:SortS{}")
+                ),
+                Predicate::Equals(
+                    term(&definition, "f{}(W:SortS{})"),
+                    term(&definition, "Z:SortS{}")
+                ),
+                Predicate::Equals(
+                    term(&definition, "f{}(V:SortS{})"),
+                    term(&definition, "U:SortS{}")
+                ),
+            ]
+            .into()
+        )
     );
 }
 
@@ -335,16 +348,19 @@ fn predicate_simplification_preserves_definedness_for_apart_partial_terms() {
     // Disjoint constructor images are equal exactly where both partial arguments are empty.
     assert_eq!(
         simplify_equality("a{}(f{}(X:SortS{}))", "b{}(f{}(Y:SortS{}))"),
-        Predicate::And(vec![
-            Predicate::Not(Box::new(Predicate::Ceil(term(
-                &definition,
-                "f{}(X:SortS{})",
-            )))),
-            Predicate::Not(Box::new(Predicate::Ceil(term(
-                &definition,
-                "f{}(Y:SortS{})",
-            )))),
-        ])
+        Predicate::And(
+            vec![
+                Predicate::Not(Arc::new(Predicate::Ceil(term(
+                    &definition,
+                    "f{}(X:SortS{})",
+                )))),
+                Predicate::Not(Arc::new(Predicate::Ceil(term(
+                    &definition,
+                    "f{}(Y:SortS{})",
+                )))),
+            ]
+            .into()
+        )
     );
     // An element variable denotes a value, so the left constructor image cannot be empty.
     assert_eq!(
@@ -562,7 +578,7 @@ fn path_refuted_anywhere_equation_is_rechecked_under_opposing_assumptions() {
         term(&definition, "condition{}()"),
         term(&definition, r#"\dv{SortBool{}}("true")"#),
     );
-    let refuting_assumptions = [Predicate::Not(Box::new(requires.clone()))];
+    let refuting_assumptions = [Predicate::Not(Arc::new(requires.clone()))];
 
     let refuted = simplify_with_solver(
         &definition,
@@ -2932,10 +2948,13 @@ fn propagates_symbolic_path_equalities_into_terms() {
     let y = term(&definition, "Y:SortS{}");
     let value = term(&definition, r#"\dv{SortS{}}("value")"#);
     let input = term(&definition, "wrap{}(X:SortS{})");
-    let known = [Predicate::And(vec![
-        Predicate::Equals(x, y.clone()),
-        Predicate::Equals(y, value.clone()),
-    ])];
+    let known = [Predicate::And(
+        vec![
+            Predicate::Equals(x, y.clone()),
+            Predicate::Equals(y, value.clone()),
+        ]
+        .into(),
+    )];
 
     let result = simplify_with_solver(
         &definition,
@@ -2959,10 +2978,13 @@ fn simplifies_conjuncts_under_sibling_assumptions() {
     let y = term(&definition, "Y:SortS{}");
     let wrap_x = term(&definition, "wrap{}(X:SortS{})");
     let wrap_y = term(&definition, "wrap{}(Y:SortS{})");
-    let predicate = Predicate::And(vec![
-        Predicate::Iff(Box::new(Predicate::True), Box::new(Predicate::Equals(x, y))),
-        Predicate::Not(Box::new(Predicate::Equals(wrap_x, wrap_y))),
-    ]);
+    let predicate = Predicate::And(
+        vec![
+            Predicate::Iff(Arc::new(Predicate::True), Arc::new(Predicate::Equals(x, y))),
+            Predicate::Not(Arc::new(Predicate::Equals(wrap_x, wrap_y))),
+        ]
+        .into(),
+    );
 
     let result = simplify_predicate_with_solver(
         &definition,
@@ -2979,11 +3001,11 @@ fn simplifies_conjuncts_under_sibling_assumptions() {
 #[test]
 fn deduplicates_conjuncts_without_discharging_them() {
     let definition = definition("");
-    let disequality = Predicate::Not(Box::new(Predicate::Equals(
+    let disequality = Predicate::Not(Arc::new(Predicate::Equals(
         term(&definition, "X:SortS{}"),
         term(&definition, "Y:SortS{}"),
     )));
-    let predicate = Predicate::And(vec![disequality.clone(), disequality.clone()]);
+    let predicate = Predicate::And(vec![disequality.clone(), disequality.clone()].into());
 
     let result = simplify_predicate_with_solver(
         &definition,
@@ -3004,14 +3026,14 @@ fn flattens_overlapping_conjunctions_before_using_sibling_assumptions() {
     let y = term(&definition, "Y:SortS{}");
     let value = term(&definition, r#"\dv{SortS{}}("value")"#);
     let defined = Predicate::Ceil(term(&definition, "f{}(X:SortS{})"));
-    let first = Predicate::Not(Box::new(Predicate::Equals(x.clone(), y)));
-    let second = Predicate::Not(Box::new(Predicate::Equals(x, value)));
+    let first = Predicate::Not(Arc::new(Predicate::Equals(x.clone(), y)));
+    let second = Predicate::Not(Arc::new(Predicate::Equals(x, value)));
 
     let result = simplify_predicates_with_solver(
         &definition,
         &[
-            Predicate::And(vec![defined.clone(), first.clone()]),
-            Predicate::And(vec![defined.clone(), second.clone()]),
+            Predicate::And(vec![defined.clone(), first.clone()].into()),
+            Predicate::And(vec![defined.clone(), second.clone()].into()),
         ],
         &[],
         SimplificationOptions::default(),
@@ -3100,10 +3122,13 @@ fn a_ceil_conjunct_is_discharged_by_a_known_predicate_that_states_its_term_defin
         Predicate::Equals(truth.clone(), bounded(NESTED)),
         Predicate::Term(bounded(NESTED)),
         Predicate::Ceil(nested.clone()),
-        Predicate::And(vec![
-            Predicate::Term(bounded(APPLIED)),
-            Predicate::Not(Box::new(Predicate::Equals(zero.clone(), applied.clone()))),
-        ]),
+        Predicate::And(
+            vec![
+                Predicate::Term(bounded(APPLIED)),
+                Predicate::Not(Arc::new(Predicate::Equals(zero.clone(), applied.clone()))),
+            ]
+            .into(),
+        ),
     ] {
         assert!(
             simplified(std::slice::from_ref(&defined), std::slice::from_ref(&known)).is_empty(),
@@ -3111,11 +3136,14 @@ fn a_ceil_conjunct_is_discharged_by_a_known_predicate_that_states_its_term_defin
         );
     }
     for known in [
-        Predicate::Not(Box::new(Predicate::Equals(applied.clone(), zero.clone()))),
-        Predicate::Or(vec![
-            Predicate::Term(bounded(APPLIED)),
-            Predicate::Equals(zero.clone(), term(&definition, "X:SortInt{}")),
-        ]),
+        Predicate::Not(Arc::new(Predicate::Equals(applied.clone(), zero.clone()))),
+        Predicate::Or(
+            vec![
+                Predicate::Term(bounded(APPLIED)),
+                Predicate::Equals(zero.clone(), term(&definition, "X:SortInt{}")),
+            ]
+            .into(),
+        ),
     ] {
         assert_eq!(
             simplified(std::slice::from_ref(&defined), std::slice::from_ref(&known)),
@@ -3539,10 +3567,13 @@ fn equality_and_floor_use_a_constrained_rewrite_only_where_the_other_side_is_def
     // conjoined.
     assert_eq!(
         simplify_under(&Predicate::Equals(f_partial.clone(), z.clone()), &[]),
-        Predicate::And(vec![
-            obligation.clone(),
-            Predicate::Equals(done.clone(), z.clone())
-        ])
+        Predicate::And(
+            vec![
+                obligation.clone(),
+                Predicate::Equals(done.clone(), z.clone())
+            ]
+            .into()
+        )
     );
     // `g(partial("w"))` may be empty, so `\equals(f(t), g(partial("w")))` stays as it is.
     let both_partial = Predicate::Equals(f_partial.clone(), g_partial.clone());
@@ -3554,10 +3585,13 @@ fn equality_and_floor_use_a_constrained_rewrite_only_where_the_other_side_is_def
     ];
     assert_eq!(
         simplify_under(&both_partial, &g_defined),
-        Predicate::And(vec![
-            obligation.clone(),
-            Predicate::Equals(done.clone(), g_partial.clone())
-        ])
+        Predicate::And(
+            vec![
+                obligation.clone(),
+                Predicate::Equals(done.clone(), g_partial.clone())
+            ]
+            .into()
+        )
     );
     // A term-level `\and` has no definedness witness (`Y /\ Z` is empty unless `Y = Z`), so
     // `\equals(f(t), Y /\ Z)` stays as it is too.
@@ -3880,7 +3914,7 @@ fn an_open_map_lemma_applies_only_through_a_matching_it_decides() {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
     let entry = term(&definition, "ENTRY:SortKey{}");
     let requested = term(&definition, "REQUESTED:SortKey{}");
-    let known = Predicate::Not(Box::new(Predicate::Equals(entry, requested)));
+    let known = Predicate::Not(Arc::new(Predicate::Equals(entry, requested)));
     let input = term(
         &definition,
         "select{}(mapConcat{}(mapItem{}(ENTRY:SortKey{}, VALUE:SortValue{}), MAP:SortMap{}), REQUESTED:SortKey{})",
@@ -4272,7 +4306,7 @@ fn predicate_equations_use_an_open_obligation_only_where_the_subject_is_strict()
     let c = term(&definition, r#"\dv{SortS{}}("c")"#);
     let strict = Predicate::Equals(f_partial.clone(), c.clone());
     let both_sides = Predicate::Equals(f_partial.clone(), g_partial.clone());
-    let negated = Predicate::Not(Box::new(Predicate::Equals(g_partial, c)));
+    let negated = Predicate::Not(Arc::new(Predicate::Equals(g_partial, c)));
     let simplify_with = |predicate: &Predicate, solver: &dyn SmtSolver| {
         diagnostic::collect(|| {
             simplify_predicate_with_solver(
@@ -4346,7 +4380,7 @@ fn a_predicate_lemma_carries_the_definedness_of_the_operands_it_consumes() {
     let c = term(&definition, r#"\dv{SortS{}}("c")"#);
     let strict = Predicate::Equals(f_partial.clone(), c.clone());
     let both_sides = Predicate::Equals(f_partial.clone(), g_partial.clone());
-    let negated = Predicate::Not(Box::new(Predicate::Equals(g_partial.clone(), c)));
+    let negated = Predicate::Not(Arc::new(Predicate::Equals(g_partial.clone(), c)));
     let simplify_under = |predicate: &Predicate, known: &[Predicate], solver: &dyn SmtSolver| {
         simplify_predicate_with_solver(
             &definition,
@@ -4416,7 +4450,7 @@ fn a_predicate_lemma_needs_no_strictness_in_an_operand_the_path_states_defined()
 
     assert_ne!(result, subject);
     let conjuncts = match &result {
-        Predicate::And(conjuncts) => conjuncts.clone(),
+        Predicate::And(conjuncts) => conjuncts.to_vec(),
         other => vec![other.clone()],
     };
     assert!(conjuncts.contains(&argument_defined), "{result:?}");
@@ -4630,10 +4664,13 @@ fn normalizes_boolean_k_disequality_conditions_to_native_predicates() {
 
     assert_eq!(
         result,
-        Predicate::And(vec![
-            Predicate::Not(Box::new(Predicate::Equals(x.clone(), y.clone()))),
-            Predicate::Not(Box::new(Predicate::Equals(gx, gy))),
-        ])
+        Predicate::And(
+            vec![
+                Predicate::Not(Arc::new(Predicate::Equals(x.clone(), y.clone()))),
+                Predicate::Not(Arc::new(Predicate::Equals(gx, gy))),
+            ]
+            .into()
+        )
     );
 }
 
@@ -4697,7 +4734,7 @@ fn aligns_singleton_k_equality_operands_at_their_declared_supersort() {
 
     assert_eq!(
         result,
-        Predicate::Not(Box::new(Predicate::Equals(
+        Predicate::Not(Arc::new(Predicate::Equals(
             element,
             Term::injection(
                 Sort::simple("SortSubElement"),
@@ -4753,11 +4790,11 @@ fn boolean_equalities_with_literals_normalize_to_term_predicates() {
     for (predicate, expected) in [
         (
             Predicate::Equals(condition.clone(), false_value.clone()),
-            Predicate::Not(Box::new(Predicate::Term(condition.clone()))),
+            Predicate::Not(Arc::new(Predicate::Term(condition.clone()))),
         ),
         (
             Predicate::Equals(false_value, condition.clone()),
-            Predicate::Not(Box::new(Predicate::Term(condition.clone()))),
+            Predicate::Not(Arc::new(Predicate::Term(condition.clone()))),
         ),
         (
             Predicate::Equals(condition.clone(), true_value.clone()),
@@ -4818,10 +4855,13 @@ fn normalizes_symbolic_integer_equality_and_keeps_operand_definedness() {
 
     assert_eq!(
         result,
-        Predicate::And(vec![
-            Predicate::Ceil(power.clone()),
-            Predicate::Equals(variable, power),
-        ])
+        Predicate::And(
+            vec![
+                Predicate::Ceil(power.clone()),
+                Predicate::Equals(variable, power),
+            ]
+            .into()
+        )
     );
 }
 
@@ -5087,7 +5127,7 @@ fn decomposes_a_symbolic_equality_between_singleton_k_sequences() {
 
     assert_eq!(
         result,
-        Predicate::Not(Box::new(Predicate::Equals(
+        Predicate::Not(Arc::new(Predicate::Equals(
             term(&definition, "STATE:SortState{}"),
             term(&definition, "peng{}()"),
         ))),
@@ -6299,12 +6339,12 @@ fn predicate_equation_matches_a_quantifier_that_binds_a_variable_of_the_same_nam
     // `∃Y. add(Z, Y) = 3` with the rule's own spelling of `Y`.
     let matching = Predicate::Exists(
         bound.clone(),
-        Box::new(body(term(&definition, "Z:SortInt{}"))),
+        Arc::new(body(term(&definition, "Z:SortInt{}"))),
     );
     assert_eq!(simplify(&matching), Predicate::True);
 
     // `∃Y. add(Y, Y) = 3`: binding `X` to the bound `Y` would move it out of its quantifier.
-    let escaping = Predicate::Exists(bound.clone(), Box::new(body(Term::variable(bound.clone()))));
+    let escaping = Predicate::Exists(bound.clone(), Arc::new(body(Term::variable(bound.clone()))));
     assert_ne!(simplify(&escaping), Predicate::True);
 }
 
@@ -6376,10 +6416,13 @@ fn predicate_equation_keeps_a_free_variable_named_like_one_of_its_quantifiers() 
         r#"\equals{SortInt{}, Q}(h{}(X:SortInt{}), \dv{SortInt{}}("3"))"#,
     );
     let y = Variable::new("Y", Sort::simple("SortInt"));
-    let subject = Predicate::And(vec![
-        Predicate::Exists(y.clone(), Box::new(int_equals(&definition, "g", &y, 1))),
-        int_equals(&definition, "h", &y, 2),
-    ]);
+    let subject = Predicate::And(
+        vec![
+            Predicate::Exists(y.clone(), Arc::new(int_equals(&definition, "g", &y, 1))),
+            int_equals(&definition, "h", &y, 2),
+        ]
+        .into(),
+    );
 
     assert_eq!(
         simplify_predicate(&definition, &subject),
@@ -6398,10 +6441,13 @@ fn predicate_equation_matches_separate_quantifiers_that_reuse_one_name() {
         r#"\top{Q}()"#,
     );
     let y = Variable::new("Y", Sort::simple("SortInt"));
-    let subject = Predicate::And(vec![
-        Predicate::Exists(y.clone(), Box::new(int_equals(&definition, "g", &y, 1))),
-        Predicate::Exists(y.clone(), Box::new(int_equals(&definition, "h", &y, 2))),
-    ]);
+    let subject = Predicate::And(
+        vec![
+            Predicate::Exists(y.clone(), Arc::new(int_equals(&definition, "g", &y, 1))),
+            Predicate::Exists(y.clone(), Arc::new(int_equals(&definition, "h", &y, 2))),
+        ]
+        .into(),
+    );
 
     assert_eq!(simplify_predicate(&definition, &subject), Predicate::True);
 }
@@ -6421,10 +6467,13 @@ fn predicate_equation_does_not_bind_a_free_variable_to_a_quantified_one() {
     let under = |second: &Variable| {
         Predicate::Exists(
             y.clone(),
-            Box::new(Predicate::And(vec![
-                int_equals(&definition, "g", &y, 1),
-                int_equals(&definition, "h", second, 2),
-            ])),
+            Arc::new(Predicate::And(
+                vec![
+                    int_equals(&definition, "g", &y, 1),
+                    int_equals(&definition, "h", second, 2),
+                ]
+                .into(),
+            )),
         )
     };
 
@@ -7147,7 +7196,7 @@ fn assumption_lookups_in_a_connective_chain_read_a_bounded_key_per_level() {
         k_rust_backend::nesting::with_stack(depth + 64, || {
             let mut chain = Predicate::Ceil(applied.clone());
             for _ in 0..depth {
-                chain = Predicate::Not(Box::new(chain));
+                chain = Predicate::Not(Arc::new(chain));
             }
             let before = snapshot();
             let result = simplify_predicates_with_solver(

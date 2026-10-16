@@ -1591,7 +1591,7 @@ fn apply_claim(
     } else {
         let condition = quantify_introduced_variables(subject, conditions.clone());
         let negated =
-            crate::simplify::normalize_predicate(crate::rule::Predicate::Not(Box::new(condition)));
+            crate::simplify::normalize_predicate(crate::rule::Predicate::Not(Arc::new(condition)));
         if conjunctively_contains_alpha_equivalent(&subject.constraints, &negated) {
             // This subject is the remainder of an earlier application of the same claim.
             return Ok(ClaimApplication::NotApplicable);
@@ -2097,9 +2097,9 @@ fn complement_implication_condition(
         .cloned()
         .collect::<Vec<_>>();
     for variable in introduced.into_iter().rev() {
-        covered = crate::rule::Predicate::Exists(variable, Box::new(covered));
+        covered = crate::rule::Predicate::Exists(variable, Arc::new(covered));
     }
-    crate::simplify::normalize_predicate(crate::rule::Predicate::Not(Box::new(covered)))
+    crate::simplify::normalize_predicate(crate::rule::Predicate::Not(Arc::new(covered)))
 }
 
 #[cfg(test)]
@@ -2466,15 +2466,17 @@ mod tests {
             complement_implication_condition(
                 &pattern,
                 &BTreeSet::new(),
-                &CoverageCondition::of_obligations(vec![crate::rule::Predicate::Or(vec![
-                    first.clone(),
-                    second.clone(),
-                ])]),
+                &CoverageCondition::of_obligations(vec![crate::rule::Predicate::Or(
+                    vec![first.clone(), second.clone(),].into()
+                )]),
             ),
-            crate::rule::Predicate::And(vec![
-                crate::rule::Predicate::Not(Box::new(first)),
-                crate::rule::Predicate::Not(Box::new(second)),
-            ]),
+            crate::rule::Predicate::And(
+                vec![
+                    crate::rule::Predicate::Not(Arc::new(first)),
+                    crate::rule::Predicate::Not(Arc::new(second)),
+                ]
+                .into()
+            ),
         );
     }
 
@@ -2501,14 +2503,14 @@ mod tests {
                 &BTreeSet::from([universal.clone()]),
                 &condition,
             ),
-            crate::rule::Predicate::Not(Box::new(covered.clone())),
+            crate::rule::Predicate::Not(Arc::new(covered.clone())),
         );
         // A destination existential is still quantified.
         assert_eq!(
             complement_implication_condition(&pattern, &BTreeSet::new(), &condition),
-            crate::rule::Predicate::Not(Box::new(crate::rule::Predicate::Exists(
+            crate::rule::Predicate::Not(Arc::new(crate::rule::Predicate::Exists(
                 universal.clone(),
-                Box::new(covered),
+                Arc::new(covered),
             ))),
         );
     }
@@ -3003,7 +3005,7 @@ mod tests {
             assert_eq!(remainder.pattern.term, subject.term);
             assert_eq!(
                 remainder.pattern.constraints,
-                vec![crate::rule::Predicate::Not(Box::new(expected.clone()))]
+                vec![crate::rule::Predicate::Not(Arc::new(expected.clone()))]
             );
         }
     }
@@ -3451,7 +3453,7 @@ mod tests {
         assert!(
             leaf.pattern
                 .constraints
-                .contains(&crate::rule::Predicate::Not(Box::new(covered))),
+                .contains(&crate::rule::Predicate::Not(Arc::new(covered))),
             "{result:#?}"
         );
 
@@ -3538,7 +3540,7 @@ mod tests {
             assert!(
                 leaf.pattern
                     .constraints
-                    .contains(&crate::rule::Predicate::Not(Box::new(covered.clone()))),
+                    .contains(&crate::rule::Predicate::Not(Arc::new(covered.clone()))),
                 "{result:#?}"
             );
         }
@@ -4610,7 +4612,8 @@ mod tests {
         // undefined, so the instantiated requires is stated as `⌈opaque()⌉ ∧ opaque() = a()`
         // (I1): the equality already implies `⌈opaque()⌉`, so this is the same condition.
         let definedness = crate::rule::Predicate::Ceil(term(&definition, "opaque{}()"));
-        let condition = crate::rule::Predicate::And(vec![definedness.clone(), requires.clone()]);
+        let condition =
+            crate::rule::Predicate::And(vec![definedness.clone(), requires.clone()].into());
         // The stuck `b()` carries `¬(⌈opaque()⌉ ∧ opaque() = a())`, whose satisfiability rests on
         // the abstracted `opaque()`: the leaf fails the claim without certifying a refutation.
         assert_eq!(result.status, ProofStatus::Failed, "{result:#?}");
@@ -4632,7 +4635,7 @@ mod tests {
                 && leaf
                     .pattern
                     .constraints
-                    .contains(&crate::rule::Predicate::Not(Box::new(condition.clone())))
+                    .contains(&crate::rule::Predicate::Not(Arc::new(condition.clone())))
                 && matches!(leaf.outcome, ProofLeafOutcome::Stuck)
                 && leaf
                     .trace
@@ -4958,7 +4961,7 @@ mod tests {
     fn a_stop_during_the_remainder_check_is_returned_instead_of_keeping_the_remainder() {
         let definition = conditional_identity_definition();
         let x = term(&definition, "X:SortInt{}");
-        let negated = crate::rule::Predicate::Not(Box::new(crate::rule::Predicate::Equals(
+        let negated = crate::rule::Predicate::Not(Arc::new(crate::rule::Predicate::Equals(
             term(&definition, "f{}(X:SortInt{})"),
             x,
         )));

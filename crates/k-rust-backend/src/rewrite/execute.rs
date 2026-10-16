@@ -56,6 +56,7 @@
 #![allow(clippy::result_large_err)]
 
 use std::collections::{BTreeSet, VecDeque};
+use std::sync::Arc;
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
@@ -1636,7 +1637,7 @@ impl<'a> Execution<'a> {
         }
         for sibling in defined.into_iter().chain(&producer.defined_siblings) {
             let applies = beyond(&sibling.constraints, &producer.before.constraints);
-            constraints.push(Predicate::Not(Box::new(conjunction(closed_over(
+            constraints.push(Predicate::Not(Arc::new(conjunction(closed_over(
                 applies, &bound,
             )))));
         }
@@ -2908,7 +2909,7 @@ fn closed_over(
         fresh
             .into_iter()
             .fold(conjunction(predicates), |body, variable| {
-                Predicate::Exists(variable, Box::new(body))
+                Predicate::Exists(variable, Arc::new(body))
             }),
     ]
 }
@@ -2917,7 +2918,7 @@ fn conjunction(mut predicates: Vec<Predicate>) -> Predicate {
     match predicates.len() {
         0 => Predicate::True,
         1 => predicates.pop().expect("one predicate"),
-        _ => Predicate::And(predicates),
+        _ => Predicate::And(predicates.into()),
     }
 }
 

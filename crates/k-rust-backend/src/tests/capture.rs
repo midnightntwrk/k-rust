@@ -5,6 +5,7 @@
 //! one. These tests use ordinary spellings: the defects they pin are independent of naming.
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+use std::sync::Arc;
 
 use crate::{
     definition::BackendDefinition,
@@ -46,13 +47,16 @@ fn other_than(definition: &BackendDefinition, binder: &str, free: &str) -> Predi
     let bound = k(binder);
     Predicate::Exists(
         bound.clone(),
-        Box::new(Predicate::And(vec![
-            Predicate::Equals(Term::variable(bound.clone()), term(definition, "a{}()")),
-            Predicate::Not(Box::new(Predicate::Equals(
-                Term::variable(bound),
-                Term::variable(k(free)),
-            ))),
-        ])),
+        Arc::new(Predicate::And(
+            vec![
+                Predicate::Equals(Term::variable(bound.clone()), term(definition, "a{}()")),
+                Predicate::Not(Arc::new(Predicate::Equals(
+                    Term::variable(bound),
+                    Term::variable(k(free)),
+                ))),
+            ]
+            .into(),
+        )),
     )
 }
 
@@ -98,7 +102,7 @@ fn a_known_fact_is_not_used_under_a_binder_of_its_variable() {
     let known = Predicate::Equals(Term::variable(k("X")), a.clone());
     let shadowing = Predicate::Exists(
         k("X"),
-        Box::new(Predicate::Not(Box::new(Predicate::Equals(
+        Arc::new(Predicate::Not(Arc::new(Predicate::Equals(
             Term::variable(k("X")),
             a.clone(),
         )))),
@@ -116,7 +120,7 @@ fn a_known_fact_is_not_used_under_a_binder_of_its_variable() {
     // The same fact about a free variable of another name is still used.
     let other = Predicate::Exists(
         k("Y"),
-        Box::new(Predicate::Equals(Term::variable(k("X")), a)),
+        Arc::new(Predicate::Equals(Term::variable(k("X")), a)),
     );
     let simplified = simplify_predicates_with_solver(
         &definition,
@@ -146,7 +150,7 @@ fn a_shadowing_binder_keeps_the_facts_about_other_variables() {
     ];
     let shadowing = Predicate::Exists(
         k("X"),
-        Box::new(Predicate::Equals(
+        Arc::new(Predicate::Equals(
             Term::variable(k("Z")),
             term(&definition, "b{}()"),
         )),
@@ -227,7 +231,7 @@ fn a_pattern_substitution_keeps_the_subject_variable_free() {
     let definition = two_values();
     let pattern = Pattern {
         term: term(&definition, "X:SortK{}"),
-        constraints: vec![Predicate::Not(Box::new(other_than(&definition, "X", "Y")))],
+        constraints: vec![Predicate::Not(Arc::new(other_than(&definition, "X", "Y")))],
     };
     let substitution = Substitution::from([(k("Y"), Term::variable(k("X")))]);
     let constraints = substitute_predicates(&pattern.constraints, &substitution);

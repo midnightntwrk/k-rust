@@ -26,6 +26,7 @@ use crate::{
     simplify::SimplificationError,
     stop::Stoppable,
 };
+use std::sync::Arc;
 
 use super::{
     Pattern,
@@ -67,7 +68,7 @@ impl Applicability {
         if self.0 == Predicate::True {
             Remainder(Predicate::False)
         } else {
-            Remainder(Predicate::Not(Box::new(self.0.clone())))
+            Remainder(Predicate::Not(Arc::new(self.0.clone())))
         }
     }
 
@@ -90,7 +91,7 @@ impl Remainder {
         Applicability(match &self.0 {
             Predicate::False => Predicate::True,
             Predicate::Not(applicability) => (**applicability).clone(),
-            remainder => Predicate::Not(Box::new(remainder.clone())),
+            remainder => Predicate::Not(Arc::new(remainder.clone())),
         })
     }
 

@@ -217,7 +217,7 @@ fn the_preludes_hooked_equations_agree_with_their_hooks() {
                 if !requires.is_empty() {
                     let holds = simplify_predicate_with_solver(
                         &definition,
-                        &Predicate::And(requires),
+                        &Predicate::And(requires.into()),
                         &[],
                         SimplificationOptions::default(),
                         &NoSolver,

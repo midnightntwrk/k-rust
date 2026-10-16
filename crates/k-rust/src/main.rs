@@ -4106,6 +4106,7 @@ mod tests {
             VariableKind as BackendVariableKind,
         },
     };
+    use std::sync::Arc;
 
     #[cfg(test)]
     fn simplify_kore_pattern(
@@ -5041,7 +5042,7 @@ mod tests {
         let binder = Variable::new("VarBound", BackendSort::simple("SortInt"));
         let target = backend_pattern_with_candidates(
             Variable::new("VarTerm", BackendSort::simple("SortInt")),
-            vec![Predicate::Exists(binder.clone(), Box::new(Predicate::True))],
+            vec![Predicate::Exists(binder.clone(), Arc::new(Predicate::True))],
         );
 
         assert_eq!(
@@ -5250,7 +5251,7 @@ mod tests {
         assert!(matches!(
             pattern01d_condition_output(
                 Substitution::new(),
-                vec![Predicate::And(vec![equality.clone()])],
+                vec![Predicate::And(vec![equality.clone()].into())],
                 BTreeSet::from([variable.clone()]),
             ),
             KorePattern::Top { .. }
@@ -5258,7 +5259,7 @@ mod tests {
         assert!(matches!(
             pattern01d_condition_output(
                 Substitution::new(),
-                vec![Predicate::Not(Box::new(equality))],
+                vec![Predicate::Not(Arc::new(equality))],
                 BTreeSet::from([variable]),
             ),
             KorePattern::Not { .. }
@@ -5275,7 +5276,7 @@ mod tests {
             )]),
             vec![Predicate::Exists(
                 variable.clone(),
-                Box::new(Predicate::Term(Term::variable(variable.clone()))),
+                Arc::new(Predicate::Term(Term::variable(variable.clone()))),
             )],
             BTreeSet::from([variable]),
         );
@@ -5418,10 +5419,13 @@ mod tests {
         let matches = [
             PatternMatch {
                 substitution: Substitution::new(),
-                constraints: vec![Predicate::Or(vec![
-                    Predicate::And(vec![generated_binding, first.clone()]),
-                    second,
-                ])],
+                constraints: vec![Predicate::Or(
+                    vec![
+                        Predicate::And(vec![generated_binding, first.clone()].into()),
+                        second,
+                    ]
+                    .into(),
+                )],
             },
             PatternMatch {
                 substitution: Substitution::new(),

@@ -8,6 +8,7 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use rustc_hash::FxHashSet;
+use std::sync::Arc;
 
 use crate::{
     definedness::ceil_term,
@@ -165,7 +166,7 @@ impl Counterexample {
             OutsideEvidence::Where(obligations) => Instance::shown(
                 definition,
                 antecedent,
-                &[normalize_predicate(Predicate::Not(Box::new(conjoin(
+                &[normalize_predicate(Predicate::Not(Arc::new(conjoin(
                     obligations.clone(),
                 ))))],
                 solver,

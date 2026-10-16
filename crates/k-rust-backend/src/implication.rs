@@ -50,6 +50,7 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
+use std::sync::Arc;
 use std::{collections::BTreeSet, error::Error, fmt};
 
 use k_rust_kore::kore::ast as kore;
@@ -2121,7 +2122,7 @@ fn refuted_by_simplification(
     solver: &dyn SmtSolver,
 ) -> Result<bool, Unwind<SimplificationError>> {
     let counterexample =
-        normalize_predicate(Predicate::Not(Box::new(conjoin(obligations.to_vec()))));
+        normalize_predicate(Predicate::Not(Arc::new(conjoin(obligations.to_vec()))));
     let mut conjuncts = knowledge.to_vec();
     conjuncts.push(counterexample);
     let simplified =
@@ -2154,7 +2155,7 @@ fn quantify_obligations(
     }
     let mut obligation = conjoin(obligations);
     for variable in quantified.into_iter().rev() {
-        obligation = Predicate::Exists(variable, Box::new(obligation));
+        obligation = Predicate::Exists(variable, Arc::new(obligation));
     }
     vec![obligation]
 }
@@ -2619,7 +2620,7 @@ fn remainder_obligation(
     for (guard, (pattern, subject)) in [
         (Predicate::Term(condition.clone()), then_pair),
         (
-            Predicate::Not(Box::new(Predicate::Term(condition))),
+            Predicate::Not(Arc::new(Predicate::Term(condition))),
             else_pair,
         ),
     ] {
@@ -2627,9 +2628,11 @@ fn remainder_obligation(
             continue;
         }
         let obligation = remainder_obligation(&pattern, &subject, refuted)?;
-        disjuncts.push(normalize_predicate(Predicate::And(vec![guard, obligation])));
+        disjuncts.push(normalize_predicate(Predicate::And(
+            vec![guard, obligation].into(),
+        )));
     }
-    Ok(normalize_predicate(Predicate::Or(disjuncts)))
+    Ok(normalize_predicate(Predicate::Or(disjuncts.into())))
 }
 
 /// Whether `condition` is false on every instance of the antecedent that `knowledge` describes:
@@ -2692,7 +2695,7 @@ fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
     match predicates.len() {
         0 => Predicate::True,
         1 => predicates.pop().expect("one predicate is present"),
-        _ => Predicate::And(predicates),
+        _ => Predicate::And(predicates.into()),
     }
 }
 
@@ -2700,7 +2703,7 @@ fn disjoin(mut predicates: Vec<Predicate>) -> Predicate {
     match predicates.len() {
         0 => Predicate::False,
         1 => predicates.pop().expect("one predicate is present"),
-        _ => Predicate::Or(predicates),
+        _ => Predicate::Or(predicates.into()),
     }
 }
 
@@ -3236,7 +3239,7 @@ mod tests {
         let value = int(&definition, "0");
         let antecedent = Pattern {
             term: Term::variable(x.clone()),
-            constraints: vec![Predicate::Not(Box::new(Predicate::Equals(
+            constraints: vec![Predicate::Not(Arc::new(Predicate::Equals(
                 Term::variable(x),
                 value.clone(),
             )))],
@@ -3331,25 +3334,45 @@ mod tests {
 
         assert_eq!(
             obligations.into_predicates(),
-            [Predicate::Or(vec![
-                Predicate::And(vec![
-                    Predicate::Term(outer_condition.clone()),
-                    Predicate::Or(vec![
-                        Predicate::And(vec![
-                            Predicate::Term(inner_condition.clone()),
-                            Predicate::Equals(subject.clone(), then_branch),
-                        ]),
-                        Predicate::And(vec![
-                            Predicate::Not(Box::new(Predicate::Term(inner_condition))),
-                            Predicate::Equals(subject.clone(), inner_else_branch),
-                        ]),
-                    ]),
-                ]),
-                Predicate::And(vec![
-                    Predicate::Not(Box::new(Predicate::Term(outer_condition))),
-                    Predicate::Equals(subject, else_branch),
-                ]),
-            ])]
+            [Predicate::Or(
+                vec![
+                    Predicate::And(
+                        vec![
+                            Predicate::Term(outer_condition.clone()),
+                            Predicate::Or(
+                                vec![
+                                    Predicate::And(
+                                        vec![
+                                            Predicate::Term(inner_condition.clone()),
+                                            Predicate::Equals(subject.clone(), then_branch),
+                                        ]
+                                        .into()
+                                    ),
+                                    Predicate::And(
+                                        vec![
+                                            Predicate::Not(Arc::new(Predicate::Term(
+                                                inner_condition
+                                            ))),
+                                            Predicate::Equals(subject.clone(), inner_else_branch),
+                                        ]
+                                        .into()
+                                    ),
+                                ]
+                                .into()
+                            ),
+                        ]
+                        .into()
+                    ),
+                    Predicate::And(
+                        vec![
+                            Predicate::Not(Arc::new(Predicate::Term(outer_condition))),
+                            Predicate::Equals(subject, else_branch),
+                        ]
+                        .into()
+                    ),
+                ]
+                .into()
+            )]
         );
     }
 
@@ -3359,7 +3382,7 @@ mod tests {
         let zero = int(&definition, "0");
         let antecedent = Pattern {
             term: int(&definition, "2"),
-            constraints: vec![Predicate::Not(Box::new(Predicate::Equals(
+            constraints: vec![Predicate::Not(Arc::new(Predicate::Equals(
                 term(&definition, "f{}(B:SortBool{})"),
                 zero,
             )))],
@@ -3433,10 +3456,9 @@ mod tests {
         unconstrained.constraints.clear();
         let mut consequent = antecedent.clone();
         let y_is_one = Predicate::Equals(Term::variable(y), int(&definition, "1"));
-        consequent.constraints = vec![Predicate::Or(vec![
-            y_is_one.clone(),
-            Predicate::Not(Box::new(y_is_one)),
-        ])];
+        consequent.constraints = vec![Predicate::Or(
+            vec![y_is_one.clone(), Predicate::Not(Arc::new(y_is_one))].into(),
+        )];
         let result = check(&unconstrained, &consequent);
         assert_eq!(result.status(), ImplicationStatus::Valid, "{result:#?}");
     }
@@ -3995,7 +4017,7 @@ mod tests {
         let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
         consequent
             .constraints
-            .push(Predicate::Not(Box::new(Predicate::Equals(
+            .push(Predicate::Not(Arc::new(Predicate::Equals(
                 Term::variable(x.clone()),
                 Term::variable(y.clone()),
             ))));
@@ -4209,9 +4231,9 @@ mod tests {
             let mut result = pattern(&definition, r#"\dv{SortInt{}}("1")"#);
             result
                 .constraints
-                .push(Predicate::Not(Box::new(Predicate::Exists(
+                .push(Predicate::Not(Arc::new(Predicate::Exists(
                     Variable::new(name, Sort::simple("SortInt")),
-                    Box::new(Predicate::Equals(
+                    Arc::new(Predicate::Equals(
                         term(&definition, &format!("opaque{{}}({name}:SortInt{{}})")),
                         int(&definition, value),
                     )),
@@ -4238,9 +4260,9 @@ mod tests {
             let mut result = pattern(&definition, "pair{}(F:SortInt{}, G:SortInt{})");
             result
                 .constraints
-                .push(Predicate::Not(Box::new(Predicate::Exists(
+                .push(Predicate::Not(Arc::new(Predicate::Exists(
                     Variable::new(bound, Sort::simple("SortInt")),
-                    Box::new(Predicate::Equals(
+                    Arc::new(Predicate::Equals(
                         term(&definition, &format!("opaque{{}}({bound}:SortInt{{}})")),
                         term(&definition, &format!("{free}:SortInt{{}}")),
                     )),
@@ -4358,7 +4380,7 @@ mod tests {
         let mut first = antecedent.clone();
         first.constraints.push(equality.clone());
         let mut second = antecedent.clone();
-        second.constraints.push(Predicate::Not(Box::new(equality)));
+        second.constraints.push(Predicate::Not(Arc::new(equality)));
 
         #[derive(Clone, Copy, Debug)]
         struct DisjunctionSolver;
@@ -4498,13 +4520,16 @@ mod tests {
     fn quantified_variables_do_not_hide_free_variables_in_sibling_predicates() {
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
         let x_term = Term::variable(x.clone());
-        let predicate = Predicate::And(vec![
-            Predicate::Equals(x_term.clone(), x_term.clone()),
-            Predicate::Exists(
-                x.clone(),
-                Box::new(Predicate::Equals(x_term.clone(), x_term)),
-            ),
-        ]);
+        let predicate = Predicate::And(
+            vec![
+                Predicate::Equals(x_term.clone(), x_term.clone()),
+                Predicate::Exists(
+                    x.clone(),
+                    Arc::new(Predicate::Equals(x_term.clone(), x_term)),
+                ),
+            ]
+            .into(),
+        );
 
         assert_eq!(predicate.free_variables(), BTreeSet::from([x]));
     }
@@ -5263,7 +5288,7 @@ mod tests {
         let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
         let antecedent = map_frame_state(
             &definition,
-            Predicate::Not(Box::new(Predicate::Equals(
+            Predicate::Not(Arc::new(Predicate::Equals(
                 term(&definition, ONE_IN_KEYS),
                 term(&definition, r#"\dv{SortBool{}}("false")"#),
             ))),
@@ -5328,7 +5353,7 @@ mod tests {
         let definition = set_frame_definition();
         let set = r#"setConcat{}(S:SortSet{}, setItem{}(\dv{SortInt{}}("1")))"#;
         let state = format!("cfg{{}}(end{{}}(), {set})");
-        let undefined = Predicate::Not(Box::new(Predicate::Ceil(term(&definition, set))));
+        let undefined = Predicate::Not(Arc::new(Predicate::Ceil(term(&definition, set))));
         let mut antecedent = pattern(&definition, &state);
         antecedent.constraints.push(undefined);
         let mut consequent = pattern(&definition, &state);
@@ -5364,7 +5389,7 @@ mod tests {
             term(&definition, ONE_IN_KEYS),
             term(&definition, r#"\dv{SortBool{}}("false")"#),
         );
-        let empty = map_frame_state(&definition, Predicate::Not(Box::new(is_false.clone())));
+        let empty = map_frame_state(&definition, Predicate::Not(Arc::new(is_false.clone())));
         assert_eq!(
             grade_bottom_consequent(&definition, &empty, &solver)
                 .expect("the grading does not stop"),
@@ -5390,7 +5415,7 @@ mod tests {
         let mut antecedent = pattern(&definition, &format!("cfg{{}}(end{{}}(), {set})"));
         antecedent
             .constraints
-            .push(Predicate::Not(Box::new(Predicate::Ceil(term(
+            .push(Predicate::Not(Arc::new(Predicate::Ceil(term(
                 &definition,
                 set,
             )))));
@@ -5422,7 +5447,7 @@ mod tests {
             term(&definition, ONE_IN_KEYS),
             term(&definition, r#"\dv{SortBool{}}("false")"#),
         );
-        let empty = map_frame_state(&definition, Predicate::Not(Box::new(is_false.clone())));
+        let empty = map_frame_state(&definition, Predicate::Not(Arc::new(is_false.clone())));
         let mismatched = pattern(&definition, "cfg{}(mapUnit{}())");
         assert_eq!(
             check_complete(&definition, &empty, &mismatched, &solver),
@@ -5453,7 +5478,7 @@ mod tests {
         let mut antecedent = pattern(&definition, &format!("cfg{{}}(end{{}}(), {set})"));
         antecedent
             .constraints
-            .push(Predicate::Not(Box::new(Predicate::Ceil(term(
+            .push(Predicate::Not(Arc::new(Predicate::Ceil(term(
                 &definition,
                 set,
             )))));
@@ -5480,7 +5505,7 @@ mod tests {
         let mut antecedent = pattern(&definition, &format!("cfg{{}}(end{{}}(), {set})"));
         antecedent
             .constraints
-            .push(Predicate::Not(Box::new(Predicate::Ceil(term(
+            .push(Predicate::Not(Arc::new(Predicate::Ceil(term(
                 &definition,
                 set,
             )))));
@@ -5596,7 +5621,7 @@ mod tests {
         let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
         antecedent
             .constraints
-            .push(Predicate::Not(Box::new(Predicate::Equals(
+            .push(Predicate::Not(Arc::new(Predicate::Equals(
                 term(&definition, "X:SortInt{}"),
                 int(&definition, "7"),
             ))));

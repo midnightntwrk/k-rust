@@ -767,7 +767,7 @@ fn false_constraint(pattern: &Pattern) -> Predicate {
     match pattern.constraints.as_slice() {
         [] => Predicate::False,
         [constraint] => constraint.clone(),
-        constraints => Predicate::And(constraints.to_vec()),
+        constraints => Predicate::And(constraints.to_vec().into()),
     }
 }
 
@@ -1042,10 +1042,10 @@ pub(crate) fn initial_definedness(
     }
     let all_hold = match open.as_slice() {
         [obligation] => obligation.clone(),
-        _ => Predicate::And(open.clone()),
+        _ => Predicate::And(open.clone().into()),
     };
     let mut undefined = pattern.constraints.clone();
-    undefined.push(Predicate::Not(Box::new(all_hold)));
+    undefined.push(Predicate::Not(Arc::new(all_hold)));
     if matches!(
         solver.is_sat(&undefined, &Substitution::new())?,
         Ok(Satisfiability::Unsat)

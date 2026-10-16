@@ -1300,7 +1300,7 @@ impl<'d> Context<'d> {
         if switches::active().refute_every_condition {
             return Conditions::Refuted;
         }
-        let Some(simplified) = self.simplify(Predicate::And(predicates)) else {
+        let Some(simplified) = self.simplify(Predicate::And(predicates.into())) else {
             return Conditions::Open(Substitution::new());
         };
         let mut conjuncts = BTreeSet::new();
@@ -1810,7 +1810,7 @@ fn flatten(predicate: Predicate, into: &mut BTreeSet<Predicate>) {
     match predicate {
         Predicate::True => {}
         Predicate::And(conjuncts) => {
-            for conjunct in conjuncts {
+            for conjunct in conjuncts.iter().cloned() {
                 flatten(conjunct, into);
             }
         }

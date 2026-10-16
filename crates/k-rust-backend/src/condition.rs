@@ -164,7 +164,7 @@ impl InstantiatedCondition {
         match self.0.as_slice() {
             [] => Predicate::True,
             [predicate] => predicate.clone(),
-            predicates => Predicate::And(predicates.to_vec()),
+            predicates => Predicate::And(predicates.to_vec().into()),
         }
     }
 

@@ -657,24 +657,24 @@ pub(crate) fn rename_predicate(predicate: &Predicate, context: &AlphaContext) ->
         Floor(term) => Floor(rename_term(term, context)),
         In(left, right) => In(rename_term(left, context), rename_term(right, context)),
         Absent(absence) => absence.map_terms(|term| rename_term(term, context)),
-        Not(inner) => Not(Box::new(rename_predicate(inner, context))),
-        And(inner) => And(rename_predicates(inner, context)),
-        Or(inner) => Or(rename_predicates(inner, context)),
+        Not(inner) => Not(Arc::new(rename_predicate(inner, context))),
+        And(inner) => And(rename_predicates(inner, context).into()),
+        Or(inner) => Or(rename_predicates(inner, context).into()),
         Implies(left, right) => Implies(
-            Box::new(rename_predicate(left, context)),
-            Box::new(rename_predicate(right, context)),
+            Arc::new(rename_predicate(left, context)),
+            Arc::new(rename_predicate(right, context)),
         ),
         Iff(left, right) => Iff(
-            Box::new(rename_predicate(left, context)),
-            Box::new(rename_predicate(right, context)),
+            Arc::new(rename_predicate(left, context)),
+            Arc::new(rename_predicate(right, context)),
         ),
         Exists(variable, inner) => Exists(
             context.renamed_variable(variable),
-            Box::new(rename_predicate(inner, context)),
+            Arc::new(rename_predicate(inner, context)),
         ),
         Forall(variable, inner) => Forall(
             context.renamed_variable(variable),
-            Box::new(rename_predicate(inner, context)),
+            Arc::new(rename_predicate(inner, context)),
         ),
     }
 }

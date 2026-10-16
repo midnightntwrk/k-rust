@@ -4,6 +4,7 @@
 //! printed KORE and RPC JSON are contracts. The same conversion is also available one node at a
 //! time, as an [`External`] pattern source, for readers that must not hold the whole tree.
 
+use std::sync::Arc;
 use std::{borrow::Cow, cmp::Ordering, collections::BTreeSet};
 
 use k_rust_kore::kore::ast as kore;
@@ -387,20 +388,20 @@ fn logical_rule_predicate(boolean_sort: &Sort, predicate: &Predicate) -> Predica
                 Predicate::Equals(left.clone(), right.clone())
             }
         }
-        Predicate::Not(inner) => Predicate::Not(Box::new(recurse(inner))),
+        Predicate::Not(inner) => Predicate::Not(Arc::new(recurse(inner))),
         Predicate::And(inner) => Predicate::And(inner.iter().map(recurse).collect()),
         Predicate::Or(inner) => Predicate::Or(inner.iter().map(recurse).collect()),
         Predicate::Implies(left, right) => {
-            Predicate::Implies(Box::new(recurse(left)), Box::new(recurse(right)))
+            Predicate::Implies(Arc::new(recurse(left)), Arc::new(recurse(right)))
         }
         Predicate::Iff(left, right) => {
-            Predicate::Iff(Box::new(recurse(left)), Box::new(recurse(right)))
+            Predicate::Iff(Arc::new(recurse(left)), Arc::new(recurse(right)))
         }
         Predicate::Exists(variable, inner) => {
-            Predicate::Exists(variable.clone(), Box::new(recurse(inner)))
+            Predicate::Exists(variable.clone(), Arc::new(recurse(inner)))
         }
         Predicate::Forall(variable, inner) => {
-            Predicate::Forall(variable.clone(), Box::new(recurse(inner)))
+            Predicate::Forall(variable.clone(), Arc::new(recurse(inner)))
         }
         Predicate::True
         | Predicate::False
@@ -438,14 +439,14 @@ fn boolean_term_predicate(boolean_sort: &Sort, term: &Term, expected: bool) -> O
     match (hook, arguments.as_slice()) {
         ("BOOL.not", [_]) => operand(0, !expected),
         ("BOOL.and", [_, _]) => Some(if expected {
-            Predicate::And(vec![operand(0, true)?, operand(1, true)?])
+            Predicate::And(vec![operand(0, true)?, operand(1, true)?].into())
         } else {
-            Predicate::Or(vec![operand(0, false)?, operand(1, false)?])
+            Predicate::Or(vec![operand(0, false)?, operand(1, false)?].into())
         }),
         ("BOOL.or", [_, _]) => Some(if expected {
-            Predicate::Or(vec![operand(0, true)?, operand(1, true)?])
+            Predicate::Or(vec![operand(0, true)?, operand(1, true)?].into())
         } else {
-            Predicate::And(vec![operand(0, false)?, operand(1, false)?])
+            Predicate::And(vec![operand(0, false)?, operand(1, false)?].into())
         }),
         (hook, [left, right])
             if HookName::parse(hook).is_some_and(|hook| {
@@ -458,7 +459,7 @@ fn boolean_term_predicate(boolean_sort: &Sort, term: &Term, expected: bool) -> O
             Some(if equality_expected {
                 equality
             } else {
-                Predicate::Not(Box::new(equality))
+                Predicate::Not(Arc::new(equality))
             })
         }
         _ => None,
@@ -840,7 +841,7 @@ fn rename_capturing_binders(predicate: &Predicate) -> Option<Predicate> {
     fn both(
         left: &Predicate,
         right: &Predicate,
-        rebuild: fn(Box<Predicate>, Box<Predicate>) -> Predicate,
+        rebuild: fn(Arc<Predicate>, Arc<Predicate>) -> Predicate,
     ) -> Option<Predicate> {
         match (
             rename_capturing_binders(left),
@@ -848,12 +849,12 @@ fn rename_capturing_binders(predicate: &Predicate) -> Option<Predicate> {
         ) {
             (None, None) => None,
             (new_left, new_right) => Some(rebuild(
-                Box::new(new_left.unwrap_or_else(|| left.clone())),
-                Box::new(new_right.unwrap_or_else(|| right.clone())),
+                Arc::new(new_left.unwrap_or_else(|| left.clone())),
+                Arc::new(new_right.unwrap_or_else(|| right.clone())),
             )),
         }
     }
-    fn each(items: &[Predicate], rebuild: fn(Vec<Predicate>) -> Predicate) -> Option<Predicate> {
+    fn each(items: &[Predicate], rebuild: fn(Arc<[Predicate]>) -> Predicate) -> Option<Predicate> {
         let renamed = items
             .iter()
             .map(rename_capturing_binders)
@@ -879,7 +880,7 @@ fn rename_capturing_binders(predicate: &Predicate) -> Option<Predicate> {
         | Predicate::In(..)
         // `Absence::new` names an absence's binder apart from its key and rest.
         | Predicate::Absent(_) => None,
-        Predicate::Not(inner) => rename_capturing_binders(inner).map(|inner| Predicate::Not(Box::new(inner))),
+        Predicate::Not(inner) => rename_capturing_binders(inner).map(|inner| Predicate::Not(Arc::new(inner))),
         Predicate::And(items) => each(items, Predicate::And),
         Predicate::Or(items) => each(items, Predicate::Or),
         Predicate::Implies(left, right) => both(left, right, Predicate::Implies),
@@ -897,7 +898,7 @@ fn rename_capturing_binders(predicate: &Predicate) -> Option<Predicate> {
                 variable != binder && encode_variable_name(&variable.name) == spelling
             });
             if !captures {
-                return renamed_body.map(|body| rebuild(binder.clone(), Box::new(body)));
+                return renamed_body.map(|body| rebuild(binder.clone(), Arc::new(body)));
             }
             let mut variables = BTreeSet::new();
             crate::rule::collect_all_variables(std::slice::from_ref(body_ref), &mut variables);
@@ -926,7 +927,7 @@ fn rename_capturing_binders(predicate: &Predicate) -> Option<Predicate> {
             )
             .try_into()
             .expect("one predicate in, one out");
-            Some(rebuild(fresh, Box::new(body)))
+            Some(rebuild(fresh, Arc::new(body)))
         }
     }
 }

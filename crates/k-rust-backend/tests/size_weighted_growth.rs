@@ -32,6 +32,7 @@
 
 const _: () = assert!(cfg!(feature = "measure"));
 
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use k_rust_backend::{
@@ -942,17 +943,30 @@ fn a_disjunction_negation_chain_copies_known_predicates_linearly_in_its_depth() 
 }
 
 /// Each nested conjunction takes its conjuncts as its input, and the chain below a level is one
-/// of them: a conjunction simplification that copies its input conjuncts copies the chain below
-/// it at every level. Linear needs the copies replaced by borrowed views (K24 step 4b).
+/// of them, which the conjunction holds as an assumption while it simplifies its other
+/// conjuncts. A predicate's operands are shared, so holding the chain below costs a reference,
+/// not a copy of it: the bytes one simplification allocates are linear in the depth. (Counting
+/// the input conjunct nodes, `simplify.conjunct_nodes`, stays quadratic: it measures the size of
+/// what each level reads, not what it copies.)
 #[test]
-#[ignore = "K24 4b: one clone per conjunction level remains"]
 fn a_disjunction_negation_chain_copies_its_conjuncts_linearly_in_its_depth() {
-    assert_predicate_chain_linear(
-        "ornot",
-        100,
-        "input conjunct nodes",
-        Counter::SimplifyConjunctNodes,
-    );
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(PREDICATE_CHAINS);
+    assert_linear("ornot chain", "bytes allocated", 100, |depth| {
+        let subject = pattern(&definition, &predicate_chain("ornot", depth));
+        bytes_of(|| {
+            simplify_pattern_with_solver(
+                &definition,
+                &subject,
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .expect("no stop")
+            .expect("simplifies")
+        })
+    });
 }
 
 /// Normalizing a conjunction or a disjunction whose operands are already normalized takes them
@@ -1045,7 +1059,7 @@ fn checking_an_existential_chain_allocates_linearly_in_its_depth() {
             Term::raw_domain_value(sort, "1"),
         );
         for bound in &variables[1..] {
-            chain = Predicate::Exists(bound.clone(), Box::new(chain));
+            chain = Predicate::Exists(bound.clone(), Arc::new(chain));
         }
         validity_check_bytes(&definition, &[], &[chain])
     });

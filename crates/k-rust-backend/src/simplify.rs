@@ -621,7 +621,7 @@ fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -
         };
         match predicate {
             Predicate::And(conjuncts) => {
-                for conjunct in conjuncts {
+                for conjunct in conjuncts.iter() {
                     visit(definition, known, conjunct, subterms);
                 }
             }
@@ -971,7 +971,7 @@ impl ShallowKey {
                 key.node(right);
             }
             Predicate::And(operands) | Predicate::Or(operands) => {
-                for operand in operands {
+                for operand in operands.iter() {
                     key.node(operand);
                 }
             }
@@ -1091,7 +1091,7 @@ impl<'a> KnownConjuncts<'a> {
     fn insert_conjuncts(&mut self, predicate: &'a Predicate) {
         match predicate {
             Predicate::And(conjuncts) => {
-                for conjunct in conjuncts {
+                for conjunct in conjuncts.iter() {
                     self.insert_conjuncts(conjunct);
                 }
             }
@@ -1251,7 +1251,7 @@ impl LevelConjuncts {
 fn collect_conjunct_parts(predicate: &Predicate, parts: &mut Vec<Predicate>) {
     match predicate {
         Predicate::And(conjuncts) => {
-            for conjunct in conjuncts {
+            for conjunct in conjuncts.iter() {
                 collect_conjunct_parts(conjunct, parts);
             }
         }
@@ -1490,7 +1490,7 @@ fn simplify_predicates_with_budget(
     if *remaining == 0 {
         return Err(SimplificationError::PredicateIterationLimit {
             limit,
-            predicate: Predicate::And(simplified),
+            predicate: Predicate::And(simplified.into()),
         }
         .into());
     }
@@ -2090,7 +2090,7 @@ fn decompose_free_application(
     Some(match equalities.len() {
         0 => Predicate::True,
         1 => equalities.pop().unwrap(),
-        _ => Predicate::And(equalities),
+        _ => Predicate::And(equalities.into()),
     })
 }
 
@@ -2290,7 +2290,7 @@ fn simplify_predicate_on_stack(
                 // without a surrounding conjunction fixed point reaches the equation too.
                 let mut constraints = simplified.conditions.into_predicates();
                 constraints.extend(expanded);
-                let conjunction = Predicate::And(constraints);
+                let conjunction = Predicate::And(constraints.into());
                 if *remaining == 0 {
                     return Err(SimplificationError::PredicateIterationLimit {
                         limit,
@@ -2323,7 +2323,7 @@ fn simplify_predicate_on_stack(
                 Ok(DeferredDecision::Refuted) => Ok(Predicate::False),
                 Ok(DeferredDecision::Open) => Ok(predicate.clone()),
                 Ok(DeferredDecision::Replaced(atoms)) => {
-                    let conjunction = Predicate::And(atoms);
+                    let conjunction = Predicate::And(atoms.into());
                     if *remaining == 0 {
                         return Err(SimplificationError::PredicateIterationLimit {
                             limit,
@@ -2384,7 +2384,7 @@ fn simplify_predicate_on_stack(
                 with_simplification_constraints(constraints, simplified)
             } else {
                 constraints.extend(expanded);
-                let conjunction = Predicate::And(constraints);
+                let conjunction = Predicate::And(constraints.into());
                 if *remaining == 0 {
                     return Err(SimplificationError::PredicateIterationLimit {
                         limit,
@@ -2406,7 +2406,7 @@ fn simplify_predicate_on_stack(
         }
         Predicate::Not(inner) => {
             let mut inner_remaining = *remaining;
-            Predicate::Not(Box::new(simplify_predicate_with_budget(
+            Predicate::Not(Arc::new(simplify_predicate_with_budget(
                 definition,
                 inner,
                 assumptions,
@@ -2427,7 +2427,7 @@ fn simplify_predicate_on_stack(
                 active_conditions,
                 solver,
             )?;
-            Predicate::And(inner)
+            Predicate::And(inner.into())
         }
         Predicate::Or(inner) => {
             let inner = inner
@@ -2445,7 +2445,7 @@ fn simplify_predicate_on_stack(
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Predicate::Or(inner)
+            Predicate::Or(inner.into())
         }
         Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
             let mut left_remaining = *remaining;
@@ -2469,9 +2469,9 @@ fn simplify_predicate_on_stack(
                 solver,
             )?;
             if matches!(predicate, Predicate::Implies(..)) {
-                Predicate::Implies(Box::new(left), Box::new(right))
+                Predicate::Implies(Arc::new(left), Arc::new(right))
             } else {
-                Predicate::Iff(Box::new(left), Box::new(right))
+                Predicate::Iff(Arc::new(left), Arc::new(right))
             }
         }
         Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
@@ -2499,9 +2499,9 @@ fn simplify_predicate_on_stack(
                 solver,
             )?;
             if matches!(predicate, Predicate::Exists(..)) {
-                Predicate::Exists(variable.clone(), Box::new(inner))
+                Predicate::Exists(variable.clone(), Arc::new(inner))
             } else {
-                Predicate::Forall(variable.clone(), Box::new(inner))
+                Predicate::Forall(variable.clone(), Arc::new(inner))
             }
         }
     };
@@ -2828,7 +2828,7 @@ fn push_predicate_terms(
             push_predicate_terms(definition, inner, pending)?;
         }
         Predicate::And(inner) | Predicate::Or(inner) => {
-            for predicate in inner {
+            for predicate in inner.iter() {
                 push_predicate_terms(definition, predicate, pending)?;
             }
         }
@@ -2891,7 +2891,7 @@ fn with_simplification_constraints(
         predicate
     } else {
         constraints.push(predicate);
-        Predicate::And(constraints)
+        Predicate::And(constraints.into())
     }
 }
 
@@ -3028,7 +3028,7 @@ fn apply_ceil_equation_instance(
     };
     crate::coverage::note_applied(&rule.attributes.unique_id);
     Ok(EquationAttempt::Applied(normalize_predicate(
-        Predicate::And(defined.into_result(rhs)),
+        Predicate::And(defined.into_result(rhs).into()),
     )))
 }
 
@@ -3211,7 +3211,7 @@ fn apply_predicate_equation(
             }
             crate::coverage::note_applied(&rule.attributes.unique_id);
             Ok(EquationAttempt::Applied(normalize_predicate(
-                Predicate::And(defined.into_result(&rule.rhs)),
+                Predicate::And(defined.into_result(&rule.rhs).into()),
             )))
         }
         DecidedEquation::Refuted(substitution) => {
@@ -3379,7 +3379,7 @@ fn collect_predicate_operands<'a>(
             into.push((left_b, right_b, second));
         }
         (Predicate::And(left), Predicate::And(right)) => {
-            for (left, right) in left.iter().zip(right) {
+            for (left, right) in left.iter().zip(right.iter()) {
                 collect_predicate_operands(definition, left, right, at, known_predicates, into);
             }
         }
@@ -3387,7 +3387,7 @@ fn collect_predicate_operands<'a>(
             // A disjunction is strict only in what every disjunct is strict in; an operand
             // stands in one disjunct.
             let at = if left.len() == 1 { at } else { at.lenient() };
-            for (left, right) in left.iter().zip(right) {
+            for (left, right) in left.iter().zip(right.iter()) {
                 collect_predicate_operands(definition, left, right, at, known_predicates, into);
             }
         }
@@ -3715,7 +3715,7 @@ fn rename_binders_apart(
         substitute(term, &renaming)
     };
     let mut recurse = |inner: &Predicate, scope: &mut Vec<(Variable, Variable)>| {
-        Box::new(rename_binders_apart(inner, avoid, counter, scope))
+        rename_binders_apart(inner, avoid, counter, scope)
     };
     measure::bump(Counter::SimplifyPredicateNodesVisited);
     match predicate {
@@ -3728,17 +3728,21 @@ fn rename_binders_apart(
         Predicate::Equals(left, right) => Predicate::Equals(term(left, scope), term(right, scope)),
         Predicate::In(left, right) => Predicate::In(term(left, scope), term(right, scope)),
         Predicate::Absent(absence) => absence.map_terms(|inner| term(inner, scope)),
-        Predicate::Not(inner) => Predicate::Not(recurse(inner, scope)),
+        Predicate::Not(inner) => Predicate::Not(Arc::new(recurse(inner, scope))),
         Predicate::And(inner) => {
-            Predicate::And(inner.iter().map(|inner| *recurse(inner, scope)).collect())
+            Predicate::And(inner.iter().map(|inner| recurse(inner, scope)).collect())
         }
         Predicate::Or(inner) => {
-            Predicate::Or(inner.iter().map(|inner| *recurse(inner, scope)).collect())
+            Predicate::Or(inner.iter().map(|inner| recurse(inner, scope)).collect())
         }
-        Predicate::Implies(left, right) => {
-            Predicate::Implies(recurse(left, scope), recurse(right, scope))
-        }
-        Predicate::Iff(left, right) => Predicate::Iff(recurse(left, scope), recurse(right, scope)),
+        Predicate::Implies(left, right) => Predicate::Implies(
+            Arc::new(recurse(left, scope)),
+            Arc::new(recurse(right, scope)),
+        ),
+        Predicate::Iff(left, right) => Predicate::Iff(
+            Arc::new(recurse(left, scope)),
+            Arc::new(recurse(right, scope)),
+        ),
         Predicate::Exists(bound, inner) | Predicate::Forall(bound, inner) => {
             // Invariant: `counter` only grows, so at most |avoid| + 1 names are tried.
             let name = loop {
@@ -3756,7 +3760,7 @@ fn rename_binders_apart(
             // The innermost binding of a name wins: `term` collects `scope` in order, so a
             // shadowing quantifier's entry overrides an enclosing one for its body only.
             scope.push((bound.clone(), fresh.clone()));
-            let body = Box::new(rename_binders_apart(inner, avoid, counter, scope));
+            let body = Arc::new(rename_binders_apart(inner, avoid, counter, scope));
             scope.pop();
             if matches!(predicate, Predicate::Exists(..)) {
                 Predicate::Exists(fresh, body)
@@ -3803,7 +3807,7 @@ fn collect_predicate_term_pairs<'a>(
             if left.len() == right.len() =>
         {
             left.iter()
-                .zip(right)
+                .zip(right.iter())
                 .all(|(left, right)| collect_predicate_term_pairs(left, right, pairs, binders))
         }
         (Predicate::Implies(left_a, left_b), Predicate::Implies(right_a, right_b))
@@ -3897,17 +3901,17 @@ fn normalize_hooked_boolean_predicate(
             ("BOOL.and", [first, second]) => {
                 let operands = vec![bool_operand(first, value), bool_operand(second, value)];
                 return normalize_predicate(if value {
-                    Predicate::And(operands)
+                    Predicate::And(operands.into())
                 } else {
-                    Predicate::Or(operands)
+                    Predicate::Or(operands.into())
                 });
             }
             ("BOOL.or", [first, second]) => {
                 let operands = vec![bool_operand(first, value), bool_operand(second, value)];
                 return normalize_predicate(if value {
-                    Predicate::Or(operands)
+                    Predicate::Or(operands.into())
                 } else {
-                    Predicate::And(operands)
+                    Predicate::And(operands.into())
                 });
             }
             ("BOOL.not", [operand]) => return bool_operand(operand, !value),
@@ -3949,7 +3953,7 @@ fn normalize_hooked_boolean_predicate(
     };
     let equality = Predicate::Equals(left_operand.clone(), right_operand.clone());
     let condition = if negate {
-        Predicate::Not(Box::new(equality))
+        Predicate::Not(Arc::new(equality))
     } else {
         equality
     };
@@ -3961,7 +3965,7 @@ fn normalize_hooked_boolean_predicate(
     };
     predicates.extend(right_obligations);
     predicates.push(condition);
-    normalize_predicate(Predicate::And(predicates))
+    normalize_predicate(Predicate::And(predicates.into()))
 }
 
 /// `Set:in(element, set) = value` as equations, where `set` is a set whose elements are all
@@ -4009,17 +4013,17 @@ fn set_membership_equations(
         equations.push(if value {
             equality
         } else {
-            Predicate::Not(Box::new(equality))
+            Predicate::Not(Arc::new(equality))
         });
     }
     let mut predicates = ceil_term(definition, element).ok()?;
     predicates.extend(ceil_term(definition, set).ok()?);
     predicates.push(if value {
-        Predicate::Or(equations)
+        Predicate::Or(equations.into())
     } else {
-        Predicate::And(equations)
+        Predicate::And(equations.into())
     });
-    Some(normalize_predicate(Predicate::And(predicates)))
+    Some(normalize_predicate(Predicate::And(predicates.into())))
 }
 
 fn boolean_literal_equality(term: &Term, value: bool) -> Option<Predicate> {
@@ -4029,7 +4033,7 @@ fn boolean_literal_equality(term: &Term, value: bool) -> Option<Predicate> {
     Some(if value {
         Predicate::Term(term.clone())
     } else {
-        Predicate::Not(Box::new(Predicate::Term(term.clone())))
+        Predicate::Not(Arc::new(Predicate::Term(term.clone())))
     })
 }
 
@@ -4121,17 +4125,16 @@ fn normalize_root(predicate: Predicate) -> Predicate {
 /// [`normalize_predicate`] does not enter every operand (it keeps `\not \and(\top, P)` as it
 /// is) and so may leave a reducible pattern below its result.
 fn normalize_hereditary(predicate: Predicate) -> Predicate {
-    fn boxed(mut predicate: Box<Predicate>) -> Box<Predicate> {
-        *predicate = normalize_hereditary(std::mem::replace(&mut *predicate, Predicate::True));
-        predicate
+    fn boxed(predicate: Arc<Predicate>) -> Arc<Predicate> {
+        Arc::new(normalize_hereditary(Arc::unwrap_or_clone(predicate)))
     }
     let predicate = match predicate {
         Predicate::Not(inner) => Predicate::Not(boxed(inner)),
         Predicate::And(inner) => {
-            Predicate::And(inner.into_iter().map(normalize_hereditary).collect())
+            Predicate::And(inner.iter().cloned().map(normalize_hereditary).collect())
         }
         Predicate::Or(inner) => {
-            Predicate::Or(inner.into_iter().map(normalize_hereditary).collect())
+            Predicate::Or(inner.iter().cloned().map(normalize_hereditary).collect())
         }
         Predicate::Implies(left, right) => Predicate::Implies(boxed(left), boxed(right)),
         Predicate::Iff(left, right) => Predicate::Iff(boxed(left), boxed(right)),
@@ -4180,15 +4183,16 @@ impl Children {
 fn normalize_level(predicate: Predicate, children: Children) -> Predicate {
     measure::bump(Counter::SimplifyPredicateNodesVisited);
     match predicate {
-        Predicate::Not(inner) => match *inner {
+        Predicate::Not(inner) => match Arc::unwrap_or_clone(inner) {
             Predicate::True => Predicate::False,
             Predicate::False => Predicate::True,
-            Predicate::Not(inner) => *inner,
-            Predicate::And(inner) => Predicate::Not(Box::new(Predicate::And(inner))),
+            Predicate::Not(inner) => Arc::unwrap_or_clone(inner),
+            Predicate::And(inner) => Predicate::Not(Arc::new(Predicate::And(inner))),
             Predicate::Or(inner) => {
                 let negated = inner
-                    .into_iter()
-                    .map(|predicate| Predicate::Not(Box::new(predicate)));
+                    .iter()
+                    .cloned()
+                    .map(|predicate| Predicate::Not(Arc::new(predicate)));
                 // With arbitrary children the conjunction's arm normalizes each negation; with
                 // normalized ones each negation is normalized here, from its normalized operand.
                 let negated = match children {
@@ -4200,17 +4204,17 @@ fn normalize_level(predicate: Predicate, children: Children) -> Predicate {
             inner => match children.truth(&inner) {
                 Truth::True => Predicate::False,
                 Truth::False => Predicate::True,
-                Truth::Unknown => Predicate::Not(Box::new(inner)),
+                Truth::Unknown => Predicate::Not(Arc::new(inner)),
             },
         },
         Predicate::And(inner) => {
             let mut normalized = Vec::new();
-            for predicate in inner {
+            for predicate in inner.iter().cloned() {
                 match children.child(predicate) {
                     Predicate::True => {}
                     Predicate::False => return Predicate::False,
                     Predicate::And(nested) => {
-                        for predicate in nested {
+                        for predicate in nested.iter().cloned() {
                             if !normalized.contains(&predicate) {
                                 normalized.push(predicate);
                             }
@@ -4223,37 +4227,37 @@ fn normalize_level(predicate: Predicate, children: Children) -> Predicate {
             match normalized.len() {
                 0 => Predicate::True,
                 1 => normalized.pop().unwrap(),
-                _ => Predicate::And(normalized),
+                _ => Predicate::And(normalized.into()),
             }
         }
         Predicate::Or(inner) => {
             let mut normalized = Vec::new();
-            for predicate in inner {
+            for predicate in inner.iter().cloned() {
                 match children.child(predicate) {
                     Predicate::False => {}
                     Predicate::True => return Predicate::True,
-                    Predicate::Or(nested) => normalized.extend(nested),
+                    Predicate::Or(nested) => normalized.extend(nested.iter().cloned()),
                     predicate => normalized.push(predicate),
                 }
             }
             match normalized.len() {
                 0 => Predicate::False,
                 1 => normalized.pop().unwrap(),
-                _ => Predicate::Or(normalized),
+                _ => Predicate::Or(normalized.into()),
             }
         }
         Predicate::Implies(left, right) => match (children.truth(&left), children.truth(&right)) {
             (Truth::False, _) | (_, Truth::True) => Predicate::True,
             (Truth::True, Truth::False) => Predicate::False,
-            (Truth::True, Truth::Unknown) => *right,
+            (Truth::True, Truth::Unknown) => Arc::unwrap_or_clone(right),
             (Truth::Unknown, Truth::False) => normalize_level(Predicate::Not(left), children),
             _ => Predicate::Implies(left, right),
         },
         Predicate::Iff(left, right) => match (children.truth(&left), children.truth(&right)) {
             (Truth::True, Truth::True) | (Truth::False, Truth::False) => Predicate::True,
             (Truth::True, Truth::False) | (Truth::False, Truth::True) => Predicate::False,
-            (Truth::True, Truth::Unknown) => *right,
-            (Truth::Unknown, Truth::True) => *left,
+            (Truth::True, Truth::Unknown) => Arc::unwrap_or_clone(right),
+            (Truth::Unknown, Truth::True) => Arc::unwrap_or_clone(left),
             (Truth::False, Truth::Unknown) => normalize_level(Predicate::Not(right), children),
             (Truth::Unknown, Truth::False) => normalize_level(Predicate::Not(left), children),
             _ => Predicate::Iff(left, right),
@@ -7820,7 +7824,7 @@ mod tests {
         // `\ceil(f(t)) = \ceil(t) /\ q[t]`: the open obligation is conjoined to the result.
         assert_eq!(
             apply(&[], &NoSolver),
-            Some(Predicate::And(vec![rhs.clone(), obligation.clone()]))
+            Some(Predicate::And(vec![rhs.clone(), obligation.clone()].into()))
         );
         // A path condition that carries the obligation discharges it.
         assert_eq!(
@@ -7841,7 +7845,7 @@ mod tests {
                 &NoSolver,
             ))
             .expect("the predicate should simplify"),
-            Predicate::And(vec![rhs, obligation])
+            Predicate::And(vec![rhs, obligation].into())
         );
 
         // Negative control: an undecided `requires` still refuses, obligation or not.
@@ -7911,28 +7915,28 @@ mod tests {
             none
         );
         // `\not(\equals(f(X), "c"))` is not: `\not(\bottom)` is `\top`.
-        let negated = Predicate::Not(Box::new(Predicate::Equals(f_x.clone(), value.clone())));
+        let negated = Predicate::Not(Arc::new(Predicate::Equals(f_x.clone(), value.clone())));
         assert_eq!(strict(&negated, &[]), none);
         assert_eq!(strict(&Predicate::Floor(f_x.clone()), &[]), none);
         // A conjunction is strict in the variables of any conjunct, a disjunction only in
         // those of every disjunct.
         assert_eq!(
             strict(
-                &Predicate::And(vec![negated.clone(), Predicate::Ceil(f_x.clone())]),
+                &Predicate::And(vec![negated.clone(), Predicate::Ceil(f_x.clone())].into()),
                 &[]
             ),
             only_x
         );
         assert_eq!(
             strict(
-                &Predicate::Or(vec![negated, Predicate::Ceil(f_x.clone())]),
+                &Predicate::Or(vec![negated, Predicate::Ceil(f_x.clone())].into()),
                 &[]
             ),
             none
         );
         assert_eq!(
             strict(
-                &Predicate::Or(vec![Predicate::Ceil(h_x), Predicate::Ceil(f_x)]),
+                &Predicate::Or(vec![Predicate::Ceil(h_x), Predicate::Ceil(f_x)].into()),
                 &[]
             ),
             only_x
@@ -8795,17 +8799,17 @@ mod tests {
         atom.prop_recursive(5, 48, 4, |inner| {
             let binder = Variable::new("X", Sort::builtin(BuiltinSort::Int));
             prop_oneof![
-                inner.clone().prop_map(|p| Predicate::Not(Box::new(p))),
-                vec(inner.clone(), 0..4).prop_map(Predicate::And),
-                vec(inner.clone(), 0..4).prop_map(Predicate::Or),
+                inner.clone().prop_map(|p| Predicate::Not(Arc::new(p))),
+                vec(inner.clone(), 0..4).prop_map(|items| Predicate::And(items.into())),
+                vec(inner.clone(), 0..4).prop_map(|items| Predicate::Or(items.into())),
                 (inner.clone(), inner.clone())
-                    .prop_map(|(l, r)| Predicate::Implies(Box::new(l), Box::new(r))),
+                    .prop_map(|(l, r)| Predicate::Implies(Arc::new(l), Arc::new(r))),
                 (inner.clone(), inner.clone())
-                    .prop_map(|(l, r)| Predicate::Iff(Box::new(l), Box::new(r))),
+                    .prop_map(|(l, r)| Predicate::Iff(Arc::new(l), Arc::new(r))),
                 (inner.clone(), any::<bool>()).prop_map(move |(p, exists)| if exists {
-                    Predicate::Exists(binder.clone(), Box::new(p))
+                    Predicate::Exists(binder.clone(), Arc::new(p))
                 } else {
-                    Predicate::Forall(binder.clone(), Box::new(p))
+                    Predicate::Forall(binder.clone(), Arc::new(p))
                 }),
             ]
         })
@@ -8821,7 +8825,7 @@ mod tests {
                 Predicate::Not(inner)
                 | Predicate::Exists(_, inner)
                 | Predicate::Forall(_, inner) => found.push(inner),
-                Predicate::And(inner) | Predicate::Or(inner) => found.extend(inner),
+                Predicate::And(inner) | Predicate::Or(inner) => found.extend(inner.iter()),
                 Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
                     found.extend([&**left, &**right])
                 }
@@ -8832,14 +8836,16 @@ mod tests {
     }
 
     fn with_children_hereditarily_normalized(predicate: Predicate) -> Predicate {
-        let boxed = |predicate: Box<Predicate>| Box::new(normalize_hereditary(*predicate));
+        let boxed = |predicate: Arc<Predicate>| {
+            Arc::new(normalize_hereditary(Arc::unwrap_or_clone(predicate)))
+        };
         match predicate {
             Predicate::Not(inner) => Predicate::Not(boxed(inner)),
             Predicate::And(inner) => {
-                Predicate::And(inner.into_iter().map(normalize_hereditary).collect())
+                Predicate::And(inner.iter().cloned().map(normalize_hereditary).collect())
             }
             Predicate::Or(inner) => {
-                Predicate::Or(inner.into_iter().map(normalize_hereditary).collect())
+                Predicate::Or(inner.iter().cloned().map(normalize_hereditary).collect())
             }
             Predicate::Implies(left, right) => Predicate::Implies(boxed(left), boxed(right)),
             Predicate::Iff(left, right) => Predicate::Iff(boxed(left), boxed(right)),
@@ -8880,7 +8886,7 @@ mod tests {
         #[test]
         fn a_negation_key_is_the_key_of_the_negation(predicate in normalization_tree()) {
             for sub_predicate in sub_predicates(&predicate) {
-                let negation = Predicate::Not(Box::new(sub_predicate.clone()));
+                let negation = Predicate::Not(Arc::new(sub_predicate.clone()));
                 proptest::prop_assert_eq!(
                     ShallowKey::of_negation(sub_predicate).0,
                     ShallowKey::of(&negation).0
@@ -8936,7 +8942,7 @@ mod tests {
             for candidate in probes {
                 let expected = flattened(&others).contains(candidate);
                 proptest::prop_assert_eq!(view.contains(candidate), expected);
-                let negation = Predicate::Not(Box::new(candidate.clone()));
+                let negation = Predicate::Not(Arc::new(candidate.clone()));
                 proptest::prop_assert_eq!(
                     view.truth(candidate),
                     if expected {
@@ -8955,10 +8961,9 @@ mod tests {
     #[test]
     fn hereditary_normalization_reduces_what_normalize_predicate_leaves() {
         let atom = normalization_atom(7);
-        let negated_conjunction_with_bottom = Predicate::Not(Box::new(Predicate::And(vec![
-            Predicate::False,
-            atom.clone(),
-        ])));
+        let negated_conjunction_with_bottom = Predicate::Not(Arc::new(Predicate::And(
+            vec![Predicate::False, atom.clone()].into(),
+        )));
         assert_eq!(
             normalize_predicate(negated_conjunction_with_bottom.clone()),
             negated_conjunction_with_bottom
@@ -8967,14 +8972,12 @@ mod tests {
             normalize_hereditary(negated_conjunction_with_bottom),
             Predicate::True
         );
-        let double_negation =
-            Predicate::Not(Box::new(Predicate::Not(Box::new(Predicate::And(vec![
-                Predicate::True,
-                atom.clone(),
-            ])))));
+        let double_negation = Predicate::Not(Arc::new(Predicate::Not(Arc::new(Predicate::And(
+            vec![Predicate::True, atom.clone()].into(),
+        )))));
         assert_eq!(
             normalize_predicate(double_negation.clone()),
-            Predicate::And(vec![Predicate::True, atom.clone()])
+            Predicate::And(vec![Predicate::True, atom.clone()].into())
         );
         assert_eq!(normalize_hereditary(double_negation), atom);
     }
@@ -8984,9 +8987,11 @@ mod tests {
     fn oriented(predicate: Predicate) -> Predicate {
         match predicate {
             Predicate::Equals(left, right) if right < left => Predicate::Equals(right, left),
-            Predicate::Not(inner) => Predicate::Not(Box::new(oriented(*inner))),
-            Predicate::And(inner) => Predicate::And(inner.into_iter().map(oriented).collect()),
-            Predicate::Or(inner) => Predicate::Or(inner.into_iter().map(oriented).collect()),
+            Predicate::Not(inner) => {
+                Predicate::Not(Arc::new(oriented(Arc::unwrap_or_clone(inner))))
+            }
+            Predicate::And(inner) => Predicate::And(inner.iter().cloned().map(oriented).collect()),
+            Predicate::Or(inner) => Predicate::Or(inner.iter().cloned().map(oriented).collect()),
             predicate => predicate,
         }
     }
@@ -9042,7 +9047,7 @@ mod tests {
                 term(&definition, right),
             ))
         };
-        let not = |predicate: Predicate| Predicate::Not(Box::new(predicate));
+        let not = |predicate: Predicate| Predicate::Not(Arc::new(predicate));
         let (k, a, b) = ("K:SortInt{}", "A:SortInt{}", "B:SortInt{}");
         let one = r#"\dv{SortInt{}}("1")"#;
         let two = r#"\dv{SortInt{}}("2")"#;
@@ -9052,7 +9057,7 @@ mod tests {
             membership(k, &pair, true),
             vec![
                 not(equals(a, b)),
-                Predicate::Or(vec![equals(k, a), equals(k, b)]),
+                Predicate::Or(vec![equals(k, a), equals(k, b)].into()),
             ]
         );
         assert_eq!(

@@ -18,6 +18,7 @@ use k_rust_kore::{
     kore::parser::parse_definition,
     measure::{Counter, snapshot},
 };
+use std::sync::Arc;
 
 use crate::support::{internal_term, unstopped::simplify_predicate_with_solver};
 
@@ -229,7 +230,7 @@ fn a_ceil_equation_over_hook_arithmetic_states_its_condition() {
     let (decided, evaluated) = decide(&definition, "tdiv{}(X:SortInt{}, Y:SortInt{})");
     assert_eq!(
         decided,
-        Predicate::Not(Box::new(Predicate::Equals(
+        Predicate::Not(Arc::new(Predicate::Equals(
             internal_term(&definition, "Y:SortInt{}"),
             internal_term(&definition, r#"\dv{SortInt{}}("0")"#),
         )))

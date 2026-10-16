@@ -761,9 +761,9 @@ mod tests {
         let definition = definition();
         let solver = Z3Solver::new(&definition).unwrap();
         // f(x) = x + 1 is a model; replacing f(x) by a constant would make this false.
-        let no_fixed_point = Predicate::Not(Box::new(Predicate::Exists(
+        let no_fixed_point = Predicate::Not(Arc::new(Predicate::Exists(
             x(),
-            Box::new(Predicate::Equals(
+            Arc::new(Predicate::Equals(
                 term(&definition, "opaque{}(X:SortInt{})"),
                 Term::variable(x()),
             )),
@@ -781,11 +781,11 @@ mod tests {
         for name in ["X", "Y"] {
             let some_defined = Predicate::Exists(
                 x(),
-                Box::new(Predicate::Ceil(term(&definition, "opaque{}(X:SortInt{})"))),
+                Arc::new(Predicate::Ceil(term(&definition, "opaque{}(X:SortInt{})"))),
             );
             let some_undefined = Predicate::Exists(
                 Variable::new(name, Sort::simple("SortInt")),
-                Box::new(Predicate::Not(Box::new(Predicate::Ceil(term(
+                Arc::new(Predicate::Not(Arc::new(Predicate::Ceil(term(
                     &definition,
                     &format!("opaque{{}}({name}:SortInt{{}})"),
                 ))))),
@@ -804,7 +804,7 @@ mod tests {
         let quantified = |bound: &str, free: &str| {
             Predicate::Exists(
                 Variable::new(bound, Sort::simple("SortInt")),
-                Box::new(Predicate::In(
+                Arc::new(Predicate::In(
                     Term::variable(Variable::new(bound, Sort::simple("SortInt"))),
                     Term::variable(Variable::new(free, Sort::simple("SortInt"))),
                 )),
@@ -842,11 +842,14 @@ mod tests {
             equals("7"),
             Predicate::Exists(
                 x(),
-                Box::new(Predicate::And(vec![
-                    equals("1"),
-                    Predicate::Exists(x(), Box::new(equals("2"))),
-                    equals("1"),
-                ])),
+                Arc::new(Predicate::And(
+                    vec![
+                        equals("1"),
+                        Predicate::Exists(x(), Arc::new(equals("2"))),
+                        equals("1"),
+                    ]
+                    .into(),
+                )),
             ),
             equals("7"),
         ];
@@ -916,7 +919,7 @@ mod tests {
         let variable = Variable::new("A", Sort::simple("SortS"));
         let predicate = Predicate::Forall(
             variable.clone(),
-            Box::new(Predicate::Equals(
+            Arc::new(Predicate::Equals(
                 Term::variable(variable.clone()),
                 Term::variable(variable),
             )),
@@ -939,9 +942,9 @@ mod tests {
             let inner = Variable::new(inner, Sort::simple("SortInt"));
             Predicate::Exists(
                 outer.clone(),
-                Box::new(Predicate::Forall(
+                Arc::new(Predicate::Forall(
                     inner.clone(),
-                    Box::new(Predicate::In(Term::variable(outer), Term::variable(inner))),
+                    Arc::new(Predicate::In(Term::variable(outer), Term::variable(inner))),
                 )),
             )
         };
@@ -955,7 +958,7 @@ mod tests {
         );
         let diagonal = Predicate::Forall(
             x(),
-            Box::new(Predicate::In(Term::variable(x()), Term::variable(x()))),
+            Arc::new(Predicate::In(Term::variable(x()), Term::variable(x()))),
         );
         assert_eq!(
             solver.check_predicates(&[nested("Y", "Y")], &Substitution::new(), &[diagonal]),
@@ -1987,7 +1990,7 @@ mod tests {
         }
         // Where an integer is the power, the solver still reads it: a nonnegative exponent, and a
         // base of magnitude 1 with any exponent.
-        let nonnegative = Predicate::Not(Box::new(negative));
+        let nonnegative = Predicate::Not(Arc::new(negative));
         for (known, checked) in [
             (
                 vec![nonnegative.clone()],

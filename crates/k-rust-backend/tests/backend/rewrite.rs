@@ -1,5 +1,6 @@
 //! Public contracts of `k_rust_backend::rewrite`.
 
+use std::sync::Arc;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::{Debug, Write},
@@ -1350,7 +1351,7 @@ fn treats_an_undefined_matched_subterm_as_trivial() {
     let partial = internal_term(&definition, "partial{}()");
     let subject = Pattern {
         term: internal_term(&definition, "wrap{}(partial{}())"),
-        constraints: vec![Predicate::Not(Box::new(Predicate::Ceil(partial)))],
+        constraints: vec![Predicate::Not(Arc::new(Predicate::Ceil(partial)))],
     };
     let mut fresh = FreshCounter::default();
 
@@ -1662,7 +1663,7 @@ fn a_trivial_rule_joins_the_group_remainder_symbolically() {
         branches[0]
             .pattern
             .constraints
-            .contains(&Predicate::Not(Box::new(trivial.undefined.clone()))),
+            .contains(&Predicate::Not(Arc::new(trivial.undefined.clone()))),
         "{branches:#?}"
     );
 
@@ -1775,7 +1776,7 @@ fn sequential_mode_narrows_by_trivial_rules() {
         branch
             .pattern
             .constraints
-            .contains(&Predicate::Not(Box::new(trivial[0].undefined.clone())))
+            .contains(&Predicate::Not(Arc::new(trivial[0].undefined.clone())))
     );
 }
 
@@ -1801,7 +1802,7 @@ fn trivial_only_sequence_with_a_satisfiable_remainder_is_not_bottom() {
         remainder
             .pattern
             .constraints
-            .contains(&Predicate::Not(Box::new(trivial[0].undefined.clone())))
+            .contains(&Predicate::Not(Arc::new(trivial[0].undefined.clone())))
     );
 }
 
@@ -2430,7 +2431,7 @@ fn rigid_no_evaluators_equality_is_an_applied_and_complementary_condition() {
     assert_eq!(right, &internal_term(&definition, "opaque{}(N:SortInt{})"));
     assert_eq!(
         remainder.pattern.constraints,
-        vec![Predicate::Not(Box::new(condition.clone()))]
+        vec![Predicate::Not(Arc::new(condition.clone()))]
     );
 
     let mut fresh = FreshCounter::default();
@@ -2742,7 +2743,7 @@ fn assert_solver_verdicts(
                                     constraints.as_slice(),
                                     [carried]
                                         if entry.undefined
-                                            == Predicate::Not(Box::new(carried.clone()))
+                                            == Predicate::Not(Arc::new(carried.clone()))
                                 )
                         }),
                     "{validity:?}: {trivial:?}"
@@ -4120,7 +4121,7 @@ fn narrows_a_function_pattern_with_a_definedness_condition() {
         remainder_condition.as_ref(),
         Predicate::Exists(variable, body)
             if variable == result_variable
-                && matches!(body.as_ref(), Predicate::And(predicates) if predicates == branch.pattern.constraints.as_slice())
+                && matches!(body.as_ref(), Predicate::And(predicates) if **predicates == *branch.pattern.constraints.as_slice())
     ));
 }
 
@@ -4481,7 +4482,7 @@ fn a_request_spelled_like_a_mint_is_not_minted() {
             ),
             Predicate::Exists(
                 Variable::new("Ex-hX-b1", sort.clone()),
-                Box::new(Predicate::True),
+                Arc::new(Predicate::True),
             ),
         ],
     };
@@ -12436,13 +12437,16 @@ fn sequential_remainders_retain_the_initial_antecedent() {
             "#,
     );
     let variable = Term::variable(Variable::new("Y", Sort::simple("SortS")));
-    let initial_antecedent = Predicate::Or(vec![
-        Predicate::Equals(
-            variable.clone(),
-            Term::raw_domain_value(Sort::simple("SortS"), "0"),
-        ),
-        Predicate::Equals(variable, Term::raw_domain_value(Sort::simple("SortS"), "1")),
-    ]);
+    let initial_antecedent = Predicate::Or(
+        vec![
+            Predicate::Equals(
+                variable.clone(),
+                Term::raw_domain_value(Sort::simple("SortS"), "0"),
+            ),
+            Predicate::Equals(variable, Term::raw_domain_value(Sort::simple("SortS"), "1")),
+        ]
+        .into(),
+    );
     let initial = Pattern {
         term: internal_term(&definition, "wrap{}(Y:SortS{})"),
         constraints: vec![initial_antecedent.clone()],
@@ -12731,7 +12735,7 @@ fn constrains_configuration_conjunction_operands_when_matching_true() {
     assert_eq!(branch.pattern.constraints, expected);
     assert_eq!(
         remainder.pattern.constraints,
-        [Predicate::Not(Box::new(Predicate::And(expected)))]
+        [Predicate::Not(Arc::new(Predicate::And(expected.into())))]
     );
 }
 
@@ -12816,7 +12820,7 @@ fn constrains_configuration_kequal_operands_when_matching_true() {
     );
     assert_eq!(
         remainder.pattern.constraints,
-        [Predicate::Not(Box::new(condition))]
+        [Predicate::Not(Arc::new(condition))]
     );
 }
 
@@ -12853,7 +12857,7 @@ fn splits_symbolic_if_then_else_during_rewrite_matching() {
     );
     assert_eq!(
         remainder.pattern.constraints,
-        [Predicate::Not(Box::new(selected))]
+        [Predicate::Not(Arc::new(selected))]
     );
 }
 
@@ -12913,7 +12917,7 @@ fn recursively_splits_nested_symbolic_if_then_else() {
     assert_eq!(branch.pattern.constraints, expected);
     assert_eq!(
         remainder.pattern.constraints,
-        [Predicate::Not(Box::new(Predicate::And(expected)))]
+        [Predicate::Not(Arc::new(Predicate::And(expected.into())))]
     );
 }
 
@@ -13005,7 +13009,7 @@ fn narrows_a_closed_set_pattern_into_an_empty_subject_frame() {
     assert_eq!(remainder.pattern.term, subject.term);
     assert_eq!(
         remainder.pattern.constraints,
-        [Predicate::Not(Box::new(frame_is_empty))]
+        [Predicate::Not(Arc::new(frame_is_empty))]
     );
 }
 
@@ -13050,7 +13054,7 @@ fn narrows_a_closed_list_pattern_into_an_empty_subject_frame() {
     assert_eq!(remainder.pattern.term, subject.term);
     assert_eq!(
         remainder.pattern.constraints,
-        [Predicate::Not(Box::new(frame_is_empty))]
+        [Predicate::Not(Arc::new(frame_is_empty))]
     );
 }
 
@@ -13504,7 +13508,7 @@ fn narrows_concrete_rule_map_keys_against_symbolic_configuration_keys() {
     );
     assert_eq!(
         remainder.pattern.constraints,
-        [Predicate::Not(Box::new(selected))]
+        [Predicate::Not(Arc::new(selected))]
     );
 }
 
@@ -13519,7 +13523,7 @@ fn does_not_rebind_configuration_variables_during_map_matching() {
             &definition,
             "request{}(mapConcat{}(mapItem{}(ENTRY:SortKey{}, VALUE:SortValue{}), MAP:SortMap{}), REQUESTED:SortKey{})",
         ),
-        constraints: vec![Predicate::Not(Box::new(Predicate::Equals(
+        constraints: vec![Predicate::Not(Arc::new(Predicate::Equals(
             entry, requested,
         )))],
     };
@@ -14500,7 +14504,7 @@ fn an_untaken_partial_branch_splits_execution_into_a_guarded_leaf_and_a_trivial_
     assert_eq!(trivial.pattern.term, initial.term);
     assert_eq!(
         trivial.pattern.constraints,
-        vec![Predicate::Not(Box::new(obligation.clone()))],
+        vec![Predicate::Not(Arc::new(obligation.clone()))],
         "{trivial:#?}"
     );
     assert!(
@@ -14580,7 +14584,7 @@ fn a_discarded_operand_keeps_its_definedness_obligation_at_every_leaf() {
             assert_eq!(leaf.pattern.term, initial.term);
             assert_eq!(
                 leaf.pattern.constraints,
-                vec![Predicate::Not(Box::new(obligation.clone()))],
+                vec![Predicate::Not(Arc::new(obligation.clone()))],
                 "{leaf:#?}"
             );
         }

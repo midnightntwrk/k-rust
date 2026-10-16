@@ -715,7 +715,7 @@ fn keys_of_one_skeleton_need_no_apartness_check() {
     entries.push((key(7), value.clone()));
     let (made, obligations) = checks(entries.clone());
     assert_eq!(made, 1);
-    assert!(obligations.contains(&crate::rule::Predicate::Not(Box::new(
+    assert!(obligations.contains(&crate::rule::Predicate::Not(Arc::new(
         crate::rule::Predicate::Equals(key(7), key(7))
     ))));
     // Keys of a second skeleton (`inj{S, KItem}(\dv{S}(…))`): each is checked against the 201

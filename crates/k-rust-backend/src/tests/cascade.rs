@@ -1,5 +1,6 @@
 //! Differential tests for the stopped-branch priority-group cascade.
 
+use std::sync::Arc;
 use std::{cell::RefCell, collections::VecDeque};
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
@@ -503,7 +504,7 @@ fn conjunction(predicates: &[Predicate]) -> Predicate {
     match predicates {
         [] => Predicate::True,
         [predicate] => predicate.clone(),
-        predicates => Predicate::And(predicates.to_vec()),
+        predicates => Predicate::And(predicates.to_vec().into()),
     }
 }
 
@@ -613,7 +614,7 @@ fn d3_bounded_search_finds_no_semantically_empty_reapplication() {
             );
         };
         let applicability = conjunction(&first_application.rule_predicates);
-        let negated_applicability = Predicate::Not(Box::new(applicability));
+        let negated_applicability = Predicate::Not(Arc::new(applicability));
         assert_eq!(
             conjunctively_contains_alpha_equivalent(
                 &remainder.pattern.constraints,

@@ -161,7 +161,7 @@ pub fn collect_predicate_variables(predicate: &Predicate, variables: &mut BTreeS
         }
         Predicate::Not(inner) => collect_predicate_variables(inner, variables),
         Predicate::And(inner) | Predicate::Or(inner) => {
-            for predicate in inner {
+            for predicate in inner.iter() {
                 collect_predicate_variables(predicate, variables);
             }
         }
@@ -796,11 +796,13 @@ mod tests {
             prop_oneof![
                 inner
                     .clone()
-                    .prop_map(|inner| Predicate::Not(Box::new(inner))),
-                prop::collection::vec(inner.clone(), 0..3).prop_map(Predicate::And),
-                prop::collection::vec(inner.clone(), 0..3).prop_map(Predicate::Or),
+                    .prop_map(|inner| Predicate::Not(Arc::new(inner))),
+                prop::collection::vec(inner.clone(), 0..3)
+                    .prop_map(|items| Predicate::And(items.into())),
+                prop::collection::vec(inner.clone(), 0..3)
+                    .prop_map(|items| Predicate::Or(items.into())),
                 (variable(), inner)
-                    .prop_map(|(variable, inner)| Predicate::Exists(variable, Box::new(inner))),
+                    .prop_map(|(variable, inner)| Predicate::Exists(variable, Arc::new(inner))),
             ]
         })
     }

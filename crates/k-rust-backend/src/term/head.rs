@@ -54,6 +54,7 @@
 pub(crate) mod check;
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use super::{HeadRole, InjectionComparison, Term, TermKind, Variable};
 use crate::{
@@ -890,10 +891,13 @@ impl Apart {
         if defined(&left) || defined(&right) {
             Predicate::False
         } else {
-            Predicate::And(vec![
-                Predicate::Not(Box::new(Predicate::Ceil(left))),
-                Predicate::Not(Box::new(Predicate::Ceil(right))),
-            ])
+            Predicate::And(
+                vec![
+                    Predicate::Not(Arc::new(Predicate::Ceil(left))),
+                    Predicate::Not(Arc::new(Predicate::Ceil(right))),
+                ]
+                .into(),
+            )
         }
     }
 }

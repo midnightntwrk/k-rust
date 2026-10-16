@@ -804,7 +804,7 @@ impl<'a> Occurrences<'a> {
                         pending_predicates.push(inner);
                     }
                     Predicate::And(inner) | Predicate::Or(inner) => {
-                        pending_predicates.extend(inner);
+                        pending_predicates.extend(inner.iter());
                     }
                     Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
                         pending_predicates.extend([&**left, &**right]);
@@ -1077,6 +1077,7 @@ impl Drop for PathNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     fn term_exhausted(limit: usize) -> BackendDiagnostic {
         BackendDiagnostic::SimplificationBudgetExhausted {
@@ -1203,7 +1204,7 @@ mod tests {
             })
             .1
         };
-        let x_only = Predicate::Not(Box::new(Predicate::Ceil(x.clone())));
+        let x_only = Predicate::Not(Arc::new(Predicate::Ceil(x.clone())));
         assert_eq!(
             entry(Some(x_only)),
             [term_exhausted(1), term_exhausted(2), term_exhausted(4)]
@@ -1528,7 +1529,7 @@ mod tests {
             equals("Eq#VarY", "VarZ"),
             equals("Eq#VarW!apart2", "Rule#X!3"),
             equals("Eq#VarZ", "Eq#VarY"),
-            Predicate::Exists(variable("Eq#VarB"), Box::new(equals("Eq#VarB", "VarZ"))),
+            Predicate::Exists(variable("Eq#VarB"), Arc::new(equals("Eq#VarB", "VarZ"))),
         ];
         let listed = [
             variable("Eq#VarY"),
@@ -1560,7 +1561,7 @@ mod tests {
             equals("Eq#VarY", "Eq-hVarY"),
             Predicate::Exists(
                 variable("Eq-hVarY-bapart0"),
-                Box::new(equals("Eq-hVarY-bapart0", "Eq#VarY")),
+                Arc::new(equals("Eq-hVarY-bapart0", "Eq#VarY")),
             ),
         ];
         let (printable, rule_variables) = printable_condition(&predicates, &[variable("Eq#VarY")]);
@@ -1574,7 +1575,7 @@ mod tests {
                 equals("Eq#VarY!apart1", "Eq-hVarY"),
                 Predicate::Exists(
                     variable("Eq-hVarY-bapart0"),
-                    Box::new(equals("Eq-hVarY-bapart0", "Eq#VarY!apart1")),
+                    Arc::new(equals("Eq-hVarY-bapart0", "Eq#VarY!apart1")),
                 ),
             ]
         );
