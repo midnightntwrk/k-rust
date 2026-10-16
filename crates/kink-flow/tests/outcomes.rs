@@ -1785,3 +1785,88 @@ id = "choice-differs"
         assert_eq!(record["record_sha256"], json!(sealed.to_string()));
     }
 }
+
+/// Re-pin R0c deliverable 3 (decision 2, mutant-wide), through kink-flow's first-kill search:
+/// the mutation `I +Int 0` of a `total` function's equation contradicts the claim on
+/// `tdiv(0)` and distinguishes on `tdiv(1)`. With the contradicting program first the mutation
+/// is `unknown`, reason `contradicted-claim`, and writes no outcome record, so no later command
+/// takes a `killed` record for it (before R0c it was killed by `kill` and its record cached).
+/// With the killing program first the contradicting one never runs, and the kill stands: the
+/// early-stop residual.
+#[test]
+fn a_contradicted_claim_leaves_no_kill_or_record() {
+    let definition = r"module CONTRA-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= tdiv(Int) [symbol(tdiv)]
+                | val(Int) [symbol(val)]
+  syntax Int ::= td(Int) [function, total, symbol(td)]
+endmodule
+
+module CONTRA
+  imports CONTRA-SYNTAX
+  imports INT
+  configuration <k> $PGM:Prog </k>
+  rule [tdeq]: td(I) => 10 /Int (I +Int 1)
+  rule [tdiv]: <k> tdiv(I) => val(td(I)) </k>
+endmodule
+";
+    let mutations = r#"[[mutation]]
+id = "denominator"
+  [[mutation.edit]]
+  rule = "tdeq"
+  find = "I +Int 1"
+  replace = "I +Int 0"
+"#;
+    for (order, status, killer, reason) in [
+        (
+            ["contra", "kill"],
+            "unknown",
+            None,
+            Some("contradicted-claim"),
+        ),
+        (["kill", "contra"], "killed", Some("kill"), None),
+    ] {
+        let dir = scratch(&format!("contradicted-{}", order[0]));
+        fs::write(dir.join("contra.k"), definition).unwrap();
+        let programs = order
+            .iter()
+            .map(|id| {
+                format!(
+                    "[[program]]\nid = \"{id}\"\ntext = \"tdiv({})\"\n",
+                    if *id == "contra" { 0 } else { 1 }
+                )
+            })
+            .collect::<String>();
+        fs::write(
+            dir.join("FLOW.toml"),
+            format!(
+                "[spec]\nentry = \"contra.k\"\nmain_module = \"CONTRA\"\nsyntax_module = \
+                 \"CONTRA-SYNTAX\"\n\n{programs}"
+            ),
+        )
+        .unwrap();
+        fs::write(dir.join("MUTATIONS.toml"), mutations).unwrap();
+        let manifest = dir.join("FLOW.toml");
+        let (document, ok) = search(&manifest, &dir.join("MUTATIONS.toml"), &[]);
+        assert!(ok, "{document:#}");
+        let row = mutation(&document, "denominator");
+        assert_eq!(
+            (
+                row["status"].as_str(),
+                row["killer"].as_str(),
+                row["reason"].as_str()
+            ),
+            (Some(status), killer, reason),
+            "{order:?} {row:#}"
+        );
+        if kink_native::execution::SolverProfile::BUILD
+            == kink_native::execution::SolverProfile::NoZ3
+        {
+            assert_eq!(
+                outcome_file(&manifest, &document, "denominator").exists(),
+                status == "killed",
+                "{order:?}"
+            );
+        }
+    }
+}

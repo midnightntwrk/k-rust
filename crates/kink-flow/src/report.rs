@@ -332,13 +332,15 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
         }
         ExecutionFailureKind::ContradictedClaim => {
             "contradicted-claim: the mutant's run takes an undefined step that falsifies a \
-             `total` or `preserves-definedness` claim, so the mutant is inconsistent there"
+             `total` or `preserves-definedness` claim, so the mutant is inconsistent and no \
+             program kills it"
                 .into()
         }
         ExecutionFailureKind::ImplementationChosenHook => {
             "implementation-chosen-hook: the mutant uses a hook whose value k-rust chooses \
              where the definition leaves it open (choice, map and set listing order, \
-             mixed-format or NaN-sign Float, String2Bytes)"
+             mixed-format or NaN-sign Float, and the hooks domains.md leaves to the backend or \
+             the environment, such as String2Bytes, Bytes2String, Base2String or I/O)"
                 .into()
         }
         ExecutionFailureKind::AllowanceRefusal => {

@@ -31,7 +31,10 @@
 //!   implementation-chosen hook in its side's definition or initial state, an allowance refusal)
 //!   is `SideRun::Failed` with that exclusion, so no slot of its test is compared: a mutant's is
 //!   `Unknown`, and a baseline's makes admission refuse the campaign (`BaselineOracleFailed`).
-//!   The check runs whenever a run is judged, a baseline run a session reuses included.
+//!   The check runs whenever a run is judged, a baseline run a session reuses included, which
+//!   is judged under the facts of the load that produced it as well as the current call's
+//!   ([`BaselineSession`]). A contradicted claim in any run of a mutant also leaves no kill of
+//!   another of its tests standing ([`crate::contradicts_a_claim`]).
 //!
 //! A test whose initial state has an element or set variable is symbolic: its verdict is a
 //! claim about every ground instance, and k-rust's answer supports that claim only while the
@@ -408,13 +411,35 @@ struct BaselineKey {
     profile: SolverProfile,
 }
 
-/// A stored live baseline run: its classifier-independent part, exactly as
-/// [`Runtime::execute`] returned it (the adapter's execution and the run cache with its rule
-/// coverage and recording). Its evidence is not stored: a hit judges the stored execution
-/// again with the requesting campaign's classifier (flow F-16).
+/// A stored live baseline run, under its key.
 struct StoredBaseline {
     key: BaselineKey,
-    executed: Executed,
+    run: StoredRun,
+}
+
+/// What a session keeps of one live baseline run (re-pin R0c, R0b review 1 major 1). A run is
+/// judged with the exclusions of the load it executed on, and every call prepares its own
+/// baseline `Runtime`, so its own load: a hit must not judge a stored run against the requesting
+/// call's load alone.
+enum StoredRun {
+    /// A run whose producing load had no definition-level exclusion: its classifier-independent
+    /// part, exactly as [`Runtime::execute`] returned it (the adapter's execution and the run
+    /// cache with its rule coverage and recording), and the exclusion facts of the load that
+    /// produced it. Its evidence is not stored: a hit judges the stored execution again with the
+    /// requesting campaign's classifier (flow F-16), under the producing load's facts combined
+    /// with the requesting call's ([`DefinitionExclusions::combined`]).
+    Executed {
+        executed: Box<Executed>,
+        load: DefinitionExclusions,
+    },
+    /// A run whose producing load was excluded ([`DefinitionExclusions::definition_exclusion`]:
+    /// a load stack stop, an implementation-chosen hook): the execution is not kept, so it can
+    /// never be judged again on another load. A hit is that exclusion, as the live run was; the
+    /// run cache (coverage and recording, never evidence) is kept for the call's recording.
+    Excluded {
+        exclusion: Exclusion,
+        cache: Box<RunCache>,
+    },
 }
 
 /// How a run ended, as a [`BaselineSession`] records it (flow F-13). A recording never enters
@@ -580,6 +605,15 @@ impl CallRecording {
 /// baseline stopped by a bound (for example `Failed(TimeLimit)`) is stored and reused like any
 /// other run, and admission refuses it again.
 ///
+/// Every call prepares its own baseline `Runtime`, so its own load of the definition, and a load
+/// can count a stack stop on one call and none on the next (finding A-08). A run is therefore
+/// stored with the exclusion facts of the load that produced it ([`StoredRun`]) and a hit is
+/// judged under those facts combined with the requesting call's (re-pin R0c, R0b review 1 major
+/// 1): load stack stops, the implementation-chosen census, the role-rooted axioms and the
+/// `preserves-definedness` ids, everything [`Runtime::judge`] reads from a load. A run whose own
+/// load had a definition-level exclusion is not stored at all: only that exclusion is, and a hit
+/// is the exclusion again, on every later call of the session.
+///
 /// Reuse rests on k-rust execution determinism, the premise replay already rests on: the same
 /// compiled definition, module, budget and state give the same run. For such campaigns no state
 /// a baseline run leaves in its `Runtime` is read later in the call except through what the
@@ -712,9 +746,21 @@ impl<'v> BaselineSession<'v> {
             profile: SolverProfile::BUILD,
         };
         if let Some(stored) = self.runs.iter().find(|stored| stored.key == key) {
-            // The classifier-dependent part of the run, again (flow F-16).
-            let evidence = runtime.judge(campaign, test, &stored.executed);
-            let cache = stored.executed.cache.clone();
+            let (evidence, cache) = match &stored.run {
+                // The classifier-dependent part of the run, again (flow F-16), under the facts of
+                // the load that produced it and of this call's load (re-pin R0c).
+                StoredRun::Executed { executed, load } => (
+                    runtime.judge_on(campaign, test, executed, Some(load)),
+                    executed.cache.clone(),
+                ),
+                StoredRun::Excluded { exclusion, cache } => (
+                    TestEvidence {
+                        test_id: test.id.clone(),
+                        run: SideRun::Failed((*exclusion).into()),
+                    },
+                    (**cache).clone(),
+                ),
+            };
             self.reused += 1;
             self.record_baseline(&cache, true);
             return (evidence, cache);
@@ -723,7 +769,18 @@ impl<'v> BaselineSession<'v> {
         let cache = executed.cache.clone();
         self.record_baseline(&cache, false);
         self.live += 1;
-        self.runs.push(StoredBaseline { key, executed });
+        // A run of an excluded load is never stored for reuse: only its exclusion is.
+        let run = match runtime.exclusions.definition_exclusion() {
+            Some(exclusion) => StoredRun::Excluded {
+                exclusion,
+                cache: Box::new(executed.cache),
+            },
+            None => StoredRun::Executed {
+                executed: Box::new(executed),
+                load: runtime.exclusions.clone(),
+            },
+        };
+        self.runs.push(StoredBaseline { key, run });
         (evidence, cache)
     }
 
@@ -1101,7 +1158,11 @@ struct MutantExecution {
 /// report it where `FirstKill` reports the kill. This is structural: the failure comes only
 /// from preparing the mutant, before any test runs, and [`run_tests`] has no way to report
 /// one. A later mutant-scope failure must end the mutant's tests under both schedules alike,
-/// or make `FirstKill` run every test.
+/// or make `FirstKill` run every test. The one test outcome that also overrides a kill, a
+/// contradicted claim (re-pin decision 2, [`crate::contradicts_a_claim`]), is read only from the
+/// tests a schedule runs: under `FirstKill` a contradiction in a test after the first kill is
+/// not seen, so `Full` can report `Unknown` where `FirstKill` reports the kill (the documented
+/// early-stop residual).
 fn run_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
@@ -1669,7 +1730,35 @@ impl Runtime {
         test: &TestCase,
         executed: &Executed,
     ) -> TestEvidence {
-        let collections_trusted = self.exclusions.collections_trusted();
+        self.judge_on(campaign, test, executed, None)
+    }
+
+    /// [`Runtime::judge`] of an execution that ran on another load of this side's definition,
+    /// whose exclusion facts are `producing` (a run a [`BaselineSession`] stored in an earlier
+    /// call; `None` for this runtime's own run). Everything the judgement reads from a load is
+    /// read under both loads' facts at once ([`DefinitionExclusions::combined`]): the load stack
+    /// stops, the implementation-chosen census, the role-rooted axioms (collection terminals)
+    /// and the `preserves-definedness` ids. The decider's definition is this runtime's: a
+    /// session stores only runs of loads without a definition-level exclusion, and a load
+    /// without stack stops is a function of the compiled definition (finding A-08), so the two
+    /// loads give the same definition whenever neither is excluded, and the combined facts
+    /// exclude the run otherwise.
+    fn judge_on(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        executed: &Executed,
+        producing: Option<&DefinitionExclusions>,
+    ) -> TestEvidence {
+        let combined;
+        let exclusions = match producing {
+            Some(producing) => {
+                combined = self.exclusions.combined(producing);
+                &combined
+            }
+            None => &self.exclusions,
+        };
+        let collections_trusted = exclusions.collections_trusted();
         let run = match &executed.execution {
             Err(failure) => SideRun::Failed(failure.into()),
             Ok(execution) if execution.timed_out() => {
@@ -1704,7 +1793,7 @@ impl Runtime {
                 // (re-pin R0b): an excluded run gives no side to any slot, on the baseline as on
                 // a mutant, live or reused from a baseline session.
                 Ok((Ok(bridged), state_exclusion)) => {
-                    match self.exclusions.run_exclusion(execution).or(state_exclusion) {
+                    match exclusions.run_exclusion(execution).or(state_exclusion) {
                         Some(exclusion) => SideRun::Failed(exclusion.into()),
                         None => SideRun::Sides {
                             sides: test
@@ -2398,7 +2487,10 @@ mod tests {
                             budget: campaign.budget,
                             profile: SolverProfile::BUILD,
                         },
-                        executed,
+                        run: StoredRun::Executed {
+                            executed: Box::new(executed),
+                            load: DefinitionExclusions::default(),
+                        },
                     });
                     let (evidence, _) = session.baseline_run(&mut runtime, &campaign, test, true);
                     assert_eq!(session.reused_runs(), 1);
@@ -2430,6 +2522,328 @@ mod tests {
                     runtime.judge(&campaign, test, &clean).run,
                     SideRun::Failed(ExecutionFailureKind::ImplementationChosenHook)
                 );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// One state-oracle test `t` of `program` (sort `SortProg` unless `sort` says otherwise) on
+    /// the fixture `file`, module `module`, run through `body` with its validator, compiled side
+    /// and campaign.
+    fn with_one_test(
+        file: &'static str,
+        module: &'static str,
+        program: Pattern,
+        sort: &'static str,
+        body: impl FnOnce(&NativeValidator, &ValidatedDefinition, &Campaign<'_>) + Send + 'static,
+    ) {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || {
+                let validator = NativeValidator::bind(
+                    input_test_support::load_path(
+                        &std::path::Path::new(input_test_support::DIR).join(file),
+                        module,
+                    ),
+                    k_rust::kompile::CompileOptions::default(),
+                );
+                let compiled = validator.compile_baseline().unwrap();
+                let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
+                    &|_| ExecutionTerminalKind::Normal;
+                let tests = [TestCase {
+                    id: "t".into(),
+                    initial_state: input_test_support::initial_state(program, sort),
+                    oracles: vec![
+                        OracleDeclaration::new(
+                            CrashPolicy::Reject,
+                            Projection::State(StateProjection::WholeTerm),
+                        )
+                        .unwrap(),
+                    ],
+                }];
+                let campaign = Campaign {
+                    validator: &validator,
+                    module,
+                    observation: &[],
+                    classify,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: None,
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                body(&validator, &compiled, &campaign);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// Re-pin R0c deliverable 1 (R0b review 1 major 1, the reviewer's probe): every call prepares
+    /// its own baseline `Runtime`, and so its own load. A baseline run whose load counted a stack
+    /// stop is excluded in its call; a later call whose own load is clean must not admit it.
+    /// Before R0c the session stored the run and judged it again on call 2's clean load alone,
+    /// which admitted it (`SideRun::Sides`, `Accepted`). Now only its exclusion is stored, and
+    /// call 2's request is answered with it.
+    #[test]
+    fn a_reused_baseline_of_a_stopped_load_is_refused() {
+        let z = || input_test_support::app("Lblz", vec![]);
+        let program = input_test_support::app(
+            "Lblcounter",
+            vec![z(), input_test_support::app("Lbls", vec![z()])],
+        );
+        with_one_test(
+            "counter.k",
+            "COUNTER",
+            program,
+            "SortCounter",
+            |validator, compiled, campaign| {
+                let test = &campaign.tests[0];
+                let mut session = BaselineSession::new(validator);
+                // Call 1: its load counted a stack stop.
+                let mut first = Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                first.exclusions.load_stack_stops = 1;
+                let (e1, _) = session.baseline_run(&mut first, campaign, test, true);
+                assert_eq!(e1.run, SideRun::Failed(ExecutionFailureKind::LoadStackStop));
+                // Call 2: a clean load; the request is answered from the session, with call 1's
+                // exclusion, and admission refuses it.
+                let mut second = Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                assert_eq!(second.exclusions.definition_exclusion(), None);
+                let (e2, _) = session.baseline_run(&mut second, campaign, test, true);
+                assert_eq!(
+                    (
+                        session.live_runs(),
+                        session.reused_runs(),
+                        session.stored_runs()
+                    ),
+                    (1, 1, 1)
+                );
+                assert_eq!(e2.run, SideRun::Failed(ExecutionFailureKind::LoadStackStop));
+                assert_eq!(
+                    admit(campaign.tests, std::slice::from_ref(&e2)),
+                    BaselineAdmission::OracleFailed
+                );
+                // The same request on a fresh session and call 2's clean load is evidence.
+                let (fresh, _) =
+                    BaselineSession::new(validator).baseline_run(&mut second, campaign, test, true);
+                assert!(
+                    matches!(fresh.run, SideRun::Sides { .. }),
+                    "{:?}",
+                    fresh.run
+                );
+            },
+        );
+    }
+
+    /// Re-pin R0c deliverable 1: a stored baseline run is judged under the load facts of the
+    /// load that produced it combined with the requesting call's. Call 1's load holds an axiom
+    /// rooted at a collection role symbol (finding C-10, set here as the load would report it),
+    /// so the run's List terminal `keys(ListItem(3))` has no value; call 2's load is clean, and
+    /// the reused run still has none. The same execution judged on call 2's load alone is a value.
+    #[test]
+    fn a_reused_baseline_is_judged_under_its_producing_load() {
+        let program = input_test_support::app("Lblstart", vec![input_test_support::int(3)]);
+        with_one_test(
+            "r0b/keysfree.k",
+            "KEYSFREE",
+            program,
+            "SortProg",
+            |validator, compiled, campaign| {
+                let test = &campaign.tests[0];
+                let mut session = BaselineSession::new(validator);
+                let mut first = Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                first.exclusions.role_rooted_axioms = vec!["a role-rooted equation".into()];
+                let unknown = SideRun::Sides {
+                    sides: vec![OracleSide::Unknown],
+                };
+                let (e1, _) = session.baseline_run(&mut first, campaign, test, true);
+                assert_eq!(e1.run, unknown);
+                let mut second = Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                assert!(second.exclusions.collections_trusted());
+                let (e2, _) = session.baseline_run(&mut second, campaign, test, true);
+                assert_eq!((session.live_runs(), session.reused_runs()), (1, 1));
+                assert_eq!(e2.run, unknown);
+                let StoredRun::Executed { executed, .. } = &session.runs[0].run else {
+                    panic!("a clean-census load's run is stored")
+                };
+                assert!(matches!(
+                    second.judge(campaign, test, executed).run,
+                    SideRun::Sides { ref sides } if matches!(sides.as_slice(), [OracleSide::Normal(_)])
+                ));
+            },
+        );
+    }
+
+    /// Re-pin R0c deliverable 4 (R0b review 1 minor; finding A-12): `run_tests` passes the
+    /// mutant's own runtime to `step_sides`, so the mutant's leaves are admitted, and their
+    /// feasibility and relations decided, on the mutant's definition. `r0c/a12partial.k` and
+    /// `r0c/a12total.k` differ only in `mydiv`'s `total` (a hooked division, so definedness is
+    /// `Y =/= 0` where it is partial). The symbolic test `seq(go(X), halt)` leaves on the total
+    /// side `done(X) /\ mydiv(X, 0) = 1`. Admitted under the partial (baseline) definition, it
+    /// gains `\ceil(mydiv(X, 0))`, which Z3 refutes: the leaf would be discarded and the `went`
+    /// pattern side would be Unknown. Admitted under its own definition it is feasible, the step
+    /// is witnessed, and the mutant's side is `Match`. Without a solver neither is decided. The
+    /// baseline's own side is Unknown (its remainder's feasibility is not exactly decided), so
+    /// the slot is Unknown either way: the wiring shows in the mutant's evidence.
+    #[test]
+    fn run_tests_decides_mutant_leaves_on_the_mutant_definition() {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                use input_test_support as support;
+                let dir = std::path::Path::new(support::DIR).join("r0c");
+                let compile = |file: &str| {
+                    NativeValidator::bind(
+                        support::load_path(&dir.join(file), "A12"),
+                        k_rust::kompile::CompileOptions::default(),
+                    )
+                };
+                let base = compile("a12partial.k");
+                let base_side = base.compile_baseline().unwrap();
+                let total_side = compile("a12total.k").compile_baseline().unwrap();
+                let specs = vec![StepEventSpec {
+                    constructor: "went".into(),
+                    pre: support::k_config(
+                        support::app(
+                            "Lblseq",
+                            vec![
+                                support::app("Lblgo", vec![support::var("A", "SortInt")]),
+                                support::var("P", "SortProg"),
+                            ],
+                        ),
+                        "SortProg",
+                        "R",
+                        "C",
+                    ),
+                    post: None,
+                    payload: vec!["A".into()],
+                }];
+                let vocabulary = StepObservation::vocabulary_of(&specs).unwrap();
+                let plan = kink_pattern::PatternPlan::new(
+                    &vocabulary,
+                    Vec::new(),
+                    vec![kink_pattern::PatternArm {
+                        atoms: vec![kink_pattern::Atom {
+                            constructor: "went".into(),
+                            payload: Vec::new(),
+                        }],
+                        relations: Vec::new(),
+                    }],
+                    None,
+                )
+                .unwrap();
+                let tests = [TestCase {
+                    id: "t".into(),
+                    initial_state: support::initial_state(
+                        support::app(
+                            "Lblseq",
+                            vec![
+                                support::app("Lblgo", vec![support::var("X", "SortInt")]),
+                                support::app("Lblhalt", vec![]),
+                            ],
+                        ),
+                        "SortProg",
+                    ),
+                    oracles: vec![
+                        OracleDeclaration::new(
+                            CrashPolicy::CompareIdentity,
+                            Projection::Pattern {
+                                plan,
+                                with_bindings: false,
+                            },
+                        )
+                        .unwrap(),
+                    ],
+                }];
+                let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
+                    &|_| ExecutionTerminalKind::Normal;
+                let campaign = Campaign {
+                    validator: &base,
+                    module: "A12",
+                    observation: &specs,
+                    classify,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: None,
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                let test = &tests[0];
+                let mut runtime =
+                    Runtime::prepare(&campaign, &base_side).unwrap_or_else(|_| panic!());
+                let observation =
+                    StepObservation::new(&mut runtime.backend, specs.clone()).unwrap();
+                // The baseline side, as `run_campaign_multi_with` forms it.
+                let (mut baseline, cache) = runtime.run(&campaign, test);
+                let patterns =
+                    runtime.step_sides(&campaign, test, &observation, cache.stepped.as_ref(), None);
+                replace_patterns(test, &mut baseline, Some(&patterns));
+                let unknown = SideRun::Sides {
+                    sides: vec![OracleSide::Unknown],
+                };
+                assert_eq!(baseline.run, unknown);
+                let coverage = TestCoverage::failed("t");
+                let paired = BTreeMap::from([(
+                    "t",
+                    PairedTest {
+                        test,
+                        baseline: &baseline,
+                        coverage: &coverage,
+                        symbolic: true,
+                    },
+                )]);
+                // The total definition as the mutant side.
+                let mut sides = MutantSides {
+                    patched: Runtime::prepare(&campaign, &total_side).unwrap_or_else(|_| panic!()),
+                    symbolic: SymbolicSide::Patched,
+                    patched_edit: CompiledEdit::between(&base_side, &total_side),
+                    symbolic_edit: None,
+                };
+                let mut observations = BaselineObservations {
+                    runtime: &mut runtime,
+                    observation,
+                    evidence: None,
+                };
+                let (plans, evidence, _) = run_tests(
+                    &campaign,
+                    &mut sides,
+                    &paired,
+                    &["t".to_owned()],
+                    ScheduleMode::Full,
+                    &mut observations,
+                );
+                assert_eq!(
+                    plans[0].run,
+                    TestRun::Compared(vec![OracleOutcome::Unknown])
+                );
+                let decided = SideRun::Sides {
+                    sides: vec![OracleSide::Normal(OracleValue::Pattern(
+                        PatternValue::Match { bindings: None },
+                    ))],
+                };
+                if SolverProfile::BUILD == SolverProfile::Z3 {
+                    assert_eq!(evidence[0].run, decided);
+                    // The same mutant run decided on the baseline's definition: its leaf is
+                    // refuted and the side is Unknown.
+                    let (_, mutant_cache) = sides.patched.run(&campaign, test);
+                    assert_eq!(
+                        observations.runtime.step_sides(
+                            &campaign,
+                            test,
+                            &observations.observation,
+                            mutant_cache.stepped.as_ref(),
+                            None,
+                        ),
+                        [OracleSide::Unknown]
+                    );
+                } else {
+                    assert_eq!(evidence[0].run, unknown);
+                }
             })
             .unwrap()
             .join()

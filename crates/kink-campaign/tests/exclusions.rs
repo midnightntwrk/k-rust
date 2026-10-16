@@ -256,3 +256,74 @@ fn an_excluded_baseline_is_refused() {
         .expect("a definition that only imports MAP is admitted");
     });
 }
+
+/// Re-pin R0c deliverable 3 (decision 2, mutant-wide): a theory whose claim is false on one input
+/// has no model, so a kill by another test of the same mutant is vacuous. `TDIV.tdeq` with
+/// `I +Int 0` distinguishes on `tdiv(1)` (`val(10)` against the baseline's `val(5)`) and
+/// contradicts `td`'s `total` claim on `tdiv(0)`. Under `Full`, and under `FirstKill` when the
+/// contradicting test runs first, the mutant is `Unknown`, never `Killed` (before R0c it was
+/// killed by `tdiv(1)`). Under `FirstKill` with the killing test first the contradicting test
+/// never runs and the kill stands: the documented early-stop residual
+/// (`kink_campaign::contradicts_a_claim`).
+#[test]
+fn a_contradicted_claim_leaves_no_kill_standing() {
+    on_a_big_stack(|| {
+        let validator = validator("tdiv");
+        let baseline = validator.baseline();
+        let generation = one_to_zero(baseline, "TDIV.tdeq");
+        let kill = || test("kill", support::app("Lbltdiv", vec![support::int(1)]));
+        let contra = || test("contra", support::app("Lbltdiv", vec![support::int(0)]));
+        let distinguish = TestRun::Compared(vec![
+            kink_campaign::OracleOutcome::Agree,
+            kink_campaign::OracleOutcome::Distinguish,
+        ]);
+        let contradicted = TestRun::Failed(ExecutionFailureKind::ContradictedClaim);
+        for (tests, schedule, runs, status) in [
+            (
+                [kill(), contra()],
+                ScheduleMode::Full,
+                vec![distinguish.clone(), contradicted.clone()],
+                MutantStatus::Unknown,
+            ),
+            (
+                [contra(), kill()],
+                ScheduleMode::FirstKill,
+                vec![contradicted.clone(), distinguish.clone()],
+                MutantStatus::Unknown,
+            ),
+            (
+                [kill(), contra()],
+                ScheduleMode::FirstKill,
+                vec![distinguish.clone(), TestRun::SkippedAfterKill],
+                MutantStatus::Killed,
+            ),
+        ] {
+            let campaign = campaign(&validator, "TDIV", &tests);
+            let run = run_campaign(&campaign, &generation, schedule).unwrap();
+            let [mutant] = run.mutants.as_slice() else {
+                panic!("one mutant")
+            };
+            let ids = tests.iter().map(|t| t.id.as_str()).collect::<Vec<_>>();
+            assert_eq!(
+                mutant
+                    .plan
+                    .tests
+                    .iter()
+                    .map(|t| t.run.clone())
+                    .collect::<Vec<_>>(),
+                runs,
+                "{ids:?} {schedule:?}"
+            );
+            assert_eq!(mutant.report.status, status, "{ids:?} {schedule:?}");
+            assert_eq!(
+                mutant.report.killing_test_ids,
+                if status == MutantStatus::Killed {
+                    vec!["kill".to_owned()]
+                } else {
+                    Vec::new()
+                },
+                "{ids:?} {schedule:?}"
+            );
+        }
+    });
+}

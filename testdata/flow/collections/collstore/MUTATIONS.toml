@@ -37,8 +37,8 @@ id = "f0-value"
 id = "bytes-key-doubled"
   [[mutation.edit]]
   rule = "bytesKey"
-  find = "String2Bytes(S)"
-  replace = "String2Bytes(S +String S)"
+  find = "encodeBytes(\"UTF-8\", S)"
+  replace = "encodeBytes(\"UTF-8\", S +String S)"
 [[mutation]]
 id = "nest-value"
   [[mutation.edit]]

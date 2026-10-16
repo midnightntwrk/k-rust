@@ -859,8 +859,12 @@ fn audit_so_prestart_cancel_is_timeout_on_every_adapter_run() {
 /// so the condition holds, `f` applies, no leaf carries `RuleConditionFailed`, and the mutant's
 /// paths are complete `Terminal` leaves whose final states equal the baseline's (both `halt`):
 /// the mutant agrees here, nothing distinguishes. The binary64 destination is k-rust's choice
-/// (decision 1: R0b refuses comparisons that reference such hooks); `RuleConditionFailed`
-/// handling stays pinned generically (any leaf diagnostic makes the path incomplete).
+/// (decision 1: R0b refuses comparisons that reference such hooks).
+///
+/// Re-pin R0c (R0a review 1 minor): `r0c/rcfdisj.k` produces `RuleConditionFailed` again at
+/// 501f18b9, through a condition whose simplification meets a disjunctive equation, so the
+/// test's claim is exercised again: every leaf carrying it gives an incomplete `BackendLimit`
+/// path in both bridges, and none is discarded.
 #[test]
 fn audit_so_rule_condition_failed_leaf_is_never_complete() {
     use k_rust::backend::BackendDiagnosticOutput;
@@ -1008,6 +1012,119 @@ fn audit_so_rule_condition_failed_leaf_is_never_complete() {
             "{program}: the mutant agrees"
         );
     }
+
+    // Re-pin R0c (R0a review 1 minor): `r0c/rcfdisj.k` again produces RuleConditionFailed at
+    // 501f18b9 (a condition whose simplification meets a disjunctive equation). Every leaf of
+    // `run(2)` and `done(f(2))` carries it, both bridges give only incomplete `BackendLimit`
+    // paths, and no leaf is discarded: a failed condition never makes a complete leaf.
+    let validator = NativeValidator::bind(
+        support::load_path(
+            &std::path::Path::new(support::DIR).join("r0c/rcfdisj.k"),
+            "RCFDISJ",
+        ),
+        CompileOptions::default(),
+    );
+    let side = validator.compile_baseline().expect("rcfdisj.k compiles");
+    let sorts = symbol_sorts(&side);
+    let two = Pattern::DomainValue {
+        sort: kore_sort("SortInt"),
+        value: "2".into(),
+    };
+    for program in [
+        programs_rcf_run(&two),
+        kore_application(
+            "Lbldone",
+            Vec::new(),
+            vec![kore_application("Lblf", Vec::new(), vec![two.clone()])],
+        ),
+    ] {
+        let state = support::initial_state(program.clone(), "SortProg");
+        let mut backend = Backend::new(
+            &side.artifacts().definition_kore,
+            "RCFDISJ",
+            BackendOptions::default(),
+        )
+        .expect("backend");
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        let execution = adapter
+            .execute(&mut backend, &state, BUDGET)
+            .expect("execution adapts");
+        let stepped = adapter
+            .execute_steps(&mut backend, &state, BUDGET)
+            .expect("execution adapts")
+            .expect("step run");
+        let failed = |leaf: &kink_native::execution::AdaptedLeaf| {
+            leaf.diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    diagnostic,
+                    BackendDiagnosticOutput::RuleConditionFailed { .. }
+                )
+            })
+        };
+        let context = BridgeContext {
+            test_id: "rcf",
+            classify: &normal,
+            sorts: &sorts,
+        };
+        let observation = StepObservation::new(&mut backend, Vec::new()).expect("no declaration");
+        let (event_free, steps) = backend
+            .with_solver(None, |definition, solver| {
+                let decider =
+                    ObservationDecider::new(definition, solver, TestInitialState::of_test(&state));
+                Ok::<_, k_rust::backend::BackendError>((
+                    kink_native::bridge::paths_from_execution(&execution, &context, &|term| {
+                        decider.definition_independent(term)
+                    })
+                    .expect("bridges"),
+                    paths_from_steps(&context, &stepped, &observation, &decider)
+                        .expect("steps bridge"),
+                ))
+            })
+            .expect("decider");
+        let rows = event_free
+            .paths
+            .iter()
+            .chain(&steps.paths)
+            .map(|path| (path.complete, path.stop))
+            .collect::<Vec<_>>();
+        // Measured: `run(2)` steps to `done(f(2))` with `f` unapplied, a Trivial and a Stuck
+        // leaf, in both profiles; `done(f(2))` ends Indeterminate without a solver and Stuck
+        // with Z3. The failure is `ConflictingResults` over `pick`'s two alternatives.
+        assert_eq!(
+            execution
+                .leaves()
+                .iter()
+                .map(|leaf| (leaf.halt, failed(leaf)))
+                .collect::<Vec<_>>(),
+            if program == programs_rcf_run(&two) {
+                vec![(HaltClass::Trivial, true), (HaltClass::Stuck, true)]
+            } else if SolverProfile::BUILD == SolverProfile::Z3 {
+                vec![(HaltClass::Stuck, true)]
+            } else {
+                vec![(HaltClass::Indeterminate, true)]
+            },
+            "{program:?}"
+        );
+        assert!(
+            execution
+                .leaves()
+                .iter()
+                .all(|leaf| kink_native::bridge::discarded(leaf).is_none())
+        );
+        assert!(!rows.is_empty());
+        assert!(
+            rows.iter()
+                .all(|row| *row == (false, PathStop::BackendLimit)),
+            "{program:?}: {rows:?}"
+        );
+        assert_eq!(event_free.collection.stop, CollectionStop::BackendLimit);
+        assert_eq!(steps.collection.stop, CollectionStop::BackendLimit);
+    }
+}
+
+/// `run(value)` of `r0c/rcfdisj.k`.
+fn programs_rcf_run(value: &Pattern) -> Pattern {
+    kore_application("Lblrun", Vec::new(), vec![value.clone()])
 }
 
 /// Attack (f) of the k-rust 927b9ce6 intake (T-EXACT, T-DIAG): every `StopCause` and

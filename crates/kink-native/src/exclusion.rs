@@ -23,10 +23,15 @@
 //!   StateSet it is witness metadata, and closing the case there needs k-rust's flag (KINK-18).
 //! - [`Exclusion::ImplementationChosenHook`]: the definition references a hook for which k-rust
 //!   chooses a value the definition leaves open (re-pin decision 1, findings D-10, E-10, E-11):
-//!   kills are relative to the definition, not to k-rust's model of it. [`IMPLEMENTATION_CHOSEN_HOOKS`].
+//!   kills are relative to the definition, not to k-rust's model of it. The hooks are k-rust's
+//!   own list and those whose value `domains.md` leaves to the backend, the implementation or the
+//!   environment ([`IMPLEMENTATION_CHOSEN_HOOKS`], [`DOMAINS_OPEN_HOOKS`]).
 //! - [`Exclusion::AllowanceRefusal`]: a leaf reports a hook left unevaluated whose refusal reads
 //!   the process's memory allowance (Execute promise exclusion, findings A-07, B-02, B-07): the
 //!   result is a function of the host, not of the inputs a key names.
+//!
+//! A contradicted claim is also mutant-wide: kink-campaign's status fold never kills a mutant one
+//! of whose runs it reads is `ContradictedClaim` (re-pin R0c, `kink_campaign::contradicts_a_claim`).
 //!
 //! A definition that holds an axiom rooted at a collection role symbol is not excluded as a whole,
 //! but none of its collection terms is a terminal value (finding C-10,
@@ -47,14 +52,232 @@ use k_rust_backend::{
 
 use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass};
 
-/// The hooks for which k-rust 501f18b9 may compute a value the definition leaves open, exactly
-/// the hooks for which its `implementation_chosen_in` (`k-rust-backend/src/builtin.rs`) can
-/// return `Some`: the match arms (`MAP.keys_list`, `MAP.values`, `SET.set2list`, `MAP.choice`,
-/// `SET.choice`), the six Float operations `float::mixed_destination` reads (`BinaryOperation::of`)
-/// and `FLOAT.sign` (`float::nan_sign`); and `BYTES.string2bytes`, which leaves a code point above
-/// 255 unevaluated but read as defined by `total` (finding E-11). Pinned against the k-rust source
-/// by the kink-native test `implementation_chosen_hooks_are_k_rusts`.
-pub const IMPLEMENTATION_CHOSEN_HOOKS: [&str; 13] = [
+/// The hooks for which k-rust 501f18b9 says it may compute a value the definition leaves open,
+/// exactly the hooks for which its `implementation_chosen_in` (`k-rust-backend/src/builtin.rs`)
+/// can return `Some`: the match arms (`MAP.keys_list`, `MAP.values`, `SET.set2list`,
+/// `MAP.choice`, `SET.choice`), the six Float operations `float::mixed_destination` reads
+/// (`BinaryOperation::of`) and `FLOAT.sign` (`float::nan_sign`). Pinned against the k-rust
+/// source, and the source text of those functions by digest, by the kink-native test
+/// `implementation_chosen_hooks_are_k_rusts`.
+pub const K_RUST_IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
+    "MAP.keys_list",
+    "MAP.values",
+    "SET.set2list",
+    "MAP.choice",
+    "SET.choice",
+    "FLOAT.add",
+    "FLOAT.sub",
+    "FLOAT.mul",
+    "FLOAT.div",
+    "FLOAT.min",
+    "FLOAT.max",
+    "FLOAT.sign",
+];
+
+/// The hooks whose value k-rust's prelude text (`k-rust/builtin/domains.md` at 501f18b9) leaves
+/// to the backend, the implementation or the environment, beyond k-rust's own list: kink-side
+/// additions to decision 1's census (`BYTES.string2bytes` since re-pin R0b, finding E-11; the
+/// rest from re-pin R0c's sweep of domains.md, R0b review 1 major 2). Each is given with the
+/// domains.md lines and a phrase of them that says so; the kink-native test
+/// `domains_md_leaves_these_hook_values_open` checks every phrase against the file and pins the
+/// file's digest, so a re-pin sweeps it again.
+///
+/// - The pair `String2Bytes`/`Bytes2String` names no encoding (domains.md names one only for
+///   `encodeBytes`/`decodeBytes`, which take it as an argument, line 2012); k-rust reads each
+///   byte as the code point of the same number, "its chosen reading" (`bytes.rs:64-73`).
+/// - `Base2String`'s letter case and `Float2String`'s string are "determined by the backend";
+///   `Float2String` with a format is what `mpfr_printf` gives.
+/// - `RangeMap`'s `choice` is "arbitrarily chosen", and its `keys_list` and `values` state no
+///   order, as `Map`'s, which k-rust names.
+/// - `randInt`/`srandInt` are pseudorandom on concrete backends and uninterpreted on symbolic
+///   ones; the deprecated String hooks and the `K-REFLECTION` hooks that read the process or
+///   the environment are "largely unsupported"; and every I/O hook returns what "the underlying
+///   system call" gives (a `#read` may return "fewer characters than requested").
+///
+/// Not added, because domains.md fixes the value: `encodeBytes`/`decodeBytes` (a named
+/// encoding), the logging hooks (`IO.log`, `IO.logString`, `IO.traceTerm`, which return `.K`),
+/// `#sort` and `getsymbol` (read off the term), `Float2Int`, `replace` with a negative count and
+/// `memsetBytes` out of range (undefined there, which is no value; k-rust leaves them
+/// unevaluated), and the Float and `MInt` operations (IEEE 754 and two's-complement results).
+pub const DOMAINS_OPEN_HOOKS: &[(&str, &str, &str)] = &[
+    (
+        "BYTES.string2bytes",
+        "2089-2095",
+        "You can convert between a `Bytes` and a `String`",
+    ),
+    (
+        "BYTES.bytes2string",
+        "2089-2095",
+        "You can convert between a `Bytes` and a `String`",
+    ),
+    (
+        "STRING.base2string",
+        "1829-1831",
+        "returned by `Base2String` are upper or lowercase is determined by the backend",
+    ),
+    (
+        "STRING.float2string",
+        "1801-1804",
+        "by `Float2String` is determined by the backend",
+    ),
+    (
+        "STRING.floatFormat",
+        "1806-1810",
+        "is one which results directly from passing that `format` to `mpfr_printf`",
+    ),
+    (
+        "STRING.category",
+        "1877-1878",
+        "String hooks which are deprecated and only are supported",
+    ),
+    (
+        "STRING.directionality",
+        "1877-1878",
+        "String hooks which are deprecated and only are supported",
+    ),
+    (
+        "STRING.uuid",
+        "1877-1878",
+        "String hooks which are deprecated and only are supported",
+    ),
+    (
+        "INT.rand",
+        "1347-1349",
+        "on concrete backends, compute a pseudorandom integer",
+    ),
+    (
+        "INT.srand",
+        "1347-1349",
+        "on concrete backends, compute a pseudorandom integer",
+    ),
+    (
+        "RANGEMAP.choice",
+        "676-679",
+        "You can get an arbitrarily chosen key of a `RangeMap`",
+    ),
+    (
+        "RANGEMAP.keys_list",
+        "628-631",
+        "You can get a `List` of all the ranges in a `RangeMap`",
+    ),
+    (
+        "RANGEMAP.values",
+        "646-649",
+        "You can get a `List` of all values in a `RangeMap`",
+    ),
+    (
+        "KREFLECTION.configuration",
+        "2366-2368",
+        "unsupported in modern K",
+    ),
+    ("KREFLECTION.fresh", "2366-2368", "unsupported in modern K"),
+    ("KREFLECTION.getenv", "2366-2368", "unsupported in modern K"),
+    (
+        "KREFLECTION.kompiledDir",
+        "2366-2368",
+        "unsupported in modern K",
+    ),
+    (
+        "KREFLECTION.argv",
+        "2389-2390",
+        "meaningful only for the purposes of compilation to a binary",
+    ),
+    (
+        "KREFLECTION.printKORE",
+        "2366-2368",
+        "unsupported in modern K",
+    ),
+    (
+        "IO.open",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.tell",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.seek",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.seekEnd",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.getc",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.read",
+        "2548-2549",
+        "resulting read characters are returned, which may be fewer characters than",
+    ),
+    (
+        "IO.putc",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.write",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.close",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.lock",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.unlock",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.accept",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.shutdownWrite",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.time",
+        "2604-2605",
+        "You can get the current time in seconds",
+    ),
+    (
+        "IO.system",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.mkstemp",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+    (
+        "IO.remove",
+        "2413-2414",
+        "corresponding to the `errno` returned by the underlying system call",
+    ),
+];
+
+/// Decision 1's census hooks: [`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`] and the hooks of
+/// [`DOMAINS_OPEN_HOOKS`], in that order (the kink-native test
+/// `implementation_chosen_hooks_are_k_rusts` checks that it is exactly their union).
+pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "MAP.keys_list",
     "MAP.values",
     "SET.set2list",
@@ -68,6 +291,41 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: [&str; 13] = [
     "FLOAT.max",
     "FLOAT.sign",
     "BYTES.string2bytes",
+    "BYTES.bytes2string",
+    "STRING.base2string",
+    "STRING.float2string",
+    "STRING.floatFormat",
+    "STRING.category",
+    "STRING.directionality",
+    "STRING.uuid",
+    "INT.rand",
+    "INT.srand",
+    "RANGEMAP.choice",
+    "RANGEMAP.keys_list",
+    "RANGEMAP.values",
+    "KREFLECTION.configuration",
+    "KREFLECTION.fresh",
+    "KREFLECTION.getenv",
+    "KREFLECTION.kompiledDir",
+    "KREFLECTION.argv",
+    "KREFLECTION.printKORE",
+    "IO.open",
+    "IO.tell",
+    "IO.seek",
+    "IO.seekEnd",
+    "IO.getc",
+    "IO.read",
+    "IO.putc",
+    "IO.write",
+    "IO.close",
+    "IO.lock",
+    "IO.unlock",
+    "IO.accept",
+    "IO.shutdownWrite",
+    "IO.time",
+    "IO.system",
+    "IO.mkstemp",
+    "IO.remove",
 ];
 
 /// The hooks whose result size the process's memory allowance caps (k-rust `bytes.rs`, the only
@@ -278,6 +536,33 @@ impl DefinitionExclusions {
             &selected,
             &side.compile_options().builtin_source_prefixes,
         ))
+    }
+
+    /// The facts of two loads of one definition taken together, each exclusion holding when it
+    /// holds on either load (re-pin R0c): the load stack stops are added, and the census
+    /// references, the role-rooted axioms and the `preserves-definedness` ids are united. A run
+    /// produced on one load and judged on another is judged under this (a baseline run a
+    /// session reuses, kink-campaign `BaselineSession`).
+    #[must_use]
+    pub fn combined(&self, other: &Self) -> Self {
+        fn union<T: Clone + Ord>(left: &[T], right: &[T]) -> Vec<T> {
+            left.iter()
+                .chain(right)
+                .cloned()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect()
+        }
+        Self {
+            load_stack_stops: self.load_stack_stops.saturating_add(other.load_stack_stops),
+            implementation_chosen: union(&self.implementation_chosen, &other.implementation_chosen),
+            role_rooted_axioms: union(&self.role_rooted_axioms, &other.role_rooted_axioms),
+            preserves_definedness: self
+                .preserves_definedness
+                .union(&other.preserves_definedness)
+                .cloned()
+                .collect(),
+        }
     }
 
     /// The exclusion every run on this definition has, if any: a load stack stop first, then an

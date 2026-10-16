@@ -439,6 +439,15 @@ fn check_plan(
 /// distinguishing slot (killed), then error (including incomparable slots and
 /// failed infrastructure runs), timeout and unknown, and complete agreement
 /// (survived) only when nothing else was seen.
+///
+/// A contradicted claim is the exception to "a kill beats any inconclusive outcome" (re-pin
+/// decision 2, applied mutant-wide in R0c): when a test the fold reads is
+/// `Failed(ContradictedClaim)`, the mutant's theory has no model, so no distinction of any of
+/// its tests is evidence. Its status is then the fold with every distinguishing slot read as
+/// unknown (`Unknown`, or `Timeout`/`Error` when another test gave one), never `Killed`. Under
+/// `FirstKill` the fold reads the tests through the first kill, so a contradiction in a later
+/// test, which the runner never runs, is not seen: the early-stop residual
+/// ([`contradicts_a_claim`]).
 pub fn derive_mutant_report(
     plan: &MutantPlan,
     manifest: &[ManifestTest],
@@ -449,16 +458,26 @@ pub fn derive_mutant_report(
     let mut executed = Vec::new();
     let mut killing = Vec::new();
     let mut status = MutantStatus::Survived;
+    // The fold with every distinguishing slot read as unknown.
+    let mut without_kills = MutantStatus::Survived;
     for test in &plan.tests {
         if schedule == ScheduleMode::FirstKill && !killing.is_empty() {
             break;
         }
-        let test_status = match &test.run {
-            TestRun::Compared(outcomes) => outcomes
-                .iter()
-                .map(|outcome| slot_status(*outcome))
-                .fold(MutantStatus::Survived, fold),
-            TestRun::Failed(kind) => kind.status(),
+        let (test_status, unkilled) = match &test.run {
+            TestRun::Compared(outcomes) => {
+                let statuses = || outcomes.iter().map(|outcome| slot_status(*outcome));
+                (
+                    statuses().fold(MutantStatus::Survived, fold),
+                    statuses()
+                        .map(|status| match status {
+                            MutantStatus::Killed => MutantStatus::Unknown,
+                            status => status,
+                        })
+                        .fold(MutantStatus::Survived, fold),
+                )
+            }
+            TestRun::Failed(kind) => (kind.status(), kind.status()),
             // `check_plan` admits a skip only after a kill, which has already
             // ended the first-kill fold, and never under `Full`.
             TestRun::SkippedAfterKill => break,
@@ -468,6 +487,11 @@ pub fn derive_mutant_report(
             killing.push(test.test_id.clone());
         }
         status = fold(status, test_status);
+        without_kills = fold(without_kills, unkilled);
+    }
+    if contradicts_a_claim(&plan.tests[..executed.len()]) {
+        status = without_kills;
+        killing.clear();
     }
     if let Some(failure) = plan.mutant_failure {
         status = failure.status();
@@ -489,6 +513,25 @@ pub fn derive_mutant_report(
         skipped_test_ids,
         claims: plan.claims.clone(),
     })
+}
+
+/// Whether any of `tests`, runs of one mutant, undefinedly falsified a trusted claim
+/// (`Failed(ContradictedClaim)`, re-pin decision 2): the mutant is then inconsistent, and no
+/// test of it is evidence of a kill ([`derive_mutant_report`]).
+///
+/// Only the runs kink makes are read. A contradiction no run exhibits is not seen: under
+/// `FirstKill` the tests after the first kill (and in kink-flow every program a tier-1 `killed`
+/// record or a hinted kill spares), and in any schedule an inconsistency that no test reaches,
+/// or an undefined candidate that disappears beside a defined same-priority sibling and leaves
+/// no leaf to flag (finding A-13; a k-rust flag is KINK-18's territory). This is the smaller of
+/// the two sound options the packet offers (re-pin R0c deliverable 3): a kill stands only when
+/// no run kink made of the mutant shows a contradiction, rather than running every remaining
+/// test for one; the residual is named in README "What a kill trusts".
+#[must_use]
+pub fn contradicts_a_claim(tests: &[TestPlan]) -> bool {
+    tests
+        .iter()
+        .any(|test| test.run == TestRun::Failed(ExecutionFailureKind::ContradictedClaim))
 }
 
 /// Baseline admission result, evaluated before mutant work.

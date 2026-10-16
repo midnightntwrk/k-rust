@@ -1332,27 +1332,6 @@ fn non_free_injective_symbol_does_not_prove_a_clash() {
     let (mut ground, vocabulary) = run(Fixture::Wrap, program(s(z())), BUDGET);
     let plan = wl_after(&vocabulary);
     let evaluation = decided(&mut ground, &plan);
-    eprintln!(
-        "SYMWRAP ground: {:?} leaves {:?} events {:?} witnesses {:?}",
-        evaluation.outcome,
-        ground
-            .execution
-            .leaves()
-            .iter()
-            .map(|leaf| (leaf.halt, leaf.branch.depth))
-            .collect::<Vec<_>>(),
-        ground
-            .bridged
-            .paths
-            .iter()
-            .map(|path| &path.events)
-            .collect::<Vec<_>>(),
-        evaluation
-            .witnesses
-            .iter()
-            .map(|w| &w.assumptions)
-            .collect::<Vec<_>>(),
-    );
     assert_eq!(evaluation.outcome, PatternOutcome::Match);
     assert!(!evaluation.witnesses.is_empty());
     assert!(
@@ -1399,8 +1378,10 @@ fn non_free_injective_symbol_does_not_prove_a_clash() {
             ))
         })
         .expect("decider");
-    eprintln!("SYMWRAP ground relation wrap(s(z)) ~ wrap(z): {relation:?}");
-    assert_ne!(relation, RelationDecision::Unequal);
+    // Re-pin R0c (R0a review 1 minor): the exact relation, measured the same in both profiles:
+    // the unifier keeps `wrap(s(z)) = wrap(z)` as an equation it cannot decide (`wrap` is not
+    // free), so the relation is Indeterminate, never Unequal.
+    assert_eq!(relation, RelationDecision::Indeterminate);
     let (mut symbolic, vocabulary) = run(Fixture::Wrap, program(s(nat("X"))), BUDGET);
     let plan = wl_after(&vocabulary);
     // At 927b9ce6 (precision loss, VI-03F, k-rust 4d80cea6) the symbolic run split on wrap

@@ -591,14 +591,14 @@ fn a_bytes_key_remains_unknown_with_the_runners_cause() {
     let (document, status) = run(&manifest, false);
     assert_eq!(status, EXIT_OK, "{document:#}");
     assert_eq!(rows(&document), expect(&[("store", "unknown", false)]));
-    // Re-pin R0b (decision 1, finding E-11): bytes-map's `store` rule applies `String2Bytes`,
-    // an implementation-chosen hook, so the runner refuses the baseline as no evidence and says
-    // why (before: the generic oracle-gate refusal of the Bytes-keyed Map). The class is unknown
-    // either way.
+    // Re-pin R0c (deliverable 8): the `store` rule now builds its key with
+    // `encodeBytes("UTF-8", K)`, which the decision-1 census does not flag, so the cause is again
+    // the oracle gate's refusal of the Bytes-keyed Map (as at R0a; R0b's cause named
+    // implementation-chosen-hook for `String2Bytes`). The class is unknown either way.
     assert_eq!(
         document["programs"][0]["cause"],
-        "the campaign runner refused the baseline run (BaselineOracleFailed: the baseline run of \
-         test store is no evidence: implementation-chosen-hook); every path ended, but a final configuration \
+        "the campaign runner refused the baseline run (BaselineOracleFailed: a baseline \
+         declaration-scoped oracle gate rejected); every path ended, but a final configuration \
          is not a value kink can compare (for example it holds a collection kink cannot compare, \
          such as one with a Bytes key, an unevaluated function or a symbolic term); leaves: stuck at depth 1"
     );

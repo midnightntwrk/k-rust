@@ -297,9 +297,11 @@ This closes the stack dependence of k-rust KINK-06/4 and KINK-06/5 for every com
 What remains is kink's verdict-path calls outside `execute` (`definition_facts`, `BackendRelations` unification, the bridge's
 internalization; re-pin finding B-13(a)), which decide nothing for ground programs, and the Z3 profile, where tier 1 is off.
 A mutation whose specification uses a hook for which k-rust chooses a value the definition leaves open (`choice`, the order of
-`keys_list`, `values` or `Set2List`, mixed-format or NaN-sign Float, `String2Bytes`), or that undefinedly falsifies a `total`
-or `preserves-definedness` claim, is `unknown` with reason `implementation-chosen-hook` or `contradicted-claim` (root README,
-"What a kill trusts").
+`keys_list`, `values` or `Set2List`, mixed-format or NaN-sign Float, and the hooks whose value `domains.md` leaves to the
+backend, the implementation or the environment, such as `String2Bytes`, `Bytes2String` and `Base2String`), or one of whose runs
+undefinedly falsifies a `total` or `preserves-definedness` claim, is `unknown` with reason `implementation-chosen-hook` or
+`contradicted-claim` (root README, "What a kill trusts"). A contradicted claim leaves no kill standing, whichever program shows
+it, and the mutation writes no outcome record; a contradiction only a program after the first kill would show is not seen.
 
 | Status | Meaning | What to do |
 | --- | --- | --- |

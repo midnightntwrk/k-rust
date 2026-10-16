@@ -73,12 +73,13 @@ use crate::{
     },
 };
 use kink_campaign::{
-    CallRecording, CampaignFailure, CampaignOptions, CampaignReport, ManifestTest, MutantId,
-    MutantPlan, MutantReport, MutantRun, MutantScopeFailure, MutantStatus, OracleOutcome,
-    ScheduleMode, TestCase, TestEvidence, TestPlan, TestRun, derive_mutant_report,
+    CallRecording, CampaignFailure, CampaignOptions, CampaignReport, ExecutionFailureKind,
+    ManifestTest, MutantId, MutantPlan, MutantReport, MutantRun, MutantScopeFailure, MutantStatus,
+    OracleOutcome, ScheduleMode, TestCase, TestEvidence, TestPlan, TestRun, contradicts_a_claim,
+    derive_mutant_report,
 };
 use kink_corpus::{Store, admission::AdmissionRecord};
-use kink_native::{K_RUST_REVISION, execution::SolverProfile};
+use kink_native::{K_RUST_REVISION, exclusion::Exclusion, execution::SolverProfile};
 use kink_patch::{CandidateGeneration, SentenceRef, Sha256Digest, Withdrawal};
 use serde_json::{Map, Value, json};
 use std::{
@@ -824,6 +825,21 @@ impl Search<'_> {
             self.stats.programs_from_cache -= agree.len();
             executed.retain(|entry| entry["cached"] != true);
         }
+        // Re-pin R0c (decision 2, mutant-wide): a run of any live call of this mutation that
+        // contradicts a trusted claim leaves no kill standing, the last call's included (a
+        // hinted call can show the contradiction the full call's first kill stops before).
+        let contradicted = runs
+            .iter()
+            .any(|(_, run)| contradicts_a_claim(&run.plan.tests));
+        let report = if contradicted && report.status == MutantStatus::Killed {
+            MutantReport {
+                status: MutantStatus::Unknown,
+                killing_test_ids: Vec::new(),
+                ..report
+            }
+        } else {
+            report
+        };
         let reason = last
             .plan
             .mutant_failure
@@ -832,7 +848,9 @@ impl Search<'_> {
         // Step 7: the records of the live calls, then the hint. A program both calls ran has
         // one record, the second call's (the store keeps the last of equal program digests and
         // counts each program once).
-        if let (Some(store), Some(identity)) = (&self.tier1, identity) {
+        // A contradicted mutant writes no record: a `killed` record would decide a later
+        // command with no call, and an agreement is no evidence on an inconsistent theory.
+        if let (Some(store), Some(identity), false) = (&self.tier1, identity, contradicted) {
             let records = runs
                 .iter()
                 .flat_map(|(_, run)| self.live_records(run))
@@ -1409,14 +1427,18 @@ fn exclusion_reason(report: &MutantReport, runs: &[(Vec<usize>, MutantRun)]) -> 
     if report.status != MutantStatus::Unknown {
         return None;
     }
-    runs.iter()
-        .flat_map(|(_, run)| &run.plan.tests)
-        .find_map(|test| match test.run {
-            TestRun::Failed(kind) => kind
-                .exclusion()
-                .map(|exclusion| exclusion.name().to_owned()),
-            TestRun::Compared(_) | TestRun::SkippedAfterKill => None,
-        })
+    let tests = || runs.iter().flat_map(|(_, run)| &run.plan.tests);
+    // A contradicted claim is why a mutation with a kill is unknown (re-pin R0c), so it is named
+    // first.
+    if tests().any(|test| test.run == TestRun::Failed(ExecutionFailureKind::ContradictedClaim)) {
+        return Some(Exclusion::ContradictedClaim.name().to_owned());
+    }
+    tests().find_map(|test| match test.run {
+        TestRun::Failed(kind) => kind
+            .exclusion()
+            .map(|exclusion| exclusion.name().to_owned()),
+        TestRun::Compared(_) | TestRun::SkippedAfterKill => None,
+    })
 }
 
 /// A row's `calls` and `call_wall_ms` (the same order).

@@ -1,4 +1,6 @@
-// CS-15 spike: ground Map, Set and List values in the final configuration.
+// CS-15 spike: ground Map, Set and List values in the final configuration. The Bytes key is
+// built with `encodeBytes("UTF-8", S)`, whose encoding domains.md names, not `String2Bytes`,
+// whose value it leaves open (re-pin decision 1, R0c).
 module COLLSTORE-SYNTAX
   imports INT-SYNTAX
   imports STRING-SYNTAX
@@ -40,7 +42,7 @@ module COLLSTORE
   rule [logList]: <k> logList(I) => .K ... </k> <log> L => L ListItem(I) </log>
   rule [fKey]: <k> fKey(I) => .K ... </k> <store> M => M [ f(I) <- 1 ] </store>
   rule [fVal]: <k> fVal(I) => .K ... </k> <store> M => M [ 1 <- f(I) ] </store>
-  rule [bytesKey]: <k> bytesKey(S) => .K ... </k> <store> M => M [ String2Bytes(S) <- 1 ] </store>
+  rule [bytesKey]: <k> bytesKey(S) => .K ... </k> <store> M => M [ encodeBytes("UTF-8", S) <- 1 ] </store>
   rule [nest]: <k> nest(I) => .K ... </k> <deep> D => D [ SetItem(I) <- ListItem(I) ListItem(I) ] </deep>
   rule [clear]: <k> clear() => .K ... </k> <store> _ => .Map </store>
   rule [halt]: <k> halt() => .K ... </k>

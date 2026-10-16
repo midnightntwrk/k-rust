@@ -14,8 +14,8 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
 use k_rust_backend::nesting::with_simplification_stack_budget;
 use kink_native::exclusion::{
-    DefinitionExclusions, Exclusion, IMPLEMENTATION_CHOSEN_HOOKS,
-    state_references_implementation_chosen,
+    DOMAINS_OPEN_HOOKS, DefinitionExclusions, Exclusion, IMPLEMENTATION_CHOSEN_HOOKS,
+    K_RUST_IMPLEMENTATION_CHOSEN_HOOKS, state_references_implementation_chosen,
 };
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
@@ -40,9 +40,15 @@ fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
 /// The R0b fixture `testdata/k/r0b/<name>.k`, compiled, and its encoded main module (the
 /// upper-cased name).
 fn r0b(name: &str) -> (ValidatedDefinition, String) {
+    fixture("r0b", name)
+}
+
+/// The fixture `testdata/k/<dir>/<name>.k`, compiled, and its encoded main module (the
+/// upper-cased name).
+fn fixture(dir: &str, name: &str) -> (ValidatedDefinition, String) {
     let module = name.to_ascii_uppercase();
     let loaded = support::load_path(
-        &Path::new(support::DIR).join(format!("r0b/{name}.k")),
+        &Path::new(support::DIR).join(format!("{dir}/{name}.k")),
         &module,
     );
     let side = NativeValidator::bind(loaded, CompileOptions::default())
@@ -111,24 +117,71 @@ fn function<'s>(source: &'s str, name: &str) -> &'s str {
     &source[start..end]
 }
 
-/// `IMPLEMENTATION_CHOSEN_HOOKS` is exactly the set of hooks for which k-rust's
-/// `implementation_chosen_in` (k-rust-backend `builtin.rs`) can return `Some`, read from the
-/// k-rust source the workspace builds against: its match arms, the hooks of the binary Float
-/// operations `float::mixed_destination` accepts (`BinaryOperation::of`) and the one hook
-/// `float::nan_sign` reads; plus `BYTES.string2bytes` (finding E-11). A change of any of them in
-/// k-rust fails this test, so a re-pin re-derives the list.
-#[test]
-fn implementation_chosen_hooks_are_k_rusts() {
+/// The k-rust-backend source directory the workspace builds against (its path dependency).
+fn k_rust_backend() -> PathBuf {
     let manifest: toml::Value =
         toml::from_str(&std::fs::read_to_string(root().join("Cargo.toml")).unwrap()).unwrap();
-    let backend = root().join(
+    root().join(
         manifest["workspace"]["dependencies"]["k-rust-backend"]["path"]
             .as_str()
             .expect("k-rust-backend is a path dependency"),
-    );
+    )
+}
+
+/// `K_RUST_IMPLEMENTATION_CHOSEN_HOOKS` is exactly the set of hooks for which k-rust's
+/// `implementation_chosen_in` (k-rust-backend `builtin.rs`) can return `Some`, read from the
+/// k-rust source the workspace builds against: its match arms, the hooks of the binary Float
+/// operations `float::mixed_destination` accepts (`BinaryOperation::of`) and the one hook
+/// `float::nan_sign` reads. `IMPLEMENTATION_CHOSEN_HOOKS` is that list and the kink-side
+/// `DOMAINS_OPEN_HOOKS`, each once. A change of any of them in k-rust fails this test, so a
+/// re-pin re-derives the list.
+///
+/// Re-pin R0c deliverable 5 (R0b review 1 minor): reading arms and two helper calls misses a
+/// third fallthrough helper or a widened `nan_sign` condition, so the source text of the four
+/// functions is pinned by digest as well.
+#[test]
+fn implementation_chosen_hooks_are_k_rusts() {
+    let backend = k_rust_backend();
     let builtin = std::fs::read_to_string(backend.join("src/builtin.rs")).unwrap();
     let float = std::fs::read_to_string(backend.join("src/builtin/float.rs")).unwrap();
     let chosen = function(&builtin, "implementation_chosen_in");
+    let mixed = function(&float, "mixed_destination");
+    let of = function(
+        &float[float
+            .find("impl BinaryOperation {")
+            .expect("BinaryOperation")..],
+        "of",
+    );
+    let nan = function(&float, "nan_sign");
+    // The exact texts at k-rust 501f18b9; a changed text needs the hook list re-derived from it.
+    let digests = [
+        ("implementation_chosen_in", chosen),
+        ("float::mixed_destination", mixed),
+        ("BinaryOperation::of", of),
+        ("float::nan_sign", nan),
+    ]
+    .map(|(name, text)| (name, kink_patch::sha256(text.as_bytes()).to_string()));
+    assert_eq!(
+        digests,
+        [
+            (
+                "implementation_chosen_in",
+                "4c51bafff2346bfd456986f7165a3b4a76e7b93449d4dc035da4a9cd17191a8b".to_owned()
+            ),
+            (
+                "float::mixed_destination",
+                "c219eec25b1ad8899f7af425aed682f2edcb72010065a62f60a019324354d623".to_owned()
+            ),
+            (
+                "BinaryOperation::of",
+                "7d79eac8ebb73ef293b15f4a731b339f576b74f29b3b93de85080b52d0b20eca".to_owned()
+            ),
+            (
+                "float::nan_sign",
+                "c17041cfd7ea611ad2def7d98277f9204f00e410c066beb4ac6d7bc93c2f285a".to_owned()
+            ),
+        ]
+    );
     // The fallthrough arm is exactly the two Float helpers.
     assert!(
         chosen.contains("float::mixed_destination(hook, arguments)")
@@ -137,36 +190,89 @@ fn implementation_chosen_hooks_are_k_rusts() {
     );
     let mut hooks = arm_hooks(chosen);
     assert_eq!(hooks.len(), 5, "{chosen}");
-    let mixed = function(&float, "mixed_destination");
     assert!(mixed.contains("BinaryOperation::of(hook)?"), "{mixed}");
-    let operations = arm_hooks(function(
-        &float[float
-            .find("impl BinaryOperation {")
-            .expect("BinaryOperation")..],
-        "of",
-    ));
+    let operations = arm_hooks(of);
     assert_eq!(operations.len(), 6, "{operations:?}");
     hooks.extend(operations);
-    let nan = function(&float, "nan_sign");
     assert!(nan.contains(r#"if hook != "FLOAT.sign" {"#), "{nan}");
     hooks.insert("FLOAT.sign".to_owned());
-    hooks.insert("BYTES.string2bytes".to_owned());
+    let k_rust = K_RUST_IMPLEMENTATION_CHOSEN_HOOKS
+        .iter()
+        .map(|hook| (*hook).to_owned())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(hooks, k_rust);
+    assert_eq!(hooks.len(), K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.len());
+    let all = K_RUST_IMPLEMENTATION_CHOSEN_HOOKS
+        .iter()
+        .copied()
+        .chain(DOMAINS_OPEN_HOOKS.iter().map(|(hook, _, _)| *hook))
+        .collect::<Vec<_>>();
+    assert_eq!(IMPLEMENTATION_CHOSEN_HOOKS, all.as_slice());
     assert_eq!(
-        hooks,
-        IMPLEMENTATION_CHOSEN_HOOKS
-            .iter()
-            .map(|hook| (*hook).to_owned())
-            .collect::<BTreeSet<_>>()
+        all.iter().collect::<BTreeSet<_>>().len(),
+        all.len(),
+        "each hook once"
     );
-    assert_eq!(hooks.len(), IMPLEMENTATION_CHOSEN_HOOKS.len());
+}
+
+/// Re-pin R0c deliverable 2 (R0b review 1 major 2): every kink-side census hook is one whose
+/// value `k-rust/builtin/domains.md` leaves to the backend, the implementation or the
+/// environment. For each, the cited lines of domains.md at the pinned k-rust say so (the phrase
+/// is in them), and domains.md declares the hook. The file's digest is pinned: a re-pin that
+/// changes the prelude text sweeps it again (README "What a kill trusts"; handoff R0c lists each
+/// hook with its lines).
+#[test]
+fn domains_md_leaves_these_hook_values_open() {
+    let path = k_rust_backend().join("../k-rust/builtin/domains.md");
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        kink_patch::sha256(text.as_bytes()).to_string(),
+        "eb5b7c3cd001d5fe3cbd481598bb53c3abfd417c409135276008d50edf79aa0d",
+        "domains.md changed: sweep it again for hook values it leaves open"
+    );
+    let lines = text.lines().collect::<Vec<_>>();
+    for (hook, range, phrase) in DOMAINS_OPEN_HOOKS {
+        let (first, last) = range.split_once('-').unwrap();
+        let (first, last) = (
+            first.parse::<usize>().unwrap(),
+            last.parse::<usize>().unwrap(),
+        );
+        let cited = lines[first - 1..last].join(" ");
+        assert!(
+            cited.contains(phrase),
+            "{hook}: domains.md:{range} does not say {phrase:?}"
+        );
+        assert!(
+            text.contains(&format!("hook({hook})")) || text.contains(&format!("hook({hook}),")),
+            "{hook} is not a domains.md hook"
+        );
+    }
+    // Each kink-side hook, once, and none of k-rust's own.
+    let kink = DOMAINS_OPEN_HOOKS
+        .iter()
+        .map(|(hook, _, _)| *hook)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(kink.len(), DOMAINS_OPEN_HOOKS.len());
+    assert!(
+        kink.iter()
+            .all(|hook| !K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.contains(hook))
+    );
+    // Deliverable 8 rests on `encodeBytes` with a named encoding: domains.md names its
+    // encodings (line 2012), so it is not on the list.
+    assert!(lines[2011].contains("using `UTF-8`"), "{}", lines[2011]);
+    assert!(!IMPLEMENTATION_CHOSEN_HOOKS.contains(&"BYTES.encodeBytes"));
 }
 
 /// Every testdata and example definition that compiles, by its definition-level exclusions
 /// (decision 1's census, the load's stack stops, C-10's role-rooted axioms). The census flags
-/// exactly the definitions whose own rules use an implementation-chosen hook: `String2Bytes` as a
-/// map key (`bytes-map` and both copies of `collstore`) and Float arithmetic (`rulecondfail`,
-/// `t12hook`, `t12probe`, `t12unev`). Every comparison on them is unknown. No load counts a stack
-/// stop on this thread, and no definition has an axiom rooted at a collection role symbol.
+/// exactly the definitions whose own rules use an implementation-chosen hook: Float arithmetic
+/// (`rulecondfail`, `t12hook`, `t12probe`, `t12unev`) and `String2Bytes` (`t12probe`). Every
+/// comparison on them is unknown. No load counts a stack stop on this thread, and no definition
+/// has an axiom rooted at a collection role symbol.
+///
+/// Re-pin R0c: deliverable 8 rewrote the Bytes keys of `bytes-map` and both copies of
+/// `collstore` with `encodeBytes("UTF-8", ..)`, so R0b's three `String2Bytes` flags are gone;
+/// deliverable 2's domains.md additions flag no testdata or example definition.
 #[test]
 fn definition_exclusions_over_testdata() {
     on_a_big_stack(|| {
@@ -180,8 +286,12 @@ fn definition_exclusions_over_testdata() {
             for entry in std::fs::read_dir(&dir).unwrap() {
                 let path = entry.unwrap().path();
                 if path.is_dir() {
-                    // The Z3 fixtures and R0b's own fixtures are pinned by their own tests.
-                    if !path.ends_with("testdata/k/z3") && !path.ends_with("testdata/k/r0b") {
+                    // The Z3 fixtures and R0b's and R0c's own fixtures are pinned by their own
+                    // tests.
+                    if !path.ends_with("testdata/k/z3")
+                        && !path.ends_with("testdata/k/r0b")
+                        && !path.ends_with("testdata/k/r0c")
+                    {
                         pending.push(path);
                     }
                 } else if path.extension().is_some_and(|e| e == "k") {
@@ -239,9 +349,6 @@ fn definition_exclusions_over_testdata() {
         assert_eq!(
             flagged,
             [
-                "testdata/flow/bytes-map/bytes-map.k",
-                "testdata/flow/collections/collstore/collstore.k",
-                "testdata/k/collstore.k",
                 "testdata/k/rulecondfail.k",
                 "testdata/k/t12hook.k",
                 "testdata/k/t12probe.k",
@@ -250,6 +357,40 @@ fn definition_exclusions_over_testdata() {
             .map(str::to_owned)
             .into_iter()
             .collect::<BTreeSet<_>>()
+        );
+    });
+}
+
+/// Re-pin R0c deliverable 2 (the R0b reviewer's probe): a rule that applies `Base2String`, whose
+/// letter case domains.md leaves to the backend, flags its definition, so every run on it is
+/// excluded; before R0c the census flagged nothing and the run of `start(255)` was one complete
+/// Stuck leaf `str("ff")`.
+#[test]
+fn a_base2string_rule_flags_the_definition() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "base16");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let [reference] = exclusions.implementation_chosen.as_slice() else {
+            panic!("{exclusions:?}")
+        };
+        assert_eq!(reference.hook, "STRING.base2string");
+        assert_eq!(reference.module, "BASE16");
+        let execution = run(
+            &side,
+            &module,
+            support::app("Lblstart", vec![support::int(255)]),
+        );
+        assert_eq!(
+            execution
+                .leaves()
+                .iter()
+                .map(|leaf| leaf.halt)
+                .collect::<Vec<_>>(),
+            [HaltClass::Stuck]
+        );
+        assert_eq!(
+            exclusions.run_exclusion(&execution),
+            Some(Exclusion::ImplementationChosenHook)
         );
     });
 }

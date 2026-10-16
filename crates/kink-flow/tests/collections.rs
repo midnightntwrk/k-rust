@@ -114,7 +114,7 @@ fn campaigns(name: &str, rows: &[Row]) {
     }
 }
 
-use MutantStatus::{Killed, Survived};
+use MutantStatus::{Killed, Survived, Unknown};
 use OracleOutcome::{Agree, Distinguish, Unknown as Undecided};
 
 #[test]
@@ -154,12 +154,13 @@ fn map_store_r1_r4() {
     );
 }
 
-/// Re-pin R0b (decision 1, findings D-10, E-11): collstore's own `bytesKey` rule applies
-/// `String2Bytes`, which k-rust evaluates where domains.md leaves the value open (a code point
-/// above 255), so every run on the definition is excluded (`implementation-chosen-hook`) and each
-/// program's baseline is refused: every row is now `None` (BaselineOracleFailed). Before R0b:
-/// R5 Survived, R6 Killed, R7 Killed, R8 Survived, R9 Killed, R10 Unknown, R11 Killed, R12
-/// refused, R13 Killed, R14 Killed, R15 Survived.
+/// Re-pin R0c (deliverable 8, decision 1 "keep, rewrite fixtures"): R0b refused every row here
+/// (BaselineOracleFailed, implementation-chosen-hook) because collstore's `bytesKey` rule built
+/// its key with `String2Bytes`, whose value domains.md leaves open. The rule now uses
+/// `encodeBytes("UTF-8", S)` (domains.md:2012 names the encoding; k-rust bytes.rs:116-130), the
+/// census flags nothing, and the rows are back to their R0a values: R6, R7, R9, R11, R13 and R14
+/// killed again, none of them by a run that reaches `bytesKey` (only `byteskey` does, R12, which
+/// stays refused: a Bytes-keyed Map is not a value kink compares).
 #[test]
 fn map_set_list_and_residue_r5_r15() {
     check(
@@ -169,49 +170,49 @@ fn map_set_list_and_residue_r5_r15() {
                 id: "R5",
                 mutation: "putTwo-order",
                 program: "two",
-                status: None,
+                status: Some(Survived),
                 slots: [Agree, Agree],
             },
             Row {
                 id: "R6",
                 mutation: "putTwo-values-swapped",
                 program: "two",
-                status: None,
+                status: Some(Killed),
                 slots: [Agree, Distinguish],
             },
             Row {
                 id: "R7",
                 mutation: "union-as-concat",
                 program: "set11",
-                status: None,
+                status: Some(Killed),
                 slots: [Distinguish, Distinguish],
             },
             Row {
                 id: "R8",
                 mutation: "union-as-concat",
                 program: "set12",
-                status: None,
+                status: Some(Survived),
                 slots: [Agree, Agree],
             },
             Row {
                 id: "R9",
                 mutation: "append-as-prepend",
                 program: "list12",
-                status: None,
+                status: Some(Killed),
                 slots: [Agree, Distinguish],
             },
             Row {
                 id: "R10",
                 mutation: "f0-deleted",
                 program: "fkey0",
-                status: None,
+                status: Some(Unknown),
                 slots: [Undecided, Undecided],
             },
             Row {
                 id: "R11",
                 mutation: "f0-value",
                 program: "fkey0",
-                status: None,
+                status: Some(Killed),
                 slots: [Agree, Distinguish],
             },
             Row {
@@ -225,21 +226,21 @@ fn map_set_list_and_residue_r5_r15() {
                 id: "R13",
                 mutation: "nest-value",
                 program: "nest",
-                status: None,
+                status: Some(Killed),
                 slots: [Agree, Distinguish],
             },
             Row {
                 id: "R14",
                 mutation: "clear-noop",
                 program: "clear",
-                status: None,
+                status: Some(Killed),
                 slots: [Agree, Distinguish],
             },
             Row {
                 id: "R15",
                 mutation: "clear-noop",
                 program: "halt",
-                status: None,
+                status: Some(Survived),
                 slots: [Agree, Agree],
             },
         ],
