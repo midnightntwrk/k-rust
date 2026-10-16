@@ -7373,7 +7373,7 @@ symbol = "Grammar::collapse_packed_record_productions"
 
 [[node.cost]]
 mode = "one parse forest"
-bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
+bound = "O(N + X x F) plus the structural ordering of the alternatives of each ambiguity with a record production below it, whose pair comparisons the pass shares"
 
 [[node]]
 kind = "algorithm"
@@ -7758,7 +7758,7 @@ symbol = "Grammar::resolve_packed_applications_memo"
 
 [[node.cost]]
 mode = "one parse forest"
-bound = "O(N x R) to find each label's arities, plus O(N x a x R) candidates, plus each KList node's bounded argument vectors and shortest length computed once (O(K) nodes, each combining its children's vectors), plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
+bound = "O(N x R) to find each label's arities, plus O(N x a x R) candidates, plus each KList node's bounded argument vectors and shortest length computed once (O(K) nodes, each combining its children's vectors), plus, at an ambiguity, the structural comparisons among its failing alternatives visited before one resolves, which find the least failure to report when none does and whose pair comparisons the pass shares"
 
 [[node]]
 kind = "algorithm"

@@ -5877,6 +5877,71 @@ mod chart_tests {
         assert_eq!(Grammar::ambiguity_count(&retained), 70);
     }
 
+    /// Application resolution visits an ambiguity's alternatives in the order of their set, and
+    /// when none resolves reports the error of the least in structural order, as it did when it
+    /// visited them in that order: here the applications of unknown labels, whose set order
+    /// begins elsewhere.
+    #[test]
+    fn an_ambiguity_of_failing_applications_reports_its_least_alternatives_error() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("K"),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("KLabel"),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("KList"),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("#KApply")),
+                false,
+                false,
+            )
+            .unwrap();
+        let application = |label: &str| {
+            PackedTerm::production(
+                0,
+                vec![
+                    PackedTerm::leaf(Term::Token {
+                        token: label.to_owned(),
+                        sort: Sort::new("KLabel"),
+                    }),
+                    PackedTerm::leaf(Term::variable("X")),
+                ],
+                TermMetadata::default(),
+            )
+        };
+        let alternatives = (0..64)
+            .map(|index| application(&format!("unknown{index}")))
+            .collect::<BTreeSet<_>>();
+        let least = alternatives
+            .iter()
+            .min_by(|left, right| cmp_packed_structurally(left, right))
+            .unwrap();
+        assert!(
+            !Rc::ptr_eq(least, alternatives.first().unwrap()),
+            "the set order must begin with another alternative for the test to tell them apart"
+        );
+        let PackedNode::Production { children, .. } = &least.node else {
+            unreachable!("an application")
+        };
+        let PackedNode::Term(Term::Token { token, .. }) = &children[0].node else {
+            unreachable!("a label token")
+        };
+        let expected = ParseError::UnknownApplication {
+            label: token.clone(),
+            arity: 1,
+        };
+
+        let resolved = grammar.resolve_packed_applications(PackedTerm::ambiguity(alternatives));
+
+        assert_eq!(resolved, Err(expected));
+    }
+
     #[test]
     fn a_shared_over_limit_application_is_resolved_only_once() {
         let mut grammar = Grammar::default();

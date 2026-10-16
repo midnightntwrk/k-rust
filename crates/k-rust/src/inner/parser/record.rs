@@ -22,7 +22,7 @@
 //!
 //! [[cost]]
 //! mode = "one parse forest"
-//! bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
+//! bound = "O(N + X x F) plus the structural ordering of the alternatives of each ambiguity with a record production below it, whose pair comparisons the pass shares"
 //! ```
 //!
 //! Generation and collapse of the record-pattern productions of a prefix production: the forms
@@ -51,6 +51,67 @@ use super::{ParsedParts, ParsedTerm};
 
 type PackedRecordResult = Result<Rc<PackedTerm>, ParseError>;
 type PackedRecordMemo = HashMap<*const PackedTerm, (Rc<PackedTerm>, PackedRecordResult)>;
+
+/// The order in which one record collapse visits the alternatives of an ambiguity.
+///
+/// The order is observable only below a record production: collapsing a record allocates
+/// generated field names in visiting order, and only a record's field collection fails. A node
+/// with no record production at or below it collapses to an equal node, without error and
+/// without touching the names, whatever order its ambiguities are visited in, so the
+/// alternatives of such an ambiguity are visited in the order of their set, and the others
+/// in structural order, which fixes the names generated.
+#[derive(Default)]
+struct RecordCollapseOrder {
+    structural: StructuralOrder,
+    /// Whether a record production occurs at or below each node asked about, by address; each
+    /// entry keeps its node alive, so no other node takes the address meanwhile.
+    records: HashMap<*const PackedTerm, (Rc<PackedTerm>, bool)>,
+}
+
+impl RecordCollapseOrder {
+    /// The alternatives of `ambiguity` in visiting order.
+    fn alternatives(
+        &mut self,
+        grammar: &Grammar,
+        ambiguity: &Rc<PackedTerm>,
+        alternatives: &BTreeSet<Rc<PackedTerm>>,
+    ) -> Vec<Rc<PackedTerm>> {
+        if self.has_record(grammar, ambiguity) {
+            self.structural.sorted(alternatives)
+        } else {
+            alternatives.iter().cloned().collect()
+        }
+    }
+
+    /// Whether a record production occurs at or below `term`.
+    fn has_record(&mut self, grammar: &Grammar, term: &Rc<PackedTerm>) -> bool {
+        if let Some((_, known)) = self.records.get(&Rc::as_ptr(term)) {
+            return *known;
+        }
+        let found = crate::stack::guarded(|| match &term.node {
+            PackedNode::Term(_) => false,
+            PackedNode::Ambiguity(alternatives) => alternatives
+                .iter()
+                .any(|alternative| self.has_record(grammar, alternative)),
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            }
+            | PackedNode::InstantiatedProduction {
+                production,
+                children,
+                ..
+            } => {
+                grammar.productions[*production].record.is_some()
+                    || children.iter().any(|child| self.has_record(grammar, child))
+            }
+        });
+        self.records
+            .insert(Rc::as_ptr(term), (Rc::clone(term), found));
+        found
+    }
+}
 
 impl Grammar {
     pub(super) fn add_record_productions(&mut self, original: usize) -> Result<(), ParseError> {
@@ -243,7 +304,7 @@ impl Grammar {
             &mut generated,
             &mut next,
             &mut memo,
-            &mut StructuralOrder::default(),
+            &mut RecordCollapseOrder::default(),
         )
     }
 
@@ -254,7 +315,7 @@ impl Grammar {
         generated: &mut BTreeMap<(TermSpan, usize, usize), String>,
         next: &mut usize,
         memo: &mut PackedRecordMemo,
-        order: &mut StructuralOrder,
+        order: &mut RecordCollapseOrder,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         crate::stack::guarded(|| {
             let identity = Rc::as_ptr(&term);
@@ -270,10 +331,10 @@ impl Grammar {
                     let mut retained = BTreeSet::new();
                     let mut errors = Vec::new();
                     // Invariant: every processed alternative is memoized recursively, and the
-                    // alternatives are processed in deterministic structural order, which is the
-                    // order generated names are allocated in; `retained` holds the successful
-                    // flattened results.
-                    for alternative in order.sorted(alternatives) {
+                    // alternatives are processed in a deterministic order, structural where a
+                    // record below allocates generated names in it (`RecordCollapseOrder`);
+                    // `retained` holds the successful flattened results.
+                    for alternative in order.alternatives(self, &term, alternatives) {
                         match self.collapse_packed_records(
                             Rc::clone(&alternative),
                             names,
@@ -841,5 +902,65 @@ fn nonterminal(sort: Sort) -> ProductionItem {
 fn record_error(message: impl Into<String>) -> ParseError {
     ParseError::RecordProduction {
         message: message.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kast::TermMetadata;
+
+    /// Record collapse orders an ambiguity's alternatives structurally exactly when a record
+    /// production occurs below it, through any number of shared nodes: there the order
+    /// allocates generated names. Elsewhere it keeps the order of the set.
+    #[test]
+    fn alternatives_are_ordered_only_above_a_record_production() {
+        let mut grammar = Grammar::default();
+        for label in ["wrap", "record"] {
+            grammar
+                .add(
+                    Sort::new("K"),
+                    vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("K"),
+                        name: None,
+                    }],
+                    Some(crate::kast::Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar.productions[1].record = Some(RecordProduction {
+            original: 0,
+            kind: RecordProductionKind::Main,
+        });
+        let leaf = |name: &str| PackedTerm::leaf(Term::variable(name));
+        let wrap = |child| PackedTerm::production(0, vec![child], TermMetadata::default());
+        let record = PackedTerm::production(1, vec![leaf("R")], TermMetadata::default());
+        let shared = wrap(wrap(record));
+        let record_free = (0..8).map(|index| wrap(leaf(&format!("V{index}"))));
+        let plain = record_free.clone().collect::<BTreeSet<_>>();
+        let above = record_free
+            .chain([wrap(Rc::clone(&shared))])
+            .collect::<BTreeSet<_>>();
+        let mut order = RecordCollapseOrder::default();
+
+        let ambiguity = PackedTerm::ambiguity(plain.clone());
+        assert_eq!(
+            order.alternatives(&grammar, &ambiguity, &plain),
+            plain.iter().cloned().collect::<Vec<_>>()
+        );
+        let ambiguity = PackedTerm::ambiguity(above.clone());
+        assert_eq!(
+            order.alternatives(&grammar, &ambiguity, &above),
+            packed_terms_in_structural_order(&above)
+        );
+        assert!(order.has_record(&grammar, &shared));
+        assert!(!order.has_record(&grammar, &wrap(leaf("V0"))));
+        assert_ne!(
+            plain.iter().cloned().collect::<Vec<_>>(),
+            packed_terms_in_structural_order(&plain),
+            "the set order must differ from the structural order for the test to tell them apart"
+        );
     }
 }

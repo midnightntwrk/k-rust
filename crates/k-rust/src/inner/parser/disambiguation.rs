@@ -25,7 +25,7 @@
 //!
 //! [[cost]]
 //! mode = "one parse forest"
-//! bound = "O(N x R) to find each label's arities, plus O(N x a x R) candidates, plus each KList node's bounded argument vectors and shortest length computed once (O(K) nodes, each combining its children's vectors), plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
+//! bound = "O(N x R) to find each label's arities, plus O(N x a x R) candidates, plus each KList node's bounded argument vectors and shortest length computed once (O(K) nodes, each combining its children's vectors), plus, at an ambiguity, the structural comparisons among its failing alternatives visited before one resolves, which find the least failure to report when none does and whose pair comparisons the pass shares"
 //! ```
 //!
 //! ```toml algorithm
@@ -2857,11 +2857,16 @@ impl Grammar {
                     }
                     PackedNode::Term(_) => Ok(Rc::clone(&term)),
                     PackedNode::Ambiguity(alternatives) => {
+                        // Each alternative's resolution is a function of the alternative and the
+                        // resolved alternatives form a set, so they are visited in the order of
+                        // their set. The order is observable only in the error of an ambiguity
+                        // none of whose alternatives resolves: that of its least alternative in
+                        // structural order, the first of the least in set order.
                         let mut resolved = BTreeSet::new();
-                        let mut first_error = None;
-                        for alternative in klists.order.sorted(alternatives) {
+                        let mut least_failure: Option<(Rc<PackedTerm>, ParseError)> = None;
+                        for alternative in alternatives {
                             match self.resolve_packed_applications_memo(
-                                Rc::clone(&alternative),
+                                Rc::clone(alternative),
                                 memo,
                                 klists,
                             ) {
@@ -2873,13 +2878,18 @@ impl Grammar {
                                         resolved.insert(alternative);
                                     }
                                 },
-                                Err(error) => {
-                                    first_error.get_or_insert(error);
-                                }
+                                Err(error) if resolved.is_empty() => match &least_failure {
+                                    Some((least, _))
+                                        if klists.order.cmp(alternative, least).is_ge() => {}
+                                    _ => least_failure = Some((Rc::clone(alternative), error)),
+                                },
+                                Err(_) => {}
                             }
                         }
                         if resolved.is_empty() {
-                            Err(first_error.expect("an empty ambiguity had no resolution result"))
+                            Err(least_failure
+                                .expect("an empty ambiguity had no resolution result")
+                                .1)
                         } else {
                             Ok(PackedTerm::ambiguity(resolved))
                         }
